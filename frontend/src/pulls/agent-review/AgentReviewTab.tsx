@@ -540,6 +540,11 @@ export default function AgentReviewTab({
 
   if (review === null) return null;
 
+  const resume = () => run_(async () => {
+    onReviewChange(await window.bridge.resumeAgentReview(review.id));
+    recordReviewAttentionAction(review, 'prompt');
+  }, 'resume');
+
   const update = () => run_(async () => {
     const updated = await window.bridge.updateAgentReview(review.id);
     if (currentReviewId.current !== review.id) return;
@@ -587,6 +592,17 @@ export default function AgentReviewTab({
       viewerLogin={viewer?.login ?? ''} viewerAvatarUrl={viewer?.avatarUrl ?? null} projection="review"
       actions={{ ...actions, onNavigate: undefined }} busy={busy || recovery || findingActions.busy} defaultOpen={false} />)}
   </details>;
+  const failedReviewNotice = status?.status === 'failed' ? <div className="agr-banner is-danger">
+    <span className="agr-banner__chip">Could not finish</span>
+    <div className="agr-banner__text">
+      {status.detail}{' '}
+      {provisional(review) ? 'Saved work from this attempt is provisional.' : 'The previous completed review is shown below.'}
+      {' '}Resume review starts another review attempt with your saved context. Chat messages only continue the discussion.
+    </div>
+    <button type="button" className="agr-action is-primary" disabled={busy || recovery || localRun} title={localRunReason}
+      onClick={() => { void resume(); }}>Resume review</button>
+    {onOpenWorkspace !== undefined && <button type="button" className="agr-action is-quiet" onClick={onOpenWorkspace}>See what happened</button>}
+  </div> : null;
   const progressIcons = [GitCommitHorizontal, File, CircleAlert];
   const toolbar = mode === 'cards' && !timeline ? <div className="agr-strip" aria-label="Review progress">
         <span className={`agr-strip__status is-${status?.tone ?? 'neutral'}`} title={`${status?.label} · ${status?.detail}`}>
@@ -612,10 +628,10 @@ export default function AgentReviewTab({
           <button type="button" className="agr-action is-danger" disabled={busy}
             onClick={() => { void run_(async () => { onReviewChange(await window.bridge.stopAgentReview(review.id)); recordReviewAttentionAction(review, 'update'); }); }}>Stop</button>
         )}
-        {!running && review.state === 'OPEN' && status?.status === 'stopped' && (
+        {!running && review.state === 'OPEN' && (status?.status === 'stopped' || status?.status === 'failed') && (
           <button type="button" className="agr-action" disabled={busy || recovery || localRun} title={localRunReason}
-            onClick={() => { void run_(async () => { onReviewChange(await window.bridge.resumeAgentReview(review.id)); recordReviewAttentionAction(review, 'prompt'); }, 'resume'); }}>
-            {resuming ? 'Starting…' : 'Resume'}
+            onClick={() => { void resume(); }}>
+            {resuming ? 'Starting…' : status.status === 'failed' ? 'Resume review' : 'Resume'}
           </button>
         )}
         {!running && review.state === 'OPEN' && (
@@ -657,6 +673,7 @@ export default function AgentReviewTab({
         </div>
       )}
 
+      {mode === 'conversation' && failedReviewNotice}
       {mode === 'cards' ? (
         <ReviewCommentIndex className="agr-summary" ref={cardsRef} enabled={!timeline}>
           {run !== null && reportRunId !== null && (run.id !== currentRun?.id || summaryRun?.id !== currentExplanation?.id) && <div className="agr-banner is-neutral">
@@ -672,16 +689,7 @@ export default function AgentReviewTab({
               {onOpenWorkspace !== undefined && <button type="button" className="agr-action" onClick={onOpenWorkspace}>View in workspace</button>}
             </div>
           )}
-          {status?.status === 'failed' && (
-            <div className="agr-banner is-danger">
-              <span className="agr-banner__chip">Could not finish</span>
-              <div className="agr-banner__text">
-                {status.detail}{' '}
-                {provisional(review) ? 'Saved work from this attempt is provisional.' : 'The previous completed review is shown below.'}
-              </div>
-              {onOpenWorkspace !== undefined && <button type="button" className="agr-action is-quiet" onClick={onOpenWorkspace}>See what happened</button>}
-            </div>
-          )}
+          {failedReviewNotice}
           {(newCommits(review) || worktreeNotice !== null) && (
             <div className="agr-banner is-warn">
               <span className="agr-banner__chip">{worktreeNotice?.label ?? 'New commits'}</span>

@@ -148,16 +148,17 @@ describe('the status strip', () => {
     expect(html).not.toContain('>Recover runtime</button>');
   });
 
-  it('offers Resume only for a paused review', () => {
+  it('offers Resume for a paused review and no resume action for a completed review', () => {
     const stopped = reviewFixture({
       followUpPaused: true,
       runs: [{ ...reviewFixture().runs[0], state: 'STOPPED', coverage: null }],
     });
     expect(tab(stopped)).toContain('>Resume</button>');
     expect(tab(reviewFixture())).not.toContain('>Resume</button>');
+    expect(tab(reviewFixture())).not.toContain('>Resume review</button>');
   });
 
-  it('keeps a failed run’s saved summary visible without asking the user to recover it', () => {
+  it('keeps a failed run’s saved summary visible and offers to resume the review', () => {
     const failed = reviewFixture({
       followUpPaused: true,
       runs: [{ ...reviewFixture().runs[0], state: 'FAILED', coverage: null, outcome: 'Cannot start the review turn' }],
@@ -166,10 +167,11 @@ describe('the status strip', () => {
     expect(html).toContain('Cannot start the review turn');
     expect(html).toContain('Change intention');
     expect(html).not.toContain('Retry review');
-    expect(html).not.toContain('>Resume</button>');
+    expect(html).toContain('>Resume review</button>');
     expect(html).not.toContain('>Run review again</button>');
     expect(html).toContain('>Update review</button>');
     expect(html).toContain('Saved work from this attempt is provisional.');
+    expect(html).toContain('Chat messages only continue the discussion.');
   });
 
   it('shows recovery and disables further execution while an interrupted turn retains its claim', () => {
@@ -179,6 +181,7 @@ describe('the status strip', () => {
     expect(html).toMatch(/<button[^>]*>Recover runtime<\/button>/);
     expect(html).not.toMatch(/disabled=""[^>]*>Recover runtime<\/button>/);
     expect(html).not.toContain('>Resume</button>');
+    expect(html).not.toContain('>Resume review</button>');
     expect(html).toMatch(/disabled=""[^>]*>Update review<\/button>/);
     expect(html).toMatch(/disabled=""[^>]*>End review<\/button>/);
     expect(html).toContain('class="lrc__ask" disabled=""');
@@ -203,7 +206,7 @@ describe('banners', () => {
     expect(html).toContain('waiting for your answer');
   });
 
-  it('shows a failed review with its reason, never a successful result or a retry instruction', () => {
+  it('shows an incomplete review with its reason and an explicit resume action', () => {
     const html = tab(reviewFixture({
       findings: [],
       runs: [{ ...reviewFixture().runs[0], state: 'INCOMPLETE', coverage: null, summary: null, outcome: 'coverage was not recorded' }],
@@ -211,12 +214,29 @@ describe('banners', () => {
     expect(html).toContain('Could not finish');
     expect(html).toContain('coverage was not recorded');
     expect(html).not.toContain('Retry review');
-    expect(html).not.toContain('>Resume</button>');
+    expect(html).toContain('>Resume review</button>');
     expect(html).toContain('none saved');
     expect(html).toContain('No summary was saved for this run');
     expect(html).not.toContain('Incomplete');
     expect(html).not.toContain('finished ');
     expect(html).not.toContain('No inline findings');
+  });
+
+  it('blocks resuming an unfinished review while a local run holds its working copy', () => {
+    const review = reviewFixture();
+    const html = tab({ ...review, task: { ...review.task, mutationClaim: 'LOCAL_RUN' },
+      runs: [{ ...review.runs[0], state: 'FAILED', coverage: null }] });
+    const controls = html.match(/<button[^>]*>Resume review<\/button>/g);
+    expect(controls).toHaveLength(2);
+    expect(controls?.every(button => button.includes('disabled=""') && button.includes('A run is using this working copy'))).toBe(true);
+  });
+
+  it('does not offer resume for running or closed reviews', () => {
+    const review = reviewFixture();
+    for (const value of [runningReviewFixture(), { ...review, state: 'CLOSED' as const,
+      runs: [{ ...review.runs[0], state: 'FAILED' as const, coverage: null }] }]) {
+      expect(tab(value)).not.toContain('>Resume review</button>');
+    }
   });
 
   it('keeps an earlier completed report visible without hiding the latest failure reason', () => {

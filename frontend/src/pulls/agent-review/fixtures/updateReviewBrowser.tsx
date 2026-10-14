@@ -31,6 +31,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   let finish: (value: AgentReviewDto) => void = () => {};
   let fail: (error: Error) => void = () => {};
   let show: (review: AgentReviewDto) => void = () => {};
+  let resumes = 0;
   const bridge = {
     getAgentReview: async () => saved,
     updateAgentReview: (id: string) => {
@@ -40,7 +41,15 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         fail = reject;
       });
     },
-  } satisfies Pick<Bridge, 'getAgentReview' | 'updateAgentReview'>;
+    resumeAgentReview: (id: string) => {
+      assert(id === saved.id, 'Resume the selected review');
+      resumes++;
+      return new Promise<AgentReviewDto>((resolve, reject) => {
+        finish = value => { saved = value; resolve(value); };
+        fail = reject;
+      });
+    },
+  } satisfies Pick<Bridge, 'getAgentReview' | 'updateAgentReview' | 'resumeAgentReview'>;
   Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
   const mount = (initial = completed) => {
     saved = initial;
@@ -68,6 +77,21 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     finally { flushSync(() => root.render(null)); }
   };
   try {
+    await scenario('An unfinished review resumes from its failure banner and remains retryable after an error', async () => {
+      mount({ ...completed, runs: [{ ...completed.runs[0], state: 'FAILED', coverage: null, outcome: 'Provider rate limit' }] });
+      const bannerButton = host.querySelector<HTMLButtonElement>('.agr-banner.is-danger .is-primary');
+      assert(bannerButton?.textContent === 'Resume review' && !bannerButton.disabled, 'Put the resume action beside the failure');
+      bannerButton.click(); await settle();
+      assert(resumes === 1 && buttons('Resume review').length === 0, 'Start one review attempt and prevent duplicate submissions');
+      fail(new Error('Provider is still rate limited')); await settle();
+      assert(host.querySelector('[role="alert"]')?.textContent === 'Provider is still rate limited', 'Keep the retry error visible');
+      const toolbarButton = buttons('Resume review')[0];
+      assert(toolbarButton !== undefined && !toolbarButton.disabled, 'Restore the resume action after a rejected attempt');
+      toolbarButton.click(); await settle();
+      finish(runningReviewFixture()); await settle();
+      assert(Number(resumes) === 2 && buttons('Stop').length === 1 && buttons('Resume review').length === 0,
+        'Adopt the resumed review and replace recovery actions with Stop');
+    });
     await scenario('An unchanged review confirms the check, clears on retry, and preserves errors', async () => {
       mount();
       assert(notice() === null, 'Only a deliberate update should show the result');

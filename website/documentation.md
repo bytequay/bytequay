@@ -257,6 +257,14 @@ what to share. First watch the repository and configure a ready Review model in
    **End review** ends the reviewer task and
    releases its working copy; saved findings and discussions remain.
 
+If a review says **Could not finish**, choose **Resume review** beside the failure
+in Summary or the reviewer conversation. It starts another review attempt using
+the saved context; typing “continue” only starts a discussion and cannot complete
+the unfinished review. For a provider rate limit, wait for its reset or choose an
+available provider/model in the conversation before resuming. Saved work stays
+provisional until a review completes. If **Recovery required** appears, use
+**Recover runtime** first, then resume the review.
+
 The reviewer starts with the repository's Review override or your global Review default.
 Use the provider and model controls in its conversation composer to change this review's
 next selection, including effort and Fast mode where supported. The running turn finishes

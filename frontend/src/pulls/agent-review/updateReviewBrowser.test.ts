@@ -21,6 +21,6 @@ it('reports review update results from both controls in Chromium', async () => {
     global: 'UpdateReviewTests',
     timeoutMs: 60_000,
   });
-  expect(results).toHaveLength(6);
+  expect(results).toHaveLength(7);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 120_000);

@@ -46,7 +46,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     finally { flushSync(() => root.render(null)); }
   };
   const mount = async (initial: AgentReviewDto, saved: () => AgentReviewDto, message: Bridge['messageAgentReview'],
-    overrides: Partial<Pick<Bridge, 'getAgentReview' | 'getAgentTurn' | 'readAgentReviewHistory' | 'subscribeAgentReview'>> = {}) => {
+    overrides: Partial<Pick<Bridge, 'getAgentReview' | 'getAgentTurn' | 'readAgentReviewHistory' | 'subscribeAgentReview' | 'resumeAgentReview'>> = {}) => {
     const bridge = {
       getModelSettings: async () => ({ providers: [], agents: [], apiKeys: [], keyProviders: [] }),
       getAgentReview: async () => saved(),
@@ -76,6 +76,25 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     changeInput(input(), 'what are you doing?'); await settle();
   };
   try {
+    await scenario('The conversation resumes the review without sending or losing the chat draft', async () => {
+      let saved: AgentReviewDto = { ...completed, runs: [{ ...completed.runs[0], state: 'INCOMPLETE', coverage: null,
+        outcome: 'The provider cancelled before completing the review' }] };
+      let resumes = 0;
+      await mount(saved, () => saved, async () => { throw new Error('Resume must not send a discussion message'); }, {
+        resumeAgentReview: async id => {
+          assert(id === saved.id, 'Resume this review');
+          resumes++;
+          saved = running;
+          return saved;
+        },
+      });
+      const control = button('Resume review');
+      assert(control !== undefined && !control.disabled, 'Offer resume in the conversation containing the failed turn');
+      assert(host.textContent?.includes('Chat messages only continue the discussion.'), 'Explain why typing continue cannot finish the review');
+      control.click(); await settle(); await settle();
+      assert(resumes === 1 && button('Resume review') === undefined, 'Start the review through its resume endpoint');
+      assert(input().value === 'what are you doing?', 'Keep the unsent discussion draft');
+    });
     await scenario('A delayed review read shows the request card directly and coalesces stream refreshes', async () => {
       const source = inputEvents[0];
       assert(source.type === 'user_message', 'The fixture needs a user input');

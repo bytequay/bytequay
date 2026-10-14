@@ -22,6 +22,7 @@ import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
@@ -29,6 +30,7 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ProviderAgentEvent.CommandActionKind;
@@ -190,19 +192,32 @@ public final class DefaultAgentMetricsService
     }
 
     /**
-     * A turn's own part of a cost its provider counts across the whole session. A task keeps one provider session, so its other turns hold what the
-     * session cost before, and the turn gets what the total exceeds that by. A turn that ended without a report holds nothing: what it spent falls to
-     * the next turn that reports.
+     * A turn's own part of a cost its provider counts across the whole session. A task keeps its provider session until a turn runs on another
+     * provider, so the turns since then hold what the session cost before, and the turn gets what the total exceeds that by. A turn that ended without
+     * a report holds nothing: what it spent falls to the next turn that reports.
      */
     private Optional<BigDecimal> ownCost(TaskId taskId, TurnId turnId, BigDecimal sessionCost)
     {
-        BigDecimal own = sessionCost.subtract(turnStore.list(taskId).stream()
-                .filter(turn -> !turn.id().equals(turnId))
-                .flatMap(turn -> turn.metrics().cost().stream())
-                .reduce(BigDecimal.ZERO, BigDecimal::add));
-        // ponytail: a total below what the other turns hold means the provider began counting again, and nothing stored says from where, so the cost stays
-        // unknown until the total passes them. Keep the session's last total on the turn if that ever has to heal at once.
+        List<AgentTurn> turns = turnStore.list(taskId);
+        Optional<AgentLaneId> lane = turns.stream().filter(turn -> turn.id().equals(turnId)).findFirst().flatMap(DefaultAgentMetricsService::lane);
+        BigDecimal before = BigDecimal.ZERO;
+        for (AgentTurn other : turns) {
+            if (other.id().equals(turnId)) {
+                continue;
+            }
+            // A turn stored before turns recorded their provider names none. No task had changed provider by then, so it counts as this session's.
+            boolean otherProvider = lane.isPresent() && lane(other).isPresent() && !lane(other).equals(lane);
+            before = otherProvider ? BigDecimal.ZERO : before.add(other.metrics().cost().orElse(BigDecimal.ZERO));
+        }
+        BigDecimal own = sessionCost.subtract(before);
+        // ponytail: a total below what those turns hold means the provider began counting again inside one session, and nothing stored says from where,
+        // so the cost stays unknown until the total passes them. Keep the session's last total on the turn if that ever has to heal at once.
         return own.compareTo(COST_NOISE.negate()) < 0 ? Optional.empty() : Optional.of(own.max(BigDecimal.ZERO));
+    }
+
+    private static Optional<AgentLaneId> lane(AgentTurn turn)
+    {
+        return turn.settings().flatMap(AgentTurnSettings::laneId);
     }
 
     private static AgentMetrics addMetrics(AgentMetrics current, ProviderUsageSample sample, Optional<BigDecimal> cost)

@@ -198,6 +198,24 @@ class TestDefaultAgentMetricsService
     }
 
     @Test
+    void countsASessionFromNothingAfterAnotherProviderRan()
+    {
+        // Stored before turns recorded their provider: it ran on the task's first one, like the turn after it.
+        turn("unrecorded", sessionCost("result-1", 100, 90, 10, "3"));
+        AgentTurn first = turn("first", AgentLaneId.CLAUDE_CLI, sessionCost("result-2", 100, 90, 10, "5"));
+        turn("codex", AgentLaneId.CODEX_CLI);
+        // A change of provider drops the task's session, so the one opened on the way back began its total at nothing.
+        AgentTurn back = turn("back", AgentLaneId.CLAUDE_CLI, sessionCost("result-3", 200, 180, 20, "2"));
+        AgentTurn again = turn("again", AgentLaneId.CLAUDE_CLI, sessionCost("result-4", 300, 270, 30, "6"));
+        AgentTurn account = turn("account", new AgentLaneId("claude-account-work"), sessionCost("result-5", 400, 360, 40, "1.5"));
+
+        assertThat(first.metrics()).isEqualTo(metrics(100, 90, 10, "2"));
+        assertThat(back.metrics()).isEqualTo(metrics(200, 180, 20, "2"));
+        assertThat(again.metrics()).isEqualTo(metrics(300, 270, 30, "4"));
+        assertThat(account.metrics()).isEqualTo(metrics(400, 360, 40, "1.5"));
+    }
+
+    @Test
     void finalizesElapsedTimeAndPersistsTaskTotals()
     {
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings(), NOW)
@@ -261,13 +279,26 @@ class TestDefaultAgentMetricsService
     /** A turn of the task that reported these samples and then ended. */
     private AgentTurn turn(String key, ProviderUsageSample... samples)
     {
-        AgentTurn started = AgentTurn.accepted(TurnId.random(), task.id(), key, turnSettings(), NOW).markDeliveryStarted(NOW).running(new ProviderTurnRef(key), Optional.empty());
+        return turn(key, turnSettings(), samples);
+    }
+
+    private AgentTurn turn(String key, AgentLaneId lane, ProviderUsageSample... samples)
+    {
+        return turn(key, turnSettings().withLaneId(lane), samples);
+    }
+
+    private AgentTurn turn(String key, AgentTurnSettings settings, ProviderUsageSample... samples)
+    {
+        // The store lists a task's turns by when they were accepted, so each one gets its own moment.
+        clock.advance(Duration.ofSeconds(1));
+        Instant now = clock.instant();
+        AgentTurn started = AgentTurn.accepted(TurnId.random(), task.id(), key, settings, now).markDeliveryStarted(now).running(new ProviderTurnRef(key), Optional.empty());
         stores.insert(started);
         for (ProviderUsageSample sample : samples) {
             service.record(task.id(), started.id(), sample);
         }
         AgentTurn reported = stores.require(started.id());
-        return stores.update(reported.finish(TurnState.COMPLETED, reported.metrics(), Optional.empty(), NOW.plusSeconds(1)));
+        return stores.update(reported.finish(TurnState.COMPLETED, reported.metrics(), Optional.empty(), now));
     }
 
     private static ProviderUsageSample invocationUsage(String eventId, long inputTokens, long cachedInputTokens, long outputTokens)

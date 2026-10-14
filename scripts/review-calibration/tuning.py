@@ -72,11 +72,13 @@ def path(calls):
 
 
 def database(path):
-    """For every turn what started it, whether someone asked it to stop, and how it ended; for every task its state, its
-    kind and its repository. Read without writing. A turn's terminal reason is free text and is not read."""
+    """For every turn what started it, whether someone asked it to stop, how it ended and the setup it ran with; for every
+    task its state, its kind and its repository. Read without writing. A turn's terminal reason is free text and is not
+    read. A database from before turns named their setup has no such column, and every setup is then not known."""
     with closing(sqlite3.connect(f"file:{quote(str(path))}?mode=ro", uri=True, timeout=3)) as connection:
-        turns = {turn: {"origin": origin, "cancelAsked": bool(asked), "ended": state} for turn, origin, asked, state in connection.execute(
-            "SELECT id, development_origin_kind, cancellation_requested_at IS NOT NULL, state FROM agent_turn")}
+        setup = "setup_fingerprint" if "setup_fingerprint" in {row[1] for row in connection.execute("PRAGMA table_info(agent_turn)")} else "NULL"
+        turns = {turn: {"origin": origin, "cancelAsked": bool(asked), "ended": state, "setup": named} for turn, origin, asked, state, named in connection.execute(
+            f"SELECT id, development_origin_kind, cancellation_requested_at IS NOT NULL, state, {setup} FROM agent_turn")}
         tasks = {task: {"state": state, "interactive": bool(interactive), "repository": f"{owner}/{name}" if owner and name else None}
                  for task, state, interactive, owner, name in connection.execute("SELECT id, state, interactive, repository_owner, repository_name FROM agent_task")}
     return turns, tasks
@@ -95,7 +97,7 @@ def table(runtime, database_path, now):
         problem = None
     except sqlite3.Error as error:
         turns, tasks, problem = {}, {}, f"the database could not be read: {error}"
-    unknown = {"origin": None, "cancelAsked": None, "ended": None}
+    unknown = {"origin": None, "cancelAsked": None, "ended": None, "setup": None}
     rows = [row | turns.get(row["turn"], unknown) for row in sorted(rows, key=lambda row: row["start"])]
     logged = dict.fromkeys(row["task"] for row in rows)
     return {"version": 1, "savedAt": saved.stamp(now.timestamp()), "skippedLines": skipped, "database": {"problem": problem},
@@ -201,6 +203,26 @@ def follows_figure(turns, mode, top=TOP_TOOLS):
     figure.update_yaxes(autorange="reversed", ticksuffix="  ")
     figure.update_xaxes(side="top", tickangle=-30)
     return charts.tidy(figure, 44 * len(names) + 120)
+
+
+def setups_table(turns):
+    """Every setup the turns ran with, in the order each first ran, with how its turns went. Changed says which half of the
+    name differs from the setup before: the instructions, the tools, or both. None while no turn names its setup."""
+    named = turns[turns["setup"].notna()] if "setup" in turns else turns.iloc[:0]
+    if named.empty:
+        return None
+    rows, before = [], None
+    for setup, group in sorted(named.groupby("setup"), key=lambda pair: pair[1]["start"].min()):
+        called = group[group["calls"] > 0] if "calls" in group else group.iloc[:0]
+        rows.append({"setup": setup, "changed": "" if before is None else " and ".join(part for part, old, new in zip(("instructions", "tools"), before.split("-"), setup.split("-"))
+                                                                                     if old != new),
+                     "first ran": datetime.fromtimestamp(group["start"].min()).strftime("%Y-%m-%d %H:%M"), "turns": len(group),
+                     # A turn names its setup only through its row in the database, which always holds how it ended.
+                     "completed": (group["ended"] == "COMPLETED").sum() / len(group), "minutes per turn": group["seconds"].median() / 60,
+                     "calls per turn": called["calls"].median() if len(called) else None,
+                     "steered or stopped per 100": 100 * (group["steers"] + group["cancels"]).sum() / len(group), "rate limits per 100": 100 * group["rateLimits"].sum() / len(group)})
+        before = setup
+    return pandas.DataFrame(rows)
 
 
 def main():

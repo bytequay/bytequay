@@ -324,6 +324,15 @@ of a typical and of the busiest turn, and the share of its calls that came
 straight after a call to itself. A table saved before paths were counted asks
 to be saved again.
 
+"Setups" lists every setup the turns ran with. ByteQuay names it for every
+turn it starts: two halves, such as `3fa9c1d2-91be07aa`, the first from the
+instructions the provider session started with and the second from the tools
+it was given, so a change to either gives a new name and says which changed.
+Each setup shows when it first ran, its turns, the share completed, the
+typical minutes and calls of a turn, and the steering or stops and the rate
+limits for every 100 turns, so a change can be judged by the turns before and
+after it. Turns from before ByteQuay named setups have none.
+
 ## Agent activity
 
 `activity.py` shows where the wall-clock time of ByteQuay agent turns goes. It

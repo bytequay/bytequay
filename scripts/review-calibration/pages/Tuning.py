@@ -71,6 +71,20 @@ def paths(turns, mode):
     st.dataframe(tuning.tools_table(turns), hide_index=True, column_config={"after itself": st.column_config.NumberColumn(format="percent")})
 
 
+def setups(turns):
+    st.subheader("Setups")
+    table = tuning.setups_table(turns)
+    if table is None:
+        st.info("No turn names its setup yet. ByteQuay names it for every turn it starts from a version that records it; "
+                f"save the table again with `{SAVE}` once such turns have run.")
+        return
+    st.caption("A setup is named after the instructions a provider session started with and the tools it was given, so the turns of one setup "
+               "can be set against the turns of the next. Changed says which of the two differs from the setup before.")
+    st.dataframe(table, hide_index=True, column_config={"completed": st.column_config.NumberColumn(format="percent"), "minutes per turn": st.column_config.NumberColumn(format="%.1f"),
+                                                        "steered or stopped per 100": st.column_config.NumberColumn(format="%.0f"),
+                                                        "rate limits per 100": st.column_config.NumberColumn(format="%.0f")})
+
+
 st.set_page_config(page_title="ByteQuay Lab", layout="wide")
 # Started any other way, Streamlit would serve the page to the whole network.
 if st.get_option("server.address") != dashboard.HOST:
@@ -107,3 +121,4 @@ if TURNS.empty:
 people(TASKS, MODE)
 endings(TURNS, MODE)
 paths(TURNS, MODE)
+setups(TURNS)

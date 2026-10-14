@@ -72,10 +72,12 @@ class Saved(unittest.TestCase):
             (self.runtime / task).mkdir(parents=True)
             (self.runtime / task / "events.jsonl").write_text("".join(json.dumps(made) + "\n" for made in events) + "{cut off\n")
         with sqlite3.connect(self.database) as connection:
-            connection.executescript("CREATE TABLE agent_turn (id TEXT, development_origin_kind TEXT, cancellation_requested_at TEXT, state TEXT, terminal_reason TEXT);"
+            connection.executescript("CREATE TABLE agent_turn (id TEXT, development_origin_kind TEXT, cancellation_requested_at TEXT, state TEXT, terminal_reason TEXT, setup_fingerprint TEXT);"
                                      "CREATE TABLE agent_task (id TEXT, state TEXT, interactive INTEGER, repository_owner TEXT, repository_name TEXT);")
-            connection.executemany("INSERT INTO agent_turn VALUES (?, ?, ?, ?, ?)", [("t1", None, None, "COMPLETED", "free text"), ("t2", None, "2026-10-12", "INTERRUPTED", None),
-                                                                                     ("t3", "CREATE_DRAFT_PR", None, "COMPLETED", None)])
+            # The third turn ran after the instructions changed; the tools stayed the same. Its name sorts first, its time second.
+            connection.executemany("INSERT INTO agent_turn VALUES (?, ?, ?, ?, ?, ?)", [("t1", None, None, "COMPLETED", "free text", "aaaaaaaa-bbbbbbbb"),
+                                                                                        ("t2", None, "2026-10-12", "INTERRUPTED", None, "aaaaaaaa-bbbbbbbb"),
+                                                                                        ("t3", "CREATE_DRAFT_PR", None, "COMPLETED", None, "11111111-bbbbbbbb")])
             connection.executemany("INSERT INTO agent_task VALUES (?, ?, ?, ?, ?)", [("task-a", "OPEN", 0, "o", "n"), ("task-b", "COMPLETED", 1, None, None)])
         connection.close()
 
@@ -99,6 +101,18 @@ class TestTable(Saved):
         first = tuning.turns_of("task-c", LOGS["task-c"])[0]
         self.assertEqual((first["paths"], first["streak"]), ([["rg", "Edit", 1]], ["rg", 1]))  # of two runs as long, the first
 
+    def test_setups_are_listed_in_the_order_they_first_ran_with_what_changed_and_how_their_turns_went(self):
+        turns, _ = tuning.frames(self.made(), zone=timezone.utc)
+        table = tuning.setups_table(turns)
+        local = lambda minute: datetime.fromtimestamp(datetime(2026, 10, 12, 10, minute, tzinfo=timezone.utc).timestamp()).strftime("%Y-%m-%d %H:%M")  # as this Mac shows it
+        self.assertEqual(table.drop(columns=["minutes per turn"]).fillna(-1).to_dict("records"),
+                         [{"setup": "aaaaaaaa-bbbbbbbb", "changed": "", "first ran": local(0), "turns": 2, "completed": 0.5, "calls per turn": 6, "steered or stopped per 100": 150,
+                           "rate limits per 100": 100},
+                          {"setup": "11111111-bbbbbbbb", "changed": "instructions", "first ran": local(20), "turns": 1, "completed": 1.0, "calls per turn": -1,  # no call: not known
+                           "steered or stopped per 100": 0, "rate limits per 100": 0}])
+        self.assertEqual(table["minutes per turn"].tolist(), [4, 5])  # the middle of a turn of 6 minutes and one of 2; a turn of 5
+        self.assertIsNone(tuning.setups_table(turns.assign(setup=None)))
+
     def test_tools_are_listed_by_calls_and_the_chart_counts_which_call_follows_which(self):
         turns, _ = tuning.frames(self.made(), zone=timezone.utc)
         table = tuning.tools_table(turns)
@@ -117,8 +131,16 @@ class TestTable(Saved):
         before = self.database.stat().st_mtime_ns
         made = self.made()
         self.assertEqual((made["skippedLines"], made["database"], self.database.stat().st_mtime_ns), (3, {"problem": None}, before))
-        self.assertEqual([(row["turn"], row["origin"], row["cancelAsked"], row["ended"]) for row in made["turns"]],
-                         [("t1", None, False, "COMPLETED"), ("t2", None, True, "INTERRUPTED"), ("t3", "CREATE_DRAFT_PR", False, "COMPLETED"), ("t4", None, None, None), ("t5", None, None, None)])
+        self.assertEqual([(row["turn"], row["origin"], row["cancelAsked"], row["ended"], row["setup"]) for row in made["turns"]],
+                         [("t1", None, False, "COMPLETED", "aaaaaaaa-bbbbbbbb"), ("t2", None, True, "INTERRUPTED", "aaaaaaaa-bbbbbbbb"),
+                          ("t3", "CREATE_DRAFT_PR", False, "COMPLETED", "11111111-bbbbbbbb"), ("t4", None, None, None, None), ("t5", None, None, None, None)])
+        older = self.root / "older.db"  # from before turns named their setup
+        with sqlite3.connect(older) as connection:
+            connection.executescript("CREATE TABLE agent_turn (id TEXT, development_origin_kind TEXT, cancellation_requested_at TEXT, state TEXT);"
+                                     "CREATE TABLE agent_task (id TEXT, state TEXT, interactive INTEGER, repository_owner TEXT, repository_name TEXT);"
+                                     "INSERT INTO agent_turn VALUES ('t1', NULL, NULL, 'COMPLETED');")
+        connection.close()
+        self.assertEqual([(row["turn"], row["ended"], row["setup"]) for row in self.made(older)["turns"]][:2], [("t1", "COMPLETED", None), ("t2", None, None)])
         self.assertEqual(made["tasks"], [{"task": "task-a", "state": "OPEN", "interactive": False, "repository": "o/n"},
                                          {"task": "task-b", "state": "COMPLETED", "interactive": True, "repository": None},
                                          {"task": "task-c", "state": None, "interactive": None, "repository": None}])  # gone from the database: no state, its turns kept
@@ -178,7 +200,8 @@ class TestPage(Saved):
         self.save()
         page = self.page()
         self.assertEqual((list(page.exception), [note.value for note in page.warning]), ([], []))
-        self.assertEqual([heading.value for heading in page.subheader], ["A person in the loop", "How turns ended", "Tool paths"])
+        self.assertEqual([heading.value for heading in page.subheader], ["A person in the loop", "How turns ended", "Tool paths", "Setups"])
+        self.assertEqual(page.dataframe[-1].value["setup"].tolist(), ["aaaaaaaa-bbbbbbbb", "11111111-bbbbbbbb"])
         self.assertEqual([(tile.label, tile.value) for tile in page.metric],
                          [("Tasks", "3"), ("One-ask tasks", "33%"), ("Messages per task", "1"), ("Approvals", "2"), ("Turns stopped", "1"), ("Turns", "5"), ("Completed", "67%"),
                           ("Calls", "11"), ("Calls per turn", "3"), ("Tool lookups", "1"), ("Same call in a row", "3×")])  # per turn: of the turns that made calls

@@ -1,8 +1,9 @@
 # Review discovery calibration
 
-`run.py` runs one bounded, read-only Codex CLI discovery pass against exact Git
-objects. Use it to inspect whether a policy elicits useful hypotheses before
-running a production review comparison. It does not exercise ByteQuay's reporting
+`run.py` runs one bounded, read-only discovery pass against exact Git objects,
+with the Codex command line or, with `--provider claude`, the Claude one. Use
+it to inspect whether a policy elicits useful hypotheses before running a
+production review comparison. It does not exercise ByteQuay's reporting
 tools, child agents, validation turns, final selection, or persistence. It cannot
 establish that the complete review workflow has improved.
 
@@ -19,7 +20,12 @@ about two seconds.
 The CLI pins the built-in OpenAI provider and uses the existing authenticated account. It ignores user configuration
 and execution rules, disables memory, plugins, apps, native delegation and web
 search, uses an ephemeral read-only session, and redirects its SQLite state and
-logs to the output directory. The invocation does not change ByteQuay settings,
+logs to the output directory. The Claude command line gets the same prompt and
+answer shape. It starts inside the frozen input with no customization, no
+saved session and no connected servers, and with only the tools that read and
+search files, kept to that directory. It also uses the existing login, and
+nothing a parent Claude session leaves in the environment reaches it. The
+invocation does not change ByteQuay settings,
 reset a database, or write to GitHub. A hard wall-clock timeout kills the provider
 process group. An interrupted or failed arm has no discovery score.
 
@@ -61,6 +67,11 @@ python3 scripts/review-calibration/run.py \
   --model CONFIGURED_REVIEW_MODEL --reasoning CONFIGURED_REVIEW_EFFORT \
   --timeout TEST_TIMEOUT_SECONDS
 ```
+
+`runtime.json` names the provider, the model and the effort of the arm, and what
+it used: tokens in with the cached ones among them, tokens out, and for Claude
+its own cost at API prices. A run that is stopped from outside takes its
+command line down with it and keeps the status `started`.
 
 Inspect `runtime.json` first. Keep failures and partial transcripts; do not count
 a timeout or `incomplete_output` as zero findings. Completion requires a successful
@@ -113,7 +124,8 @@ so the judge sees neither their order nor their setting. An answer that is
 empty, cut off or the wrong shape is asked again once and then recorded as a
 judge error, never as MISSED. Only completed runs are judged. `report.py` lists
 failed, timed-out and unjudged runs apart and leaves them out of every total,
-and it names a setting whose runs used different rules files or models. Leads
+and it names a setting whose runs used different rules files, models or
+efforts. Leads
 that match no comment are counted as extra leads and are not judged: the
 reviewer may have missed a real problem.
 
@@ -132,6 +144,69 @@ uv run judge.py agree --judgement RUN/judgement.json --labels LABELS.json
 `LABELS.json` maps a comment id to the verdict a person gave it. Set the
 agreement to reach before reading the judge's answers, and after changing the
 judge prompt measure it again on calls nobody has read.
+
+## Experiments
+
+An experiment is a comparison that is kept: a folder with a plan and every run
+made for it. It can be stopped, started again, and added to later, so the same
+cases can be run again when a model, an effort or the rules change.
+
+```text
+FOLDER/cases/NAME/case.json, context.md        a frozen case, built with case.py
+FOLDER/experiments/NAME/plan.json              what to compare
+FOLDER/experiments/NAME/SETTING/CASE_repN/     one run, as run.py leaves it
+```
+
+`FOLDER` is the lab's own folder, `~/Library/Application Support/ByteQuay Lab`,
+unless `--folder` names another. A plan names the cases, where the clone of
+each repository is, and the settings. A setting is a provider (`codex` or
+`claude`), a model, an effort, and a rules file. The rules file of the plan
+counts for every setting that names none of its own. Keep a copy of it inside
+the experiment and name it by that path, so the experiment still means the
+same after the rules change.
+
+```json
+{
+  "version": 1,
+  "repeats": 2,
+  "timeout": 900,
+  "policy": "rules.md",
+  "clones": {"OWNER/NAME": "/path/to/source"},
+  "cases": ["NAME-NUMBER"],
+  "settings": {
+    "codex-high": {"provider": "codex", "model": "MODEL", "effort": "high"},
+    "claude-max": {"provider": "claude", "model": "MODEL", "effort": "max"}
+  }
+}
+```
+
+```sh
+uv run batch.py NAME --list
+uv run batch.py NAME --parallel 2
+uv run batch.py NAME --judge
+```
+
+`batch.py` runs every run of the plan that has not ended, a case at a time, so
+a stopped experiment has compared whole cases. A run that ended is kept as it
+is, also when it failed or ran out of time. A run that was interrupted is run
+again. Ctrl+C or a stop from outside ends the command lines that are running.
+An experiment runs once at a time: while it runs it names its process in
+`running.pid` and holds a lock on that file, a second start is refused, and
+`--list` shows its unfinished runs as running. The system lets go of the lock
+however the process ends, so a file left behind by a crash is not believed.
+The two source trees of a run are removed when it ends; its manifest keeps
+their hashes. `--list` only says how every run stands. `--judge` then scores
+the completed runs that have no verdicts yet: the key is read from
+`DEEPSEEK_API_KEY`, or asked for without being shown or kept when a person is
+at the terminal. `"executables"` in the plan can name the full path of `codex`
+and `claude` for a scheduler that does not know where they are.
+
+The dashboard can do the same with a button: its Reviews tab shows how the
+runs of the experiment you picked stand, and runs and judges what is missing,
+one run at a time, or stops the runs. It starts `batch.py NAME --judge` apart
+from the page, so closing the page does not stop the runs, and what it says
+goes to `batch.log` beside the plan. It judges only when the page was started
+with `DEEPSEEK_API_KEY` set, as nobody is there to be asked for the key.
 
 ## Agent activity
 
@@ -192,18 +267,20 @@ message text.
 ## Saving results
 
 `report.py` and `activity.py` take `--save`. Besides printing, each then writes
-its numbers as JSON into `~/Library/Application Support/ByteQuay Lab`, or into
-the folder named after `--save`: `review-scores.json` from `report.py`, and
-`turns.json` and `reviews.json` from `activity.py`. The folder is the lab's
-own. A new result replaces the earlier one in one step. Nothing is saved when
-no run or turn was found, so an empty filter cannot wipe a result.
+its numbers as JSON. `report.py` writes `scores.json` into the experiment it
+read. `activity.py` writes `turns.json` and `reviews.json` into
+`~/Library/Application Support/ByteQuay Lab`, or into the folder named after
+`--save`. The folder is the lab's own. A new result replaces the earlier one in
+one step. Nothing is saved when no run or turn was found, so an empty filter
+cannot wipe a result.
 
 ```sh
 uv run report.py ROOT --save
 uv run activity.py --save
 ```
 
-`review-scores.json` holds what the score tables print. `turns.json` is the
+`scores.json` holds what the score tables print, with the id and the verdict
+of every comment. `turns.json` is the
 turn table: one row for every turn, with its task id, its start, how it ended,
 the seconds of each part of its time, the programs it ran and what the model
 reacted to. A row also lists every single command of 30 seconds or more by its
@@ -253,7 +330,7 @@ of that turn alone, and `records.py` saves them as they are. For any other
 provider the lab cannot tell what the stored amounts count and saves neither
 tokens nor cost. A test reads the
 application's source and fails when the columns the lab reads, or the way the
-application counts tokens and cost, change. `fixture/saved-review-scores.json` and
+application counts tokens and cost, change. `fixture/saved-scores.json` and
 `fixture/saved-turns.json` are small examples of the two shapes. The tests
 write them, so an example is always exactly what the lab saves. Run the tests
 once with `UPDATE_SAVED_EXAMPLES=1` after changing a shape on purpose.
@@ -347,9 +424,14 @@ those two, and an open finding is not decided yet. "Asked again" counts the
 runs whose report was not complete, so ByteQuay asked the reviewer once more.
 Different pull requests were reviewed under each model, so this too shows
 what happened and is not a fair test. The tab says so when the reviews were
-saved at another time than the turns. The second half shows the saved score
-table: one bar per setting for what it found of a human reviewer's comments,
-with the settings and the scored runs listed below it.
+saved at another time than the turns. The second half is about experiments:
+pick one, the one worked on last first, see how its runs stand with a button
+to run or stop them, and see one bar per setting for what it found of a human
+reviewer's comments, with the settings below. Then pick two
+settings to set them side by side, comment by comment. Over several runs a
+comment counts by how much of it was found, a part-find as half. The tab says
+how often each did better, and how often chance alone gives a split as uneven
+(the sign test), so a gap of two or three comments is not read as a winner.
 
 The page is served to this machine only. Started any other way, for example
 with `streamlit run dashboard.py`, Streamlit would serve it to the whole

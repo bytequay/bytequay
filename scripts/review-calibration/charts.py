@@ -27,6 +27,7 @@ SEVERITIES = ("high", "medium", "low")
 # What a scored run made of a human reviewer's comment, best first. A judge error is its own part and is never drawn as missed.
 VERDICTS = {"found": "model", "partly": "lighter", "missed": "usual", "errors": "warning"}
 SCORE_AMOUNTS = ("comments", *VERDICTS, "leads", "extra", "inputTokens", "cachedInputTokens", "outputTokens", "seconds", "judgeInputTokens", "judgeOutputTokens")
+WORTH = {"found": 1.0, "partly": 0.5, "missed": 0.0}  # how much of a comment a verdict stands for when the runs of a setting are put together
 # The three kinds of tokens a turn is billed for, and the color each wears in the token charts. Fresh input is what was
 # not read from the cache. Cached input is most of the tokens and the cheapest, so it stays quiet and the eye goes to the other two.
 TOKEN_KINDS = {"fresh input": "model", "cached input": "usual", "output": "tool"}
@@ -807,8 +808,13 @@ def review_settings_table(runs, findings):
 
 
 def score_totals(scores):
-    """For each setting of the scorer: its name, its rules files, and every number added up over its scored runs."""
-    return [(setting["name"], setting["rules"], {amount: sum(run[amount] for run in setting["runs"]) for amount in SCORE_AMOUNTS}) for setting in scores["settings"]]
+    """For each setting of the scorer: its name, its rules files, and every number added up over its scored runs. The cost is
+    what its runs record; it is None when none of them records one, as Codex names no cost."""
+    made = []
+    for setting in scores["settings"]:
+        known = [run["cost"] for run in setting["runs"] if run["cost"] is not None]
+        made.append((setting["name"], setting["rules"], {**{amount: sum(run[amount] for run in setting["runs"]) for amount in SCORE_AMOUNTS}, "cost": sum(known) if known else None}))
+    return made
 
 
 def verdicts(scores):
@@ -836,7 +842,8 @@ def scores_figure(scores, mode="light"):
 
 def score_cells(scores, total):
     return {"comments": total["comments"], **{said(verdict): total[verdict] for verdict in verdicts(scores)}, "leads": total["leads"], "extra leads": total["extra"],
-            "tokens in": total["inputTokens"], "cached": total["cachedInputTokens"], "tokens out": total["outputTokens"], "minutes": round(total["seconds"] / 60, 1)}
+            "tokens in": total["inputTokens"], "cached": total["cachedInputTokens"], "tokens out": total["outputTokens"], "minutes": round(total["seconds"] / 60, 1),
+            "recorded cost": total["cost"]}
 
 
 def score_settings_table(scores):
@@ -856,7 +863,50 @@ def score_notes(scores):
     lines = []
     for setting in scores["settings"]:
         if len(setting["rules"]) > 1:
-            lines.append(f"{setting['name']}: mixed rules files or models in this setting, so its runs are not one comparison: {', '.join(setting['rules'])}")
+            lines.append(f"{setting['name']}: mixed rules files, models or efforts in this setting, so its runs are not one comparison: {', '.join(setting['rules'])}")
         if setting["notScored"]:
             lines.append(f"{setting['name']}: not scored, and not counted as zero: " + ", ".join(f"{left['run']} ({left['status']})" for left in setting["notScored"]))
     return lines
+
+
+def comment_verdicts(setting):
+    """What a setting made of every comment it was judged on, as {(case, comment id): its verdicts in the order of its runs}."""
+    made = {}
+    for run in setting["runs"]:
+        for comment, verdict in run["verdicts"].items():
+            made.setdefault((run["case"], comment), []).append(verdict)
+    return made
+
+
+def compared(scores, first, second):
+    """Two settings side by side on the comments both were judged on. One row per comment says what each made of it in each
+    of its runs and which did better; then come the numbers of comments the first did better on, the second did, and neither.
+    Over several runs a comment counts by how much of it was found on average, a part-find as half."""
+    by_name = {setting["name"]: setting for setting in scores["settings"]}
+    one, other = comment_verdicts(by_name[first]), comment_verdicts(by_name[second])
+    rows = []
+    for case, comment in sorted(one.keys() & other.keys()):
+        mine, theirs = (sum(WORTH[verdict] for verdict in given) / len(given) for given in (one[case, comment], other[case, comment]))
+        rows.append({"case": case, "comment": comment, "first": ", ".join(one[case, comment]), "second": ", ".join(other[case, comment]),
+                     "better": first if mine > theirs else second if theirs > mine else "neither"})
+    better = [row["better"] for row in rows]
+    return rows, (better.count(first), better.count(second), better.count("neither"))
+
+
+def by_chance(wins, losses):
+    """How often a split at least this uneven comes up when neither setting is better: the sign test, counted both ways.
+    It is 1 when no comment tells the two apart."""
+    decided = wins + losses
+    return min(1.0, 2 * sum(math.comb(decided, fewer) for fewer in range(min(wins, losses) + 1)) / 2 ** decided) if decided else 1.0
+
+
+def compared_in_words(first, second, counts):
+    """What a comparison shows, as a reader would say it, with how easily chance alone gives the same picture."""
+    ahead, behind, level = counts
+    if not ahead + behind + level:
+        return "These two settings were judged on no comment in common."
+    chance = by_chance(ahead, behind)
+    often = "less than 1%" if chance < 0.01 else f"about {100 * chance:.0f}%"
+    return (f"On {activity.count(ahead + behind + level, 'comment')}: {first} did better on {ahead}, {second} on {behind}, and on {level} they did the same. "
+            + (f"Chance alone gives a split this uneven {often} of the time, so this does not show that one is better."
+               if chance >= 0.05 else f"Chance alone gives a split this uneven only {often} of the time."))

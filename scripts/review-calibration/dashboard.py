@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -13,6 +14,7 @@ import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 import activity
+import batch
 import charts
 import saved
 
@@ -346,22 +348,60 @@ def real_reviews(folder, choice, together, mode):
     st.dataframe(charts.review_settings_table(runs, findings), hide_index=True, column_config={"typical tokens in": st.column_config.NumberColumn(format="localized")})
 
 
+@st.fragment(run_every=5)
+def experiment_runs(plan):
+    """How the runs of an experiment stand, with a button to run and judge what is missing or to stop the runs. It looks again
+    every few seconds, so a run that ends shows without a reload."""
+    lines, made = batch.listing(plan), batch.standing(plan)
+    unjudged = sum(stands == "completed" and not judged for _, _, stands, judged in made)
+    waiting = unjudged or any(stands not in batch.ENDED for _, _, stands, _ in made)
+    st.caption(f"Runs: {lines[-1]}" + (f", {unjudged} of them not judged yet." if unjudged else "."))
+    if batch.runner(plan) is not None:
+        st.button("Stop", key="stop_runs", on_click=batch.stop, args=(plan,))
+    elif waiting or not (plan["folder"] / "scores.json").exists():  # with nothing left to run or judge, a start only saves the scores
+        st.button("Run and judge what is missing", key="start_runs", on_click=batch.start, args=(plan,))
+        if waiting and not os.environ.get("DEEPSEEK_API_KEY"):
+            st.caption("Judging needs DEEPSEEK_API_KEY set where this page was started. Without it, judge in a terminal with "
+                       f"`uv run batch.py {plan['folder'].name} --judge`")
+    with st.expander("Every run"):
+        st.text("\n".join(lines[:-1]))
+        log = plan["folder"] / "batch.log"
+        if log.exists():
+            st.caption("The end of batch.log, where a run started here writes what it says:")
+            st.code("\n".join(log.read_text().splitlines()[-5:]), language=None)
+
+
 def scored_reviews(folder, mode):
     st.subheader("Scored against a human reviewer")
-    command = "uv run report.py ROOT --save"
+    # Every experiment keeps its plan, its runs and its scores. The one worked on last comes first.
+    kept = sorted({path.parent for pattern in ("*/plan.json", "*/scores.json") for path in (folder / "experiments").glob(pattern)},
+                  key=lambda experiment: (-experiment.stat().st_mtime, experiment.name))
+    if not kept:
+        st.info("Nothing scored yet. Run and score an experiment with `uv run batch.py NAME --judge`")
+        return
+    name = st.selectbox("Experiment", [experiment.name for experiment in kept], key="experiment")
+    plan = None
+    if (folder / "experiments" / name / "plan.json").exists():
+        try:
+            plan = batch.load(folder, name)
+        except ValueError as problem:
+            st.caption(f"It cannot run: {problem}")
+    if plan is not None:
+        experiment_runs(plan)
+    if not (folder / "experiments" / name / "scores.json").exists():
+        st.info(f"{name} is not scored yet." + ("" if plan else f" Score it with `uv run batch.py {name} --judge`"))
+        return
     try:
-        scores = saved.read(folder, "review-scores.json")
-        made = None if scores is None else (charts.score_settings_table(scores), charts.score_runs_table(scores), charts.score_notes(scores),
-                                           charts.scores_figure(scores, mode) if any(total["comments"] for _, _, total in charts.score_totals(scores)) else None)
-    except (OSError, KeyError, TypeError, ValueError):
-        st.warning(f"The saved scores could not be read. Save them again with `{command}`")
+        scores = saved.read(folder / "experiments" / name, "scores.json")
+        settings, runs, notes = charts.score_settings_table(scores), charts.score_runs_table(scores), charts.score_notes(scores)
+        figure = charts.scores_figure(scores, mode) if any(total["comments"] for _, _, total in charts.score_totals(scores)) else None
+        scored = [setting["name"] for setting in scores["settings"] if setting["runs"]]
+        pairs = {(first, second): charts.compared(scores, first, second) for first in scored for second in scored}
+    except (OSError, AttributeError, KeyError, TypeError, ValueError):
+        st.warning(f"The saved scores of {name} could not be read. Save them again with `uv run report.py EXPERIMENT --save`")
         return
-    if made is None:
-        st.info(f"Nothing saved yet. Save the scores with `{command}`")
-        return
-    settings, runs, notes, figure = made
     if not settings:
-        st.info("The saved scores hold no setting.")
+        st.info(f"The saved scores of {name} hold no setting.")
         return
     st.caption(f"What each setting found of the comments a human reviewer left on the same pull requests. Saved {when(scores['savedAt'])}")
     if figure is not None:
@@ -369,8 +409,18 @@ def scored_reviews(folder, mode):
     for note in notes:
         st.caption(note)
     numbers = {name: st.column_config.NumberColumn(format="localized") for name in ("tokens in", "cached", "tokens out", "judge tokens in", "judge tokens out")}
-    st.dataframe(settings, hide_index=True, column_config=numbers)
-    st.dataframe(runs, hide_index=True, column_config=numbers)
+    dollars = {"recorded cost": st.column_config.NumberColumn(format="dollar")}
+    st.dataframe(settings, hide_index=True, column_config=numbers | dollars)
+    if len(scored) >= 2:
+        st.subheader("Two settings, comment by comment")
+        left, right = st.columns(2)
+        first = left.selectbox("Setting", scored, key="compare_first")
+        second = right.selectbox("Against", scored, index=1, key="compare_second")
+        rows, counts = pairs[first, second]
+        st.caption(charts.compared_in_words(first, second, counts))
+        st.dataframe(rows, hide_index=True, column_config={"first": st.column_config.TextColumn(first), "second": st.column_config.TextColumn(second)})
+    with st.expander(f"All {len(runs):,} scored runs"):
+        st.dataframe(runs, hide_index=True, column_config=numbers | dollars)
 
 
 def timed(tab, logged, *more):

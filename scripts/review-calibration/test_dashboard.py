@@ -1,6 +1,7 @@
 import ast
 import json
 import logging
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -12,6 +13,7 @@ from streamlit import config
 from streamlit.testing.v1 import AppTest
 
 import activity
+import batch
 import charts
 import dashboard
 
@@ -28,7 +30,7 @@ TOOLS = ["Worth a tool?", "Every command and tool", "Why commands failed", "What
 MODELS = ["Typical turn, by model and effort", "How long a turn took", "How each split its time", "How the turns ended"]
 COST = ["Tokens by kind", "Tokens by model and effort", "Tokens per day", "The tasks that used the most tokens", "Cost in dollars"]
 REVIEWS = ["Reviews ByteQuay ran", "Scored against a human reviewer"]
-NO_REVIEWS = ["Nothing saved yet. Save the reviews with `uv run activity.py --save`", "Nothing saved yet. Save the scores with `uv run report.py ROOT --save`"]
+NO_REVIEWS = ["Nothing saved yet. Save the reviews with `uv run activity.py --save`", "Nothing scored yet. Run and score an experiment with `uv run batch.py NAME --judge`"]
 FIXTURE = Path(__file__).with_name("fixture")
 
 
@@ -65,9 +67,27 @@ class Page(unittest.TestCase):
     def save(self, text=None):
         (self.folder / "turns.json").write_text(EXAMPLE.read_text() if text is None else text)
 
-    def save_reviews(self, reviews=None, scores=None):
+    def save_reviews(self, reviews=None, scores=None, experiment="first"):
         (self.folder / "reviews.json").write_text((FIXTURE / "saved-reviews.json").read_text() if reviews is None else reviews)
-        (self.folder / "review-scores.json").write_text((FIXTURE / "saved-review-scores.json").read_text() if scores is None else scores)
+        self.save_scores(experiment, scores)
+
+    def save_scores(self, experiment, scores=None):
+        """Scores kept inside an experiment, as report.py --save leaves them."""
+        (self.folder / "experiments" / experiment).mkdir(parents=True, exist_ok=True)
+        (self.folder / "experiments" / experiment / "scores.json").write_text((FIXTURE / "saved-scores.json").read_text() if scores is None else scores)
+
+    def save_plan(self, experiment):
+        """An experiment of one case and one setting that nothing has run yet."""
+        case = self.folder / "cases" / "pr-1"
+        case.mkdir(parents=True, exist_ok=True)
+        (case / "case.json").write_text(json.dumps({"repo": "o/n", "base": "b", "head": "h"}))
+        (case / "context.md").write_text("intent\n")
+        kept = self.folder / "experiments" / experiment
+        kept.mkdir(parents=True, exist_ok=True)
+        (kept / "rules.md").write_text("the rules\n")
+        (kept / "plan.json").write_text(json.dumps({"version": 1, "policy": "rules.md", "clones": {"o/n": str(self.folder)}, "cases": ["pr-1"],
+                                                    "settings": {"quick": {"provider": "codex", "model": "small", "effort": "low"}}}))
+        return kept
 
     def test_page_shows_the_saved_turns_in_tiles_and_charts(self):
         self.save()
@@ -246,10 +266,15 @@ class Page(unittest.TestCase):
                          [["gpt-6-astra · max", 1, 0, 3, 1, 1, 1], ["gpt-6-sol · high", 1, 1, 0, 0, 0, 0], ["opus · extra", 1, 0, 1, 0, 0, 1]])
         self.assertEqual(table(page, "scored runs")[["setting", "scored runs", "comments", "found", "judge errors"]].values.tolist(),
                          [["before", "1 of 2", 2, 1, 0], ["today", "2 of 3", 5, 3, 1]])
-        self.assertEqual(table(page, "case")[["setting", "run", "found"]].values.tolist(), [["before", "pr1_rep1", 1], ["today", "pr1_rep1", 1], ["today", "pr1_rep2", 2]])
+        self.assertEqual(table(page, "run")[["setting", "run", "found"]].values.tolist(), [["before", "pr1_rep1", 1], ["today", "pr1_rep1", 1], ["today", "pr1_rep2", 2]])
+        # The first two settings are set side by side at once, comment by comment.
+        self.assertEqual(([(box.label, box.value) for box in page.selectbox], table(page, "better").values.tolist()),
+                         ([("Experiment", "first"), ("Setting", "before"), ("Against", "today")], [["o/n#1", "0", "found", "found, found", "neither"], ["o/n#1", "1", "missed", "partly, found", "today"]]))
+        self.assertIn("On 2 comments: before did better on 0, today on 1, and on 1 they did the same. Chance alone gives a split this uneven about 100% of the time, "
+                      "so this does not show that one is better.", captions(page))
         for expected in ["Resolved: you or a development agent marked the finding done. Withdrawn: the reviewer took it back. Open: not decided yet. Held up is the resolved share of the first two.",
                          "before: not scored, and not counted as zero: pr1_rep2 (timed_out)",
-                         "today: mixed rules files or models in this setting, so its runs are not one comparison: aaaaaaaa reviewer-model, bbbbbbbb reviewer-model"]:
+                         "today: mixed rules files, models or efforts in this setting, so its runs are not one comparison: aaaaaaaa reviewer-model high, bbbbbbbb reviewer-model high"]:
             self.assertIn(expected, captions(page))
         self.assertEqual((len(page.get("plotly_chart")), [note.value for note in page.info]), (27, []))  # five more charts, and nothing left to say how to save
         self.assertEqual([note.value for note in page.warning], [])
@@ -288,7 +313,7 @@ class Page(unittest.TestCase):
 
     def test_reviews_tab_names_a_saved_file_it_cannot_read_and_draws_nothing_from_it(self):
         self.save()
-        reviews, scores = json.loads((FIXTURE / "saved-reviews.json").read_text()), json.loads((FIXTURE / "saved-review-scores.json").read_text())
+        reviews, scores = json.loads((FIXTURE / "saved-reviews.json").read_text()), json.loads((FIXTURE / "saved-scores.json").read_text())
         lost_run = {**reviews, "findings": [{**reviews["findings"][0], "run": 9}]}
         for name, text in [("cut off", '{"version": 1, "runs": ['), ("later version", json.dumps({**reviews, "version": 2})), ("no findings", json.dumps({"version": 1, "runs": []})),
                            ("a finding of a run that is not saved", json.dumps(lost_run)),
@@ -305,10 +330,78 @@ class Page(unittest.TestCase):
                 self.save_reviews(scores=text)
                 page = self.page()
                 self.assertEqual(([note.value for note in page.warning], list(page.exception)),
-                                 (["The saved scores could not be read. Save them again with `uv run report.py ROOT --save`"], []))
+                                 (["The saved scores of first could not be read. Save them again with `uv run report.py EXPERIMENT --save`"], []))
                 self.assertEqual([tile.label for tile in page.metric][-1], "Still open")  # the real reviews above are still shown
         self.save_reviews(scores=json.dumps({**scores, "settings": []}))
-        self.assertIn("The saved scores hold no setting.", [note.value for note in self.page().info])
+        self.assertIn("The saved scores of first hold no setting.", [note.value for note in self.page().info])
+
+    def test_reviews_tab_lets_the_reader_pick_the_experiment_and_the_two_settings_to_compare(self):
+        self.save()
+        scores = json.loads((FIXTURE / "saved-scores.json").read_text())
+        self.save_reviews()
+        swapped = {**scores, "settings": [{**scores["settings"][1], "name": "later"}, {**scores["settings"][0], "name": "earlier"}, {**scores["settings"][0], "name": "unscored", "runs": []}]}
+        self.save_scores("second", json.dumps(swapped))
+        os.utime(self.folder / "experiments" / "first", (1_000_000_000, 1_000_000_000))  # worked on long before the second
+        page = self.page()
+        self.assertEqual(list(page.exception), [])
+        experiment, first, second = page.selectbox
+        self.assertEqual((experiment.options, experiment.value, first.options, first.value, second.value), (["second", "first"], "second", ["later", "earlier"], "later", "earlier"))
+        self.assertEqual(table(page, "better")["better"].tolist(), ["neither", "later"])
+        second.set_value("later").run()
+        self.assertIn("On 2 comments: later did better on 0, later on 0, and on 2 they did the same.", " ".join(captions(page)))  # a setting against itself
+        page.selectbox[0].set_value("first").run()
+        self.assertEqual(([box.value for box in page.selectbox], table(page, "better")["better"].tolist()), (["first", "before", "today"], ["neither", "today"]))
+        one = {**scores, "settings": [scores["settings"][0]]}
+        self.save_scores("first", json.dumps(one))
+        page = self.page()
+        page.selectbox[0].set_value("first").run()
+        self.assertEqual(([box.label for box in page.selectbox], list(page.exception)), (["Experiment"], []))  # one scored setting has nothing to be set against
+
+    def test_reviews_tab_runs_the_picked_experiment_and_stops_it(self):
+        self.save()
+        kept = self.save_plan("trial")
+        hint = "Judging needs DEEPSEEK_API_KEY set where this page was started. Without it, judge in a terminal with `uv run batch.py trial --judge`"
+        with mock.patch.object(batch, "start") as started, mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}):
+            page = self.page()
+            self.assertEqual(list(page.exception), [])
+            self.assertEqual(([box.value for box in page.selectbox], [button.label for button in page.button]), (["trial"], ["Run and judge what is missing"]))
+            self.assertTrue({"Runs: 1 missing.", hint} <= set(captions(page)))
+            self.assertIn("trial is not scored yet.", [note.value for note in page.info])
+            page.button(key="start_runs").click().run()
+        self.assertEqual([call.args[0]["folder"] for call in started.call_args_list], [kept])
+        run = kept / "quick" / "pr-1_rep1"
+        run.mkdir(parents=True)  # begun and not ended
+        with mock.patch.object(batch, "runner", return_value=4321), mock.patch.object(batch, "stop") as stopped:
+            page = self.page()
+            self.assertEqual(("Runs: 1 running." in captions(page), [button.label for button in page.button]), (True, ["Stop"]))
+            page.button(key="stop_runs").click().run()
+        self.assertEqual([call.args[0]["folder"] for call in stopped.call_args_list], [kept])
+        (run / "runtime.json").write_text(json.dumps({"status": "completed"}))
+        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "a-key"}):
+            page = self.page()
+        self.assertEqual(("Runs: 1 completed, 1 of them not judged yet." in captions(page), hint in captions(page), [button.label for button in page.button]),
+                         (True, False, ["Run and judge what is missing"]))  # a run left to judge, and the key to judge it
+        self.save_scores("trial")
+        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}):
+            page = self.page()
+        self.assertEqual((hint in captions(page), [button.label for button in page.button]), (True, ["Run and judge what is missing"]))  # scored before, and a run left to judge since
+        (kept / "scores.json").unlink()
+        (run / "judgement.json").write_text("{}")
+        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}):
+            page = self.page()
+        self.assertEqual(("Runs: 1 completed." in captions(page), hint in captions(page), [button.label for button in page.button]),
+                         (True, False, ["Run and judge what is missing"]))  # judged and not scored: a start only saves the scores, which needs no key
+        self.save_scores("trial")
+        (kept / "batch.log").write_text("".join(f"line {number}\n" for number in range(8)))
+        page = self.page()
+        self.assertEqual(("Runs: 1 completed." in captions(page), list(page.button), page.code[-1].value),
+                         (True, [], "line 3\nline 4\nline 5\nline 6\nline 7"))  # nothing left to do, and the end of what the last start said
+        (kept / "scores.json").unlink()
+        (kept / "plan.json").write_text("{")
+        page = self.page()
+        self.assertEqual((list(page.exception), list(page.button), [note.value for note in page.info][-1]),
+                         ([], [], "trial is not scored yet. Score it with `uv run batch.py trial --judge`"))  # the page cannot run it, so it says how
+        self.assertIn(f"It cannot run: {kept / 'plan.json'}: it is not JSON", captions(page))
 
     def test_models_tab_says_why_when_the_database_was_not_read(self):
         table = json.loads(EXAMPLE.read_text())

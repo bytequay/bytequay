@@ -5,7 +5,7 @@
     {
       "name": "before",
       "rules": [
-        "aaaaaaaa reviewer-model"
+        "aaaaaaaa reviewer-model high"
       ],
       "runs": [
         {
@@ -18,9 +18,14 @@
           "errors": 0,
           "leads": 2,
           "extra": 1,
+          "verdicts": {
+            "0": "found",
+            "1": "missed"
+          },
           "inputTokens": 1000,
           "cachedInputTokens": 400,
           "outputTokens": 50,
+          "cost": null,
           "seconds": 90.0,
           "judgeInputTokens": 800,
           "judgeOutputTokens": 60
@@ -36,8 +41,8 @@
     {
       "name": "today",
       "rules": [
-        "aaaaaaaa reviewer-model",
-        "bbbbbbbb reviewer-model"
+        "aaaaaaaa reviewer-model high",
+        "bbbbbbbb reviewer-model high"
       ],
       "runs": [
         {
@@ -50,9 +55,14 @@
           "errors": 1,
           "leads": 3,
           "extra": 1,
+          "verdicts": {
+            "0": "found",
+            "1": "partly"
+          },
           "inputTokens": 1000,
           "cachedInputTokens": 400,
           "outputTokens": 50,
+          "cost": 1.5,
           "seconds": 90.0,
           "judgeInputTokens": 800,
           "judgeOutputTokens": 60
@@ -67,9 +77,14 @@
           "errors": 0,
           "leads": 3,
           "extra": 1,
+          "verdicts": {
+            "0": "found",
+            "1": "found"
+          },
           "inputTokens": 1000,
           "cachedInputTokens": 400,
           "outputTokens": 50,
+          "cost": null,
           "seconds": 90.0,
           "judgeInputTokens": 800,
           "judgeOutputTokens": 60

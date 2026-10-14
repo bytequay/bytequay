@@ -433,7 +433,7 @@ class TestCalls(unittest.TestCase):
 
 
 REVIEWS = json.loads((Path(__file__).with_name("fixture") / "saved-reviews.json").read_text())
-SCORES = json.loads((Path(__file__).with_name("fixture") / "saved-review-scores.json").read_text())
+SCORES = json.loads((Path(__file__).with_name("fixture") / "saved-scores.json").read_text())
 
 
 def reviewed():
@@ -525,16 +525,45 @@ class TestScores(unittest.TestCase):
 
     def test_tables_add_up_each_setting_and_list_each_scored_run(self):
         settings = charts.score_settings_table(SCORES)
-        self.assertEqual(settings[1], {"setting": "today", "rules": "aaaaaaaa reviewer-model, bbbbbbbb reviewer-model", "scored runs": "2 of 3", "comments": 5, "found": 3,
+        self.assertEqual(settings[1], {"setting": "today", "rules": "aaaaaaaa reviewer-model high, bbbbbbbb reviewer-model high", "scored runs": "2 of 3", "comments": 5, "found": 3,
                                        "partly": 1, "missed": 0, "judge errors": 1, "leads": 6, "extra leads": 2, "tokens in": 2000, "cached": 800, "tokens out": 100, "minutes": 3,
-                                       "judge tokens in": 1600, "judge tokens out": 120})
-        self.assertEqual([(row["setting"], row["run"], row["case"], row["comments"], row["minutes"]) for row in charts.score_runs_table(SCORES)],
-                         [("before", "pr1_rep1", "o/n#1", 2, 1.5), ("today", "pr1_rep1", "o/n#1", 3, 1.5), ("today", "pr1_rep2", "o/n#1", 2, 1.5)])
+                                       "recorded cost": 1.5, "judge tokens in": 1600, "judge tokens out": 120})
+        self.assertIsNone(settings[0]["recorded cost"])  # no run of this setting records a cost: not known, and not zero
+        self.assertEqual([(row["setting"], row["run"], row["case"], row["comments"], row["minutes"], row["recorded cost"]) for row in charts.score_runs_table(SCORES)],
+                         [("before", "pr1_rep1", "o/n#1", 2, 1.5, None), ("today", "pr1_rep1", "o/n#1", 3, 1.5, 1.5), ("today", "pr1_rep2", "o/n#1", 2, 1.5, None)])
+
+    def test_two_settings_are_compared_on_the_comments_both_were_judged_on(self):
+        self.assertEqual(charts.comment_verdicts(SCORES["settings"][1]), {("o/n#1", "0"): ["found", "found"], ("o/n#1", "1"): ["partly", "found"]})
+        rows, counts = charts.compared(SCORES, "before", "today")
+        self.assertEqual(rows, [{"case": "o/n#1", "comment": "0", "first": "found", "second": "found, found", "better": "neither"},
+                                {"case": "o/n#1", "comment": "1", "first": "missed", "second": "partly, found", "better": "today"}])
+        self.assertEqual(counts, (0, 1, 1))
+        self.assertEqual(charts.compared(SCORES, "today", "before")[1], (1, 0, 1))
+        self.assertEqual(charts.compared(SCORES, "today", "today")[1], (0, 0, 2))  # a setting is never better than itself
+        # A part-find is half a find: one found and one missed are level with two part-finds, and below a find and a part-find.
+        run = lambda verdicts: {**SCORES["settings"][0]["runs"][0], "verdicts": verdicts}
+        mixed = {**SCORES, "settings": [{"name": "a", "rules": [], "notScored": [], "runs": [run({"1": "found", "2": "found"}), run({"1": "missed", "2": "partly", "3": "found"})]},
+                                        {"name": "b", "rules": [], "notScored": [], "runs": [run({"1": "partly", "2": "partly"}), run({"1": "partly", "2": "partly", "4": "found"})]}]}
+        rows, counts = charts.compared(mixed, "a", "b")
+        self.assertEqual(([(row["comment"], row["better"]) for row in rows], counts), ([("1", "neither"), ("2", "a")], (1, 0, 1)))  # comments 3 and 4 were judged for one of them only
+        with self.assertRaises(KeyError):
+            charts.compared(SCORES, "before", "a setting that is not there")
+
+    def test_gap_between_two_settings_is_weighed_against_chance(self):
+        self.assertEqual([round(charts.by_chance(wins, losses), 4) for wins, losses in [(0, 0), (1, 0), (0, 1), (5, 5), (6, 1), (1, 6), (10, 0), (9, 1)]],
+                         [1.0, 1.0, 1.0, 1.0, 0.125, 0.125, 0.002, 0.0215])
+        self.assertEqual(charts.compared_in_words("a", "b", (0, 0, 0)), "These two settings were judged on no comment in common.")
+        self.assertEqual(charts.compared_in_words("a", "b", (6, 1, 3)), "On 10 comments: a did better on 6, b on 1, and on 3 they did the same. "
+                         "Chance alone gives a split this uneven about 12% of the time, so this does not show that one is better.")
+        self.assertEqual(charts.compared_in_words("a", "b", (9, 1, 0)), "On 10 comments: a did better on 9, b on 1, and on 0 they did the same. "
+                         "Chance alone gives a split this uneven only about 2% of the time.")
+        self.assertEqual(charts.compared_in_words("a", "b", (0, 12, 1)), "On 13 comments: a did better on 0, b on 12, and on 1 they did the same. "
+                         "Chance alone gives a split this uneven only less than 1% of the time.")
 
     def test_notes_name_mixed_settings_and_runs_that_were_not_scored(self):
         self.assertEqual(charts.score_notes(SCORES), [
             "before: not scored, and not counted as zero: pr1_rep2 (timed_out)",
-            "today: mixed rules files or models in this setting, so its runs are not one comparison: aaaaaaaa reviewer-model, bbbbbbbb reviewer-model",
+            "today: mixed rules files, models or efforts in this setting, so its runs are not one comparison: aaaaaaaa reviewer-model high, bbbbbbbb reviewer-model high",
             "today: not scored, and not counted as zero: pr2_rep1 (not judged)"])
         self.assertEqual(charts.score_notes({"settings": [{**SCORES["settings"][0], "notScored": []}]}), [])
 

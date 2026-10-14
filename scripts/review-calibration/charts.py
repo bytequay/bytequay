@@ -74,6 +74,8 @@ def frames(table, zone=None):
                               "unfinished": [int(row["unfinished"]) for row in rows], **{name: [row[name] for row in rows] for name in activity.FACTS}})
     # A turn is compared under its model and effort together; one the database does not know has neither.
     turns["setting"] = [None if row["model"] is None else f"{row['model']} · {row['effort'] or 'no effort'}" for row in rows]
+    # A table saved before the lab kept a turn's setup has none, as a turn from before ByteQuay named setups.
+    turns["setup"] = [row.get("setup") for row in rows]
     # A part this version does not know fails here, so a table saved by another version is refused and never drawn short.
     parts = pandas.DataFrame([(number, STATE_OF[part], part, float(length)) for number, row in enumerate(rows) for part, length in row["groups"].items()],
                              columns=["turn", "state", "part", "seconds"])

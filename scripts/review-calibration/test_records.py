@@ -1,3 +1,4 @@
+from contextlib import closing
 from pathlib import Path
 import re
 import sqlite3
@@ -76,7 +77,7 @@ class TestRecords(unittest.TestCase):
         self.assertEqual(sorted(made), [("aaaa", "t1"), ("bbbb", "t1"), ("gone", "t7")])  # a turn that never started has no time to place it at
         self.assertEqual(made[("aaaa", "t1")], {
             "start": 1767225600.500004, "seconds": 600, "provider": "codex", "model": "gpt-6-astra", "effort": "max", "repository": "trinodb/trino", "outcome": "completed",
-            "inputTokens": 1000, "cachedInputTokens": 900, "outputTokens": 50, "cost": None, "toolCalls": 12, "compactions": 1})
+            "inputTokens": 1000, "cachedInputTokens": 900, "outputTokens": 50, "cost": None, "toolCalls": 12, "compactions": 1, "setup": None})
         second = made[("bbbb", "t1")]
         # The model that ran wins over the one asked for; a lane keeps its provider and drops the account; effort is one spelling.
         self.assertEqual((second["model"], second["provider"], second["effort"], second["outcome"], second["cost"], second["seconds"]),
@@ -87,6 +88,17 @@ class TestRecords(unittest.TestCase):
         self.assertEqual((gone["provider"], gone["model"], gone["effort"], gone["repository"], gone["outcome"], gone["seconds"]), (None, None, None, None, None, 0))
         # Its task is gone, so nobody can say which provider counted these amounts, or how: none are shown.
         self.assertEqual((gone["inputTokens"], gone["cachedInputTokens"], gone["outputTokens"], gone["cost"]), (None, None, None, None))
+
+    def test_turn_keeps_the_setup_it_ran_with_and_a_database_from_before_setups_has_none(self):
+        turns = [("aaaa", name, f"2026-01-01T0{hour}:00:00Z", 1000, None, "m", "max", "COMPLETED", 1, 1, 1, None, 1, 0) for hour, name in enumerate(("t1", "t2"))]
+        database(self.path, tasks=[("aaaa", "codex", "o", "n")], turns=turns)
+        with closing(sqlite3.connect(self.path)) as made:
+            made.execute("UPDATE agent_turn SET setup_fingerprint = 'aaaaaaaa-bbbbbbbb' WHERE id = 't1'")
+            made.commit()
+        setups = lambda path: {key: one["setup"] for key, one in records.read(path).items()}
+        self.assertEqual(setups(self.path), {("aaaa", "t1"): "aaaaaaaa-bbbbbbbb", ("aaaa", "t2"): None})
+        older = database(self.path.with_name("older.db"), tasks=[("aaaa", "codex", "o", "n")], turns=turns, without=("setup_fingerprint",))
+        self.assertEqual(setups(older), {("aaaa", "t1"): None, ("aaaa", "t2"): None})
 
     def test_codex_and_claude_turns_keep_their_own_tokens_and_another_provider_shows_none(self):
         turn = lambda task, name, hour, tokens_in, cached, tokens_out: (task, name, f"2026-01-01T{hour:02}:00:00Z", 1000, None, "m", "max", "COMPLETED", tokens_in, cached, tokens_out,

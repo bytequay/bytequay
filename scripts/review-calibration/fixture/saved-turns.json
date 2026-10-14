@@ -28,6 +28,7 @@
       "cost": null,
       "toolCalls": 30,
       "compactions": 0,
+      "setup": "aaaaaaaa-bbbbbbbb",
       "groups": {
         "model silent": 358.0,
         "tests and builds": 120.0,
@@ -138,6 +139,7 @@
       "cost": null,
       "toolCalls": 8,
       "compactions": 0,
+      "setup": null,
       "groups": {
         "model silent": 180.0,
         "tests and builds": 120.0
@@ -206,6 +208,7 @@
       "cost": null,
       "toolCalls": null,
       "compactions": null,
+      "setup": null,
       "groups": {
         "other shell commands": 40.0,
         "model silent": 60.0,
@@ -281,6 +284,7 @@
       "cost": 1.5,
       "toolCalls": 12,
       "compactions": 1,
+      "setup": null,
       "groups": {},
       "programs": {},
       "after": {},

@@ -1,5 +1,5 @@
-"""The lab's report on a page: what changed against the days before and why, where the turn time went, and what moved
-after the changes you noted. `uv run digest.py` writes the same report to a file."""
+"""The lab's report on a page: what got worse, what changed against the days before and why, what changed in ByteQuay,
+where the turn time went, and what moved after the changes you noted. `uv run digest.py` writes the same report to a file."""
 
 import argparse
 from pathlib import Path
@@ -8,6 +8,7 @@ import streamlit as st
 
 import dashboard
 import digest
+import explain
 import saved
 
 SAVE = "uv run activity.py --save"
@@ -22,8 +23,8 @@ arguments = argparse.ArgumentParser(add_help=False)
 arguments.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER)
 FOLDER = arguments.parse_known_args()[0].folder
 st.title("Report")
-st.caption("The report `uv run digest.py` writes, for the days picked here: what changed against the days before and why, where the turn time went, "
-           "and what moved after the changes you noted.")
+st.caption("The report `uv run digest.py` writes, for the days picked here: what got worse, what changed against the days before and why, what changed "
+           "in ByteQuay, where the turn time went, and what moved after the changes you noted.")
 UNREADABLE = f"The saved turn table could not be read. Save it again with `{SAVE}`"
 try:
     TABLE = saved.read(FOLDER, "turns.json")
@@ -46,7 +47,7 @@ with st.container(horizontal=True):
     KIND = KINDS[st.segmented_control("Against the one before", list(KINDS), default="Week", key="kind") or "Week"]
     ENDING = st.date_input("Last day", value=None, key="ending", help="Left empty, the last day that had ended when the tables were saved.")
 try:
-    TEXT = digest.report(TABLE, REVIEWS, NOTED, KIND, ENDING)[0]
+    TEXT = digest.report(TABLE, REVIEWS, NOTED, KIND, ENDING, commits=explain.commits)[0]
 except (KeyError, TypeError, ValueError):
     st.warning(UNREADABLE)
     st.stop()

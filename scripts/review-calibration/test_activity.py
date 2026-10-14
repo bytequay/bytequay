@@ -560,9 +560,10 @@ class TestTurns(Logs):
     def recorded(self):
         """What the database holds: the two turns of the first task, nothing for the second task, and a turn that has no log."""
         day = START.timestamp() + 86400
-        blank = dict.fromkeys(activity.FACTS)
+        blank = {**dict.fromkeys(activity.FACTS), "setup": None}
         return {("aaaa-1111", "t1"): {**blank, "start": START.timestamp(), "seconds": 601, "outcome": "completed", "provider": "codex", "model": "gpt-6-astra", "effort": "max",
-                                      "repository": "trinodb/trino", "inputTokens": 900000, "cachedInputTokens": 850000, "outputTokens": 4000, "toolCalls": 30, "compactions": 0},
+                                      "repository": "trinodb/trino", "inputTokens": 900000, "cachedInputTokens": 850000, "outputTokens": 4000, "toolCalls": 30, "compactions": 0,
+                                      "setup": "aaaaaaaa-bbbbbbbb"},
                 ("aaaa-1111", "t2"): {**blank, "start": day, "seconds": 299, "outcome": "cancelled", "provider": "codex", "model": "gpt-6-astra", "effort": "medium",
                                       "repository": "trinodb/trino", "inputTokens": 200000, "cachedInputTokens": 150000, "outputTokens": 1000, "toolCalls": 8, "compactions": 0},
                 ("cccc-3333", "t9"): {**blank, "start": day + 7200, "seconds": 240, "outcome": "completed", "provider": "claude", "model": "opus", "effort": "high",
@@ -604,6 +605,7 @@ class TestTurns(Logs):
                          {"provider": "codex", "model": "gpt-6-astra", "effort": "max", "repository": "trinodb/trino", "inputTokens": 900000, "cachedInputTokens": 850000,
                           "outputTokens": 4000, "cost": None, "toolCalls": 30, "compactions": 0})
         self.assertEqual((first["seconds"], second["effort"], second["outcome"]), (600, "medium", "cancelled"))  # time is the log's, the ending is the database's
+        self.assertEqual([row["setup"] for row in made["turns"]], ["aaaaaaaa-bbbbbbbb", None, None, None])  # the setup a turn ran with, where the database names it
         # Only in the log: its time split is known, and nothing else is made up.
         self.assertEqual(({name: only_logged[name] for name in activity.FACTS}, only_logged["outcome"]), (dict.fromkeys(activity.FACTS), "no end mark"))
         # Only in the database: no time split, and its time is the database's own.

@@ -448,8 +448,9 @@ arguments, no paths and no message text.
 For the turn table `activity.py` also reads ByteQuay's own database,
 `bytequay-1.0.db` beside the runtime folder or `--database PATH`. `records.py`
 opens it read-only and takes, for each turn, its model, effort, provider,
-repository name, tokens, cost, tool calls and how it ended, and no title,
-prompt or other text. A turn in both the log and the database gets these facts
+repository name, tokens, cost, tool calls, how it ended and the name of the
+setup it ran with, and no title, prompt or other text. A database from before
+ByteQuay named setups has none. A turn in both the log and the database gets these facts
 in its row. A turn only in the log has none of them. A turn only in the
 database gets a row without a time split, because its log is gone. When the
 database is missing or has another shape, the table is saved from the logs
@@ -627,7 +628,9 @@ printed and kept as a file of its own under `reports/` in the folder, so
 earlier reports stay. The dashboard's Report page shows the same report for
 the week or the day picked there.
 
-The report has five parts. "What changed" sets each number of these days
+The report has eight parts. "Worth a look" comes first: every number that got
+clearly worse within the same models and efforts, against the days before or
+since a change you noted. "What changed" sets each number of these days
 against the same number of days before. How much was done counts every turn.
 How the time was spent is known only for turns that still have a log, and the
 report says how many those are. "Why it moved" first names the models and
@@ -638,17 +641,38 @@ models and efforts that moved it most, with their turns before and since. A
 count that stays below ten on both sides gets no reason. For tokens and cost
 it says how many turns on each side record them and which provider never
 does, so a cost that grew because more turns record one is not read as work
-that got dearer. "Where the time went" ranks the model's time
+that got dearer.
+
+"Better or worse" sets the numbers that do not grow with the amount of work
+against the days before: the typical turn, the share of turns completed, how
+the time was spent, model time at the start of a turn and after a ByteQuay
+tool, long commands and questions in an agent hour, tokens in a turn, and
+review runs asked again. Its "Clear?" column says whether each moved beyond
+chance (see Ranges), in the unit of the Change column. It compares like with
+like: each model and effort with three tasks or more on both sides, weighed
+by its turns, so a week that ran more turns on a slower model is not read as
+ByteQuay getting slower. It says better or worse where one way is plainly
+better (more turns completed; less waiting for you, model time, long
+commands, questions, tokens and runs asked again), yes for a clear move of a
+number such as the typical turn, and too few tasks when no model and effort
+has three on both sides. With ten numbers, about one report in five flags one
+as worse by chance alone, so read a single flag as a lead and the same flag in
+the next report as a finding.
+
+"What changed in ByteQuay" lists the setups that first ran these days, each
+with the half of its name that no earlier setup had, and the commits that
+reached the agent code, by where they landed (instructions and context, tools
+and approvals, each lane, turns and tasks, reviews) with the latest of each.
+Commits land nearly every day, so this says where to look when a number got
+worse; it does not measure a cause. "Where the time went" ranks the model's time
 by what had just finished, each kind of waiting for a tool, and waiting for
 the reader, each with its share before, and for the model how often it
 happened and how long each time took. "Models and effort" lists the settings
 with the most turns. "Changes you noted" is for checking a change made to
 ByteQuay: note what you changed with `--note`, and for four weeks each report
-sets the days since that day against the seven before it, by numbers that do
-not grow with the amount of work. Its "Clear?" column says whether each number
-moved beyond chance (see Ranges), in the unit of the Change column, or that a
-side has too few tasks to tell. The notes are kept in `changes.json` in the
-folder and can be edited by hand.
+sets the days since that day against the seven before it, by the numbers of
+"Better or worse", with the same Clear? column. The notes are kept in
+`changes.json` in the folder and can be edited by hand.
 
 A share moves in points and any other number by how much it grew. A number
 that is not known is a dash and never a zero. The days before are measured
@@ -740,6 +764,12 @@ typical value is the middle one. With fewer than three tasks there is no range.
 
 A change is clear when its whole range lies on one side of zero. The tasks
 before and since are drawn apart, never paired, because they are other tasks.
+A comparison of like with like puts a number together from each model and
+effort with three tasks or more on both sides, each weighed by its turns on
+both sides together, and draws each one's tasks on their own. A count with no
+event on a side gives no range, nor does a change in percent whose side before
+is zero in more draws than the range leaves out: drawn again, such a side
+would look known for sure.
 Ranges appear in the Models and Reviews tables, beside each number to watch,
 on a noted change in the Suggestions tab, and in the report's "Clear?" column.
 The comparison of two scorer settings keeps its own sign test.

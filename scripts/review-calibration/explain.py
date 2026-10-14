@@ -1,12 +1,31 @@
-"""Why the totals of the lab report moved. A total such as agent time or cost is what every model and effort gave, added
+"""Why the numbers of the lab report moved. A total such as agent time or cost is what every model and effort gave, added
 up, so the report names the ones that moved it most with their turns, and says when the turns ran with other models and
-efforts than in the days before."""
+efforts than in the days before. Then what changed in ByteQuay itself on those days: the setups that first ran, and the
+commits that reached the agent code."""
 
 from __future__ import annotations
 
+from datetime import datetime, time, timedelta
+from pathlib import Path
+import subprocess
+
 import pandas
 
+import activity
 import charts
+
+ROOT = Path(__file__).resolve().parents[2]  # ByteQuay's repository, which the lab lives in
+# Where a commit to the agent code landed, by the folders and files of ByteQuay that make up each part.
+AREAS = {
+    "instructions and context": ("backend/agent-cli/src/main/java/com/bytequay/agent/cli/ProviderInstructions.java",
+                                 "backend/agent-spi/src/main/java/com/bytequay/agent/spi/AgentCommandPolicy.java", "backend/app/src/main/java/com/bytequay/app/agent/",
+                                 "backend/app/src/main/java/com/bytequay/app/context/", "backend/app/src/main/java/com/bytequay/app/memory/"),
+    "tools and approvals": ("backend/agent-cli/src/main/java/com/bytequay/agent/cli/mcp/",),
+    "the Codex lane": ("backend/agent-cli/src/main/java/com/bytequay/agent/cli/codex/",),
+    "the Claude lane": ("backend/agent-cli/src/main/java/com/bytequay/agent/cli/claude/",),
+    "turns and tasks": ("backend/agent-core/src/main/",),
+    "reviews": ("backend/app/src/main/java/com/bytequay/app/review/",),
+}
 
 UNKNOWN = "no model known"  # the turns the database does not know
 TOTALS = ("Agent time", "Turns", "Long single commands", "Time in long commands", "Questions to you", "Rate limit notices", "Tokens in", "Tokens out", "Recorded cost")
@@ -87,3 +106,60 @@ def why(shown_before, shown, before, now, facts, written):
         if line:
             lines.append("- " + line + (coverage(name, shown_before, shown) if name in KNOWN else ""))
     return lines if lines and lines[-1].startswith("- ") else [*lines, f"No total moved by {BIG}% or more."]
+
+
+def commits(first, last, zone=None, root=ROOT):
+    """The commits that reached ByteQuay's agent code from the start of `first` to the end of `last`, in the reader's own
+    time zone, as (time, subject, paths), the latest first. None when git cannot say."""
+    zone = zone or datetime.now().astimezone().tzinfo
+    start, end = (datetime.combine(day, time.min, zone) for day in (first, last + timedelta(days=1)))
+    try:
+        found = subprocess.run(["git", "-C", str(root), "log", f"--since={start.isoformat()}", f"--until={end.isoformat()}", "--format=%x00%ct%x09%s", "--name-only", "--",
+                                *(path for paths in AREAS.values() for path in paths)], capture_output=True, text=True, check=True, timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    made = []
+    for chunk in found.split("\x00")[1:]:
+        head, *names = chunk.strip("\n").split("\n")
+        when, subject = head.split("\t", 1)
+        if start.timestamp() <= int(when) < end.timestamp():
+            made.append((int(when), subject, tuple(name for name in names if name)))
+    return made
+
+
+def area(path):
+    """The part of the agent code a path belongs to, or None."""
+    return next((name for name, prefixes in AREAS.items() if any(path.startswith(prefix) for prefix in prefixes)), None)
+
+
+def changed(turns, first, last, found):
+    """The lines of "what changed in ByteQuay": the setups that first ran from `first` to `last`, each with the half of its
+    name no earlier setup had, and the commits that reached the agent code, by where they landed. `turns` is every saved
+    turn and `found` is what `commits` gave, or None when the commits were not read."""
+    named, lines = turns[turns["setup"].notna()], []
+    if named.empty:
+        lines.append("- No saved turn names its setup yet.")
+    else:
+        new, seen = [], (set(), set())
+        for setup, start in named.groupby("setup")["start"].min().sort_values().items():
+            halves = setup.split("-")
+            if first <= start.date() <= last:
+                fresh = [part for part, half, earlier in zip(("instructions", "tools"), halves, seen) if half not in earlier]
+                what = "the first named" if not seen[0] else f"new {' and '.join(fresh)}" if fresh else "known halves"
+                ran = int(((named["setup"] == setup) & (named["day"] >= first) & (named["day"] <= last)).sum())
+                new.append(f"`{setup}` ({what}, {activity.count(ran, 'turn')})")
+            for half, earlier in zip(halves, seen):
+                earlier.add(half)
+        lines.append("- Setups that first ran these days: " + ", ".join(new) + "." if new else "- No new setup ran these days.")
+    if found is None:
+        lines.append("- The commits to the agent code were not read.")
+    elif not found:
+        lines.append("- No commit reached the agent code these days.")
+    else:
+        landed = {}
+        for _, subject, paths in found:
+            for name in sorted({area(path) for path in paths} - {None}):
+                landed.setdefault(name, []).append(subject)
+        lines.append(f"- {activity.count(len(found), 'commit')} reached the agent code these days:")
+        lines += [f"  - {name}: {len(subjects)}, the latest \"{subjects[0]}\"" for name, subjects in sorted(landed.items(), key=lambda pair: (-len(pair[1]), pair[0]))]
+    return lines

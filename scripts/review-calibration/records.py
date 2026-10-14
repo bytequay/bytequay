@@ -1,5 +1,5 @@
 """What ByteQuay's own database records about each turn and each review run: model, effort, tokens, cost, how it ended,
-and what became of a review's findings. Opened read-only."""
+the setup it ran with, and what became of a review's findings. Opened read-only."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from urllib.parse import quote
 
 import saved
 
-# The columns the lab reads, by table: ids, times, numbers, and the names of the model, the effort, the lane and the
-# repository. Titles, prompts, plans and every other text column stay unread.
+# The columns the lab reads, by table: ids, times, numbers, and the names of the model, the effort, the lane, the
+# repository and the setup. Titles, prompts, plans and every other text column stay unread.
 COLUMNS = {
     "agent_turn": ("id", "task_id", "started_at", "elapsed_millis", "model", "requested_model", "effort", "state", "input_tokens", "cached_input_tokens", "output_tokens",
-                   "cost", "tool_calls", "context_compactions"),
+                   "cost", "tool_calls", "context_compactions", "setup_fingerprint"),
     "agent_task": ("id", "lane_id", "repository_owner", "repository_name"),
     "agent_review": ("id", "repo"),
     "agent_review_run": ("id", "review_id", "state", "created_at", "ended_at", "completion_repair_used", "turn_ids_json"),
@@ -24,8 +24,9 @@ COLUMNS = {
 QUERY = """
     SELECT turn.task_id, turn.id, turn.started_at, turn.elapsed_millis, COALESCE(NULLIF(turn.model, ''), turn.requested_model), turn.effort, turn.state,
            turn.input_tokens, turn.cached_input_tokens, turn.output_tokens, turn.cost, turn.tool_calls, turn.context_compactions,
-           task.lane_id, task.repository_owner, task.repository_name
+           task.lane_id, task.repository_owner, task.repository_name, turn.setup_fingerprint
     FROM agent_turn turn LEFT JOIN agent_task task ON task.id = turn.task_id"""
+SETUP = "setup_fingerprint"  # only a database from after ByteQuay began to name a turn's setup has this column
 RUNS = """
     SELECT run.id, run.review_id, review.repo, run.state, run.created_at, run.ended_at, run.completion_repair_used, run.turn_ids_json
     FROM agent_review_run run LEFT JOIN agent_review review ON review.id = run.review_id"""
@@ -42,7 +43,8 @@ OWN = {"claude", "codex"}
 def read(path):
     """One record for every turn that started, keyed by (task id, turn id). Fails with OSError when the database is not
     there and with sqlite3.Error when it has another shape, so a caller never mistakes either for a database without turns."""
-    made = {(row[0], row[1]): record(*row[2:]) for row in rows(path, QUERY)[0] if row[2]}
+    named = SETUP in {row[1] for row in rows(path, "PRAGMA table_info(agent_turn)")[0]}
+    made = {(row[0], row[1]): record(*row[2:]) for row in rows(path, QUERY if named else QUERY.replace(f"turn.{SETUP}", "NULL"))[0] if row[2]}
     for one in made.values():
         if one["provider"] not in OWN:
             one.update(dict.fromkeys((*TOKENS, "cost")))
@@ -89,10 +91,10 @@ def reviews(path, turns, since=None, task=None):
     return {"runs": runs, "findings": findings}
 
 
-def record(started, elapsed, model, effort, state, tokens_in, cached, tokens_out, cost, tools, compactions, lane, owner, name):
+def record(started, elapsed, model, effort, state, tokens_in, cached, tokens_out, cost, tools, compactions, lane, owner, name, setup):
     return {"start": moment(started), "seconds": (elapsed or 0) / 1000,
             # A lane is named after its provider, sometimes followed by the id of an account or a key. Only the provider is kept.
             "provider": lane.split("-")[0] if lane else None, "model": model or None, "effort": effort.lower() if effort else None,
             "repository": f"{owner}/{name}" if owner and name else None, "outcome": state.lower() if state else None,
             "inputTokens": tokens_in, "cachedInputTokens": cached, "outputTokens": tokens_out, "cost": None if cost is None else float(cost),
-            "toolCalls": tools, "compactions": compactions}
+            "toolCalls": tools, "compactions": compactions, "setup": setup or None}

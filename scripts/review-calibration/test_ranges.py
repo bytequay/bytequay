@@ -70,9 +70,12 @@ class TestChange(unittest.TestCase):
 
     def test_a_relative_change_is_a_ratio_of_the_two_sides_and_never_falls_below_minus_one_hundred(self):
         self.assertEqual(ranges.relative(ranges.Ratio((10, 10, 10), (1, 1, 1)), ranges.Ratio((5, 5, 5), (1, 1, 1))), (-50.0, -50.0))
-        self.assertEqual(ranges.relative(ranges.Ratio((1, 2, 3), (1, 1, 1)), ranges.Ratio((0, 0, 0), (1, 1, 1))), (-100.0, -100.0))
         low, _ = ranges.relative(ranges.Ratio((0, 1, 9, 2), (1,) * 4), ranges.Ratio((0, 0, 1, 0), (1,) * 4))
         self.assertGreaterEqual(low, -100.0)
+        # A side with no part at all is zero in every draw, which would read as known for sure: it tells nothing.
+        self.assertIsNone(ranges.relative(ranges.Ratio((1, 2, 3), (1, 1, 1)), ranges.Ratio((0, 0, 0), (1, 1, 1))))
+        # Nor does a side before that is zero in more draws than the range leaves out: there one task holds all of it.
+        self.assertIsNone(ranges.relative(ranges.Ratio((0, 0, 0, 5), (1,) * 4), ranges.Ratio((1, 1, 1), (1, 1, 1))))
         self.assertIsNone(ranges.relative(ranges.Ratio((1,), (1,)), ranges.Ratio((1, 2, 3), (1, 1, 1))))
 
     def test_too_few_tasks_on_either_side_tell_nothing(self):
@@ -84,6 +87,30 @@ class TestChange(unittest.TestCase):
 
     def test_a_range_is_said_in_words(self):
         self.assertEqual((ranges.said((4.06, 6.94)), ranges.said((1200.4, 3000.6), 0), ranges.said(None)), ("4.1 to 6.9", "1,200 to 3,001", None))
+
+
+class TestAlike(unittest.TestCase):
+    def test_like_is_set_against_like_so_a_shift_between_groups_moves_nothing(self):
+        # Group a is slow and b quick. Each kept its own pace, but most of the turns moved from a to b.
+        slow, quick = ranges.Ratio((10, 10, 10), (1, 1, 1)), ranges.Ratio((2, 2, 2), (1, 1, 1))
+        before, since = ranges.alike({"a": (90, slow), "b": (10, quick)}, {"a": (10, slow), "b": (90, quick)})
+        self.assertEqual((before.value(), since.value()), (6.0, 6.0))  # each group weighed by its turns on both sides: 100 and 100
+        self.assertEqual(ranges.change(before, since), (0.0, 0.0))
+        faster = ranges.Ratio((5, 5, 5), (1, 1, 1))
+        self.assertEqual(ranges.change(*ranges.alike({"a": (50, slow), "b": (50, quick)}, {"a": (50, faster), "b": (50, quick)})), (-2.5, -2.5))
+
+    def test_each_group_draws_its_own_tasks(self):
+        # Two groups of the same tasks: drawn apart, their mean wobbles less than either alone. Drawn as one, it would wobble as much.
+        alone = ranges.Ratio((1, 2, 3, 4, 5, 6), (1,) * 6)
+        width = lambda found: found[1] - found[0]
+        self.assertLess(width(ranges.span(ranges.Mixed(((1, alone), (1, alone))).draws(7))), 0.85 * width(ranges.span(alone.draws(7))))
+
+    def test_a_group_with_too_few_tasks_on_a_side_is_left_out(self):
+        slow, few = ranges.Ratio((10, 10, 10), (1, 1, 1)), ranges.Ratio((1,), (1,))
+        before, since = ranges.alike({"a": (5, slow), "c": (5, few)}, {"a": (5, slow), "c": (5, slow), "d": (5, slow)})
+        self.assertEqual(([weight for weight, _ in before.parts], [weight for weight, _ in since.parts]), ([10], [10]))
+        for left in ({"c": (5, few)}, {"a": (5, None)}, {}):
+            self.assertIsNone(ranges.alike(left, {"a": (5, slow), "c": (5, slow)}))
 
 
 if __name__ == "__main__":

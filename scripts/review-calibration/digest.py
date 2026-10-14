@@ -23,7 +23,7 @@ START, TOOLS = "at the start of a turn", "after ByteQuay tools"
 WHOLE, HOURS, MINUTES, SECONDS, SHARE, DOLLARS = "{:,.0f}".format, "{:.1f} h".format, "{:.1f} min".format, "{:.0f} s".format, "{:.0f}%".format, "${:,.2f}".format
 # The numbers of "what changed", in the order they are listed, each with how it is written.
 LISTED = {
-    "Agent time": HOURS, "Turns": WHOLE, "Tasks": WHOLE, "Typical turn": MINUTES, "Turns with a log": WHOLE, **dict.fromkeys(charts.STATES, SHARE),
+    "Agent time": HOURS, "Turns": WHOLE, "Tasks": WHOLE, "Typical turn": MINUTES, "Turns completed": SHARE, "Turns with a log": WHOLE, **dict.fromkeys(charts.STATES, SHARE),
     "Long single commands": WHOLE, "Time in long commands": MINUTES, "Questions to you": WHOLE, "Questions that ran out": WHOLE, "Rate limit notices": WHOLE, "Retries": WHOLE,
     "Tokens in": charts.short, "From the cache": SHARE, "Tokens out": charts.short, "Recorded cost": DOLLARS,
     "Review runs": WHOLE, "Runs asked again": WHOLE, "Findings": WHOLE, "Resolved": WHOLE, "Withdrawn": WHOLE, "Still open": WHOLE, "Held up": SHARE,
@@ -34,7 +34,14 @@ PER_UNIT = {
     "Questions to you in an agent hour": "{:.1f}".format, "Typical tokens in a turn": charts.short, "Share of review runs asked again": SHARE,
 }
 WRITTEN = LISTED | PER_UNIT
-RATES = ("Typical turn", *charts.STATES, *PER_UNIT)
+RATES = ("Typical turn", "Turns completed", *charts.STATES, *PER_UNIT)
+# Which way each of these numbers is better: up (1) or down (-1). A number left out, such as the typical turn, is not better
+# for being higher or lower: a longer turn may have done more.
+BETTER = {"Turns completed": 1, "Waiting for you": -1, **dict.fromkeys(PER_UNIT, -1)}
+UNKNOWN_END = activity.OUTCOMES[""]  # how a turn whose ending nobody knows is saved
+CLEAR = (f"Clear? says whether a number moved beyond what other tasks could have given: whole tasks drawn again, {ranges.LEVEL}% of the draws. It compares like "
+         "with like: each model and effort with three tasks or more on both sides, weighed by its turns. It says better or worse where one way is plainly better, "
+         "and too few tasks when no model and effort has three on both sides.")
 
 
 def facts(shown, reviewed):
@@ -55,9 +62,11 @@ def facts(shown, reviewed):
     def an_hour(amount):
         return amount / (seconds / 3600) if seconds else None
 
+    ended = turns[turns["outcome"] != UNKNOWN_END]
     made = {
         "Agent time": float(turns["seconds"].sum()) / 3600, "Turns": len(turns), "Tasks": int(turns["task"].nunique()),
-        "Typical turn": float(turns["seconds"].median()) / 60 if len(turns) else None, "Turns with a log": len(timed),
+        "Typical turn": float(turns["seconds"].median()) / 60 if len(turns) else None,
+        "Turns completed": charts.share(int((ended["outcome"] == "completed").sum()), len(ended)) if len(ended) else None, "Turns with a log": len(timed),
         **{state: charts.share(float(states[state]), seconds) if seconds else None for state in charts.STATES},
         "Long single commands": len(runs), "Time in long commands": float(runs["seconds"].sum()) / 60,
         "Questions to you": len(waits), "Questions that ran out": int((waits["outcome"] == "expired").sum()),
@@ -94,7 +103,9 @@ def measures(shown, reviewed):
         return ranges.ratio(by_task(rows, rows["seconds"]), by_task(rows, rows["times"]))
 
     tokens = charts.tokens(turns)
+    ended = turns[turns["outcome"] != UNKNOWN_END]
     made = {"Typical turn": ranges.median(turns["seconds"] / 60, turns["task"]),
+            "Turns completed": ranges.ratio((ended["outcome"] == "completed").groupby(ended["task"]).sum(), ended.groupby("task").size(), 100),
             **{state: ranges.ratio(by_task(parts, parts["seconds"].where(parts["state"] == state, 0.0)), hours * 3600, 100) for state in charts.STATES},
             "Model time after a ByteQuay tool call": model(TOOLS), "Model time at the start of a turn": model(START),
             "Long command minutes in an agent hour": ranges.ratio(by_task(logged["runs"], logged["runs"]["seconds"] / 60), hours),
@@ -107,15 +118,38 @@ def measures(shown, reviewed):
     return made
 
 
+def by_setting(shown, reviewed):
+    """For each model and effort its turns and its measures, which a comparison of like with like is made of."""
+    named = shown["turns"]["setting"].fillna(explain.UNKNOWN)
+    runs = None if reviewed is None else reviewed["runs"]["setting"].fillna(explain.UNKNOWN)
+    made = {}
+    for setting in sorted(set(named) | (set() if runs is None else set(runs))):
+        chosen = None if reviewed is None else {"runs": reviewed["runs"][runs == setting], "findings": reviewed["findings"][reviewed["findings"]["run"].isin(runs[runs == setting].index)]}
+        made[setting] = (int((named == setting).sum()), measures(charts.only(shown, named == setting), chosen))
+    return made
+
+
+def checked(name, before, since):
+    """Where the change of a number could lie, compared like with like (see ranges.alike), in the unit of the Change column:
+    points for a share and percent of the days before for any other number. None when no model and effort has three tasks
+    or more on both sides. `before` and `since` are what `by_setting` gives."""
+    pair = ranges.alike({setting: (turns, made[name]) for setting, (turns, made) in before.items()}, {setting: (turns, made[name]) for setting, (turns, made) in since.items()})
+    return None if pair is None else (ranges.change if WRITTEN[name] is SHARE else ranges.relative)(*pair)
+
+
+def verdict(name, moved):
+    """Better or worse for a clear change of a number that has a better way, yes for another clear one, and not yet otherwise."""
+    if not ranges.clear(moved):
+        return "not yet"
+    return "yes" if name not in BETTER else "better" if (moved[0] > 0) == (BETTER[name] > 0) else "worse"
+
+
 def clear(name, before, since):
-    """Whether a noted change moved this number beyond chance, with where the change could lie, in the unit of the Change column:
-    points for a share, and percent of the days before for any other number."""
-    share = WRITTEN[name] is SHARE
-    moved = (ranges.change if share else ranges.relative)(before[name], since[name])
+    """Whether this number moved beyond chance, comparing like with like, with where the change could lie."""
+    moved = checked(name, before, since)
     if moved is None:
         return "too few tasks"
-    verdict = "yes" if ranges.clear(moved) else "not yet"
-    return f"{verdict}: {moved[0]:+.0f} to {moved[1]:+.0f} points" if share else f"{verdict}: {moved[0]:+.0f}% to {moved[1]:+.0f}%"
+    return f"{verdict(name, moved)}: {moved[0]:+.0f} to {moved[1]:+.0f} points" if WRITTEN[name] is SHARE else f"{verdict(name, moved)}: {moved[0]:+.0f}% to {moved[1]:+.0f}%"
 
 
 def moved(before, now, share):
@@ -195,9 +229,10 @@ def models(turns, turns_before):
             "", "This counts every turn ByteQuay recorded, with or without a log."]
 
 
-def report(turn_table, review_table, noted, kind, ending=None, zone=None):
+def report(turn_table, review_table, noted, kind, ending=None, zone=None, commits=None):
     """The report as Markdown, and the last day it covers. Fails with KeyError, TypeError or ValueError when the turn table is
-    in another shape. Reviews that are missing or in another shape are named as such and left out."""
+    in another shape. Reviews that are missing or in another shape are named as such and left out. `commits` gives the commits
+    of some days as `explain.commits` does; without it the report says they were not read."""
     made = charts.frames(turn_table, zone)
     saved_at = datetime.fromisoformat(turn_table["savedAt"]).astimezone(zone)
     # By default the last day that had ended when the tables were saved: a day still running would be compared with whole ones.
@@ -227,32 +262,36 @@ def report(turn_table, review_table, noted, kind, ending=None, zone=None):
         chosen = None if reviews is None else charts.reviews_chosen(reviews, start, end)
         return shown, facts(shown, chosen), chosen
 
-    (shown, now, _), (shown_before, before, _) = stretch(first, last), stretch(earlier - timedelta(days=DAYS[kind] - 1), earlier)
+    (shown, now, chosen), (shown_before, before, chosen_before) = stretch(first, last), stretch(earlier - timedelta(days=DAYS[kind] - 1), earlier)
     # ponytail: the days before are measured again from today's tables, so a log lost since then is missing from them.
     # Keep each report's numbers and read them back if this note shows up often.
     for when, known in (("In these days", now), ("Before", before)):
         if known["Turns with a log"] < known["Turns"]:
             notes.append(f"{when}, {known['Turns with a log']:,} of {known['Turns']:,} turns have a log. How the time was spent, long commands, questions and notices "
                          "are known for those turns only.")
+    fair = [(*row, clear(row[0], by_setting(shown_before, chosen_before), by_setting(shown, chosen))) for row in compared(RATES, before, now)]
+    worse = [f"- {row[0]} got worse within the same models and efforts, by {row[4].split(': ', 1)[1]}." for row in fair if row[4].startswith("worse")]
+    checks = []
+    for one in (one for one in noted if last - timedelta(days=NOTED) < one["day"] <= last):
+        (was_shown, was, was_reviews), (since_shown, since, since_reviews) = stretch(one["day"] - timedelta(days=BEFORE), one["day"] - timedelta(days=1)), stretch(one["day"], last)
+        rows = [(*row, clear(row[0], by_setting(was_shown, was_reviews), by_setting(since_shown, since_reviews))) for row in compared(RATES, was, since)]
+        worse += [f"- Since \"{one['what']}\" on {said(one['day'])}, {row[0]} got worse within the same models and efforts, by {row[4].split(': ', 1)[1]}."
+                  for row in rows if row[4].startswith("worse")]
+        head = ("", f"{BEFORE} days before ({activity.count(was['Turns'], 'turn')})",
+                f"{activity.count((last - one['day']).days + 1, 'day')} since ({activity.count(since['Turns'], 'turn')})", "Change", "Clear?")
+        checks += [f"### {said(one['day'])}: {one['what']}", "", *table(head, rows), ""]
     lines = [f"# ByteQuay lab report: {said(last) if first == last else f'{said(first)} to {said(last)}'} {last.year}", "",
              f"Against the {'day' if kind == 'day' else f'{DAYS[kind]} days'} before. From the tables saved {saved_at:%Y-%m-%d %H:%M}. Days are in your own time zone.",
              *(line for note in notes for line in ("", note)),
+             "", "## Worth a look", "", *(worse or ["Nothing got clearly worse, comparing the same models and efforts."]),
              "", "## What changed", "", *table(("", "Before", "These days", "Change"), compared(LISTED, before, now)),
              "", "## Why it moved", "", *explain.why(shown_before, shown, before, now, facts, WRITTEN),
+             "", "## Better or worse", "", *table(("", "Before", "These days", "Change", "Clear?"), fair), "", CLEAR,
+             "", "## What changed in ByteQuay", "", *explain.changed(made["turns"], first, last, None if commits is None else commits(first, last)),
              "", "## Where the time went", "", *time_went(shown, shown_before),
              "", "## Models and effort", "", *models(shown["turns"], shown_before["turns"]),
-             "", "## Changes you noted", ""]
-    recent = [one for one in noted if last - timedelta(days=NOTED) < one["day"] <= last]
-    for one in recent:
-        (was_shown, was, was_reviews), (since_shown, since, since_reviews) = stretch(one["day"] - timedelta(days=BEFORE), one["day"] - timedelta(days=1)), stretch(one["day"], last)
-        head = ("", f"{BEFORE} days before ({activity.count(was['Turns'], 'turn')})",
-                f"{activity.count((last - one['day']).days + 1, 'day')} since ({activity.count(since['Turns'], 'turn')})", "Change", "Clear?")
-        measured = measures(was_shown, was_reviews), measures(since_shown, since_reviews)
-        lines += [f"### {said(one['day'])}: {one['what']}", "", *table(head, [(*row, clear(row[0], *measured)) for row in compared(RATES, was, since)]), "",
-                  f"Clear? says whether the change is beyond what other tasks could have given: whole tasks drawn again, {ranges.LEVEL}% of the draws. "
-                  "With fewer than three tasks on a side it cannot tell.", ""]
-    if not recent:
-        lines.append(f"None in the last {NOTED} days. Note one with `uv run digest.py --note \"what you changed\"`")
+             "", "## Changes you noted", "", *checks]
+    lines.append(CLEAR if checks else f"None in the last {NOTED} days. Note one with `uv run digest.py --note \"what you changed\"`")
     return "\n".join(lines).rstrip("\n") + "\n", last
 
 
@@ -302,7 +341,7 @@ def main():
     except (OSError, ValueError):
         review_table = {}  # in another shape: the report names it and leaves the reviews out
     try:
-        text, last = report(turn_table, review_table, noted, args.kind or "week", args.ending)
+        text, last = report(turn_table, review_table, noted, args.kind or "week", args.ending, commits=explain.commits)
     except (KeyError, TypeError, ValueError):
         parser.exit(1, f"The saved turn table could not be read. Save it again with `{SAVE}`\n")
     print(text)

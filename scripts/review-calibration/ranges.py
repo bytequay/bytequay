@@ -28,8 +28,12 @@ class Ratio:
         whole = sum(self.wholes)
         return sum(self.parts) / whole * self.scale if whole else None
 
+    def enough(self):
+        # With no part at all every draw is zero, which would read as a number known for sure.
+        return sum(whole > 0 for whole in self.wholes) >= MIN_TASKS and any(self.parts)
+
     def draws(self, seed):
-        if sum(whole > 0 for whole in self.wholes) < MIN_TASKS:
+        if not self.enough():
             return None
         parts, wholes = numpy.asarray(self.parts, dtype=float), numpy.asarray(self.wholes, dtype=float)
         picks = numpy.random.default_rng(seed).integers(0, len(parts), size=(DRAWS, len(parts)))
@@ -47,8 +51,11 @@ class Median:
         values = [one for group in self.groups for one in group]
         return float(numpy.median(values)) if values else None
 
+    def enough(self):
+        return len(self.groups) >= MIN_TASKS
+
     def draws(self, seed):
-        if len(self.groups) < MIN_TASKS:
+        if not self.enough():
             return None
         padded = numpy.full((len(self.groups), max(len(group) for group in self.groups)), numpy.nan)
         for place, group in enumerate(self.groups):
@@ -58,6 +65,41 @@ class Median:
             picks = generator.integers(0, len(self.groups), size=(min(CHUNK, DRAWS - start), len(self.groups)))
             made.append(numpy.nanmedian(padded[picks].reshape(len(picks), -1), axis=1))
         return numpy.concatenate(made)
+
+
+@dataclass(frozen=True)
+class Mixed:
+    """One number made of the same number in several groups, such as each model and effort, each with a weight that stays
+    the same on both sides of a comparison. Then a change in how much each group ran does not read as a change in the number."""
+
+    parts: tuple  # (weight, Ratio or Median) for each group
+
+    def value(self):
+        values = [measure.value() for _, measure in self.parts]
+        if not values or None in values:
+            return None
+        return sum(weight * value for (weight, _), value in zip(self.parts, values)) / sum(weight for weight, _ in self.parts)
+
+    def enough(self):
+        return bool(self.parts) and all(measure.enough() for _, measure in self.parts)
+
+    def draws(self, seed):
+        # Each group's tasks are drawn on their own, with a seed of their own: they are other tasks.
+        drawn = [measure.draws(seed + 1000 * place) for place, (_, measure) in enumerate(self.parts)]
+        if not drawn or any(one is None for one in drawn):
+            return None
+        return sum(weight * one for (weight, _), one in zip(self.parts, drawn)) / sum(weight for weight, _ in self.parts)
+
+
+def alike(before, since):
+    """A number on both sides of a comparison made of like with like: only the groups with enough tasks on both sides, each
+    weighed by its turns on both sides together. `before` and `since` map a group to (turns, Ratio or Median or None).
+    None when no group has enough tasks on both sides."""
+    shared = [group for group in sorted(set(before) & set(since), key=str) if all(side[group][1] is not None and side[group][1].enough() for side in (before, since))]
+    if not shared:
+        return None
+    weights = [before[group][0] + since[group][0] for group in shared]
+    return tuple(Mixed(tuple(zip(weights, (side[group][1] for group in shared)))) for side in (before, since))
 
 
 def ratio(parts, wholes, scale=1.0):
@@ -106,11 +148,15 @@ def change(before, since):
 
 
 def relative(before, since):
-    """Where the change could lie in percent of `before`. Drawn as a ratio of the two sides, so it never falls below -100%."""
+    """Where the change could lie in percent of `before`. Drawn as a ratio of the two sides, so it never falls below -100%.
+    None when `before` is zero in more draws than the range leaves out: leaving those draws out would make the range narrower
+    than it is."""
     drawn = drawn_apart(before, since)
     if drawn is None:
         return None
     first, second = drawn
+    if (first == 0).mean() * 100 > (100 - LEVEL) / 2:
+        return None
     return span(numpy.divide(second, first, out=numpy.full(len(first), numpy.nan), where=first != 0) * 100 - 100)
 
 

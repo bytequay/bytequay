@@ -15,6 +15,7 @@ from streamlit.testing.v1 import AppTest
 
 import dashboard
 import digest
+import explain
 
 SCRIPT = Path(__file__).with_name("digest.py")
 PAGE = Path(__file__).with_name("pages") / "Report.py"
@@ -80,7 +81,7 @@ class TestReport(unittest.TestCase):
             "": ["Before", "These days", "Change"],
             # how much was done counts every turn, with a log or without
             "Agent time": ["0.2 h", "0.4 h", "+51%"], "Turns": ["2", "3", "+50%"], "Tasks": ["2", "2", "same"], "Typical turn": ["7.5 min", "5.0 min", "-33%"],
-            "Turns with a log": ["1", "3", "+200%"],
+            "Turns completed": ["100%", "100%", "same"], "Turns with a log": ["1", "3", "+200%"],
             # how the time was spent is known for the turns with a log, and a share moves in points
             "The model is working": ["67%", "60%", "-7 points"], "Waiting for a tool to finish": ["25%", "40%", "+15 points"], "Waiting for you": ["8%", "0%", "-8 points"],
             "Long single commands": ["1", "2", "+100%"], "Time in long commands": ["2.5 min", "1.7 min", "-33%"],
@@ -184,6 +185,64 @@ class TestReport(unittest.TestCase):
         self.assertEqual(report(turns={**TABLE, "turns": alike}, reviews=None).split("## Why it moved\n\n", 1)[1].split("\n", 1)[0], "No total moved by 25% or more.")
 
 
+class TestFair(unittest.TestCase):
+    def made(self):
+        """Two weeks of two models, three tasks of each on each side. An astra turn takes 10 minutes and an opus turn 20 on
+        both sides, but the turns moved from astra to opus: astra has 12 turns in all and opus 9. Astra's first model step
+        took three times as long these days."""
+        rows = []
+        for side, days, astra, opus, start in (("before", (2, 3, 4), 3, 1, 30), ("since", (9, 10, 11), 1, 2, 90)):
+            for one, day in enumerate(days):
+                rows += [turn(day, 600, task=f"astra-{side}-{one}", after={"at the start of a turn": (start, 1)}) for _ in range(astra)]
+                rows += [turn(day, 1200, task=f"opus-{side}-{one}", model="opus", provider="claude", after={"at the start of a turn": (30, 1)}) for _ in range(opus)]
+        return {**TABLE, "turns": rows}
+
+    def test_a_number_is_judged_within_the_same_models_and_efforts(self):
+        text = report(turns=self.made(), reviews=None)
+        found = rows(text, "## Better or worse")
+        self.assertEqual(found[""], ["Before", "These days", "Change", "Clear?"])
+        self.assertEqual(found["Typical turn"], ["10.0 min", "20.0 min", "+100%", "not yet: +0% to +0%"])  # more opus turns, each as long as before
+        # Astra's alone tripled: like with like, 30 seconds before and (12 × 90 + 9 × 30) / 21 since.
+        self.assertEqual(found["Model time at the start of a turn"], ["30 s", "50 s", "+67%", "worse: +114% to +114%"])
+        self.assertEqual(found["Turns completed"], ["100%", "100%", "same", "not yet: +0 to +0 points"])
+        self.assertEqual(found["Questions to you in an agent hour"], ["0.0", "0.0", "", "too few tasks"])  # nobody was asked on either side
+        self.assertEqual(text.split("## Worth a look\n\n", 1)[1].split("\n\n", 1)[0],
+                         "- Model time at the start of a turn got worse within the same models and efforts, by +114% to +114%.")
+        noted = report(turns=self.made(), reviews=None, noted=[{"day": date(2026, 1, 9), "what": "Longer instructions"}])
+        self.assertIn('\n- Since "Longer instructions" on 9 Jan, Model time at the start of a turn got worse within the same models and efforts, by +114% to +114%.\n', noted)
+        self.assertEqual(rows(noted, "### 9 Jan: Longer instructions")["Model time at the start of a turn"][3], "worse: +114% to +114%")
+        self.assertIn("\n## Worth a look\n\nNothing got clearly worse, comparing the same models and efforts.\n", report())
+
+    def test_turns_completed_counts_only_the_turns_whose_ending_is_known(self):
+        made = [turn(9, 600, task="a"), {**turn(10, 600, task="b"), "outcome": "interrupted"}, {**turn(11, 600, task="c"), "outcome": "no end mark"}]
+        self.assertEqual(rows(report(turns={**TABLE, "turns": made}, reviews=None), "## What changed")["Turns completed"][1], "50%")
+        self.assertEqual(digest.measures(digest.charts.frames({**TABLE, "turns": made}), None)["Turns completed"].value(), 50.0)
+
+    def test_what_changed_in_bytequay_names_new_setups_and_the_commits_by_where_they_landed(self):
+        made = [{**turn(day, 600, task=f"t-{day}"), "setup": setup}
+                for day, setup in ((2, "aaaaaaaa-11111111"), (9, "aaaaaaaa-11111111"), (10, "bbbbbbbb-11111111"), (11, "bbbbbbbb-22222222"), (12, None))]
+        codex = "backend/agent-cli/src/main/java/com/bytequay/agent/cli/codex/CodexCliDriver.java"
+        found = [(0, "Retry rate limits", (codex,)), (0, "Shorter review rules", ("backend/app/src/main/java/com/bytequay/app/review/ReviewTools.java", "README.md", codex)),
+                 (0, "Codex timeouts", (codex,))]
+        asked = []
+        text = report(turns={**TABLE, "turns": made}, reviews=None, commits=lambda first, last: asked.append((first, last)) or found)
+        self.assertEqual(asked, [(date(2026, 1, 8), date(2026, 1, 14))])
+        self.assertEqual(text.split("## What changed in ByteQuay\n\n", 1)[1].split("\n\n", 1)[0].splitlines(), [
+            # each half is set against every setup that ran before, also in the days before these
+            "- Setups that first ran these days: `bbbbbbbb-11111111` (new instructions, 1 turn), `bbbbbbbb-22222222` (new tools, 1 turn).",
+            "- 3 commits reached the agent code these days:", '  - the Codex lane: 3, the latest "Retry rate limits"', '  - reviews: 1, the latest "Shorter review rules"'])
+        self.assertEqual(report().split("## What changed in ByteQuay\n\n", 1)[1].split("\n\n", 1)[0].splitlines(),
+                         ["- No saved turn names its setup yet.", "- The commits to the agent code were not read."])
+        self.assertIn("\n- No commit reached the agent code these days.\n", report(commits=lambda first, last: []))
+
+
+class TestVerdict(unittest.TestCase):
+    def test_a_clear_change_is_better_or_worse_where_one_way_is_better(self):
+        cases = [("Turns completed", (2.0, 9.0)), ("Turns completed", (-9.0, -2.0)), ("Waiting for you", (2.0, 9.0)), ("Model time at the start of a turn", (-9.0, -2.0)),
+                 ("Typical turn", (2.0, 9.0)), ("Turns completed", (-2.0, 9.0))]
+        self.assertEqual([digest.verdict(name, moved) for name, moved in cases], ["better", "worse", "worse", "better", "yes", "not yet"])
+
+
 class TestMoved(unittest.TestCase):
     def test_number_moves_by_how_much_it_grew_and_a_share_in_points(self):
         self.assertEqual([digest.moved(before, now, False) for before, now in [(10, 15), (10, 5), (10, 10.04), (200, 0), (0, 3), (0, 0), (None, 3), (3, None)]],
@@ -198,7 +257,7 @@ class TestNotedChanges(unittest.TestCase):
         few = "too few tasks"  # two tasks at most on a side
         self.assertEqual(rows(text, "### 9 Jan: Fewer tool calls"), {
             "": ["7 days before (2 turns)", "6 days since (3 turns)", "Change", "Clear?"],
-            "Typical turn": ["7.5 min", "5.0 min", "-33%", few],
+            "Typical turn": ["7.5 min", "5.0 min", "-33%", few], "Turns completed": ["100%", "100%", "same", few],
             "The model is working": ["67%", "60%", "-7 points", few], "Waiting for a tool to finish": ["25%", "40%", "+15 points", few], "Waiting for you": ["8%", "0%", "-8 points", few],
             "Model time after a ByteQuay tool call": ["-", "20 s", "", few], "Model time at the start of a turn": ["100 s", "63 s", "-37%", few],
             "Long command minutes in an agent hour": ["15.0 min", "4.4 min", "-71%", few], "Questions to you in an agent hour": ["6.0", "0.0", "-100%", few],
@@ -217,11 +276,11 @@ class TestNotedChanges(unittest.TestCase):
         text = report(turns={**TABLE, "turns": made}, reviews=None, noted=[{"day": date(2026, 1, 10), "what": "Shorter memory block"}])
         found = rows(text, "### 10 Jan: Shorter memory block")
         self.assertEqual(found["Model time at the start of a turn"][:3], ["100 s", "25 s", "-75%"])
-        self.assertTrue(found["Model time at the start of a turn"][3].startswith("yes: -"), found["Model time at the start of a turn"])
+        self.assertTrue(found["Model time at the start of a turn"][3].startswith("better: -"), found["Model time at the start of a turn"])  # a shorter first step is better
         self.assertEqual(found["Typical turn"], ["10.0 min", "10.0 min", "same", "not yet: +0% to +0%"])
         self.assertEqual(found["The model is working"], ["67%", "83%", "+16 points", "yes: +17 to +17 points"])  # every task moved alike, so the range is one number
         self.assertEqual(found["Share of review runs asked again"], ["-", "-", "", "too few tasks"])
-        self.assertIn("Clear? says whether the change is beyond what other tasks could have given: whole tasks drawn again, 95% of the draws.", text)
+        self.assertIn("Clear? says whether a number moved beyond what other tasks could have given: whole tasks drawn again, 95% of the draws. It compares like with like", text)
 
     def test_only_changes_of_the_last_four_weeks_up_to_the_last_day_are_listed(self):
         noted = [{"day": date(2025, 12, 17), "what": "Too long ago"}, {"day": date(2025, 12, 18), "what": "Just inside"}, {"day": date(2026, 1, 15), "what": "After the report"}]
@@ -269,7 +328,7 @@ class TestCommandLine(unittest.TestCase):
         self.assertEqual((week.returncode, week.stderr), (0, ""))
         kept = self.folder / "reports" / "week-2026-01-14.md"
         self.assertEqual(week.stdout, kept.read_text() + f"\nSaved to {kept}\n")
-        self.assertEqual(kept.read_text(), report())
+        self.assertEqual(kept.read_text(), report(commits=explain.commits))  # with the commits git gives for those days
         day = self.script("--day", "--ending", "2026-01-10")
         self.assertEqual((day.returncode, day.stdout.splitlines()[0]), (0, "# ByteQuay lab report: 10 Jan 2026"))
         self.assertEqual(sorted(path.name for path in (self.folder / "reports").iterdir()), ["day-2026-01-10.md", "week-2026-01-14.md"])  # no half-written file is left

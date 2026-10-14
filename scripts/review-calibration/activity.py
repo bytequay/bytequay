@@ -613,6 +613,7 @@ def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
         facts = known.get((one.task, one.turn))
         rows.append({"task": one.task, "start": saved.stamp(one.start), "seconds": round(one.end - one.start, 3), "logged": True,
                      "outcome": facts and facts["outcome"] or OUTCOMES[one.ended], **{name: facts[name] if facts else None for name in FACTS},
+                     "setup": facts["setup"] if facts else None,
                      "groups": {group: round(length, 3) for group, length in one.groups.items()},
                      "programs": {name: {"seconds": round(length, 3), "runs": one.program_runs[name]} for name, length in one.program_seconds.items()},
                      "after": {before: {"seconds": round(length, 3), "times": one.after_times[before]} for before, length in one.after.items()},
@@ -632,7 +633,7 @@ def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
         # The same filters as for the logs, so a saved table never mixes two selections.
         if (owner, turn) not in logged and (since is None or facts["start"] >= midnight(since)) and (task is None or owner.startswith(task)):
             rows.append({"task": owner, "start": saved.stamp(facts["start"]), "seconds": round(facts["seconds"], 3), "logged": False, "outcome": facts["outcome"] or OUTCOMES[""],
-                         **{name: facts[name] for name in FACTS}, "groups": {}, "programs": {}, "after": {}, "parallel": 0.0, "mostAtOnce": 0, "unfinished": 0,
+                         **{name: facts[name] for name in FACTS}, "setup": facts["setup"], "groups": {}, "programs": {}, "after": {}, "parallel": 0.0, "mostAtOnce": 0, "unfinished": 0,
                          "longRuns": [], "approvals": [], "notices": {}, "calls": [], "hops": [], "repeats": []})
     database = {"problem": problem or "the database was not read"} if recorded is None else {"turns": len(known), "matched": len(logged & set(known))}
     return {"version": 1, "savedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "since": since, "task": task, "database": database,

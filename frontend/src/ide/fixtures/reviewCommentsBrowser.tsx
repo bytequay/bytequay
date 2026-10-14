@@ -52,7 +52,7 @@ export async function verifyReviewComments() {
   function Harness() {
     const current = code.getModel() ?? model;
     const comments = useCodeComments(enabled ? options : undefined, { path: current.uri.path, text, prPatch: null, draft: false,
-      uncommitted: false, atReviewedRevision: true, reviewedHead: 'head', observedHead: 'head', askBlocked: null });
+      uncommitted: false, sourceHead: 'head', observedHead: 'head', askBlocked: null });
     return <ReviewZones runtime={runtime} uri={current.uri.toString()} {...comments} />;
   }
   const render = () => flushSync(() => root.render(<Harness />));

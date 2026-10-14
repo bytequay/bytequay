@@ -13,12 +13,14 @@
  */
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { SourceSnapshot } from '../ArchivedCode';
+import ArchivedCode, { SourceSnapshot } from '../ArchivedCode';
 import RunPanel from '../RunPanel';
-import type { LocalRunDto } from '../contracts';
+import type { LocalRunDto, ReviewCodeFilesDto } from '../contracts';
+import type { CodeTestsBridge } from '../CodeTestsTab';
 import { useCodeComments, type CodeCommentsOptions } from '../useCodeComments';
 import { assert, changeInput, settle } from '../../../fixtures/harness';
-import type { PullRequestDto } from '../../../types';
+import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto } from '../../../types';
+import { reviewFixture } from '../../agent-review/fixtures/review';
 import TestRuns from '../../../ide/TestRuns';
 import type { IdeContext } from '../../../ide/contracts';
 import type { IdeRuntime } from '../../../ide/runtime';
@@ -33,7 +35,7 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
   const text = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join('\n');
   const Harness = () => {
     const comments = useCodeComments(options, { path: 'notes.txt', text, prPatch: '@@ -1,8 +1,8 @@\n' + text.split('\n').slice(0, 8).map(line => ' ' + line).join('\n'),
-      draft: false, uncommitted: false, atReviewedRevision: true, reviewedHead: 'abc', observedHead: 'abc', askBlocked: null });
+      draft: false, uncommitted: false, sourceHead: 'abc', observedHead: 'abc', askBlocked: null });
     return <SourceSnapshot path="notes.txt" text={text} cards={comments.cards} renderCard={comments.renderCard}
       onComment={comments.onComment} commentRange={comments.commentRange} />;
   };
@@ -61,6 +63,71 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     assert([...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Post now')?.disabled, 'A source range outside the actual PR hunk cannot be posted');
     results.push({ name: 'Historical source preserves shared comment ranges and patch guards' });
   } catch (error) { results.push({ name: 'Historical source comments', error: String(error) }); }
+  const originalBridge = window.bridge;
+  try {
+    const head = 'b'.repeat(40);
+    const review = reviewFixture({ observedHeadSha: head });
+    review.findings = [{ ...review.findings[0], path: 'notes.txt', startLine: 3, endLine: 3, excerpt: ['line 3'] }];
+    let observedHead: string | null = head;
+    let uncommitted = false;
+    let pending: InlineReviewCommentDto[] = [];
+    const posts: InlineReviewCommentDto[] = [];
+    const bridge: CodeTestsBridge = {
+      ...originalBridge,
+      listCodeFiles: async (): Promise<ReviewCodeFilesDto> => ({ source: 'WORKING_COPY', revision: head, sourceFingerprint: uncommitted ? 'edited' : 'clean',
+        truncated: false, savedExperiment: false, files: [{ path: 'notes.txt', changedInPr: true, addedInPr: false, onlyInWorkingCopy: false, uncommitted }] }),
+      listCodeRuns: async () => [],
+      readCodeFile: async () => ({ path: 'notes.txt', content: text, contentHash: 'hash', editable: false, readOnlyReason: null, unavailableReason: null,
+        prPatch: '@@ -1,8 +1,8 @@\n' + text.split('\n').slice(0, 8).map(line => ' ' + line).join('\n'), lineChanges: [] }),
+    };
+    Object.defineProperty(window, 'bridge', { configurable: true, value: { ...originalBridge,
+      postPrReviewComment: async (repo: string, number: number, comment: InlineReviewCommentDto) => {
+        assert(repo === options.repo && number === options.number, 'Publication keeps the current PR identity');
+        posts.push(comment); return {} as PullRequestDetailDto;
+      },
+    } });
+    const render = () => flushSync(() => root.render(<ArchivedCode active bridge={bridge}
+      host={{ kind: 'review', review: { ...review, observedHeadSha: observedHead } }} onReviewChange={() => { throw new Error('Do not rerun the agent review'); }}
+      comments={{ ...options, pending, onPendingChange: next => { pending = next; render(); } }} />));
+    const button = (label: string) => {
+      const element = [...host.querySelectorAll('button')].find(button => button.textContent === label);
+      assert(element !== undefined, `Missing ${label}`); return element;
+    };
+    const compose = async (line: number, body: string) => {
+      host.querySelector<HTMLButtonElement>(`[aria-label="Comment on line ${line}"]`)?.click(); await settle();
+      const input = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
+      assert(input !== null, 'The current source must allow a comment');
+      changeInput(input, body); await settle();
+    };
+    const blocked = () => button('Add to review').disabled && button('Post now').disabled;
+    render(); await settle(); button('notes.txt').click(); await settle();
+    assert(host.querySelector('.ct-unplaced .agr-finding') !== null && host.querySelector('.ct-inline-card .agr-finding') === null,
+      'The old agent finding must stay unplaced even when its excerpt matches the latest source');
+    await compose(3, 'My pending comment');
+    assert(!button('Add to review').disabled && !button('Post now').disabled, 'Human comments on the latest PR do not wait for an agent review');
+    button('Add to review').click(); await settle();
+    assert(pending.length === 1 && pending[0].commitId === head && pending[0].line === 3 && pending[0].path === 'notes.txt'
+      && pending[0].body === 'My pending comment' && posts.length === 0, 'Staging binds the comment to the displayed commit without publishing');
+    assert(host.querySelector('.ct-inline-card .pull-diff-pending')?.textContent?.includes('My pending comment') === true,
+      'The pending comment stays beside its line on the latest PR');
+    await compose(4, 'My immediate comment');
+    button('Post now').click(); await settle();
+    assert(Number(posts.length) === 1 && posts[0].commitId === head && posts[0].line === 4 && posts[0].body === 'My immediate comment',
+      'Post now sends exactly once against the displayed PR commit');
+    await compose(5, 'Keep this draft');
+    for (const movedHead of ['c'.repeat(40), null]) {
+      observedHead = movedHead; render(); await settle();
+      assert(blocked(), 'A newer or unknown PR revision must disable both actions');
+    }
+    observedHead = head; render(); await settle();
+    assert(!blocked(), 'Matching the current PR re-enables the retained draft');
+    uncommitted = true;
+    host.querySelector<HTMLButtonElement>('[aria-label="Reload files"]')?.click(); await settle(); await settle();
+    assert(blocked(), 'Saved local changes must disable both actions');
+    assert(host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea')?.value === 'Keep this draft', 'Revision checks preserve the composed comment');
+    results.push({ name: 'Latest PR source supports human staging and publication independently of the agent review' });
+  } catch (error) { results.push({ name: 'Human comments on latest PR source', error: String(error) }); }
+  finally { Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }
   try {
     flushSync(() => root.render(<SourceSnapshot path="Example.java" text={'class Example {}\n'.repeat(1100)} cards={[]} commentRange={null} />)); await settle();
     assert(host.querySelectorAll('.ct-snapshot__line').length === 500 && host.textContent?.includes('Lines 1–500 of 1101'), 'Large snapshots must bound rendered lines');

@@ -143,7 +143,7 @@ describe('review code contracts', () => {
 
 describe('GitHub comment anchoring', () => {
   const patch = '@@ -10,3 +10,4 @@\n context\n-old\n+new one\n+new two\n context\n@@ -40,2 +41,2 @@\n context\n+later';
-  const facts = { prPatch: patch, start: 11, end: 12, draft: false, uncommitted: false, atReviewedRevision: true, reviewedIsHead: true };
+  const facts = { prPatch: patch, start: 11, end: 12, draft: false, uncommitted: false, atPrHead: true };
 
   it('accepts new-side lines inside one hunk only', () => {
     expect(githubCommentBlocker(facts)).toBeNull();
@@ -153,9 +153,9 @@ describe('GitHub comment anchoring', () => {
     expect(githubCommentBlocker({ ...facts, prPatch: null })).toBe("GitHub accepts line comments only on lines in this pull request's diff");
   });
 
-  it('refuses text that is not the reviewed revision before checking the diff', () => {
-    expect(githubCommentBlocker({ ...facts, draft: true })).toBe('Save or revert your edits to comment on the reviewed revision');
-    expect(githubCommentBlocker({ ...facts, atReviewedRevision: false })).toBe('The working copy is not at the reviewed revision');
-    expect(githubCommentBlocker({ ...facts, reviewedIsHead: false })).toBe('Update the review to comment on its latest revision');
+  it('refuses local edits and revisions that differ from the latest PR before checking the diff', () => {
+    expect(githubCommentBlocker({ ...facts, draft: true })).toBe('The displayed file has local edits that are not in the pull request');
+    expect(githubCommentBlocker({ ...facts, uncommitted: true })).toBe('The displayed file has local edits that are not in the pull request');
+    expect(githubCommentBlocker({ ...facts, atPrHead: false })).toBe('The displayed code is not at the latest pull request revision');
   });
 });

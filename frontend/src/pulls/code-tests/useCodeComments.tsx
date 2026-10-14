@@ -72,9 +72,8 @@ export type CommentContext = {
   prPatch: string | null;
   draft: boolean;
   uncommitted: boolean;
-  atReviewedRevision: boolean;
-  /** The review run's head the file is anchored to. */
-  reviewedHead: string | null;
+  /** The displayed file's committed revision, independent of the last agent review. */
+  sourceHead: string | null;
   /** The pull request head, where GitHub places threads and publishes comments. */
   observedHead: string | null;
   /** Why the agent cannot take a question now (a run or recovery holds the working copy), or null. */
@@ -102,7 +101,7 @@ function FindingCard({ review, finding, viewer, actions, busy, error }: FindingC
 
 /**
  * Review comments in the whole-file view, sharing Changes' composer, pending list and discussion cards. A GitHub
- * comment anchors only to the reviewed revision's diff lines; Send to agent takes any line.
+ * comment anchors only to the current pull request's diff lines; Send to agent takes any line.
  */
 export function useCodeComments(options: CodeCommentsOptions | undefined, context: CommentContext | null, findings?: CodeFindings, findingOverride?: ReturnType<typeof useFindingActions>) {
   const [range, setRange] = useReviewDraft('codeComment:range', NO_RANGE_SELECTION);
@@ -128,8 +127,8 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
   if (options === undefined || context === null) return { onComment: undefined, commentRange: null, cards: [] as LineCard[], renderCard: undefined, unplaced: null };
   const { path, text } = context;
   const lines = text.split('\n');
-  const clean = !context.draft && !context.uncommitted && context.atReviewedRevision;
-  const atHead = context.reviewedHead !== null && context.reviewedHead === context.observedHead;
+  const clean = !context.draft && !context.uncommitted && context.sourceHead !== null;
+  const atHead = context.sourceHead !== null && context.sourceHead === context.observedHead;
   const active = rangePath === path ? range.selection : null;
   const selecting = range.anchor !== null;
 
@@ -163,26 +162,25 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
     end: active.end,
     draft: context.draft,
     uncommitted: context.uncommitted,
-    atReviewedRevision: context.atReviewedRevision,
-    reviewedIsHead: atHead,
+    atPrHead: atHead,
   });
   const askReason = context.askBlocked ?? (context.draft ? 'Save or revert your edits to send them to the agent' : null);
 
   const pendingHere = options.pending.filter(item => item.replyToCommentId == null && item.path === path && item.side === 'RIGHT');
-  const placedPending = clean ? pendingHere.filter(item => item.commitId === context.reviewedHead) : [];
+  const placedPending = clean ? pendingHere.filter(item => item.commitId === context.sourceHead) : [];
   const threadsHere = options.threads.activities.filter(activity => activity.eventType === 'review_thread' && activity.payload.path === path);
   const placedThreads = clean && atHead
     ? threadsHere.filter(activity => !activity.payload.outdated && activity.payload.side === 'RIGHT' && activity.payload.line !== null)
     : [];
   const localHere = options.localReview.threads.filter(thread => thread.path === path);
   const placedLocal = clean
-    ? localHere.filter(thread => localReviewMatchesRevision(thread, undefined, context.reviewedHead ?? undefined)
+    ? localHere.filter(thread => localReviewMatchesRevision(thread, undefined, context.sourceHead ?? undefined)
       && lines.slice((thread.startLine ?? thread.line) - 1, thread.line).join('\n') === thread.code)
     : [];
 
   // A mapped line still needs semantic reassessment before an outdated finding returns to file views.
   const findingsHere = findings?.review.findings.filter(finding => findingInResults(findings.review, finding) && finding.path === path && finding.state !== 'WITHDRAWN' && !finding.outdated) ?? [];
-  const placedFindings = findingsHere.filter(finding => findingOnLines(finding, clean, context.reviewedHead, lines));
+  const placedFindings = findingsHere.filter(finding => findingOnLines(finding, clean, context.sourceHead, lines));
   const findingCard = (finding: ReviewFindingDto) => findings === undefined ? null : (
     <FindingCard review={findings.review} finding={finding} viewer={options.viewer} busy={findingActions.busy} error={findingActions.error}
       actions={options.onOpenFindingInReview === undefined ? { ...findingActions.actions, onNavigate: undefined } : findingActions.actions} />
@@ -250,8 +248,8 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
           sending,
           disabledReason: askReason,
           onSend: () => {
-            // Text that is not the reviewed revision goes without a head, so it is never placed on the wrong lines.
-            const value = comment(clean ? context.reviewedHead : null);
+            // Local edits have no committed anchor, so they are never placed on the wrong lines.
+            const value = comment(clean ? context.sourceHead : null);
             if (value === null || options.onAskAgent === undefined || askReason !== null) return;
             setSending(true);
             setError(null);
@@ -263,13 +261,13 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
         }}
         onCancel={close}
         onAddPending={() => {
-          const value = comment(context.reviewedHead);
+          const value = comment(context.sourceHead);
           if (value === null || blocker !== null) return;
           options.onPendingChange([...options.pending, value]);
           close();
         }}
         onPostNow={() => {
-          const value = comment(context.reviewedHead);
+          const value = comment(context.sourceHead);
           if (value === null || blocker !== null) return;
           setPosting(true);
           setError(null);
@@ -306,7 +304,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
       ))}
       {unplacedLocal.map(thread => (
         <div key={thread.id} className="ct-unplaced__card">
-          <LocalReviewThreadCard {...options.localReview} thread={thread} outdated={thread.headSha !== context.reviewedHead} />
+          <LocalReviewThreadCard {...options.localReview} thread={thread} outdated={thread.headSha !== context.sourceHead} />
         </div>
       ))}
     </details>

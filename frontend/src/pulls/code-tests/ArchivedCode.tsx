@@ -18,7 +18,6 @@ import type { CodeTestsBridge, CodeTestsHost } from './CodeTestsTab';
 import type { CodeHostRef, LineChangeDto, LocalRunDto, ReviewCodeFileDto, ReviewCodeFilesDto } from './contracts';
 import { useCodeComments, type CodeCommentsOptions, type CommentGesture, type LineCard } from './useCodeComments';
 import type { AgentReviewDto } from '../agent-review/contracts';
-import { latestRun } from '../agent-review/model';
 import { buildFileTree } from '../fileTree';
 import { useResizablePane } from '../../useResizablePane';
 import { fileName, languageFor, shortSha, visibleFiles } from './codeModel';
@@ -35,7 +34,7 @@ export default function ArchivedCode({ host, onExit, comments, active, bridge, o
     : { kind: 'task', taskId: host.task.id, workspaceId: host.workspaceId });
   const [files, setFiles] = useState<ReviewCodeFilesDto | null>(null);
   const [path, setPath] = useState<string | null>(null);
-  const [file, setFile] = useState<ReviewCodeFileDto | null>(null);
+  const [file, setFile] = useState<(ReviewCodeFileDto & { revision: string; sourceFingerprint: string | null }) | null>(null);
   const [runs, setRuns] = useState<LocalRunDto[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const selectedOnce = useRef(false);
@@ -66,22 +65,23 @@ export default function ArchivedCode({ host, onExit, comments, active, bridge, o
     return () => { live = false; clearInterval(timer); };
   }, [active, bridge, hostRef, version, open, reload]);
   const revision = files?.revision;
+  const sourceFingerprint = files?.sourceFingerprint ?? null;
   useEffect(() => {
     if (!active || !path || !revision) return;
     let live = true; setFile(null);
-    void bridge.readCodeFile(hostRef, path, revision).then(value => { if (live) setFile(value); }, cause => { if (live) setError(String(cause)); });
+    void bridge.readCodeFile(hostRef, path, revision).then(value => {
+      if (live) setFile({ ...value, revision, sourceFingerprint });
+    }, cause => { if (live) setError(String(cause)); });
     return () => { live = false; };
-  }, [active, bridge, hostRef, path, revision, files?.sourceFingerprint, reload]);
+  }, [active, bridge, hostRef, path, revision, sourceFingerprint, reload]);
   const entries = useMemo(() => visibleFiles(files?.files ?? [], changed ? 'changed' : 'all', query), [files, changed, query]);
   const tree = useMemo(() => buildFileTree(entries, entry => entry.path, { layout: 'ide' }), [entries]);
-  const reviewedHead = review ? latestRun(review)?.headSha ?? null : files?.revision ?? null;
   const entry = files?.files.find(entry => entry.path === path);
   const cards = useCodeComments(comments ? { ...comments, onAskAgent: undefined } : undefined,
-    file?.content != null && file.path === path && files ? {
+    file?.content != null && file.path === path && files && file.revision === files.revision && file.sourceFingerprint === sourceFingerprint ? {
       path: file.path, text: file.content, prPatch: file.prPatch, draft: false,
       uncommitted: entry?.uncommitted === true || entry?.onlyInWorkingCopy === true,
-      atReviewedRevision: files.source === 'REVISION' || files.revision === reviewedHead,
-      reviewedHead, observedHead: review?.observedHeadSha ?? null, askBlocked: 'Historical source is read-only',
+      sourceHead: file.revision, observedHead: review?.observedHeadSha ?? null, askBlocked: 'Historical source is read-only',
     } : null, review ? { review, onReviewChange } : undefined);
   const readOutput = useCallback((id: string, after: number) => bridge.readCodeRunOutput(hostRef, id, after), [bridge, hostRef]);
   return <div className="ct">

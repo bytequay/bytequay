@@ -86,8 +86,8 @@ export function shortSha(sha: string) {
  * Whether an Agent review finding can sit on these lines: Changes shows it at its end line only while it is current,
  * and here the text on screen must also be the revision it was validated at, holding its excerpt.
  */
-export function findingOnLines(finding: ReviewFindingDto, clean: boolean, reviewedHead: string | null, lines: readonly string[]) {
-  return clean && finding.side === 'RIGHT' && finding.validatedHeadSha === reviewedHead
+export function findingOnLines(finding: ReviewFindingDto, clean: boolean, sourceHead: string | null, lines: readonly string[]) {
+  return clean && finding.side === 'RIGHT' && finding.validatedHeadSha === sourceHead
     && lines.slice(finding.startLine - 1, finding.endLine).join('\n') === finding.excerpt.join('\n');
 }
 
@@ -97,12 +97,10 @@ export type CommentAnchorFacts = {
   end: number;
   /** The range, or the file, has unsaved text. */
   draft: boolean;
-  /** Saved changes to this file that the reviewed revision does not have. */
+  /** Saved changes to this file that its committed revision does not have. */
   uncommitted: boolean;
-  /** The working copy's HEAD is the review run's head (always true when reading the revision itself). */
-  atReviewedRevision: boolean;
-  /** The review run's head is the pull request head GitHub comments land on. */
-  reviewedIsHead: boolean;
+  /** The displayed revision is the pull request head GitHub comments land on. */
+  atPrHead: boolean;
 };
 
 /**
@@ -110,9 +108,8 @@ export type CommentAnchorFacts = {
  * lines of the pull request diff, so a range must be new-side lines of one hunk in the file's patch.
  */
 export function githubCommentBlocker(facts: CommentAnchorFacts): string | null {
-  if (facts.draft || facts.uncommitted) return 'Save or revert your edits to comment on the reviewed revision';
-  if (!facts.atReviewedRevision) return 'The working copy is not at the reviewed revision';
-  if (!facts.reviewedIsHead) return 'Update the review to comment on its latest revision';
+  if (facts.draft || facts.uncommitted) return 'The displayed file has local edits that are not in the pull request';
+  if (!facts.atPrHead) return 'The displayed code is not at the latest pull request revision';
   const inOneHunk = parseUnifiedDiff(facts.prPatch).some(hunk => {
     const lines = new Set(hunk.rows.filter(row => row.kind !== 'del').map(row => row.newLine));
     for (let line = facts.start; line <= facts.end; line++) {

@@ -19,7 +19,6 @@ import type { TextEditor } from 'vscode';
 import type { Bridge } from '../types';
 import { useCodeComments, type CodeCommentsOptions, type CommentContext } from '../pulls/code-tests/useCodeComments';
 import type { ReviewCodeFileDto, ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
-import { latestRun } from '../pulls/agent-review/model';
 import type { IdeConnection, IdeContext, HistoryComparison } from './contracts';
 import { installSemanticQueries } from './semanticQueries';
 import { startRuntime, type IdeRuntime } from './runtime';
@@ -98,7 +97,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [active, setActive] = useState<TextEditor | undefined>(runtime.api.window.activeTextEditor);
   const [generation, setGeneration] = useState(0);
   const [files, setFiles] = useState<ReviewCodeFilesDto | null>(null);
-  const [file, setFile] = useState<ReviewCodeFileDto | null>(null);
+  const [file, setFile] = useState<(ReviewCodeFileDto & { revision: string; sourceFingerprint: string | null }) | null>(null);
   const [filesReload, setFilesReload] = useState(0);
   const [filesVisible, setFilesVisible] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -188,15 +187,17 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     let live = true;
     setFile(null);
     setFileError(null);
-    if (selected) void request('readCodeFile', context.host, selected, files?.revision).then(value => { if (live) setFile(value as ReviewCodeFileDto); }, cause => { if (live) setFileError(`Could not read file details: ${String(cause)}`); });
+    if (selected && files) void request('readCodeFile', context.host, selected, files.revision).then(value => {
+      if (live) setFile({ ...value as ReviewCodeFileDto, revision: files.revision, sourceFingerprint: files.sourceFingerprint });
+    }, cause => { if (live) setFileError(`Could not read file details: ${String(cause)}`); });
     return () => { live = false; };
   }, [selected, files?.sourceFingerprint, files?.revision]); // eslint-disable-line react-hooks/exhaustive-deps
   const fileContext: CommentContext | null = useMemo(() => {
     if (!selected || !active || file?.path !== selected || !files || (!active.document.isDirty && active.document.getText() !== file.content)) return null;
-    const reviewedHead = context.review ? latestRun(context.review)?.headSha ?? null : files.revision;
+    if (file.revision !== files.revision || file.sourceFingerprint !== files.sourceFingerprint) return null;
     return { path: selected, text: active.document.getText(), prPatch: file.prPatch, draft: active.document.isDirty,
       uncommitted: files.files.find(entry => entry.path === selected)?.uncommitted ?? true,
-      atReviewedRevision: files.revision === reviewedHead, reviewedHead, observedHead: context.review?.observedHeadSha ?? reviewedHead,
+      sourceHead: file.revision, observedHead: context.review ? context.review.observedHeadSha : files.revision,
       askBlocked: context.comments?.localReview.disabledReason ?? null };
   }, [selected, active, file, files, context.review, context.comments?.localReview.disabledReason, generation]); // eslint-disable-line react-hooks/exhaustive-deps -- Native documents are mutable; generation signals their edits.
 

@@ -32,6 +32,6 @@ it('sends private comments through shared diff and task controls in Chromium', a
       const results = await window.webContents.executeJavaScript('DiffAgentCommentTests.run()');
     `,
   });
-  expect(results).toHaveLength(20);
+  expect(results).toHaveLength(21);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

@@ -217,6 +217,11 @@ updated lines, and red at deletion points. Markers compare saved contents with
 the base and refresh after saving; they hide while the editor differs from the
 saved file. Retained read-only files show the same markers.
 
+Select a line or range and choose **Add to review** or **Post now** when the
+displayed file matches the latest PR revision and the selected lines belong to
+its diff. Your comments do not require an updated agent review. Local edits or
+an older displayed revision keep these actions unavailable.
+
 Browse files, edit code, or run tests without starting an agent review. When you
 choose **Start review** in **Summary**, the reviewer reuses this working copy.
 An existing development task's working copy remains available directly. Before

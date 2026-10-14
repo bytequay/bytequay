@@ -13,13 +13,18 @@ def stamp(moment):
     return datetime.fromtimestamp(moment, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def write(directory, name, made):
-    """Replace a saved result in one step, so a reader never sees half a file."""
+def write_text(directory, name, text):
+    """Replace a saved file in one step, so a reader never sees half of it."""
     directory.mkdir(parents=True, exist_ok=True)
     partial = directory / (name + ".partial")
-    partial.write_text(json.dumps(made, indent=2) + "\n")
+    partial.write_text(text)
     partial.replace(directory / name)
     return directory / name
+
+
+def write(directory, name, made):
+    """Save a result, replacing an earlier one in one step."""
+    return write_text(directory, name, json.dumps(made, indent=2) + "\n")
 
 
 def read(directory, name):

@@ -312,6 +312,38 @@ browser. The dashboard needs Streamlit, Plotly and pandas. Streamlit depends on
 pyarrow, which has no build for Python 3.15 yet, so the project asks for a
 Python below 3.15.
 
+## Report
+
+```sh
+uv run digest.py
+uv run digest.py --day
+uv run digest.py --week --ending 2026-10-12
+uv run digest.py --note "Narrower Maven commands in the review rules" --on 2026-10-14
+```
+
+`digest.py` writes a report from the saved tables: the week that ended on the
+last whole day before the save, or one day with `--day`. It reads the folder
+and nothing else, so save first with `activity.py --save`. The report is
+printed and kept as a file of its own under `reports/` in the folder, so
+earlier reports stay.
+
+The report has four parts. "What changed" sets each number of these days
+against the same number of days before. How much was done counts every turn.
+How the time was spent is known only for turns that still have a log, and the
+report says how many those are. "Where the time went" ranks the model's time
+by what had just finished, each kind of waiting for a tool, and waiting for
+the reader, each with its share before, and for the model how often it
+happened and how long each time took. "Models and effort" lists the settings
+with the most turns. "Changes you noted" is for checking a change made to
+ByteQuay: note what you changed with `--note`, and for four weeks each report
+sets the days since that day against the seven before it, by numbers that do
+not grow with the amount of work. The notes are kept in `changes.json` in the
+folder and can be edited by hand.
+
+A share moves in points and any other number by how much it grew. A number
+that is not known is a dash and never a zero. The days before are measured
+again from today's tables, so a log removed since then is missing from them.
+
 ## Synthetic smoke fixture
 
 `fixture/` is a deliberately small example for checking the harness and reading

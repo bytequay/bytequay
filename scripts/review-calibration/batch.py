@@ -179,7 +179,7 @@ def execute(plan, parallel, say=tell, total=None):
 
     pool = ThreadPoolExecutor(parallel)
     try:
-        return list(pool.map(lambda job: one(*job), waiting))
+        return list(pool.map(lambda planned: one(*planned), waiting))
     except BaseException:
         # Stopped: no new run starts, and the ones that run are told to stop. Each of them takes its command line down with it.
         pool.shutdown(wait=False, cancel_futures=True)

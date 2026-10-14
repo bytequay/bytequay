@@ -67,7 +67,7 @@ def over_time(folder, mode):
     groups, turns = resources.bucketed(resources.grouped(parts), bucket, ["group"]), resources.bucketed(machine, bucket)
     st.caption(f"Memory, averaged over every {bucket // 60:,} minutes" if bucket < 3600 else f"Memory, averaged over every {bucket // 3600:,} hours")
     dashboard.draw("memory_over_time", resources.lines_figure(groups, "memory", resources.GB, mode, " GB", span, stacked=True, height=280))
-    st.caption("Turns running on the same clock, so a jump above can be laid against the work")
+    st.caption("Turns running on the same clock, so a spike above can be set against the work")
     dashboard.draw("turns_over_time", resources.turns_figure(turns, mode, span))
     left, right = st.columns(2)
     with left:

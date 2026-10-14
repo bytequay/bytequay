@@ -78,7 +78,7 @@ def lines_figure(frame, value, unit, mode, suffix, span, stacked=False, height=2
 
 
 def turns_figure(machine, mode, span, height=110):
-    """How many turns ran, on the same clock as the charts above it, so a jump there can be laid against the work."""
+    """How many turns ran, on the same clock as the charts above it, so a spike there can be set against the work."""
     figure = go.Figure(go.Scatter(x=moments(machine["at"]), y=machine["turns"], mode="lines" if len(machine) > 2 else "lines+markers", marker={"size": 8}, fill="tozeroy",
                                   line={"width": 2, "color": charts.COLORS[mode]["other"]}, hovertemplate="%{y:.1f} turns running<extra></extra>"))
     figure.update_xaxes(showgrid=False, range=list(moments(pandas.Series(span))))

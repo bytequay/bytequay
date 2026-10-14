@@ -1,4 +1,15 @@
-# Review discovery calibration
+# ByteQuay Lab
+
+The Lab is ByteQuay's internal Insights feature. It measures how the app and
+its agents work: where turn time goes, which tools and commands they call and
+how often those fail, what each model and effort costs, how well reviews hold
+up, how much a person had to step in, and what the app takes from this Mac.
+A change to the product is chosen from these numbers and then checked against
+them. The Lab runs outside the shipped app: it reads ByteQuay's task logs and
+database without writing, keeps its results in its own folder, and serves its
+dashboard to this machine only.
+
+## Review discovery calibration
 
 `run.py` runs one bounded, read-only discovery pass against exact Git objects,
 with the Codex command line or, with `--provider claude`, the Claude one. Use
@@ -267,7 +278,7 @@ peak, and kept for 90 days. The sampler counts its own cost apart, as the part
 
 The dashboard's Resources page shows them: tiles and the last 15 minutes,
 looked at again every two seconds; memory, CPU, threads and turns running over
-the last hour, day, week, 30 or 90 days, on one clock so a jump can be laid
+the last hour, day, week, 30 or 90 days, on one clock so a spike can be set
 against the work; every part now, typically and at its peak; the typical
 memory of each group on each day from the samples when no turn ran, so memory
 held with no work to do shows as a column that rises; and the disk. Memory is

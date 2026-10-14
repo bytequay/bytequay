@@ -13,61 +13,544 @@
  */
 package com.bytequay.app.ci;
 
-public interface CiGitService
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.core.ci.CiAutofixRun.Authorization;
+import com.bytequay.core.ci.CiAutofixRun.PushJournal;
+import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hashing;
+import org.springframework.stereotype.Service;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
+
+import static com.bytequay.app.ci.CiPushResult.Outcome.REJECTED;
+import static com.bytequay.app.ci.CiPushResult.Outcome.RETRYABLE;
+import static com.bytequay.app.ci.CiPushResult.Outcome.STALE;
+import static com.bytequay.app.ci.CiPushResult.Outcome.UNCERTAIN;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Objects.requireNonNull;
+
+@Service
+public class CiGitService
 {
-    /**
-     * Fetches the exact reported target SHA when needed and points one private
-     * local branch at it without moving the PR branch.
-     *
-     * @param command authorized worktree, target ref/SHA, and private branch
-     * @return ready private branch or bounded invalid diagnostics
-     */
-    CiBaseSynchronization synchronizeBase(SynchronizeCiBaseCommand command);
+    private static final String FIXUP_PREFIX = "fixup! ";
+    private static final int MAXIMUM_DIAGNOSTIC_CHARACTERS = 8 * 1024;
+    private static final int MAXIMUM_CHANGED_PATHS = 1000;
+
+    private final GitCommandRunner runner;
+    private final Clock clock;
+
+    CiGitService(GitCommandRunner runner, Clock clock)
+    {
+        this.runner = requireNonNull(runner, "runner is null");
+        this.clock = requireNonNull(clock, "clock is null");
+    }
+
+    /** Fetches the reported base SHA and points a private branch at it without moving the PR branch. */
+    public CiBaseSynchronization synchronizeBase(SynchronizeCiBaseCommand command)
+    {
+        requireNonNull(command, "command is null");
+        try {
+            Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
+            validateRemote(worktree, command.sourceRemote(), command.remoteRepository());
+            requireCleanAndResolved(worktree);
+            requireValidBranch(worktree, command.baseRef());
+            requireValidBranch(worktree, command.localBaseBranch());
+            if (!hasCommit(worktree, command.expectedBaseSha())) {
+                Result fetched = runner.run(worktree, ImmutableList.of(
+                        "fetch",
+                        "--no-tags",
+                        "--no-recurse-submodules",
+                        "--no-write-fetch-head",
+                        command.sourceRemote(),
+                        "refs/heads/" + command.baseRef()));
+                if (!fetched.successful() || !hasCommit(worktree, command.expectedBaseSha())) {
+                    throw problem("The exact pull request base SHA is unavailable after fetch");
+                }
+            }
+            Result updated = runner.run(worktree, "update-ref", "refs/heads/" + command.localBaseBranch(), command.expectedBaseSha());
+            if (!updated.successful()) {
+                throw problem("The private local base branch could not be updated");
+            }
+            return CiBaseSynchronization.ready(command.localBaseBranch());
+        }
+        catch (GitProblem problem) {
+            return CiBaseSynchronization.invalid(problem.getMessage());
+        }
+    }
+
+    /** Deletes only the private base branch in the guarded worktree. */
+    public boolean removeSynchronizedBase(SynchronizeCiBaseCommand command)
+    {
+        requireNonNull(command, "command is null");
+        try {
+            Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
+            requireValidBranch(worktree, command.localBaseBranch());
+            Result current = runner.run(worktree, "rev-parse", "--verify", "--quiet", "refs/heads/" + command.localBaseBranch());
+            if (!current.successful()) {
+                return true;
+            }
+            return runner.run(worktree, "update-ref", "-d", "refs/heads/" + command.localBaseBranch()).successful();
+        }
+        catch (GitProblem problem) {
+            return false;
+        }
+    }
+
+    /** Accepts only committed, clean, resolved, linear PR changes that can be published from the expected remote head. */
+    public CiGitInspection inspectAgentResult(CiWorktreeRange command)
+    {
+        requireNonNull(command, "command is null");
+        try {
+            Path worktree = validateWorktree(command.worktree(), command.repository(), command.localBranch());
+            String head = requiredOutput(worktree, "rev-parse", "HEAD");
+            requireCommit(worktree, command.remoteHeadSha(), "attempt input");
+            requireCommit(worktree, command.baseSha(), "pull request base");
+            requireCleanAndResolved(worktree);
+            requireLinearRange(worktree, command.baseSha(), head);
+            requireDiffCheck(worktree, command.baseSha(), head);
+            if (head.equals(command.remoteHeadSha())) {
+                return CiGitInspection.noChange();
+            }
+            List<String> changedPaths = changedPaths(worktree, command.baseSha(), head);
+            List<String> commitSubjects = commits(worktree, command.baseSha(), head).stream()
+                    .map(Commit::subject)
+                    .collect(toImmutableList());
+            return CiGitInspection.ready(head, fingerprint(worktree, command.localBranch(), head), changedPaths, commitSubjects);
+        }
+        catch (GitProblem problem) {
+            return CiGitInspection.invalid(problem.getMessage());
+        }
+    }
 
     /**
-     * Deletes only the private local base branch named by the command.
-     *
-     * @param command same guarded scope used to create the private branch
-     * @return whether the branch is absent after the call
+     * Pushes the journaled head with an exact lease. The caller persists the journal first; this call rechecks
+     * authorization, repository, branch, fingerprint, remote SHA and push routing, rejecting URL rewrites.
      */
-    boolean removeSynchronizedBase(SynchronizeCiBaseCommand command);
+    public CiPushResult push(PushCiHeadCommand command)
+    {
+        requireNonNull(command, "command is null");
+        Authorization authorization = command.authorization();
+        PushJournal journal = command.journal();
+        if (!authorization.allowExactLeasePush()) {
+            return CiPushResult.failed(REJECTED, "Exact-lease push is not authorized");
+        }
 
-    /**
-     * Inspects the local result of one completed agent fix turn.
-     *
-     * <p>Returns no-change when HEAD is unchanged and the worktree is clean.
-     * Returns ready only when all changes are committed, no Git operation or
-     * unresolved conflict is open, the PR range is linear, and the local head
-     * can be published from the expected remote head. Agent output is not read.
-     *
-     * @param command authorized worktree and exact PR range
-     * @return no change, ready local head, or bounded rejection
-     */
-    CiGitInspection inspectAgentResult(CiWorktreeRange command);
+        try {
+            Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
+            validateRemote(worktree, command.remote(), command.remoteRepository());
+            requireValidBranch(worktree, command.remoteHeadRef());
+            Optional<String> remote = remoteHead(worktree, command.remote(), command.remoteHeadRef());
+            if (remote.isEmpty()) {
+                return CiPushResult.failed(UNCERTAIN, "Remote branch head could not be read");
+            }
+            if (remote.orElseThrow().equals(journal.localHeadSha())) {
+                return CiPushResult.pushed(journal.localHeadSha());
+            }
+            if (!remote.orElseThrow().equals(journal.expectedRemoteSha())) {
+                return CiPushResult.failed(STALE, "Remote branch changed outside this CI Autofix run");
+            }
+            if (!Instant.now(clock).isBefore(authorization.expiresAt())) {
+                return CiPushResult.failed(REJECTED, "CI Autofix authorization expired");
+            }
 
-    /**
-     * Pushes one previously inspected local head with an exact lease.
-     *
-     * <p>The caller must persist the supplied journal before calling this
-     * method. The implementation rechecks authorization, repository, branch,
-     * local fingerprint, remote SHA, and effective push routing immediately
-     * before the push. Matching {@code url.*.insteadOf} and
-     * {@code url.*.pushInsteadOf} rewrites are rejected.
-     *
-     * @param command exact push journal and authorization
-     * @return reconciled pushed, retryable, stale, uncertain, or rejected result
-     */
-    CiPushResult push(PushCiHeadCommand command);
+            requireCleanAndResolved(worktree);
+            String head = requiredOutput(worktree, "rev-parse", "HEAD");
+            if (!head.equals(journal.localHeadSha())) {
+                return CiPushResult.failed(REJECTED, "Local HEAD changed after Git inspection");
+            }
+            String fingerprint = fingerprint(worktree, command.localBranch(), head);
+            if (!fingerprint.equals(journal.localFingerprint())) {
+                return CiPushResult.failed(REJECTED, "Local Git fingerprint changed after inspection");
+            }
 
-    /**
-     * Checks fixup positions once before successful task completion.
-     *
-     * <p>This method is read-only. Every fixup must immediately follow one
-     * non-fixup commit with the exact target subject. The PR range must remain
-     * linear and free of unresolved Git state.
-     *
-     * @param command worktree, current head, and exact PR range
-     * @return valid or bounded position diagnostics
-     */
-    FixupPositionCheck checkFixupPositions(CiWorktreeRange command);
+            boolean descendant = isAncestor(worktree, journal.expectedRemoteSha(), head);
+            if (!descendant && !authorization.allowHistoryRewrites()) {
+                return CiPushResult.failed(REJECTED, "Local history rewrite is not authorized");
+            }
+            if (!authorization.allowExactLeasePush() || !Instant.now(clock).isBefore(authorization.expiresAt())) {
+                return CiPushResult.failed(REJECTED, "CI Autofix push authorization is no longer valid");
+            }
+            worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
+            requireCleanAndResolved(worktree);
+            head = requiredOutput(worktree, "rev-parse", "HEAD");
+            if (!head.equals(journal.localHeadSha())
+                    || !fingerprint(worktree, command.localBranch(), head).equals(journal.localFingerprint())) {
+                return CiPushResult.failed(REJECTED, "Local Git history changed immediately before push");
+            }
+            validateRemote(worktree, command.remote(), command.remoteRepository());
+            Result push = runner.run(worktree, pushArguments(command.remote(), command.remoteHeadRef(), journal.expectedRemoteSha(), descendant));
+            return reconcilePush(worktree, command.remote(), command.remoteHeadRef(), journal, push);
+        }
+        catch (GitProblem problem) {
+            return CiPushResult.failed(REJECTED, problem.getMessage());
+        }
+    }
+
+    /** Checks the clean, linear PR range: each fixup must immediately follow its non-fixup target with the exact subject. */
+    public FixupPositionCheck checkFixupPositions(CiWorktreeRange command)
+    {
+        requireNonNull(command, "command is null");
+        try {
+            Path worktree = validateWorktree(command.worktree(), command.repository(), command.localBranch());
+            requireCleanAndResolved(worktree);
+            String head = requiredOutput(worktree, "rev-parse", "HEAD");
+            if (!head.equals(command.remoteHeadSha())) {
+                throw problem("Local HEAD differs from the head selected for the final check");
+            }
+            requireCommit(worktree, command.baseSha(), "pull request base");
+            requireLinearRange(worktree, command.baseSha(), head);
+            List<Commit> commits = commits(worktree, command.baseSha(), head);
+            Set<String> fixedTargets = new HashSet<>();
+            for (int index = 0; index < commits.size(); index++) {
+                Commit commit = commits.get(index);
+                if (!commit.subject().startsWith(FIXUP_PREFIX)) {
+                    continue;
+                }
+                String targetSubject = commit.subject().substring(FIXUP_PREFIX.length());
+                if (targetSubject.isBlank() || index == 0) {
+                    throw problem("Fixup commit " + commit.sha() + " has no preceding target commit");
+                }
+                Commit target = commits.get(index - 1);
+                if (target.subject().startsWith(FIXUP_PREFIX) || !target.subject().equals(targetSubject)) {
+                    throw problem("Fixup commit " + commit.sha() + " is not immediately after its exact target");
+                }
+                if (!fixedTargets.add(target.sha())) {
+                    throw problem("Commit " + target.sha() + " has more than one fixup");
+                }
+            }
+            return FixupPositionCheck.valid(head);
+        }
+        catch (GitProblem problem) {
+            return FixupPositionCheck.invalid(command.remoteHeadSha(), problem.getMessage());
+        }
+    }
+
+    private CiPushResult reconcilePush(Path worktree, String remoteName, String headRef, PushJournal journal, Result push)
+    {
+        Optional<String> remote = remoteHead(worktree, remoteName, headRef);
+        if (remote.isEmpty()) {
+            return CiPushResult.failed(UNCERTAIN, "Push outcome could not be reconciled");
+        }
+        if (remote.orElseThrow().equals(journal.localHeadSha())) {
+            return CiPushResult.pushed(journal.localHeadSha());
+        }
+        if (!remote.orElseThrow().equals(journal.expectedRemoteSha())) {
+            return CiPushResult.failed(STALE, "Remote branch changed while CI Autofix was pushing");
+        }
+        if (push.successful()) {
+            return CiPushResult.failed(UNCERTAIN, "Git reported success but the remote head is unchanged");
+        }
+        if (journal.retries() == 0) {
+            return CiPushResult.failed(RETRYABLE, "Push failed before changing the remote branch");
+        }
+        return CiPushResult.failed(REJECTED, "Push retry failed before changing the remote branch");
+    }
+
+    private Path validateWorktree(Path requested, RepositoryIdentity repository, String headRef)
+    {
+        Path worktree;
+        try {
+            worktree = requested.toRealPath();
+        }
+        catch (IOException e) {
+            throw problem("Cannot resolve CI Autofix worktree");
+        }
+        if (!Files.isDirectory(worktree)) {
+            throw problem("CI Autofix worktree is not a directory");
+        }
+        Path topLevel = Path.of(requiredOutput(worktree, "rev-parse", "--show-toplevel"));
+        try {
+            if (!topLevel.toRealPath().equals(worktree)) {
+                throw problem("CI Autofix worktree is not the repository root");
+            }
+        }
+        catch (IOException e) {
+            throw problem("Cannot resolve Git repository root");
+        }
+        requireValidBranch(worktree, headRef);
+        Result branch = runner.run(worktree, "symbolic-ref", "--quiet", "--short", "HEAD");
+        if (!branch.successful() || !branch.output().strip().equals(headRef)) {
+            throw problem("Worktree is detached or on another branch");
+        }
+        RepositoryIdentity actual = parseRepository(requiredOutput(worktree, "config", "--get", "remote.origin.url"));
+        if (!actual.toString().equalsIgnoreCase(repository.toString())) {
+            throw problem("Worktree repository does not match the authorized pull request");
+        }
+        return worktree;
+    }
+
+    private void requireCleanAndResolved(Path worktree)
+    {
+        String unmerged = requiredOutput(worktree, "ls-files", "-u");
+        if (!unmerged.isEmpty()) {
+            throw problem("Git has unresolved index entries:\n" + unmerged);
+        }
+        List<String> states = ImmutableList.of("MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply", "sequencer");
+        List<Path> statePaths = runner.gitPaths(worktree, states);
+        if (statePaths.size() != states.size()) {
+            throw problem("Git could not report its operation state");
+        }
+        for (int state = 0; state < states.size(); state++) {
+            if (Files.exists(statePaths.get(state))) {
+                throw problem("Git operation is still open: " + states.get(state));
+            }
+        }
+        String status = requiredOutput(worktree, "status", "--porcelain=v1", "--untracked-files=all");
+        if (!status.isEmpty()) {
+            throw problem("Worktree or index is not clean:\n" + status);
+        }
+    }
+
+    private void requireLinearRange(Path worktree, String baseSha, String headSha)
+    {
+        Result ancestor = runner.run(worktree, "merge-base", "--is-ancestor", baseSha, headSha);
+        if (ancestor.exitCode() == 1) {
+            throw problem("Local HEAD contains commits outside the authorized PR range");
+        }
+        if (!ancestor.successful()) {
+            throw problem("Git could not validate the pull request range: " + ancestor.output());
+        }
+        String merges = requiredOutput(worktree, "rev-list", "--min-parents=2", baseSha + ".." + headSha);
+        if (!merges.isEmpty()) {
+            throw problem("Pull request history is not linear; merge commit: " + merges.lines().findFirst().orElseThrow());
+        }
+    }
+
+    private void requireDiffCheck(Path worktree, String baseSha, String headSha)
+    {
+        Result result = runner.run(worktree, "diff", "--check", baseSha + ".." + headSha);
+        if (!result.successful()) {
+            throw problem("Git rejected the committed diff:\n" + result.output());
+        }
+    }
+
+    private void requireCommit(Path worktree, String sha, String name)
+    {
+        Result result = runner.run(worktree, "cat-file", "-e", sha + "^{commit}");
+        if (!result.successful()) {
+            throw problem("Git cannot resolve the " + name + " commit");
+        }
+    }
+
+    private boolean hasCommit(Path worktree, String sha)
+    {
+        return runner.run(worktree, "cat-file", "-e", sha + "^{commit}").successful();
+    }
+
+    private boolean isAncestor(Path worktree, String ancestor, String descendant)
+    {
+        Result result = runner.run(worktree, "merge-base", "--is-ancestor", ancestor, descendant);
+        if (result.exitCode() == 1) {
+            return false;
+        }
+        if (!result.successful()) {
+            throw problem("Git could not validate the publish relationship");
+        }
+        return true;
+    }
+
+    private List<String> changedPaths(Path worktree, String baseSha, String headSha)
+    {
+        String output = requiredRawOutput(worktree, "diff", "--name-only", "-z", baseSha + ".." + headSha);
+        if (output.isEmpty()) {
+            return ImmutableList.of();
+        }
+        ImmutableList.Builder<String> paths = ImmutableList.builder();
+        int count = 0;
+        for (String path : output.split("\\u0000", -1)) {
+            if (path.isEmpty()) {
+                continue;
+            }
+            if (count == MAXIMUM_CHANGED_PATHS) {
+                throw problem("Changed paths exceed " + MAXIMUM_CHANGED_PATHS + " values");
+            }
+            paths.add(path);
+            count++;
+        }
+        return paths.build();
+    }
+
+    private String fingerprint(Path worktree, String headRef, String head)
+    {
+        String tree = requiredOutput(worktree, "rev-parse", "HEAD^{tree}");
+        String status = requiredOutput(worktree, "status", "--porcelain=v1", "--untracked-files=all");
+        return Hashing.sha256().hashString(headRef + "\u0000" + head + "\u0000" + tree + "\u0000" + status, StandardCharsets.UTF_8).toString();
+    }
+
+    private Optional<String> remoteHead(Path worktree, String remote, String headRef)
+    {
+        Result result = runner.run(worktree, "ls-remote", "--exit-code", remote, "refs/heads/" + headRef);
+        if (!result.successful()) {
+            return Optional.empty();
+        }
+        String[] fields = result.output().strip().split("\\s+", 2);
+        if (fields.length != 2 || !fields[1].equals("refs/heads/" + headRef)
+                || !fields[0].matches("(?:[0-9a-f]{40}|[0-9a-f]{64})")) {
+            return Optional.empty();
+        }
+        return Optional.of(fields[0]);
+    }
+
+    private List<Commit> commits(Path worktree, String baseSha, String headSha)
+    {
+        String output = requiredOutput(worktree, "log", "--reverse", "--format=%H%x00%s%x00", baseSha + ".." + headSha);
+        if (output.isEmpty()) {
+            return ImmutableList.of();
+        }
+        String[] fields = output.split("\\u0000", -1);
+        List<Commit> commits = new ArrayList<>();
+        for (int index = 0; index + 1 < fields.length; index += 2) {
+            String sha = fields[index].strip();
+            String subject = fields[index + 1];
+            if (!sha.isEmpty()) {
+                commits.add(new Commit(sha, subject));
+            }
+        }
+        return ImmutableList.copyOf(commits);
+    }
+
+    private String requiredOutput(Path worktree, String... arguments)
+    {
+        return requiredRawOutput(worktree, arguments).strip();
+    }
+
+    private String requiredRawOutput(Path worktree, String... arguments)
+    {
+        Result result = runner.run(worktree, arguments);
+        if (!result.successful()) {
+            throw problem("Git command failed: " + result.output());
+        }
+        if (result.truncated()) {
+            throw problem("Git output exceeded " + GitCommandRunner.MAXIMUM_OUTPUT_BYTES + " bytes");
+        }
+        return result.output();
+    }
+
+    static List<String> pushArguments(String remote, String headRef, String expectedRemoteSha, boolean descendant)
+    {
+        ImmutableList.Builder<String> arguments = ImmutableList.builder();
+        arguments.add("push", "--porcelain");
+        if (!descendant) {
+            arguments.add("--force-with-lease=refs/heads/" + headRef + ":" + expectedRemoteSha);
+        }
+        return arguments
+                .add(remote, "HEAD:refs/heads/" + headRef)
+                .build();
+    }
+
+    private void validateRemote(Path worktree, String remote, RepositoryIdentity expectedRepository)
+    {
+        String configuredUrl = requiredOutput(worktree, "config", "--get-all", "remote." + remote + ".url");
+        Result pushUrls = runner.run(worktree, "config", "--get-all", "remote." + remote + ".pushurl");
+        if (configuredUrl.lines().count() != 1 || pushUrls.successful()) {
+            throw problem("Git remote has ambiguous fetch or push routing");
+        }
+        if (pushUrls.exitCode() != 1 || pushUrls.truncated()) {
+            throw problem("Git remote push routing could not be inspected");
+        }
+        rejectMatchingUrlRewrite(worktree, configuredUrl);
+        RepositoryIdentity actual = parseRepository(configuredUrl);
+        if (!actual.toString().equalsIgnoreCase(expectedRepository.toString())) {
+            throw problem("Git remote does not match the authorized pull request");
+        }
+    }
+
+    private void rejectMatchingUrlRewrite(Path worktree, String configuredUrl)
+    {
+        Result rewrites = runner.run(worktree, "config", "--null", "--get-regexp", "^url\\..*\\.(instead|pushinstead)of$");
+        if (rewrites.exitCode() == 1 && !rewrites.truncated()) {
+            return;
+        }
+        if (!rewrites.successful() || rewrites.truncated()) {
+            throw problem("Git URL rewrite routing could not be inspected");
+        }
+        for (String entry : rewrites.output().split("\u0000")) {
+            int separator = entry.indexOf('\n');
+            if (separator < 0) {
+                throw problem("Git URL rewrite routing could not be inspected");
+            }
+            if (configuredUrl.startsWith(entry.substring(separator + 1))) {
+                throw problem("Git URL rewrite changes the authorized push destination");
+            }
+        }
+    }
+
+    private void requireValidBranch(Path worktree, String headRef)
+    {
+        if (headRef.startsWith("-") || headRef.contains("@{")) {
+            throw problem("Authorized pull request branch is invalid");
+        }
+        Result result = runner.run(worktree, "check-ref-format", "refs/heads/" + headRef);
+        if (!result.successful()) {
+            throw problem("Authorized pull request branch is invalid");
+        }
+    }
+
+    private static RepositoryIdentity parseRepository(String remote)
+    {
+        String path;
+        if (remote.startsWith("git@github.com:")) {
+            path = remote.substring("git@github.com:".length());
+        }
+        else {
+            try {
+                URI uri = new URI(remote);
+                if (uri.getHost() == null || !uri.getHost().equalsIgnoreCase("github.com")) {
+                    throw problem("Origin is not a GitHub repository");
+                }
+                String scheme = Optional.ofNullable(uri.getScheme()).orElse("").toLowerCase(Locale.ROOT);
+                String user = uri.getUserInfo();
+                if (!(scheme.equals("https") && user == null)
+                        && !(scheme.equals("ssh") && "git".equals(user))) {
+                    throw problem("Origin URL contains unsupported credentials or transport");
+                }
+                path = uri.getPath();
+            }
+            catch (URISyntaxException e) {
+                throw problem("Origin URL is invalid");
+            }
+        }
+        path = path.replaceFirst("^/+", "").replaceFirst("\\.git$", "");
+        try {
+            return RepositoryIdentity.valueOf(path);
+        }
+        catch (IllegalArgumentException e) {
+            throw problem("Origin URL does not identify one GitHub repository");
+        }
+    }
+
+    private static GitProblem problem(String message)
+    {
+        String bounded = message == null || message.isBlank() ? "Git validation failed" : message.strip();
+        if (bounded.length() > MAXIMUM_DIAGNOSTIC_CHARACTERS) {
+            bounded = bounded.substring(0, MAXIMUM_DIAGNOSTIC_CHARACTERS);
+        }
+        return new GitProblem(bounded);
+    }
+
+    private record Commit(String sha, String subject) {}
+
+    private static final class GitProblem
+            extends RuntimeException
+    {
+        private GitProblem(String message)
+        {
+            super(message);
+        }
+    }
 }

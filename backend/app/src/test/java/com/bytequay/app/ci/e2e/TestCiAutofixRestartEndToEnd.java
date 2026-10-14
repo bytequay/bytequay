@@ -24,19 +24,13 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.app.ByteQuayApplication;
 import com.bytequay.app.ci.CiAutofixService;
-import com.bytequay.app.ci.CiBaseSynchronization;
-import com.bytequay.app.ci.CiGitInspection;
-import com.bytequay.app.ci.CiGitOperations;
 import com.bytequay.app.ci.CiGitService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.CiMemoryView;
 import com.bytequay.app.ci.CiPushResult;
-import com.bytequay.app.ci.CiWorktreeRange;
-import com.bytequay.app.ci.FixupPositionCheck;
 import com.bytequay.app.ci.PushCiHeadCommand;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.ci.RoutedGitCommandRunner;
-import com.bytequay.app.ci.SynchronizeCiBaseCommand;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.scheduler.WorkflowMonitorJob;
@@ -76,13 +70,17 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @Execution(ExecutionMode.SAME_THREAD)
@@ -146,7 +144,7 @@ class TestCiAutofixRestartEndToEnd
                     .collect(toImmutableList());
             metricsBeforeRestart = first.getBean(AgentMetricsService.class).taskTotals(taskId);
 
-            assertThat(first.getBean(LostPushCiGitService.class).pushCalls()).isEqualTo(1);
+            verify(first.getBean("lostPushCiGitService", CiGitService.class)).push(any());
             assertThat(uncertain.pushJournal()).isPresent();
             assertThat(uncertain.attempts().getFirst().pushedSha()).isEmpty();
             assertThat(repository.remoteHead()).isEqualTo(pushedSha);
@@ -360,60 +358,22 @@ class TestCiAutofixRestartEndToEnd
                     },
                     bean -> bean.setPrimary(true));
             if (losePushResult) {
-                context.registerBean(LostPushCiGitService.class, () -> new LostPushCiGitService(context.getBean(CiGitOperations.class)), bean -> bean.setPrimary(true));
+                context.registerBean("lostPushCiGitService", CiGitService.class, () -> {
+                    CiGitService git = spy(context.getBean("ciGitService", CiGitService.class));
+                    AtomicInteger pushCalls = new AtomicInteger();
+                    doAnswer(invocation -> {
+                        int calls = pushCalls.incrementAndGet();
+                        PushCiHeadCommand command = invocation.getArgument(0);
+                        CiPushResult result = (CiPushResult) invocation.callRealMethod();
+                        checkState(result.outcome() == CiPushResult.Outcome.PUSHED, "test push did not succeed: %s", result);
+                        String remoteHead = E2eGitRepository.routedGit(command.worktree(), "ls-remote", command.remote(),
+                                "refs/heads/" + command.remoteHeadRef()).split("\\s+", 2)[0];
+                        checkState(remoteHead.equals(command.journal().localHeadSha()), "remote did not receive the journaled SHA");
+                        return calls == 1 ? CiPushResult.failed(CiPushResult.Outcome.UNCERTAIN, "test discarded the successful push result") : result;
+                    }).when(git).push(any());
+                    return git;
+                }, bean -> bean.setPrimary(true));
             }
-        }
-    }
-
-    private static final class LostPushCiGitService
-            implements CiGitService
-    {
-        private final CiGitService delegate;
-        private int pushCalls;
-
-        private LostPushCiGitService(CiGitService delegate)
-        {
-            this.delegate = requireNonNull(delegate, "delegate is null");
-        }
-
-        @Override
-        public CiBaseSynchronization synchronizeBase(SynchronizeCiBaseCommand command)
-        {
-            return delegate.synchronizeBase(command);
-        }
-
-        @Override
-        public boolean removeSynchronizedBase(SynchronizeCiBaseCommand command)
-        {
-            return delegate.removeSynchronizedBase(command);
-        }
-
-        @Override
-        public CiGitInspection inspectAgentResult(CiWorktreeRange command)
-        {
-            return delegate.inspectAgentResult(command);
-        }
-
-        @Override
-        public CiPushResult push(PushCiHeadCommand command)
-        {
-            pushCalls++;
-            CiPushResult result = delegate.push(command);
-            checkState(result.outcome() == CiPushResult.Outcome.PUSHED, "test push did not succeed: %s", result);
-            String remoteHead = E2eGitRepository.routedGit(command.worktree(), "ls-remote", command.remote(), "refs/heads/" + command.remoteHeadRef()).split("\\s+", 2)[0];
-            checkState(remoteHead.equals(command.journal().localHeadSha()), "remote did not receive the journaled SHA");
-            return pushCalls == 1 ? CiPushResult.failed(CiPushResult.Outcome.UNCERTAIN, "test discarded the successful push result") : result;
-        }
-
-        @Override
-        public FixupPositionCheck checkFixupPositions(CiWorktreeRange command)
-        {
-            return delegate.checkFixupPositions(command);
-        }
-
-        private int pushCalls()
-        {
-            return pushCalls;
         }
     }
 }

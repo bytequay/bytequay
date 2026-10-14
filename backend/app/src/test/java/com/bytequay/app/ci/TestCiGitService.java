@@ -41,7 +41,7 @@ import static com.bytequay.app.ci.CiPushResult.Outcome.STALE;
 import static com.bytequay.app.ci.FixupPositionCheck.Result.VALID;
 import static org.assertj.core.api.Assertions.assertThat;
 
-class TestCiGitOperations
+class TestCiGitService
 {
     private static final Instant NOW = Instant.parse("2026-08-18T04:00:00Z");
     private static final RepositoryIdentity REPOSITORY = new RepositoryIdentity("acme", "project");
@@ -97,7 +97,7 @@ class TestCiGitOperations
             throws IOException
     {
         Repository fixture = repository("inspection");
-        CiGitOperations service = service();
+        CiGitService service = service();
 
         CiGitInspection unchanged = service.inspectAgentResult(inspect(fixture));
         assertThat(unchanged.outcome()).isEqualTo(NO_CHANGE);
@@ -118,7 +118,7 @@ class TestCiGitOperations
             throws IOException
     {
         Repository fixture = repository("dirty");
-        CiGitOperations service = service();
+        CiGitService service = service();
 
         write(fixture.worktree().resolve("source.txt"), "dirty\n");
         assertInvalid(service, fixture, "not clean");
@@ -241,10 +241,10 @@ class TestCiGitOperations
 
         assertThat(pushed.outcome()).isEqualTo(PUSHED);
         assertThat(remoteHead(fixture)).isEqualTo(inspection.localHead().orElseThrow());
-        assertThat(CiGitOperations.pushArguments("origin", HEAD_REF, fixture.inputSha(), false))
+        assertThat(CiGitService.pushArguments("origin", HEAD_REF, fixture.inputSha(), false))
                 .containsExactly("push", "--porcelain", "--force-with-lease=refs/heads/feature:" + fixture.inputSha(), "origin", "HEAD:refs/heads/feature")
                 .doesNotContain("--force");
-        assertThat(CiGitOperations.pushArguments("origin", HEAD_REF, fixture.inputSha(), true))
+        assertThat(CiGitService.pushArguments("origin", HEAD_REF, fixture.inputSha(), true))
                 .containsExactly("push", "--porcelain", "origin", "HEAD:refs/heads/feature");
     }
 
@@ -283,7 +283,7 @@ class TestCiGitOperations
         write(worktree.resolve("source.txt"), "base\nrewritten target\nfix\n");
         commit(worktree, "fixup! Target change");
         Repository fixture = new Repository(worktree.toRealPath(), fork.toRealPath(), base, original);
-        CiGitOperations service = service();
+        CiGitService service = service();
         CiGitInspection inspection = service.inspectAgentResult(inspect(fixture));
         assertThat(inspection.outcome()).isEqualTo(READY);
         gitFailure(worktree, "merge-base", "--is-ancestor", original, inspection.localHead().orElseThrow());
@@ -483,9 +483,9 @@ class TestCiGitOperations
         assertInvalid(service(), credential, "unsupported credentials");
     }
 
-    private CiGitOperations service()
+    private CiGitService service()
     {
-        return new CiGitOperations(new RoutedGitCommandRunner(), Clock.fixed(NOW, ZoneOffset.UTC));
+        return new CiGitService(new RoutedGitCommandRunner(), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private Repository repository(String name)
@@ -556,7 +556,7 @@ class TestCiGitOperations
         return new Authorization(true, allowRewrite, true, 3, NOW.minusSeconds(60), NOW.plusSeconds(3600));
     }
 
-    private static void assertInvalid(CiGitOperations service, Repository fixture, String message)
+    private static void assertInvalid(CiGitService service, Repository fixture, String message)
     {
         CiGitInspection result = service.inspectAgentResult(inspect(fixture));
         assertThat(result.outcome()).isEqualTo(INVALID);

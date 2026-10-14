@@ -13,6 +13,9 @@
  */
 package com.bytequay.core.review;
 
+import lombok.AccessLevel;
+import lombok.Builder;
+
 import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -29,6 +32,7 @@ import static java.util.Objects.requireNonNull;
  * @param observedHeadSha the newest source head ByteQuay has seen; working-copy catch-up and explicit review updates use this target
  * @param worktreeHeadSha the last head ByteQuay aligned, retained independently of the assessed run to recognize private local commits
  */
+@Builder(builderClassName = "Draft", builderMethodName = "", toBuilder = true, access = AccessLevel.PRIVATE)
 public record AgentReview(
         String id,
         String workspaceId,
@@ -96,92 +100,40 @@ public record AgentReview(
 
     public AgentReview withVersion(long updatedVersion)
     {
-        return new AgentReview(
-                id,
-                workspaceId,
-                repo,
-                number,
-                pullRequestId,
-                taskId,
-                sourceTaskId,
-                state,
-                followUpPaused,
-                latestCompletedRunId,
-                observedHeadSha,
-                worktreeHeadSha,
-                updatedVersion,
-                createdAt,
-                updatedAt,
-                closedAt, replay);
+        return toBuilder().version(updatedVersion).build();
     }
 
     public AgentReview withFollowUpPaused(boolean paused, Instant now)
     {
-        return new AgentReview(id, workspaceId, repo, number, pullRequestId, taskId, sourceTaskId, state, paused, latestCompletedRunId, observedHeadSha, worktreeHeadSha,
-                version, createdAt, now, closedAt, replay);
+        return toBuilder().followUpPaused(paused).updatedAt(now).build();
     }
 
     public AgentReview withPullRequest(int pullNumber, OptionalLong storedId, Instant now)
     {
         checkArgument(number.isEmpty() || number.getAsInt() == pullNumber, "review pull request cannot change");
         checkArgument(replay.isEmpty(), "a replay has no pull request");
-        return new AgentReview(id, workspaceId, repo, OptionalInt.of(pullNumber), storedId, taskId, sourceTaskId, state, followUpPaused,
-                latestCompletedRunId, observedHeadSha, worktreeHeadSha, version, createdAt, now, closedAt, replay);
+        return toBuilder().number(OptionalInt.of(pullNumber)).pullRequestId(storedId).updatedAt(now).build();
     }
 
     public AgentReview withObservedHead(String headSha, Instant now)
     {
-        return new AgentReview(
-                id,
-                workspaceId,
-                repo,
-                number,
-                pullRequestId,
-                taskId,
-                sourceTaskId,
-                state,
-                followUpPaused,
-                latestCompletedRunId,
-                Optional.of(headSha),
-                worktreeHeadSha,
-                version,
-                createdAt,
-                now,
-                closedAt, replay);
+        return toBuilder().observedHeadSha(Optional.of(headSha)).updatedAt(now).build();
     }
 
     public AgentReview withLatestCompletedRun(String runId, Instant now)
     {
-        return new AgentReview(id, workspaceId, repo, number, pullRequestId, taskId, sourceTaskId, state, followUpPaused, Optional.of(runId), observedHeadSha, worktreeHeadSha,
-                version, createdAt, now, closedAt, replay);
+        return toBuilder().latestCompletedRunId(Optional.of(runId)).updatedAt(now).build();
     }
 
     /** Last head ByteQuay aligned, independent of the retained review scope and any private local commits. */
     public AgentReview withWorktreeHead(String headSha, Instant now)
     {
-        return new AgentReview(id, workspaceId, repo, number, pullRequestId, taskId, sourceTaskId, state, followUpPaused, latestCompletedRunId,
-                observedHeadSha, Optional.of(headSha), version, createdAt, now, closedAt, replay);
+        return toBuilder().worktreeHeadSha(Optional.of(headSha)).updatedAt(now).build();
     }
 
     public AgentReview closed(Instant now)
     {
-        return new AgentReview(
-                id,
-                workspaceId,
-                repo,
-                number,
-                pullRequestId,
-                taskId,
-                sourceTaskId,
-                State.CLOSED,
-                true,
-                latestCompletedRunId,
-                observedHeadSha,
-                worktreeHeadSha,
-                version,
-                createdAt,
-                now,
-                Optional.of(now), replay);
+        return toBuilder().state(State.CLOSED).followUpPaused(true).updatedAt(now).closedAt(Optional.of(now)).build();
     }
 
     public enum State

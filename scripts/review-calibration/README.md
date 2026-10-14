@@ -364,14 +364,33 @@ once with `UPDATE_SAVED_EXAMPLES=1` after changing a shape on purpose.
 
 ```sh
 uv run dashboard.py
-uv run dashboard.py FOLDER --port 8600
+uv run dashboard.py FOLDER --port 8600 --runtime RUNTIME
 ```
 
 `dashboard.py` shows the saved turn table as one page at
-`http://127.0.0.1:8517`. It reads the folder and nothing else: not the task
-logs and not the application's data. Pick the days in the side bar; days are
-in the reader's own time zone, while `--since` counts in UTC. A model and
-effort and a repository can be picked there too, and every tab follows. The Overview tab has the totals, a ring of the
+`http://127.0.0.1:8517`. Most tabs read the folder and nothing else. The
+Suggestions and Approvals tabs also read the task logs, in this process
+only, to match approval rules against command lines that are never shown or
+saved. "Read the logs again" in the side bar saves the tables again, as
+`uv run activity.py --save` does, and the page then shows them. Pick the days
+in the side bar; days are in the reader's own time zone, while `--since`
+counts in UTC. A model and effort and a repository can be picked there too,
+and every tab follows except Suggestions, which picks its own days, and
+Approvals, which follows the days only.
+
+The Suggestions tab comes first. It lists what `suggest.py` suggests changing
+in ByteQuay for the last 7, 14 or 28 days or every day, the most time each
+could save first, each with the numbers seen, what to do, where in ByteQuay,
+and the number to watch. "I made this change" notes the change in
+`changes.json` under the suggestion's title, as `digest.py --note` does; from
+then on the suggestion shows its number in the seven days before that day and
+in the days since. The Approvals tab is the page form of `approvals.py`: what
+was asked, the rules the asked commands need, and a test of rules picked from
+that table or written by hand, with the asks they answer, the minutes and turn
+endings they save, the risks among them, and how many of all commands run
+they cover.
+
+The Overview tab has the totals, a ring of the
 three states, a ring of how the turns ended and the turn time of each day. The
 Time tab has every part of the time as rings, bars for what the agent waited
 for, shell time by program, model time by what just finished, the tasks

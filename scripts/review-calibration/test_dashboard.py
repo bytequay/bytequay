@@ -1,4 +1,5 @@
 import ast
+from datetime import date
 import json
 import logging
 import os
@@ -16,6 +17,10 @@ import activity
 import batch
 import charts
 import dashboard
+import suggest
+from test_activity import command, in_order
+from test_approvals import CODEX, asked, ended
+import test_suggest
 
 EXAMPLE = Path(__file__).with_name("fixture") / "saved-turns.json"
 # Outside a running page Streamlit warns on every start that there is no page, which is how these tests run it.
@@ -40,6 +45,11 @@ def table(page, column):
     return found
 
 
+def run_buttons(page):
+    """The labels of the buttons that start or stop an experiment's runs."""
+    return [button.label for button in page.button if button.key in ("start_runs", "stop_runs")]
+
+
 def headings(page):
     return [heading.value for heading in page.subheader]
 
@@ -55,7 +65,8 @@ class Page(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.folder = Path(directory.name)
-        arguments = mock.patch.object(sys, "argv", ["dashboard.py", str(self.folder)])
+        self.runtime = self.folder / "runtime"  # the page reads no real task log
+        arguments = mock.patch.object(sys, "argv", ["dashboard.py", str(self.folder), "--runtime", str(self.runtime)])
         arguments.start()
         self.addCleanup(arguments.stop)
         config.set_option("server.address", dashboard.HOST)  # what the page's own start-up sets
@@ -97,8 +108,8 @@ class Page(unittest.TestCase):
         self.assertEqual([(tile.label, tile.value) for tile in page.metric][:5],
                          [("Turn time", "0.3 h"), ("Tasks", "2"), ("Turns", "3"), ("Typical turn", "5.0 min"), ("Longest turn", "10 min")])
         self.assertEqual(headings(page), OVERVIEW + TIME + SLOW + TOOLS + COST + REVIEWS)  # the models tab has too few turns to draw
-        self.assertEqual([tab.label for tab in page.tabs], ["Overview", "Time", "Slow spots", "Tools", "Models", "Cost", "Reviews"])
-        self.assertEqual([heading.value for heading in page.tabs[3].subheader], TOOLS)  # each tab holds what its name says
+        self.assertEqual([tab.label for tab in page.tabs], ["Suggestions", "Overview", "Time", "Slow spots", "Tools", "Approvals", "Models", "Cost", "Reviews"])
+        self.assertEqual([heading.value for heading in page.tabs[4].subheader], TOOLS)  # each tab holds what its name says
         self.assertEqual([note.value for note in page.info], NO_REVIEWS)  # the last tab says how to save what it would show
         self.assertEqual(len(page.get("plotly_chart")), 22)  # three, six, four, four, none and five on the six tabs
         self.assertIn("Two or more tools ran at once for 1.3 minutes; the most at once was 2.", captions(page))  # 60 seconds in one turn and 20 in another
@@ -364,7 +375,7 @@ class Page(unittest.TestCase):
         with mock.patch.object(batch, "start") as started, mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}):
             page = self.page()
             self.assertEqual(list(page.exception), [])
-            self.assertEqual(([box.value for box in page.selectbox], [button.label for button in page.button]), (["trial"], ["Run and judge what is missing"]))
+            self.assertEqual(([box.value for box in page.selectbox], run_buttons(page)), (["trial"], ["Run and judge what is missing"]))
             self.assertTrue({"Runs: 1 missing.", hint} <= set(captions(page)))
             self.assertIn("trial is not scored yet.", [note.value for note in page.info])
             page.button(key="start_runs").click().run()
@@ -373,33 +384,33 @@ class Page(unittest.TestCase):
         run.mkdir(parents=True)  # begun and not ended
         with mock.patch.object(batch, "runner", return_value=4321), mock.patch.object(batch, "stop") as stopped:
             page = self.page()
-            self.assertEqual(("Runs: 1 running." in captions(page), [button.label for button in page.button]), (True, ["Stop"]))
+            self.assertEqual(("Runs: 1 running." in captions(page), run_buttons(page)), (True, ["Stop"]))
             page.button(key="stop_runs").click().run()
         self.assertEqual([call.args[0]["folder"] for call in stopped.call_args_list], [kept])
         (run / "runtime.json").write_text(json.dumps({"status": "completed"}))
         with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "a-key"}):
             page = self.page()
-        self.assertEqual(("Runs: 1 completed, 1 of them not judged yet." in captions(page), hint in captions(page), [button.label for button in page.button]),
+        self.assertEqual(("Runs: 1 completed, 1 of them not judged yet." in captions(page), hint in captions(page), run_buttons(page)),
                          (True, False, ["Run and judge what is missing"]))  # a run left to judge, and the key to judge it
         self.save_scores("trial")
         with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}):
             page = self.page()
-        self.assertEqual((hint in captions(page), [button.label for button in page.button]), (True, ["Run and judge what is missing"]))  # scored before, and a run left to judge since
+        self.assertEqual((hint in captions(page), run_buttons(page)), (True, ["Run and judge what is missing"]))  # scored before, and a run left to judge since
         (kept / "scores.json").unlink()
         (run / "judgement.json").write_text("{}")
         with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}):
             page = self.page()
-        self.assertEqual(("Runs: 1 completed." in captions(page), hint in captions(page), [button.label for button in page.button]),
+        self.assertEqual(("Runs: 1 completed." in captions(page), hint in captions(page), run_buttons(page)),
                          (True, False, ["Run and judge what is missing"]))  # judged and not scored: a start only saves the scores, which needs no key
         self.save_scores("trial")
         (kept / "batch.log").write_text("".join(f"line {number}\n" for number in range(8)))
         page = self.page()
-        self.assertEqual(("Runs: 1 completed." in captions(page), list(page.button), page.code[-1].value),
+        self.assertEqual(("Runs: 1 completed." in captions(page), run_buttons(page), page.code[-1].value),
                          (True, [], "line 3\nline 4\nline 5\nline 6\nline 7"))  # nothing left to do, and the end of what the last start said
         (kept / "scores.json").unlink()
         (kept / "plan.json").write_text("{")
         page = self.page()
-        self.assertEqual((list(page.exception), list(page.button), [note.value for note in page.info][-1]),
+        self.assertEqual((list(page.exception), run_buttons(page), [note.value for note in page.info][-1]),
                          ([], [], "trial is not scored yet. Score it with `uv run batch.py trial --judge`"))  # the page cannot run it, so it says how
         self.assertIn(f"It cannot run: {kept / 'plan.json'}: it is not JSON", captions(page))
 
@@ -511,8 +522,79 @@ class Page(unittest.TestCase):
                 self.assertEqual([note.value for note in page.error], ["This page is only shown to this machine. Start it with `uv run dashboard.py`"])
                 self.assertEqual((len(page.title), len(page.metric), len(page.get("plotly_chart"))), (0, 0, 0))
 
+    def save_turns(self, *rows):
+        self.save(json.dumps(test_suggest.table(*rows)))
+
+    def write_log(self, *events):
+        log = self.runtime / "task-1" / "events.jsonl"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("".join(json.dumps(made) + "\n" for made in in_order(*events)))
+
+    def test_suggestions_tab_lists_what_to_change_for_the_days_picked(self):
+        self.save_turns(test_suggest.row("2026-01-01T12:00:00Z", seconds=1200.0, long_runs=[("maven", 1830.0)]),
+                        test_suggest.row("2026-01-11T12:00:00Z", seconds=1200.0, long_runs=[("maven", 900.0)]))
+        page = self.page()
+        self.assertEqual(list(page.exception), [])
+        self.assertEqual([text.value for text in page.markdown if text.value.startswith("##### ")], ["##### 1. Make long maven runs shorter"])
+        self.assertIn("Could save up to 28.3 minutes a week. Watch: long maven minutes in an agent hour, now 68.2.", captions(page))  # both turns, over 11 days
+        self.assertIn("Where: a recipe in the repository's memory, on the Memory page, which every turn of that repository is given; "
+                      f"`{suggest.INSTRUCTIONS}` (compose)", [text.value for text in page.markdown])
+        page.radio(key="look").set_value("7 days").run()
+        self.assertIn("Could save up to 14.5 minutes a week. Watch: long maven minutes in an agent hour, now 45.0.", captions(page))  # only the last turn
+
+    def test_suggestions_tab_notes_a_change_and_then_shows_its_number_before_and_since(self):
+        self.save_turns(test_suggest.row("2026-01-11T12:00:00Z", seconds=1200.0, long_runs=[("maven", 900.0)]))
+        page = self.page()
+        self.assertEqual([button.label for button in page.button if button.key == "noted_1"], ["I made this change"])
+        page.button(key="noted_1").click().run()
+        self.assertEqual(json.loads((self.folder / "changes.json").read_text())["changes"], [{"day": date.today().isoformat(), "what": "Make long maven runs shorter"}])
+        self.assertIn(f"You noted this change on {suggest.said(date.today())}. long maven minutes in an agent hour: - in the 7 days before, - since, over 0 turns.",
+                      captions(page))
+        self.assertEqual([button.label for button in page.button if button.key == "noted_1"], ["I changed it again"])
+
+    def test_suggestions_tab_with_nothing_to_suggest_says_so(self):
+        self.save()
+        self.assertIn("Nothing in these days passes the limits for a suggestion.", captions(self.page()))
+
+    def test_refresh_button_saves_the_tables_again_from_the_logs(self):
+        self.save()
+        page = self.page()
+        page.button(key="refresh").click().run()
+        self.assertEqual([note.value for note in page.error], [f"The logs could not be read again: activity.py: error: No task log matches under {self.runtime}"])
+        self.write_log(ended(43200, 43800))
+        page.button(key="refresh").click().run()
+        self.assertEqual((list(page.error), list(page.exception)), ([], []))
+        self.assertEqual([(row["task"], row["seconds"]) for row in json.loads((self.folder / "turns.json").read_text())["turns"]], [("task-1", 600)])
+        self.assertIn("1 of 1 turns. Days are in your own time zone.", captions(page))  # the page shows what it just saved
+
+    def test_approvals_tab_shows_the_asks_and_what_the_rules_picked_would_answer(self):
+        self.save_turns(test_suggest.row("2026-01-01T12:00:00Z"))
+        self.write_log(ended(43200, 44000), asked(43201, 43501, CODEX, "/bin/zsh -lc './mvnw -o -pl core test > /tmp/x.log'", "EXPIRED"),
+                       asked(43502, 43562, CODEX, "/bin/zsh -lc './mvnw -o -pl web test'", key="a2"), command(43600, 43610, "/bin/zsh -lc './mvnw -o -pl web verify'"),
+                       ended(216000, 216100, name="t2"), asked(216001, 216050, CODEX, "/bin/zsh -lc './mvnw -o -pl late test'", turn="t2", key="a3"))  # a day the table does not hold
+        page = self.page()
+        tiles = lambda: {tile.label: tile.value for tile in page.metric}
+        self.assertEqual(list(page.exception), [])
+        self.assertEqual({label: tiles()[label] for label in ("Asks", "Minutes waited", "Ran out", "Ended a turn", "Codex reviewer")},
+                         {"Asks": "2", "Minutes waited": "6.0", "Ran out": "1", "Ended a turn": "0", "Codex reviewer": "0"})
+        self.assertEqual(table(page, "kind").values.tolist(), [["codex", "command", 2, 1, 6.0]])
+        self.assertEqual(table(page, "asks that need it").values.tolist(), [["Bash(./mvnw -o -pl:*)", 2, 2, 6.0, 2, 0]])
+        self.assertIn("Pick or write a rule to see what it would have answered.", captions(page))
+        page.multiselect(key="rules").set_value(["Bash(./mvnw -o -pl:*)"]).run()
+        self.assertEqual({label: tiles()[label] for label in ("Asks answered", "Minutes saved", "Turns kept going", "Commands covered")},
+                         {"Asks answered": "2 of 2", "Minutes saved": "6.0", "Turns kept going": "0 of 0", "Commands covered": "1"})
+        self.assertIn("Risks in what they answer: writes a file 1. A risk is a word in the line worth a closer look, not a judgment that a line is safe.", captions(page))
+        page.text_area(key="own_rules").input("./mvnw -o").run()
+        self.assertEqual([note.value for note in page.warning], ["Not a rule, so left out: ./mvnw -o. A rule looks like Bash(./mvnw -o:*) or Bash(git status)."])
+        shown = [text.value for text in [*page.tabs[5].caption, *page.tabs[5].markdown, *page.tabs[5].warning]]
+        for private in ("core", "web", "/tmp", "x.log"):
+            self.assertFalse(any(private in text for text in shown), private)  # rule words only, never a path or an argument
+
 
 class TestSource(unittest.TestCase):
+    def test_text_is_shown_as_it_is_and_never_read_as_markdown(self):
+        self.assertEqual(dashboard.plain("Bash(./mvnw -o:*) costs $5, a_b and `x`"), "Bash(./mvnw -o:\\*) costs \\$5, a\\_b and \\`x\\`")
+
     def test_page_has_no_bare_expression_that_streamlit_would_print(self):
         # Streamlit writes the value of any expression that stands alone in the page's file, wherever it stands. A call is
         # the one kind it leaves alone, so `draw(x) if y else z` on a line of its own prints "None" under the chart.
@@ -530,10 +612,10 @@ class TestStart(unittest.TestCase):
             dashboard.main()
         self.assertEqual(stopped.exception.code, 7)  # the page's start ends as Streamlit ends
         self.assertEqual(seen[:3], ["streamlit", "run", dashboard.__file__])
-        options = dict(zip(seen[3:-2:2], seen[4:-2:2]))
+        options = dict(zip(seen[3:-4:2], seen[4:-4:2]))
         self.assertEqual((options["--server.address"], options["--server.port"], options["--server.headless"], options["--browser.gatherUsageStats"]),
                          ("127.0.0.1", "9000", "true", "false"))
-        self.assertEqual(seen[-2:], ["--", "/some/folder"])  # the folder goes to the page, not to Streamlit
+        self.assertEqual(seen[-4:], ["--", "/some/folder", "--runtime", str(activity.RUNTIME)])  # the folder and the logs go to the page, not to Streamlit
 
     def test_bytequay_starts_from_the_address_the_page_is_served_at(self):
         link = Path(__file__).resolve().parents[2] / "frontend/src/labLink.ts"
@@ -546,7 +628,7 @@ class TestStart(unittest.TestCase):
         with mock.patch.object(sys, "argv", ["dashboard.py"]), mock.patch.object(dashboard, "get_script_run_ctx", return_value=None), \
                 mock.patch("streamlit.web.cli.main", side_effect=lambda: seen.extend(sys.argv) or 0), self.assertRaises(SystemExit):
             dashboard.main()
-        self.assertEqual((seen[seen.index("--server.port") + 1], seen[-1]), (str(dashboard.PORT), str(dashboard.saved.FOLDER)))
+        self.assertEqual((seen[seen.index("--server.port") + 1], seen[-3], seen[-1]), (str(dashboard.PORT), str(dashboard.saved.FOLDER), str(activity.RUNTIME)))
 
 
 if __name__ == "__main__":

@@ -4,24 +4,31 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import json
 import os
 from pathlib import Path
+import re
+import subprocess
 import sys
 
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 import activity
+import approvals
 import batch
 import charts
+import digest
 import saved
+import suggest
 
 HOST, PORT = "127.0.0.1", 8517
 SAVE = "uv run activity.py --save"
 SHOW = {"width": "stretch", "config": {"displayModeBar": False}}
 TILE = 170
+LOOKS = {"7 days": 7, "14 days": suggest.DAYS, "28 days": 28, "every day": None}  # how far back the suggestions look
+MARKDOWN = re.compile(r"([\\`*_\[\]<>#|~$])")
 
 
 def draw(name, figure):
@@ -423,6 +430,144 @@ def scored_reviews(folder, mode):
         st.dataframe(runs, hide_index=True, column_config=numbers | dollars)
 
 
+def plain(text):
+    """Text as it is, with nothing in it read as Markdown: a rule such as Bash(./mvnw -o:*) holds a star."""
+    return MARKDOWN.sub(r"\\\1", text)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def read_logs(runtime, since=None, until=None):
+    """The asks, Codex's own reviews and command lines of every task log, kept for a few minutes because reading them all takes about a
+    second. The command lines stay in this process to match rules against and are never shown."""
+    asks, automatic, lines, unanswered = [], [], [], 0
+    for log in sorted(Path(runtime).glob("*/events.jsonl")):
+        made, reviewed, run, left = approvals.read_log(log, since, until)
+        asks, automatic, lines, unanswered = asks + made, automatic + reviewed, lines + run, unanswered + left
+    return asks, automatic, lines, unanswered
+
+
+def refresh(folder, runtime):
+    """A button that reads the task logs and ByteQuay's database again and saves the tables, as SAVE does in a terminal."""
+    with st.sidebar:
+        if not st.button("Read the logs again", key="refresh", help=f"Saves the tables again from the task logs and ByteQuay's records, as `{SAVE}` does"):
+            return
+        with st.spinner("Reading the logs"):
+            try:
+                done = subprocess.run([sys.executable, str(Path(__file__).with_name("activity.py")), "--save", str(folder), "--runtime", str(runtime)],
+                                      capture_output=True, text=True, timeout=600)
+                problem = (done.stderr.strip().splitlines() or ["it gave no reason"])[-1] if done.returncode else None
+            except subprocess.TimeoutExpired:
+                problem = "it took more than ten minutes"
+        read_logs.clear()
+        if problem:
+            st.error(f"The logs could not be read again: {problem}")
+
+
+def suggestions(made, table, folder, runtime):
+    """What the lab suggests changing in ByteQuay, each with a button to note the change once it is made, and after that the number to watch."""
+    st.caption("What to change in ByteQuay, the most time each could save first. They come from every model and repository in the days picked here; the side bar does "
+               f"not apply. Once you have changed ByteQuay, press \"I made this change\": the suggestion then shows its number in the {suggest.BEFORE} days before and in the days since.")
+    look = st.radio("Look at the last", list(LOOKS), index=1, horizontal=True, key="look")
+    days = made["turns"]["day"]
+    last = days.max()
+    first = days.min() if LOOKS[look] is None else max(days.min(), last - timedelta(days=LOOKS[look] - 1))
+    try:
+        calls = charts.call_frames(table)
+    except (KeyError, TypeError, ValueError):
+        calls = None
+        st.caption(f"The turn table was saved before the lab counted calls, so command failures and tool hops are left out. Save it again with `{SAVE}`")
+    try:
+        found = saved.read(folder, "reviews.json")
+        reviews = None if found is None else charts.review_frames(found)
+    except (OSError, KeyError, TypeError, ValueError):
+        reviews = None
+        st.caption("The saved reviews could not be read, so review runs are left out here.")
+    try:
+        noted = digest.changes(folder)
+    except (OSError, KeyError, TypeError, ValueError):
+        noted = []
+        st.caption("The noted changes in `changes.json` could not be read.")
+    asks = read_logs(str(runtime))[0]
+    data = suggest.window(made, calls, reviews, asks, first, last)
+    listed = suggest.suggestions(data)
+    if not listed:
+        st.caption("Nothing in these days passes the limits for a suggestion.")
+    for place, one in enumerate(listed, 1):
+        with st.container(border=True):
+            st.markdown(f"##### {place}. {plain(one.title)}")
+            st.caption(f"Could save up to {one.saves:,.1f} minutes a week. Watch: {one.watch}, now {suggest.number(one.measure(data))}.")
+            st.markdown(plain(f"Seen: {one.seen}"))
+            st.markdown(plain(f"Do: {one.advice}"))
+            st.markdown("Where: " + "; ".join(f"`{path}` ({plain(what)})" if path else plain(what) for path, what in one.where))
+            mine = [change for change in noted if change["what"] == one.title]
+            if mine:
+                day = mine[-1]["day"]
+                before, since, turns = suggest.checked(one, made, calls, reviews, asks, day, last)
+                st.caption(f"You noted this change on {suggest.said(day)}. {one.watch}: {suggest.number(before)} in the {suggest.BEFORE} days before, "
+                           f"{suggest.number(since)} since, over {activity.count(turns, 'turn')}.")
+            st.button("I changed it again" if mine else "I made this change", key=f"noted_{place}", on_click=digest.note, args=(folder, one.title, date.today()))
+
+
+def asked(runtime, first, last):
+    """The approval cards of the days in the side bar, the rules their commands need, and a test of rules the reader picks or writes."""
+    since, until = (datetime.combine(day, datetime.min.time()).astimezone().timestamp() for day in (first, last + timedelta(days=1)))
+    asks, automatic, lines, _ = read_logs(str(runtime), since, until)
+    st.caption("The approval cards ByteQuay showed you, read from the task logs for the days in the side bar. Model and repository do not apply here.")
+    if not asks:
+        st.caption("No approval was asked in these days.")
+        return
+    commands, ran_out = [ask for ask in asks if ask.what == "command"], [ask for ask in asks if ask.outcome == "expired"]
+    with st.container(horizontal=True):
+        st.metric("Asks", f"{len(asks):,}", border=True, width=TILE)
+        st.metric("Minutes waited", f"{sum(ask.seconds for ask in asks) / 60:,.1f}", border=True, width=TILE)
+        st.metric("Ran out", f"{len(ran_out):,}", border=True, width=TILE, help="Asks nobody answered in the time an ask may wait.")
+        st.metric("Ended a turn", f"{sum(ask.stopped for ask in ran_out):,}", border=True, width=TILE, help="A Codex command that runs out stops its turn; Claude carries on.")
+        st.metric("Codex reviewer", f"{len(automatic):,}", border=True, width=TILE, help="Requests Codex's own reviewer answered by itself, so no card was shown.")
+    st.subheader("What was asked")
+    st.dataframe([{"provider": provider, "kind": what, "asks": number, "ran out": ran, "minutes": round(seconds / 60, 1)}
+                  for provider, what, number, ran, seconds in approvals.asked(asks)], hide_index=True)
+    if not commands:
+        return
+    st.subheader("Rules the asked commands need")
+    st.caption("A rule covers a command that starts with its words, in the shape ByteQuay already writes for Claude. Alone: the asks a rule answers by itself, because "
+               "their line holds no other command. Minutes: what those asks waited. A Codex ask is its model asking to run a command outside its sandbox.")
+    rows = approvals.rule_rows(commands)
+    st.dataframe([{"rule": rule, "asks that need it": need, "alone": alone, "minutes": round(seconds / 60, 1), "codex": codex, "claude": claude}
+                  for rule, need, alone, seconds, codex, claude in rows], hide_index=True, column_config={"rule": st.column_config.TextColumn(width="medium")})
+    hidden, unread = approvals.uncovered(commands)
+    if hidden:
+        st.caption(f"No rule can cover {activity.count(len(hidden), 'ask')}: a line with $(...), backticks or <(...), or one that starts by setting a variable.")
+    if unread:
+        st.caption(f"The command of {activity.count(len(unread), 'ask')} could not be read.")
+    st.subheader("Test rules")
+    picked = st.multiselect("Rules from the table", [row[0] for row in rows], key="rules", placeholder="Pick rules to test")
+    typed = st.text_area("Rules of your own, one a line", key="own_rules", placeholder="Bash(./mvnw -o:*)")
+    rules, wrong = [], []
+    for text in [*picked, *typed.splitlines()]:
+        try:
+            rules += [approvals.parse_rule(text)] if text.strip() else []
+        except ValueError:
+            wrong.append(text.strip())
+    if wrong:
+        st.warning("Not a rule, so left out: " + ", ".join(wrong) + ". A rule looks like Bash(./mvnw -o:*) or Bash(git status).")
+    if not rules:
+        st.caption("Pick or write a rule to see what it would have answered.")
+        return
+    made = approvals.effect(commands, lines, rules)
+    with st.container(horizontal=True):
+        st.metric("Asks answered", f"{made['answered']} of {made['asks']}", border=True, width=TILE, help="Command asks every command of whose line matches a rule.")
+        st.metric("Minutes saved", f"{made['saved'] / 60:,.1f}", border=True, width=TILE, help=f"Of {made['waited'] / 60:,.1f} minutes waited for command asks.")
+        st.metric("Turns kept going", f"{made['kept']} of {made['stopped']}", border=True, width=TILE, help="Turns an ask ended that these rules would have answered.")
+        st.metric("Commands covered", f"{sum(times for _, times in made['covered']):,}", border=True, width=TILE,
+                  help=f"Of the {made['runs']:,} commands run in these days, asked for or not: how wide the rules are.")
+    if made["denied"]:
+        st.warning(f"You denied {activity.count(made['denied'], 'ask')} that these rules would have allowed.")
+    st.caption("Risks in what they answer: " + (", ".join(f"{label} {times}" for label, times in made["risks"]) or "none found")
+               + ". A risk is a word in the line worth a closer look, not a judgment that a line is safe.")
+    if made["covered"]:
+        st.caption("Commands they cover, by program: " + ", ".join(f"{name} {times:,}" for name, times in made["covered"]) + ".")
+
+
 def timed(tab, logged, *more):
     """Draw a tab that is about time, or say that no turn of this choice has a log to split."""
     if len(logged["turns"]):
@@ -431,13 +576,14 @@ def timed(tab, logged, *more):
         st.info("No turn of this choice has a log.")
 
 
-def page(folder):
+def page(folder, runtime):
     st.set_page_config(page_title="ByteQuay Lab", layout="wide")
     # Started any other way, Streamlit would serve the page to the whole network.
     if st.get_option("server.address") != HOST:
         st.error("This page is only shown to this machine. Start it with `uv run dashboard.py`")
         return
     st.title("ByteQuay Lab")
+    refresh(folder, runtime)
     try:
         table = saved.read(folder, "turns.json")
         made = None if table is None else charts.frames(table)
@@ -458,7 +604,9 @@ def page(folder):
     mode = "dark" if st.context.theme.type == "dark" else "light"
     # The first four tabs are about time and calls, which only a log holds. The others are about what ByteQuay recorded.
     logged = charts.only(shown, shown["turns"]["logged"])
-    first, second, third, called, fourth, fifth, sixth = st.tabs(["Overview", "Time", "Slow spots", "Tools", "Models", "Cost", "Reviews"])
+    ideas, first, second, third, called, cards, fourth, fifth, sixth = st.tabs(["Suggestions", "Overview", "Time", "Slow spots", "Tools", "Approvals", "Models", "Cost", "Reviews"])
+    with ideas:
+        suggestions(made, table, folder, runtime)
     with first:
         timed(overview, logged, table, mode)
     with second:
@@ -467,6 +615,8 @@ def page(folder):
         timed(slow_spots, logged, mode)
     with called:
         timed(tools, logged, table, mode)
+    with cards:
+        asked(runtime, *choice[:2])
     with fourth:
         models(shown, table, mode)
     with fifth:
@@ -480,14 +630,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER, help="Folder with the saved results")
     parser.add_argument("--port", type=int, default=PORT, help="Port on this machine to show the page on")
+    parser.add_argument("--runtime", type=Path, default=activity.RUNTIME, help="Folder with the task logs: read for the approvals, and by the button that saves again")
     args = parser.parse_args()
     if get_script_run_ctx(suppress_warning=True) is None:
         # Started as a plain script: hand over to Streamlit, with the page shown to this machine only.
         from streamlit.web import cli
         sys.argv = ["streamlit", "run", __file__, "--server.address", HOST, "--server.port", str(args.port), "--server.headless", "true",
-                    "--browser.gatherUsageStats", "false", "--client.toolbarMode", "minimal", "--", str(args.folder)]
+                    "--browser.gatherUsageStats", "false", "--client.toolbarMode", "minimal", "--", str(args.folder), "--runtime", str(args.runtime)]
         sys.exit(cli.main())
-    page(args.folder)
+    page(args.folder, args.runtime)
 
 
 if __name__ == "__main__":

@@ -140,6 +140,45 @@ def slow_spots(shown, mode):
         draw("notices_figure", charts.notices_figure(notices, turns, mode))
 
 
+def tools(shown, table, mode):
+    turns = shown["turns"]
+    try:
+        calls = charts.calls_of(charts.call_frames(table), turns)["calls"]
+    except (KeyError, TypeError, ValueError):
+        # A table from before calls were counted says nothing about them. It is never drawn as a table without calls.
+        st.info(f"This table was saved before calls were counted. Save it again with `{SAVE}`")
+        return
+    if calls.empty:
+        st.info("No turn of this choice called a command or a tool.")
+        return
+    commands, tool_calls = calls[calls["kind"] == "command"], calls[calls["kind"] == "tool"]
+    rate = lambda frame: f"{charts.share(frame['failed'].sum(), frame['runs'].sum()):.1f}%" if len(frame) else "none ran"
+    of = lambda frame: f"{int(frame['failed'].sum()):,} of {int(frame['runs'].sum()):,} failed."
+    with st.container(horizontal=True):
+        st.metric("Calls", f"{int(calls['runs'].sum()):,}", border=True, width=TILE, help="Commands and tool calls that finished.")
+        st.metric("Commands failed", rate(commands), border=True, width=TILE, help=of(commands))
+        st.metric("Tool calls failed", rate(tool_calls), border=True, width=TILE, help=of(tool_calls))
+        st.metric("Found nothing", f"{int(calls['noMatch'].sum()):,}", border=True, width=TILE, help="Searches with rg or grep that matched nothing. They are not counted as failed.")
+        st.metric("Time in calls", f"{calls['seconds'].sum() / 3600:.1f} h", border=True, width=TILE, help="Added up over the calls, so two calls that ran at once both count in full.")
+    st.caption("A command is named after its program and a tool by its name. A test run that fails counts as failed, also when the test was meant to fail. "
+               "Permission hooks are not calls and are left out.")
+    st.subheader("Worth a tool?")
+    if charts.candidates(calls).empty:
+        st.caption(f"No program or tool was called {charts.MIN_RUNS} times or more.")
+    else:
+        st.caption(f"One bubble for every program and tool with {charts.MIN_RUNS} calls or more. Further right: called more often. Higher: failed more often. "
+                   "Bigger: took more time. A big bubble high on the right is where a tool of its own, or a rule, would pay first.")
+        draw("candidates_figure", charts.candidates_figure(calls, mode))
+    st.subheader("Every command and tool")
+    st.dataframe(charts.calls_table(calls), hide_index=True, column_config={"name": st.column_config.TextColumn(width="medium")})  # room for a long tool name
+    st.subheader("By provider")
+    st.caption("Different tasks ran under each provider, so this shows what happened, not which one is better.")
+    st.dataframe(charts.providers_table(calls, turns), hide_index=True)
+    if len(commands):
+        st.caption(f"How often the most used commands failed under each provider. A cell with fewer than {charts.MIN_RUNS} runs says how few and has no color.")
+        draw("providers_figure", charts.providers_figure(calls, turns, mode))
+
+
 def models(shown, table, mode):
     turns = shown["turns"]
     if "problem" in table["database"]:
@@ -320,15 +359,17 @@ def page(folder):
         st.info("No turn matches this choice.")
         return
     mode = "dark" if st.context.theme.type == "dark" else "light"
-    # The first three tabs are about time, which only a log can split. The others are about what ByteQuay recorded.
+    # The first four tabs are about time and calls, which only a log holds. The others are about what ByteQuay recorded.
     logged = charts.only(shown, shown["turns"]["logged"])
-    first, second, third, fourth, fifth, sixth = st.tabs(["Overview", "Time", "Slow spots", "Models", "Cost", "Reviews"])
+    first, second, third, called, fourth, fifth, sixth = st.tabs(["Overview", "Time", "Slow spots", "Tools", "Models", "Cost", "Reviews"])
     with first:
         timed(overview, logged, table, mode)
     with second:
         timed(time, logged, mode)
     with third:
         timed(slow_spots, logged, mode)
+    with called:
+        timed(tools, logged, table, mode)
     with fourth:
         models(shown, table, mode)
     with fifth:

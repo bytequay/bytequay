@@ -24,6 +24,7 @@ OVERVIEW = ["Where the time went", "How the turns ended", "Turn time per day"]
 TIME = ["Every part of the time", "Waiting for a tool to finish: what was running", "Shell time by program, summed over runs", "Model time by what just finished",
         "The tasks that took the most time", "Turn time by repository"]
 SLOW = ["Long single commands", "Waiting for you", "Rate limits and retries"]
+TOOLS = ["Worth a tool?", "Every command and tool", "By provider"]
 MODELS = ["Typical turn, by model and effort", "How long a turn took", "How each split its time", "How the turns ended"]
 COST = ["Tokens by kind", "Tokens by model and effort", "Tokens per day", "The tasks that used the most tokens", "Cost in dollars"]
 REVIEWS = ["Reviews ByteQuay ran", "Scored against a human reviewer"]
@@ -75,9 +76,11 @@ class Page(unittest.TestCase):
         self.assertEqual([title.value for title in page.title], ["ByteQuay Lab"])
         self.assertEqual([(tile.label, tile.value) for tile in page.metric][:5],
                          [("Turn time", "0.3 h"), ("Tasks", "2"), ("Turns", "3"), ("Typical turn", "5.0 min"), ("Longest turn", "10 min")])
-        self.assertEqual(headings(page), OVERVIEW + TIME + SLOW + COST + REVIEWS)  # the models tab has too few turns to draw
+        self.assertEqual(headings(page), OVERVIEW + TIME + SLOW + TOOLS + COST + REVIEWS)  # the models tab has too few turns to draw
+        self.assertEqual([tab.label for tab in page.tabs], ["Overview", "Time", "Slow spots", "Tools", "Models", "Cost", "Reviews"])
+        self.assertEqual([heading.value for heading in page.tabs[3].subheader], TOOLS)  # each tab holds what its name says
         self.assertEqual([note.value for note in page.info], NO_REVIEWS)  # the last tab says how to save what it would show
-        self.assertEqual(len(page.get("plotly_chart")), 18)  # three, six, four, none and five on the five tabs
+        self.assertEqual(len(page.get("plotly_chart")), 19)  # three, six, four, one, none and five on the six tabs
         self.assertIn("Two or more tools ran at once for 1.3 minutes; the most at once was 2.", captions(page))  # 60 seconds in one turn and 20 in another
         self.assertIn("4 of 4 turns. Days are in your own time zone.", captions(page))
         self.assertIn("With a log, so the time split is known: 3. In ByteQuay's records, so the model is known: 3. In both: 2.", captions(page))
@@ -94,7 +97,7 @@ class Page(unittest.TestCase):
         with mock.patch.object(charts, "MIN_TURNS", 1):
             drawn = self.page()
         self.assertEqual(list(drawn.exception), [])
-        self.assertEqual(headings(drawn), OVERVIEW + TIME + SLOW + MODELS + COST + REVIEWS)
+        self.assertEqual(headings(drawn), OVERVIEW + TIME + SLOW + TOOLS + MODELS + COST + REVIEWS)
         self.assertEqual(len(drawn.get("plotly_chart")) - len(page.get("plotly_chart")), 4)
 
     def test_choosing_a_model_and_effort_narrows_every_tab(self):
@@ -108,7 +111,7 @@ class Page(unittest.TestCase):
         self.assertEqual(table(page, "typical minutes")["model and effort"].tolist(), ["gpt-6-astra · medium"])
         # A turn the database knows and no log holds: the time tabs say so, and the Models tab still has it.
         page.sidebar.multiselect[0].set_value(["opus · high"]).run()
-        self.assertEqual(([note.value for note in page.info], [tile.label for tile in page.metric][0]), (["No turn of this choice has a log."] * 3 + NO_REVIEWS, "Tokens in"))
+        self.assertEqual(([note.value for note in page.info], [tile.label for tile in page.metric][0]), (["No turn of this choice has a log."] * 4 + NO_REVIEWS, "Tokens in"))
         self.assertEqual(table(page, "typical minutes")["model and effort"].tolist(), ["opus · high"])
 
     def test_slow_spots_tab_lists_long_commands_waits_for_the_user_and_rate_limit_notices(self):
@@ -127,12 +130,53 @@ class Page(unittest.TestCase):
         self.assertEqual(list(page.exception), [])
         for expected in ["No single command ran for 30 seconds or more.", "The agent never had to wait for your answer.", "No rate limit notice and no retry."]:
             self.assertIn(expected, captions(page))
-        self.assertEqual(len(page.get("plotly_chart")), 14)  # the four charts of this tab are not drawn
+        self.assertEqual(len(page.get("plotly_chart")), 15)  # the four charts of this tab are not drawn
         waited = [{**row, "approvals": [{"kind": "command", "outcome": "expired", "seconds": 300}, {"kind": "command", "outcome": "allowed", "seconds": 20}] * row["logged"]}
                   for row in saved["turns"]]
         self.save(json.dumps({**saved, "turns": waited}))
         self.assertIn("The agent asked 6 times and waited 16.0 minutes in all. A typical answer took 160 seconds. 3 waits ran out with no answer, which ends the turn.",
                       captions(self.page()))
+
+    def test_tools_tab_adds_up_the_calls_and_lists_every_command_every_tool_and_every_provider(self):
+        self.save()
+        page = self.page()
+        self.assertEqual([(tile.label, tile.value) for tile in page.metric][5:10],
+                         [("Calls", "7"), ("Commands failed", "33.3%"), ("Tool calls failed", "25.0%"), ("Found nothing", "0"), ("Time in calls", "0.1 h")])
+        self.assertEqual(table(page, "seconds a call")[["name", "kind", "calls", "failed", "failed %", "minutes"]].values.tolist(),
+                         [["Read", "tool call", 3, 1, 33.3, 1.7], ["git", "command", 1, 0, 0, 0.7], ["maven", "command", 1, 0, 0, 2], ["npm", "command", 1, 1, 100, 2],
+                          ["review_get_context", "tool call", 1, 0, 0, 1]])
+        self.assertEqual(table(page, "provider")[["provider", "turns", "commands", "commands failed %", "tool calls", "tool calls failed %"]].values.tolist(),
+                         [["codex", 2, 2, 50, 2, 0], ["not recorded", 1, 1, 0, 2, 50]])
+        # Nothing in the example was called often enough for a failure rate to mean something, so the chart of candidates is not drawn.
+        self.assertIn("No program or tool was called 5 times or more.", captions(page))
+        with mock.patch.object(charts, "MIN_RUNS", 2):
+            drawn = self.page()
+        self.assertEqual((list(drawn.exception), len(drawn.get("plotly_chart")) - len(page.get("plotly_chart"))), ([], 1))
+        self.assertTrue(any(caption.startswith("One bubble for every program and tool with 2 calls or more.") for caption in captions(drawn)))
+
+    def test_tools_tab_follows_the_side_bar_and_gives_no_rate_for_a_kind_that_never_ran(self):
+        self.save()
+        page = self.page()
+        page.sidebar.multiselect[0].set_value(["gpt-6-astra · medium"]).run()
+        self.assertEqual(list(page.exception), [])
+        self.assertEqual([(tile.label, tile.value) for tile in page.metric][5:8], [("Calls", "1"), ("Commands failed", "100.0%"), ("Tool calls failed", "none ran")])
+        self.assertEqual(table(page, "seconds a call")["name"].tolist(), ["npm"])
+
+    def test_table_saved_before_calls_were_counted_says_so_on_the_tools_tab_and_every_other_tab_is_drawn(self):
+        saved = json.loads(EXAMPLE.read_text())
+        earlier = [{name: value for name, value in row.items() if name != "calls"} for row in saved["turns"]]
+        self.save(json.dumps({**saved, "turns": earlier}))
+        page = self.page()
+        self.assertEqual((list(page.exception), [note.value for note in page.warning]), ([], []))
+        self.assertEqual([note.value for note in page.info], ["This table was saved before calls were counted. Save it again with `uv run activity.py --save`", *NO_REVIEWS])
+        self.assertEqual((headings(page), len(page.get("plotly_chart"))), (OVERVIEW + TIME + SLOW + COST + REVIEWS, 18))  # none of its tiles, tables or charts is drawn as empty
+        self.assertEqual([tile.label for tile in page.metric][5:], ["Tokens in", "From the cache", "Tokens out", "Recorded cost"])
+
+    def test_tools_tab_says_so_when_no_turn_called_anything(self):
+        saved = json.loads(EXAMPLE.read_text())
+        self.save(json.dumps({**saved, "turns": [{**row, "calls": []} for row in saved["turns"]]}))
+        page = self.page()
+        self.assertEqual((list(page.exception), [note.value for note in page.info]), ([], ["No turn of this choice called a command or a tool.", *NO_REVIEWS]))
 
     def test_choosing_a_repository_narrows_every_tab(self):
         self.save()
@@ -160,7 +204,7 @@ class Page(unittest.TestCase):
                          "before: not scored, and not counted as zero: pr1_rep2 (timed_out)",
                          "today: mixed rules files or models in this setting, so its runs are not one comparison: aaaaaaaa reviewer-model, bbbbbbbb reviewer-model"]:
             self.assertIn(expected, captions(page))
-        self.assertEqual((len(page.get("plotly_chart")), [note.value for note in page.info]), (23, []))  # five more charts, and nothing left to say how to save
+        self.assertEqual((len(page.get("plotly_chart")), [note.value for note in page.info]), (24, []))  # five more charts, and nothing left to say how to save
         self.assertEqual([note.value for note in page.warning], [])
 
     def test_reviews_tab_says_when_the_reviews_were_not_saved_together_with_the_turns(self):
@@ -227,12 +271,12 @@ class Page(unittest.TestCase):
         self.assertEqual(list(page.exception), [])
         self.assertEqual([note.value for note in page.info], ["Model, effort and tokens were not saved: the database is not there. Save again with `uv run activity.py --save`",
                                                               "Tokens and cost were not saved: the database is not there. Save again with `uv run activity.py --save`", *NO_REVIEWS])
-        self.assertEqual((len(page.metric), len(page.sidebar.multiselect)), (5, 0))  # the time tabs are whole, and there is no model to pick
+        self.assertEqual((len(page.metric), len(page.sidebar.multiselect)), (10, 0))  # the tabs read from the logs are whole, and there is no model to pick
 
     def test_cost_tab_adds_up_tokens_and_keeps_recorded_cost_apart_from_what_it_cannot_know(self):
         self.save()
         page = self.page()
-        self.assertEqual([(tile.label, tile.value) for tile in page.metric][5:], [("Tokens in", "1.1 M"), ("From the cache", "90.4%"), ("Tokens out", "7.0 K"), ("Recorded cost", "$1.50")])
+        self.assertEqual([(tile.label, tile.value) for tile in page.metric][10:], [("Tokens in", "1.1 M"), ("From the cache", "90.4%"), ("Tokens out", "7.0 K"), ("Recorded cost", "$1.50")])
         self.assertEqual(headings(page)[-7:], COST + REVIEWS)
         self.assertIn("Tokens are known for 3 of 4 turns. Each amount is the turn's own.", captions(page))
         cost = table(page, "how")
@@ -250,7 +294,7 @@ class Page(unittest.TestCase):
         (self.folder / "prices.json").write_text(json.dumps(prices))
         page = self.page()
         self.assertEqual(list(page.exception), [])
-        self.assertEqual([(tile.label, tile.value) for tile in page.metric][8:], [("Recorded cost", "$1.50"), ("Estimated cost", "$0.45")])
+        self.assertEqual([(tile.label, tile.value) for tile in page.metric][13:], [("Recorded cost", "$1.50"), ("Estimated cost", "$0.45")])
         self.assertEqual(table(page, "how")[["model and effort", "dollars", "how"]].values.tolist(),
                          [["opus · high", 1.5, "recorded"], ["gpt-6-astra · max", 0.31, "estimated"], ["gpt-6-astra · medium", 0.14, "estimated"]])
         self.assertEqual((len(page.code), [caption for caption in captions(page) if caption.startswith("No cost is known")]), (0, []))
@@ -273,7 +317,7 @@ class Page(unittest.TestCase):
                 (self.folder / "prices.json").write_text(text)
                 page = self.page()
                 self.assertEqual(([note.value for note in page.warning], list(page.exception)), (["The price table `prices.json` could not be read, so no cost is estimated."], []))
-                self.assertEqual([tile.label for tile in page.metric][5:], ["Tokens in", "From the cache", "Tokens out", "Recorded cost"])
+                self.assertEqual([tile.label for tile in page.metric][10:], ["Tokens in", "From the cache", "Tokens out", "Recorded cost"])
                 self.assertEqual(table(page, "how")["how"].tolist(), ["recorded", "unknown", "unknown"])
 
     def test_choosing_days_changes_every_number(self):

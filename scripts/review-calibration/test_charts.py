@@ -254,6 +254,112 @@ class TestSlowSpots(unittest.TestCase):
         self.assertEqual([[round(hours * 3600) for hours in bar.x] for bar in figure.data], [[540, 60], [300, 60], [60, 0]])
 
 
+def calls(*rows):
+    return pandas.DataFrame(rows, columns=["turn", "kind", "name", "runs", "failed", "noMatch", "seconds"])
+
+
+# Two turns: Maven fails often and takes long, a search finds nothing a few times, git ran too seldom to draw, and two tools.
+OFTEN = calls((0, "command", "maven", 6, 3, 0, 600), (1, "command", "maven", 4, 1, 0, 300), (0, "command", "rg", 20, 0, 5, 20), (0, "command", "git", 4, 4, 0, 40),
+              (0, "tool", "Read", 50, 1, 0, 0), (1, "tool", "Task", 5, 1, 0, 3600))
+
+
+class TestCalls(unittest.TestCase):
+    def test_calls_follow_the_turn_table_row_by_row_and_every_filter(self):
+        frames, found = made(), charts.call_frames(TABLE)
+        self.assertEqual(list(found), ["calls"])
+        self.assertEqual(found["calls"].values.tolist(), [[0, "command", "maven", 1, 0, 0, 120], [0, "tool", "Read", 1, 0, 0, 60], [0, "tool", "review_get_context", 1, 0, 0, 60],
+                                                           [1, "command", "npm", 1, 1, 0, 120], [2, "command", "git", 1, 0, 0, 40], [2, "tool", "Read", 2, 1, 0, 40]])
+        second_day = charts.calls_of(found, charts.within(frames, date(2026, 1, 2), date(2026, 1, 2))["turns"])
+        self.assertEqual(second_day["calls"]["name"].tolist(), ["npm", "git", "Read"])
+        self.assertTrue(charts.calls_of(found, charts.only(frames, ~frames["turns"]["logged"])["turns"])["calls"].empty)  # a turn without a log has no calls
+
+    def test_table_saved_before_calls_were_counted_is_refused_here_and_still_read_everywhere_else(self):
+        earlier = {**TABLE, "turns": [{name: value for name, value in row.items() if name != "calls"} for row in TABLE["turns"]]}
+        with self.assertRaises(KeyError):
+            charts.call_frames(earlier)
+        self.assertEqual(len(charts.frames(earlier, timezone.utc)["turns"]), 4)
+        later = json.loads(json.dumps(TABLE))
+        later["turns"][0]["calls"][0]["kind"] = "a kind from a later version"
+        with self.assertRaises(ValueError):
+            charts.call_frames(later)
+        for missing in ("kind", "name", "runs", "failed", "noMatch", "seconds"):
+            short = json.loads(json.dumps(TABLE))
+            del short["turns"][0]["calls"][0][missing]
+            with self.subTest(missing=missing), self.assertRaises(KeyError):
+                charts.call_frames(short)
+
+    def test_every_program_and_tool_is_added_up_over_the_turns_the_most_calls_first_and_a_tie_by_name(self):
+        self.assertEqual(charts.calls_table(OFTEN),
+                         [{"name": "Read", "kind": "tool call", "calls": 50, "failed": 1, "failed %": 2, "found nothing": 0, "minutes": 0, "seconds a call": 0},
+                          {"name": "rg", "kind": "command", "calls": 20, "failed": 0, "failed %": 0, "found nothing": 5, "minutes": 0.3, "seconds a call": 1},
+                          {"name": "maven", "kind": "command", "calls": 10, "failed": 4, "failed %": 40, "found nothing": 0, "minutes": 15, "seconds a call": 90},
+                          {"name": "Task", "kind": "tool call", "calls": 5, "failed": 1, "failed %": 20, "found nothing": 0, "minutes": 60, "seconds a call": 720},
+                          {"name": "git", "kind": "command", "calls": 4, "failed": 4, "failed %": 100, "found nothing": 0, "minutes": 0.7, "seconds a call": 10}])
+        self.assertEqual([row["name"] for row in charts.calls_table(charts.call_frames(TABLE)["calls"])], ["Read", "git", "maven", "npm", "review_get_context"])
+        # As many calls each: by name, whichever is a command and whichever a tool.
+        self.assertEqual([row["name"] for row in charts.calls_table(calls((0, "command", "git", 2, 0, 0, 1), (0, "tool", "Bash", 2, 0, 0, 1), (0, "command", "awk", 2, 0, 0, 1)))], ["Bash", "awk", "git"])
+
+    def test_bubbles_are_the_names_called_often_enough_by_calls_failure_rate_and_time(self):
+        self.assertEqual(charts.candidates(OFTEN)["name"].tolist(), ["Read", "rg", "maven", "Task"])  # git ran four times: one failure more or less would move its rate by 25 points
+        for mode, colors in charts.COLORS.items():
+            commands, tools = charts.candidates_figure(OFTEN, mode).data
+            self.assertEqual(((commands.name, commands.marker.color), (tools.name, tools.marker.color)), (("command", colors["tool"]), ("tool call", colors["model"])), mode)
+            self.assertEqual(commands.marker.line.color, colors["surface"], mode)  # a ring of the page around every bubble
+            # A name wears the color of text, never the color of its bubble.
+            self.assertEqual({(note.font.color, note.arrowcolor) for note in charts.candidates_figure(OFTEN, mode).layout.annotations}, {(colors["ink"], colors["other"])}, mode)
+        self.assertEqual((list(commands.x), list(commands.y), list(tools.x), list(tools.y)), ([20, 10], [0, 40], [50, 5], [2, 20]))
+        # The size is the time. A tool that took no time at all still has a bubble, and the longest sets the scale.
+        self.assertEqual((list(commands.marker.size), list(tools.marker.size), commands.marker.sizemode), ([20, 900], [1, 3600], "area"))
+        self.assertAlmostEqual(commands.marker.sizeref, 2 * 3600 / charts.BUBBLE ** 2)  # the longest is as wide as a bubble may be
+        self.assertEqual([tuple(point) for point in commands.customdata], [("rg", 0, 20 / 60), ("maven", 4, 15)])
+        figure = charts.candidates_figure(OFTEN)
+        self.assertEqual((figure.layout.xaxis.type, figure.layout.hovermode), ("log", "closest"))
+        self.assertTrue(figure.layout.yaxis.range[0] < 0 and figure.layout.yaxis.range[1] > 40)  # a bubble at either edge is drawn whole
+
+    def test_only_the_names_that_failed_most_are_written_beside_their_bubbles(self):
+        named = lambda top: [note.text for note in charts.candidates_figure(OFTEN, top=top).layout.annotations]
+        self.assertEqual(named(8), ["Task", "maven", "Read"])  # from the fewest calls to the most; a search that only found nothing never failed, so it has no name
+        self.assertEqual((named(1), named(2)), (["maven"], ["maven", "Read"]))  # Read and Task failed once each: the tie goes by name
+        notes = charts.candidates_figure(OFTEN).layout.annotations
+        # A name points at its own bubble: the calls on an axis of tens, and the failure rate.
+        self.assertEqual([(round(10 ** note.x), note.y) for note in notes], [(5, 20), (10, 40), (50, 2)])
+        # Task took the longest, so its bubble is the widest and the line stops at its edge. Read took no time and has the smallest.
+        self.assertEqual([round(note.standoff, 1) for note in notes], [charts.BUBBLE / 2, charts.BUBBLE / 4, charts.SMALLEST])
+        # Neighbours along the axis stand at three heights in turn, each measured from the edge of its bubble.
+        self.assertEqual([round(-note.ay - note.standoff) for note in notes], list(charts.LIFTS))
+        self.assertEqual([round(-note.ay - note.standoff) for note in charts.candidates_figure(pandas.concat([OFTEN.assign(name=OFTEN["name"] + " again"), OFTEN])).layout.annotations],
+                         [*charts.LIFTS, *charts.LIFTS])
+        self.assertEqual({trace.mode for trace in charts.candidates_figure(OFTEN).data}, {"markers"})
+
+    def test_providers_are_listed_with_their_calls_and_a_kind_that_never_ran_has_no_rate(self):
+        frames, found = made(), charts.call_frames(TABLE)["calls"]
+        self.assertEqual(charts.providers_table(found, frames["turns"]),
+                         [{"provider": "codex", "turns": 2, "commands": 2, "commands failed": 1, "commands failed %": 50, "tool calls": 2, "tool calls failed": 0, "tool calls failed %": 0},
+                          {"provider": "not recorded", "turns": 1, "commands": 1, "commands failed": 0, "commands failed %": 0, "tool calls": 2, "tool calls failed": 1,
+                           "tool calls failed %": 50}])
+        only_commands = charts.providers_table(found[found["kind"] == "command"], frames["turns"])
+        self.assertEqual([(row["provider"], row["tool calls"], row["tool calls failed %"]) for row in only_commands], [("codex", 0, None), ("not recorded", 0, None)])
+
+    def test_grid_of_providers_has_the_most_used_programs_down_and_a_cell_with_too_few_runs_has_no_color(self):
+        frames, found = made(), charts.call_frames(TABLE)["calls"]
+        grid = charts.providers_figure(found, frames["turns"]).data[0]
+        self.assertEqual((list(grid.x), list(grid.y)), (["codex", "not recorded"], ["git", "maven", "npm"]))
+        self.assertEqual(([list(row) for row in grid.z], [list(row) for row in grid.text]), ([[None, None]] * 3, [["", "1 run"], ["1 run", ""], ["1 run", ""]]))
+        with mock.patch.object(charts, "MIN_RUNS", 1):
+            grid = charts.providers_figure(found, frames["turns"]).data[0]
+        self.assertEqual(([list(row) for row in grid.z], [list(row) for row in grid.text]),
+                         ([[None, 0], [0, None], [100, None]], [["", "0%<br>0 of 1"], ["0%<br>0 of 1", ""], ["100%<br>1 of 1", ""]]))
+        self.assertEqual((grid.zmin, grid.zmax), (0, 100))
+        # The program with the most runs comes first and the provider with the most commands, whatever their names. A tool call is not in the grid.
+        turns = pandas.DataFrame({"provider": ["codex", "claude"]})
+        busy = calls((0, "command", "maven", 10, 6, 0, 1), (1, "command", "maven", 30, 0, 0, 1), (0, "command", "git", 25, 1, 0, 1), (1, "tool", "Read", 99, 9, 0, 1))
+        grid = charts.providers_figure(busy, turns).data[0]
+        self.assertEqual((list(grid.x), list(grid.y), [list(row) for row in grid.z], grid.zmax), (["codex", "claude"], ["maven", "git"], [[60, 0], [4, None]], 60))
+        self.assertEqual(list(charts.providers_figure(busy, turns, top=1).data[0].y), ["maven"])
+        self.assertEqual([row["provider"] for row in charts.providers_table(busy, turns)], ["claude", "codex"])  # with its tool calls Claude made the most calls
+        self.assertEqual([row["provider"] for row in charts.providers_table(busy[busy["kind"] == "command"], turns)], ["codex", "claude"])
+
+
 REVIEWS = json.loads((Path(__file__).with_name("fixture") / "saved-reviews.json").read_text())
 SCORES = json.loads((Path(__file__).with_name("fixture") / "saved-review-scores.json").read_text())
 

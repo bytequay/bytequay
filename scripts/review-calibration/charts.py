@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 
 import pandas
 import plotly.graph_objects as go
@@ -31,6 +32,14 @@ SCORE_AMOUNTS = ("comments", *VERDICTS, "leads", "extra", "inputTokens", "cached
 TOKEN_KINDS = {"fresh input": "model", "cached input": "usual", "output": "tool"}
 PRICES = ("input", "cachedInput", "output")  # dollars for a million tokens of each kind, in the order of TOKEN_KINDS
 EFFORTS = ("low", "medium", "high", "extra", "max")
+MIN_RUNS = 5  # a program or tool with fewer calls is in the table and out of the charts, where one failure would read as a rate
+TOP_NAMES = 6  # the names written at their bubbles
+TOP_PROGRAMS_COMPARED = 8  # the programs compared between providers
+BUBBLE = 44  # pixels across for the program or tool that took the most time
+SMALLEST = 5  # pixels from the middle to the edge of the smallest bubble
+LIFTS = (14, 32, 50)  # pixels from the edge of a bubble up to its name; along the axis the names take these heights in turn
+# The two kinds of call, the name each goes by and the color it wears. A command wears the color of waiting for a tool, as shell time does.
+CALLS = {"command": ("command", "tool"), "tool": ("tool call", "model")}
 # One step of each hue for each mode, checked against that mode's page surface: neighbours stay apart for color-blind
 # readers and every mark clears the surface. Text never wears these colors.
 COLORS = {
@@ -495,6 +504,109 @@ def repositories_figure(turns, parts, mode="light"):
                        marker={"color": COLORS[mode][KINDS[state]], "line": {"color": COLORS[mode]["surface"], "width": 1}},
                        hovertemplate="%{y}<br>" + state + ": %{x:.1f} hours<extra></extra>")
     return bar_list(figure, 34 * len(most) + 40, legend=True)
+
+
+def call_frames(table):
+    """The calls of the saved turns, each with its turn's number in `frames`. A table saved before calls were counted, or one
+    with a kind of call this version does not know, fails here and is never drawn as a table without calls."""
+    calls = pandas.DataFrame([(number, call["kind"], call["name"], int(call["runs"]), int(call["failed"]), int(call["noMatch"]), float(call["seconds"]))
+                              for number, row in enumerate(table["turns"]) for call in row["calls"]], columns=["turn", "kind", "name", "runs", "failed", "noMatch", "seconds"])
+    if not calls["kind"].isin(CALLS).all():
+        raise ValueError("a call is neither a command nor a tool call")
+    return {"calls": calls}
+
+
+def calls_of(made, turns):
+    """Only the calls of these turns, in every frame."""
+    return {name: frame[frame["turn"].isin(turns.index)] for name, frame in made.items()}
+
+
+def call_sums(calls):
+    """Every command program and every tool with its calls, its failures, its searches that found nothing and its seconds added up.
+    The most calls first; a tie goes by name, so the order never changes between two runs."""
+    summed = calls.groupby(["kind", "name"], as_index=False)[["runs", "failed", "noMatch", "seconds"]].sum()
+    return summed.sort_values(["runs", "name", "kind"], ascending=[False, True, True], ignore_index=True)
+
+
+def calls_table(calls):
+    """One row for every command program and every tool, the most calls first."""
+    return [{"name": row.name, "kind": CALLS[row.kind][0], "calls": int(row.runs), "failed": int(row.failed), "failed %": round(share(row.failed, row.runs), 1),
+             "found nothing": int(row.noMatch), "minutes": round(row.seconds / 60, 1), "seconds a call": round(row.seconds / row.runs, 1)} for row in call_sums(calls).itertuples(index=False)]
+
+
+def candidates(calls):
+    """The programs and tools with enough calls for a failure rate to mean something."""
+    summed = call_sums(calls)
+    return summed[summed["runs"] >= MIN_RUNS]
+
+
+def candidates_figure(calls, mode="light", top=TOP_NAMES):
+    """One bubble for every program and tool with enough calls: across, how often it was called; up, how often it failed;
+    its size, the time it took. The few that failed most often are named, and every bubble says what it is under the pointer."""
+    drawn = candidates(calls).assign(rate=lambda frame: [share(failed, runs) for failed, runs in zip(frame["failed"], frame["runs"])])
+    most = drawn[drawn["failed"] > 0].sort_values(["failed", "name"], ascending=[False, True]).head(top)
+    # Plotly draws a bubble of this size with an area of size / sizeref, so the longest is BUBBLE pixels across.
+    sizeref = 2 * max(float(drawn["seconds"].max()) if len(drawn) else 0.0, 1.0) / BUBBLE ** 2
+    figure = go.Figure()
+    for kind, (label, color) in CALLS.items():
+        own = drawn[drawn["kind"] == kind]
+        # A call that took no time at all still gets the smallest bubble, so it is not lost.
+        figure.add_scatter(x=list(own["runs"]), y=list(own["rate"]), mode="markers", name=label, cliponaxis=False,
+                           customdata=[(name, int(failed), seconds / 60) for name, failed, seconds in zip(own["name"], own["failed"], own["seconds"])],
+                           marker={"size": [max(seconds, 1.0) for seconds in own["seconds"]], "sizemode": "area", "sizeref": sizeref, "sizemin": SMALLEST,
+                                   "color": COLORS[mode][color], "opacity": 0.85, "line": {"color": COLORS[mode]["surface"], "width": 2}},
+                           hovertemplate="%{customdata[0]}<br>%{x:,} calls · %{customdata[1]:,} failed · %{y:.1f}%<br>%{customdata[2]:,.1f} minutes<extra></extra>")
+    # A name stands above its bubble at the end of a thin line. Along the axis the names take three heights in turn,
+    # so two neighbours do not write over each other.
+    for place, row in enumerate(most.sort_values(["runs", "name"]).itertuples()):
+        edge = max(math.sqrt(max(row.seconds, 1.0) / 2 / sizeref), SMALLEST)
+        figure.add_annotation(x=math.log10(row.runs), y=row.rate, text=row.name, ax=0, ay=-(edge + LIFTS[place % len(LIFTS)]), standoff=edge, showarrow=True, arrowhead=0, arrowwidth=1,
+                              arrowcolor=COLORS[mode]["other"], font={"color": COLORS[mode]["ink"]})
+    highest = max(float(drawn["rate"].max()) if len(drawn) else 0.0, 10.0)
+    # A few names are called a thousand times more than most, so each step along the axis is ten times the one before.
+    figure.update_xaxes(type="log", dtick=1, title_text="calls", fixedrange=True, gridcolor=COLORS[mode]["grid"], zeroline=False)
+    # Room below zero and above the highest, so a bubble on either edge is drawn whole.
+    figure.update_yaxes(title_text="failed %", fixedrange=True, gridcolor=COLORS[mode]["grid"], zeroline=False, range=[-0.08 * highest, 1.2 * highest])
+    return tidy(figure, 440, legend=True).update_layout(hovermode="closest")
+
+
+def with_provider(calls, turns):
+    """Each call with the provider of its turn. A turn the database does not know has no provider."""
+    return calls.merge(turns[["provider"]].fillna("not recorded"), left_on="turn", right_index=True)
+
+
+def providers_table(calls, turns):
+    """One row for every provider: its commands and its tool calls, and how many of each failed. The most calls first."""
+    rows = []
+    for provider, group in with_provider(calls, turns).groupby("provider"):
+        row = {"provider": provider, "turns": int(group["turn"].nunique())}
+        for kind, (label, _) in CALLS.items():
+            own = group[group["kind"] == kind]
+            runs, failed = int(own["runs"].sum()), int(own["failed"].sum())
+            # A provider that made no call of a kind has no failure rate for it, which is not a rate of zero.
+            row |= {f"{label}s": runs, f"{label}s failed": failed, f"{label}s failed %": round(share(failed, runs), 1) if runs else None}
+        rows.append(row)
+    return sorted(rows, key=lambda row: (-sum(row[f"{label}s"] for label, _ in CALLS.values()), row["provider"]))
+
+
+def providers_figure(calls, turns, mode="light", top=TOP_PROGRAMS_COMPARED):
+    """How often the most used command programs failed under each provider, as a grid. A cell with too few runs says how few and has no color."""
+    commands = with_provider(calls[calls["kind"] == "command"], turns)
+    programs = list(call_sums(commands)["name"].head(top))
+    busiest = commands.groupby("provider")["runs"].sum()
+    providers = sorted(busiest.index, key=lambda provider: (-int(busiest[provider]), provider))
+    summed = commands.groupby(["name", "provider"])[["runs", "failed"]].sum()
+    cell = lambda program, provider: (int(summed["runs"].get((program, provider), 0)), int(summed["failed"].get((program, provider), 0)))
+    rates = [[share(cell(program, provider)[1], cell(program, provider)[0]) if cell(program, provider)[0] >= MIN_RUNS else None for provider in providers] for program in programs]
+    figure = go.Figure(go.Heatmap(
+        x=providers, y=programs, z=rates, zmin=0, zmax=max([rate for row in rates for rate in row if rate is not None] + [1.0]),
+        text=[["" if not cell(program, provider)[0] else f"{share(cell(program, provider)[1], cell(program, provider)[0]):.0f}%<br>{cell(program, provider)[1]:,} of {cell(program, provider)[0]:,}"
+               if cell(program, provider)[0] >= MIN_RUNS else activity.count(cell(program, provider)[0], "run") for provider in providers] for program in programs],
+        texttemplate="%{text}", textfont={"color": COLORS[mode]["ink"]}, colorscale=[[0, COLORS[mode]["scale"][0]], [1, COLORS[mode]["scale"][1]]], showscale=False, xgap=3, ygap=3,
+        hovertemplate="%{y} · %{x}<br>%{text}<extra></extra>", hoverongaps=False))
+    figure.update_xaxes(side="top", fixedrange=True, showgrid=False)
+    figure.update_yaxes(fixedrange=True, showgrid=False, autorange="reversed", ticksuffix="   ")
+    return tidy(figure, 50 * len(programs) + 40)
 
 
 def review_frames(table, zone=None):

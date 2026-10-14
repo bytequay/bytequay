@@ -265,6 +265,22 @@ retry came, not how long it held a turn up. These three tabs are about turns
 that have a log, and the numbers of the first two are those of the terminal
 tables on the same turns.
 
+The Tools tab is about the commands and tool calls the agent made, also on
+turns that have a log. Its tiles give the calls, the share of commands and of
+tool calls that failed, the searches that found nothing, and the time in
+calls, where two calls that ran at once both count in full. "Worth a tool?"
+draws one bubble for every program and tool with five calls or more: further
+right it was called more often, higher it failed more often, and a bigger
+bubble took more time. A big bubble high on the right is where a tool of its
+own, or a rule, would pay first. The six that failed most often are named,
+and the pointer names any other. A table lists every command and tool. "By
+provider" gives each provider its commands and tool calls with how many
+failed, and a grid of how often the most used commands failed under each
+provider, where a cell with fewer than five runs says how few and has no
+color. Different tasks ran under each provider, so this too shows what
+happened and is not a fair test. A table saved before calls were counted
+makes this tab alone say so, and every other tab is drawn as before.
+
 The Models tab is about turns the database knows. It lists every model and
 effort with its turns, typical turn, typical tokens and tool calls, and how
 often a turn completed, then draws the typical turn as a grid of model by

@@ -411,9 +411,9 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
     turn = { ...turn, version: turn.version + 1, developmentResult: { readyForDelivery: false, message: 'Which change should I use?' } };
     notify({ subscriptionId: 'continuation', taskId: task.id, kind: 'events', events: [{ ...event,
       eventId: 'automation-settled', sequence: event.sequence + 1, turnId: null, type: 'lifecycle',
-      payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: 'Waiting for your answer' } }] });
+      payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: 'Waiting for your response' } }] });
     await settle();
-    assert(input.placeholder === 'Waiting for your answer…', 'Released ownership must ask for the durable answer in the composer');
+    assert(input.placeholder === 'Waiting for your response…', 'Released ownership must ask for the durable answer in the composer');
     assert(input.value === 'Use the smaller change', 'Ownership changes must preserve the composer draft');
     const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');
     assert(send !== null && !send.disabled, 'The user must be able to answer normally after ownership release');

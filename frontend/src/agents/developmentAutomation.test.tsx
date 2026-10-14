@@ -122,7 +122,7 @@ describe('waiting for the user', () => {
   it('waits for the answer in the composer without claiming publication', () => {
     const html = renderToStaticMarkup(<AgentTaskBody state={state} models={[]} {...TASK_BODY_NOOPS} />);
     // The question itself stays in the transcript; the composer only says whose turn it is.
-    expect(html).toContain('placeholder="Waiting for your answer…"');
+    expect(html).toContain('placeholder="Waiting for your response…"');
     expect(html).not.toContain(report.message);
     expect(html).not.toContain('Draft created');
   });
@@ -151,7 +151,7 @@ it('blocks competing actions during a continuation without inventing a running p
   expect(html).toContain('Keep this draft</textarea>');
   expect(html).not.toMatch(/<textarea[^>]*disabled/);
   expect(html).toMatch(/<button[^>]*aria-label="Mark it complete"[^>]*disabled/);
-  expect(html).not.toContain('Waiting for your answer');
+  expect(html).not.toContain('Waiting for your response');
 });
 
 it('explains stop using the matching active turn policy instead of mutable task defaults', () => {

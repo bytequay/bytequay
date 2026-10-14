@@ -39,7 +39,7 @@ it('asks for the durable answer in the composer, not a pinned card', () => {
   const question = 'Which implementation should I use?';
   const html = taskHtml({ ...baseTurn, state: 'COMPLETED', developmentResult: { readyForDelivery: false, message: question } });
   expect(html).not.toContain(question);
-  expect(html).toContain('placeholder="Waiting for your answer…"');
+  expect(html).toContain('placeholder="Waiting for your response…"');
 });
 
 it('attributes generated requests using trusted durable origins and names live activity', () => {

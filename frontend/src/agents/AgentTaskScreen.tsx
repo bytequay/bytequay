@@ -1120,7 +1120,7 @@ export function AgentTaskBody({
     : state.turn?.developmentOrigin?.kind === 'CREATE_DRAFT_PR' ? 'Creating draft PR'
     : state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY' ? 'Refining summary…' : null;
   const ciWaiting = pendingApprovals?.some(approval => approval.taskId !== state.task?.id) ?? false;
-  const statusLabel = question !== null ? 'Waiting for your answer'
+  const statusLabel = question !== null ? 'Waiting for your response'
     : (status === 'running' && waiting) || (status === 'idle' && automationActive && ciWaiting) ? 'Needs approval'
     : status === 'running' && generatedActivity !== null ? generatedActivity
     : status === 'idle' && automationActive && currentCi != null ? ciActivity(currentCi)
@@ -1339,7 +1339,7 @@ export function AgentTaskBody({
           automation={automation}
           ciMention={state.task?.interactive === true} routedToCi={routedToCi}
           ciMessageHint={routedToCi ? ciUnavailable ?? (currentCi?.status === 'ACTIVE' ? 'Steer the running CI agent' : 'Send to CI Autofix') : undefined}
-          placeholder={question !== null ? 'Waiting for your answer…' : undefined}
+          placeholder={question !== null ? 'Waiting for your response…' : undefined}
           value={state.composer} onChange={onCompose} onSend={onSend} onStop={automationActive ? onStopServer : onCancel} onSteer={onSteer} onQueue={onQueue}
           running={status === 'running' || automationActive} sending={state.sending}
           stopLabel={automationActive ? 'Stop automation' : undefined}

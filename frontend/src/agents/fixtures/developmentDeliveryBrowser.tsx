@@ -124,7 +124,7 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
     await settle();
     let input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
     assert(input !== null, 'Normal answer composer must exist');
-    assert(input.placeholder === 'Waiting for your answer…', 'A durable question must ask for its answer before any delivery');
+    assert(input.placeholder === 'Waiting for your response…', 'A durable question must ask for its answer before any delivery');
     assert(host.querySelector('.agt-pr-chip') === null, 'A branch without a pull request must offer no chip');
     assert(submitted === 0, 'Opening a questioning task must not launch delivery');
     changeInput(input, 'Preserve the public API');
@@ -225,8 +225,8 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
       recordTurn();
       emit('TURN_COMPLETED');
       await settle();
-      assert(host.querySelector('.agt-status')?.textContent?.startsWith('Waiting for your answer') === true, 'A later question must take precedence over prior green/ready results');
-      assert(host.querySelector<HTMLTextAreaElement>('.agt-compose__input')?.placeholder === 'Waiting for your answer…',
+      assert(host.querySelector('.agt-status')?.textContent?.startsWith('Waiting for your response') === true, 'A later question must take precedence over prior green/ready results');
+      assert(host.querySelector<HTMLTextAreaElement>('.agt-compose__input')?.placeholder === 'Waiting for your response…',
         'A later question must ask for the answer in the composer');
     }
     return { name };

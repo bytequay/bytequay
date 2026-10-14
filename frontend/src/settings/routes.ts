@@ -23,6 +23,7 @@ export type SettingsSection =
   | 'github'
   | 'jira'
   | 'google'
+  | 'lab'
   | 'ws-repository'
   | 'ws-agents'
   | 'ws-token'
@@ -75,6 +76,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
   },
   { section: 'google', group: 'Integrations', label: 'Google Apps', slug: 'google', rows: ['Gmail', 'Calendar', 'Gemini', 'API key', 'Conversation', 'Accounts', 'Add account', 'Sign in', 'Connector', 'Agent access'] },
   { section: 'jira', group: 'Integrations', label: 'Jira', slug: 'jira', rows: ['Accounts', 'Add account', 'Reconnect', 'Sites'] },
+  { section: 'lab', group: 'Integrations', label: 'Lab', slug: 'lab', rows: ['Show the Lab', 'Dashboard address'] },
   {
     section: 'ws-repository',
     group: 'Workspace',

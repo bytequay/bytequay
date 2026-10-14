@@ -299,6 +299,13 @@ network, so the page then shows one line saying how to start it and nothing
 else. A saved file that is missing, cut off or in another shape is named as
 such and never drawn as zeros.
 
+ByteQuay can link to the page. Turn on **Settings → Integrations → Lab** and a
+Lab item in its sidebar opens the dashboard as a web page. ByteQuay does not
+start the dashboard and reads nothing of the lab, so start it first. The
+address in Settings starts as `http://127.0.0.1:8517/`; change it there when
+the dashboard runs on another `--port`. Only an address on this machine is
+accepted.
+
 `charts.py` turns the table into pandas frames and Plotly figures and can be
 tested without a page; `test_dashboard.py` runs the whole page without a
 browser. The dashboard needs Streamlit, Plotly and pandas. Streamlit depends on

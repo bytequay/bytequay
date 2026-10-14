@@ -191,6 +191,12 @@ model inference. GitHub, selected model providers, and optional integrations
 receive the requests required for their features. Optional hosted authentication
 components retain their own secrets outside the desktop application.
 
+The optional Lab link opens a dashboard that a separately started local tool
+serves on this machine, as an ordinary page in the embedded browser. The
+application never starts that tool or reads its results, and keeps only the
+switch and the address in the renderer's local storage. The tool reads task
+runtime files and the database read-only.
+
 GitHub writes require a direct user action or an explicitly accepted automation
 scope. Repository content, model output, and a private discussion cannot grant
 that authority. Preview and execution must remain bound to the accepted target;

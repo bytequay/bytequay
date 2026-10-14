@@ -15,6 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import AppSidebar, { type AppPage } from './AppSidebar';
 import { loadPinned, openPinned, PINNED_CHANGED, setPinned, type PinnedItem } from './home/pinned';
+import { saveLabLink } from './labLink';
 import { ZOOM_REFERENCE } from './githubReference';
 import type { WorkspaceDto } from './types';
 import type { WorkspaceTab } from './workspaces/model';
@@ -146,6 +147,29 @@ describe('app sidebar', () => {
       expect(markup).toContain('class="app-sidebar__resize"');
       expect(markup).toContain('aria-label="Window controls"');
     }
+  });
+});
+
+describe('lab item', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('sits above Web pages on every page, and only while the Lab is turned on', () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('window', {
+      localStorage: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) },
+      location: { hash: '#/' },
+      bridge: {},
+      dispatchEvent: vi.fn(),
+    });
+    expect(navLabels(render('home', null), 'Application settings')).not.toContain('Lab');
+    saveLabLink({ enabled: true });
+    for (const markup of [render('home', null), render('workspaces', WORKSPACE), render('settings', null, { settings: true })]) {
+      const labels = navLabels(markup, 'Application settings');
+      expect(labels.slice(labels.indexOf('Lab'))[1]).toBe('Web pages');
+      expect(markup).toContain('title="Open the lab dashboard"');
+    }
+    saveLabLink({ enabled: false });
+    expect(navLabels(render('home', null), 'Application settings')).not.toContain('Lab');
   });
 });
 

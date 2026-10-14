@@ -351,6 +351,12 @@ class TestStart(unittest.TestCase):
                          ("127.0.0.1", "9000", "true", "false"))
         self.assertEqual(seen[-2:], ["--", "/some/folder"])  # the folder goes to the page, not to Streamlit
 
+    def test_bytequay_starts_from_the_address_the_page_is_served_at(self):
+        link = Path(__file__).resolve().parents[2] / "frontend/src/labLink.ts"
+        if not link.is_file():
+            self.skipTest("the application's source is not beside the lab")
+        self.assertIn(f"DEFAULT_LAB_ADDRESS = 'http://{dashboard.HOST}:{dashboard.PORT}/'", link.read_text())
+
     def test_default_folder_and_port_are_the_labs_own(self):
         seen = []
         with mock.patch.object(sys, "argv", ["dashboard.py"]), mock.patch.object(dashboard, "get_script_run_ctx", return_value=None), \

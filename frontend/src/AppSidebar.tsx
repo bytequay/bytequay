@@ -14,7 +14,7 @@
 import { RelatedWorkspaceNavigation } from './workspaces/RelatedWorkspaces';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, GitBranch, Globe, History, House, KeyRound,
+  BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, FlaskConical, GitBranch, Globe, History, House, KeyRound,
   LayoutDashboard, LayoutGrid, ListChecks, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Pin, Sparkles, Sun, Tags, TriangleAlert, Users,
 } from 'lucide-react';
@@ -36,6 +36,7 @@ import PinButton from './home/PinButton';
 import { useMemoryNeeds } from './memory/needs';
 import { useTasksWaiting } from './agents/attention';
 import { openPinned, usePinnedItems } from './home/pinned';
+import { useLabLink } from './labLink';
 
 /** What the sidebar needs to be the settings window's nav. Absent on every other page. */
 export type SettingsNav = {
@@ -56,6 +57,7 @@ const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
   skills: <SquareLibrary size={16} strokeWidth={1.7} aria-hidden="true" />,
   jira: <JiraIcon size={16} />,
   google: <Globe size={16} aria-hidden="true" />,
+  lab: <LabIcon />,
   github: <CircleUser size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-repository': <Tags size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-agents': <Bot size={16} strokeWidth={1.7} aria-hidden="true" />,
@@ -139,6 +141,7 @@ export default function AppSidebar({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pinsExpanded, setPinsExpanded] = useState(true);
   const pinnedItems = usePinnedItems();
+  const lab = useLabLink();
   const pickerMenu = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (pickerOpen) pickerMenu.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -367,6 +370,14 @@ export default function AppSidebar({
       {settingsBody === null && <div className="app-sidebar__spacer" />}
       <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application settings">
         <UsageMeter />
+        {lab.enabled && row({
+          key: 'lab',
+          label: 'Lab',
+          title: 'Open the lab dashboard',
+          icon: <LabIcon />,
+          active: false,
+          onClick: () => { void window.bridge.openInAppBrowser(lab.address); },
+        })}
         <button type="button" className={`app-sidebar__item${browserRailVisible ? ' is-active' : ''}`}
           aria-label="Web pages" aria-pressed={browserRailVisible} aria-controls="browser-rail"
           title={browserRailVisible ? 'Hide web pages column' : 'Show web pages column'} onClick={onToggleBrowserRail}>
@@ -427,4 +438,8 @@ function PullsIcon() {
 
 function SettingsIcon() {
   return <Settings size={16} strokeWidth={1.7} aria-hidden="true" />;
+}
+
+function LabIcon() {
+  return <FlaskConical size={16} strokeWidth={1.7} aria-hidden="true" />;
 }

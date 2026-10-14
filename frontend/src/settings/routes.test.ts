@@ -47,6 +47,12 @@ describe('settings routes', () => {
     expect(matchesSearch(entryFor('google'), 'Calendar')).toBe(true);
   });
 
+  it('keeps the optional Lab link under Integrations and finds it by its settings', () => {
+    expect(settingsRoute('lab')).toBe('#/settings/integrations/lab');
+    expect(entryFor('lab')).toMatchObject({ label: 'Lab', group: 'Integrations' });
+    expect(matchesSearch(entryFor('lab'), 'dashboard address')).toBe(true);
+  });
+
   it('carries the workspace a link names, so a link can edit one the app is not showing', () => {
     expect(settingsLocationFromRoute('#/settings/workspace/ws-9/agents'))
       .toEqual({ section: 'ws-agents', workspaceId: 'ws-9' });

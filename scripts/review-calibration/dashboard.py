@@ -143,11 +143,12 @@ def slow_spots(shown, mode):
 def tools(shown, table, mode):
     turns = shown["turns"]
     try:
-        calls = charts.calls_of(charts.call_frames(table), turns)["calls"]
+        made = charts.calls_of(charts.call_frames(table), turns)
     except (KeyError, TypeError, ValueError):
-        # A table from before calls were counted says nothing about them. It is never drawn as a table without calls.
-        st.info(f"This table was saved before calls were counted. Save it again with `{SAVE}`")
+        # A table from before the lab counted calls, or from before it read why they failed, is never drawn as one without them.
+        st.info(f"This table was saved before the lab counted what this tab shows. Save it again with `{SAVE}`")
         return
+    calls, reasons = made["calls"], made["reasons"]
     if calls.empty:
         st.info("No turn of this choice called a command or a tool.")
         return
@@ -171,6 +172,23 @@ def tools(shown, table, mode):
         draw("candidates_figure", charts.candidates_figure(calls, mode))
     st.subheader("Every command and tool")
     st.dataframe(charts.calls_table(calls), hide_index=True, column_config={"name": st.column_config.TextColumn(width="medium")})  # room for a long tool name
+    st.subheader("Why commands failed")
+    if reasons.empty:
+        st.caption("No command failed.")
+    else:
+        rows = charts.reason_rows(reasons)
+        st.caption("Read from the words a failed command printed: the first reason that fits. \"No output kept\" means the log holds nothing to read, "
+                   "often because the output went into another program or a file. \"Other\" is a failure whose words name none of these reasons.")
+        draw("reasons_figure", charts.reasons_figure(rows, mode))
+        st.dataframe([{"reason": label, "failed commands": times, "programs it hit most": programs} for label, times, programs in rows], hide_index=True)
+    st.subheader("What commands hand back")
+    printed = charts.printed_rows(calls)
+    if not sum(amount for _, amount, _ in printed):
+        st.caption("The log kept no output of a command.")
+    else:
+        st.caption(f"Commands printed {charts.short(sum(amount for _, amount, _ in printed))} characters, which the model then reads. Characters are a rough stand-in for tokens. "
+                   "What a tool call hands back is not in the logs.")
+        draw("printed_figure", charts.printed_figure(printed, mode))
     st.subheader("By provider")
     st.caption("Different tasks ran under each provider, so this shows what happened, not which one is better.")
     st.dataframe(charts.providers_table(calls, turns), hide_index=True)

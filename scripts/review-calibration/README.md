@@ -209,7 +209,14 @@ reacted to. A row also lists every single command of 30 seconds or more by its
 program, every wait for the user with its kind, how it ended and how long it
 took, and how often the provider gave a rate limit notice or tried a call
 again. For every program and every tool the turn called, the row has the
-runs, how many failed, how many searches found nothing, and the seconds.
+runs, how many failed, how many searches found nothing, and the seconds. For
+a program it also has the characters its runs printed and why its failed runs
+failed. The reason is read from the words a failed command printed: the first
+that fits of sandbox or permission, no test matched, compile error, test
+failure, build failed, missing file or path, network, and timeout or killed.
+A failure that printed nothing the log kept is "no output kept", and one whose
+words name none of these is "other". Only the name of the reason is saved, and
+of the output only its length.
 Both files hold names, counts and times and nothing else: no command
 arguments, no paths and no message text.
 
@@ -273,13 +280,19 @@ draws one bubble for every program and tool with five calls or more: further
 right it was called more often, higher it failed more often, and a bigger
 bubble took more time. A big bubble high on the right is where a tool of its
 own, or a rule, would pay first. The six that failed most often are named,
-and the pointer names any other. A table lists every command and tool. "By
+and the pointer names any other. A table lists every command and tool. "Why
+commands failed" gives the failed commands by reason, with the programs each
+reason hit most; the two reasons that say nothing, "no output kept" and
+"other", are drawn in gray. "What commands hand back" gives the characters
+commands printed by program, a rough stand-in for the tokens the model then
+reads; what a tool call hands back is not in the logs. "By
 provider" gives each provider its commands and tool calls with how many
 failed, and a grid of how often the most used commands failed under each
 provider, where a cell with fewer than five runs says how few and has no
 color. Different tasks ran under each provider, so this too shows what
-happened and is not a fair test. A table saved before calls were counted
-makes this tab alone say so, and every other tab is drawn as before.
+happened and is not a fair test. A table saved before the lab counted what
+this tab shows makes this tab alone say so, and every other tab is drawn as
+before.
 
 The Models tab is about turns the database knows. It lists every model and
 effort with its turns, typical turn, typical tokens and tool calls, and how

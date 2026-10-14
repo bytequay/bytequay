@@ -38,6 +38,7 @@ TOP_PROGRAMS_COMPARED = 8  # the programs compared between providers
 BUBBLE = 44  # pixels across for the program or tool that took the most time
 SMALLEST = 5  # pixels from the middle to the edge of the smallest bubble
 LIFTS = (14, 32, 50)  # pixels from the edge of a bubble up to its name; along the axis the names take these heights in turn
+UNSAID = (activity.OTHER_REASON, activity.NOTHING_KEPT)  # a failure whose reason the words it printed do not give; these stay quiet in the chart
 # The two kinds of call, the name each goes by and the color it wears. A command wears the color of waiting for a tool, as shell time does.
 CALLS = {"command": ("command", "tool"), "tool": ("tool call", "model")}
 # One step of each hue for each mode, checked against that mode's page surface: neighbours stay apart for color-blind
@@ -509,11 +510,15 @@ def repositories_figure(turns, parts, mode="light"):
 def call_frames(table):
     """The calls of the saved turns, each with its turn's number in `frames`. A table saved before calls were counted, or one
     with a kind of call this version does not know, fails here and is never drawn as a table without calls."""
-    calls = pandas.DataFrame([(number, call["kind"], call["name"], int(call["runs"]), int(call["failed"]), int(call["noMatch"]), float(call["seconds"]))
-                              for number, row in enumerate(table["turns"]) for call in row["calls"]], columns=["turn", "kind", "name", "runs", "failed", "noMatch", "seconds"])
+    # Only a command says how much it printed and why it failed: the log holds no output of a tool.
+    calls = pandas.DataFrame([(number, call["kind"], call["name"], int(call["runs"]), int(call["failed"]), int(call["noMatch"]), float(call["seconds"]),
+                               int(call["characters"]) if call["kind"] == "command" else None)
+                              for number, row in enumerate(table["turns"]) for call in row["calls"]], columns=["turn", "kind", "name", "runs", "failed", "noMatch", "seconds", "characters"])
     if not calls["kind"].isin(CALLS).all():
         raise ValueError("a call is neither a command nor a tool call")
-    return {"calls": calls}
+    reasons = pandas.DataFrame([(number, call["name"], reason, int(times)) for number, row in enumerate(table["turns"]) for call in row["calls"] if call["kind"] == "command"
+                                for reason, times in call["reasons"].items()], columns=["turn", "program", "reason", "times"])
+    return {"calls": calls, "reasons": reasons}
 
 
 def calls_of(made, turns):
@@ -568,6 +573,47 @@ def candidates_figure(calls, mode="light", top=TOP_NAMES):
     # Room below zero and above the highest, so a bubble on either edge is drawn whole.
     figure.update_yaxes(title_text="failed %", fixedrange=True, gridcolor=COLORS[mode]["grid"], zeroline=False, range=[-0.08 * highest, 1.2 * highest])
     return tidy(figure, 440, legend=True).update_layout(hovermode="closest")
+
+
+def reason_rows(reasons, top=3):
+    """Why commands failed as (reason, failed runs, the programs it hit most), the most frequent reason first; a tie goes by name."""
+    summed = reasons.groupby("reason")["times"].sum()
+    rows = []
+    for label in sorted(summed.index, key=lambda label: (-int(summed[label]), label)):
+        programs = reasons[reasons["reason"] == label].groupby("program")["times"].sum()
+        most = sorted(programs.items(), key=lambda made: (-int(made[1]), made[0]))[:top]
+        rows.append((label, int(summed[label]), ", ".join(f"{program} {int(times):,}" for program, times in most)))
+    return rows
+
+
+def reasons_figure(rows, mode="light"):
+    """One bar per reason with its failed runs and its share of them. A failure whose reason is not known stays quiet, so the eye goes to the others."""
+    whole = sum(times for _, times, _ in rows)
+    figure = go.Figure(go.Bar(orientation="h", y=[label for label, _, _ in rows], x=[times for _, times, _ in rows], customdata=[programs for _, _, programs in rows],
+                              text=[f"{times:,} · {share(times, whole):.0f}%" for _, times, _ in rows], textposition="outside", cliponaxis=False,
+                              marker={"color": [COLORS[mode]["usual" if label in UNSAID else "tool"] for label, _, _ in rows]},
+                              hovertemplate="%{y}<br>%{text}<br>%{customdata}<extra></extra>"))
+    figure.update_xaxes(range=[0, max(times for _, times, _ in rows) * 1.3])
+    return bar_list(figure, 34 * len(rows) + 12)
+
+
+def printed_rows(calls, top=TOP_PROGRAMS):
+    """What commands printed as (program, characters, runs): the few programs that printed the most by name, then every other program added up."""
+    every = calls[calls["kind"] == "command"].groupby("name", as_index=False)[["characters", "runs"]].sum().sort_values(["characters", "name"], ascending=[False, True])
+    rows = [(row.name, float(row.characters), int(row.runs)) for row in every.head(top).itertuples(index=False)]
+    if len(every) > top:
+        rows.append(("every other program", float(every["characters"].iloc[top:].sum()), int(every["runs"].iloc[top:].sum())))
+    return rows
+
+
+def printed_figure(rows, mode="light"):
+    """One bar per program for the characters its runs printed, with its share of all of them and what one run printed."""
+    whole = sum(amount for _, amount, _ in rows)
+    figure = go.Figure(go.Bar(orientation="h", y=[name for name, _, _ in rows], x=[amount for _, amount, _ in rows],
+                              text=[f"{short(amount)} · {share(amount, whole):.0f}% · {short(amount / runs)} a run" for _, amount, runs in rows], textposition="outside", cliponaxis=False,
+                              marker={"color": COLORS[mode]["tool"]}, hovertemplate="%{y}<br>%{text}<extra></extra>"))
+    figure.update_xaxes(range=[0, max(amount for _, amount, _ in rows) * 1.9])
+    return bar_list(figure, 34 * len(rows) + 12)
 
 
 def with_provider(calls, turns):

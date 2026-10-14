@@ -255,7 +255,8 @@ class TestSlowSpots(unittest.TestCase):
 
 
 def calls(*rows):
-    return pandas.DataFrame(rows, columns=["turn", "kind", "name", "runs", "failed", "noMatch", "seconds"])
+    """Calls as (turn, kind, name, runs, failed, found nothing, seconds) and, for a command, the characters it printed."""
+    return pandas.DataFrame([(*row, None)[:8] for row in rows], columns=["turn", "kind", "name", "runs", "failed", "noMatch", "seconds", "characters"])
 
 
 # Two turns: Maven fails often and takes long, a search finds nothing a few times, git ran too seldom to draw, and two tools.
@@ -266,11 +267,16 @@ OFTEN = calls((0, "command", "maven", 6, 3, 0, 600), (1, "command", "maven", 4, 
 class TestCalls(unittest.TestCase):
     def test_calls_follow_the_turn_table_row_by_row_and_every_filter(self):
         frames, found = made(), charts.call_frames(TABLE)
-        self.assertEqual(list(found), ["calls"])
-        self.assertEqual(found["calls"].values.tolist(), [[0, "command", "maven", 1, 0, 0, 120], [0, "tool", "Read", 1, 0, 0, 60], [0, "tool", "review_get_context", 1, 0, 0, 60],
-                                                           [1, "command", "npm", 1, 1, 0, 120], [2, "command", "git", 1, 0, 0, 40], [2, "tool", "Read", 2, 1, 0, 40]])
+        self.assertEqual(list(found), ["calls", "reasons"])
+        self.assertEqual(found["calls"].drop(columns="characters").values.tolist(),
+                         [[0, "command", "maven", 1, 0, 0, 120], [0, "tool", "Read", 1, 0, 0, 60], [0, "tool", "review_get_context", 1, 0, 0, 60],
+                          [1, "command", "npm", 1, 1, 0, 120], [2, "command", "git", 1, 0, 0, 40], [2, "tool", "Read", 2, 1, 0, 40]])
+        # A command says how much it printed. A tool call has no number, which is not a zero.
+        self.assertEqual(found["calls"]["characters"].fillna(-1).tolist(), [0, -1, -1, 2000, 500, -1])
+        self.assertEqual(found["reasons"].values.tolist(), [[1, "npm", "test failure", 1]])
         second_day = charts.calls_of(found, charts.within(frames, date(2026, 1, 2), date(2026, 1, 2))["turns"])
-        self.assertEqual(second_day["calls"]["name"].tolist(), ["npm", "git", "Read"])
+        self.assertEqual((second_day["calls"]["name"].tolist(), second_day["reasons"]["program"].tolist()), (["npm", "git", "Read"], ["npm"]))
+        self.assertTrue(charts.calls_of(found, charts.within(frames, date(2026, 1, 1), date(2026, 1, 1))["turns"])["reasons"].empty)
         self.assertTrue(charts.calls_of(found, charts.only(frames, ~frames["turns"]["logged"])["turns"])["calls"].empty)  # a turn without a log has no calls
 
     def test_table_saved_before_calls_were_counted_is_refused_here_and_still_read_everywhere_else(self):
@@ -282,7 +288,7 @@ class TestCalls(unittest.TestCase):
         later["turns"][0]["calls"][0]["kind"] = "a kind from a later version"
         with self.assertRaises(ValueError):
             charts.call_frames(later)
-        for missing in ("kind", "name", "runs", "failed", "noMatch", "seconds"):
+        for missing in ("kind", "name", "runs", "failed", "noMatch", "seconds", "characters", "reasons"):
             short = json.loads(json.dumps(TABLE))
             del short["turns"][0]["calls"][0][missing]
             with self.subTest(missing=missing), self.assertRaises(KeyError):
@@ -330,6 +336,31 @@ class TestCalls(unittest.TestCase):
         self.assertEqual([round(-note.ay - note.standoff) for note in charts.candidates_figure(pandas.concat([OFTEN.assign(name=OFTEN["name"] + " again"), OFTEN])).layout.annotations],
                          [*charts.LIFTS, *charts.LIFTS])
         self.assertEqual({trace.mode for trace in charts.candidates_figure(OFTEN).data}, {"markers"})
+
+    def test_reasons_come_most_frequent_first_with_the_programs_each_hit_most(self):
+        reasons = pandas.DataFrame([(0, "maven", "test failure", 3), (1, "maven", "test failure", 2), (0, "python", "test failure", 5), (0, "npm", "test failure", 1), (0, "gradle", "test failure", 1),
+                                    (0, "rg", "missing file or path", 4), (1, "maven", "other", 4), (1, "git", "no output kept", 9)], columns=["turn", "program", "reason", "times"])
+        rows = charts.reason_rows(reasons)
+        # Maven and python failed five tests each: the tie goes by name. Of the two that failed once, only the first by name is among the three listed.
+        self.assertEqual(rows, [("test failure", 12, "maven 5, python 5, gradle 1"), ("no output kept", 9, "git 9"), ("missing file or path", 4, "rg 4"), ("other", 4, "maven 4")])
+        self.assertEqual(charts.reason_rows(reasons, top=1)[0], ("test failure", 12, "maven 5"))
+        for mode, colors in charts.COLORS.items():
+            bars = charts.reasons_figure(rows, mode).data[0]
+            # A failure whose reason is not known is drawn quiet, however often it came.
+            self.assertEqual(list(bars.marker.color), [colors["tool"], colors["usual"], colors["tool"], colors["usual"]], mode)
+        self.assertEqual((list(bars.y), list(bars.x), list(bars.text), list(bars.customdata)),
+                         (["test failure", "no output kept", "missing file or path", "other"], [12, 9, 4, 4], ["12 · 41%", "9 · 31%", "4 · 14%", "4 · 14%"],
+                          ["maven 5, python 5, gradle 1", "git 9", "rg 4", "maven 4"]))
+
+    def test_what_commands_printed_is_added_up_by_program_and_past_the_top_few_together(self):
+        printed = calls((0, "command", "rg", 10, 0, 0, 1, 50000), (1, "command", "rg", 10, 0, 0, 1, 30000), (0, "command", "git", 4, 0, 0, 1, 2000), (0, "command", "ls", 1, 0, 0, 1, 400),
+                        (0, "command", "awk", 2, 0, 0, 1, 400), (0, "tool", "Read", 99, 0, 0, 1))
+        self.assertEqual(charts.printed_rows(printed), [("rg", 80000, 20), ("git", 2000, 4), ("awk", 400, 2), ("ls", 400, 1)])  # a tool call is not in it, and a tie goes by name
+        self.assertEqual(charts.printed_rows(printed, top=2), [("rg", 80000, 20), ("git", 2000, 4), ("every other program", 800, 3)])
+        bars = charts.printed_figure(charts.printed_rows(printed, top=2)).data[0]
+        self.assertEqual((list(bars.y), list(bars.x), list(bars.text)),
+                         (["rg", "git", "every other program"], [80000, 2000, 800], ["80.0 K · 97% · 4.0 K a run", "2.0 K · 2% · 500 a run", "800 · 1% · 267 a run"]))
+        self.assertEqual(charts.printed_rows(charts.call_frames(TABLE)["calls"]), [("npm", 2000, 1), ("git", 500, 1), ("maven", 0, 1)])
 
     def test_providers_are_listed_with_their_calls_and_a_kind_that_never_ran_has_no_rate(self):
         frames, found = made(), charts.call_frames(TABLE)["calls"]

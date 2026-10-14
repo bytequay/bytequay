@@ -20,11 +20,24 @@ ENDED = ("COMPLETED", "FAILED")
 TURN_ENDED = ("TURN_COMPLETED", "INTERRUPTED", "TASK_FAILED")
 WRITING_GAP = 3  # seconds; pieces of visible model text this close together are one run of writing
 LONG_RUN = 30  # seconds; a single command this long is kept by itself for the list of long runs
-HOW_IT_ENDED = ("state", "exitCode")  # what the end of a command or tool call adds to its start
+HOW_IT_ENDED = ("state", "exitCode", "output")  # what the end of a command or tool call adds to its start
 # A search ends with exit code 1 when it finds nothing, which is an answer and not a failure.
 # ponytail: a command line is named after one program, so a search behind another program's pipe is not seen here.
 SEARCHES = {"rg", "grep"}
 MOST_FAILED = 3  # names listed under commands and under tools in the table of calls
+NOTHING_KEPT, OTHER_REASON = "no output kept", "other"
+# Why a command failed, by words in what it printed: the first reason that fits. The words are read here and never
+# saved or printed; only the name of the reason is.
+# ponytail: a list of words and not a parser. A failure nobody listed is "other", and the list grows from what "other" turns out to hold.
+REASONS = tuple((label, re.compile(words)) for label, words in (
+    ("sandbox or permission", r"operation not permitted|permission denied|read-only file system|sandbox"),
+    ("no test matched", r"no tests (were executed|matching|found|ran)|no test files found"),
+    ("compile error", r"compilation (error|failure)|cannot find symbol|error ts\d+|syntaxerror"),
+    ("test failure", r"tests run:.*(failures|errors): [1-9]|there are test failures|<<< (failure|error)!|assertionerror|\b\d+ failed\b|tests? failed"),
+    ("build failed", r"build failure|build failed|failed to execute goal"),  # the build tool says so, and none of the reasons above is in its words
+    ("missing file or path", r"no such file or directory|does not exist|cannot access|not a git repository|did not match any file|command not found"),
+    ("network", r"could not resolve|could not transfer|connection (refused|reset)|network is unreachable|unknown ?host"),
+    ("timeout or killed", r"timed out|timeout|\bkilled\b|sigterm|sigkill")))
 RATE_LIMIT = re.compile(r"rate limit: (\w+)")
 SILENT = "model silent"
 
@@ -242,6 +255,14 @@ def ending(item, name):
     return failed and not nothing, nothing
 
 
+def reason(output):
+    """Why a failed command failed, as far as the words it printed say."""
+    text = (output or "").lower()
+    if not text.strip():
+        return NOTHING_KEPT
+    return next((label for label, words in REASONS if words.search(text)), OTHER_REASON)
+
+
 def group_of(item):
     """The group an item's time is counted under."""
     if item.kind == "approval":
@@ -293,8 +314,9 @@ class Turn:
     long_runs: list = field(default_factory=list)  # (program, seconds) for every single command of LONG_RUN seconds or more
     approvals: list = field(default_factory=list)  # (kind, outcome, seconds the turn waited for the user)
     notices: Counter = field(default_factory=Counter)  # rate limit notices by their status, and retries
-    # For each (command or tool, name): its runs, how many failed, how many searches found nothing, and its seconds.
+    # For each (command or tool, name): its runs, how many failed, how many searches found nothing, its seconds, and the characters it printed.
     calls: defaultdict = field(default_factory=lambda: defaultdict(Counter))
+    reasons: defaultdict = field(default_factory=lambda: defaultdict(Counter))  # for each program, why its failed runs failed
 
 
 @dataclass
@@ -390,7 +412,10 @@ def measure(logs, since=None):
             if name is not None:
                 failed, nothing = ending(item, name)
                 # An empty counter takes its first values as they are, so a yes or no is made a number here.
-                one.calls[(item.kind, name)].update(runs=1, failed=int(failed), noMatch=int(nothing), seconds=inside)
+                printed = item.detail.get("output") or ""
+                one.calls[(item.kind, name)].update(runs=1, failed=int(failed), noMatch=int(nothing), seconds=inside, characters=len(printed))
+                if failed and item.kind == "command":
+                    one.reasons[name][reason(printed)] += 1
             if item.kind == "command":
                 one.program_seconds[name] += inside
                 one.program_runs[name] += 1
@@ -536,7 +561,9 @@ def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
                      "longRuns": [{"program": name, "seconds": round(length, 3)} for name, length in sorted(one.long_runs, key=lambda run: (-run[1], run[0]))],
                      "approvals": [{"kind": kind, "outcome": outcome, "seconds": round(length, 3)} for kind, outcome, length in one.approvals],
                      "notices": dict(sorted(one.notices.items())),
-                     "calls": [{"kind": kind, "name": name, "runs": made["runs"], "failed": made["failed"], "noMatch": made["noMatch"], "seconds": round(made["seconds"], 3)}
+                     # Only a command's output is in the log, so only a command says how much it printed and why it failed.
+                     "calls": [{"kind": kind, "name": name, "runs": made["runs"], "failed": made["failed"], "noMatch": made["noMatch"], "seconds": round(made["seconds"], 3),
+                                **({"characters": made["characters"], "reasons": dict(sorted(one.reasons[name].items()))} if kind == "command" else {})}
                                for (kind, name), made in sorted(one.calls.items())]})
     logged = {(one.task, one.turn) for one in total.each}
     for (owner, turn), facts in sorted(known.items(), key=lambda made: (made[1]["start"], made[0])):

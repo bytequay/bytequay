@@ -291,22 +291,27 @@ def launchctl(*arguments):
     return subprocess.run(["launchctl", *arguments], capture_output=True, text=True)
 
 
+def keep_agent(label, settings):
+    """Make one of the lab's LaunchAgents match what is wanted: loaded with these settings, or gone when there are none."""
+    agent = Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
+    launchctl("bootout", f"gui/{os.getuid()}/{label}")  # the copy loaded before, if any
+    if not settings:
+        agent.unlink(missing_ok=True)
+        return
+    agent.parent.mkdir(parents=True, exist_ok=True)
+    agent.write_bytes(plistlib.dumps({"Label": label, **settings}))
+    loaded = launchctl("bootstrap", f"gui/{os.getuid()}", str(agent))
+    if loaded.returncode:
+        raise ValueError(f"launchctl could not load {agent}: {loaded.stderr.strip()}")
+
+
 def keep_schedule(folder, kept):
     """Save the schedule, and make the Mac's own scheduler match it: one LaunchAgent while any experiment is scheduled, none when
     no experiment is. Every night at three it starts the rounds that are due; a night the Mac slept through counts when it wakes."""
     saved.write(folder, "schedule.json", {"version": 1, "experiments": kept})
-    agent = Path.home() / "Library" / "LaunchAgents" / f"{AGENT}.plist"
-    launchctl("bootout", f"gui/{os.getuid()}/{AGENT}")  # the copy loaded before, if any
-    if not kept:
-        agent.unlink(missing_ok=True)
-        return
-    agent.parent.mkdir(parents=True, exist_ok=True)
-    agent.write_bytes(plistlib.dumps({"Label": AGENT, "ProgramArguments": [sys.executable, str(Path(__file__).resolve()), "--due", "--folder", str(folder)],
-                                      "StartCalendarInterval": {"Hour": 3, "Minute": 0}, "EnvironmentVariables": {"PATH": os.environ.get("PATH", "")},
-                                      "StandardOutPath": str(folder / "schedule.log"), "StandardErrorPath": str(folder / "schedule.log")}))
-    loaded = launchctl("bootstrap", f"gui/{os.getuid()}", str(agent))
-    if loaded.returncode:
-        raise ValueError(f"launchctl could not load {agent}: {loaded.stderr.strip()}")
+    keep_agent(AGENT, kept and {"ProgramArguments": [sys.executable, str(Path(__file__).resolve()), "--due", "--folder", str(folder)],
+                                "StartCalendarInterval": {"Hour": 3, "Minute": 0}, "EnvironmentVariables": {"PATH": os.environ.get("PATH", "")},
+                                "StandardOutPath": str(folder / "schedule.log"), "StandardErrorPath": str(folder / "schedule.log")})
 
 
 def run_due(folder, now, say=tell):

@@ -233,6 +233,47 @@ through counts when it wakes. What they say goes to `schedule.log` in the
 lab's folder. `--every never` for the last scheduled experiment removes the
 agent.
 
+## Monitor
+
+```sh
+uv run monitor.py
+uv run monitor.py --start
+uv run monitor.py --stop
+```
+
+`monitor.py` watches what ByteQuay takes from this Mac. With no option it
+prints how every part stands now. `--start` keeps a sampler running from then
+on, at every login and whenever it stops, as a second LaunchAgent the lab
+writes and removes (`com.bytequay.lab.monitor`); `--stop` ends it.
+
+Every five seconds the sampler notes the processes, memory, CPU, threads and
+open files of each part of the app: the Electron app's main process, its
+windows, its GPU process and its other helpers; the Java backend; the agent
+command lines the backend starts; and the commands they run. It knows the app
+by its program, the packaged ByteQuay or Electron started from a ByteQuay
+checkout with `.` (a browser test's Electron runs a script of its own), and the
+backend by `bytequay-backend.jar`, and it counts everything they started. A
+process's program and arguments only tell the parts apart and are not kept.
+It also counts, read-only from ByteQuay's database, the turns running, the
+open tasks and the inputs waiting in their queues, with the states the backend
+itself counts as running and waiting (a test reads them from its source). A
+few times a day it counts the disk each top-level part of the app's data
+takes, at the lowest priority, as a count walks every file.
+
+The numbers go to `monitor.db` in the lab's folder. Every sample is kept for a
+week; older ones are folded into one row an hour with the hour's average and
+peak, and kept for 90 days. The sampler counts its own cost apart, as the part
+`monitor`: on the Mac it was built on, about 37 MB and under 1% of one core.
+
+The dashboard's Resources page shows them: tiles and the last 15 minutes,
+looked at again every two seconds; memory, CPU, threads and turns running over
+the last hour, day, week, 30 or 90 days, on one clock so a jump can be laid
+against the work; every part now, typically and at its peak; the typical
+memory of each group on each day from the samples when no turn ran, so memory
+held with no work to do shows as a column that rises; and the disk. Memory is
+what a process holds in RAM. The app's helpers share a little of it, so the
+sum runs slightly high.
+
 ## Agent activity
 
 `activity.py` shows where the wall-clock time of ByteQuay agent turns goes. It

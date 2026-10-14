@@ -220,6 +220,13 @@ def snapshot(watch):
                         f"This Mac: {machine['memory_used'] / 2**30:.1f} of {machine['memory_total'] / 2**30:.0f} GB used, {machine['cpu']:.1f} cores busy."]
 
 
+def agent(folder):
+    """The LaunchAgent that keeps the sampler running: at every login and whenever it stops."""
+    return {"ProgramArguments": [sys.executable, str(Path(__file__).resolve()), "--sample", "--folder", str(folder)],
+            "RunAtLoad": True, "KeepAlive": True, "ProcessType": "Background",
+            "StandardOutPath": str(folder / "monitor.log"), "StandardErrorPath": str(folder / "monitor.log")}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--folder", type=Path, default=saved.FOLDER, help="The lab's folder, where the numbers are kept")
@@ -231,11 +238,8 @@ def main():
     if args.sample:
         run(args.folder)
     elif args.start or args.stop:
-        settings = args.start and {"ProgramArguments": [sys.executable, str(Path(__file__).resolve()), "--sample", "--folder", str(args.folder)],
-                                   "RunAtLoad": True, "KeepAlive": True, "ProcessType": "Background",
-                                   "StandardOutPath": str(args.folder / "monitor.log"), "StandardErrorPath": str(args.folder / "monitor.log")}
         try:
-            batch.keep_agent(AGENT, settings)
+            batch.keep_agent(AGENT, args.start and agent(args.folder))
         except ValueError as problem:
             parser.exit(1, f"{problem}\n")
         print(f"The monitor samples every {EVERY} seconds into {args.folder / STORE}, from now on." if args.start else "The monitor is stopped.")

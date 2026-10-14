@@ -274,6 +274,14 @@ held with no work to do shows as a column that rises; and the disk. Memory is
 what a process holds in RAM. The app's helpers share a little of it, so the
 sum runs slightly high.
 
+The dashboard's Processes page lists every program the lab's own Python runs
+now (its pages, the monitor, experiments and their review runs, tests) with
+when it started and its memory, looked at again every three seconds. Stop ends
+one as Ctrl+C would; for the monitor it also removes the LaunchAgent, which
+would otherwise start it again. Below, the monitor is started or stopped as
+`--start` and `--stop` do. A stopped page cannot start itself: start it again
+with `uv run dashboard.py`.
+
 ## Agent activity
 
 `activity.py` shows where the wall-clock time of ByteQuay agent turns goes. It

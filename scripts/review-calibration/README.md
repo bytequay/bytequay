@@ -509,6 +509,39 @@ A share moves in points and any other number by how much it grew. A number
 that is not known is a dash and never a zero. The days before are measured
 again from today's tables, so a log removed since then is missing from them.
 
+## Approval rules
+
+```sh
+uv run approvals.py
+uv run approvals.py --allow 'Bash(./mvnw -o -pl:*)' --allow 'Bash(cd:*)'
+```
+
+`approvals.py` reads the task logs and tests allow rules against the approval
+cards ByteQuay showed you. Without rules it lists what was asked by provider
+and kind, how long you waited, how many asks ran out, and how many of those
+ended their turn: a Codex command that runs out stops its turn, while Claude
+carries on. Then come the rules the asked commands would need, each with how
+many asks need it and how many it answers by itself, and what Codex's own
+reviewer answered without a card.
+
+A rule has Claude's own shape, the one ByteQuay already writes for what a
+review may not run: `Bash(words:*)` covers a command that starts with those
+words, `Bash(words)` only that command. It matches the way Claude's rules do:
+every command of a line, cut at `&&`, `||`, `;`, `|`, `&` and new lines, must
+match a rule, and a prefix ends where a word ends. A line with `$(...)`,
+backticks or `<(...)`, or one that starts by setting a variable, is never
+covered, because it can run more than its words say.
+
+With `--allow`, the report says how many command asks the rules answer, the
+minutes of waiting and the turn endings they save, any ask you denied that
+they would allow, the risks among the asks they answer, and how many of all
+commands run in the logs they cover, which shows how wide they are. A risk is
+a word in the line worth a closer look (writes to GitHub, network, deletes,
+runs another command, writes a file, outside the sandbox), never a judgment
+that a line is safe. Nothing is saved, and only providers, kinds, rule words,
+counts and times are printed: a suggested rule keeps the program, a
+subcommand and flags, and stops at a path, a value, a number or quoted text.
+
 ## Synthetic smoke fixture
 
 `fixture/` is a deliberately small example for checking the harness and reading

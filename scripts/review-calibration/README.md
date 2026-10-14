@@ -282,6 +282,36 @@ would otherwise start it again. Below, the monitor is started or stopped as
 `--start` and `--stop` do. A stopped page cannot start itself: start it again
 with `uv run dashboard.py`.
 
+## Tuning
+
+```sh
+uv run tuning.py --save
+```
+
+`tuning.py` counts how much a person had to step in to get the agent's work
+done, and how its turns ended, so a change to the prompt, the tools or the
+flow can be checked against them. From the task logs it counts, for every
+turn, the messages that started a turn, waited in the queue or went into a
+running turn (steering), the approvals a person answered and the ones that ran
+out or were cancelled, and the rate limits, retries and interruptions. From
+ByteQuay's database, read without writing, it adds what started each turn
+(a person or an automation such as a draft pull request), whether someone
+asked it to stop, how it ended, and each task's state and repository. A turn's
+terminal reason is free text and is not read; the database leaves its failure
+kind empty. A task whose row is gone from the database keeps its turns, with
+no state. `--save` writes `tuning.json` into the lab's folder.
+
+The dashboard's Tuning page shows the last 7 days, 30 days or all of it. "A
+person in the loop": the tasks, how many needed one message and nothing else
+(one-ask tasks), the typical messages per task, the approvals answered and the
+turns stopped; how a person stepped in after asking; how many messages each
+task needed; and the tasks that needed the most. A task's first message is its
+ask; every later one counts as another message, which can be a correction or
+new work, as the log keeps no reason. "How turns ended": the share completed
+of the turns whose ending the database still holds, the rate limits, retries
+and interruptions for every 100 turns, and the turns of each week by how they
+ended, with those whose ending is not known hatched.
+
 ## Agent activity
 
 `activity.py` shows where the wall-clock time of ByteQuay agent turns goes. It

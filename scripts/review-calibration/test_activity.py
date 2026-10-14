@@ -36,14 +36,14 @@ def turn(start, end, name="t1"):
     return [event(start, "lifecycle", name, phase="TURN_STARTED"), event(end, "lifecycle", name, phase="TURN_COMPLETED")]
 
 
-def command(start, end, text, item=None, turn="t1"):
-    return [event(start, "command", turn, item, state="STARTED", argv=[text], durationMs=None),
-            event(end, "command", turn, item, state="COMPLETED", argv=[text], durationMs=None)]
+def command(start, end, text, item=None, turn="t1", ended="COMPLETED", code=None):
+    return [event(start, "command", turn, item, state="STARTED", argv=[text], durationMs=None, exitCode=None),
+            event(end, "command", turn, item, state=ended, argv=[text], durationMs=None, exitCode=code)]
 
 
-def tool(start, end, name, item=None, turn="t1"):
+def tool(start, end, name, item=None, turn="t1", ended="COMPLETED"):
     return [event(start, "tool", turn, item, state="STARTED", name=name, durationMs=None),
-            event(end, "tool", turn, item, state="COMPLETED", name=name, durationMs=None)]
+            event(end, "tool", turn, item, state=ended, name=name, durationMs=None)]
 
 
 def in_order(*groups):
@@ -289,6 +289,62 @@ class TestMeasure(Logs):
         self.assertEqual(activity.render(activity.measure([self.log("aaaa", command(0, 10, "git status"))])), "No turns found.")
 
 
+class TestCalls(Logs):
+    def calls(self, *groups):
+        """What the calls of one ten-minute turn add up to, by (command or tool, name)."""
+        (one,) = activity.measure([self.log("aaaa", turn(0, 600), *groups)]).each
+        return {call: dict(made) for call, made in one.calls.items()}
+
+    def test_each_call_is_counted_under_its_name_with_how_it_ended(self):
+        made = self.calls(command(10, 40, "cd /Users/someone/secret-project && ./mvnw test", item="m1", ended="FAILED", code=1), command(50, 70, "./mvnw -q verify", item="m2", code=0),
+                          tool(80, 90, "Read", item="r1"), tool(100, 130, "Read", item="r2", ended="FAILED"))
+        self.assertEqual(made, {("command", "maven"): {"runs": 2, "failed": 1, "noMatch": 0, "seconds": 50}, ("tool", "Read"): {"runs": 2, "failed": 1, "noMatch": 0, "seconds": 40}})
+
+    def test_search_that_found_nothing_is_not_a_failure_and_a_search_that_broke_is(self):
+        made = self.calls(command(10, 11, "rg needle src", item="a", ended="FAILED", code=1), command(20, 21, "rg needle no/such/folder", item="b", ended="FAILED", code=2),
+                          command(30, 31, "cd x && grep -rn needle .", item="c", ended="FAILED", code=1), command(40, 41, "rg needle src", item="d", code=0),
+                          command(50, 51, "git diff --quiet", item="e", ended="FAILED", code=1))  # exit code 1 means found nothing only for a search
+        self.assertEqual({call: (one["runs"], one["failed"], one["noMatch"]) for call, one in made.items()},
+                         {("command", "rg"): (3, 1, 1), ("command", "grep"): (1, 0, 1), ("command", "git"): (1, 1, 0)})
+
+    def test_tool_is_named_without_its_server_and_a_permission_hook_is_not_a_call(self):
+        made = self.calls(tool(10, 20, "mcp__bytequay__review_finish", item="a"), tool(30, 40, "bytequay/review_finish", item="b", ended="FAILED"),
+                          tool(50, 60, "hook/PreToolUse:Bash", item="h", ended="FAILED"))
+        self.assertEqual(made, {("tool", "review_finish"): {"runs": 2, "failed": 1, "noMatch": 0, "seconds": 20}})
+
+    def test_call_that_never_ended_is_not_counted_and_an_end_without_a_start_still_says_how_it_ended(self):
+        made = self.calls([event(10, "command", item="never", state="STARTED", argv=["./mvnw verify"], durationMs=None)],
+                          [event(100, "tool", item="late", state="FAILED", name="Edit", durationMs=20000)])
+        self.assertEqual(made, {("tool", "Edit"): {"runs": 1, "failed": 1, "noMatch": 0, "seconds": 20}})
+
+    def test_call_is_counted_in_the_turn_it_ran_for_the_part_inside_it_and_the_totals_add_the_turns_up(self):
+        total = activity.measure([self.log("aaaa", turn(0, 100, "t1"), turn(200, 300, "t2"), command(-20, 30, "git fetch", item="g1", turn="t1"),
+                                           command(210, 220, "git status", item="g2", turn="t2", ended="FAILED", code=128)),
+                                  self.log("bbbb", turn(0, 50), command(10, 20, "git log", item="g3"), tool(30, 40, "Grep", item="s1"))])
+        git = ("command", "git")
+        self.assertEqual([dict(one.calls[git]) for one in total.each], [{"runs": 1, "failed": 0, "noMatch": 0, "seconds": 30}, {"runs": 1, "failed": 1, "noMatch": 0, "seconds": 10},
+                                                                         {"runs": 1, "failed": 0, "noMatch": 0, "seconds": 10}])
+        self.assertEqual({call: dict(made) for call, made in total.calls.items()},
+                         {git: {"runs": 3, "failed": 1, "noMatch": 0, "seconds": 50}, ("tool", "Grep"): {"runs": 1, "failed": 0, "noMatch": 0, "seconds": 10}})
+
+    def test_table_of_calls_gives_both_totals_and_under_each_the_names_that_failed_most(self):
+        failing = lambda start, text, item: command(start, start + 1, text, item=item, ended="FAILED", code=2)
+        log = self.log("aaaa", turn(0, 600), failing(10, "./mvnw test", "a"), failing(20, "./mvnw test", "b"), failing(30, "./mvnw test", "c"), failing(40, "git push", "d"),
+                       failing(50, "git pull", "e"), failing(60, "python3 run.py", "f"), failing(70, "curl https://internal.example.invalid/private", "g"), command(80, 81, "ls", item="h"),
+                       command(90, 91, "rg needle", item="i", ended="FAILED", code=1), command(92, 93, "git status", item="j"), command(94, 95, "grep needle x", item="m", ended="FAILED", code=1),
+                       tool(100, 110, "Read", item="k"), tool(120, 130, "mcp__bytequay__review_finish", item="l", ended="FAILED"))
+        printed = activity.render(activity.measure([log])).splitlines()
+        start = printed.index(f"{'Calls and how they ended':<46}{'calls':>9}{'failed':>9}{'share':>9}")
+        # Maven failed most, then git, then curl before python by name. A fourth name and a name that never failed are not listed.
+        self.assertEqual(printed[start + 1:start + 8],
+                         [f"{'Commands':<46}{11:>9}{7:>9}{'63.6%':>9}", f"{'    maven':<46}{3:>9}{3:>9}{'100.0%':>9}", f"{'    git':<46}{3:>9}{2:>9}{'66.7%':>9}",
+                          f"{'    curl':<46}{1:>9}{1:>9}{'100.0%':>9}", f"{'Tool calls':<46}{2:>9}{1:>9}{'50.0%':>9}", f"{'    review_finish':<46}{1:>9}{1:>9}{'100.0%':>9}",
+                          "2 searches found nothing, which is not a failure."])
+
+    def test_turn_without_a_call_has_no_table_of_calls(self):
+        self.assertNotIn("Calls and how they ended", activity.render(activity.measure([self.log("aaaa", turn(0, 60), pieces(10, 11))])))
+
+
 class TestTables(Logs):
     def test_tables_show_the_three_states_their_parts_and_the_top_programs(self):
         log = self.log("aaaa", TEN_MINUTES, command(400, 430, "git status", item="g1"), command(440, 450, "ls", item="l1"), command(460, 470, "gh pr view 1", item="h1"))
@@ -345,6 +401,7 @@ class TestBusyTurn(Logs):
             with self.subTest(secret=secret):
                 self.assertNotIn(secret, saved_text)
         self.assertIn('"since": "2026-01-01", "task": "aaaa"', saved_text)
+        self.assertIn('{"kind": "command", "name": "maven", "runs": 1, "failed": 0, "noMatch": 0, "seconds": 120.0}', saved_text)  # a call is saved by its name alone
 
 
 class TestTurns(Logs):
@@ -352,12 +409,12 @@ class TestTurns(Logs):
         """Two tasks over two days: a full turn, a turn that was interrupted, and a turn that is still running. Two of them ran two tools at once."""
         day = 86400
         first = self.log("aaaa-1111", TEN_MINUTES, [event(day, "lifecycle", "t2", phase="TURN_STARTED"), event(day + 300, "lifecycle", "t2", phase="INTERRUPTED")],
-                         command(day + 20, day + 140, "cd /Users/someone/secret-project && npm test -- --token=hunter2", item="n1", turn="t2"),
+                         command(day + 20, day + 140, "cd /Users/someone/secret-project && npm test -- --token=hunter2", item="n1", turn="t2", ended="FAILED", code=1),
                          [event(day + second, "lifecycle", "t2", phase=phase, message=message) for second, phase, message in (
                              (150, "RATE_LIMITED", "Claude rate limit: allowed_warning"), (155, "RATE_LIMITED", "Claude rate limit: allowed_warning"),
                              (160, "RATE_LIMITED", "Claude rate limit: rejected"), (170, "RETRYING", "Claude API retry 2 for someone@example.invalid"))])
         second = self.log("bbbb-2222", [event(day + 3600, "lifecycle", phase="TURN_STARTED")], command(day + 3600, day + 3640, "git gc", item="g1"),
-                          tool(day + 3610, day + 3630, "Read", item="r1"), tool(day + 3700, day + 3720, "Read", item="r2"))
+                          tool(day + 3610, day + 3630, "Read", item="r1"), tool(day + 3700, day + 3720, "Read", item="r2", ended="FAILED"))
         return activity.measure([first, second])
 
     def test_totals_are_the_sum_of_their_turns(self):
@@ -410,6 +467,10 @@ class TestTurns(Logs):
         self.assertEqual((made["turns"][1]["longRuns"], made["turns"][1]["approvals"], made["turns"][1]["notices"]),
                          ([{"program": "npm", "seconds": 120}], [], {"rate limit: allowed warning": 2, "rate limit: rejected": 1, "retry": 1}))
         self.assertEqual((made["turns"][3]["longRuns"], made["turns"][3]["approvals"], made["turns"][3]["notices"]), ([], [], {}))  # no log, so none of these are known
+        call = lambda kind, name, seconds, runs=1, failed=0: {"kind": kind, "name": name, "runs": runs, "failed": failed, "noMatch": 0, "seconds": seconds}
+        self.assertEqual([row["calls"] for row in made["turns"]],
+                         [[call("command", "maven", 120), call("tool", "Read", 60), call("tool", "review_get_context", 60)], [call("command", "npm", 120, failed=1)],
+                          [call("command", "git", 40), call("tool", "Read", 40, runs=2, failed=1)], []])
         for row in made["turns"][:3]:  # the turns with a log
             self.assertEqual(sum(row["groups"].values()), row["seconds"])
             self.assertEqual(sum(after["seconds"] for after in row["after"].values()), sum(row["groups"].get(group, 0) for group in activity.STATES[0][1]))

@@ -75,7 +75,33 @@
           "seconds": 60.0
         }
       ],
-      "notices": {}
+      "notices": {},
+      "calls": [
+        {
+          "kind": "command",
+          "name": "maven",
+          "runs": 1,
+          "failed": 0,
+          "noMatch": 0,
+          "seconds": 120.0
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "runs": 1,
+          "failed": 0,
+          "noMatch": 0,
+          "seconds": 60.0
+        },
+        {
+          "kind": "tool",
+          "name": "review_get_context",
+          "runs": 1,
+          "failed": 0,
+          "noMatch": 0,
+          "seconds": 60.0
+        }
+      ]
     },
     {
       "task": "aaaa-1111",
@@ -127,7 +153,17 @@
         "rate limit: allowed warning": 2,
         "rate limit: rejected": 1,
         "retry": 1
-      }
+      },
+      "calls": [
+        {
+          "kind": "command",
+          "name": "npm",
+          "runs": 1,
+          "failed": 1,
+          "noMatch": 0,
+          "seconds": 120.0
+        }
+      ]
     },
     {
       "task": "bbbb-2222",
@@ -172,7 +208,25 @@
         }
       ],
       "approvals": [],
-      "notices": {}
+      "notices": {},
+      "calls": [
+        {
+          "kind": "command",
+          "name": "git",
+          "runs": 1,
+          "failed": 0,
+          "noMatch": 0,
+          "seconds": 40.0
+        },
+        {
+          "kind": "tool",
+          "name": "Read",
+          "runs": 2,
+          "failed": 1,
+          "noMatch": 0,
+          "seconds": 40.0
+        }
+      ]
     },
     {
       "task": "cccc-3333",
@@ -198,7 +252,8 @@
       "unfinished": 0,
       "longRuns": [],
       "approvals": [],
-      "notices": {}
+      "notices": {},
+      "calls": []
     }
   ]
 }

@@ -20,6 +20,11 @@ ENDED = ("COMPLETED", "FAILED")
 TURN_ENDED = ("TURN_COMPLETED", "INTERRUPTED", "TASK_FAILED")
 WRITING_GAP = 3  # seconds; pieces of visible model text this close together are one run of writing
 LONG_RUN = 30  # seconds; a single command this long is kept by itself for the list of long runs
+HOW_IT_ENDED = ("state", "exitCode")  # what the end of a command or tool call adds to its start
+# A search ends with exit code 1 when it finds nothing, which is an answer and not a failure.
+# ponytail: a command line is named after one program, so a search behind another program's pipe is not seen here.
+SEARCHES = {"rg", "grep"}
+MOST_FAILED = 3  # names listed under commands and under tools in the table of calls
 RATE_LIMIT = re.compile(r"rate limit: (\w+)")
 SILENT = "model silent"
 
@@ -113,7 +118,8 @@ def items(events):
             elif payload["state"] in ENDED:
                 started = running.pop(key, None)
                 if started:
-                    finished.append(replace(started, end=when))
+                    # The start names the call, and only the end says how it went.
+                    finished.append(replace(started, end=when, detail={**started.detail, **{name: payload.get(name) for name in HOW_IT_ENDED}}))
                 elif payload.get("durationMs"):
                     finished.append(Item(kind, turn, when - payload["durationMs"] / 1000, when, payload))
         elif kind == "approval_requested":
@@ -215,6 +221,27 @@ def program(text):
     return found[0] if found else "other"
 
 
+def tool_name(name):
+    """A tool's name without its server: mcp__bytequay__review_finish and bytequay/review_finish are both review_finish."""
+    return name.rsplit("__", 1)[-1].rsplit("/", 1)[-1]
+
+
+def call_name(item):
+    """The name a command or tool call is counted under, or None for an item that is not a call the agent chose."""
+    if item.kind == "command":
+        return program(command_text(item.detail))
+    if item.kind == "tool" and not item.detail["name"].startswith("hook/"):  # a permission hook guards a call and is not one
+        return tool_name(item.detail["name"])
+    return None
+
+
+def ending(item, name):
+    """How a command or tool call ended, as (failed, found nothing). A search that found nothing is not a failure."""
+    failed = item.detail.get("state") == "FAILED"
+    nothing = failed and item.kind == "command" and name in SEARCHES and item.detail.get("exitCode") == 1
+    return failed and not nothing, nothing
+
+
 def group_of(item):
     """The group an item's time is counted under."""
     if item.kind == "approval":
@@ -229,7 +256,7 @@ def group_of(item):
     name = item.detail["name"]
     if name.startswith("hook/"):  # a permission hook, not the tool it guards
         return OTHER_TOOLS
-    plain = name.rsplit("__", 1)[-1].rsplit("/", 1)[-1]  # mcp__bytequay__review_finish and bytequay/review_finish are both review_finish
+    plain = tool_name(name)
     if plain == "AskUserQuestion":
         return YOU
     if plain in READ_TOOLS:
@@ -266,6 +293,8 @@ class Turn:
     long_runs: list = field(default_factory=list)  # (program, seconds) for every single command of LONG_RUN seconds or more
     approvals: list = field(default_factory=list)  # (kind, outcome, seconds the turn waited for the user)
     notices: Counter = field(default_factory=Counter)  # rate limit notices by their status, and retries
+    # For each (command or tool, name): its runs, how many failed, how many searches found nothing, and its seconds.
+    calls: defaultdict = field(default_factory=lambda: defaultdict(Counter))
 
 
 @dataclass
@@ -282,6 +311,7 @@ class Totals:
     after_times: Counter = field(default_factory=Counter)
     program_seconds: Counter = field(default_factory=Counter)
     program_runs: Counter = field(default_factory=Counter)
+    calls: defaultdict = field(default_factory=lambda: defaultdict(Counter))
     parallel: float = 0.0
     most_at_once: int = 0
     unfinished: int = 0
@@ -356,8 +386,12 @@ def measure(logs, since=None):
                 continue
             one = turns[item.turn]
             inside = max(0.0, min(item.end, one.end) - max(item.start, one.start))
+            name = call_name(item)
+            if name is not None:
+                failed, nothing = ending(item, name)
+                # An empty counter takes its first values as they are, so a yes or no is made a number here.
+                one.calls[(item.kind, name)].update(runs=1, failed=int(failed), noMatch=int(nothing), seconds=inside)
             if item.kind == "command":
-                name = program(command_text(item.detail))
                 one.program_seconds[name] += inside
                 one.program_runs[name] += 1
                 if inside >= LONG_RUN:
@@ -372,6 +406,8 @@ def measure(logs, since=None):
         for whole, part in ((total.groups, one.groups), (total.after, one.after), (total.after_times, one.after_times),
                             (total.program_seconds, one.program_seconds), (total.program_runs, one.program_runs)):
             whole.update(part)
+        for call, made in one.calls.items():
+            total.calls[call].update(made)
         total.parallel += one.parallel
         total.most_at_once = max(total.most_at_once, one.most_at_once)
         total.unfinished += one.unfinished
@@ -407,6 +443,21 @@ def notes(parallel, most_at_once, unfinished, skipped, unread):
     return lines
 
 
+def call_lines(calls):
+    """Commands and tool calls with how many failed, and under each the names that failed most often."""
+    if not calls:
+        return []
+    row = lambda label, runs, failed, indent="": f"{indent}{label:<{46 - len(indent)}}{runs:>9}{failed:>9}{100 * failed / runs:>8.1f}%"
+    lines = ["", f"{'Calls and how they ended':<46}{'calls':>9}{'failed':>9}{'share':>9}"]
+    for kind, label in (("command", "Commands"), ("tool", "Tool calls")):
+        named = sorted(((name, made) for (of, name), made in calls.items() if of == kind), key=lambda one: (-one[1]["failed"], one[0]))
+        if named:
+            lines.append(row(label, sum(made["runs"] for _, made in named), sum(made["failed"] for _, made in named)))
+            lines += [row(name, made["runs"], made["failed"], "    ") for name, made in named[:MOST_FAILED] if made["failed"]]
+    nothing = sum(made["noMatch"] for made in calls.values())
+    return lines + ([f"{count(nothing, 'search', 'searches')} found nothing, which is not a failure."] if nothing else [])
+
+
 def render(total, top=5):
     """The tables. Only group names, program names, counts and times are printed, never a command's arguments or any text."""
     if not total.turns:
@@ -427,6 +478,7 @@ def render(total, top=5):
     if model:
         lines += ["", f"{'Model time by what just finished':<46}{'minutes':>9}{'share':>9}{'times':>9}"]
         lines += [line(before, length, model, "    ") + f"{total.after_times[before]:>9}" for before, length in total.after.most_common() if length >= SHOWN]
+    lines += call_lines(total.calls)
     lines += ["", *notes(total.parallel, total.most_at_once, total.unfinished, total.skipped, total.unread)]
     return "\n".join(lines).rstrip()
 
@@ -483,14 +535,16 @@ def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
                      "parallel": round(one.parallel, 3), "mostAtOnce": one.most_at_once, "unfinished": one.unfinished,
                      "longRuns": [{"program": name, "seconds": round(length, 3)} for name, length in sorted(one.long_runs, key=lambda run: (-run[1], run[0]))],
                      "approvals": [{"kind": kind, "outcome": outcome, "seconds": round(length, 3)} for kind, outcome, length in one.approvals],
-                     "notices": dict(sorted(one.notices.items()))})
+                     "notices": dict(sorted(one.notices.items())),
+                     "calls": [{"kind": kind, "name": name, "runs": made["runs"], "failed": made["failed"], "noMatch": made["noMatch"], "seconds": round(made["seconds"], 3)}
+                               for (kind, name), made in sorted(one.calls.items())]})
     logged = {(one.task, one.turn) for one in total.each}
     for (owner, turn), facts in sorted(known.items(), key=lambda made: (made[1]["start"], made[0])):
         # The same filters as for the logs, so a saved table never mixes two selections.
         if (owner, turn) not in logged and (since is None or facts["start"] >= midnight(since)) and (task is None or owner.startswith(task)):
             rows.append({"task": owner, "start": saved.stamp(facts["start"]), "seconds": round(facts["seconds"], 3), "logged": False, "outcome": facts["outcome"] or OUTCOMES[""],
                          **{name: facts[name] for name in FACTS}, "groups": {}, "programs": {}, "after": {}, "parallel": 0.0, "mostAtOnce": 0, "unfinished": 0,
-                         "longRuns": [], "approvals": [], "notices": {}})
+                         "longRuns": [], "approvals": [], "notices": {}, "calls": []})
     database = {"problem": problem or "the database was not read"} if recorded is None else {"turns": len(known), "matched": len(logged & set(known))}
     return {"version": 1, "savedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "since": since, "task": task, "database": database,
             "leftOut": {"skippedLines": total.skipped, "unreadLogs": total.unread}, "turns": rows}

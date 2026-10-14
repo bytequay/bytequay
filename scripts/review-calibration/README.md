@@ -171,6 +171,16 @@ activity that ended right before it. The logs do not record when a model call
 starts or when its first output arrives, so model time cannot be split into
 reasoning and request time. Only visible text is told apart from silence.
 
+"Calls and how they ended" counts every command and every tool call that
+finished, with how many failed, and lists under each the three names that
+failed most often. A command is named after its program as above, and a tool
+by its name without its server. A search with `rg` or `grep` that ends with
+exit code 1 found nothing: it is counted on a line of its own and not as
+failed. A command line is named after one program, so a search behind another
+program's pipe is not seen as one. A test run that fails counts as failed,
+also when the test was meant to fail. ByteQuay's permission hooks are not
+calls the agent chose and are left out.
+
 Start and end times are used, because many finished items carry no stored
 duration. An item that never reports an end is left out and counted on its own
 line, as are log lines in an old format. `--task` adds a timeline of that
@@ -198,7 +208,9 @@ the seconds of each part of its time, the programs it ran and what the model
 reacted to. A row also lists every single command of 30 seconds or more by its
 program, every wait for the user with its kind, how it ended and how long it
 took, and how often the provider gave a rate limit notice or tried a call
-again. Both files hold names, counts and times and nothing else: no command
+again. For every program and every tool the turn called, the row has the
+runs, how many failed, how many searches found nothing, and the seconds.
+Both files hold names, counts and times and nothing else: no command
 arguments, no paths and no message text.
 
 For the turn table `activity.py` also reads ByteQuay's own database,

@@ -276,7 +276,7 @@ describe('agent task layout', () => {
     expect(declarations('.agt-compose-dock.is-task .agt-automation summary')).toContain('text-overflow: ellipsis');
     expect(declarations('.agt-compose-dock.is-task .agt-picker__chip .agt-picker__effort')).toContain('text-overflow: ellipsis');
     // A growing spacer would split the free space with the summary and truncate it while room remains.
-    expect(declarations('.agt-compose-dock.is-task .agt-picker')).toContain('margin-left: auto');
+    expect(declarations('.agt-compose-dock.is-task .agt-picker:not(.agt-provider-picker)')).toContain('margin-left: auto');
     const markup = body({ connection: 'open' });
     const row = markup.slice(markup.indexOf('class="agt-compose__row"'), markup.indexOf('aria-label="Send message"'));
     expect(row).toContain('agt-picker');

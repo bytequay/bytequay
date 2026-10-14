@@ -871,6 +871,9 @@
   position: static;
   flex: 0 1 auto;
   min-width: 0;
+}
+
+.agt-compose-dock.is-task .agt-picker:not(.agt-provider-picker) {
   margin-left: auto;
 }
 

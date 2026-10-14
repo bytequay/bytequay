@@ -15,10 +15,8 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.review.ReviewDraft;
 import com.bytequay.core.review.ReviewDraftItem;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -62,7 +60,6 @@ public class PrReviewDraftEntity
     private long version;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
     public PrReviewDraftEntity() {}

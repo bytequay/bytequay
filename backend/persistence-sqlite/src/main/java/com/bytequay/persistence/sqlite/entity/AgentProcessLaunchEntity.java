@@ -15,9 +15,7 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentProcessLaunch;
 import com.bytequay.agent.core.LaunchOwnerKind;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -51,7 +49,6 @@ public class AgentProcessLaunchEntity
     private String argvDigest;
 
     @Column(name = "updated_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
     public AgentProcessLaunchEntity() {}

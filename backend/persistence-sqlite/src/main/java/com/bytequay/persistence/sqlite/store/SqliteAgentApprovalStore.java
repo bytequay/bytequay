@@ -36,6 +36,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteAgentApprovalStore
         implements AgentApprovalStore
 {
@@ -55,7 +56,6 @@ public class SqliteAgentApprovalStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<AgentApproval> find(ApprovalId approvalId)
     {
         requireNonNull(approvalId, "approvalId is null");
@@ -87,7 +87,6 @@ public class SqliteAgentApprovalStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentApproval> listPending(TurnId turnId)
     {
         requireNonNull(turnId, "turnId is null");
@@ -97,7 +96,6 @@ public class SqliteAgentApprovalStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentApproval> listPending()
     {
         return repository.findByDecisionIsNullOrderByRequestedAtAscIdAsc().stream()
@@ -106,7 +104,6 @@ public class SqliteAgentApprovalStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public boolean hasTaskAllow(TaskId taskId, String taskScope)
     {
         requireNonNull(taskId, "taskId is null");

@@ -15,9 +15,7 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.PrViewState;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -36,10 +34,8 @@ public class PrViewStateEntity
     @Id
     private Long prId;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant viewedAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant reviewedAt;
 
     @Column(name = "handled_action")

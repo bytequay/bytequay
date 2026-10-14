@@ -47,6 +47,7 @@ import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteCiAutofixStore
         implements CiAutofixStore
 {
@@ -82,7 +83,6 @@ public class SqliteCiAutofixStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<CiAutofixRun> find(CiAutofixRunId runId)
     {
         requireNonNull(runId, "runId is null");
@@ -90,7 +90,6 @@ public class SqliteCiAutofixStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<CiAutofixRun> findByIdempotencyKey(String key)
     {
         requireNonNull(key, "key is null");
@@ -99,7 +98,6 @@ public class SqliteCiAutofixStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<CiAutofixRun> findByAgentTaskId(String taskId)
     {
         requireNonNull(taskId, "taskId is null");
@@ -108,7 +106,6 @@ public class SqliteCiAutofixStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<CiAutofixRun> listByParentTaskId(String parentTaskId)
     {
         requireNonNull(parentTaskId, "parentTaskId is null");
@@ -119,7 +116,6 @@ public class SqliteCiAutofixStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<CiAutofixRun> findByActiveBranch(String headRepositoryFullName, String headRef)
     {
         requireNonNull(headRepositoryFullName, "headRepositoryFullName is null");
@@ -130,7 +126,6 @@ public class SqliteCiAutofixStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<CiAutofixRun> listRecent(int limit)
     {
         checkLimit(limit);
@@ -142,7 +137,6 @@ public class SqliteCiAutofixStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<CiAutofixRun> listStandaloneNonFinished(int limit)
     {
         checkLimit(limit);

@@ -18,7 +18,6 @@ import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.PrActivitySummaryConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
 import com.bytequay.persistence.sqlite.converter.StringMapConverter;
@@ -71,11 +70,9 @@ public class PullRequestEntity
 
     private String htmlUrl;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
     @Column(name = "created_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(nullable = false)
@@ -93,7 +90,6 @@ public class PullRequestEntity
     private boolean draft;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
 
     // Nullable so Hibernate can add these columns to existing SQLite databases.
@@ -131,11 +127,9 @@ public class PullRequestEntity
     private String state;
 
     @Column(name = "closed_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant closedAt;
 
     @Column(name = "merged_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant mergedAt;
 
     /** GitHub's mergeable flag — null while GitHub is still computing it. */
@@ -149,26 +143,21 @@ public class PullRequestEntity
     /** Timestamp of the latest commit on the PR head — derived from the most
      *  recent "committed" timeline event we already persist. */
     @Column(name = "head_pushed_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant headPushedAt;
 
     /** PR head branch name (GitHub's head.ref on the list response). */
     @Column(name = "head_ref")
     private String headRef;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant monitoredAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant activityAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant discussionActivityAt;
 
     @Convert(converter = PrActivitySummaryConverter.class)
     private PrActivitySummary cardActivity;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant reviewRequestedAt;
 
     private String reviewDecision;

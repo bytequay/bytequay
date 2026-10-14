@@ -13,7 +13,6 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -24,15 +23,14 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
-import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.persistence.sqlite.converter.DevelopmentAutomationConverter;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -41,9 +39,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import lombok.Getter;
 
-import java.math.BigDecimal;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -114,7 +110,6 @@ public class AgentTaskEntity
 
     private String mutationClaimOwnerId;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant mutationClaimAcquiredAt;
 
     @Version
@@ -122,14 +117,11 @@ public class AgentTaskEntity
     private long version;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant terminalAt;
 
     private String terminalReason;
@@ -140,46 +132,22 @@ public class AgentTaskEntity
 
     private String sessionProviderValue;
 
-    @Column(nullable = false)
-    private long inputTokens;
-
-    @Column(nullable = false)
-    private long cachedInputTokens;
-
-    @Column(nullable = false)
-    private long outputTokens;
-
-    private BigDecimal cost;
-
-    @Column(nullable = false)
-    private long elapsedMillis;
-
-    // Nullable so a database written before these counters keeps opening; null reads as zero.
-    @Column(name = "tool_calls")
-    private Long toolCalls;
-
-    @Column(name = "explore_actions")
-    private Long exploreActions;
-
-    @Column(name = "context_compactions")
-    private Long contextCompactions;
+    @Embedded
+    private AgentMetricsColumns metrics;
 
     @Column(columnDefinition = "TEXT")
     private String summaryJson;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant worktreeRemovedAt;
 
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private CleanupState cleanupState;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant deleteAfter;
 
     private String cleanupFailure;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant archivedAt;
 
     public AgentTaskEntity() {}
@@ -224,14 +192,7 @@ public class AgentTaskEntity
         sessionLaneId = task.sessionReference().map(reference -> reference.laneId().toString()).orElse(null);
         sessionContractVersion = task.sessionReference().map(AgentSessionRef::contractVersion).orElse(null);
         sessionProviderValue = task.sessionReference().map(AgentSessionRef::providerValue).orElse(null);
-        inputTokens = task.metrics().inputTokens();
-        cachedInputTokens = task.metrics().cachedInputTokens();
-        outputTokens = task.metrics().outputTokens();
-        cost = task.metrics().cost().orElse(null);
-        elapsedMillis = task.metrics().elapsed().toMillis();
-        toolCalls = task.metrics().counters().toolCalls();
-        exploreActions = task.metrics().counters().exploreActions();
-        contextCompactions = task.metrics().counters().compactions();
+        metrics = new AgentMetricsColumns(task.metrics());
         summaryJson = task.summary().map(AgentTaskSummaryJson::encode).orElse(null);
         worktreeRemovedAt = task.worktreeRemovedAt().orElse(null);
         cleanupState = task.cleanupState();
@@ -271,7 +232,7 @@ public class AgentTaskEntity
                 Optional.ofNullable(terminalAt),
                 Optional.ofNullable(terminalReason),
                 sessionReference,
-                new AgentMetrics(inputTokens, cachedInputTokens, outputTokens, Optional.ofNullable(cost), Duration.ofMillis(elapsedMillis), counters()),
+                metrics.toDomain(),
                 Optional.ofNullable(summaryJson).map(json -> AgentTaskSummaryJson.decode(json, storedWorktree)),
                 Optional.ofNullable(worktreeRemovedAt),
                 cleanupState,
@@ -307,15 +268,5 @@ public class AgentTaskEntity
                 Path.of(worktree),
                 generatedBranch,
                 startCommit));
-    }
-
-    private ToolCounters counters()
-    {
-        return new ToolCounters(zeroIfNull(toolCalls), zeroIfNull(exploreActions), zeroIfNull(contextCompactions));
-    }
-
-    private static long zeroIfNull(Long value)
-    {
-        return value == null ? 0 : value;
     }
 }

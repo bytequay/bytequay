@@ -722,3 +722,20 @@ it('authenticates Google account, mail and Gemini connector requests without exp
   }));
   await desktop.handlers.get('google-chat:clear')?.({}, profile);
 });
+
+it.each([
+  ['review:draft:edit', ['item-1', 'Edited body', true], 'PUT', { expectedVersion: 4, body: 'Edited body', included: true }],
+  ['review:draft:add-finding', ['review-1', 'finding-1'], 'POST', { expectedVersion: 4, reviewId: 'review-1', findingId: 'finding-1' }],
+  ['review:draft:save', ['Review body', 'COMMENT'], 'PUT', { expectedVersion: 4, body: 'Review body', event: 'COMMENT' }],
+])('preserves the JSON body and session header for %s', async (channel, args, method, body) => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: '', event: 'COMMENT', items: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
+  const fetch = vi.fn(async () => new Response(JSON.stringify(draft)));
+  vi.stubGlobal('fetch', fetch);
+  await desktop.handlers.get(channel)?.({}, 'owner/repo', 7, 4, ...args);
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+    method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' },
+  }));
+});

@@ -31,11 +31,9 @@ import com.bytequay.core.ci.CiAutofixRun.Warning;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -152,11 +150,9 @@ public class CiAutofixRunEntity
     private int maxFixAttempts;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant authorizedAt;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant authorizationExpiresAt;
 
     @Column(nullable = false)
@@ -175,7 +171,6 @@ public class CiAutofixRunEntity
     @Column(columnDefinition = "TEXT")
     private String finalCheckDiagnostics;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant finalCheckAt;
 
     private String currentTurnId;
@@ -190,7 +185,6 @@ public class CiAutofixRunEntity
 
     private String pushLocalFingerprint;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant pushStartedAt;
 
     private Integer pushRetries;
@@ -203,7 +197,6 @@ public class CiAutofixRunEntity
 
     private Integer rerunPreviousAttempt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant rerunStartedAt;
 
     private Integer rerunObservedAttempt;
@@ -216,14 +209,11 @@ public class CiAutofixRunEntity
     private long version;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant terminalAt;
 
     public CiAutofixRunEntity() {}

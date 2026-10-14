@@ -19,7 +19,6 @@ import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.persistence.sqlite.converter.DiffCommitListConverter;
 import com.bytequay.persistence.sqlite.converter.DiffFileContentMapConverter;
 import com.bytequay.persistence.sqlite.converter.DiffFileListConverter;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -64,7 +63,6 @@ public class PrDiffEntity
 
     private String headSha;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant validatedAt;
 
     public PrDiffEntity() {}

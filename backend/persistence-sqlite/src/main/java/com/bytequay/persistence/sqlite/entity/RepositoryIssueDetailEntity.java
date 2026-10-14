@@ -15,7 +15,6 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RepositoryIssueDetail;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.IssueTimelineListConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
 import jakarta.persistence.Column;
@@ -57,7 +56,6 @@ public class RepositoryIssueDetailEntity
     private List<String> availableTypes;
 
     @Column(name = "refreshed_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant refreshedAt;
 
     public RepositoryIssueDetailEntity() {}

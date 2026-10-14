@@ -18,8 +18,10 @@ import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.persistence.sqlite.repository.CommitEnrichmentJpaRepository;
 import com.bytequay.persistence.sqlite.repository.CommitRefreshMetadataJpaRepository;
 import com.google.common.collect.ImmutableList;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -46,6 +48,12 @@ class TestSqliteCommitHistoryStore
     @Autowired
     private CommitRefreshMetadataJpaRepository refreshRepository;
 
+    @Autowired
+    private EntityManager entities;
+
+    @Autowired
+    private JdbcTemplate jdbc;
+
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
@@ -59,9 +67,12 @@ class TestSqliteCommitHistoryStore
         CommitEnrichment negative = enrichment(100, "fedcba9876543210", Optional.empty(), Optional.empty());
 
         store.upsertEnrichment(ImmutableList.of(positive, negative));
+        entities.flush();
+        entities.clear();
 
         assertThat(store.findEnrichment(100, ImmutableList.of(SHA, negative.sha())).commits())
                 .containsExactlyInAnyOrder(positive, negative);
+        assertThat(jdbc.queryForList("SELECT last_seen_at FROM commit_enrichment", String.class)).containsOnly(NOW.toString());
     }
 
     @Test

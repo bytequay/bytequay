@@ -21,7 +21,6 @@ import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiDescriptionChange;
 import com.bytequay.core.ci.CiRerunAssessment;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.ImmutableList;
@@ -108,7 +107,6 @@ public class CiAutofixAttemptEntity
 
     private String pushedSha;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant pushedAt;
 
     @Column(nullable = false)
@@ -118,11 +116,9 @@ public class CiAutofixAttemptEntity
     private String timelineEventKey;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
     public CiAutofixAttemptEntity() {}

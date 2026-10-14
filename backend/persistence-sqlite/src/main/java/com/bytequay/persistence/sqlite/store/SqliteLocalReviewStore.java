@@ -29,6 +29,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteLocalReviewStore
         implements LocalReviewStore
 {
@@ -40,21 +41,18 @@ public class SqliteLocalReviewStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<LocalReviewThread> find(String id)
     {
         return repository.findById(id).map(LocalReviewThreadEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<LocalReviewThread> listByTask(String taskId)
     {
         return repository.findByTaskIdOrderByIdAsc(taskId).stream().map(LocalReviewThreadEntity::toDomain).collect(toImmutableList());
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<LocalReviewThread> listByPullRequest(String repo, int number)
     {
         return repository.findByRepoAndNumberOrderByIdAsc(repo, number).stream().map(LocalReviewThreadEntity::toDomain).collect(toImmutableList());

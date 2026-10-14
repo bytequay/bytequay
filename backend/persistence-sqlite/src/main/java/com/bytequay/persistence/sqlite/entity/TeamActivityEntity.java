@@ -14,7 +14,6 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.TeamActivityEvent;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.TeamActivityEventConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -36,7 +35,6 @@ public class TeamActivityEntity
     private long accountId;
 
     @Column(name = "occurred_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant occurredAt;
 
     @Column(name = "fact", nullable = false, columnDefinition = "TEXT")

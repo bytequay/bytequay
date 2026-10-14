@@ -14,7 +14,6 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.PrRawDetail;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
 import com.bytequay.persistence.sqlite.converter.StringMapConverter;
 import com.google.common.collect.ImmutableList;
@@ -50,13 +49,10 @@ public class PrDetailEntity
 
     private String authorAvatarUrl;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant mergedAt;
 
     @Column(columnDefinition = "TEXT")
@@ -101,16 +97,12 @@ public class PrDetailEntity
 
     private String baseSha;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant metadataValidatedAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant discussionValidatedAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant checksValidatedAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant discussionSourceUpdatedAt;
 
     @Column(name = "head_ref")
@@ -131,7 +123,6 @@ public class PrDetailEntity
     private String commitStatusesEtag;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
 
     public PrDetailEntity() {}

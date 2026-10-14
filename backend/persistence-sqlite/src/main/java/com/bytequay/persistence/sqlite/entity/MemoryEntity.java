@@ -16,7 +16,6 @@ package com.bytequay.persistence.sqlite.entity;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemoryReport;
 import com.bytequay.core.memory.MemorySource;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.MemoryPreviousConverter;
 import com.bytequay.persistence.sqlite.converter.MemoryReportListConverter;
 import com.bytequay.persistence.sqlite.converter.MemorySourceListConverter;
@@ -91,11 +90,9 @@ public class MemoryEntity
     private List<MemoryReport> reports;
 
     @Column(name = "created_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(name = "updated_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
     protected MemoryEntity() {}

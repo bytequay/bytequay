@@ -24,9 +24,7 @@ import com.bytequay.core.cherrypick.CherryPickExecution.Step;
 import com.bytequay.core.cherrypick.CherryPickExecution.Workspace;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -158,14 +156,11 @@ public class CherryPickExecutionEntity
     private long version;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant terminalAt;
 
     public CherryPickExecutionEntity() {}

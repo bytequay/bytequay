@@ -27,6 +27,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteGoalExchangeStore
         implements GoalExchangeStore
 {
@@ -38,21 +39,18 @@ public class SqliteGoalExchangeStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<GoalExchange> find(String exchangeId)
     {
         return exchanges.findById(exchangeId).map(GoalExchangeEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<GoalExchange> list(String goalId)
     {
         return exchanges.findByGoalIdOrderByAskedAtAscIdAsc(goalId).stream().map(GoalExchangeEntity::toDomain).collect(toImmutableList());
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<GoalExchange> pending()
     {
         return exchanges.findByState(GoalExchange.State.PENDING.name()).stream().map(GoalExchangeEntity::toDomain).collect(toImmutableList());

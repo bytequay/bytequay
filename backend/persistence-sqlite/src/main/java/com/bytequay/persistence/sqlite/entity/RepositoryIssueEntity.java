@@ -14,7 +14,6 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.RepositoryIssue;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
 import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
@@ -74,11 +73,9 @@ public class RepositoryIssueEntity
     private Integer commentCount;
 
     @Column(name = "created_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(name = "updated_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     @Getter
     private Instant updatedAt;
 

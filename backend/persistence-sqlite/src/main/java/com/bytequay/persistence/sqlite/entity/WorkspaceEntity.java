@@ -17,6 +17,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -90,8 +91,10 @@ public class WorkspaceEntity
     @Column(nullable = false)
     private String localRepositoryPath;
 
+    @Convert(disableConversion = true)
     private Instant lastCodeSyncAt;
 
+    @Convert(disableConversion = true)
     private Instant lastMetadataSyncAt;
 
     @Column(nullable = false)
@@ -99,9 +102,11 @@ public class WorkspaceEntity
     private int displayOrder;
 
     @Column(nullable = false)
+    @Convert(disableConversion = true)
     private Instant createdAt;
 
     @Column(nullable = false)
+    @Convert(disableConversion = true)
     private Instant updatedAt;
 
     public WorkspaceEntity() {}

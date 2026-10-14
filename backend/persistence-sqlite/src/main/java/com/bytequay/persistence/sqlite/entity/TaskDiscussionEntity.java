@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.discussion.TaskDiscussion;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
@@ -55,6 +56,7 @@ public class TaskDiscussionEntity
 
     // A real column because SQLite cannot order by a field inside the payload.
     @Column(name = "created_at", nullable = false)
+    @Convert(disableConversion = true)
     private Instant createdAt;
 
     @Column(nullable = false, columnDefinition = "TEXT")

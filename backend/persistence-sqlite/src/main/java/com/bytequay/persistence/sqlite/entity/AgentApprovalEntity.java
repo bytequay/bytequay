@@ -17,9 +17,7 @@ import com.bytequay.agent.core.AgentApproval;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalRequest;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -49,7 +47,6 @@ public class AgentApprovalEntity
     private String requestJson;
 
     @Column(name = "requested_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant requestedAt;
 
     @Enumerated(EnumType.STRING)
@@ -59,7 +56,6 @@ public class AgentApprovalEntity
 
     private Boolean forTask;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant resolvedAt;
 
     private Boolean timedOut;

@@ -25,6 +25,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.IntFunction;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
@@ -99,6 +101,21 @@ final class GitHubPaginator
     <T> List<T> paginate(String pat, String pathTemplate, ParameterizedTypeReference<List<T>> typeRef, Object... uriVariables)
     {
         return paginateConditional(pat, pathTemplate, typeRef, Optional.empty(), uriVariables).values().orElseThrow();
+    }
+
+    /** Bounded list reads retain partial results; callers map each page before another request starts. */
+    static <T> void forEachPage(int maxPages, IntFunction<List<T>> fetch, Consumer<List<T>> accept)
+    {
+        for (int page = 1; page <= maxPages; page++) {
+            List<T> rows = fetch.apply(page);
+            if (rows == null || rows.isEmpty()) {
+                break;
+            }
+            accept.accept(rows);
+            if (rows.size() < PAGE_SIZE) {
+                break;
+            }
+        }
     }
 
     <T> List<T> fetchPage(String pat, String pathTemplate, ParameterizedTypeReference<List<T>> typeRef, int page, Object... uriVariables)

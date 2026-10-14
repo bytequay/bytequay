@@ -15,7 +15,6 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.persistence.sqlite.converter.GoalRecommendationConverter;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -42,7 +41,6 @@ public class GoalRecommendationEntity
     private String workspaceId;
 
     @Column(name = "created_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(nullable = false, columnDefinition = "TEXT")

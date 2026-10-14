@@ -11,14 +11,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { IdeDesktopBridge, IdeEvent, IdeRequest } from './ide/contracts';
+import type { IdeDesktopBridge } from './ide/contracts';
 import { contextBridge, ipcRenderer } from 'electron';
 import { createAgentStreamReceiver } from './agents/sse';
-import type { AgentStreamMessage, Bridge, FindResult, InAppBrowserState, PullRequestDto } from './types';
-import type { AppNoticeBounds } from './notices/contracts';
+import type { AgentStreamMessage, Bridge } from './types';
 import { observeNoticeOcclusion } from './notices/occlusion';
 
 ipcRenderer.on('github:account-changed', () => window.dispatchEvent(new Event('bytequay:github-account-changed')));
+
+function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
+  const receive = (_event: unknown, payload: T) => callback(payload);
+  ipcRenderer.on(channel, receive);
+  return () => { ipcRenderer.removeListener(channel, receive); };
+}
 
 /**
  * One stream subscription over a channel family.
@@ -28,20 +33,19 @@ ipcRenderer.on('github:account-changed', () => window.dispatchEvent(new Event('b
 function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTask'] {
   return async (id, after, listener, statusOnly) => {
     const receiver = createAgentStreamReceiver(listener);
-    const receive = (_event: unknown, message: AgentStreamMessage): void => receiver.receive(message);
-    ipcRenderer.on(`${prefix}:stream:message`, receive);
+    const unsubscribe = subscribe<AgentStreamMessage>(`${prefix}:stream:message`, message => receiver.receive(message));
     let subscriptionId: string | null = null;
     try {
       subscriptionId = await ipcRenderer.invoke(`${prefix}:stream:subscribe`, id, after, statusOnly);
       receiver.activate(subscriptionId);
     }
     catch (failure) {
-      ipcRenderer.removeListener(`${prefix}:stream:message`, receive);
+      unsubscribe();
       if (subscriptionId !== null) void ipcRenderer.invoke(`${prefix}:stream:unsubscribe`, subscriptionId);
       throw failure;
     }
     return () => {
-      ipcRenderer.removeListener(`${prefix}:stream:message`, receive);
+      unsubscribe();
       void ipcRenderer.invoke(`${prefix}:stream:unsubscribe`, subscriptionId);
     };
   };
@@ -49,16 +53,11 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
 
 const bridge: Bridge = {
   onAppNoticeBounds: callback => {
-    const receive = (_event: unknown, bounds: AppNoticeBounds) => callback(bounds);
-    ipcRenderer.on('notices:bounds', receive);
+    const unsubscribe = subscribe('notices:bounds', callback);
     ipcRenderer.send('notices:measure');
-    return () => { ipcRenderer.removeListener('notices:bounds', receive); };
+    return unsubscribe;
   },
-  onAppNoticeOpen: callback => {
-    const receive = (_event: unknown, target: { taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null }) => callback(target);
-    ipcRenderer.on('notices:open-task', receive);
-    return () => { ipcRenderer.removeListener('notices:open-task', receive); };
-  },
+  onAppNoticeOpen: callback => subscribe('notices:open-task', callback),
   setNoticeSource: (key, source) => ipcRenderer.invoke('notices:source', key, source),
   getGeminiSetupStatus: () => ipcRenderer.invoke('gemini:status'),
   saveGeminiSetupKey: key => ipcRenderer.invoke('gemini:save', key),
@@ -114,11 +113,7 @@ const bridge: Bridge = {
   setPrMonitored: (prId, monitored) => ipcRenderer.invoke('prs:monitor', prId, monitored),
   setPrAttentionHandled: handled => ipcRenderer.invoke('prs:attention:handled', handled),
   setPrAttentionPinned: keys => ipcRenderer.invoke('prs:attention:pinned', keys),
-  onPrAttentionUpdated: callback => {
-    const listener = (_event: Electron.IpcRendererEvent, prs: PullRequestDto[]) => callback(prs);
-    ipcRenderer.on('prs:attention-updated', listener);
-    return () => ipcRenderer.removeListener('prs:attention-updated', listener);
-  },
+  onPrAttentionUpdated: callback => subscribe('prs:attention-updated', callback),
   onPrNotificationOpen: callback => {
     let active = true;
     const consume = () => {
@@ -136,11 +131,7 @@ const bridge: Bridge = {
     };
   },
   syncPrs: workspaceId => ipcRenderer.invoke('prs:sync', workspaceId),
-  onPullRequestsSynced: callback => {
-    const listener = () => callback();
-    ipcRenderer.on('pull-requests:synced', listener);
-    return () => ipcRenderer.removeListener('pull-requests:synced', listener);
-  },
+  onPullRequestsSynced: callback => subscribe('pull-requests:synced', () => callback()),
   fetchPullRequestDetail: prId => ipcRenderer.invoke('prs:detail', prId),
   fetchPullRequestDetailByRef: (repo, number) => ipcRenderer.invoke('prs:detail:by-ref', repo, number),
   lookupPullRequest: (repo, number) => ipcRenderer.invoke('prs:lookup', repo, number),
@@ -307,28 +298,15 @@ const bridge: Bridge = {
   inAppReload: id => ipcRenderer.invoke('inapp:reload', id),
   inAppNavigate: (id, url) => ipcRenderer.invoke('inapp:navigate', id, url),
   inAppPopOut: url => ipcRenderer.invoke('inapp:popout', url),
-  onInAppBrowserState: callback => {
-    const listener = (_event: Electron.IpcRendererEvent, state: InAppBrowserState) => callback(state);
-    ipcRenderer.on('inapp:state', listener);
-    return () => ipcRenderer.removeListener('inapp:state', listener);
-  },
+  onInAppBrowserState: callback => subscribe('inapp:state', callback),
 
   controlWindow: action => ipcRenderer.invoke('window:control', action),
   getFullScreen: () => ipcRenderer.invoke('window:fullscreen'),
-  onFullScreenChange: callback => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: { isFullScreen: boolean }) =>
-      callback(payload.isFullScreen);
-    ipcRenderer.on('window:fullscreen-state', listener);
-    return () => ipcRenderer.removeListener('window:fullscreen-state', listener);
-  },
+  onFullScreenChange: callback => subscribe<{ isFullScreen: boolean }>('window:fullscreen-state', payload => callback(payload.isFullScreen)),
   getAppVersion: () => ipcRenderer.invoke('app:version'),
   findInPage: (text, options) => ipcRenderer.invoke('find:start', text, options),
   stopFindInPage: () => ipcRenderer.invoke('find:stop'),
-  onFindResult: callback => {
-    const listener = (_event: Electron.IpcRendererEvent, result: FindResult) => callback(result);
-    ipcRenderer.on('find:result', listener);
-    return () => ipcRenderer.removeListener('find:result', listener);
-  },
+  onFindResult: callback => subscribe('find:result', callback),
 
   previewCherryPickRange: request => ipcRenderer.invoke('cherrypick:preview', request),
   refreshAgentProviderReadiness: () => ipcRenderer.invoke('agent:providers:refresh'),
@@ -622,15 +600,7 @@ const ide: IdeDesktopBridge = {
   update: (id, context) => ipcRenderer.invoke('ide:update', id, context),
   close: id => ipcRenderer.invoke('ide:close', id),
   reply: reply => ipcRenderer.send('ide:reply', reply),
-  onRequest: listener => {
-    const receive = (_event: Electron.IpcRendererEvent, request: IdeRequest) => listener(request);
-    ipcRenderer.on('ide:request', receive);
-    return () => ipcRenderer.removeListener('ide:request', receive);
-  },
-  onEvent: listener => {
-    const receive = (_event: Electron.IpcRendererEvent, event: IdeEvent) => listener(event);
-    ipcRenderer.on('ide:event', receive);
-    return () => ipcRenderer.removeListener('ide:event', receive);
-  },
+  onRequest: listener => subscribe('ide:request', listener),
+  onEvent: listener => subscribe('ide:event', listener),
 };
 contextBridge.exposeInMainWorld('ide', ide);

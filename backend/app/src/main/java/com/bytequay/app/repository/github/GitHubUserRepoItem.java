@@ -16,6 +16,8 @@ package com.bytequay.app.repository.github;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.List;
+
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitHubUserRepoItem(
         long id,
@@ -29,7 +31,9 @@ record GitHubUserRepoItem(
         @JsonProperty("default_branch") String defaultBranch,
         @JsonProperty("clone_url") String cloneUrl,
         Repository parent,
-        Repository source)
+        Repository source,
+        @JsonProperty("stargazers_count") int stargazersCount,
+        List<String> topics)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Owner(String login) {}

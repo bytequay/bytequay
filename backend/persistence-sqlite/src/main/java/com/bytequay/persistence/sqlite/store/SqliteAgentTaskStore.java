@@ -52,6 +52,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteAgentTaskStore
         implements AgentTaskStore
 {
@@ -109,7 +110,6 @@ public class SqliteAgentTaskStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<AgentTask> find(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
@@ -128,7 +128,6 @@ public class SqliteAgentTaskStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentTask> listRecent(int limit)
     {
         checkLimit(limit);
@@ -138,7 +137,6 @@ public class SqliteAgentTaskStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentTask> listRecentInteractive(String workspaceId, int limit)
     {
         requireNonNull(workspaceId, "workspaceId is null");
@@ -150,7 +148,6 @@ public class SqliteAgentTaskStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentTask> listRecentCompletedInteractive(String workspaceId, RepositoryIdentity repositoryIdentity, int limit)
     {
         requireNonNull(workspaceId, "workspaceId is null");
@@ -163,7 +160,6 @@ public class SqliteAgentTaskStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentTask> listByWorkspace(String workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
@@ -174,7 +170,6 @@ public class SqliteAgentTaskStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentTask> listLive()
     {
         return repository.findByStateNotInOrderByCreatedAtAsc(TERMINAL_STATES).stream()
@@ -183,7 +178,6 @@ public class SqliteAgentTaskStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentTask> listPendingWorktreeCleanup(AgentPermissionPolicy permissionPolicy, Instant retryBefore)
     {
         requireNonNull(permissionPolicy, "permissionPolicy is null");
@@ -194,7 +188,6 @@ public class SqliteAgentTaskStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentTask> listCleanupDue(Instant now, Instant retryBefore, int limit)
     {
         requireNonNull(now, "now is null");
@@ -206,7 +199,6 @@ public class SqliteAgentTaskStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentTask> listArchiveDue(Instant completedBefore, int limit)
     {
         requireNonNull(completedBefore, "completedBefore is null");

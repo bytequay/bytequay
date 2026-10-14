@@ -47,6 +47,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteAgentReviewStore
         implements AgentReviewStore
 {
@@ -82,14 +83,12 @@ public class SqliteAgentReviewStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<AgentReview> findReview(String reviewId)
     {
         return reviews.findById(reviewId).map(AgentReviewEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<AgentReview> findOpenReview(String workspaceId, String repo, int number)
     {
         return reviews.findFirstByWorkspaceIdAndRepoAndNumberAndStateOrderByCreatedAtDesc(workspaceId, repo.toLowerCase(Locale.ROOT), number, AgentReview.State.OPEN)
@@ -97,21 +96,18 @@ public class SqliteAgentReviewStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<AgentReview> findReviewByTask(String taskId)
     {
         return reviews.findByTaskId(taskId).map(AgentReviewEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentReview> listOpenReviews()
     {
         return reviews.findByStateOrderByCreatedAtAsc(AgentReview.State.OPEN).stream().map(AgentReviewEntity::toDomain).collect(toImmutableList());
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentReview> listReviews(String workspaceId)
     {
         return reviews.findByWorkspaceIdOrderByUpdatedAtDescIdAsc(workspaceId).stream().map(AgentReviewEntity::toDomain).collect(toImmutableList());
@@ -158,21 +154,18 @@ public class SqliteAgentReviewStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<ReviewRun> findRun(String runId)
     {
         return runs.findById(runId).map(AgentReviewRunEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<ReviewRun> listRuns(String reviewId)
     {
         return runs.findByReviewIdOrderByOrdinalAsc(reviewId).stream().map(AgentReviewRunEntity::toDomain).collect(toImmutableList());
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<ReviewRun> listRecentRuns(String workspaceId, String repo, int limit)
     {
         checkArgument(limit >= 1 && limit <= 10, "Recent run limit must be between 1 and 10");
@@ -203,14 +196,12 @@ public class SqliteAgentReviewStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<ReviewFinding> findFinding(String findingId)
     {
         return findings.findById(findingId).map(AgentReviewFindingEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<ReviewFinding> listFindings(String reviewId)
     {
         return findings.findByReviewIdOrderByOrdinalAsc(reviewId).stream().map(AgentReviewFindingEntity::toDomain).collect(toImmutableList());
@@ -245,14 +236,12 @@ public class SqliteAgentReviewStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<ReviewMessage> findMessage(String messageId)
     {
         return messages.findById(messageId).map(AgentReviewMessageEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<ReviewMessage> listEarlierMessages(String reviewId, String runId, Optional<String> findingId, Optional<String> cardId,
             int targetRevision, Instant createdAt, String messageId, int limit)
     {
@@ -262,7 +251,6 @@ public class SqliteAgentReviewStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<ReviewMessage> listMessages(String reviewId)
     {
         return messages.findByReviewIdOrderByCreatedAtAsc(reviewId).stream().map(AgentReviewMessageEntity::toDomain).collect(toImmutableList());

@@ -13,9 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -35,6 +33,5 @@ public class RepositoryIssueSyncEntity
     private Long repositoryId;
 
     @Column(name = "synced_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
 }

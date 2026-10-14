@@ -14,10 +14,8 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.review.LocalRun;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -93,11 +91,9 @@ public class LocalRunEntity
     private LocalRun.Status status;
 
     @Column(name = "started_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant startedAt;
 
     @Column(name = "ended_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant endedAt;
 
     @Column(name = "exit_code")

@@ -17,9 +17,7 @@ import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -61,11 +59,9 @@ public class AgentInputDeliveryEntity
     private long version;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
     private String failure;

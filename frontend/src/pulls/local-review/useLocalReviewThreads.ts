@@ -12,11 +12,12 @@
  * limitations under the License.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef } from 'react';
+import { useThreadSnapshot } from '../../useThreadSnapshot';
 import { recordAttentionAction } from '../../home/useAttentionVisit';
 import type { Bridge } from '../../types';
 import type { DiffAgentComment } from '../PullChanges';
-import { remoteErrorMessage, useViewer } from '../PullOverview';
+import { useViewer } from '../PullOverview';
 import type { CreateDevelopmentLearningCommentRequest, LocalReviewQuery } from './contracts';
 import type { LocalReviewThreadDto, LocalReviewThreads } from './types';
 
@@ -33,55 +34,12 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
   create: (comment: DiffAgentComment, target: { taskId: string; workspaceId: string; repo: string; number: number; expectedTaskVersion: number }) => Promise<void>;
   createLearning: (request: Omit<CreateDevelopmentLearningCommentRequest, 'id' | 'messageId' | 'idempotencyKey'>) => Promise<void>;
 } {
-  const key = JSON.stringify(query);
-  const [snapshot, setSnapshot] = useState<{ key: string; threads: LocalReviewThreadDto[] }>({ key, threads: [] });
-  const viewer = useViewer(query !== null && snapshot.key === key && snapshot.threads.length > 0);
-  const [error, setError] = useState<string | null>(null);
-  const latest = useRef({ key, query, options, threads: snapshot.key === key ? snapshot.threads : [] });
-  latest.current = { key, query, options, threads: snapshot.key === key ? snapshot.threads : [] };
-  const epoch = useRef(0);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
   const operations = useRef(new Map<string, { key: string; messageId: string; threadId: string }>());
-  const live = useCallback((): LocalReviewBridgePort => latest.current.options.bridge ?? window.bridge, []);
-  const refresh = useCallback(async () => {
-    const current = latest.current;
-    if (current.query === null) return;
-    const version = ++epoch.current;
-    try {
-      const threads = await live().listLocalReviewComments(current.query);
-      if (latest.current.key === current.key && epoch.current === version) {
-        latest.current.threads = threads;
-        setSnapshot({ key: current.key, threads });
-        setError(null);
-      }
-    }
-    catch (failure) {
-      if (latest.current.key === current.key && epoch.current === version) setError(remoteErrorMessage(failure));
-    }
-  }, [live]);
-  useEffect(() => {
-    if (options.active === false || query === null) return;
-    let cancelled = false;
-    const pendingEpoch = epoch;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async (): Promise<void> => {
-      await refresh();
-      if (!cancelled) timer = setTimeout(() => { void poll(); }, 3000);
-    };
-    void poll();
-    return () => { cancelled = true; clearTimeout(timer); pendingEpoch.current++; };
-  // Query identity is its serialized value; caller object identity must not restart polling.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, options.active, refresh]);
-  const accept = useCallback((thread: LocalReviewThreadDto, scope: string): void => {
-    if (latest.current.key !== scope) return;
-    epoch.current++;
-    if (latest.current.threads.some(item => item.id === thread.id && item.version > thread.version)) return;
-    const threads = [...latest.current.threads.filter(item => item.id !== thread.id), thread]
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
-    latest.current.threads = threads;
-    setSnapshot({ key: scope, threads });
-    setError(null);
-  }, []);
+  const live = useCallback((): LocalReviewBridgePort => optionsRef.current.bridge ?? window.bridge, []);
+  const { items, latest, error, refresh, accept } = useThreadSnapshot(query, options.active, target => live().listLocalReviewComments(target));
+  const viewer = useViewer(query !== null && items.length > 0);
   const operation = useCallback((signature: string) => {
     const existing = operations.current.get(signature);
     if (existing !== undefined) return existing;
@@ -90,12 +48,12 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
     return created;
   }, []);
   const find = useCallback((id: string): LocalReviewThreadDto => {
-    const thread = latest.current.threads.find(item => item.id === id);
+    const thread = latest.current.items.find(item => item.id === id);
     if (thread === undefined) throw new Error('Refresh to load this local review comment.');
     return thread;
-  }, []);
+  }, [latest]);
   const dispatched = useCallback(async () => {
-    await latest.current.options.onDispatch?.().catch(() => {});
+    await optionsRef.current.onDispatch?.().catch(() => {});
   }, []);
   const create = useCallback(async (comment: DiffAgentComment, target: {
     taskId: string; workspaceId: string; repo: string; number: number; expectedTaskVersion: number;
@@ -113,7 +71,7 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
     accept(thread, scope);
     operations.current.delete(signature);
     await dispatched();
-  }, [accept, dispatched, live, operation]);
+  }, [accept, dispatched, latest, live, operation]);
   const onReply = useCallback(async (threadId: string, body: string) => {
     const scope = latest.current.key;
     await refresh();
@@ -128,7 +86,7 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
     accept(updated, scope);
     operations.current.delete(signature);
     await dispatched();
-  }, [accept, dispatched, find, live, operation, refresh]);
+  }, [accept, dispatched, find, latest, live, operation, refresh]);
   const createLearning = useCallback(async (input: Omit<CreateDevelopmentLearningCommentRequest, 'id' | 'messageId' | 'idempotencyKey'>) => {
     const createComment = live().createDevelopmentLearningComment;
     if (createComment === undefined) throw new Error('Learning discussions are unavailable.');
@@ -139,7 +97,7 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
     accept(await createComment({ ...input, expectedTaskVersion, id: request.threadId, messageId: request.messageId, idempotencyKey: request.key }), scope);
     operations.current.delete(signature);
     await dispatched();
-  }, [accept, dispatched, live, operation]);
+  }, [accept, dispatched, latest, live, operation]);
   const onResolve = useCallback(async (threadId: string, resolved: boolean) => {
     const thread = find(threadId);
     const scope = latest.current.key;
@@ -154,7 +112,7 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
       operations.current.delete(signature);
     }
     catch (failure) { await refresh(); throw failure; }
-  }, [accept, find, live, operation, refresh]);
+  }, [accept, find, latest, live, operation, refresh]);
   const onRetry = useCallback(async (threadId: string, messageId: string) => {
     const scope = latest.current.key;
     await refresh();
@@ -164,7 +122,7 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
       taskId: thread.taskId, workspaceId: thread.workspaceId, threadId, messageId, expectedTaskVersion: thread.taskVersion,
     }), scope);
     await dispatched();
-  }, [accept, dispatched, find, live, refresh]);
-  return { threads: snapshot.key === key ? snapshot.threads : [], viewer, onReply, onResolve, onRetry,
+  }, [accept, dispatched, find, latest, live, refresh]);
+  return { threads: items, viewer, onReply, onResolve, onRetry,
     disabledReason: options.disabledReason, learningDisabledReason: options.learningDisabledReason, error, refresh, create, createLearning };
 }

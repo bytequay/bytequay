@@ -35,6 +35,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteCherryPickExecutionStore
         implements CherryPickExecutionStore
 {
@@ -62,7 +63,6 @@ public class SqliteCherryPickExecutionStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<CherryPickExecution> findByIdempotencyKey(String idempotencyKey)
     {
         requireNonNull(idempotencyKey, "idempotencyKey is null");
@@ -72,7 +72,6 @@ public class SqliteCherryPickExecutionStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<CherryPickExecution> find(CherryPickExecutionId executionId)
     {
         requireNonNull(executionId, "executionId is null");
@@ -82,7 +81,6 @@ public class SqliteCherryPickExecutionStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<CherryPickExecution> findByAgentTaskId(String taskId)
     {
         requireNonNull(taskId, "taskId is null");
@@ -92,7 +90,6 @@ public class SqliteCherryPickExecutionStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<CherryPickExecution> listRecent(int limit)
     {
         checkLimit(limit);
@@ -104,7 +101,6 @@ public class SqliteCherryPickExecutionStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<CherryPickExecution> listRunning(int limit)
     {
         checkLimit(limit);

@@ -22,9 +22,7 @@ import com.bytequay.core.rebase.BranchRebase.PauseReason;
 import com.bytequay.core.rebase.BranchRebase.Status;
 import com.bytequay.core.rebase.BranchRebase.Step;
 import com.bytequay.core.rebase.BranchRebaseId;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -109,7 +107,6 @@ public class BranchRebaseEntity
 
     private String actionIdempotencyKey;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant actionStartedAt;
 
     private String resultWorkTip;
@@ -119,14 +116,11 @@ public class BranchRebaseEntity
     private long version;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant terminalAt;
 
     public BranchRebaseEntity() {}

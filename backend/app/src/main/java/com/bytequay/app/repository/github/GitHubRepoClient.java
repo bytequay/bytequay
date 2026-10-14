@@ -138,9 +138,9 @@ public class GitHubRepoClient
     public RepositoryOverview fetchOverview(String pat, RepoRef repo)
     {
         return translating(() -> {
-            GitHubRepoResponse response = requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}", repo.owner(), repo.repo())
+            GitHubUserRepoItem response = requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}", repo.owner(), repo.repo())
                     .retrieve()
-                    .body(GitHubRepoResponse.class), "Empty response from GitHub /repos");
+                    .body(GitHubUserRepoItem.class), "Empty response from GitHub /repos");
             return new RepositoryOverview(
                     response.description(),
                     response.stargazersCount(),

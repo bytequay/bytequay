@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.PrCheckRunState;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -59,9 +60,11 @@ public class PrCheckRunEntity
     private String source;
 
     @Column(name = "started_at")
+    @Convert(disableConversion = true)
     private Instant startedAt;
 
     @Column(name = "completed_at")
+    @Convert(disableConversion = true)
     private Instant completedAt;
 
     public PrCheckRunEntity() {}

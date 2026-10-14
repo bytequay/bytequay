@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
+import { useThreadSnapshot } from '../../../useThreadSnapshot';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import DevelopmentLearningPanel from '../../../agents/DevelopmentLearningPanel';
@@ -710,12 +711,58 @@ async function copyConversations(): Promise<void> {
   }
 }
 
+async function threadSnapshotRaces(): Promise<void> {
+  type Row = { id: string; version: number; createdAt: string };
+  let current: ReturnType<typeof useThreadSnapshot<{ taskId: string }, Row>> | undefined;
+  const requests: Array<{ resolve: (rows: Row[]) => void; reject: (error: Error) => void }> = [];
+  const requestCount = () => requests.length;
+  function Harness({ taskId, active }: { taskId: string; active: boolean }): null {
+    current = useThreadSnapshot({ taskId }, active, () => new Promise<Row[]>((resolve, reject) => requests.push({ resolve, reject })));
+    return null;
+  }
+  const read = () => { assert(current !== undefined, 'The hook must mount'); return current; };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const row = (version: number): Row => ({ id: 'thread', version, createdAt: '2026-01-01' });
+  try {
+    flushSync(() => root.render(<Harness taskId="a" active={false} />));
+    assert(requestCount() === 0, 'An inactive surface must not poll');
+    const stale = read().refresh();
+    read().accept(row(2), read().latest.current.key);
+    requests[0].resolve([row(1)]);
+    await stale; await settle();
+    assert(read().items[0]?.version === 2, 'A stale poll must not replace an accepted write');
+    read().accept(row(1), read().latest.current.key);
+    await settle();
+    assert(read().items[0]?.version === 2, 'An older write response must not replace a newer version');
+
+    const oldScope = read().latest.current.key;
+    const failed = read().refresh();
+    flushSync(() => root.render(<Harness taskId="b" active={false} />));
+    requests[1].reject(new Error('Old task failed'));
+    await failed;
+    read().accept(row(3), oldScope);
+    await settle();
+    assert(read().items.length === 0 && read().error === null, 'Another task must receive neither old rows nor old failures');
+
+    flushSync(() => root.render(<Harness taskId="b" active />));
+    flushSync(() => root.render(<Harness taskId="b" active />));
+    assert(requestCount() === 3, 'Enabling starts one poll; equal query values must not restart it');
+    requests[2].resolve([row(4)]);
+    await settle();
+    assert(read().items[0]?.version === 4, 'The new task must accept its own snapshot');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const originalBridge = window.bridge;
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     ...originalBridge, getUserProfile: async () => { throw new Error('Profile unavailable'); },
   } });
   const cases: Array<[string, () => Promise<void>]> = [
+    ['Thread snapshots reject stale reads and writes across task changes', threadSnapshotRaces],
     ['GitHub, local and pending comments share card layout and folding', sharedCardLayout],
     ['Local discussion reply, resolution and remount', replyAndResolve],
     ['Saved unsent message retry', savedRetry],

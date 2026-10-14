@@ -33,6 +33,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteLocalRunStore
         implements LocalRunStore
 {
@@ -54,14 +55,12 @@ public class SqliteLocalRunStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<LocalRun> find(String runId)
     {
         return repository.findById(runId).map(LocalRunEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<LocalRun> listByTask(String taskId, int limit)
     {
         checkArgument(limit > 0, "limit is not positive");
@@ -91,14 +90,12 @@ public class SqliteLocalRunStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<String> findOutput(String runId)
     {
         return outputs.findById(runId).map(LocalRunOutputEntity::getOutput);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<LocalRun> listUnsettled()
     {
         return repository.findByStatusOrTreeUnverifiedTrue(LocalRun.Status.RUNNING).stream().map(LocalRunEntity::toDomain).collect(toImmutableList());

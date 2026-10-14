@@ -35,7 +35,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -313,44 +312,16 @@ public class GitHubAccountClient
     record CommitSearchRepo(@JsonProperty("full_name") String fullName) {}
 
     public List<UserRepo> fetchUserRepos(String pat) {
-        // Page through /user/repos until GitHub returns fewer than PER_PAGE
-        // items (or we hit MAX_PAGES as a safety net). Users at big companies
-        // commonly have several hundred repos via org_member affiliation.
-        int perPage = 100;
-        int maxPages = 10;
-        List<UserRepo> all = new ArrayList<>();
-        for (int page = 1; page <= maxPages; page++) {
-            int currentPage = page;
-            // break can't cross a lambda boundary, so only the call sits
-            // inside translating(); the loop control below cannot throw
-            // RestClientResponseException.
-            List<GitHubUserRepoItem> items =
-                    translating(
-                            () ->
-                                    get(gitHubRestClient, pat, u ->
-                                                    u.path("/user/repos")
-                                                            .queryParam("sort", "pushed")
-                                                            // Include org repos the user
-                                                            // has access to — without
-                                                            // `organization_member`,
-                                                            // company repos never appear
-                                                            // in the list regardless of
-                                                            // the token's scope.
-                                                            .queryParam("affiliation", "owner,collaborator,organization_member")
-                                                            .queryParam("per_page", perPage)
-                                                            .queryParam("page", currentPage)
-                                                            .build())
-                                            .retrieve()
-                                            .body(new ParameterizedTypeReference<>() {}));
-            if (items == null || items.isEmpty()) {
-                break;
-            }
-            items.stream().map(GitHubAccountClient::toUserRepoFromSearch).forEach(all::add);
-            if (items.size() < perPage) {
-                break;
-            }
-        }
-        return ImmutableList.copyOf(all);
+        ImmutableList.Builder<UserRepo> all = ImmutableList.builder();
+        GitHubPaginator.forEachPage(10, page -> translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/user/repos")
+                .queryParam("sort", "pushed")
+                // Include repositories reached through organization membership as well as direct access.
+                .queryParam("affiliation", "owner,collaborator,organization_member")
+                .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
+                .queryParam("page", page)
+                .build()).retrieve().body(new ParameterizedTypeReference<List<GitHubUserRepoItem>>() {})),
+                items -> items.stream().map(GitHubAccountClient::toUserRepoFromSearch).forEach(all::add));
+        return all.build();
     }
 
     public boolean fetchViewerCanWrite(String pat, RepoRef repo) {
@@ -360,15 +331,15 @@ public class GitHubAccountClient
         // merge button greyed-out on any failure (404, rate-limit, scope) —
         // which is the safe default.
         try {
-            GitHubRepoPermissionsResponse response =
+            GitHubUserRepoItem response =
                     get(gitHubRestClient, pat, u ->
                                     u.path("/repos/{owner}/{repo}")
                                             .build(repo.owner(), repo.repo()))
                             .retrieve()
-                            .body(GitHubRepoPermissionsResponse.class);
+                            .body(GitHubUserRepoItem.class);
             return Optional.ofNullable(response)
-                    .map(GitHubRepoPermissionsResponse::permissions)
-                    .map(GitHubRepoPermissions::push)
+                    .map(GitHubUserRepoItem::permissions)
+                    .map(GitHubUserRepoItem.Permissions::push)
                     .map(Boolean.TRUE::equals)
                     .orElse(false);
         }
@@ -376,12 +347,6 @@ public class GitHubAccountClient
             return false;
         }
     }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record GitHubRepoPermissionsResponse(GitHubRepoPermissions permissions) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record GitHubRepoPermissions(Boolean push) {}
 
     public List<UserRepo> searchRepositories(String pat, String query) {
         return translating(

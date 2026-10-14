@@ -805,33 +805,23 @@ function registerIpc(): void {
       `/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}/retry`), jsonInit('POST', body, agentHeaders(true))));
   });
   ipcMain.handle('agent:turns:start', (_event, request: StartAgentTurnRequest) =>
-    backendJson(taskUrl(request.taskId, '/turns'), {
-      method: 'POST',
-      headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
-      body: JSON.stringify({
-        message: request.message,
-        expectedVersion: request.expectedTaskVersion,
-        developmentAutomation: request.developmentAutomation,
-        attachments: request.attachments ?? [],
-      }),
-    }).then((turn) => parseAgentTurn(turn)));
+    backendJson(taskUrl(request.taskId, '/turns'), jsonInit('POST', {
+      message: request.message,
+      expectedVersion: request.expectedTaskVersion,
+      developmentAutomation: request.developmentAutomation,
+      attachments: request.attachments ?? [],
+    }, { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey })).then((turn) => parseAgentTurn(turn)));
   ipcMain.handle('agent:turns:steer', (_event, request: SteerAgentTurnRequest) =>
-    backendJson(`${backendBase()}/agent/turns/${encodeURIComponent(request.turnId)}/steer`, {
-      method: 'POST',
-      headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
-      body: JSON.stringify({ message: request.message, attachments: request.attachments ?? [] }),
-    }).then((delivery) => parseAgentInputDelivery(delivery)));
+    backendJson(`${backendBase()}/agent/turns/${encodeURIComponent(request.turnId)}/steer`,
+      jsonInit('POST', { message: request.message, attachments: request.attachments ?? [] }, { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey }))
+      .then((delivery) => parseAgentInputDelivery(delivery)));
   ipcMain.handle('agent:queue:add', (_event, request: QueueAgentInputRequest) =>
-    backendJson(taskUrl(request.taskId, '/queue', { workspaceId: request.workspaceId }), {
-      method: 'POST',
-      headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
-      body: JSON.stringify({
-        message: request.message,
-        attachments: request.attachments ?? [],
-        expectedVersion: request.expectedVersion,
-        developmentAutomation: request.developmentAutomation,
-      }),
-    }).then((queued) => parseAgentQueuedInput(queued)));
+    backendJson(taskUrl(request.taskId, '/queue', { workspaceId: request.workspaceId }), jsonInit('POST', {
+      message: request.message,
+      attachments: request.attachments ?? [],
+      expectedVersion: request.expectedVersion,
+      developmentAutomation: request.developmentAutomation,
+    }, { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey })).then((queued) => parseAgentQueuedInput(queued)));
   ipcMain.handle('agent:queue:list', (_event, taskId: string, workspaceId: string) =>
     backendJson(taskUrl(taskId, '/queue', { workspaceId }), { headers: agentHeaders() })
       .then((queue) => parseAgentQueue(queue)));
@@ -1013,7 +1003,7 @@ function registerIpc(): void {
   ipcMain.handle('review:resume', (_event, reviewId: string) =>
     review(`/${encodeURIComponent(reviewId)}/resume`, {}, { method: 'POST', signal: AbortSignal.timeout(15 * 60_000) }));
   ipcMain.handle('review:settings', (_event, reviewId: string, expectedVersion: number, laneId: string, model: string, effort: string | null, serviceTier: string | null) =>
-    review(`/${encodeURIComponent(reviewId)}/settings`, {}, { method: 'POST', body: JSON.stringify({ expectedVersion, laneId, model, effort, serviceTier }) }));
+    review(`/${encodeURIComponent(reviewId)}/settings`, {}, jsonInit('POST', { expectedVersion, laneId, model, effort, serviceTier }, agentHeaders())));
   ipcMain.handle('review:update', (_event, reviewId: string) =>
     review(`/${encodeURIComponent(reviewId)}/update`, {}, { method: 'POST', signal: AbortSignal.timeout(15 * 60_000) }));
   ipcMain.handle('review:explanation:refresh', (_event, reviewId: string, runId: string, expectedRevision: number) =>
@@ -1118,16 +1108,10 @@ function registerIpc(): void {
     backendJson(codeUrl(host, `/runs/${encodeURIComponent(runId)}/output`, { after: String(Math.max(0, Math.floor(after))) }), { headers: agentHeaders() })
       .then(parseLocalRunOutput));
   ipcMain.handle('review:ask', (_event, reviewId: string, findingId: string | null, targetRevision: number, message: string, cardId?: string) =>
-    review(`/${encodeURIComponent(reviewId)}/questions`, {}, {
-      method: 'POST',
-      body: JSON.stringify({ findingId, targetRevision, message, cardId }),
-    }));
+    review(`/${encodeURIComponent(reviewId)}/questions`, {}, jsonInit('POST', { findingId, targetRevision, message, cardId }, agentHeaders())));
   ipcMain.handle('review:message', (_event, reviewId: string, message: string, delivery: string, idempotencyKey: string, turnId?: string) =>
-    backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/messages`), {
-      method: 'POST',
-      headers: { ...agentHeaders(true), 'Idempotency-Key': idempotencyKey },
-      body: JSON.stringify({ message, delivery, turnId }),
-    }).then(parseAgentReview));
+    backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/messages`),
+      jsonInit('POST', { message, delivery, turnId }, { ...agentHeaders(true), 'Idempotency-Key': idempotencyKey })).then(parseAgentReview));
   ipcMain.handle('review:queue:resume', (_event, reviewId: string) =>
     review(`/${encodeURIComponent(reviewId)}/queue/resume`, {}, { method: 'POST' }));
   ipcMain.handle('review:queue:remove', (_event, reviewId: string, queuedInputId: string) =>
@@ -1135,15 +1119,10 @@ function registerIpc(): void {
   ipcMain.handle('review:queue:steer', (_event, reviewId: string, queuedInputId: string, turnId: string) =>
     review(`/${encodeURIComponent(reviewId)}/queue/${encodeURIComponent(queuedInputId)}/steer`, { turnId }, { method: 'POST' }));
   ipcMain.handle('review:finding:resolve', (_event, reviewId: string, findingId: string, expectedVersion: number, reason: string, remember: boolean) =>
-    review(`/${encodeURIComponent(reviewId)}/findings/${encodeURIComponent(findingId)}/resolve`, {}, {
-      method: 'POST',
-      body: JSON.stringify({ expectedVersion, reason, remember: remember === true }),
-    }));
+    review(`/${encodeURIComponent(reviewId)}/findings/${encodeURIComponent(findingId)}/resolve`, {},
+      jsonInit('POST', { expectedVersion, reason, remember: remember === true }, agentHeaders())));
   ipcMain.handle('review:finding:reopen', (_event, reviewId: string, findingId: string, expectedVersion: number) =>
-    review(`/${encodeURIComponent(reviewId)}/findings/${encodeURIComponent(findingId)}/reopen`, {}, {
-      method: 'POST',
-      body: JSON.stringify({ expectedVersion }),
-    }));
+    review(`/${encodeURIComponent(reviewId)}/findings/${encodeURIComponent(findingId)}/reopen`, {}, jsonInit('POST', { expectedVersion }, agentHeaders())));
   ipcMain.handle('review:history:read', async (_event, reviewId: string, taskId: string, before?: string, after?: string) => {
     const query: Record<string, string> = {};
     if (before !== undefined) query.before = String(before);
@@ -1166,30 +1145,18 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('review:draft:add-comment', (_event, repo: string, number: number, expectedVersion: number, comment: unknown) =>
-    draft('/drafts/items', { repo, number: String(number) }, {
-      method: 'POST',
-      body: JSON.stringify({ expectedVersion, ...(comment as Record<string, unknown>) }),
-    }));
+    draft('/drafts/items', { repo, number: String(number) }, jsonInit('POST', { expectedVersion, ...(comment as Record<string, unknown>) }, agentHeaders())));
   ipcMain.handle('review:draft:add-finding', (_event, repo: string, number: number, expectedVersion: number, reviewId: string, findingId: string) =>
-    draft('/drafts/findings', { repo, number: String(number) }, {
-      method: 'POST',
-      body: JSON.stringify({ expectedVersion, reviewId, findingId }),
-    }));
+    draft('/drafts/findings', { repo, number: String(number) }, jsonInit('POST', { expectedVersion, reviewId, findingId }, agentHeaders())));
   ipcMain.handle('review:draft:edit', (_event, repo: string, number: number, expectedVersion: number, itemId: string, body: string, included: boolean) =>
-    draft(`/drafts/items/${encodeURIComponent(itemId)}`, { repo, number: String(number) }, {
-      method: 'PUT',
-      body: JSON.stringify({ expectedVersion, body, included }),
-    }));
+    draft(`/drafts/items/${encodeURIComponent(itemId)}`, { repo, number: String(number) }, jsonInit('PUT', { expectedVersion, body, included }, agentHeaders())));
   ipcMain.handle('review:draft:remove', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
     draft(`/drafts/items/${encodeURIComponent(itemId)}`, { repo, number: String(number), expectedVersion: String(expectedVersion) }, { method: 'DELETE' }));
   ipcMain.handle('review:draft:confirm-not-posted', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
     draft(`/drafts/items/${encodeURIComponent(itemId)}/confirm-not-posted`,
       { repo, number: String(number), expectedVersion: String(expectedVersion) }, { method: 'POST' }));
   ipcMain.handle('review:draft:save', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string) =>
-    draft('/drafts/review', { repo, number: String(number) }, {
-      method: 'PUT',
-      body: JSON.stringify({ expectedVersion, body, event }),
-    }));
+    draft('/drafts/review', { repo, number: String(number) }, jsonInit('PUT', { expectedVersion, body, event }, agentHeaders())));
   ipcMain.handle('review:draft:publish', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
     backendJson(reviewUrl(`/drafts/items/${encodeURIComponent(itemId)}/publish`, { repo, number: String(number), expectedVersion: String(expectedVersion) }), {
       method: 'POST',

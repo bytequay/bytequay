@@ -15,9 +15,7 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.IssueTask;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
@@ -65,7 +63,6 @@ public class IssueTaskEntity
     private String body;
 
     @Column(name = "source_updated_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant sourceUpdatedAt;
 
     // Existing SQLite rows require this column; never expose or reuse its former wrapped prompt.
@@ -76,7 +73,6 @@ public class IssueTaskEntity
     private String instructions;
 
     @Column(name = "created_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     protected IssueTaskEntity() {}

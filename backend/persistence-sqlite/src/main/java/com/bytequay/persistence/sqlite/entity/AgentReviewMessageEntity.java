@@ -14,9 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.review.ReviewMessage;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -74,7 +72,6 @@ public class AgentReviewMessageEntity
     private long version;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     public AgentReviewMessageEntity() {}

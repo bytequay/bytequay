@@ -29,6 +29,7 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteIssueDevelopmentStore
         implements IssueDevelopmentStore
 {
@@ -42,7 +43,6 @@ public class SqliteIssueDevelopmentStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<IssueEpic> findEpic(String host, long issueId)
     {
         return epics.findByHostAndIssueId(host.toLowerCase(Locale.ROOT), issueId).map(IssueEpicEntity::toDomain);
@@ -58,14 +58,12 @@ public class SqliteIssueDevelopmentStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<IssueTask> findTask(String host, long issueId)
     {
         return tasks.findBySourceSlot(IssueTaskEntity.slot(host.toLowerCase(Locale.ROOT), issueId)).map(IssueTaskEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<IssueTask> findByTaskId(String taskId)
     {
         return tasks.findById(taskId).map(IssueTaskEntity::toDomain);

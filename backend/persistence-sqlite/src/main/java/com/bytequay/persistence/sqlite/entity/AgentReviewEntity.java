@@ -14,9 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.review.AgentReview;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -81,14 +79,11 @@ public class AgentReviewEntity
     private long version;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant closedAt;
 
     @Column(name = "replay_id")
@@ -101,7 +96,6 @@ public class AgentReviewEntity
     private Boolean replayMemory;
 
     @Column(name = "replay_cutoff")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant replayCutoff;
 
     public AgentReviewEntity() {}

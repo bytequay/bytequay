@@ -14,9 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.CommitRefreshMetadata;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -37,11 +35,9 @@ public class CommitRefreshMetadataEntity
     private String workspaceId;
 
     @Column(name = "last_attempt_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant lastAttemptAt;
 
     @Column(name = "last_succeeded_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant lastSucceededAt;
 
     @Column(columnDefinition = "TEXT")

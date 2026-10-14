@@ -35,6 +35,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteAgentEventOutboxStore
         implements AgentEventOutboxStore
 {
@@ -59,7 +60,6 @@ public class SqliteAgentEventOutboxStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<AgentEventOutboxEntry> find(EventId eventId)
     {
         requireNonNull(eventId, "eventId is null");
@@ -67,7 +67,6 @@ public class SqliteAgentEventOutboxStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentEventOutboxEntry> listPending(int limit)
     {
         checkArgument(limit > 0, "limit must be positive");
@@ -77,7 +76,6 @@ public class SqliteAgentEventOutboxStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentEventOutboxEntry> listPending(TaskId taskId, int limit)
     {
         requireNonNull(taskId, "taskId is null");
@@ -88,7 +86,6 @@ public class SqliteAgentEventOutboxStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public boolean hasPending(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");

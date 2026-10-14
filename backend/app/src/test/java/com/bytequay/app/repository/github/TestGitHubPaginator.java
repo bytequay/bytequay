@@ -26,6 +26,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
@@ -53,6 +54,20 @@ class TestGitHubPaginator
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         server = MockRestServiceServer.bindTo(builder).build();
         paginator = new GitHubPaginator(builder.build());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {-1, 0, 1, 100})
+    void boundedReadsKeepOrderAndDuplicatesAndStopAtTheLimitOrAShortPage(int size)
+    {
+        List<Integer> pages = new ArrayList<>();
+        List<Integer> result = new ArrayList<>();
+        GitHubPaginator.forEachPage(3, page -> {
+            pages.add(page);
+            return size == -1 ? null : IntStream.range(0, size).mapToObj(ignored -> page).collect(ImmutableList.toImmutableList());
+        }, result::addAll);
+        assertThat(pages).containsExactlyElementsOf(size < 100 ? ImmutableList.of(1) : ImmutableList.of(1, 2, 3));
+        assertThat(result).containsExactlyElementsOf(pages.stream().flatMap(page -> IntStream.range(0, size).mapToObj(ignored -> page)).toList());
     }
 
     @ParameterizedTest

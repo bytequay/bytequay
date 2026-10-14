@@ -34,6 +34,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteWorkItemStore
         implements WorkItemStore
 {
@@ -47,7 +48,6 @@ public class SqliteWorkItemStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<WorkItem> list(String workspaceId)
     {
         return items.findByWorkspaceId(workspaceId).stream().map(WorkItemEntity::toDomain)
@@ -55,14 +55,12 @@ public class SqliteWorkItemStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<WorkItem> find(String id)
     {
         return items.findById(id).map(WorkItemEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<WorkItem> findByIdentity(String identity)
     {
         return identities.findById(identity).flatMap(owner -> find(owner.getWorkItemId()));

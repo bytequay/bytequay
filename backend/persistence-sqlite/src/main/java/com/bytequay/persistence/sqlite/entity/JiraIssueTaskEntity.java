@@ -15,9 +15,7 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
@@ -64,14 +62,12 @@ public class JiraIssueTaskEntity
     private String body;
 
     @Column(name = "source_updated_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant sourceUpdatedAt;
 
     @Column(nullable = false, columnDefinition = "TEXT")
     private String instructions;
 
     @Column(name = "created_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     protected JiraIssueTaskEntity() {}

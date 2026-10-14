@@ -13,7 +13,8 @@
  */
 
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
+import { useThreadSnapshot } from '../../useThreadSnapshot';
 
 import { recordAttentionAction } from '../../home/useAttentionVisit';
 import { remoteErrorMessage } from '../../pulls/PullOverview';
@@ -51,8 +52,6 @@ export type TaskDiscussions = {
   draftReply: (discussionId: string) => Promise<string>;
 };
 
-const EMPTY: TaskDiscussionDto[] = [];
-
 /** The single filter point: passage surfaces must never see a private thread. */
 export function splitDiscussions(list: TaskDiscussionDto[]): { discussions: TaskDiscussionDto[]; commentThreads: TaskDiscussionDto[] } {
   return {
@@ -71,57 +70,10 @@ export function splitDiscussions(list: TaskDiscussionDto[]): { discussions: Task
 export function useTaskDiscussions(query: DiscussionQuery | null, options: {
   active?: boolean; bridge?: DiscussionBridgePort; disabledReason?: string | null;
 } = {}): TaskDiscussions {
-  const key = JSON.stringify(query);
-  const [snapshot, setSnapshot] = useState<{ key: string; discussions: TaskDiscussionDto[] }>({ key, discussions: EMPTY });
-  const [error, setError] = useState<string | null>(null);
-  const latest = useRef({ key, query, options, discussions: snapshot.key === key ? snapshot.discussions : EMPTY });
-  latest.current = { key, query, options, discussions: snapshot.key === key ? snapshot.discussions : EMPTY };
-  const epoch = useRef(0);
-  const live = useCallback((): DiscussionBridgePort => latest.current.options.bridge ?? window.bridge, []);
-
-  const refresh = useCallback(async () => {
-    const current = latest.current;
-    if (current.query === null) return;
-    const version = ++epoch.current;
-    try {
-      const discussions = await live().listTaskDiscussions(current.query);
-      if (latest.current.key === current.key && epoch.current === version) {
-        latest.current.discussions = discussions;
-        setSnapshot({ key: current.key, discussions });
-        setError(null);
-      }
-    }
-    catch (failure) {
-      if (latest.current.key === current.key && epoch.current === version) setError(remoteErrorMessage(failure));
-    }
-  }, [live]);
-
-  useEffect(() => {
-    if (options.active === false || query === null) return;
-    let cancelled = false;
-    const pendingEpoch = epoch;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async (): Promise<void> => {
-      await refresh();
-      if (!cancelled) timer = setTimeout(() => { void poll(); }, 3000);
-    };
-    void poll();
-    return () => { cancelled = true; clearTimeout(timer); pendingEpoch.current++; };
-  // Query identity is its serialized value; caller object identity must not restart polling.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, options.active, refresh]);
-
-  const accept = useCallback((discussion: TaskDiscussionDto, scope: string): void => {
-    if (latest.current.key !== scope) return;
-    epoch.current++;
-    // A poll in flight may carry an older row; never let it undo what a write just returned.
-    if (latest.current.discussions.some(item => item.id === discussion.id && item.version > discussion.version)) return;
-    const discussions = [...latest.current.discussions.filter(item => item.id !== discussion.id), discussion]
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
-    latest.current.discussions = discussions;
-    setSnapshot({ key: scope, discussions });
-    setError(null);
-  }, []);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const live = useCallback((): DiscussionBridgePort => optionsRef.current.bridge ?? window.bridge, []);
+  const { items, latest, error, setError, refresh, accept } = useThreadSnapshot(query, options.active, target => live().listTaskDiscussions(target));
 
   const write = useCallback(async (
     action: (bridge: DiscussionBridgePort, target: DiscussionQuery) => Promise<TaskDiscussionDto>,
@@ -139,14 +91,13 @@ export function useTaskDiscussions(query: DiscussionQuery | null, options: {
       setError(remoteErrorMessage(failure));
       throw failure;
     }
-  }, [accept, live]);
+  }, [accept, latest, live, setError]);
 
-  const all = snapshot.key === key ? snapshot.discussions : EMPTY;
   // The screen re-renders far more often than a poll lands; hand down the same lists between polls.
-  const split = useMemo(() => splitDiscussions(all), [all]);
+  const split = useMemo(() => splitDiscussions(items), [items]);
   return {
     ...split,
-    busy: all.some(discussion => discussion.pending),
+    busy: items.some(discussion => discussion.pending),
     error,
     disabledReason: options.disabledReason ?? null,
     refresh,

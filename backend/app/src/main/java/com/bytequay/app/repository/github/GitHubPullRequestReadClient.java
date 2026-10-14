@@ -109,26 +109,16 @@ public class GitHubPullRequestReadClient
         requireNonNull(repository, "repository is null");
         requireNonNull(head, "head is null");
         ImmutableList.Builder<FetchedPullRequest> result = ImmutableList.builder();
-        for (int page = 1; page <= 50; page++) {
-            int currentPage = page;
-            List<GitHubPullRequestDetailResponse> rows = translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/pulls")
-                    .queryParam("state", "all")
-                    .queryParam("head", "{head}")
-                    .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
-                    .queryParam("page", currentPage)
-                    .build(repository.owner(), repository.repo(), head))
-                    .retrieve()
-                    .body(new ParameterizedTypeReference<List<GitHubPullRequestDetailResponse>>() {}));
-            if (rows == null || rows.isEmpty()) {
-                break;
-            }
-            rows.forEach(row -> result.add(toPullRequest(row, repository.fullName(),
-                    Optional.ofNullable(row.requestedReviewers()).orElse(ImmutableList.of()).stream()
-                            .map(GitHubPullRequestDetailResponse.RequestedReviewer::login).collect(toImmutableList()))));
-            if (rows.size() < GitHubPaginator.PAGE_SIZE) {
-                break;
-            }
-        }
+        GitHubPaginator.forEachPage(50, page -> translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/pulls")
+                .queryParam("state", "all")
+                .queryParam("head", "{head}")
+                .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
+                .queryParam("page", page)
+                .build(repository.owner(), repository.repo(), head))
+                .retrieve().body(new ParameterizedTypeReference<List<GitHubPullRequestDetailResponse>>() {})),
+                rows -> rows.forEach(row -> result.add(toPullRequest(row, repository.fullName(),
+                        Optional.ofNullable(row.requestedReviewers()).orElse(ImmutableList.of()).stream()
+                                .map(GitHubPullRequestDetailResponse.RequestedReviewer::login).collect(toImmutableList())))));
         return result.build();
     }
 

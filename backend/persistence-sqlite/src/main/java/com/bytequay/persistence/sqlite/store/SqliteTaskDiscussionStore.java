@@ -29,6 +29,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteTaskDiscussionStore
         implements TaskDiscussionStore
 {
@@ -40,21 +41,18 @@ public class SqliteTaskDiscussionStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<TaskDiscussion> find(String discussionId)
     {
         return repository.findById(discussionId).map(TaskDiscussionEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<TaskDiscussion> findByAnchor(String taskId, String turnId, String quoteHash)
     {
         return repository.findByTaskIdAndTurnIdAndQuoteHash(taskId, turnId, quoteHash).map(TaskDiscussionEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<TaskDiscussion> listByTask(String taskId)
     {
         return repository.findByTaskIdOrderByCreatedAtAsc(taskId).stream().map(TaskDiscussionEntity::toDomain).collect(toImmutableList());

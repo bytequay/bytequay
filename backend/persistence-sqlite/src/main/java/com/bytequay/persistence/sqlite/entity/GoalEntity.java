@@ -20,7 +20,6 @@ import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
 import com.bytequay.persistence.sqlite.converter.GoalCourseConverter;
 import com.bytequay.persistence.sqlite.converter.GoalDefinitionConverter;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -81,11 +80,9 @@ public class GoalEntity
     private Boolean paused;
 
     @Column(name = "created_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(name = "updated_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
     protected GoalEntity() {}

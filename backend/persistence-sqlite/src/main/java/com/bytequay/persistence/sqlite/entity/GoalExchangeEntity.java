@@ -15,7 +15,6 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.persistence.sqlite.converter.GoalExchangeConverter;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -48,7 +47,6 @@ public class GoalExchangeEntity
     private String state;
 
     @Column(name = "asked_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant askedAt;
 
     @Column(nullable = false, columnDefinition = "TEXT")

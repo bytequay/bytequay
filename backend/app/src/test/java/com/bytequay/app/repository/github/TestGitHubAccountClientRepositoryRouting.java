@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.UserRepo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -37,6 +39,26 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class TestGitHubAccountClientRepositoryRouting
 {
+    @ParameterizedTest
+    @CsvSource(value = {
+            "true|{\"permissions\":{\"push\":true}}",
+            "false|{\"permissions\":{\"push\":false}}",
+            "false|{\"permissions\":{\"push\":null}}",
+            "false|{\"permissions\":{}}",
+            "false|{\"permissions\":null}",
+            "false|{}",
+    }, delimiter = '|')
+    void repositoryPermissionsRequireExplicitPushAccess(boolean expected, String response)
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubAccountClient client = new GitHubAccountClient(builder.build(), RestClient.create());
+        server.expect(requestTo("https://api.github.test/repos/owner/repo")).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+        assertThat(client.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).isEqualTo(expected);
+        server.verify();
+    }
+
     @Test
     void fetchesAnotherUsersPublicProfile()
     {

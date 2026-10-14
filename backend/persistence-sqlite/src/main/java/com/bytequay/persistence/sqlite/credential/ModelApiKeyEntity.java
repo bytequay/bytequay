@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.credential;
 
 import com.bytequay.persistence.sqlite.entity.AssignedIdEntity;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -47,6 +48,7 @@ class ModelApiKeyEntity
     private String maskedHint;
 
     @Column(nullable = false)
+    @Convert(disableConversion = true)
     private Instant createdAt;
 
     protected ModelApiKeyEntity() {}

@@ -21,9 +21,7 @@ import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -68,7 +66,6 @@ public class AgentEventOutboxEntity
     private String payloadJson;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant occurredAt;
 
     private Long eventSequence;

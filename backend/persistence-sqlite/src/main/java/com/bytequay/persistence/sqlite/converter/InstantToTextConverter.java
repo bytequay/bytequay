@@ -24,8 +24,9 @@ import java.time.Instant;
  * setTimestamp() on SQLite-JDBC. That driver stores the value as raw epoch milliseconds
  * (a long integer), then getTimestamp() fails to parse it back as a date string.
  * This converter bypasses that path by going through getString()/setString() instead.
+ * Fields with {@code disableConversion = true} retain their existing native timestamp columns.
  */
-@Converter
+@Converter(autoApply = true)
 public class InstantToTextConverter
         implements AttributeConverter<Instant, String>
 {

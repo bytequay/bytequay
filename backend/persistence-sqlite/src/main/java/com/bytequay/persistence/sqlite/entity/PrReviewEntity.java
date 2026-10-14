@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.PrReviewState;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -68,6 +69,7 @@ public class PrReviewEntity
     private String commitId;
 
     @Column(name = "submitted_at")
+    @Convert(disableConversion = true)
     private Instant submittedAt;
 
     public PrReviewEntity() {}

@@ -32,6 +32,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteAgentTurnStore
         implements AgentTurnStore
 {
@@ -51,7 +52,6 @@ public class SqliteAgentTurnStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<AgentTurn> find(TurnId turnId)
     {
         requireNonNull(turnId, "turnId is null");
@@ -59,7 +59,6 @@ public class SqliteAgentTurnStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<AgentTurn> findByIdempotencyKey(TaskId taskId, String idempotencyKey)
     {
         requireNonNull(taskId, "taskId is null");
@@ -69,7 +68,6 @@ public class SqliteAgentTurnStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<AgentTurn> findActive(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
@@ -88,7 +86,6 @@ public class SqliteAgentTurnStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentTurn> list(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
@@ -98,7 +95,6 @@ public class SqliteAgentTurnStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<AgentTurn> listRecoverable()
     {
         return repository.findByActiveTaskIdIsNotNullOrderByCreatedAtAsc().stream()

@@ -32,6 +32,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteQueuedInputStore
         implements QueuedInputStore
 {
@@ -51,7 +52,6 @@ public class SqliteQueuedInputStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<QueuedAgentInput> find(QueuedInputId inputId)
     {
         requireNonNull(inputId, "inputId is null");
@@ -59,7 +59,6 @@ public class SqliteQueuedInputStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<QueuedAgentInput> findQueuedByIdempotencyKey(TaskId taskId, String idempotencyKey)
     {
         requireNonNull(taskId, "taskId is null");
@@ -69,7 +68,6 @@ public class SqliteQueuedInputStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<QueuedAgentInput> listQueued(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");

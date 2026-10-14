@@ -27,6 +27,7 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.ChildSummary;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
@@ -166,7 +167,11 @@ class TestSqliteAgentStores
                 "0123456789012345678901234567890123456789");
         // Ignored build output leaves a completed worktree dirty without uncommitted work.
         WorktreeSnapshot snapshot = new WorktreeSnapshot(worktree, "1123456789012345678901234567890123456789", true, false, false);
-        TaskSummary summary = new TaskSummary("finished", Optional.of(snapshot), metrics, Optional.of("reviewed"), ImmutableList.of());
+        TaskSummary summary = new TaskSummary("finished", Optional.of(snapshot), metrics, Optional.of("reviewed"), ImmutableList.of(
+                new ChildSummary("child", Optional.of("parent"), "Review", Optional.of("Check changes"), ChildSummary.Outcome.COMPLETED,
+                        Optional.of("All checked"), Optional.of(now), Optional.of(now.plusSeconds(1))),
+                new ChildSummary("other", Optional.empty(), "Explore", Optional.empty(), ChildSummary.Outcome.UNKNOWN,
+                        Optional.empty(), Optional.empty(), Optional.empty())));
         AgentTask task = AgentTask.created(
                         taskId,
                         true,
@@ -193,6 +198,30 @@ class TestSqliteAgentStores
         assertThat(taskStore.find(task.id())).contains(removed);
         assertThat(removed.worktreeRemovedAt()).contains(now.plusSeconds(6));
         assertThat(taskStore.listPendingWorktreeCleanup(AgentPermissionPolicy.AUTO, now.plusSeconds(6))).isEmpty();
+    }
+
+    @Test
+    void taskAndTurnMetricsKeepExistingColumnsAndDefaultMissingCounters()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentMetrics metrics = new AgentMetrics(10, 2, 5, Optional.of(new BigDecimal("0.1873740")), Duration.ofMillis(3123), new ToolCounters(4, 2, 1));
+        AgentTask task = newTask(now).withMetrics(metrics, now);
+        taskStore.insert(task);
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "metrics", turnSettings(), now).withMetrics(metrics);
+        turnStore.insert(turn);
+        entityManager.clear();
+        assertThat(taskStore.find(task.id()).orElseThrow().metrics()).isEqualTo(metrics);
+        assertThat(turnStore.find(turn.id()).orElseThrow().metrics()).isEqualTo(metrics);
+        for (String table : ImmutableList.of("agent_task", "agent_turn")) {
+            assertThat(jdbc.queryForMap("SELECT input_tokens, cached_input_tokens, output_tokens, elapsed_millis, tool_calls, explore_actions, context_compactions FROM " + table))
+                    .containsEntry("input_tokens", 10).containsEntry("cached_input_tokens", 2).containsEntry("output_tokens", 5)
+                    .containsEntry("elapsed_millis", 3123).containsEntry("tool_calls", 4).containsEntry("explore_actions", 2).containsEntry("context_compactions", 1);
+            jdbc.update("UPDATE " + table + " SET tool_calls = NULL, explore_actions = NULL, context_compactions = NULL");
+        }
+        entityManager.clear();
+        AgentMetrics legacy = new AgentMetrics(10, 2, 5, metrics.cost(), metrics.elapsed());
+        assertThat(taskStore.find(task.id()).orElseThrow().metrics()).isEqualTo(legacy);
+        assertThat(turnStore.find(turn.id()).orElseThrow().metrics()).isEqualTo(legacy);
     }
 
     @Test
@@ -636,7 +665,8 @@ class TestSqliteAgentStores
         AgentTask task = original.withDefaults(original.defaults().withDevelopmentAutomation(selected), now);
         taskStore.insert(task);
         AgentTurnSettings settings = new AgentTurnSettings(
-                Optional.of("model"), Optional.of("high"), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.of(selected)).withLaneId(AgentLaneId.CLAUDE_CLI);
+                Optional.of("model"), Optional.of("high"), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5),
+                ImmutableList.of(), Optional.of("fast"), Optional.of(selected), false, Optional.of(AgentLaneId.CLAUDE_CLI));
         DevelopmentResultReport question = new DevelopmentResultReport(false, Optional.of("Which implementation should I use?"));
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "automation-1", settings, now)
                 .markDeliveryStarted(now.plusSeconds(1))
@@ -659,6 +689,16 @@ class TestSqliteAgentStores
             assertThat(restored.withVersion(restored.version() + 1).developmentResult()).contains(question);
         });
         assertThat(queueStore.find(queued.id()).orElseThrow().settings()).isEqualTo(settings);
+        for (String table : ImmutableList.of("agent_turn", "agent_queued_input")) {
+            String id = table.equals("agent_turn") ? turn.id().toString() : queued.id().toString();
+            assertThat(jdbc.queryForMap("SELECT requested_model, effort, service_tier, maximum_runtime_millis, use_repository_context FROM " + table + " WHERE id = ?", id))
+                    .containsEntry("requested_model", "model").containsEntry("effort", "high").containsEntry("service_tier", "fast")
+                    .containsEntry("maximum_runtime_millis", 300000).containsEntry("use_repository_context", 0);
+            jdbc.update("UPDATE " + table + " SET use_repository_context = NULL WHERE id = ?", id);
+        }
+        entityManager.clear();
+        assertThat(turnStore.find(turn.id()).orElseThrow().settings()).contains(settings.withRepositoryContext(true));
+        assertThat(queueStore.find(queued.id()).orElseThrow().settings()).isEqualTo(settings.withRepositoryContext(true));
     }
 
     @Test

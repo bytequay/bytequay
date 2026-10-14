@@ -14,9 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.IssueEpic;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
@@ -51,7 +49,6 @@ public class IssueEpicEntity
     private boolean epic;
 
     @Column(name = "updated_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
     protected IssueEpicEntity() {}

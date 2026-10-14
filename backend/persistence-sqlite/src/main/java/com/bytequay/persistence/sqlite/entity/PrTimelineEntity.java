@@ -15,7 +15,6 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.PrTimelinePayloadConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -50,7 +49,6 @@ public class PrTimelineEntity
 
     private String actor;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant timestamp;
 
     @Column(columnDefinition = "TEXT")

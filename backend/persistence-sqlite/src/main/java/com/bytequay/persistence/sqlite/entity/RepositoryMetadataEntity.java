@@ -18,7 +18,6 @@ import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.RepositoryPickerUser;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.RepositoryContributorListConverter;
 import com.bytequay.persistence.sqlite.converter.RepositoryLabelListConverter;
 import com.bytequay.persistence.sqlite.converter.RepositoryPickerUserListConverter;
@@ -80,19 +79,15 @@ public class RepositoryMetadataEntity
     private List<String> topics;
 
     @Column(name = "contributors_synced_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant contributorsSyncedAt;
 
     @Column(name = "picker_users_synced_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant pickerUsersSyncedAt;
 
     @Column(name = "overview_synced_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant overviewSyncedAt;
 
     @Column(name = "labels_topics_synced_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant labelsTopicsSyncedAt;
 
     public RepositoryMetadataSnapshot toDomain()

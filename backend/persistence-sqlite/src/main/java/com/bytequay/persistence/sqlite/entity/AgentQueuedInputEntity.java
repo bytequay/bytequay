@@ -13,22 +13,15 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.agent.core.AgentAttachmentReference;
-import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
-import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.spi.AgentLaneId;
-import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.persistence.sqlite.converter.DevelopmentAutomationConverter;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
-import com.fasterxml.jackson.core.type.TypeReference;
+import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -37,20 +30,14 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import lombok.Getter;
 
-import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
-
-import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
 @Entity
 @Table(name = "agent_queued_input")
 public class AgentQueuedInputEntity
         extends AssignedIdEntity<String>
 {
-    private static final TypeReference<List<AgentAttachmentReference>> ATTACHMENTS = new TypeReference<>() {};
-
     @Id
     @Getter(onMethod_ = @Override)
     private String id;
@@ -80,29 +67,11 @@ public class AgentQueuedInputEntity
     @Column(nullable = false)
     private long textBlobSize;
 
-    private String requestedModel;
-
-    private String laneId;
-
-    private String effort;
-
-    private String serviceTier;
-
-    @Column(columnDefinition = "TEXT")
-    @Convert(converter = DevelopmentAutomationConverter.class)
-    private DevelopmentAutomation developmentAutomation;
-
-    private Boolean useRepositoryContext;
-
-    @Column(nullable = false)
-    @Enumerated(EnumType.STRING)
-    private AgentPermissionPolicy permissionPolicy;
-
-    @Column(nullable = false)
-    private long maximumRuntimeMillis;
-
-    @Column(nullable = false, columnDefinition = "TEXT")
-    private String attachmentsJson;
+    @Embedded
+    @AttributeOverride(name = "permissionPolicy", column = @Column(name = "permission_policy", nullable = false))
+    @AttributeOverride(name = "maximumRuntimeMillis", column = @Column(name = "maximum_runtime_millis", nullable = false))
+    @AttributeOverride(name = "attachmentsJson", column = @Column(name = "attachments_json", nullable = false, columnDefinition = "TEXT"))
+    private AgentTurnSettingsColumns settings;
 
     private String messageEventId;
 
@@ -115,11 +84,9 @@ public class AgentQueuedInputEntity
     private long version;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
     public AgentQueuedInputEntity() {}
@@ -143,15 +110,7 @@ public class AgentQueuedInputEntity
         textBlobPath = input.textBlob().relativePath();
         textBlobMediaType = input.textBlob().mediaType();
         textBlobSize = input.textBlob().size();
-        requestedModel = input.settings().model().orElse(null);
-        laneId = input.settings().laneId().map(AgentLaneId::value).orElse(null);
-        effort = input.settings().effort().orElse(null);
-        serviceTier = input.settings().serviceTier().orElse(null);
-        developmentAutomation = input.settings().developmentAutomation().orElse(null);
-        useRepositoryContext = input.settings().useRepositoryContext();
-        permissionPolicy = input.settings().permissionPolicy();
-        maximumRuntimeMillis = input.settings().maximumRuntime().toMillis();
-        attachmentsJson = AGENT.write(input.settings().attachments(), "turn attachment references");
+        settings = new AgentTurnSettingsColumns(input.settings());
         messageEventId = input.messageEventId().map(EventId::toString).orElse(null);
         turnId = input.turnId().map(TurnId::toString).orElse(null);
         pauseReason = input.pauseReason().orElse(null);
@@ -169,16 +128,7 @@ public class AgentQueuedInputEntity
                 idempotencyKey,
                 new BlobRef(textBlobPath, textBlobMediaType, textBlobSize),
                 "Queued input",
-                new AgentTurnSettings(
-                        Optional.ofNullable(requestedModel),
-                        Optional.ofNullable(effort),
-                        permissionPolicy,
-                        Duration.ofMillis(maximumRuntimeMillis),
-                        AGENT.read(attachmentsJson, ATTACHMENTS, "turn attachment references"),
-                        Optional.ofNullable(serviceTier),
-                        Optional.ofNullable(developmentAutomation),
-                        !Boolean.FALSE.equals(useRepositoryContext),
-                        Optional.ofNullable(laneId).map(AgentLaneId::new)),
+                settings.toDomain(),
                 Optional.ofNullable(messageEventId).map(EventId::valueOf),
                 Optional.ofNullable(turnId).map(TurnId::valueOf),
                 Optional.ofNullable(pauseReason),

@@ -14,9 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.CommitEnrichment;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Embeddable;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
@@ -61,15 +59,12 @@ public class CommitEnrichmentEntity
     private String pullRequestUrl;
 
     @Column(name = "avatar_checked_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant avatarCheckedAt;
 
     @Column(name = "association_checked_at")
-    @Convert(converter = InstantToTextConverter.class)
     private Instant associationCheckedAt;
 
     @Column(name = "last_seen_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant lastSeenAt;
 
     @Embeddable

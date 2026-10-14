@@ -15,7 +15,6 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.GoalKnowledgeNote;
 import com.bytequay.persistence.sqlite.converter.GoalKnowledgeNoteConverter;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -42,7 +41,6 @@ public class GoalKnowledgeNoteEntity
     private String workspaceId;
 
     @Column(name = "saved_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant savedAt;
 
     @Column(nullable = false, columnDefinition = "TEXT")

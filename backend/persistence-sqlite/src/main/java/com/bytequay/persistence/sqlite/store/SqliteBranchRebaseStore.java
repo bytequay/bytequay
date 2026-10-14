@@ -35,6 +35,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteBranchRebaseStore
         implements BranchRebaseStore
 {
@@ -62,7 +63,6 @@ public class SqliteBranchRebaseStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<BranchRebase> findByIdempotencyKey(String idempotencyKey)
     {
         requireNonNull(idempotencyKey, "idempotencyKey is null");
@@ -72,7 +72,6 @@ public class SqliteBranchRebaseStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<BranchRebase> find(BranchRebaseId rebaseId)
     {
         requireNonNull(rebaseId, "rebaseId is null");
@@ -80,7 +79,6 @@ public class SqliteBranchRebaseStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<BranchRebase> listRunning(int limit)
     {
         checkArgument(limit >= 1 && limit <= MAX_LIST_LIMIT, "limit must be between 1 and " + MAX_LIST_LIMIT);
@@ -92,7 +90,6 @@ public class SqliteBranchRebaseStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<BranchRebase> listIndependentlyRunning(int limit)
     {
         checkArgument(limit >= 1 && limit <= MAX_LIST_LIMIT, "limit must be between 1 and " + MAX_LIST_LIMIT);

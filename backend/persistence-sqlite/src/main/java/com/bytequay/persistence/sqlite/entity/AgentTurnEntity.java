@@ -13,31 +13,23 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.agent.core.AgentAttachmentReference;
-import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTurn;
-import com.bytequay.agent.core.AgentTurnSettings;
-import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMemory;
 import com.bytequay.agent.core.TurnState;
-import com.bytequay.agent.spi.AgentLaneId;
-import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent.PlanItem;
 import com.bytequay.agent.spi.ProviderTurnRef;
-import com.bytequay.persistence.sqlite.converter.DevelopmentAutomationConverter;
 import com.bytequay.persistence.sqlite.converter.DevelopmentResultReportConverter;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -50,8 +42,6 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import lombok.Getter;
 
-import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -63,7 +53,6 @@ import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 public class AgentTurnEntity
         extends AssignedIdEntity<String>
 {
-    private static final TypeReference<List<AgentAttachmentReference>> ATTACHMENTS = new TypeReference<>() {};
     private static final TypeReference<List<PlanItem>> PLAN = new TypeReference<>() {};
     private static final TypeReference<List<String>> GUIDELINES = new TypeReference<>() {};
     private static final TypeReference<List<TurnMemory>> MEMORIES = new TypeReference<>() {};
@@ -101,16 +90,12 @@ public class AgentTurnEntity
     private long version;
 
     @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant startedAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant endedAt;
 
-    @Convert(converter = InstantToTextConverter.class)
     private Instant cancellationRequestedAt;
 
     private String providerTurnReference;
@@ -119,28 +104,8 @@ public class AgentTurnEntity
 
     private String model;
 
-    @Column(name = "requested_model")
-    private String requestedModel;
-
-    private String laneId;
-
-    private String effort;
-
-    private String serviceTier;
-
-    @Column(columnDefinition = "TEXT")
-    @Convert(converter = DevelopmentAutomationConverter.class)
-    private DevelopmentAutomation developmentAutomation;
-
-    private Boolean useRepositoryContext;
-
-    @Enumerated(EnumType.STRING)
-    private AgentPermissionPolicy permissionPolicy;
-
-    private Long maximumRuntimeMillis;
-
-    @Column(columnDefinition = "TEXT")
-    private String attachmentsJson;
+    @Embedded
+    private AgentTurnSettingsColumns settings;
 
     private String terminalReason;
 
@@ -169,29 +134,8 @@ public class AgentTurnEntity
     @Enumerated(EnumType.STRING)
     private AgentTurnFailureKind failureKind;
 
-    @Column(nullable = false)
-    private long inputTokens;
-
-    @Column(nullable = false)
-    private long cachedInputTokens;
-
-    @Column(nullable = false)
-    private long outputTokens;
-
-    private BigDecimal cost;
-
-    @Column(nullable = false)
-    private long elapsedMillis;
-
-    // Nullable so a database written before these counters keeps opening; null reads as zero.
-    @Column(name = "tool_calls")
-    private Long toolCalls;
-
-    @Column(name = "explore_actions")
-    private Long exploreActions;
-
-    @Column(name = "context_compactions")
-    private Long contextCompactions;
+    @Embedded
+    private AgentMetricsColumns metrics;
 
     @Column(name = "setup_fingerprint")
     private String setupFingerprint;
@@ -221,18 +165,7 @@ public class AgentTurnEntity
         providerTurnReference = turn.providerTurnReference().map(ProviderTurnRef::value).orElse(null);
         knownUnsent = turn.knownUnsent();
         model = turn.model().orElse(null);
-        requestedModel = turn.settings().flatMap(AgentTurnSettings::model).orElse(null);
-        laneId = turn.settings().flatMap(AgentTurnSettings::laneId).map(AgentLaneId::value).orElse(null);
-        effort = turn.settings().flatMap(AgentTurnSettings::effort).orElse(null);
-        serviceTier = turn.settings().flatMap(AgentTurnSettings::serviceTier).orElse(null);
-        developmentAutomation = turn.settings().flatMap(AgentTurnSettings::developmentAutomation).orElse(null);
-        useRepositoryContext = turn.settings().map(AgentTurnSettings::useRepositoryContext).orElse(null);
-        permissionPolicy = turn.settings().map(AgentTurnSettings::permissionPolicy).orElse(null);
-        maximumRuntimeMillis = turn.settings().map(settings -> settings.maximumRuntime().toMillis()).orElse(null);
-        attachmentsJson = turn.settings()
-                .map(AgentTurnSettings::attachments)
-                .map(attachments -> AGENT.write(attachments, "turn attachment references"))
-                .orElse(null);
+        settings = turn.settings().map(AgentTurnSettingsColumns::new).orElse(null);
         terminalReason = turn.terminalReason().orElse(null);
         developmentResult = turn.developmentResult().orElse(null);
         planJson = turn.plan().map(plan -> AGENT.write(plan, "turn plan")).orElse(null);
@@ -244,30 +177,12 @@ public class AgentTurnEntity
         refinementParentUserTurnId = turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY)
                 .map(DevelopmentTurnOrigin::parentUserTurnId).map(TurnId::toString).orElse(null);
         failureKind = turn.failureKind().orElse(null);
-        inputTokens = turn.metrics().inputTokens();
-        cachedInputTokens = turn.metrics().cachedInputTokens();
-        outputTokens = turn.metrics().outputTokens();
-        cost = turn.metrics().cost().orElse(null);
-        elapsedMillis = turn.metrics().elapsed().toMillis();
-        toolCalls = turn.metrics().counters().toolCalls();
-        exploreActions = turn.metrics().counters().exploreActions();
-        contextCompactions = turn.metrics().counters().compactions();
+        metrics = new AgentMetricsColumns(turn.metrics());
         setupFingerprint = turn.setup().orElse(null);
     }
 
     public AgentTurn toDomain()
     {
-        Optional<AgentTurnSettings> settings = Optional.ofNullable(maximumRuntimeMillis)
-                .map(runtime -> new AgentTurnSettings(
-                        Optional.ofNullable(requestedModel),
-                        Optional.ofNullable(effort),
-                        permissionPolicy,
-                        Duration.ofMillis(runtime),
-                        AGENT.read(attachmentsJson, ATTACHMENTS, "turn attachment references"),
-                        Optional.ofNullable(serviceTier),
-                        Optional.ofNullable(developmentAutomation),
-                        !Boolean.FALSE.equals(useRepositoryContext),
-                        Optional.ofNullable(laneId).map(AgentLaneId::new)));
         return new AgentTurn(
                 TurnId.valueOf(id),
                 TaskId.valueOf(taskId),
@@ -281,10 +196,10 @@ public class AgentTurnEntity
                 Optional.ofNullable(providerTurnReference).map(ProviderTurnRef::new),
                 Boolean.TRUE.equals(knownUnsent),
                 Optional.ofNullable(model),
-                settings,
+                Optional.ofNullable(settings).filter(value -> value.maximumRuntimeMillis() != null).map(AgentTurnSettingsColumns::toDomain),
                 Optional.ofNullable(terminalReason),
                 Optional.ofNullable(failureKind),
-                new AgentMetrics(inputTokens, cachedInputTokens, outputTokens, Optional.ofNullable(cost), Duration.ofMillis(elapsedMillis), counters()),
+                metrics.toDomain(),
                 Optional.ofNullable(developmentResult),
                 developmentOrigin(),
                 Optional.ofNullable(planJson).map(json -> AGENT.read(json, PLAN, "turn plan")),
@@ -305,15 +220,5 @@ public class AgentTurnEntity
             throw new AgentStorageException("Stored generated turn origin is incomplete: " + id);
         }
         return Optional.of(new DevelopmentTurnOrigin(developmentOriginKind, TurnId.valueOf(parentUserTurnId)));
-    }
-
-    private ToolCounters counters()
-    {
-        return new ToolCounters(zeroIfNull(toolCalls), zeroIfNull(exploreActions), zeroIfNull(contextCompactions));
-    }
-
-    private static long zeroIfNull(Long value)
-    {
-        return value == null ? 0 : value;
     }
 }

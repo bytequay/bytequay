@@ -16,9 +16,7 @@ package com.bytequay.persistence.sqlite.entity;
 import com.bytequay.core.domain.RecentItemType;
 import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RecentTouch;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
@@ -51,7 +49,6 @@ public class RecentTouchEntity
     private String touchDay;
 
     @Column(name = "touched_at", nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
     private Instant touchedAt;
 
     @Column(name = "reason", nullable = false)

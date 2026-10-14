@@ -24,12 +24,10 @@ import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class AgentTaskSummaryJson
 {
@@ -54,17 +52,7 @@ final class AgentTaskSummaryJson
                 metrics.elapsed().toMillis(),
                 metrics.counters(),
                 summary.notes().orElse(null),
-                summary.children().stream()
-                        .map(child -> new ChildValue(
-                                child.threadId(),
-                                child.parentThreadId().orElse(null),
-                                child.label(),
-                                child.purpose().orElse(null),
-                                child.outcome(),
-                                child.result().orElse(null),
-                                child.startedAt().orElse(null),
-                                child.endedAt().orElse(null)))
-                        .collect(toImmutableList()));
+                summary.children());
         return AGENT.write(value, "task summary");
     }
 
@@ -89,17 +77,7 @@ final class AgentTaskSummaryJson
                     metrics,
                     Optional.ofNullable(value.notes()),
                     // A summary stored before subagents were indexed has no field for them.
-                    (value.children() == null ? ImmutableList.<ChildValue>of() : value.children()).stream()
-                            .map(child -> new ChildSummary(
-                                    child.threadId(),
-                                    Optional.ofNullable(child.parentThreadId()),
-                                    child.label(),
-                                    Optional.ofNullable(child.purpose()),
-                                    child.outcome(),
-                                    Optional.ofNullable(child.result()),
-                                    Optional.ofNullable(child.startedAt()),
-                                    Optional.ofNullable(child.endedAt())))
-                            .collect(toImmutableList()));
+                    value.children() == null ? ImmutableList.of() : value.children());
         });
     }
 
@@ -119,15 +97,5 @@ final class AgentTaskSummaryJson
             long elapsedMillis,
             ToolCounters counters,
             String notes,
-            List<ChildValue> children) {}
-
-    private record ChildValue(
-            String threadId,
-            String parentThreadId,
-            String label,
-            String purpose,
-            ChildSummary.Outcome outcome,
-            String result,
-            Instant startedAt,
-            Instant endedAt) {}
+            List<ChildSummary> children) {}
 }

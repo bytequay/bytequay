@@ -28,6 +28,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
+@Transactional(readOnly = true)
 public class SqliteWorkspaceStore
         implements WorkspaceStore
 {
@@ -41,7 +42,6 @@ public class SqliteWorkspaceStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<Workspace> findAll()
     {
         return repository.findAllByWatchedTrueOrderByDisplayOrderAscCreatedAtAsc().stream()
@@ -50,7 +50,6 @@ public class SqliteWorkspaceStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public List<Workspace> findAllRetained()
     {
         return repository.findAllByOrderByDisplayOrderAscCreatedAtAsc().stream()
@@ -69,28 +68,24 @@ public class SqliteWorkspaceStore
     }
 
     @Override
-    @Transactional(readOnly = true)
     public boolean isWatched(String workspaceId)
     {
         return repository.existsByIdAndWatchedTrue(workspaceId);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public boolean hasActiveWorkflows(String workspaceId)
     {
         return purge.hasActiveWorkflows(workspaceId);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<Workspace> findById(String workspaceId)
     {
         return repository.findById(workspaceId).map(WorkspaceEntity::toDomain);
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Optional<Workspace> findBySelectedRepositoryId(long selectedRepositoryId)
     {
         return repository.findBySelectedRepositoryId(selectedRepositoryId)

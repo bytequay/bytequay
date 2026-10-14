@@ -40,7 +40,7 @@ final class CherryPickJson
 
     public static String encodeItems(List<CherryPickItem> items)
     {
-        return CHERRY_PICK.write(items.stream().map(CherryPickJson::toValue).collect(toImmutableList()), "cherry-pick items");
+        return CHERRY_PICK.write(items, "cherry-pick items");
     }
 
     public static List<CherryPickItem> decodeItems(String json)
@@ -83,31 +83,6 @@ final class CherryPickJson
         });
     }
 
-    private static ItemValue toValue(CherryPickItem item)
-    {
-        return new ItemValue(
-                item.position(),
-                item.sourceSha(),
-                item.sourceParentSha(),
-                item.title(),
-                item.pullRequest()
-                        .map(pr -> new PullRequestValue(pr.number(), pr.title(), pr.url()))
-                        .orElse(null),
-                item.disposition().name(),
-                item.result().name(),
-                item.targetSha().orElse(null),
-                item.conflictPaths().stream()
-                        .map(path -> new ConflictValue(
-                                path.path(),
-                                path.type().name(),
-                                path.module().orElse(null),
-                                path.stages().stream()
-                                        .map(stage -> new StageValue(stage.stage(), stage.mode(), stage.blobSha()))
-                                        .collect(toImmutableList())))
-                        .collect(toImmutableList()),
-                item.agentTurnCount());
-    }
-
     private static CherryPickItem toItem(ItemValue value)
     {
         return new CherryPickItem(
@@ -115,8 +90,7 @@ final class CherryPickJson
                 value.sourceSha(),
                 value.sourceParentSha(),
                 value.title(),
-                Optional.ofNullable(value.pullRequest())
-                        .map(pr -> new PullRequestRefView(pr.number(), pr.title(), pr.url())),
+                Optional.ofNullable(value.pullRequest()),
                 Disposition.valueOf(value.disposition()),
                 Result.valueOf(value.result()),
                 Optional.ofNullable(value.targetSha()),
@@ -127,11 +101,7 @@ final class CherryPickJson
                                         path.path(),
                                         ConflictType.valueOf(path.type()),
                                         Optional.ofNullable(path.module()),
-                                        path.stages() == null
-                                                ? ImmutableList.of()
-                                                : path.stages().stream()
-                                                        .map(stage -> new IndexStage(stage.stage(), stage.mode(), stage.blobSha()))
-                                                        .collect(toImmutableList())))
+                                        path.stages() == null ? ImmutableList.of() : path.stages()))
                                 .collect(toImmutableList()),
                 value.agentTurnCount());
     }
@@ -141,18 +111,14 @@ final class CherryPickJson
             String sourceSha,
             String sourceParentSha,
             String title,
-            PullRequestValue pullRequest,
+            PullRequestRefView pullRequest,
             String disposition,
             String result,
             String targetSha,
             List<ConflictValue> conflictPaths,
             int agentTurnCount) {}
 
-    private record PullRequestValue(int number, String title, String url) {}
-
-    private record ConflictValue(String path, String type, String module, List<StageValue> stages) {}
-
-    private record StageValue(int stage, String mode, String blobSha) {}
+    private record ConflictValue(String path, String type, String module, List<IndexStage> stages) {}
 
     private record JournalValue(
             String type,

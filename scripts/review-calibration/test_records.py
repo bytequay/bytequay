@@ -201,10 +201,12 @@ class TestRecords(unittest.TestCase):
         for table, columns in records.COLUMNS.items():
             source = (ENTITIES / ("".join(word.title() for word in table.split("_")) + "Entity.java")).read_text()
             self.assertIn(f'@Table(name = "{table}"', source)
+            # The columns of an embedded record are the entity's own, each a component of that record.
+            source += "".join((ENTITIES / f"{kind}.java").read_text() for kind in re.findall(r"@Embedded\s+private (\w+) \w+;", source))
             for column in columns:
                 field = re.sub(r"_(\w)", lambda found: found.group(1).upper(), column)
                 with self.subTest(table=table, column=column):
-                    self.assertRegex(source, rf"private [\w<>.]+ {field};")
+                    self.assertRegex(source, rf"private [\w<>.]+ {field};|[\w<>.]+ {field}[,)]")
 
 
 if __name__ == "__main__":

@@ -6,8 +6,12 @@ from pathlib import Path
 import shutil
 import time
 
+import pandas
 import streamlit as st
 
+import activity
+import batch
+import cleanup
 import dashboard
 import monitor
 import resources
@@ -119,6 +123,64 @@ def disk(made, mode):
     st.dataframe(rows, hide_index=True, column_config={"GB": st.column_config.NumberColumn(format="%,.1f"), "grew GB": st.column_config.NumberColumn(format="%+,.1f")})
 
 
+@st.fragment(run_every=2)
+def progress(folder):
+    """How a clean-up goes, looked at again every two seconds. Once it ends the whole page runs again, with what is left."""
+    own = cleanup.place(folder)
+    try:
+        last = saved.read(own["folder"], cleanup.STATE)
+    except (OSError, ValueError):
+        st.warning("How the last clean-up went could not be read.")
+        return
+    running = batch.runner(own) is not None
+    if st.session_state.get("cleanup_running") and not running:
+        st.session_state["cleanup_running"] = False
+        st.rerun(scope="app")
+    st.session_state["cleanup_running"] = running
+    if last is None:
+        return
+    if running:
+        st.progress(last["done"] / max(last["items"], 1), text="Counting the disk again" if last["state"] == "counting" else f"Deleting {last['done']:,} of {last['items']:,}")
+        return
+    freed = (last["freeAfter"] or 0) - last["freeBefore"]
+    ended = {"stopped": " It was stopped before it finished.", "failed": f" It failed: {last['problem']}."}.get(last["state"], "" if last["state"] == "done" else " It ended before it finished.")
+    st.caption(f"Last clean-up, {dashboard.when(last['ended'] or last['started'])}: deleted {sum(last['removed'].values()):,} of {last['items']:,} folders or files"
+               + (f" and freed {freed / resources.GB:,.1f} GB on this disk." if freed > 0 else ".") + ended)
+    if last["kept"]:
+        st.caption("Kept, and why:")
+        st.dataframe(pandas.DataFrame(last["kept"]), hide_index=True)
+
+
+def clean_up(made, folder):
+    st.subheader("Clean up")
+    progress(folder)
+    if batch.runner(cleanup.place(folder)) is not None:
+        return
+    now = time.time()
+    going, recent = cleanup.plan(monitor.APP_DATA, monitor.holders(monitor.DATABASE, now), now)
+    later = f" {activity.count(len(recent), 'folder or file', 'folders or files')} nothing uses changed in the last day, so they stay for now." if recent else ""
+    if not going:
+        st.info("Nothing to clean up: no data is left by removed tasks or by features the app no longer has." + later)
+        return
+    st.caption("What nothing in the app uses any more, found by the same rules as the disk count. A worktree goes through git, which keeps any with "
+               "changes not committed; a removed task's event log stays, as the lab reads it." + later)
+    st.dataframe(resources.cleanup_rows(monitor.APP_DATA, going, made["space"] if made else pandas.DataFrame()), hide_index=True,
+                 column_config={"GB at the last count": st.column_config.NumberColumn(format="%,.1f")})
+    if st.button("Clean up…", key="cleanup_ask"):
+        st.session_state["cleanup_confirm"] = True
+    if not st.session_state.get("cleanup_confirm"):
+        return
+    st.warning(f"Delete {activity.count(len(going), 'folder or file', 'folders or files')}? This cannot be undone.")
+    with st.container(horizontal=True):
+        if st.button("Delete", key="cleanup_yes", type="primary"):
+            st.session_state["cleanup_confirm"] = False
+            cleanup.start(folder)
+            st.rerun()
+        if st.button("Cancel", key="cleanup_no"):
+            st.session_state["cleanup_confirm"] = False
+            st.rerun()
+
+
 st.set_page_config(page_title="ByteQuay Lab", layout="wide")
 # Started any other way, Streamlit would serve the page to the whole network.
 if st.get_option("server.address") != dashboard.HOST:
@@ -131,4 +193,6 @@ MODE = "dark" if st.context.theme.type == "dark" else "light"
 st.title("Resources")
 st.caption("What ByteQuay takes from this Mac: its Electron app, its Java backend, and the agents it runs with the commands they start.")
 live(FOLDER, MODE)
-disk(over_time(FOLDER, MODE), MODE)
+MADE = over_time(FOLDER, MODE)
+disk(MADE, MODE)
+clean_up(MADE, FOLDER)

@@ -350,6 +350,22 @@ it is, and every place with how much it grew since the first count kept.
 Memory is what a process holds in RAM. The app's helpers share a little of
 it, so the sum runs slightly high.
 
+Below the disk, "Clean up" lists what nothing in the app uses any more, by the
+same rules as the disk count: what removed tasks left in the runtime and among
+the worktrees, and what retired features left. `uv run cleanup.py` prints the
+same list and `uv run cleanup.py --apply` deletes it. On the page, Clean up
+asks you to confirm, then starts `cleanup.py --apply` apart from the page and
+shows how far it got. This is the only place the lab writes to ByteQuay's data
+folder, and only once you confirm. A worktree goes through git
+(`git worktree remove`, never with `--force`), which keeps one with changes not
+committed or files it does not track; its branch stays in the repository, so
+no commit is lost. A removed task's event log stays, as the lab reads it.
+Nothing that changed in the last day goes, and the database is read again just
+before anything is deleted. When it is done, the page says what was deleted,
+how much the disk gained and what was kept and why, and the disk is counted
+again. How the last clean-up went is kept in `cleanup/cleanup.json` in the
+lab's folder; only one runs at a time.
+
 The dashboard's Processes page lists every program the lab's own Python runs
 now (its pages, the monitor, experiments and their review runs, tests) with
 when it started and its memory, looked at again every three seconds. Stop ends

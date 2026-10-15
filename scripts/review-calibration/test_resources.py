@@ -1,5 +1,6 @@
 import ast
 import logging
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -11,10 +12,13 @@ import pandas
 from streamlit import config
 from streamlit.testing.v1 import AppTest
 
+import batch
 import charts
+import cleanup
 import dashboard
 import monitor
 import resources
+import saved
 
 PAGE = Path(__file__).with_name("pages") / "Resources.py"
 # As in test_dashboard: outside a running page Streamlit warns on every start that there is no page.
@@ -109,6 +113,11 @@ class TestFrames(Kept):
         self.assertIsNone(resources.read(self.folder, 0))
 
 
+def frame(page, column):
+    """The first table on the page with a column of this name."""
+    return next(table.value for table in page.dataframe if column in table.value)
+
+
 class TestPage(Kept):
     def setUp(self):
         super().setUp()
@@ -117,6 +126,18 @@ class TestPage(Kept):
         self.addCleanup(arguments.stop)
         config.set_option("server.address", dashboard.HOST)
         self.addCleanup(config.set_option, "server.address", None)
+        # The app's data is a folder of the test's own, with the retired code index in it and no database, so a page never
+        # plans for the real one.
+        self.data = self.folder.parent / "data"
+        baseline = self.data / "agent-runtime" / "codegraph-baselines"
+        (baseline / "r").mkdir(parents=True)
+        (baseline / "r" / "codegraph.db").write_text("x")
+        for path in (baseline, baseline / "r"):
+            os.utime(path, (time.time() - 2 * 86400,) * 2)
+        for name, value in (("APP_DATA", self.data), ("DATABASE", self.data / "bytequay-1.0.db")):
+            patched = mock.patch.object(monitor, name, value)
+            patched.start()
+            self.addCleanup(patched.stop)
 
     def page(self):
         return AppTest.from_file(str(PAGE), default_timeout=30).run()
@@ -138,9 +159,11 @@ class TestPage(Kept):
                          [("App memory", "1.46 GB"), ("CPU cores", "1.00"), ("Threads", "150"), ("Processes", "6"), ("Turns running", "1"), ("Open tasks", "6"),
                           ("Could be freed", "41.0 GB"), ("Idle open tasks", "15.5 GB")])
         self.assertEqual(page.metric[8].label, "Free on this disk")
-        self.assertEqual([heading.value for heading in page.subheader], ["Over time", "Every part", "Memory while no turn ran", "Disk"])
+        self.assertEqual([heading.value for heading in page.subheader], ["Over time", "Every part", "Memory while no turn ran", "Disk", "Clean up"])
         self.assertEqual(len(page.get("plotly_chart")), 8)  # memory and CPU live; memory, turns, CPU and threads over time; disk by owner and by place
-        self.assertEqual(page.dataframe[-2].value["owner"].tolist(), [monitor.OPEN, monitor.IDLE, monitor.REMOVED, monitor.RETIRED, monitor.REPOSITORIES])
+        self.assertEqual(frame(page, "what it is")["owner"].tolist(), [monitor.OPEN, monitor.IDLE, monitor.REMOVED, monitor.RETIRED, monitor.REPOSITORIES])
+        # What a clean-up would delete, with what its owner held at the last count.
+        self.assertEqual(frame(page, "folders or files").values.tolist(), [[monitor.RETIRED, "agent-runtime", 1, 29.0]])
         self.assertTrue({"This Mac: 40.0 of 64 GB of memory in use.", "The monitor itself typically holds 100 MB and keeps 10.0% of one core busy."}
                         <= {caption.value for caption in page.caption})
 
@@ -156,6 +179,39 @@ class TestPage(Kept):
         page = self.page()
         self.assertEqual(([note.value for note in page.info][:2], len(page.get("plotly_chart")), list(page.exception)),
                          (["Nothing is sampled yet. Start the monitor with `uv run monitor.py --start`", "Nothing was sampled in this stretch."], 0, []))
+
+    def test_a_clean_up_starts_only_once_you_confirm_it(self):
+        page = self.page()
+        with mock.patch.object(cleanup, "start") as started:
+            page.button(key="cleanup_ask").click().run()
+            self.assertEqual([note.value for note in page.warning][-1:], ["Delete 1 folder or file? This cannot be undone."])
+            page.button(key="cleanup_no").click().run()
+            self.assertNotIn("cleanup_yes", [button.key for button in page.button])
+            page.button(key="cleanup_ask").click().run()
+            page.button(key="cleanup_yes").click().run()
+        self.assertEqual(started.call_args_list, [mock.call(self.folder)])
+
+    def test_a_running_clean_up_shows_how_far_it_got_and_nothing_to_start(self):
+        own = cleanup.place(self.folder)
+        own["folder"].mkdir(parents=True)
+        held = batch.claim(own)
+        self.addCleanup(held.close)
+        saved.write(own["folder"], cleanup.STATE, {"version": 1, "state": "running", "started": "2026-10-15T08:00:00Z", "ended": None, "items": 5, "done": 2,
+                                                   "removed": dict.fromkeys(monitor.FREEABLE, 1), "kept": [], "freeBefore": 1, "freeAfter": None, "problem": None})
+        page = self.page()
+        (bar,) = page.get("progress")
+        self.assertEqual((bar.proto.value, bar.proto.text), (40, "Deleting 2 of 5"))
+        self.assertNotIn("cleanup_ask", [button.key for button in page.button])
+
+    def test_the_last_clean_up_says_what_it_deleted_freed_and_kept(self):
+        saved.write(cleanup.place(self.folder)["folder"], cleanup.STATE, {
+            "version": 1, "state": "done", "started": "2026-10-15T08:00:00Z", "ended": "2026-10-15T08:03:00Z", "items": 5, "done": 5,
+            "removed": {monitor.REMOVED: 3, monitor.RETIRED: 1}, "kept": [{"what": "workspaces/w/worktrees/x", "owner": monitor.REMOVED, "why": "it holds changes not committed"}],
+            "freeBefore": 10 * resources.GB, "freeAfter": 12 * resources.GB, "problem": None})
+        page = self.page()
+        said = next(caption.value for caption in page.caption if caption.value.startswith("Last clean-up, "))
+        self.assertTrue(said.endswith(": deleted 4 of 5 folders or files and freed 2.0 GB on this disk."), said)
+        self.assertEqual(frame(page, "why")[["what", "why"]].values.tolist(), [["workspaces/w/worktrees/x", "it holds changes not committed"]])
 
     def test_page_started_another_way_shows_nothing(self):
         config.set_option("server.address", "0.0.0.0")

@@ -11,6 +11,7 @@ import pandas
 import plotly.graph_objects as go
 
 import charts
+import cleanup
 import monitor
 
 MB, GB = 2**20, 2**30
@@ -150,6 +151,13 @@ def disk_rows(space, top=8):
         rows = [*rows[:top], {"place": f"{len(rest)} more", "GB": sum(row["GB"] for row in rest),
                               "grew GB": None if any(row["grew GB"] is None for row in rest) else sum(row["grew GB"] for row in rest)}]
     return pandas.DataFrame(rows)
+
+
+def cleanup_rows(data, going, space):
+    """What a clean-up would delete, by owner and top-level folder, with what that owner held there at the last disk count."""
+    newest = space[space["at"] == space["at"].max()].groupby(["owner", "place"])["bytes"].sum() if len(space) else None
+    return pandas.DataFrame([{"owner": owner, "place": top, "folders or files": amount, "GB at the last count": None if newest is None else newest.get((owner, top), 0) / GB}
+                             for (owner, top), amount in sorted(cleanup.tally(data, going).items())])
 
 
 def disk_figure(rows, mode, by="place"):

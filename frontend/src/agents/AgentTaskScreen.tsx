@@ -38,6 +38,7 @@ import { remoteErrorMessage } from '../pulls/PullOverview';
 import ReviewCommentIndex from '../pulls/ReviewCommentIndex';
 import { privateThreadSource } from '../pulls/PrivateThread';
 import { carriedPanelTab, PullDetailHeader } from '../pulls/PullsScreen';
+import { findConversationReview } from './agentConversations';
 import { canSubmitReview } from '../pulls/model';
 import { usePreparedAgentInput } from './preparedInput';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
@@ -664,8 +665,11 @@ function SidePanel({
     onResolve: (id, resolved) => (localSources.get(id)?.actions ?? prLocalReview).onResolve(id, resolved),
     onRetry: (id, messageId) => (localSources.get(id)?.actions ?? prLocalReview).onRetry(id, messageId),
   };
+  const reviewIdentity = `${workspaceId ?? ''}:${task?.id ?? `${prRepo ?? ''}#${prNumber ?? ''}`}`;
+  const loadedReviewIdentity = useRef(reviewIdentity);
   useEffect(() => {
-    setReview(null);
+    if (loadedReviewIdentity.current !== reviewIdentity) setReview(null);
+    loadedReviewIdentity.current = reviewIdentity;
     setReviewError(null);
     setReviewLoading(true);
     setReviewNavigation(null);
@@ -675,13 +679,13 @@ function SidePanel({
       return;
     }
     let active = true;
-    void Promise.resolve().then(() => task?.interactive ? window.bridge.findTaskAgentReview(workspaceId, task.id)
-      : prRepo === undefined || prNumber === undefined ? null : window.bridge.findAgentReview(workspaceId, prRepo, prNumber))
+    void findConversationReview(window.bridge, workspaceId, task?.interactive ? task.id : undefined,
+      prRepo === undefined || prNumber === undefined ? undefined : { repo: prRepo, number: prNumber })
       .then(value => { if (active) setReview(value); })
       .catch(failure => { if (active) setReviewError(failure instanceof Error ? failure.message : 'Unable to load review'); })
       .finally(() => { if (active) setReviewLoading(false); });
     return () => { active = false; };
-  }, [workspaceId, prRepo, prNumber, reviewReload, task?.id, task?.interactive]);
+  }, [workspaceId, prRepo, prNumber, reviewReload, task?.id, task?.interactive, reviewIdentity]);
   // This task's agent replies on findings from its own turns, which the review's events never report. Re-reading the review whenever the
   // active turn changes shows a finished turn's replies, also when a queued turn starts right behind it.
   const shownReview = useRef(review);
@@ -712,6 +716,7 @@ function SidePanel({
       agentTab={agentTab}
       onNavigate={route => { window.location.hash = route; }}
       agent="developer"
+      developerTask={task === null || workspaceId === undefined ? null : { workspaceId, taskId: task.id }}
       onTab={tab => onSelectTab(tab === 'overview' ? 'pr' : tab)}
       onRefresh={pullRequestDetail.refresh}
       refreshing={pullRequestDetail.loading}

@@ -19,12 +19,13 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
-import type { AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
+import type { AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullRequestTaskLink, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import CodeTestsTab from './code-tests/CodeTestsTab';
 import DevelopmentLearningPanel from '../agents/DevelopmentLearningPanel';
 import DetailSkeleton from './DetailSkeleton';
 import PullRequestTaskActions from './PullRequestTaskActions';
+import { findConversationReview } from '../agents/agentConversations';
 import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
 import type { AgentReviewDto, ReviewDraftItemDto, ReviewEvent } from './agent-review/contracts';
 import { draftCommentCommit, mergeReviewFindings, pendingDraftCount, reviewStatus } from './agent-review/model';
@@ -95,42 +96,50 @@ type DetailTab = HeaderTab;
 type AgentReviewContext = {
   workspaceId: string | undefined;
   review: AgentReviewDto | null;
+  developerTask: PullRequestTaskLink | null;
 };
 
 export async function loadAgentReviewContext(
-  bridge: Pick<Bridge, 'listWorkspaces' | 'findAgentReview' | 'getAgentReview'>,
+  bridge: Pick<Bridge, 'listWorkspaces' | 'findAgentReview' | 'getAgentReview' | 'findPullRequestTask' | 'findTaskAgentReview'>,
   repo: string,
   number: number,
   workspaceId?: string,
   reviewId?: string,
   findTask?: Bridge['findPullRequestTask'],
 ): Promise<AgentReviewContext> {
+  const context = async (workspaceId: string, knownTask?: PullRequestTaskLink | null): Promise<AgentReviewContext> => {
+    const developerTask = knownTask === undefined ? await bridge.findPullRequestTask(workspaceId, repo, number) : knownTask;
+    return { workspaceId, developerTask, review: await findConversationReview(bridge, workspaceId, developerTask?.taskId, { repo, number }) };
+  };
   if (reviewId !== undefined) {
     const review = await bridge.getAgentReview(reviewId);
     if (review.id !== reviewId || review.repo.toLowerCase() !== repo.toLowerCase() || review.number !== number
       || (workspaceId !== undefined && review.workspaceId !== workspaceId)) {
       throw new Error('This review does not belong to the selected pull request and workspace.');
     }
-    return { workspaceId: review.workspaceId, review };
+    return { workspaceId: review.workspaceId, review, developerTask: review.sourceTaskId == null
+      ? await bridge.findPullRequestTask(review.workspaceId, repo, number)
+      : { workspaceId: review.workspaceId, taskId: review.sourceTaskId } };
   }
   if (workspaceId !== undefined) {
-    return { workspaceId, review: await bridge.findAgentReview(workspaceId, repo, number) };
+    return context(workspaceId);
   }
   const workspaces = (await bridge.listWorkspaces()).filter(workspace =>
     `${workspace.monitoredOwner}/${workspace.monitoredRepo}`.toLowerCase() === repo.toLowerCase());
   if (findTask !== undefined) {
     for (const workspace of workspaces) {
-      if (await findTask(workspace.id, repo, number) !== null) {
-        return { workspaceId: workspace.id, review: await bridge.findAgentReview(workspace.id, repo, number) };
-      }
+      const task = await findTask(workspace.id, repo, number);
+      if (task !== null) return context(workspace.id, task);
     }
   }
   // Several fork workspaces can watch the same upstream. Reuse a review before offering a new one.
+  let first: AgentReviewContext = { workspaceId: undefined, review: null, developerTask: null };
   for (const workspace of workspaces) {
-    const review = await bridge.findAgentReview(workspace.id, repo, number);
-    if (review !== null) return { workspaceId: workspace.id, review };
+    const value = await context(workspace.id);
+    if (value.review !== null) return value;
+    if (first.workspaceId === undefined || (first.developerTask === null && value.developerTask !== null)) first = value;
   }
-  return { workspaceId: workspaces[0]?.id, review: null };
+  return first;
 }
 
 /**
@@ -853,7 +862,6 @@ export default function PullsScreen({
   const codeTabShown = workspaceId !== undefined;
 
   useEffect(() => {
-    setReviewContext(null);
     setReviewNavigation(null);
     setFocusFindingId(null);
     setReviewCardFocus(null);
@@ -865,7 +873,9 @@ export default function PullsScreen({
         if (!cancelled) setReviewContext({ ...context, key: reviewKey, error: null });
       })
       .catch(failure => {
-        if (!cancelled) setReviewContext({ key: reviewKey, workspaceId: undefined, review: null, error: remoteErrorMessage(failure) });
+        if (!cancelled) setReviewContext(current => current?.key === reviewKey
+          ? { ...current, error: remoteErrorMessage(failure) }
+          : { key: reviewKey, workspaceId: undefined, review: null, developerTask: null, error: remoteErrorMessage(failure) });
       });
     return () => { cancelled = true; };
   }, [scopedWorkspaceId, selectedPrRepo, selectedPrNumber, reviewKey, reviewReload, requestedReviewId, authored]);
@@ -1201,6 +1211,7 @@ export default function PullsScreen({
             tab={detailTab === 'agents' || detailTab === 'discussions' ? null : detailTab}
             agentTab={reviewWorkspace === undefined ? undefined : <span ref={setAgentTabTarget} />}
             review={review}
+            developerTask={currentReviewContext?.developerTask}
             onReviewChange={updateReview}
             codeAvailable={codeTabShown || codeTaskLoading}
             onChangesToolbar={setChangesToolbar}
@@ -1410,6 +1421,7 @@ export function PullDetailHeader({
   onClose,
   onNavigate,
   agent,
+  developerTask: suppliedDeveloperTask,
 }: {
   pr: PullRequestDto | null;
   detail: PullRequestDetailDto | null;
@@ -1441,6 +1453,8 @@ export function PullDetailHeader({
   onNavigate?: (route: string) => void;
   /** The agent whose own screen this header is on; its button stays in place, marked as the current one. */
   agent?: 'developer' | 'reviewer';
+  /** Conversation identity survives independently of a reviewer or a retained worktree. */
+  developerTask?: PullRequestTaskLink | null;
 }) {
   useAttentionVisit(pr === null || detail === null ? null : pullRequestItem(pr));
   const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
@@ -1450,13 +1464,15 @@ export function PullDetailHeader({
   // Promoted findings are outgoing comments too, so the count the button shows covers both.
   const pendingCommentCount = pendingComments.length + pendingDraftCount(review?.draft ?? null);
   const reviewChip = review === null ? null : reviewStatus(review);
-  const developerTaskId = review?.sourceTaskId ?? null;
-  const showDeveloper = onNavigate !== undefined && review !== null && (agent === 'developer' || developerTaskId !== null);
-  const showReviewer = onNavigate !== undefined && review !== null;
+  const developerTask = review?.sourceTaskId == null ? suppliedDeveloperTask
+    : { workspaceId: review.workspaceId, taskId: review.sourceTaskId };
+  const showDeveloper = onNavigate !== undefined && (agent === 'developer' || developerTask != null);
+  const showReviewer = onNavigate !== undefined && (agent === 'reviewer' || review !== null);
   // The development task's own screen already shows its state, so only a link to it reads the task.
-  const developer = useTaskCardState(review?.workspaceId ?? null, showDeveloper && agent !== 'developer' ? developerTaskId : null);
+  const developer = useTaskCardState(developerTask?.workspaceId ?? null, showDeveloper && agent !== 'developer' ? developerTask?.taskId ?? null : null);
   const switchAgent = (route: string): void => {
-    carriedTab = tab === null ? null : { route, tab };
+    // Utility tabs belong to one conversation; still keep the destination's panel open.
+    carriedTab = { route, tab: tab ?? 'changes' };
     onNavigate?.(route);
   };
   // An idle or finished developer needs no chip.
@@ -1518,12 +1534,12 @@ export function PullDetailHeader({
               {reviewChip.busy && <span className="agr-spinner" aria-hidden="true" />}{reviewChip.chip}
             </span>}
           </button>
-          {review !== null && (showDeveloper || showReviewer) && <span className="pull-detail__agents" role="group" aria-label="Agents">
+          {(showDeveloper || showReviewer) && <span className="pull-detail__agents" role="group" aria-label="Agents">
             {showDeveloper && <button type="button" aria-current={agent === 'developer' ? 'true' : undefined}
               title={agent === 'developer' ? 'This is the development task'
                 : `Open the development task${developer === null ? '' : ` · ${developer.reason ?? developer.label}`}`}
-              onClick={agent === 'developer' || developerTaskId === null ? undefined
-                : () => switchAgent(workspaceAgentTaskRoute(review.workspaceId, developerTaskId))}>
+              onClick={agent === 'developer' || developerTask == null ? undefined
+                : () => switchAgent(workspaceAgentTaskRoute(developerTask.workspaceId, developerTask.taskId))}>
               <Bot size={14} strokeWidth={1.8} aria-hidden="true" /> Developer
               {developer !== null && developerTone !== null && <span className={`pull-detail__review-chip is-${developerTone}`}>
                 {developer.spinning && <span className="agr-spinner" aria-hidden="true" />}{developer.label}
@@ -1531,7 +1547,7 @@ export function PullDetailHeader({
             </button>}
             {showReviewer && <button type="button" aria-current={agent === 'reviewer' ? 'true' : undefined}
               title={agent === 'reviewer' ? 'This is the review task' : 'Open the review task'}
-              onClick={agent === 'reviewer' ? undefined : () => switchAgent(workspaceReviewTaskRoute(review.workspaceId, review.id))}>
+              onClick={agent === 'reviewer' || review === null ? undefined : () => switchAgent(workspaceReviewTaskRoute(review.workspaceId, review.id))}>
               <Eye size={14} strokeWidth={1.8} aria-hidden="true" /> Reviewer
             </button>}
           </span>}

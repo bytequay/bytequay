@@ -1776,7 +1776,7 @@ describe('the pane tab row', () => {
   function header(
     tab: 'overview' | 'files' | 'changes' | 'review' | 'code' | null,
     review: AgentReviewDto | null,
-    options: Partial<Pick<ComponentProps<typeof PullDetailHeader>, 'agentTab' | 'onZoom' | 'zoom' | 'pr' | 'detail' | 'onNavigate' | 'agent' | 'pendingComments'>> = {},
+    options: Partial<Pick<ComponentProps<typeof PullDetailHeader>, 'agentTab' | 'onZoom' | 'zoom' | 'pr' | 'detail' | 'onNavigate' | 'agent' | 'developerTask' | 'pendingComments'>> = {},
   ): string {
     return headerMarkup({ pr, detail: headerDetail, tab, review, ...options });
   }
@@ -1828,7 +1828,10 @@ describe('the pane tab row', () => {
     expect(agents(fromTask, { onNavigate: () => {}, agent: 'reviewer' })).toEqual(['Developer', 'Reviewer*']);
     expect(agents(reviewFixture(), { onNavigate: () => {}, agent: 'reviewer' })).toEqual(['Reviewer*']);
     expect(agents(reviewFixture({ number: null }), { onNavigate: () => {}, agent: 'reviewer', pr: null, detail: null })).toEqual(['Reviewer*']);
-    expect(agents(null, { onNavigate: () => {}, agent: 'developer' })).toEqual([]);
+    expect(agents(null, { onNavigate: () => {}, agent: 'developer' })).toEqual(['Developer*']);
+    const developerTask = { workspaceId: 'workspace-1', taskId: 'task-1' };
+    expect(agents(null, { onNavigate: () => {}, developerTask })).toEqual(['Developer']);
+    expect(agents(reviewFixture(), { onNavigate: () => {}, developerTask, agent: 'reviewer' })).toEqual(['Developer', 'Reviewer*']);
     expect(agents(reviewFixture())).toEqual(['Reviewer']);
     expect(agents(fromTask, {})).toEqual([]);
   });

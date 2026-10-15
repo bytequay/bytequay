@@ -22,6 +22,7 @@ import type { TaskReviewOptions } from '../../pulls/agent-review/TaskReviewSumma
 import { useLocalReviewThreads } from '../../pulls/local-review/useLocalReviewThreads';
 import { carriedPanelTab, PullDetailHeader } from '../../pulls/PullsScreen';
 import { reviewFixture } from '../../pulls/agent-review/fixtures/review';
+import { pr } from '../../pulls/fixtures/pullRequest';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../../workspaces/model';
 import { loadHandled } from '../../home/attention';
 import WorktreeChanges from '../../pulls/code-tests/WorktreeChanges';
@@ -98,7 +99,7 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
   try {
     flushSync(() => root.render(<Harness />));
     await settle();
-    assert(host.querySelector('[aria-label="Task destinations"]')?.querySelectorAll('button').length === 2, 'Only PR and WorkBench are top-level until the conversation opens a utility tab');
+    assert(host.querySelector('[aria-label="Task destinations"]')?.querySelectorAll('button').length === 3, 'PR, WorkBench and the current Developer stay at the top before a reviewer exists');
     click('WorkBench'); await settle();
     const firstView = host.querySelector('[aria-label="WorkBench views"] button');
     assert(firstView?.textContent?.trim() === 'Changes' && firstView.getAttribute('aria-pressed') === 'true',
@@ -257,14 +258,22 @@ export async function utilityTabs(): Promise<string> {
 }
 
 /** Developer and Reviewer change the conversation only: the screen a switch opens keeps the panel tab the user was on. */
-export async function agentSwitch(): Promise<string> {
+export async function agentSwitch(published = false, utility = false): Promise<string> {
   const bridge = createPreviewBridge('workspace-1');
   const taskId = bridge.events[0].taskId;
-  const review = reviewFixture({ id: 'review-1', workspaceId: 'workspace-1', sourceTaskId: taskId });
+  const review = reviewFixture({ id: 'review-1', workspaceId: 'workspace-1', sourceTaskId: published ? null : taskId });
+  const publishedPr = pr({ repo: review.repo, number: review.number });
+  if (published) bridge.listAgentTaskPullRequests = async () => [publishedPr];
   const getTask = bridge.getAgentTask;
   bridge.getAgentTask = async (id, workspaceId) => ({ ...await getTask(id, workspaceId), interactive: true });
   const originalBridge = window.bridge;
-  Object.defineProperty(window, 'bridge', { configurable: true, value: { ...bridge, findTaskAgentReview: async () => review,
+  Object.defineProperty(window, 'bridge', { configurable: true, value: { ...bridge,
+    findTaskAgentReview: async () => published ? null : review,
+    findAgentReview: async () => review,
+    fetchPullRequestDetailByRef: async () => { throw new Error('Details unavailable'); },
+    refreshPullRequestDetailByRef: async () => { throw new Error('Details unavailable'); },
+    fetchPrDiffFiles: async (): ReturnType<Bridge['fetchPrDiffFiles']> => [],
+    fetchPrDiffCommits: async (): ReturnType<Bridge['fetchPrDiffCommits']> => [],
     readWorktreeChanges: async (): Promise<WorktreeChangesDto> => ({ scope: 'ALL', selectedCommit: null, sourceFingerprint: 'working-copy',
       baseSha: 'base', headSha: 'head', baseLabel: 'main', branch: 'feature', truncated: false,
       commits: [], staged: [], unstaged: [], untracked: [], files: [] }),
@@ -287,7 +296,7 @@ export async function agentSwitch(): Promise<string> {
   const reviewerRoute = workspaceReviewTaskRoute('workspace-1', review.id);
   try {
     // The reviewer's header, on the pull request tab.
-    flushSync(() => root.render(<PullDetailHeader pr={null} detail={null} tab="overview" review={review} agent="reviewer" onTab={() => {}}
+    flushSync(() => root.render(<PullDetailHeader pr={null} detail={null} tab={utility ? null : 'overview'} review={review} developerTask={{ workspaceId: review.workspaceId, taskId }} agent="reviewer" onTab={() => {}}
       onRefresh={async () => {}} onReviewSubmitted={() => {}} refreshing={false} pendingComments={[]} onPendingCommentsChange={() => {}}
       onNavigate={(route) => { void go(route); }} />));
     await settle();
@@ -295,12 +304,22 @@ export async function agentSwitch(): Promise<string> {
     agent('Developer')?.click(); await settle();
     assert(window.location.hash === developerRoute, 'Developer must open the development task');
     flushSync(() => root.render(<AgentTaskScreen key="developer" workspaceId="workspace-1" taskId={taskId} bridge={bridge} onBack={() => {}} />));
-    assert(await panel('Pull request'), 'The development task must open its panel on the tab the reviewer was on, not on its default Changes');
+    assert(await panel(utility ? 'Changes' : published ? `Pull request #${publishedPr.number}` : 'Pull request'), 'The development task must open its panel on the tab the reviewer was on, not on its default Changes');
     assert(agent('Developer')?.getAttribute('aria-current') === 'true', 'The development task must mark Developer as the current agent');
+    for (let frame = 0; frame < 30 && agent('Reviewer') === undefined; frame++) await settle();
+    assert(agent('Reviewer') !== undefined, 'The reviewer must remain reachable after opening Developer, including PR-only reviews');
+    const currentDeveloper = agent('Developer');
+    currentDeveloper?.click(); await settle();
+    assert(agent('Developer') === currentDeveloper && agent('Reviewer') !== undefined,
+      'Clicking the current conversation must preserve both tabs');
+    const top = currentDeveloper?.getBoundingClientRect().top;
+    const scroll = host.querySelector<HTMLElement>('.agt-panel__scroll, .pull-detail__body');
+    scroll?.scrollTo(0, scroll.scrollHeight); await settle();
+    assert(agent('Developer')?.getBoundingClientRect().top === top, 'Conversation tabs must stay fixed above scrolling content');
     [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim().startsWith('WorkBench'))?.click();
     assert(await panel('Changes'), 'WorkBench must open on Changes');
     agent('Reviewer')?.click(); await settle();
-    assert(window.location.hash === reviewerRoute && carriedPanelTab() === 'changes', 'Reviewer must open the review with the tab the developer was on');
+    assert(window.location.hash === reviewerRoute && carriedPanelTab() === (published ? 'files' : 'changes'), 'Reviewer must open the review with the tab the developer was on');
     await go('#/workspaces/workspace-1/tasks');
     await go(reviewerRoute);
     assert(carriedPanelTab() === null, 'Opening the review another way must get its own default tab');

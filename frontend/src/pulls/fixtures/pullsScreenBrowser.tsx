@@ -385,6 +385,7 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
     getModelSettings: agent.getModelSettings,
     getAgentTurn: agent.getAgentTurn,
     getAgentReview: async () => review,
+    findPullRequestTask: async () => null,
     readAgentReviewHistory: async (_id, taskId, before, after) => {
       const page = await agent.readAgentHistory(taskId, before, after);
       return delivered && before === undefined && after === undefined
@@ -403,7 +404,7 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
     fetchPrDiffCommits: async () => commits,
     listLocalReviewComments: async () => [],
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'getUserProfile' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'readAgentReviewHistory'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'findPullRequestTask' | 'readAgentReviewHistory'
     | 'subscribeAgentReview' | 'fetchAttentionPrs' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef'
     | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'listLocalReviewComments' | 'recordRecentTouch'>;
   const originalBridge = window.bridge;
@@ -1154,6 +1155,7 @@ export async function runAssignedPrActions(): Promise<string> {
   const original = window.bridge;
   window.bridge = { ...original,
     findPullRequestTask: async () => null,
+    findAgentReview: async () => null,
     findTaskAgentReview: async (workspaceId, taskId) => {
       assert(workspaceId === 'workspace' && taskId === 'development-task', 'Find the reviewer belonging to this development task');
       linkedReviewReads++;
@@ -1380,6 +1382,7 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
     fetchPrDiffCommits: async () => commits,
     // A pull request with both hosts would show the task's threads, so each run offers only the one it tests.
     findAgentReview: async () => answeredBy === 'review' ? review : null,
+    findTaskAgentReview: async () => null,
     findPullRequestTask: async () => answeredBy === 'task'
       ? { workspaceId: task.workspaceId, taskId: task.id, taskState: 'OPEN', version: 1, linked: true } : null,
     getAgentTask: async () => task,
@@ -1400,7 +1403,7 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
     fetchMergeMode: async () => ({ mergeQueue: false }),
     recordRecentTouch: async () => {},
   } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'fetchPrDiffFiles'
-    | 'fetchPrDiffCommits' | 'findAgentReview' | 'findPullRequestTask' | 'getAgentTask' | 'listTaskDiscussions' | 'askTaskDiscussionComment'
+    | 'fetchPrDiffCommits' | 'findAgentReview' | 'findTaskAgentReview' | 'findPullRequestTask' | 'getAgentTask' | 'listTaskDiscussions' | 'askTaskDiscussionComment'
     | 'listReviewDiscussions' | 'askReviewCommentThread' | 'listLocalReviewComments' | 'listWorkspaces' | 'fetchAttentionPrs'
     | 'setPrAttentionHandled' | 'fetchMergeMode' | 'recordRecentTouch'>;
   Object.assign(window, { bridge });

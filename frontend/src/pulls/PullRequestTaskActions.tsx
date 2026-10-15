@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bot, Eye, LoaderCircle, RefreshCw } from 'lucide-react';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import { remoteErrorMessage } from './PullOverview';
+import { findConversationReview } from '../agents/agentConversations';
 import type { AgentReviewDto } from './agent-review/contracts';
 
 export default function PullRequestTaskActions({ repo, number, authored, workspaceId, loading, contextError, review, onNavigate, onRetryContext }: {
@@ -56,7 +57,7 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
       }
       else {
         // A reviewer started before publication can be linked only to the development task.
-        const linkedReview = link === null ? null : await window.bridge.findTaskAgentReview(workspaceId, link.taskId);
+        const linkedReview = await findConversationReview(window.bridge, workspaceId, link?.taskId, { repo, number });
         if (current !== generation.current) return;
         const task = linkedReview ?? review ?? await window.bridge.startAgentReview(workspaceId, repo, number);
         route = workspaceReviewTaskRoute(task.workspaceId, task.id);

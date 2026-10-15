@@ -165,6 +165,15 @@ not an agent's to undo.
 Inline feedback stays in the development task's existing scope and uses its normal
 turn and queue admission. Private comments do not turn a developer into a reviewer
 or disable authorized delivery. Review permissions belong to separate review tasks.
+A development review borrows its source task's exact worktree; it does not provision
+another checkout. Provider review sessions are read-only. Turn, local-run, and
+cleanup admission share the worktree owner's lock and check all borrowers' durable
+claims, so developer and reviewer execution cannot overlap. Ending or deleting a
+review only removes its own runtime resources. The developer owns checkout removal.
+Reviews freeze committed and uncommitted files in Git tree objects with a temporary
+index; HEAD, branch history, and the user's staging area stay unchanged. Retained
+trees support stable source reads and anchors. Reviews with local edits cannot be
+published as reviews of a GitHub commit.
 
 Private question sessions receive a read-only context capability scoped to their
 selected discussion or comment batch. The prompt carries the question and a short

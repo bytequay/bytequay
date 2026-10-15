@@ -224,7 +224,7 @@ class TestAppNoticeService
         when(reviews.listOpenReviews()).thenReturn(ImmutableList.of(review));
         AgentTurn done = turn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10));
         show(task, done);
-        ReviewRun full = new ReviewRun("full", review.id(), 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(),
+        ReviewRun full = new ReviewRun("full", review.id(), 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(), Optional.empty(),
                 ImmutableList.of(new ReviewCommit("a", "First", "author"), new ReviewCommit("b", "Second", "author")),
                 ImmutableList.of(new DiffFile("a.java", "modified", 30, 8, null), new DiffFile("b.java", "modified", 12, 4, null)),
                 ImmutableList.of(done.id().toString()), ReviewRun.State.ACCEPTED, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
@@ -232,7 +232,7 @@ class TestAppNoticeService
         when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(full));
         assertThat(service.current()).singleElement().extracting(AppNotice::changeSummary).isEqualTo(Optional.of("2 commits · 2 files · +42 / −12 lines"));
 
-        ReviewRun update = new ReviewRun("update", review.id(), 2, ReviewRun.Scope.INCREMENTAL, "main", "base", "base", "head", Optional.of("prior"),
+        ReviewRun update = new ReviewRun("update", review.id(), 2, ReviewRun.Scope.INCREMENTAL, "main", "base", "base", "head", Optional.empty(), Optional.of("prior"),
                 ImmutableList.of(new ReviewCommit("c", "Rename image", "author")), ImmutableList.of(new DiffFile("image.png", "renamed", 0, 0, null)),
                 ImmutableList.of(done.id().toString()), ReviewRun.State.ACCEPTED, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.of(NOW));
@@ -247,7 +247,7 @@ class TestAppNoticeService
                 Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
         when(reviews.listOpenReviews()).thenReturn(ImmutableList.of(review));
         AgentTurn investigation = turn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10));
-        ReviewRun run = new ReviewRun("run", review.id(), 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(),
+        ReviewRun run = new ReviewRun("run", review.id(), 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(), Optional.empty(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(investigation.id().toString()), ReviewRun.State.RUNNING,
                 Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(ReviewStep.initial()), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());

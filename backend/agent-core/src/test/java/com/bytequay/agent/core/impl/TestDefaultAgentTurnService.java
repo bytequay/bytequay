@@ -94,6 +94,7 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.ProviderUsageSample;
+import com.bytequay.agent.spi.SessionAccess;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -198,8 +199,30 @@ class TestDefaultAgentTurnService
         metrics = new DefaultAgentMetricsService(stores, stores, logs, CLOCK);
         approvals = new RecordingApprovalService();
         scheduler = Executors.newSingleThreadScheduledExecutor();
-        runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         service = service(driver, runtimeRegistry);
+    }
+
+    @Test
+    void sharedCheckoutClaimsExcludeDeveloperAndReviewerInBothDirections()
+    {
+        TaskId reviewerId = TaskId.random();
+        AgentTask reviewer = AgentTask.created(reviewerId, false, "Reviewer", TitleSource.USER, task.laneId(),
+                task.taskWorktree().orElseThrow(), task.defaults(), NOW);
+        stores.insert(reviewer);
+        resources.allocate(reviewerId);
+        assertThat(runtimeRegistry.taskLock(reviewerId)).isSameAs(runtimeRegistry.taskLock(task.id()));
+        service.claimLocalRun(task.id(), "developer-build");
+        assertThatThrownBy(() -> service.claimLocalRun(reviewerId, "review-build")).isInstanceOf(AgentConflictException.class).hasMessageContaining("shared working copy");
+        service.releaseLocalRun(task.id(), "developer-build");
+        service.claimLocalRun(reviewerId, "review-build");
+        AgentRuntimeRegistry restarted = new AgentRuntimeRegistry(stores, ignored -> {});
+        assertThat(restarted.taskLock(reviewerId)).isSameAs(restarted.taskLock(task.id()));
+        assertThatThrownBy(() -> service(driver, restarted).claimLocalRun(task.id(), "developer-build"))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("shared working copy");
+        service.releaseLocalRun(reviewerId, "review-build");
+        service.start(new StartAgentTurnCommand(reviewerId, "Review the edits", ImmutableList.of(), "shared-review"));
+        assertThat(driver.openedContexts().getLast().access()).isEqualTo(SessionAccess.REVIEW_READ_ONLY);
     }
 
     @AfterEach
@@ -846,7 +869,7 @@ class TestDefaultAgentTurnService
     @Test
     void handlesProviderCompletionThatPrecedesStartReturn()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         service = service(driver, runtimeRegistry);
         approvals.beforeDeny(() -> awaitTaskLock(runtimeRegistry));
         driver.completeNextStart();
@@ -1085,6 +1108,8 @@ class TestDefaultAgentTurnService
                 .contains("Commit finished development work: true", "Auto draft PR: true", "Auto CI fix: true",
                         "accepted settings alone control subsequent delivery", "readyForDelivery=false",
                         "Preserve unfinished work and wait for the user's decision", "do not execute the conflicting step",
+                        "review-before-publication hold does not prohibit authorized local commits", "Do not commit solely to enable review",
+                        "Keep readyForDelivery=false until the publication hold is lifted",
                         "not a user instruction to skip later enabled steps")
                 .doesNotContain("must change before resubmitting");
         driver.complete("Auto CI fix conflicts with skipping CI");
@@ -1884,7 +1909,7 @@ class TestDefaultAgentTurnService
     @Test
     void sharedBranchAdmissionBlocksSourceStartCompleteAndDelete()
     {
-        runtimeRegistry = new AgentRuntimeRegistry(candidate -> {
+        runtimeRegistry = new AgentRuntimeRegistry(stores, candidate -> {
             assertThat(Thread.holdsLock(runtimeRegistry.taskLock(candidate.id()))).isTrue();
             throw new AgentConflictException("CI owns the source branch");
         });
@@ -1903,7 +1928,7 @@ class TestDefaultAgentTurnService
     void rechecksSharedBranchAdmissionAfterCapturingTheAcceptedBaseline()
     {
         AtomicBoolean reserved = new AtomicBoolean();
-        runtimeRegistry = new AgentRuntimeRegistry(candidate -> {
+        runtimeRegistry = new AgentRuntimeRegistry(stores, candidate -> {
             assertThat(Thread.holdsLock(runtimeRegistry.taskLock(candidate.id()))).isTrue();
             if (reserved.get()) {
                 throw new AgentConflictException("CI owns the source branch");
@@ -2176,7 +2201,7 @@ class TestDefaultAgentTurnService
     @Test
     void retainsCompletedProviderHandleUntilTerminalTransactionCanRetry()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         service = service(driver, runtimeRegistry);
         AgentTurn running = service.start(command("first", "key-1"));
         AgentTask taskBefore = stores.find(task.id()).orElseThrow();
@@ -2204,7 +2229,7 @@ class TestDefaultAgentTurnService
     @Test
     void rollsBackTerminalTransactionWhenLifecycleOutboxInsertFails()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         service = service(driver, runtimeRegistry);
         AgentTurn running = service.start(command("first", "key-1"));
         AgentTask taskBefore = stores.find(task.id()).orElseThrow();
@@ -2237,7 +2262,7 @@ class TestDefaultAgentTurnService
     @Test
     void retainsCompletedProviderHandleUntilTerminalEventCanDrain()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         FailOnceDrainEventService configuredEvents = new FailOnceDrainEventService(events, false);
         service = service(driver, runtimeRegistry, configuredEvents);
         AgentTurn running = service.start(command("first", "key-1"));
@@ -2257,7 +2282,7 @@ class TestDefaultAgentTurnService
     @Test
     void retriesTerminalApprovalCleanupBeforeStartingAnotherTurn()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         service = service(driver, runtimeRegistry);
         AgentTurn first = service.start(command("first", "key-1"));
         approvals.failNextDeny(new AgentStorageException("blocked approval store"));
@@ -2277,7 +2302,7 @@ class TestDefaultAgentTurnService
     void terminalizesWithAnAdvancingClock()
     {
         Clock clock = new AdvancingClock(NOW.plusMillis(1));
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         metrics = new DefaultAgentMetricsService(stores, stores, logs, clock);
         service = service(driver, runtimeRegistry, events, approvals, clock);
         AgentTurn running = service.start(command("first", "key-1"));
@@ -2292,7 +2317,7 @@ class TestDefaultAgentTurnService
     @Test
     void retainsTheClaimForAnExceptionalProviderCompletionUntilExplicitStop()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         service = service(driver, runtimeRegistry);
         AgentTurn running = service.start(command("first", "key-1"));
 
@@ -2353,7 +2378,7 @@ class TestDefaultAgentTurnService
     @Test
     void doesNotStartProviderWhenUserMessageCannotDrain()
     {
-        service = service(driver, new AgentRuntimeRegistry(ignored -> {}), new FailOnceDrainEventService(events));
+        service = service(driver, new AgentRuntimeRegistry(stores, ignored -> {}), new FailOnceDrainEventService(events));
 
         assertThatThrownBy(() -> service.start(command("first", "key-1")))
                 .isInstanceOf(AgentStorageException.class)
@@ -2410,7 +2435,7 @@ class TestDefaultAgentTurnService
     @Test
     void drainsPendingUserMessageBeforeReturningIdempotentTurnOrStartingAnother()
     {
-        service = service(driver, new AgentRuntimeRegistry(ignored -> {}), new FailOnceDrainEventService(events));
+        service = service(driver, new AgentRuntimeRegistry(stores, ignored -> {}), new FailOnceDrainEventService(events));
 
         assertThatThrownBy(() -> service.start(command("first", "key-1")))
                 .isInstanceOf(AgentStorageException.class)
@@ -2531,7 +2556,7 @@ class TestDefaultAgentTurnService
     @Test
     void releasesTaskLockBeforeDenyingApprovalsAfterCompletion()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         service = service(driver, runtimeRegistry);
         approvals.beforeDeny(() -> awaitTaskLock(runtimeRegistry));
         AgentTurn running = service.start(command("first", "key-1"));
@@ -2545,7 +2570,7 @@ class TestDefaultAgentTurnService
     @Test
     void releasesTaskLockBeforeDenyingApprovalsAfterStartFailure()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         service = service(driver, runtimeRegistry);
         approvals.beforeDeny(() -> awaitTaskLock(runtimeRegistry));
         driver.failNextStart();
@@ -2624,7 +2649,7 @@ class TestDefaultAgentTurnService
     @Test
     void nextReadClosesApprovalWhenCompletionDenialCouldNotPersist()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         DefaultAgentApprovalService durableApprovals = durableApprovals(runtimeRegistry);
         service = service(driver, runtimeRegistry, events, durableApprovals);
         AgentTurn running = service.start(command("first", "key-1"));
@@ -2647,7 +2672,7 @@ class TestDefaultAgentTurnService
     @Test
     void restartClosesApprovalWhenFailedStartDenialCouldNotPersist()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         DefaultAgentApprovalService durableApprovals = durableApprovals(runtimeRegistry);
         service = service(driver, runtimeRegistry, events, durableApprovals);
         ApprovalId approvalId = ApprovalId.random();
@@ -2666,7 +2691,7 @@ class TestDefaultAgentTurnService
         assertThat(stores.list(task.id())).singleElement().satisfies(turn -> assertThat(turn.state()).isEqualTo(TurnState.INTERRUPTED));
         assertThat(stores.find(approvalId).orElseThrow().pending()).isTrue();
 
-        durableApprovals(new AgentRuntimeRegistry(ignored -> {})).denyAllPending();
+        durableApprovals(new AgentRuntimeRegistry(stores, ignored -> {})).denyAllPending();
 
         assertThat(stores.find(approvalId).orElseThrow().pending()).isFalse();
     }
@@ -2726,7 +2751,7 @@ class TestDefaultAgentTurnService
         AgentSessionRef reference = stores.find(task.id()).orElseThrow().sessionReference().orElseThrow();
 
         DeterministicAgentDriver resumedDriver = new DeterministicAgentDriver();
-        DefaultAgentTurnService resumedService = service(resumedDriver, new AgentRuntimeRegistry(ignored -> {}));
+        DefaultAgentTurnService resumedService = service(resumedDriver, new AgentRuntimeRegistry(stores, ignored -> {}));
         AgentTurn second = resumedService.start(command("second", "key-2"));
 
         assertThat(resumedDriver.openedReferences()).containsExactly(reference);
@@ -2765,7 +2790,7 @@ class TestDefaultAgentTurnService
         AgentSessionRef reference = stores.find(task.id()).orElseThrow().sessionReference().orElseThrow();
 
         DeterministicAgentDriver resumedDriver = new DeterministicAgentDriver();
-        DefaultAgentTurnService resumedService = service(resumedDriver, new AgentRuntimeRegistry(ignored -> {}));
+        DefaultAgentTurnService resumedService = service(resumedDriver, new AgentRuntimeRegistry(stores, ignored -> {}));
         resumedService.start(command("second", "key-2"));
         assertThat(resumedDriver.openedContexts()).singleElement().satisfies(context -> {
             assertThat(context.sessionReference()).contains(reference);
@@ -2843,7 +2868,7 @@ class TestDefaultAgentTurnService
     {
         Clock clock = new AdvancingClock(NOW.plusMillis(1));
         metrics = new DefaultAgentMetricsService(stores, stores, logs, clock);
-        runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         service = service(driver, runtimeRegistry, events, approvals, clock);
         IllegalStateException failure = new IllegalStateException("session transport failed");
         driver.failNextSessionReferenceAndClose(failure);
@@ -3047,7 +3072,7 @@ class TestDefaultAgentTurnService
     @Test
     void retriesAnAcceptedSteerThatFailedBeforeTheProviderSend()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         service = service(driver, runtimeRegistry);
         AgentTurn first = service.start(command("first", "key-1"));
         FailOnceDrainEventService failingEvents = new FailOnceDrainEventService(events, false);
@@ -3086,7 +3111,7 @@ class TestDefaultAgentTurnService
     @Test
     void failsAnAcceptedSteerWhenItsTurnEndsBeforeRetry()
     {
-        AgentRuntimeRegistry sharedRuntime = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry sharedRuntime = new AgentRuntimeRegistry(stores, ignored -> {});
         service = service(driver, sharedRuntime);
         AgentTurn first = service.start(command("first", "key-1"));
         FailOnceDrainEventService failingEvents = new FailOnceDrainEventService(events, false);
@@ -3588,7 +3613,7 @@ class TestDefaultAgentTurnService
     @Test
     void pausesTheQueueHeadWhenItsOwnStartFailsBeforeSendingAndRetriesWithoutASecondMessage()
     {
-        service = service(driver, new AgentRuntimeRegistry(ignored -> {}), new FailQueuedMessageDrainEventService(events, stores));
+        service = service(driver, new AgentRuntimeRegistry(stores, ignored -> {}), new FailQueuedMessageDrainEventService(events, stores));
         service.start(command("first", "key-1"));
         QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
 

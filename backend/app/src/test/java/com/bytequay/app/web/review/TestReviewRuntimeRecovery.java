@@ -120,7 +120,7 @@ class TestReviewRuntimeRecovery
             throws Exception
     {
         ReviewEvidence evidence = new ReviewEvidence("e1", "src/App.java:1", "git", "return value;", "Value is returned");
-        ReviewRun run = new ReviewRun("run-1", REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", "base", "merge-base", "head", Optional.empty(),
+        ReviewRun run = new ReviewRun("run-1", REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", "base", "merge-base", "head", Optional.empty(), Optional.empty(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.RUNNING,
                 Optional.of(new ReviewSummary(2, "Purpose", ImmutableList.of(new ReviewSummary.CommitExplanation("head", "Change")), "Result", Optional.empty(),
                         ImmutableList.of("finding-1"))),
@@ -375,7 +375,7 @@ class TestReviewRuntimeRecovery
         return new AgentMaintenance(
                 taskStore, turnStore, mock(QueuedInputStore.class), mock(SteerDeliveryStore.class), mock(AgentUnitOfWork.class),
                 mock(AgentEventOutboxStore.class), mock(AgentApprovalService.class), mock(AgentMetricsService.class), mock(AgentCompletionService.class),
-                new AgentRuntimeRegistry(ignored -> {}), Clock.fixed(NOW, ZoneOffset.UTC));
+                new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static AgentTask task()

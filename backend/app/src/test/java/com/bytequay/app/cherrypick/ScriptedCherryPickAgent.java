@@ -180,6 +180,12 @@ final class ScriptedCherryPickAgent
     }
 
     @Override
+    public AgentTask createShared(CreateAgentTaskCommand command, TaskId sourceTaskId)
+    {
+        throw new UnsupportedOperationException("shared creation is not used by cherry-pick tests");
+    }
+
+    @Override
     public AgentTask prepare(CreateAgentTaskCommand command)
     {
         TaskWorktree worktree = worktrees.provision(new ProvisionWorktreeCommand(

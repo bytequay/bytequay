@@ -83,6 +83,8 @@ public class AgentTaskEntity
 
     private String generatedBranch;
 
+    private String worktreeOwnerTaskId;
+
     private String startCommit;
 
     private String defaultModel;
@@ -173,6 +175,7 @@ public class AgentTaskEntity
         repositoryOwner = task.repository().owner();
         repositoryName = task.repository().name();
         worktree = task.worktree().toString();
+        worktreeOwnerTaskId = task.taskWorktree().filter(value -> !value.taskId().equals(task.id())).map(value -> value.taskId().toString()).orElse(null);
         generatedBranch = task.taskWorktree().map(TaskWorktree::generatedBranch).orElse(null);
         startCommit = task.taskWorktree().map(TaskWorktree::startCommit).orElse(null);
         defaultModel = task.defaults().model().orElse(null);
@@ -262,7 +265,7 @@ public class AgentTaskEntity
             throw new AgentStorageException("Stored task worktree facts are incomplete: " + id);
         }
         return Optional.of(new TaskWorktree(
-                TaskId.valueOf(id),
+                TaskId.valueOf(Optional.ofNullable(worktreeOwnerTaskId).orElse(id)),
                 workspaceId,
                 new RepositoryIdentity(repositoryOwner, repositoryName),
                 Path.of(worktree),

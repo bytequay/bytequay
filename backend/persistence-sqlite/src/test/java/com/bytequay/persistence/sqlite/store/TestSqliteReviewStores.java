@@ -138,6 +138,7 @@ class TestSqliteReviewStores
         assertThat(restored.worktreeHeadSha()).contains(PRIOR_HEAD_SHA);
         assertThat(restored.observedHeadSha()).contains(NEXT_HEAD_SHA);
         assertThat(store.findRun(run.id()).orElseThrow().headSha()).isEqualTo(HEAD_SHA);
+        assertThat(store.findRun(run.id()).orElseThrow().worktreeTreeSha()).contains("d".repeat(40));
 
         store.updateReview(restored.withWorktreeHead(NEXT_HEAD_SHA, NOW.plusSeconds(1)));
         entityManager.clear();
@@ -614,7 +615,7 @@ class TestSqliteReviewStores
                 "main",
                 BASE_SHA,
                 MERGE_BASE_SHA,
-                HEAD_SHA,
+                HEAD_SHA, Optional.of("d".repeat(40)),
                 Optional.of(PRIOR_HEAD_SHA),
                 ImmutableList.of(new ReviewCommit(PRIOR_HEAD_SHA, "Add the review tool surface", "octocat"), new ReviewCommit(HEAD_SHA, "Freeze the publication diff", "octocat")),
                 ImmutableList.of(

@@ -2948,7 +2948,7 @@ class TestReviewTools
                 .withCoverage(new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of(), NOW), NOW).ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW);
         store.updateRun(previous);
         String nextHead = "4444444444444444444444444444444444444444";
-        ReviewRun next = new ReviewRun("incremental", REVIEW_ID, 2, ReviewRun.Scope.INCREMENTAL, "main", BASE_SHA, BASE_SHA, nextHead,
+        ReviewRun next = new ReviewRun("incremental", REVIEW_ID, 2, ReviewRun.Scope.INCREMENTAL, "main", BASE_SHA, BASE_SHA, nextHead, Optional.empty(),
                 Optional.of(HEAD_SHA), previous.commits(), ImmutableList.of(new DiffFile("image.png", "modified", 0, 0, null)), ImmutableList.of(),
                 ReviewRun.State.RUNNING, previous.summary(), Optional.empty(), Optional.empty(), ImmutableList.of(ReviewStep.initial()), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
@@ -3212,7 +3212,7 @@ class TestReviewTools
                 "main",
                 BASE_SHA,
                 BASE_SHA,
-                HEAD_SHA,
+                HEAD_SHA, Optional.empty(),
                 Optional.empty(),
                 ImmutableList.of(new ReviewCommit(COMMIT_SHA, "Add the beta line", "dev")),
                 diff,

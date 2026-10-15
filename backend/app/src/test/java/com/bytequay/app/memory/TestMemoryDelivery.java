@@ -253,7 +253,8 @@ class TestMemoryDelivery
 
     private static ReviewRun run(String file)
     {
-        return new ReviewRun("run-1", "review", 1, ReviewRun.Scope.FULL, "main", "a".repeat(40), "a".repeat(40), "b".repeat(40), Optional.empty(), ImmutableList.of(),
+        return new ReviewRun("run-1", "review", 1, ReviewRun.Scope.FULL, "main", "a".repeat(40), "a".repeat(40), "b".repeat(40), Optional.empty(),
+                Optional.empty(), ImmutableList.of(),
                 ImmutableList.of(new DiffFile(file, "modified", 1, 0, "patch")), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(),
                 Optional.empty(), ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
     }

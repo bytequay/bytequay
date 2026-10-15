@@ -63,9 +63,11 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     finally { flushSync(() => root.render(null)); }
   };
   try {
-    await scenario('Starts a separate local reviewer only after an explicit click, before PR creation', async () => {
+    await scenario('Starts a local reviewer for uncommitted work only after an explicit click', async () => {
       const starts: string[] = [];
-      install({ findTaskAgentReview: async () => null, readWorktreeChanges: async () => changes,
+      const scopes: string[] = [];
+      install({ findTaskAgentReview: async () => null, readWorktreeChanges: async (_host, selection) => {
+        scopes.push(selection?.scope ?? 'ALL'); return { ...changes, commits: [] }; },
         startTaskAgentReview: async (workspaceId, taskId) => { starts.push(`${workspaceId}/${taskId}`); return review; },
         subscribeAgentReview: async () => () => {}, getAgentReview: async () => review });
       function Summary() {
@@ -77,8 +79,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       await settle();
       const scope = host.querySelector('.agr-summary-strip__note');
       assert(starts.length === 0 && scope?.textContent === `main → ${head.slice(0, 7)}`
-        && scope.getAttribute('title') === 'Unpushed commits are included. Uncommitted changes are excluded.',
-        'Opening Summary must not review or include dirty work, and must name the committed range beside the button');
+        && scope.getAttribute('title') === 'Includes committed, staged, unstaged, and new files in this working copy.' && scopes[0] === 'ALL',
+        'Opening Summary must include local edits without starting a review until the user clicks');
       assert(button('Review changes').closest('.agr-summary-strip') !== null, 'Review changes must sit in the Summary strip, not in a box below the report');
       button('Review changes').click(); await settle();
       assert(Number(starts.length) === 1 && starts[0] === `${task.workspaceId}/${task.id}`, 'Review must target the source developer task');

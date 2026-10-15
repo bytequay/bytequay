@@ -1298,6 +1298,28 @@ class TestPermissionBroker
     }
 
     @Test
+    void sharedReviewerRetainsReportToolsButCannotEditTheCheckout()
+            throws Exception
+    {
+        Path worktree = Files.createDirectory(temporaryDirectory.resolve("shared-worktree"));
+        Path runtime = Files.createDirectory(temporaryDirectory.resolve("shared-runtime"));
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
+                "review_save_finding", "Save a finding", ImmutableMap.of("type", "object"), input -> "saved")), "Review only");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "")
+                .reviews(taskId -> Optional.of(review)).build();
+        try (McpRegistration registration = broker.register("shared-review", worktree, runtime, runtime.resolve("provider"),
+                AgentPermissionPolicy.AUTO, SessionAccess.REVIEW_READ_ONLY, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty(), ImmutableMap.of())) {
+            assertThat(registration.toolNames()).contains("review_save_finding");
+            assertThat(registration.review()).contains(review);
+            JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
+            assertThat(settings.at("/sandbox/filesystem/denyWrite")).isEqualTo(objectMapper.valueToTree(ImmutableList.of(runtime.toRealPath().toString(), worktree.toRealPath().toString())));
+            assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
+            assertThat(permission(broker, token(registration), "Edit", "file_path", worktree.resolve("source.txt").toString())).isEqualTo("deny");
+        }
+    }
+
+    @Test
     void grantsClaudeOnlyTheSharedValidatedBuildCaches()
             throws Exception
     {

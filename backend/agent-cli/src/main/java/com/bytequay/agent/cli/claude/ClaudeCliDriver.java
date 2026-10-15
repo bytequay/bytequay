@@ -464,7 +464,7 @@ public final class ClaudeCliDriver
         if (permissionScope.access() == SessionAccess.TEXT_ONLY) {
             argv.add("--tools=", "--disable-slash-commands", "--no-session-persistence");
         }
-        else if (permissionScope.access() == SessionAccess.READ_ONLY) {
+        else if (permissionScope.access() == SessionAccess.READ_ONLY || permissionScope.access() == SessionAccess.REVIEW_READ_ONLY) {
             // A read-only session reads the checkout and never edits it. Session persistence
             // stays on: a discussion resumes its own conversation for every later question.
             argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read");
@@ -517,7 +517,7 @@ public final class ClaudeCliDriver
         return switch (access) {
             case TEXT_ONLY -> ProcessOwner.Kind.CLI_PROBE;
             case READ_ONLY -> ProcessOwner.Kind.DISCUSSION;
-            case FULL -> ProcessOwner.Kind.CLAUDE_TURN;
+            case FULL, REVIEW_READ_ONLY -> ProcessOwner.Kind.CLAUDE_TURN;
         };
     }
 
@@ -897,7 +897,7 @@ public final class ClaudeCliDriver
             streamingInput = steering && !session.context.restricted();
             List<AgentAttachment> attachments = attachments(session.context, command.attachments());
             ProcessSpec spec = processSpec(
-                    new ProcessOwner(ownerKind(session.context.access()), session.context.restricted() ? session.context.taskId() : command.turnId()),
+                    new ProcessOwner(ownerKind(session.context.access()), session.context.restricted() && session.context.access() != SessionAccess.REVIEW_READ_ONLY ? session.context.taskId() : command.turnId()),
                     argv(
                             session.registration,
                             session.permissionScope,

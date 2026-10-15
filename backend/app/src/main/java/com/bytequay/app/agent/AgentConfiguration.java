@@ -229,9 +229,9 @@ public class AgentConfiguration
     }
 
     @Bean(destroyMethod = "close")
-    public AgentRuntimeRegistry agentRuntimeRegistry(ObjectProvider<DevelopmentCiOwnership> ciOwnership)
+    public AgentRuntimeRegistry agentRuntimeRegistry(AgentTaskStore taskStore, ObjectProvider<DevelopmentCiOwnership> ciOwnership)
     {
-        return new AgentRuntimeRegistry(task -> ciOwnership.getObject().requireSourceAdmission(task));
+        return new AgentRuntimeRegistry(taskStore, task -> ciOwnership.getObject().requireSourceAdmission(task));
     }
 
     @Bean

@@ -111,7 +111,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(buttons('Update review').length === 2, 'Exercise the banner control as well as the toolbar');
       await click(1);
       finish({ ...completed, observedHeadSha: head, runs: [...completed.runs, {
-        ...completed.runs[0], id: 'carried-run', ordinal: 2, headSha: head, priorHeadSha: completed.runs[0].headSha, turnIds: [], summary: null,
+        ...completed.runs[0], id: 'carried-run', ordinal: 2, headSha: head, worktreeTreeSha: null, priorHeadSha: completed.runs[0].headSha, turnIds: [], summary: null,
       }] });
       await settle();
       assert(notice()?.textContent?.includes('Previous review reused') === true

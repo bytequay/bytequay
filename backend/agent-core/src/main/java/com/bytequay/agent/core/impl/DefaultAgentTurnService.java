@@ -1344,6 +1344,12 @@ public final class DefaultAgentTurnService
     private AgentTask requireStartableTaskWithoutReadiness(TaskId taskId, Optional<TurnId> continuationOwner)
     {
         AgentTask task = taskStore.require(taskId);
+        task.taskWorktree().filter(worktree -> !task.ownsWorktree()).ifPresent(worktree -> {
+            AgentTask owner = taskStore.require(worktree.taskId());
+            if (owner.state() != TaskState.OPEN || owner.worktreeRemovedAt().isPresent()) {
+                throw new AgentConflictException("The development working copy is unavailable");
+            }
+        });
         if (runtimeRegistry.closing()) {
             throw new AgentConflictException("Backend is shutting down");
         }
@@ -1734,7 +1740,7 @@ public final class DefaultAgentTurnService
                         (request, timeout) -> requestApproval(task.id(), turnId, request, timeout),
                         settings.model(),
                         settings.effort(),
-                        SessionAccess.FULL,
+                        task.taskWorktree().isPresent() && !task.ownsWorktree() ? SessionAccess.REVIEW_READ_ONLY : SessionAccess.FULL,
                         codeQueriesBridge(task),
                         managedInstructions.apply(task) + developmentInstructions(settings)),
                 event -> routeEvent(task.id(), turnId, event)), "opened session is null");
@@ -1837,6 +1843,9 @@ public final class DefaultAgentTurnService
                     The accepted settings alone control subsequent delivery, including ready promotion after Auto CI fix.
                     If an explicit user request conflicts with delivery, report readyForDelivery=false and explain
                     the conflict. Preserve unfinished work and wait for the user's decision; do not execute the conflicting step.
+                    A review-before-publication hold does not prohibit authorized local commits. Reviewers share
+                    this task's working copy and can review uncommitted changes. Do not commit solely to enable review.
+                    Keep readyForDelivery=false until the publication hold is lifted.
                     A generated request to create a draft is one step, not a user instruction to skip later enabled steps.
                     """.formatted(automation.autoCommit(), automation.autoDraftPr(), automation.autoCiFix());
         }).orElse("");

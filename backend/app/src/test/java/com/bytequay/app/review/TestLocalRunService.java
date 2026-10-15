@@ -399,7 +399,7 @@ class TestLocalRunService
 
     private ReviewRun reviewRun()
     {
-        return new ReviewRun("run-" + head, REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", head, head, head, Optional.empty(), ImmutableList.of(), ImmutableList.of(),
+        return new ReviewRun("run-" + head, REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", head, head, head, Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
     }

@@ -38,6 +38,7 @@ import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
+import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.spi.AgentDriverRegistry;
@@ -87,6 +88,23 @@ class TestDefaultAgentTaskService
         resources = new RecordingResourceService(temporaryDirectory.resolve("runtime").toAbsolutePath());
         driver = new DeterministicAgentDriver();
         service = new DefaultAgentTaskService(stores, managedWorktrees, resources, new StaticAgentDriverRegistry(ImmutableList.of(driver)), Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    @Test
+    void sharedReviewerUsesTheSourceWorktreeAndNeverCleansItOnCreationFailure()
+    {
+        AgentTask original = service.createInteractive(interactiveCommand(TaskId.random()));
+        AgentTask source = stores.update(original.claimWorktreeMutation(WorktreeMutationClaim.localRun("snapshot", NOW), NOW));
+        AgentTask reviewer = service.createShared(command(), source.id());
+        assertThat(reviewer.worktree()).isEqualTo(source.worktree());
+        assertThat(reviewer.taskWorktree()).isEqualTo(source.taskWorktree());
+        assertThat(reviewer.ownsWorktree()).isFalse();
+        assertThat(reviewer.interactive()).isFalse();
+        assertThat(managedWorktrees.provisioned).hasSize(1);
+        resources.failAllocation = true;
+        assertThatThrownBy(() -> service.createShared(command(), source.id())).isInstanceOf(AgentStorageException.class);
+        assertThat(managedWorktrees.cleaned).isEmpty();
+        assertThat(stores.find(source.id())).contains(source);
     }
 
     @Test

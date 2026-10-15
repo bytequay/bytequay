@@ -82,7 +82,8 @@ class TestDevelopmentBranchService
             Duration.ofHours(1), ImmutableList.of(), Optional.empty(), Optional.of(DevelopmentAutomation.DEFAULT)), NOW)
             .markDeliveryStarted(NOW).running(new ProviderTurnRef("provider"), Optional.empty());
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
-    private final DevelopmentBranchService service = new DevelopmentBranchService(tasks, turns, new AgentRuntimeRegistry(ignored -> {}), git, reviews, assignments,
+    private final DevelopmentBranchService service = new DevelopmentBranchService(tasks, turns, new AgentRuntimeRegistry(mock(AgentTaskStore.class),
+                ignored -> {}), git, reviews, assignments,
             beans.getBeanProvider(DevelopmentFollowupCoordinator.class), Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach

@@ -19,7 +19,8 @@ import { reviewFixture, runningReviewFixture } from './fixtures/review';
 import { TaskReviewControls, TaskReviewSection, type TaskReview } from './TaskReviewSummary';
 
 const source: WorktreeChangesDto = { branch: 'feature', baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), baseLabel: 'main', scope: 'COMMITTED',
-  selectedCommit: null, sourceFingerprint: null, truncated: false, staged: [], unstaged: [], untracked: [], commits: [], files: [] };
+  selectedCommit: null, sourceFingerprint: null, truncated: false, staged: [], unstaged: [], untracked: [],
+  commits: [{ sha: 'b'.repeat(40), parentSha: 'a'.repeat(40), message: 'Fix configuration', author: null, authoredAt: null }], files: [] };
 
 function state(review: AgentReviewDto | null, overrides: Partial<TaskReview> = {}): TaskReview {
   const noop = async () => {};
@@ -34,16 +35,23 @@ const section = (value: TaskReview) => renderToStaticMarkup(<TaskReviewSection s
 describe('the Summary strip and review event', () => {
   it('offers Review changes beside the committed range before any review exists', () => {
     const html = controls(state(null));
-    expect(html).toContain('title="Unpushed commits are included. Uncommitted changes are excluded.">main → bbbbbbb</span>');
+    expect(html).toContain('title="Includes committed, staged, unstaged, and new files in this working copy.">main → bbbbbbb</span>');
     expect(html).toContain('Review changes</button>');
     expect(controls(state(null, { unavailable: 'The development task is closed' }))).toMatch(/disabled=""[^>]*>.*Review changes<\/button>/);
   });
 
   it('swaps the button for progress and Stop while the reviewer reads the commits', () => {
     const review: AgentReviewDto = { ...runningReviewFixture(), number: null };
-    expect(controls(state(review))).toContain('Reviewing 5 commits…');
+    expect(controls(state(review))).toContain('Reviewing 30 changed files…');
     expect(controls(state(review))).toContain('>Stop</button>');
-    expect(section(state(review))).toContain('<strong>Agent review</strong> is reading 5 commits in its own working copy');
+    expect(section(state(review))).toContain('<strong>Agent review</strong> is reading 30 changed files in the shared working copy');
+  });
+
+  it('allows review when all changes are uncommitted', () => {
+    const html = controls(state(null, { source: { ...source, commits: [] } }));
+    expect(html).toContain('Review changes</button>');
+    expect(html).not.toMatch(/disabled=""[^>]*>.*Review changes<\/button>/);
+    expect(controls(state(null))).not.toMatch(/disabled=""[^>]*>.*Review changes<\/button>/);
   });
 
   it('links a finished review from the strip and states its local comments on the timeline', () => {

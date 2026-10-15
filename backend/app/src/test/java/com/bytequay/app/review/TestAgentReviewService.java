@@ -142,6 +142,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -205,7 +206,7 @@ class TestAgentReviewService
     }
 
     @Test
-    void developmentReviewUsesASeparateReviewTaskAndFrozenUnpushedCommits()
+    void developmentReviewSharesTheCheckoutWithASeparateConversation()
     {
         Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
@@ -227,11 +228,33 @@ class TestAgentReviewService
         assertThat(fixture.service.findForTask(WORKSPACE, source.id().toString()).orElseThrow().review().id()).isEqualTo(result.review().id());
         assertThat(fixture.service.startForTask(WORKSPACE, source.id().toString()).review().id()).isEqualTo(result.review().id());
         verify(fixture.models).agentModel(AgentModelType.REVIEW, Optional.of(WORKSPACE));
-        verify(fixture.tasks, times(1)).create(argThat(command -> command.startCommit().equals(HEAD) && !command.taskId().equals(source.id())));
-        verify(fixture.turns).start(argThat(command -> command.taskId().equals(TASK_ID) && command.message().contains("uncommitted development edits are excluded")));
+        verify(fixture.tasks).createShared(argThat(command -> command.startCommit().equals(HEAD) && !command.taskId().equals(source.id())), eq(source.id()));
+        assertThat(fixture.service.task(result.review().id()).worktree()).isEqualTo(source.worktree());
+        verify(fixture.turns).start(argThat(command -> command.taskId().equals(TASK_ID) && command.message().contains("includes uncommitted and new files")));
         verify(fixture.pullRequests, never()).getPullRequestDetail(anyString(), anyInt());
         verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
-        verify(fixture.turns, never()).synchronizeWorktree(eq(source.id()), anyLong(), any());
+        verify(fixture.turns, atLeastOnce()).synchronizeWorktree(eq(source.id()), anyLong(), any());
+    }
+
+    @Test
+    void localReviewIncludesUncommittedFilesWithoutAnyCommits()
+    {
+        Fixture fixture = new Fixture();
+        AgentTask source = developmentSource();
+        localSource(fixture, source, HEAD);
+        when(fixture.browse.history(source.worktree(), MERGE_BASE, HEAD)).thenReturn(new WorktreeDiffReader.History(ImmutableList.of(), false));
+
+        String tree = "d".repeat(40);
+        when(fixture.browse.snapshotTree(source.worktree())).thenReturn(tree);
+        when(fixture.browse.diff(source.worktree(), MERGE_BASE, Optional.of(tree)))
+                .thenReturn(new WorktreeDiffReader.Diff(ImmutableList.of(new DiffFile("new.txt", "added", 1, 0, "@@ -0,0 +1 @@\n+new\n")), false));
+        AgentReviewProjection result = fixture.service.startForTask(WORKSPACE, source.id().toString());
+        ReviewRun run = result.runs().getFirst();
+        assertThat(run.commits()).isEmpty();
+        assertThat(run.worktreeTreeSha()).contains(tree);
+        assertThat(run.diff()).extracting(DiffFile::filename).containsExactly("new.txt");
+        verify(fixture.tasks, never()).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.turns).start(any());
     }
 
     @Test
@@ -275,9 +298,31 @@ class TestAgentReviewService
         assertThat(updated.review().taskId()).isEqualTo(first.review().taskId());
         assertThat(updated.runs()).hasSize(2);
         assertThat(updated.runs().getLast().headSha()).isEqualTo(NEW_HEAD);
-        verify(fixture.tasks, times(1)).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.tasks).createShared(any(CreateAgentTaskCommand.class), eq(source.id()));
+        verify(fixture.git, never()).run(source.worktree(), fastForward(NEW_HEAD));
         verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
-        verify(fixture.turns, never()).synchronizeWorktree(eq(source.id()), anyLong(), any());
+        verify(fixture.turns, atLeastOnce()).synchronizeWorktree(eq(source.id()), anyLong(), any());
+    }
+
+    @Test
+    void reviewAgainCapturesNewLocalEditsAtTheSameHead()
+    {
+        Fixture fixture = new Fixture();
+        AgentTask source = developmentSource();
+        localSource(fixture, source, HEAD);
+        AgentReviewProjection first = fixture.service.startForTask(WORKSPACE, source.id().toString());
+        ReviewRun original = first.runs().getFirst();
+        fixture.store.updateRun(original.ended(ReviewRun.State.FAILED, Optional.of("Stopped"), NOW));
+        String tree = "d".repeat(40);
+        when(fixture.browse.snapshotTree(source.worktree())).thenReturn(tree);
+        when(fixture.browse.diff(source.worktree(), MERGE_BASE, Optional.of(tree)))
+                .thenReturn(new WorktreeDiffReader.Diff(ImmutableList.of(new DiffFile("new.txt", "added", 1, 0, "@@ -0,0 +1 @@\n+new\n")), false));
+        AgentReviewProjection updated = fixture.service.update(first.review().id());
+        assertThat(updated.runs()).hasSize(2);
+        assertThat(updated.runs().getLast().headSha()).isEqualTo(HEAD);
+        assertThat(updated.runs().getLast().worktreeTreeSha()).contains(tree);
+        assertThat(updated.runs().getLast().diff()).extracting(DiffFile::filename).containsExactly("new.txt");
+        verify(fixture.experiments, never()).synchronize(any(), anyString(), anyString(), any());
     }
 
     @Test
@@ -374,7 +419,7 @@ class TestAgentReviewService
         assertThatThrownBy(() -> fixture.service.update(original.review().id())).isInstanceOf(ReviewConflictException.class)
                 .hasMessage("The development task was deleted; retained review results remain available");
         assertThat(fixture.store.listRuns(original.review().id())).hasSize(1);
-        verify(fixture.tasks, times(1)).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.tasks).createShared(any(CreateAgentTaskCommand.class), eq(source.id()));
     }
 
     @Test
@@ -395,7 +440,7 @@ class TestAgentReviewService
         assertThat(updated.review().pullRequestId()).hasValue(detail().id());
         assertThat(updated.review().sourceTaskId()).contains(source.id().toString());
         assertThat(updated.review().taskId()).isEqualTo(original.review().taskId());
-        verify(fixture.tasks, times(1)).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.tasks).createShared(any(CreateAgentTaskCommand.class), eq(source.id()));
         verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
     }
 
@@ -415,6 +460,16 @@ class TestAgentReviewService
     private static void localSource(Fixture fixture, AgentTask source, String head)
     {
         when(fixture.tasks.getInteractive(WORKSPACE, source.id())).thenReturn(source);
+        when(fixture.tasks.get(source.id())).thenReturn(source);
+        AgentTask reviewer = AgentTask.created(TASK_ID, false, "Review", TitleSource.USER, idleTask().laneId(), source.taskWorktree().orElseThrow(), idleTask().defaults(), NOW);
+        when(fixture.tasks.createShared(any(CreateAgentTaskCommand.class), eq(source.id()))).thenReturn(reviewer);
+        when(fixture.tasks.get(TASK_ID)).thenReturn(reviewer);
+        doAnswer(invocation -> {
+            invocation.<Consumer<AgentTask>>getArgument(2).accept(source);
+            return null;
+        }).when(fixture.turns).synchronizeWorktree(eq(source.id()), anyLong(), any());
+        when(fixture.browse.snapshotTree(source.worktree())).thenReturn(head);
+        when(fixture.browse.require(source.worktree(), "rev-parse", "HEAD^{tree}")).thenReturn(head);
         when(fixture.worktrees.ownedCheckout(source.taskWorktree().orElseThrow())).thenReturn(source.worktree());
         when(fixture.browse.require(source.worktree(), "rev-parse", "--verify", "HEAD^{commit}")).thenReturn(head);
         when(fixture.git.gitPaths(eq(source.worktree()), anyList())).thenAnswer(invocation -> {
@@ -833,7 +888,8 @@ class TestAgentReviewService
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun original = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(original.withSummary(summary(), NOW));
-        fixture.store.insertRun(new ReviewRun("newer-run", reviewId, 2, original.scope(), original.baseRef(), original.baseSha(), original.mergeBaseSha(), NEW_HEAD,
+        fixture.store.insertRun(new ReviewRun("newer-run", reviewId, 2, original.scope(), original.baseRef(), original.baseSha(),
+                original.mergeBaseSha(), NEW_HEAD, Optional.empty(),
                 Optional.of(HEAD), original.commits(), original.diff(), ImmutableList.of(), original.state(), Optional.empty(), Optional.empty(), Optional.empty(),
                 original.steps(), false, original.operations(), original.evidence(), Optional.empty(), 0, NOW, NOW, Optional.empty()));
         String cardId = original.id() + ":purpose";
@@ -1533,7 +1589,7 @@ class TestAgentReviewService
         assertThat(result.review().latestCompletedRunId()).contains(initial.id());
         assertThat(result.findings()).isEmpty();
         verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
-        verify(fixture.turns, never()).synchronizeWorktree(eq(source.id()), anyLong(), any());
+        verify(fixture.turns, atLeastOnce()).synchronizeWorktree(eq(source.id()), anyLong(), any());
     }
 
     @Test

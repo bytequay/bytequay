@@ -58,6 +58,7 @@ import com.bytequay.agent.core.impl.DefaultAgentTurnService;
 import com.bytequay.agent.core.impl.FileAgentResourceService;
 import com.bytequay.agent.core.impl.FileTaskLogStore;
 import com.bytequay.agent.core.impl.StaticAgentDriverRegistry;
+import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
@@ -475,6 +476,13 @@ class TestSqliteAgentStores
         AgentTask restored = taskStore.find(taskId).orElseThrow();
         assertThat(restored.creationFingerprint()).contains("creation-fingerprint");
         assertThat(restored.taskWorktree()).contains(worktree);
+        AgentTask reviewer = AgentTask.created(TaskId.random(), false, "Shared reviewer", TitleSource.USER, task.laneId(), worktree, task.defaults(), now);
+        taskStore.insert(reviewer);
+        entityManager.clear();
+        AgentTask restoredReviewer = taskStore.require(reviewer.id());
+        assertThat(restoredReviewer.taskWorktree()).contains(worktree);
+        assertThat(restoredReviewer.ownsWorktree()).isFalse();
+        assertThat(restoredReviewer.worktree()).isEqualTo(task.worktree());
     }
 
     @Test
@@ -1010,7 +1018,7 @@ class TestSqliteAgentStores
         RecordingDriver firstProcess = new RecordingDriver();
         DefaultAgentTurnService beforeRestart = turnService(
                 firstProcess,
-                new AgentRuntimeRegistry(ignored -> {}),
+                new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}),
                 new DefaultAgentEventService(logs, outboxStore, taskStore, clock),
                 logs,
                 resources,
@@ -1025,7 +1033,7 @@ class TestSqliteAgentStores
         entityManager.flush();
         entityManager.clear();
 
-        AgentRuntimeRegistry restartedRuntime = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry restartedRuntime = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
         AgentMaintenance maintenance = new AgentMaintenance(
                 taskStore,
                 turnStore,

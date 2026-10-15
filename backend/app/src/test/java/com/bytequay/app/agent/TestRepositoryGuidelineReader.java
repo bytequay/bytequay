@@ -259,7 +259,7 @@ final class TestRepositoryGuidelineReader
 
     private static ReviewRun run(int ordinal, String base, String head, String file)
     {
-        return new ReviewRun("run-" + ordinal, "review", ordinal, ReviewRun.Scope.FULL, "main", base, base, head, Optional.empty(), ImmutableList.of(),
+        return new ReviewRun("run-" + ordinal, "review", ordinal, ReviewRun.Scope.FULL, "main", base, base, head, Optional.empty(), Optional.empty(), ImmutableList.of(),
                 ImmutableList.of(diff(file)), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(),
                 ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
     }

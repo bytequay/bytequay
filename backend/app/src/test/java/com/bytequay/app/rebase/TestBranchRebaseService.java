@@ -142,7 +142,7 @@ class TestBranchRebaseService
                 GIT,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new DevelopmentCiOwnership(ciRuns, mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(AgentEventService.class),
-                        new AgentRuntimeRegistry(ignored -> {}), Clock.fixed(NOW, ZoneOffset.UTC)));
+                        new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}), Clock.fixed(NOW, ZoneOffset.UTC)));
     }
 
     @Test

@@ -79,6 +79,9 @@ public class AgentReviewRunEntity
     @Column(name = "head_sha", nullable = false)
     private String headSha;
 
+    @Column(name = "worktree_tree_sha")
+    private String worktreeTreeSha;
+
     @Column(name = "prior_head_sha")
     private String priorHeadSha;
 
@@ -151,6 +154,7 @@ public class AgentReviewRunEntity
         baseSha = run.baseSha();
         mergeBaseSha = run.mergeBaseSha();
         headSha = run.headSha();
+        worktreeTreeSha = run.worktreeTreeSha().orElse(null);
         priorHeadSha = run.priorHeadSha().orElse(null);
         commitsJson = REVIEW.write(run.commits(), "review commits");
         diffJson = REVIEW.write(run.diff(), "review diff");
@@ -179,7 +183,7 @@ public class AgentReviewRunEntity
                 baseRef,
                 baseSha,
                 mergeBaseSha,
-                headSha,
+                headSha, Optional.ofNullable(worktreeTreeSha),
                 Optional.ofNullable(priorHeadSha),
                 REVIEW.read(commitsJson, COMMITS, "review commits"),
                 REVIEW.read(diffJson, DIFF, "review diff"),

@@ -313,7 +313,7 @@ public final class CodexCliDriver
         return switch (access) {
             case TEXT_ONLY -> ProcessOwner.Kind.CLI_PROBE;
             case READ_ONLY -> ProcessOwner.Kind.DISCUSSION;
-            case FULL -> ProcessOwner.Kind.APP_SERVER;
+            case FULL, REVIEW_READ_ONLY -> ProcessOwner.Kind.APP_SERVER;
         };
     }
 
@@ -624,7 +624,7 @@ public final class CodexCliDriver
         List<String> ciWritableRoots = context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX ? ciWritableRoots(context.worktree()) : ImmutableList.of();
         // A task tool token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
-        Optional<McpRegistration> codeQueries = context.restricted() && context.discussionContext().isEmpty() && context.reviewContext().isEmpty() ? Optional.empty() : permissions.registerTools(
+        Optional<McpRegistration> codeQueries = context.restricted() && context.access() != SessionAccess.REVIEW_READ_ONLY && context.discussionContext().isEmpty() && context.reviewContext().isEmpty() ? Optional.empty() : permissions.registerTools(
                 context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), toolRedactor,
                 deepSeekSecret.isPresent() ? Optional.empty() : context.codeQueries(), context.access(), context.discussionContext(), context.reviewContext());
         boolean review = codeQueries.flatMap(McpRegistration::review).isPresent();

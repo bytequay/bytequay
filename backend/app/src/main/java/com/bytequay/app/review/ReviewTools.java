@@ -835,6 +835,9 @@ public class ReviewTools
             throw new ReviewInvalidRequestException("candidate: only DOES_NOT_PROTECT names one. Record the hypothesis about the tests that still pass "
                     + "with review_record_discovery, then pass its number");
         }
+        if (outcome.ran() && call.review().sourceTaskId().isPresent()) {
+            throw new ReviewInvalidRequestException("testCheck: do not undo developer changes in the shared checkout; report BLOCKED with that reason");
+        }
         if (outcome.ran()) {
             requireTestCheckRuns(call, head.orElseThrow(), undone.orElseThrow());
         }
@@ -860,7 +863,7 @@ public class ReviewTools
      */
     private void requireTestCheckRuns(Call call, String headRef, String undoneRef)
     {
-        String headSha = call.run().headSha();
+        String headSha = call.run().sourceRevision();
         Set<String> changed = call.run().diff().stream().map(DiffFile::filename).collect(toImmutableSet());
         List<LocalRun> mirrored = localRuns.listByTask(call.review().taskId(), MAX_LOCAL_RUNS);
         started(mirrored, headRef).ifPresent(run -> {
@@ -934,7 +937,7 @@ public class ReviewTools
             if (expected != existing.revision()) {
                 throw new ReviewConflictException("expectedRevision: the finding is at revision " + existing.revision());
             }
-            if (!call.run().active() && (existing.outdated() || !existing.validatedHeadSha().equals(call.run().headSha()))) {
+            if (!call.run().active() && (existing.outdated() || !existing.validatedHeadSha().equals(call.run().sourceRevision()))) {
                 throw new ReviewConflictException("findingId: reassess this finding in a review of its current head before revising it");
             }
             if (existing.state() == ReviewFinding.State.WITHDRAWN) {
@@ -959,7 +962,7 @@ public class ReviewTools
                 updatedAnchor = existing.anchor().map(anchor -> anchors.remap(anchor)
                         .orElseThrow(() -> new ReviewInvalidRequestException("startAnchor: the old location no longer maps; read the current diff and supply new anchors")));
             }
-            saved = existing.revised(title, body, severity, updatedAnchor, ImmutableList.copyOf(evidence), call.run().headSha(), now());
+            saved = existing.revised(title, body, severity, updatedAnchor, ImmutableList.copyOf(evidence), call.run().sourceRevision(), now());
             insert = false;
         }
         else {
@@ -999,7 +1002,7 @@ public class ReviewTools
                     1,
                     ReviewFinding.State.OPEN,
                     Optional.empty(),
-                    call.run().headSha(),
+                    call.run().sourceRevision(),
                     false,
                     0,
                     now,
@@ -1229,7 +1232,7 @@ public class ReviewTools
             findingId.ifPresent(id -> {
                 ReviewFinding finding = store.findFinding(id).filter(value -> value.reviewId().equals(call.review().id()))
                         .orElseThrow(() -> new ReviewInvalidRequestException("findingId: must belong to this review"));
-                if (finding.state() == ReviewFinding.State.WITHDRAWN || finding.outdated() || !finding.validatedHeadSha().equals(call.run().headSha())) {
+                if (finding.state() == ReviewFinding.State.WITHDRAWN || finding.outdated() || !finding.validatedHeadSha().equals(call.run().sourceRevision())) {
                     throw new ReviewInvalidRequestException("findingId: supported findings must be current and not withdrawn");
                 }
                 if (findingRevision.orElseThrow() != finding.revision()) {
@@ -1587,7 +1590,7 @@ public class ReviewTools
         ReviewRun run = call.run();
         ObjectNode node = objectMapper.createObjectNode().put("repository", call.review().repo())
                 .put("baseRef", run.baseRef()).put("baseSha", run.baseSha()).put("mergeBaseSha", run.mergeBaseSha())
-                .put("headSha", run.headSha()).put("scope", run.scope().name());
+                .put("headSha", run.headSha()).put("sourceRevision", run.sourceRevision()).put("scope", run.scope().name());
         call.review().sourceTaskId().ifPresent(id -> node.put("sourceTaskId", id));
         call.review().number().ifPresent(number -> node.put("number", number));
         run.priorHeadSha().ifPresent(sha -> node.put("previousReviewedHead", sha));
@@ -1618,7 +1621,7 @@ public class ReviewTools
                 bounded(detail.title() + "\nAuthor: " + detail.author() + "; state: " + detail.state() + "; draft: " + detail.draft() + "\n" + body, MAX_EXCERPT)));
         if (call.review().number().stream().anyMatch(value -> value == number)) {
             node.put("baseRef", run.baseRef()).put("baseSha", run.baseSha()).put("mergeBaseSha", run.mergeBaseSha())
-                    .put("headSha", run.headSha()).put("scope", run.scope().name());
+                    .put("headSha", run.headSha()).put("sourceRevision", run.sourceRevision()).put("scope", run.scope().name());
             run.priorHeadSha().ifPresent(sha -> node.put("previousReviewedHead", sha));
             node.putPOJO("commits", run.commits());
             node.putPOJO("requiredReviewFiles", requiredFiles(call));
@@ -1641,7 +1644,7 @@ public class ReviewTools
         node.put("changeExplanationRequired", call.run().explanationOnly() || !ReviewCards.hasExplanation(store, call.run()));
         if (!call.run().explanationOnly()) {
             node.put("testCheckRequired", testCheckRequired(call));
-            node.putObject("mavenRepository").put("local", ReviewMavenRepository.local(call.review().id(), call.run().headSha()).toString())
+            node.putObject("mavenRepository").put("local", ReviewMavenRepository.local(call.review().id(), call.run().sourceRevision()).toString())
                     .put("sharedTail", ReviewMavenRepository.shared().toString());
         }
         ReviewCards.explanationRun(store.listRuns(call.review().id()).stream().filter(run -> run.ordinal() <= call.run().ordinal()).collect(toImmutableList()))
@@ -1904,7 +1907,8 @@ public class ReviewTools
                         + "or complete historical discussion. cacheUpdatedAt may reflect a status-only update.");
         freshness.putPOJO("unavailableSections", read.detail().unavailableSections());
         if (call.review().number().stream().anyMatch(value -> value == number)) {
-            read.observedHeadSha().ifPresentOrElse(head -> freshness.put("matchesReviewedHead", head.equals(call.run().headSha())), () -> freshness.putNull("matchesReviewedHead"));
+            read.observedHeadSha().ifPresentOrElse(head -> freshness.put("matchesReviewedHead", head.equals(call.run().sourceRevision())),
+                    () -> freshness.putNull("matchesReviewedHead"));
         }
         ObjectNode node = objectMapper.createObjectNode().put("repository", call.review().repo()).put("number", number)
                 .put("pullRequest", true).put("source", "selected-pull-request");
@@ -1922,7 +1926,7 @@ public class ReviewTools
                 + "; stale=" + read.stale() + "; incomplete=" + read.incomplete() + "; unavailableSections=" + read.detail().unavailableSections()
                 + "; cache freshness is not remote currentness or complete discussion evidence; cacheUpdatedAt may reflect a status-only update";
         return call.review().number().stream().anyMatch(value -> value == number)
-                ? provenance + "; frozenReviewedHead=" + call.run().headSha() : provenance + "; related historical source";
+                ? provenance + "; frozenReviewedHead=" + call.run().sourceRevision() : provenance + "; related historical source";
     }
 
     private JsonNode issue(Call call, int number, int page)
@@ -2180,7 +2184,7 @@ public class ReviewTools
         }
         end = Math.min(end, startLine + SOURCE_WINDOW - 1);
         String sha = switch (revision) {
-            case "", "head" -> call.run().headSha();
+            case "", "head" -> call.run().sourceRevision();
             case "base" -> call.run().mergeBaseSha();
             case "previous" -> call.run().priorHeadSha().orElseThrow(() -> new ReviewInvalidRequestException("revision: no previously reviewed head"));
             default -> throw new ReviewInvalidRequestException("revision: use head, base (merge base), previous, or baseline");

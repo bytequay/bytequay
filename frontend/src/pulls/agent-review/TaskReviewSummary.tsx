@@ -37,7 +37,7 @@ export type TaskReviewOptions = {
 
 export type TaskReview = ReturnType<typeof useTaskReview>;
 
-/** The task's reviewer and the committed work it would read; without options there is no reviewer and nothing is read. */
+/** The task's reviewer and the working-copy changes it would read; without options there is no reviewer and nothing is read. */
 export function useTaskReview(task: AgentTaskDto, options: TaskReviewOptions | undefined) {
   const workspaceId = options?.workspaceId;
   const active = options?.active ?? true;
@@ -67,7 +67,7 @@ export function useTaskReview(task: AgentTaskDto, options: TaskReviewOptions | u
     if (workspaceId === undefined || !active || task.checkoutRemovedAt !== null) return;
     let live = true;
     const read = () => {
-      void Promise.resolve().then(() => window.bridge.readWorktreeChanges({ kind: 'task', taskId: task.id, workspaceId }, { scope: 'COMMITTED' }))
+      void Promise.resolve().then(() => window.bridge.readWorktreeChanges({ kind: 'task', taskId: task.id, workspaceId }, { scope: 'ALL' }))
         .then(value => { if (live) setSource(value); })
         .catch(() => { if (live) setSource(null); });
     };
@@ -97,8 +97,8 @@ export function useTaskReview(task: AgentTaskDto, options: TaskReviewOptions | u
   };
 }
 
-function commitCount(count: number): string {
-  return `${count} ${count === 1 ? 'commit' : 'commits'}`;
+function fileCount(count: number): string {
+  return `${count} changed ${count === 1 ? 'file' : 'files'}`;
 }
 
 /** Waits on a Code & Tests run the same way the review's own controls do. */
@@ -109,16 +109,17 @@ function blockedReason(review: AgentReviewDto): string | null {
 
 /** The Summary strip's review control: what the reviewer is doing, and the one action that matters now. */
 export function TaskReviewControls({ state, onShowReview }: { state: TaskReview; onShowReview: () => void }) {
-  const { review, source, pending, unavailable, error } = state;
+  const { review, source, pending, error } = state;
+  const unavailable = state.unavailable;
   if (review === null) {
     if (state.loading) return null;
     return <div className="agr-summary-strip__review">
       {unavailable !== null ? <span className="agr-summary-strip__note">{unavailable}</span>
-        : source !== null && <span className="agr-summary-strip__note" title="Unpushed commits are included. Uncommitted changes are excluded.">
+        : source !== null && <span className="agr-summary-strip__note" title="Includes committed, staged, unstaged, and new files in this working copy.">
           {source.baseLabel} → {source.headSha.slice(0, 7)}
         </span>}
       <button type="button" className="agr-action agr-summary-strip__start" disabled={pending !== null || unavailable !== null || error !== null}
-        title={unavailable ?? 'A separate reviewer inspects committed changes in its own working copy'} onClick={() => { void state.start(); }}>
+        title={unavailable ?? 'A reviewer inspects all changes in this task’s working copy'} onClick={() => { void state.start(); }}>
         <Eye size={15} aria-hidden="true" />{pending === 'start' ? 'Starting reviewer…' : 'Review changes'}
       </button>
     </div>;
@@ -129,7 +130,7 @@ export function TaskReviewControls({ state, onShowReview }: { state: TaskReview;
     return <div className="agr-summary-strip__review">
       <span className={`agr-summary-strip__status is-${status.tone}`}>
         {status.busy && <span className="agr-spinner" aria-hidden="true" />}
-        {status.label === 'Reviewing' && run !== null ? `Reviewing ${commitCount(run.commits.length)}…` : status.chip ?? status.label}
+        {status.label === 'Reviewing' && run !== null ? `Reviewing ${fileCount(run.changedFiles)}…` : status.chip ?? status.label}
       </span>
       <button type="button" className="agr-action is-danger" disabled={pending !== null} onClick={() => { void state.stop(); }}>Stop</button>
     </div>;
@@ -140,7 +141,7 @@ export function TaskReviewControls({ state, onShowReview }: { state: TaskReview;
       Agent review{status.chip !== null && <span className={`pull-detail__review-chip is-${status.tone}`}>{status.chip}</span>}
     </button>
     {review.state === 'OPEN' && <button type="button" className="agr-action" disabled={pending !== null || blocked !== null}
-      title={blocked ?? 'Review the latest committed changes'} onClick={() => { void state.update(); }}>
+      title={blocked ?? 'Review the latest changes, including uncommitted edits'} onClick={() => { void state.update(); }}>
       {pending === 'update' ? 'Starting…' : 'Review again'}
     </button>}
   </div>;
@@ -153,14 +154,14 @@ function reviewEvent(review: AgentReviewDto): string {
   const findings = openFindings(review).length;
   if (status.status === 'running' || status.status === 'queued') {
     return run === null ? 'is starting'
-      : status.label === 'Running' ? 'is answering your question' : `is reading ${commitCount(run.commits.length)} in its own working copy`;
+      : status.label === 'Running' ? 'is answering your question' : `is reading ${fileCount(run.changedFiles)} in the shared working copy`;
   }
   if (status.status === 'approval') return 'is waiting for your approval';
   if (status.status === 'recovery') return 'needs its runtime recovered';
   if (status.status === 'stopped') return 'was stopped';
   if (status.status === 'failed') return 'could not finish';
   if (status.status === 'nofindings') return review.findings.length > 0 ? 'finished with no findings selected; recorded findings remain in Review details'
-    : `found no issues in ${run === null ? 'the changes' : commitCount(run.commits.length)}`;
+    : `found no issues in ${run === null ? 'the changes' : fileCount(run.changedFiles)}`;
   return `left ${findings} local review ${findings === 1 ? 'comment' : 'comments'}`;
 }
 
@@ -186,13 +187,14 @@ export function TaskReviewSection({ options, state }: { options: TaskReviewOptio
             {pending === 'resume' ? 'Starting…' : 'Resume'}
           </button>}
           {review.state === 'OPEN' && !running && <button type="button" className="agr-event__action is-quiet" disabled={pending !== null || blocked !== null}
-            title={blocked ?? 'Completes the task and cleans the worktree; the summary, findings and discussion stay'}
+            title={blocked ?? 'Ends the reviewer and keeps the development working copy, summary, findings, and discussion'}
             onClick={() => { void state.end(); }}>End review</button>}
           <button type="button" className="agr-event__icon" aria-label="View in workspace" title="View in workspace" onClick={openWorkspace}>
             <PanelsTopLeft size={16} aria-hidden="true" />
           </button>
         </span>}>
         <strong>Agent review</strong> {reviewEvent(review)}
+        {run?.worktreeTreeSha != null && <span className="agr-event__local">Includes uncommitted changes</span>}
         {run !== null && <span className="agr-event__time"> · {relativeTime(run.endedAt ?? run.createdAt)}</span>}
         {openFindings(review).length > 0 && <span className="agr-event__local"><Lock size={11} aria-hidden="true" />Local · never posted to GitHub</span>}
       </TimelineEvent>

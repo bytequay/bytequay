@@ -524,7 +524,7 @@ class TestAgentMaintenance
                 approvals,
                 new DefaultAgentMetricsService(stores, stores, new InMemoryTaskLogStore(), clock),
                 completion,
-                new AgentRuntimeRegistry(ignored -> {}),
+                new AgentRuntimeRegistry(stores, ignored -> {}),
                 clock);
     }
 

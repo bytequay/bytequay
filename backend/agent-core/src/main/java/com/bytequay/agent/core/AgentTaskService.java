@@ -58,6 +58,9 @@ public interface AgentTaskService
     /** Prepares a workflow-owned working copy without requiring a ready provider or starting a turn. */
     AgentTask prepare(CreateAgentTaskCommand command);
 
+    /** Creates an internal conversation borrowing the source checkout. The caller must hold the source's worktree mutation claim. */
+    AgentTask createShared(CreateAgentTaskCommand command, TaskId sourceTaskId);
+
     /**
      * Returns the latest durable representation of a task.
      *

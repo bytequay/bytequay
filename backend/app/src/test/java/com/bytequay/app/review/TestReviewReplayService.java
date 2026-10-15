@@ -191,7 +191,7 @@ class TestReviewReplayService
         service.start(WORKSPACE, "trinodb/trino", NUMBER);
         sideOf("review-with", ReviewRun.State.INCOMPLETE);
         ReviewRun result = store.listRuns("review-with").getFirst().ended(ReviewRun.State.INCOMPLETE, Optional.of("Missing caller evidence"), MemoryFixtures.NOW);
-        ReviewRun refresh = new ReviewRun("refresh", "review-with", 2, ReviewRun.Scope.FULL, "master", fork, fork, firstHead,
+        ReviewRun refresh = new ReviewRun("refresh", "review-with", 2, ReviewRun.Scope.FULL, "master", fork, fork, firstHead, Optional.empty(),
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(),
                 ImmutableList.of(ReviewStep.explanation()), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0,
                 MemoryFixtures.NOW, MemoryFixtures.NOW, Optional.empty());
@@ -261,7 +261,8 @@ class TestReviewReplayService
                 scopedFindings.stream().filter(finding -> finding.origin() == ReviewFinding.Origin.AUTOMATIC).map(ReviewFinding::id).collect(toImmutableList()),
                 "Select supported automatic findings", ImmutableList.of());
         when(store.findReview(reviewId)).thenReturn(Optional.of(review));
-        when(store.listRuns(reviewId)).thenReturn(ImmutableList.of(new ReviewRun("run-" + reviewId, reviewId, 1, ReviewRun.Scope.FULL, "master", fork, fork, firstHead,
+        when(store.listRuns(reviewId)).thenReturn(ImmutableList.of(new ReviewRun("run-" + reviewId, reviewId, 1, ReviewRun.Scope.FULL, "master", fork,
+                fork, firstHead, Optional.empty(),
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), state, Optional.empty(), Optional.empty(), Optional.empty(),
                 ImmutableList.of(ReviewStep.initial(), ReviewStep.initial().next(ReviewStep.Kind.VALIDATE).withValidation(validation)), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, MemoryFixtures.NOW, MemoryFixtures.NOW,

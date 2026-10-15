@@ -102,9 +102,27 @@ class TestDefaultAgentCompletionService
         stores = new InMemoryAgentStores();
         resources = new RecordingResources();
         worktrees = new RecordingWorktreeService();
-        runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
+        runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         taskId = TaskId.random();
         stores.insert(managedTask(taskId, "Completion test"));
+    }
+
+    @Test
+    void endingAndDeletingBorrowerPreservesDirtyDevelopmentCheckout()
+    {
+        AgentTask owner = stores.update(stores.find(taskId).orElseThrow().claimWorktreeMutation(WorktreeMutationClaim.localRun("developer-build", NOW), NOW));
+        TaskId reviewerId = TaskId.random();
+        AgentTask reviewer = AgentTask.created(reviewerId, false, "Reviewer", TitleSource.USER, owner.laneId(),
+                owner.taskWorktree().orElseThrow(), owner.defaults(), NOW);
+        stores.insert(reviewer);
+        worktrees.uncommitted = true;
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThatThrownBy(() -> service.delete(taskId)).isInstanceOf(AgentConflictException.class).hasMessageContaining("End the review");
+        service.complete(new CompleteAgentTaskCommand(reviewerId, Optional.empty()));
+        service.cleanupWorktree(reviewerId);
+        service.delete(reviewerId);
+        assertThat(worktrees.deleted).isEmpty();
+        assertThat(stores.find(taskId)).contains(owner);
     }
 
     @Test

@@ -30,6 +30,8 @@ public enum SessionAccess
      * boundary survives a tool that is auto-approved.
      */
     READ_ONLY,
+    /** Reads a shared checkout without edits, while retaining the owning reviewer's report tools. */
+    REVIEW_READ_ONLY,
     /**
      * No tools at all. Such a session has nothing to read a repository with, so
      * {@link AgentSessionContext} confines its worktree to the runtime directory.

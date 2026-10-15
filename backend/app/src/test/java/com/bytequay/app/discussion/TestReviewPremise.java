@@ -220,7 +220,7 @@ class TestReviewPremise
 
     private static ReviewRun run(String id, int ordinal, String headSha)
     {
-        return new ReviewRun(id, "r1", ordinal, ReviewRun.Scope.FULL, "main", "0".repeat(40), "0".repeat(40), headSha, Optional.empty(),
+        return new ReviewRun(id, "r1", ordinal, ReviewRun.Scope.FULL, "main", "0".repeat(40), "0".repeat(40), headSha, Optional.empty(), Optional.empty(),
                 ImmutableList.of(new ReviewCommit(headSha, "Change input", "dev")), ImmutableList.of(), ImmutableList.of(),
                 ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(),
                 ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());

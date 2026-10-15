@@ -418,7 +418,7 @@ export function findingPublication(review: AgentReviewDto, finding: ReviewFindin
   if (item !== null) return { kind: 'draft', item };
   if (finding.state === 'WITHDRAWN') return { kind: 'blocked', reason: 'The agent withdrew this finding' };
   if (finding.state === 'RESOLVED') return { kind: 'blocked', reason: 'Excluded from publication' };
-  const accepted = review.runs.some(run => run.state === 'ACCEPTED' && completeCoverage(run) && run.headSha === finding.validatedHeadSha
+  const accepted = review.runs.some(run => run.state === 'ACCEPTED' && completeCoverage(run) && run.worktreeTreeSha === null && run.headSha === finding.validatedHeadSha
       && ((run.id === finding.runId && (finding.origin === 'DISCUSSION'
         || run.steps.findLast(step => step.validation !== null)?.validation?.selectedFindingIds.includes(finding.id)))
         || run.steps.findLast(step => step.validation !== null)?.validation?.candidates.some(candidate => candidate.outcome === 'SUPPORTED'

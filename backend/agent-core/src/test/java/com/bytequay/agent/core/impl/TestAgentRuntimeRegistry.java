@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionRef;
@@ -32,6 +33,7 @@ import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 class TestAgentRuntimeRegistry
 {
@@ -41,7 +43,7 @@ class TestAgentRuntimeRegistry
     @Test
     void closesEverySessionItStillHolds()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
         List<String> closed = new CopyOnWriteArrayList<>();
         registry.registerSession(FIRST, session("task-1", closed));
         registry.registerSession(SECOND, session("task-2", closed));
@@ -57,7 +59,7 @@ class TestAgentRuntimeRegistry
     @Test
     void closesTheRemainingSessionsWhenOneRefuses()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
         List<String> closed = new CopyOnWriteArrayList<>();
         registry.registerSession(FIRST, new StubSession("task-1", closed)
         {
@@ -79,7 +81,7 @@ class TestAgentRuntimeRegistry
     @Test
     void closesSessionsRegisteredAfterShutdownAndKeepsFailedClosesTracked()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
         List<String> closed = new CopyOnWriteArrayList<>();
         registry.close();
 
@@ -104,7 +106,7 @@ class TestAgentRuntimeRegistry
     @Test
     void rejectsDevelopmentReservationsAndTurnsAfterShutdown()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
         TurnId source = TurnId.random();
         DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source);
         registry.reserveDevelopmentOwner(FIRST, source);
@@ -122,7 +124,7 @@ class TestAgentRuntimeRegistry
     @Test
     void stoppedDevelopmentKeepsExclusionButCannotAuthorizeAnotherTurn()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
         TurnId source = TurnId.random();
         DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source);
         registry.reserveDevelopmentOwner(FIRST, source);
@@ -155,7 +157,7 @@ class TestAgentRuntimeRegistry
     private static void assertDrainsDevelopmentAction(boolean shutdown)
             throws Exception
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
         TurnId source = TurnId.random();
         List<String> closed = new CopyOnWriteArrayList<>();
         registry.reserveDevelopmentOwner(FIRST, source);

@@ -120,7 +120,10 @@ final class ReviewPrompts
                 + " at frozen head " + shortSha(run.headSha()) + " (" + run.scope().name().toLowerCase(Locale.ROOT) + " review). "
                 + "Read review_get_context kind assignment and scope before starting; read origin for development or replay context. "
                 + "Follow assignment.guidance, verify claims against frozen source, and keep the review private."
-                + (review.sourceTaskId().isPresent() ? " Review committed changes only; uncommitted development edits are excluded." : "")
+                + (review.sourceTaskId().isPresent() ? " The reviewer shares the development checkout. The frozen source includes uncommitted and new files. "
+                        + "Use scope.sourceRevision for Git object reads; HEAD alone excludes local edits. Preserve all developer edits and staging. "
+                        + "Do not commit, reset, clean, stash, or undo changes for experiments. Run tests without changing source; "
+                        + "report the undo test check as BLOCKED because this is a shared checkout." : "")
                 + review.replay().map(replay -> " Replay cutoff: " + replay.cutoff() + ". Do not read later commits, PR discussion or reviews, and do not fetch.").orElse("");
     }
 

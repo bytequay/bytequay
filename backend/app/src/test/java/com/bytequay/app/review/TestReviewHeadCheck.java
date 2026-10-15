@@ -121,7 +121,8 @@ class TestReviewHeadCheck
 
     private static ReviewRun run(String mergeBaseSha, String headSha)
     {
-        return new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", mergeBaseSha, mergeBaseSha, headSha, Optional.empty(), ImmutableList.of(), ImmutableList.of(),
+        return new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", mergeBaseSha, mergeBaseSha, headSha, Optional.empty(),
+                Optional.empty(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
     }

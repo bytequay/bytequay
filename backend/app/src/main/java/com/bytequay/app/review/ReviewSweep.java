@@ -191,8 +191,8 @@ public class ReviewSweep
         String rules = memories.rules(review, run).stream().map(rule -> "[" + rule.id() + "] " + rule.title() + "\n" + rule.text())
                 .collect(Collectors.joining("\n\n"));
         String scope = "Repository: " + review.repo() + "\nFrozen head: " + run.headSha() + "\nMerge base: " + run.mergeBaseSha()
-                + "\nRead Git objects only; the working files may hold another agent's temporary experiments. Use git diff " + run.mergeBaseSha() + " " + run.headSha()
-                + "; git log --format=fuller " + run.mergeBaseSha() + ".." + run.headSha() + "; git show " + run.headSha() + ":<path>.\nChanged files:\n"
+                + "\nRead Git objects only; the working files may hold another agent's temporary experiments. Use git diff " + run.mergeBaseSha() + " " + run.sourceRevision()
+                + "; git log --format=fuller " + run.mergeBaseSha() + ".." + run.headSha() + "; git show " + run.sourceRevision() + ":<path>.\nChanged files:\n"
                 + run.diff().stream().map(file -> file.filename()).collect(Collectors.joining("\n"))
                 + review.replay().map(replay -> "\nReplay cutoff: " + replay.cutoff()
                         + ". Do not read PR discussion, reviews, later commits or branches, and do not fetch.").orElse("");

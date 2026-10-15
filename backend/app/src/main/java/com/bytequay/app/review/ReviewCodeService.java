@@ -183,7 +183,7 @@ public class ReviewCodeService
         // GitHub's pull-request file status vocabulary.
         Set<String> added = source.diff().get().stream().filter(file -> file.status().equals("added")).map(DiffFile::filename).collect(toImmutableSet());
         if (source.checkout().isEmpty()) {
-            String revision = source.headSha().get();
+            String revision = source.sourceRevision().get();
             Result listed = git.runStdout(repository(source.task()), "ls-tree", "-r", "-z", "--name-only", revision);
             checkState(listed.successful(), "Cannot list the reviewed revision: %s", listed.output().strip());
             List<CodeFileEntry> files = ImmutableSortedSet.copyOf(entries(listed.output(), listed.truncated())).stream()
@@ -289,7 +289,7 @@ public class ReviewCodeService
     private CodeFile file(Source source, String path, Optional<String> expectedRevision)
     {
         requireNonNull(expectedRevision, "expectedRevision is null");
-        if (expectedRevision.isPresent() && !expectedRevision.orElseThrow().equals(source.headSha().get())) {
+        if (expectedRevision.isPresent() && !expectedRevision.orElseThrow().equals(source.checkout().isPresent() ? source.headSha().get() : source.sourceRevision().get())) {
             throw new ReviewConflictException("The working copy revision changed; refresh the file list before reading this file");
         }
         return file(source, path);
@@ -300,7 +300,7 @@ public class ReviewCodeService
         Optional<String> prPatch = prFile(source, path).flatMap(file -> Optional.ofNullable(file.patch()));
         if (source.checkout().isEmpty()) {
             Path repository = repository(source.task());
-            String revision = source.headSha().get();
+            String revision = source.sourceRevision().get();
             Result shown = git.runStdout(repository, "cat-file", "blob", revision + ":" + path);
             if (!shown.successful()) {
                 throw notFound(path);
@@ -355,7 +355,12 @@ public class ReviewCodeService
 
     public CodeFile snapshot(String reviewId, String revision, String path)
     {
-        return snapshot(source(reviewId), revision, path);
+        Source source = source(reviewId);
+        if (store.listRuns(reviewId).stream().anyMatch(run -> run.worktreeTreeSha().equals(Optional.of(revision)))) {
+            checkPath(path);
+            return snapshotFile(source, revision, path);
+        }
+        return snapshot(source, revision, path);
     }
 
     public CodeFile snapshot(TaskCodeHost host, String revision, String path)
@@ -367,7 +372,13 @@ public class ReviewCodeService
     {
         checkPath(path);
         Path root = source.checkout().orElseGet(() -> repository(source.task()));
-        String selected = historyRevision(source, root, revision);
+        String selected = revision.equals(source.sourceRevision().get()) ? revision : historyRevision(source, root, revision);
+        return snapshotFile(source, selected, path);
+    }
+
+    private CodeFile snapshotFile(Source source, String selected, String path)
+    {
+        Path root = source.checkout().orElseGet(() -> repository(source.task()));
         Result shown = localDiff.read(root, "cat-file", "blob", selected + ":" + path);
         if (!shown.successful()) {
             throw notFound(path);
@@ -398,7 +409,7 @@ public class ReviewCodeService
     private CodeBlame blame(Source source, String path)
     {
         CodeFile file = file(source, path);
-        String revision = source.headSha().get();
+        String revision = source.sourceRevision().get();
         if (file.content().isEmpty()) {
             return new CodeBlame(path, revision, file.contentHash().orElse(""), ImmutableList.of(), false, file.unavailableReason());
         }
@@ -435,7 +446,7 @@ public class ReviewCodeService
         }
         List<String> paths = prFile(source, path).filter(file -> file.status().equals("renamed")).isEmpty()
                 ? ImmutableList.of(path)
-                : renameSource(directory, base.orElseThrow(), source.headSha().get(), path).map(renamed -> ImmutableList.of(renamed, path)).orElse(ImmutableList.of(path));
+                : renameSource(directory, base.orElseThrow(), source.sourceRevision().get(), path).map(renamed -> ImmutableList.of(renamed, path)).orElse(ImmutableList.of(path));
         Result diff = git.runStdout(directory, ImmutableList.<String>builder()
                 // Porcelain diff rewrites a stat-dirty index even under --no-optional-locks, which would take index.lock under a
                 // concurrent Update; user settings must not merge hunks or change the path prefixes the parser reads.
@@ -690,7 +701,7 @@ public class ReviewCodeService
             String head = checkout.isPresent() ? head(directory) : review.worktreeHeadSha().orElseThrow();
             Supplier<Base> base = Suppliers.memoize(() -> reviewBase(review, Optional.empty(), directory, head));
             return new Source(task, checkout, Suppliers.memoize(() -> localDiff.diff(directory, base.get().sha(), Optional.of(head)).files()),
-                    () -> Optional.of(base.get().sha()), () -> head, ended);
+                    () -> Optional.of(base.get().sha()), () -> head, () -> head, ended);
         }
         ReviewRun run = runs.getLast();
         if (live && checkout.isPresent()) {
@@ -700,10 +711,10 @@ public class ReviewCodeService
                 // Catch-up changes code without changing the frozen review. Derive file marks from the checkout's own committed revision.
                 Supplier<Base> base = Suppliers.memoize(() -> reviewBase(review, Optional.of(run), directory, head));
                 return new Source(task, checkout, Suppliers.memoize(() -> localDiff.diff(directory, base.get().sha(), Optional.of(head)).files()),
-                        () -> Optional.of(base.get().sha()), () -> head, ended);
+                        () -> Optional.of(base.get().sha()), () -> head, () -> head, ended);
             }
         }
-        return new Source(task, checkout, run::diff, () -> Optional.of(run.mergeBaseSha()), run::headSha, ended);
+        return new Source(task, checkout, run::diff, () -> Optional.of(run.mergeBaseSha()), run::headSha, run::sourceRevision, ended);
     }
 
     /** Reads remain available during execution, but a head move cannot pair one revision's code with another revision's marks. */
@@ -761,7 +772,7 @@ public class ReviewCodeService
         Optional<String> readOnly = task.state() != TaskState.OPEN ? Optional.of("This task has ended — read-only")
                 : !task.interactive() ? Optional.of("This task's working copy is read-only here") : Optional.empty();
         return new Source(task, Optional.of(checkout), Suppliers.memoize(() -> localDiff.diff(checkout, base.get().sha(), Optional.of(head.get())).files()),
-                () -> Optional.of(base.get().sha()), head, readOnly);
+                () -> Optional.of(base.get().sha()), head, head, readOnly);
     }
 
     private Base taskBase(AgentTask task, Path checkout)
@@ -806,8 +817,14 @@ public class ReviewCodeService
                     source.checkout().orElseGet(() -> repository(source.task())), source.headSha().get());
             return changes(source, defaultBase, scope, commit, base, head, Optional.of(reviewId));
         }
-        ReviewRun run = head.map(revision -> runs.reversed().stream().filter(item -> item.headSha().equals(revision)).findFirst()
+        ReviewRun run = head.map(revision -> runs.reversed().stream().filter(item -> item.sourceRevision().equals(revision) || item.headSha().equals(revision)).findFirst()
                 .orElseThrow(() -> new ReviewNotFoundException("No review run exists for this revision"))).orElseGet(runs::getLast);
+        if (scope == ChangeScope.COMMITTED && run.worktreeTreeSha().isPresent()) {
+            Path repository = repository(source.task());
+            WorktreeDiffReader.History history = localDiff.history(repository, run.mergeBaseSha(), run.headSha());
+            return new Changes("Reviewed working copy", run.sourceRevision(), run.mergeBaseSha(), run.baseRef(), scope, Optional.empty(), Optional.empty(),
+                    history.commits(), run.diff(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), history.truncated());
+        }
         Base defaultBase = historical || source.checkout().isEmpty() ? new Base(run.mergeBaseSha(), run.baseRef())
                 : reviewBase(store.findReview(reviewId).orElseThrow(), Optional.of(run), source.checkout().orElseThrow(), source.headSha().get());
         return changes(source, defaultBase, scope, commit, base, head, Optional.of(reviewId));
@@ -1055,6 +1072,7 @@ public class ReviewCodeService
             Supplier<List<DiffFile>> diff,
             Supplier<Optional<String>> mergeBaseSha,
             Supplier<String> headSha,
+            Supplier<String> sourceRevision,
             Optional<String> ended) {}
 
     public enum CodeSource

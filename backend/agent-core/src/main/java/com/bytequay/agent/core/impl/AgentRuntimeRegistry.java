@@ -19,7 +19,9 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.DevelopmentTurnCompletion;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
@@ -49,7 +51,7 @@ public final class AgentRuntimeRegistry
 {
     private final ConcurrentMap<TaskId, AgentSession> sessions = new ConcurrentHashMap<>();
     private final ConcurrentMap<TurnId, LiveTurn> runningTurns = new ConcurrentHashMap<>();
-    // One monitor per task for the life of the process: a stripe shared with an unrelated task made each wait on the
+    // One monitor per worktree owner for the life of the process: unrelated worktrees must not wait on each
     // other's provider launch. ponytail: never evicted, which is a few bytes per task this backend has seen.
     private final ConcurrentMap<TaskId, Object> taskLocks = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, Object> steerLocks = new ConcurrentHashMap<>();
@@ -59,16 +61,40 @@ public final class AgentRuntimeRegistry
     private final ConcurrentMap<TaskId, DevelopmentOwner> developmentOwners = new ConcurrentHashMap<>();
     private final Set<TaskId> stoppedDevelopmentTasks = ConcurrentHashMap.newKeySet();
     private final Consumer<AgentTask> branchAdmission;
+    private final AgentTaskStore taskStore;
     private volatile boolean closing;
 
-    public AgentRuntimeRegistry(Consumer<AgentTask> branchAdmission)
+    public AgentRuntimeRegistry(AgentTaskStore taskStore, Consumer<AgentTask> branchAdmission)
     {
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.branchAdmission = requireNonNull(branchAdmission, "branchAdmission is null");
     }
 
     void checkBranchAdmission(AgentTask task)
     {
+        for (AgentTask other : sharedTasks(task)) {
+            if (other.worktreeMutationClaim().isPresent() || other.developmentContinuationUnfinished() || hasDevelopmentOwner(other.id())
+                    || unverifiedClose(other.id()).isPresent()) {
+                throw new AgentConflictException("The shared working copy is in use by " + other.title() + "; wait for it to finish or stop it first");
+            }
+        }
         branchAdmission.accept(task);
+        task.taskWorktree().filter(worktree -> !task.ownsWorktree()).map(TaskWorktree::taskId).flatMap(taskStore::find).ifPresent(branchAdmission);
+    }
+
+    void requireNoWorktreeBorrowers(AgentTask task)
+    {
+        if (task.ownsWorktree() && sharedTasks(task).stream().anyMatch(other -> !other.state().terminal())) {
+            throw new AgentConflictException("End the review before removing the development working copy");
+        }
+    }
+
+    private List<AgentTask> sharedTasks(AgentTask task)
+    {
+        return task.workspaceId().map(taskStore::listByWorkspace).orElseGet(ImmutableList::of).stream()
+                .filter(other -> !other.id().equals(task.id()) && other.worktreeRemovedAt().isEmpty()
+                        && other.taskWorktree().map(TaskWorktree::taskId).equals(task.taskWorktree().map(TaskWorktree::taskId)))
+                .filter(other -> other.taskWorktree().isPresent()).collect(toImmutableList());
     }
 
     boolean closing()
@@ -193,7 +219,8 @@ public final class AgentRuntimeRegistry
     public Object taskLock(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
-        return taskLocks.computeIfAbsent(taskId, ignored -> new Object());
+        TaskId owner = taskStore.find(taskId).flatMap(AgentTask::taskWorktree).map(TaskWorktree::taskId).orElse(taskId);
+        return taskLocks.computeIfAbsent(owner, ignored -> new Object());
     }
 
     /** Serializes provider steer requests without holding the task state lock while awaiting I/O. */

@@ -461,6 +461,25 @@ class TestReviewCodeService
     }
 
     @Test
+    void retainsUncommittedFileSnapshotsAfterTheDeveloperEditsAgainAndReviewEnds()
+    {
+        write(checkout, "local.txt", "reviewed local edit\n");
+        WorktreeDiffReader reader = new WorktreeDiffReader(new GitCommandRunner());
+        String tree = reader.snapshotTree(checkout);
+        ReviewRun reviewed = run(head, head, head, reader.diff(checkout, head, Optional.of(tree)).files(), Optional.of(tree));
+        when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(reviewed));
+        write(checkout, "local.txt", "later developer edit\n");
+        assertThat(service.snapshot(REVIEW_ID, tree, "local.txt").content()).contains("reviewed local edit\n");
+        assertThat(service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty()).files())
+                .extracting(DiffFile::filename).containsExactly("local.txt");
+        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
+        when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
+        assertThat(service.files(REVIEW_ID).revision()).isEqualTo(tree);
+        assertThat(service.file(REVIEW_ID, "local.txt").content()).contains("reviewed local edit\n");
+        assertThat(service.file(REVIEW_ID, "local.txt").editable()).isFalse();
+    }
+
+    @Test
     void readsTheFrozenHeadOnceTheWorkingCopyIsGone()
     {
         write(checkout, TEST_PATH, "unsaved experiment\n");
@@ -1160,7 +1179,12 @@ class TestReviewCodeService
 
     private static ReviewRun run(String headSha, String baseSha, String mergeBaseSha, List<DiffFile> diff)
     {
-        return new ReviewRun("run-" + headSha, REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", baseSha, mergeBaseSha, headSha, Optional.empty(), ImmutableList.of(), diff,
+        return run(headSha, baseSha, mergeBaseSha, diff, Optional.empty());
+    }
+
+    private static ReviewRun run(String headSha, String baseSha, String mergeBaseSha, List<DiffFile> diff, Optional<String> tree)
+    {
+        return new ReviewRun("run-" + headSha, REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", baseSha, mergeBaseSha, headSha, tree, Optional.empty(), ImmutableList.of(), diff,
                 ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
     }

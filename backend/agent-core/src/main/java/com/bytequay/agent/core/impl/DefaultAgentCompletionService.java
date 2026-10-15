@@ -145,7 +145,10 @@ public final class DefaultAgentCompletionService
                 throw new AgentConflictException("Task cannot complete in state " + task.state());
             }
             requireNoDevelopmentContinuation(task);
-            runtimeRegistry.checkBranchAdmission(task);
+            runtimeRegistry.requireNoWorktreeBorrowers(task);
+            if (task.ownsWorktree()) {
+                runtimeRegistry.checkBranchAdmission(task);
+            }
             turnStore.findActive(task.id()).ifPresent(turn -> {
                 throw new AgentConflictException("Task has an active turn: " + turn.id());
             });
@@ -173,6 +176,9 @@ public final class DefaultAgentCompletionService
     {
         AgentMetrics metrics = metricsService.taskTotals(task.id());
         AgentFinalResponseReader.FinalResponse finalResponse = finalResponseReader.read(task.id());
+        if (!task.ownsWorktree() && task.taskWorktree().isPresent()) {
+            return new TaskSummary(finalResponse.response(), Optional.empty(), metrics, notes, finalResponse.children());
+        }
         WorktreeSnapshot worktree = worktreeService.inspect(task.taskWorktree()
                 .orElseThrow(() -> new AgentConflictException("Task has no managed worktree: " + task.id())));
         // Ignored build output is no unfinished work; cleanup, which would delete it, still refuses it.
@@ -363,7 +369,8 @@ public final class DefaultAgentCompletionService
             }
             AgentTask task = taskStore.require(taskId);
             resourceService.pathsForDeletion(taskId);
-            task.taskWorktree().ifPresent(worktreeService::delete);
+            runtimeRegistry.requireNoWorktreeBorrowers(task);
+            task.taskWorktree().filter(ignored -> task.ownsWorktree()).ifPresent(worktreeService::delete);
             resourceService.delete(taskId);
             unitOfWork.execute(() -> {
                 taskStore.delete(taskId);
@@ -380,7 +387,10 @@ public final class DefaultAgentCompletionService
             return false;
         }
         requireNoDevelopmentContinuation(found.orElseThrow());
-        runtimeRegistry.checkBranchAdmission(found.orElseThrow());
+        runtimeRegistry.requireNoWorktreeBorrowers(found.orElseThrow());
+        if (found.orElseThrow().ownsWorktree()) {
+            runtimeRegistry.checkBranchAdmission(found.orElseThrow());
+        }
         turnStore.findActive(taskId).ifPresent(turn -> {
             throw new AgentConflictException("Task has an active turn; stop it before deleting: " + turn.id());
         });
@@ -407,7 +417,8 @@ public final class DefaultAgentCompletionService
         if (task.worktreeRemovedAt().isPresent()) {
             return task;
         }
-        task.taskWorktree().ifPresent(worktreeService::cleanup);
+        runtimeRegistry.requireNoWorktreeBorrowers(task);
+        task.taskWorktree().filter(ignored -> task.ownsWorktree()).ifPresent(worktreeService::cleanup);
         resourceService.deleteWorktreeCache(task.id());
         return taskStore.update(task.withWorktreeRemovedAt(Instant.now(clock)));
     }

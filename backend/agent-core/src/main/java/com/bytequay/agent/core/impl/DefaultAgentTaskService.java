@@ -28,6 +28,7 @@ import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskNames;
+import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskTitles;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
@@ -129,6 +130,28 @@ public final class DefaultAgentTaskService
                 command.startCommit(),
                 command.generatedBranch()));
         return createManaged(command.taskId(), false, command.title(), TitleSource.USER, command.laneId(), command.defaults(), Optional.empty(), worktree, taskStore::insert);
+    }
+
+    @Override
+    public AgentTask createShared(CreateAgentTaskCommand command, TaskId sourceTaskId)
+    {
+        AgentTask source = getInteractive(command.workspaceId(), sourceTaskId);
+        if (source.state() != TaskState.OPEN || source.worktreeRemovedAt().isPresent() || !source.ownsWorktree()) {
+            throw new AgentConflictException("The development working copy is unavailable");
+        }
+        if (source.worktreeMutationClaim().isEmpty()) {
+            throw new AgentConflictException("Claim the source working copy before creating a shared reviewer");
+        }
+        if (!source.repository().equals(command.physicalRepository())) {
+            throw new InvalidAgentRequestException("Shared task belongs to another repository");
+        }
+        driverRegistry.checkWorkspaceAccess(command.laneId(), source.workspaceId());
+        requireReady(command.laneId(), command.defaults().permissionPolicy());
+        if (taskStore.find(command.taskId()).isPresent()) {
+            throw new AgentConflictException("Task already exists: " + command.taskId());
+        }
+        return createManaged(command.taskId(), false, command.title(), TitleSource.USER, command.laneId(), command.defaults(), Optional.empty(),
+                source.taskWorktree().orElseThrow(), taskStore::insert);
     }
 
     @Override
@@ -249,7 +272,9 @@ public final class DefaultAgentTaskService
             return;
         }
         suppressFailure(failure, () -> resourceService.delete(taskId));
-        suppressFailure(failure, () -> worktreeService.cleanup(worktree));
+        if (worktree.taskId().equals(taskId)) {
+            suppressFailure(failure, () -> worktreeService.cleanup(worktree));
+        }
     }
 
     private AgentTask createManaged(

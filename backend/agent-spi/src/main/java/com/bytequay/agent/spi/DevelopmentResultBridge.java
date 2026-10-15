@@ -45,8 +45,12 @@ public record DevelopmentResultBridge(String turnId, String instruction, boolean
             Development result reporting is managed by ByteQuay for this turn. Before your final response,
             the root agent must call report_development_result with readyForDelivery=true only when the
             requested development work and appropriate verification are finished and no user decision is open.
-            Report readyForDelivery=false before asking for an unresolved decision; do not commit or publish
-            while that decision is open. Missing or invalid reports never authorize delivery. Subagents may
+            Report readyForDelivery=false before asking for an unresolved decision; do not perform the action
+            awaiting that decision. A request to review before pushing or updating a PR holds publication,
+            not authorized local commits of finished work. The reviewer shares this task's working copy and
+            can review uncommitted changes; a review request does not require a commit. Follow Auto commit
+            and explicit user restrictions independently. Keep readyForDelivery=false while publication
+            is on hold so automatic publication cannot start. Missing or invalid reports never authorize delivery. Subagents may
             contribute work but cannot report the root result. Do not supply task, turn, or agent identities.
             An optional message explains the outcome in at most 4000 characters. The user's accepted
             automation settings control delivery; this report cannot change them or select a stopping stage.

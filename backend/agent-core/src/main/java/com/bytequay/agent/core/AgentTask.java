@@ -87,7 +87,7 @@ public record AgentTask(
         checkOptionalText(cleanupFailure, "cleanupFailure");
         requireNonNull(archivedAt, "archivedAt is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
-        checkArgument(taskWorktree.stream().allMatch(value -> value.taskId().equals(id)), "taskWorktree belongs to another task");
+        checkArgument(!interactive || taskWorktree.stream().allMatch(value -> value.taskId().equals(id)), "Interactive tasks must own their worktree");
         checkArgument(taskWorktree.stream().allMatch(value -> value.physicalRepository().equals(repository)), "taskWorktree belongs to another repository");
         checkArgument(taskWorktree.stream().allMatch(value -> value.canonicalWorktree().equals(worktree)), "taskWorktree path does not match worktree");
         checkArgument(taskWorktree.stream().allMatch(value -> workspaceId
@@ -384,10 +384,16 @@ public record AgentTask(
     }
 
     /** Records a verified local branch rename without changing checkout ownership. */
+    public boolean ownsWorktree()
+    {
+        return taskWorktree.map(value -> value.taskId().equals(id)).orElse(false);
+    }
+
     public AgentTask withBranch(String branch, Instant now)
     {
         requireState(TaskState.OPEN);
         checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
+        checkArgument(ownsWorktree(), "Only the worktree owner can rename its branch");
         TaskWorktree previous = taskWorktree.orElseThrow();
         TaskWorktree renamed = new TaskWorktree(id, previous.workspaceId(), previous.physicalRepository(), previous.canonicalWorktree(), branch, previous.startCommit());
         return toBuilder().taskWorktree(Optional.of(renamed)).updatedAt(now).build();

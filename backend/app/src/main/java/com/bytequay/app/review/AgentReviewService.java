@@ -232,7 +232,7 @@ public class AgentReviewService
                 .findFirst().map(review -> projection(review.id()));
     }
 
-    /** Starts a separate reviewer for the development task's committed working-copy revision. */
+    /** Starts a reviewer sharing the development checkout, including its uncommitted files. */
     public AgentReviewProjection startForTask(String workspaceId, String sourceTaskId)
     {
         AgentTask source = tasks.getInteractive(workspaceId, TaskId.valueOf(sourceTaskId));
@@ -352,7 +352,8 @@ public class AgentReviewService
         String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), title);
         CreateAgentTaskCommand command = new CreateAgentTaskCommand(taskId, workspace.workspaceId(), selection.laneId(),
                 WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), snapshot.headSha(), branch, title, selection.defaults());
-        AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> startReview ? tasks.create(command) : tasks.prepare(command));
+        AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> sourceTaskId.map(id -> createSharedReviewer(command, TaskId.valueOf(id)))
+                .orElseGet(() -> startReview ? tasks.create(command) : tasks.prepare(command)));
         Instant now = Instant.now(clock);
         String reviewId = UUID.randomUUID().toString();
         return locked(reviewId, () -> {
@@ -365,6 +366,14 @@ public class AgentReviewService
             }
             return projection(review.id());
         });
+    }
+
+    private AgentTask createSharedReviewer(CreateAgentTaskCommand command, TaskId sourceTaskId)
+    {
+        AtomicReference<AgentTask> reviewer = new AtomicReference<>();
+        AgentTask source = tasks.get(sourceTaskId);
+        turns.synchronizeWorktree(sourceTaskId, source.version(), claimed -> reviewer.set(tasks.createShared(command, sourceTaskId)));
+        return reviewer.get();
     }
 
     /** Saves the composer choice without altering an already accepted turn. */
@@ -527,13 +536,13 @@ public class AgentReviewService
                 throw new ReviewConflictException("Stop the running turn before ending the review");
             }
             // Completion refuses uncommitted work, and refusing only after unwatching would leave an open review nobody observes.
-            Optional<TaskWorktree> worktree = task.taskWorktree().filter(ignored -> task.state() == TaskState.OPEN && task.worktreeRemovedAt().isEmpty());
+            Optional<TaskWorktree> worktree = task.taskWorktree().filter(ignored -> task.ownsWorktree() && task.state() == TaskState.OPEN && task.worktreeRemovedAt().isEmpty());
             if (worktree.isPresent()) {
                 WorktreeSnapshot snapshot = worktrees.inspect(worktree.orElseThrow());
                 if (snapshot.gitOperationInProgress()) {
                     throw new ReviewConflictException("Finish the open Git operation in the working copy before ending the review");
                 }
-                if (snapshot.uncommitted()) {
+                if (task.ownsWorktree() && snapshot.uncommitted()) {
                     throw new ReviewConflictException("Discard saved edits before ending the review");
                 }
             }
@@ -1193,7 +1202,7 @@ public class AgentReviewService
                 }
                 Optional<ReviewFinding> finding = candidate.findingId().flatMap(store::findFinding);
                 if (finding.isEmpty() || !finding.orElseThrow().reviewId().equals(run.reviewId()) || finding.orElseThrow().state() == ReviewFinding.State.WITHDRAWN
-                        || finding.orElseThrow().outdated() || !finding.orElseThrow().validatedHeadSha().equals(run.headSha())
+                        || finding.orElseThrow().outdated() || !finding.orElseThrow().validatedHeadSha().equals(run.sourceRevision())
                         || !candidate.findingRevision().equals(Optional.of(finding.orElseThrow().revision()))
                         || !candidate.evidenceRefs().containsAll(finding.orElseThrow().evidence().stream().map(ReviewEvidence::ref).toList())) {
                     return false;
@@ -1303,12 +1312,13 @@ public class AgentReviewService
                 .map(ignored -> localSnapshot(sourceTask(review), workspace, review.number()))
                 .orElseGet(() -> snapshot(workspace, review.repo(), review.number().orElseThrow()));
         boolean changed = latest.map(run -> !run.headSha().equals(snapshot.headSha())
+                || !run.worktreeTreeSha().equals(snapshot.worktreeTreeSha())
                 || !run.baseRef().equals(snapshot.baseRef())
                 || !run.baseSha().equals(snapshot.baseSha())
                 || !run.mergeBaseSha().equals(snapshot.mergeBaseSha())).orElse(true);
         List<ReviewFinding> findings = store.listFindings(review.id());
         boolean needsReassessment = findings.stream().anyMatch(finding -> finding.state() == ReviewFinding.State.OPEN
-                && (finding.outdated() || !finding.validatedHeadSha().equals(snapshot.headSha())));
+                && (finding.outdated() || !finding.validatedHeadSha().equals(snapshot.worktreeTreeSha().orElse(snapshot.headSha()))));
         if (!changed && !retry && !needsReassessment) {
             return;
         }
@@ -1347,7 +1357,7 @@ public class AgentReviewService
     private Optional<List<ReviewFinding>> carriedFindings(AgentReview review, WorkspaceRepositoryContext workspace, Snapshot snapshot, Optional<ReviewRun> accepted,
             List<ReviewFinding> findings)
     {
-        if (accepted.isEmpty() || review.replay().isPresent()) {
+        if (accepted.isEmpty() || review.replay().isPresent() || review.sourceTaskId().isPresent()) {
             return Optional.empty();
         }
         ReviewRun reviewed = accepted.orElseThrow();
@@ -1381,7 +1391,8 @@ public class AgentReviewService
     {
         Instant now = Instant.now(clock);
         ReviewRun run = store.insertRun(new ReviewRun(
-                UUID.randomUUID().toString(), review.id(), ordinal, ReviewRun.Scope.FULL, snapshot.baseRef(), snapshot.baseSha(), snapshot.mergeBaseSha(), snapshot.headSha(),
+                UUID.randomUUID().toString(), review.id(), ordinal, ReviewRun.Scope.FULL, snapshot.baseRef(), snapshot.baseSha(), snapshot.mergeBaseSha(),
+                snapshot.headSha(), snapshot.worktreeTreeSha(),
                 Optional.of(reviewed.headSha()), snapshot.commits(), snapshot.diff(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), reviewed.coverage(),
                 reviewed.investigation(), reviewed.steps(), false, ImmutableMap.of(), reviewed.evidence(), Optional.empty(), 0, now, now, Optional.empty()));
         for (ReviewFinding finding : findings) {
@@ -1399,6 +1410,10 @@ public class AgentReviewService
      */
     private void moveWorktree(AgentTask task, Optional<String> reviewedHead, String headSha, WorkspaceRepositoryContext workspace)
     {
+        if (!task.ownsWorktree()) {
+            // The developer owns both HEAD and local edits. A shared review never synchronizes or discards them.
+            return;
+        }
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new ReviewConflictException("The review task has no managed worktree"));
         WorktreeSnapshot snapshot = worktrees.inspect(worktree);
         if (snapshot.gitOperationInProgress()) {
@@ -1437,14 +1452,14 @@ public class AgentReviewService
     private void startRun(AgentReview review, Snapshot snapshot, WorkspaceRepositoryContext workspace, int ordinal, Optional<ReviewRun> previous, List<ReviewFinding> findings)
     {
         Instant now = Instant.now(clock);
-        boolean incremental = previous.isPresent()
+        boolean incremental = review.sourceTaskId().isEmpty() && previous.isPresent()
                 && !previous.orElseThrow().headSha().equals(snapshot.headSha())
                 && previous.orElseThrow().baseRef().equals(snapshot.baseRef())
                 && previous.orElseThrow().baseSha().equals(snapshot.baseSha())
                 && previous.orElseThrow().mergeBaseSha().equals(snapshot.mergeBaseSha())
                 && git.run(workspace.repository(), "merge-base", "--is-ancestor", previous.orElseThrow().headSha(), snapshot.headSha()).successful();
         ReviewRun run = insertRun(review, snapshot, ordinal, incremental ? ReviewRun.Scope.INCREMENTAL : ReviewRun.Scope.FULL,
-                previous.map(ReviewRun::headSha), ReviewStep.initial());
+                previous.map(ReviewRun::sourceRevision), ReviewStep.initial());
         AgentTurn turn;
         try {
             for (ReviewFinding finding : findings) {
@@ -1479,8 +1494,11 @@ public class AgentReviewService
     private ReviewRun insertRun(AgentReview review, Snapshot snapshot, int ordinal, ReviewRun.Scope scope, Optional<String> priorHead, ReviewStep step)
     {
         Instant now = Instant.now(clock);
+        snapshot.worktreeTreeSha().ifPresent(tree -> browse.require(tasks.get(TaskId.valueOf(review.taskId())).worktree(),
+                "update-ref", "refs/bytequay/review-trees/" + tree, tree));
         return store.insertRun(new ReviewRun(
-                UUID.randomUUID().toString(), review.id(), ordinal, scope, snapshot.baseRef(), snapshot.baseSha(), snapshot.mergeBaseSha(), snapshot.headSha(), priorHead,
+                UUID.randomUUID().toString(), review.id(), ordinal, scope, snapshot.baseRef(), snapshot.baseSha(), snapshot.mergeBaseSha(),
+                snapshot.headSha(), snapshot.worktreeTreeSha(), priorHead,
                 snapshot.commits(), snapshot.diff(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(),
                 ImmutableList.of(step), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, now, now, Optional.empty()));
     }
@@ -1532,7 +1550,7 @@ public class AgentReviewService
                 .map(parts -> new ReviewCommit(parts[0], parts.length > 2 ? parts[2] : "", parts.length > 1 ? parts[1] : ""))
                 .collect(toImmutableList());
         List<DiffFile> diff = pullRequests.getPullRequestDiffFiles(repository, number, null, null);
-        return new Snapshot(OptionalLong.of(detail.id()), headSha, baseRef, baseSha, mergeBase, commits, diff);
+        return new Snapshot(OptionalLong.of(detail.id()), headSha, Optional.empty(), baseRef, baseSha, mergeBase, commits, diff);
     }
 
     private AgentTask sourceTask(AgentReview review)
@@ -1573,6 +1591,14 @@ public class AgentReviewService
 
     private Snapshot localSnapshot(AgentTask source, WorkspaceRepositoryContext workspace, OptionalInt number)
     {
+        AtomicReference<Snapshot> snapshot = new AtomicReference<>();
+        AgentTask current = tasks.get(source.id());
+        turns.synchronizeWorktree(source.id(), current.version(), claimed -> snapshot.set(readLocalSnapshot(claimed, workspace, number)));
+        return snapshot.get();
+    }
+
+    private Snapshot readLocalSnapshot(AgentTask source, WorkspaceRepositoryContext workspace, OptionalInt number)
+    {
         WorkflowAgentTasks.requireSelectedRepository(WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), source.repository(), ReviewConflictException::new);
         Path checkout = sourceCheckout(source);
         TaskWorktree worktree = source.taskWorktree().orElseThrow();
@@ -1594,13 +1620,15 @@ public class AgentReviewService
         }
         String mergeBase = browse.require(checkout, "merge-base", head, base).strip();
         WorktreeDiffReader.History history = browse.history(checkout, mergeBase, head);
-        WorktreeDiffReader.Diff diff = browse.diff(checkout, mergeBase, Optional.of(head));
+        String tree = browse.snapshotTree(checkout);
+        Optional<String> localTree = tree.equals(browse.require(checkout, "rev-parse", "HEAD^{tree}").strip()) ? Optional.empty() : Optional.of(tree);
+        WorktreeDiffReader.Diff diff = browse.diff(checkout, mergeBase, Optional.of(tree));
         if (history.truncated() || diff.truncated()) {
-            throw new ReviewConflictException("The local change set exceeds the review snapshot limit; narrow the committed changes before reviewing");
+            throw new ReviewConflictException("The local change set exceeds the review snapshot limit; narrow the changes before reviewing");
         }
         List<ReviewCommit> commits = history.commits().reversed().stream()
                 .map(commit -> new ReviewCommit(commit.sha(), commit.message(), commit.author())).collect(toImmutableList());
-        return new Snapshot(pullRequestId, head, baseRef, base, mergeBase, commits, diff.files());
+        return new Snapshot(pullRequestId, head, localTree, baseRef, base, mergeBase, commits, diff.files());
     }
 
     /** A replay's scope, read from the workspace repository: the commits and diff from where its pull request branched to the past head. */
@@ -1613,13 +1641,13 @@ public class AgentReviewService
         }
         List<ReviewCommit> commits = history.commits().reversed().stream()
                 .map(commit -> new ReviewCommit(commit.sha(), commit.message(), commit.author())).collect(toImmutableList());
-        return new Snapshot(OptionalLong.empty(), headSha, baseRef, mergeBaseSha, mergeBaseSha, commits, diff.files());
+        return new Snapshot(OptionalLong.empty(), headSha, Optional.empty(), baseRef, mergeBaseSha, mergeBaseSha, commits, diff.files());
     }
 
     /** A replay never moves: a retry reviews the scope its first run froze. */
     private static Snapshot frozen(ReviewRun run)
     {
-        return new Snapshot(OptionalLong.empty(), run.headSha(), run.baseRef(), run.baseSha(), run.mergeBaseSha(), run.commits(), run.diff());
+        return new Snapshot(OptionalLong.empty(), run.headSha(), run.worktreeTreeSha(), run.baseRef(), run.baseSha(), run.mergeBaseSha(), run.commits(), run.diff());
     }
 
     private String revParse(Path repository, String... arguments)
@@ -1790,7 +1818,8 @@ public class AgentReviewService
 
     private record ModelSelection(AgentLaneId laneId, AgentTaskDefaults defaults) {}
 
-    private record Snapshot(OptionalLong pullRequestId, String headSha, String baseRef, String baseSha, String mergeBaseSha, List<ReviewCommit> commits, List<DiffFile> diff) {}
+    private record Snapshot(OptionalLong pullRequestId, String headSha, Optional<String> worktreeTreeSha, String baseRef, String baseSha, String mergeBaseSha,
+            List<ReviewCommit> commits, List<DiffFile> diff) {}
 
     /**
      * Where a replay reviews: the past head, and the commit its pull request branched from.

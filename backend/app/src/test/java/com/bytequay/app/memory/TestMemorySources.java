@@ -121,7 +121,7 @@ class TestMemorySources
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         ReviewMessage question = new ReviewMessage("message-1", "review", Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.USER,
                 "We never log user input here; please don't suggest it.", 1, "run-1", Optional.empty(), Optional.empty(), 0, NOW);
-        ReviewRun run = new ReviewRun("run-1", "review", 1, ReviewRun.Scope.FULL, "main", "a".repeat(40), "a".repeat(40), "b".repeat(40), Optional.empty(),
+        ReviewRun run = new ReviewRun("run-1", "review", 1, ReviewRun.Scope.FULL, "main", "a".repeat(40), "a".repeat(40), "b".repeat(40), Optional.empty(), Optional.empty(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(),
                 false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
         when(assignments.resolve("review", Optional.of(turnId))).thenReturn(new ReviewToolAssignment.Binding(run, Optional.empty(), Optional.of(question)));

@@ -54,6 +54,9 @@ class TestAgentCommandPolicy
     {
         assertThat(DevelopmentResultBridge.INSTRUCTION).contains(
                 "readyForDelivery=false before asking for an unresolved decision",
+                "not authorized local commits of finished work",
+                "can review uncommitted changes; a review request does not require a commit",
+                "Keep readyForDelivery=false while publication",
                 "Missing or invalid reports never authorize delivery",
                 "During ByteQuay's generated draft-publication step",
                 "use the tool without duplicating its writes",

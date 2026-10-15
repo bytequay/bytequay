@@ -115,6 +115,7 @@ export type ReviewRunDto = {
   baseSha: string;
   mergeBaseSha: string;
   headSha: string;
+  worktreeTreeSha: string | null;
   priorHeadSha: string | null;
   commits: ReviewCommitDto[];
   changedFiles: number;
@@ -463,6 +464,7 @@ function parseRun(value: unknown): ReviewRunDto {
     baseSha: text(run.baseSha, 'base sha'),
     mergeBaseSha: text(run.mergeBaseSha, 'merge base sha'),
     headSha: text(run.headSha, 'head sha'),
+    worktreeTreeSha: optionalText(run.worktreeTreeSha),
     priorHeadSha: optionalText(run.priorHeadSha),
     commits: list(run.commits).map(item => {
       const commit = object(item, 'commit');

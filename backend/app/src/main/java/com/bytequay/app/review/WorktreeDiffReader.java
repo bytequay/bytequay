@@ -17,16 +17,20 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.review.ReviewConflictException;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 
@@ -60,6 +64,35 @@ public class WorktreeDiffReader
     {
         Result result = read(checkout, arguments);
         checkState(result.successful() && !result.truncated(), "Cannot read local changes: %s", result.output().strip());
+        return result.output();
+    }
+
+    /** Freezes working files in a Git tree, without changing HEAD or the user's index. Ignored build output is excluded. */
+    public String snapshotTree(Path checkout)
+    {
+        try {
+            Path index = Files.createTempFile("bytequay-review-index-", ".tmp");
+            try {
+                Path currentIndex = checkout.resolve(require(checkout, "rev-parse", "--git-path", "index").strip());
+                Files.copy(currentIndex, index, StandardCopyOption.REPLACE_EXISTING);
+                Map<String, String> environment = ImmutableMap.of("GIT_INDEX_FILE", index.toString(), "GIT_NO_LAZY_FETCH", "1", "GIT_NO_REPLACE_OBJECTS", "1");
+                snapshotCommand(checkout, environment, "-c", "core.fsmonitor=false", "-c", "core.splitIndex=false", "add", "-A", "--", ".");
+                return snapshotCommand(checkout, environment, "write-tree").strip();
+            }
+            finally {
+                Files.deleteIfExists(index);
+                Files.deleteIfExists(Path.of(index + ".lock"));
+            }
+        }
+        catch (IOException failure) {
+            throw new ReviewConflictException("Cannot snapshot the development working copy", failure);
+        }
+    }
+
+    private String snapshotCommand(Path checkout, Map<String, String> environment, String... arguments)
+    {
+        Result result = git.run(checkout, Duration.ofSeconds(60), environment, ImmutableList.copyOf(arguments));
+        checkState(result.successful() && !result.truncated(), "Cannot snapshot local changes: %s", result.output().strip());
         return result.output();
     }
 

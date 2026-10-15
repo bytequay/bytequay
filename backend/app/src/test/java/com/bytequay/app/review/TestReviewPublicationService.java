@@ -292,7 +292,7 @@ class TestReviewPublicationService
                 original.severity(), original.anchor(), original.evidence(), original.revision(), original.state(), original.stateReason(), original.validatedHeadSha(),
                 false, original.version(), original.createdAt(), original.updatedAt(), original.memories(), original.origin());
         reviews.put(carried);
-        ReviewRun failed = new ReviewRun("failed-run", REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", CURRENT_HEAD, CURRENT_HEAD, REVIEWED_HEAD,
+        ReviewRun failed = new ReviewRun("failed-run", REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", CURRENT_HEAD, CURRENT_HEAD, REVIEWED_HEAD, Optional.empty(),
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.FAILED, Optional.empty(), Optional.empty(), Optional.empty(),
                 ImmutableList.of(), false, Map.of(), Map.of(), Optional.empty(), 0, NOW, NOW, Optional.of(NOW));
         reviews.setRun(acceptedReport(carried, true, false));
@@ -852,7 +852,7 @@ class TestReviewPublicationService
 
     private static ReviewRun run(ReviewRun.State state)
     {
-        return new ReviewRun(RUN_ID, REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", CURRENT_HEAD, CURRENT_HEAD, REVIEWED_HEAD,
+        return new ReviewRun(RUN_ID, REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", CURRENT_HEAD, CURRENT_HEAD, REVIEWED_HEAD, Optional.empty(),
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), state, Optional.empty(), Optional.empty(), Optional.empty(),
                 ImmutableList.of(), false, Map.of(), Map.of(), Optional.empty(), 0, NOW, NOW,
                 state.terminal() ? Optional.of(NOW) : Optional.empty());

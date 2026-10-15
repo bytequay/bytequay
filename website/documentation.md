@@ -282,8 +282,12 @@ Switching providers starts a fresh session with access to the saved review conte
 findings, and evidence. Global and repository defaults are unchanged.
 
 For development before a PR exists, open the task’s **WorkBench → Summary → Review
-changes**. This reviews committed changes, including unpushed commits; it excludes
-uncommitted edits.
+changes**. The reviewer shares the task's working copy and includes unpushed
+commits, staged and unstaged edits, and new files. No commit is required. Developer
+and reviewer turns use that working copy one at a time. The reviewer reads the
+source without editing it; checks that require source changes are reported as
+blocked. Use **Review again** after editing to capture the current files. Ending
+the review keeps the development working copy and its uncommitted changes.
 
 Choose **Request fix → Send to developer** on a finding to ask its development
 agent to address it. The conversation shows a compact **Fix the agent review**

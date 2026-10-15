@@ -46,6 +46,7 @@ public record ReviewRun(
         String baseSha,
         String mergeBaseSha,
         String headSha,
+        Optional<String> worktreeTreeSha,
         Optional<String> priorHeadSha,
         List<ReviewCommit> commits,
         List<DiffFile> diff,
@@ -74,6 +75,7 @@ public record ReviewRun(
         requireNonNull(baseSha, "baseSha is null");
         requireNonNull(mergeBaseSha, "mergeBaseSha is null");
         requireNonNull(headSha, "headSha is null");
+        requireNonNull(worktreeTreeSha, "worktreeTreeSha is null");
         requireNonNull(priorHeadSha, "priorHeadSha is null");
         commits = ImmutableList.copyOf(commits);
         diff = ImmutableList.copyOf(diff);
@@ -94,6 +96,12 @@ public record ReviewRun(
         requireNonNull(updatedAt, "updatedAt is null");
         requireNonNull(endedAt, "endedAt is null");
         checkArgument(state.terminal() == endedAt.isPresent(), "endedAt and state disagree");
+    }
+
+    /** Git tree for local edits, or the committed head for a clean review. */
+    public String sourceRevision()
+    {
+        return worktreeTreeSha.orElse(headSha);
     }
 
     public boolean active()

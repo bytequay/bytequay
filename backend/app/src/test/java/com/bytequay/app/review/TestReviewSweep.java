@@ -267,7 +267,7 @@ class TestReviewSweep
 
     private static ReviewRun run()
     {
-        return new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", BASE, BASE, HEAD, Optional.empty(), ImmutableList.of(),
+        return new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", BASE, BASE, HEAD, Optional.empty(), Optional.empty(), ImmutableList.of(),
                 ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1 +1 @@\n-old\n+new")), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(),
                 Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
     }

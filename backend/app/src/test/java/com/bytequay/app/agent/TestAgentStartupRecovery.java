@@ -878,7 +878,7 @@ class TestAgentStartupRecovery
                 mock(AgentApprovalService.class),
                 mock(AgentMetricsService.class),
                 mock(AgentCompletionService.class),
-                new AgentRuntimeRegistry(ignored -> {}),
+                new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}),
                 Clock.systemUTC());
     }
 

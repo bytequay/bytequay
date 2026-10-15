@@ -66,8 +66,10 @@ agent task does not by itself prove that the user's goal has been achieved.
 
 ### Keep work local
 
-Application state and working copies live on the Mac. Tasks use separate local
-worktrees so their changes can be inspected independently. GitHub, model
+Application state and working copies live on the Mac. Development tasks use separate local
+worktrees so their changes can be inspected independently. A task’s reviewer
+shares that task’s checkout and can inspect uncommitted changes. Its conversation
+and review permissions remain separate, and ending review preserves the checkout. GitHub, model
 providers, and optional integrations remain external network services.
 
 ### Keep the interface coherent

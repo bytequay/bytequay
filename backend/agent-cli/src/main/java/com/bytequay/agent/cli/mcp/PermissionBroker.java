@@ -1579,7 +1579,7 @@ public final class PermissionBroker
                         // auto-approved, so denying the worktree here is the whole containment
                         // boundary rather than a second line of defence. A text-only worktree is
                         // already inside the runtime directory, and need not exist on disk.
-                        "denyWrite", access == SessionAccess.READ_ONLY
+                        "denyWrite", access == SessionAccess.READ_ONLY || access == SessionAccess.REVIEW_READ_ONLY
                                 ? ImmutableList.of(runtimeDirectory.toString(), worktree.toRealPath().toString())
                                 : ImmutableList.of(runtimeDirectory.toString())));
         if (scope.unattended() || access.restricted()) {

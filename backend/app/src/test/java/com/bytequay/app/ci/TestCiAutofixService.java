@@ -273,7 +273,7 @@ class TestCiAutofixService
         };
         taskStore = mock(AgentTaskStore.class);
         turnStore = mock(AgentTurnStore.class);
-        runtimes = new AgentRuntimeRegistry(ignored -> {});
+        runtimes = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
         ownership = new DevelopmentCiOwnership(store, taskStore, turnStore, eventService, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
         service = new CiAutofixService(
                 store,

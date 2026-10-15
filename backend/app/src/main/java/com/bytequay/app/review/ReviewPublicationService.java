@@ -521,7 +521,8 @@ public class ReviewPublicationService
             throw new ReviewConflictException(reason);
         });
         boolean validated = reviews.listRuns(finding.reviewId()).stream()
-                .filter(run -> !run.explanationOnly() && run.state() == ReviewRun.State.ACCEPTED && run.headSha().equals(finding.validatedHeadSha()))
+                .filter(run -> !run.explanationOnly() && run.state() == ReviewRun.State.ACCEPTED && run.worktreeTreeSha().isEmpty()
+                        && run.headSha().equals(finding.validatedHeadSha()))
                 .anyMatch(run -> (run.id().equals(finding.runId()) && (finding.origin() == ReviewFinding.Origin.DISCUSSION
                         || run.currentStep().flatMap(ReviewStep::validation).filter(report -> report.selectedFindingIds().contains(finding.id())).isPresent()))
                         || run.currentStep().flatMap(ReviewStep::validation).stream()
@@ -541,7 +542,7 @@ public class ReviewPublicationService
             return Optional.of("This finding belongs to a different pull request");
         }
         List<ReviewRun> runs = reviews.listRuns(finding.reviewId());
-        if (runs.stream().noneMatch(run -> !run.explanationOnly() && run.state() == ReviewRun.State.ACCEPTED && run.headSha().equals(commit))) {
+        if (runs.stream().noneMatch(run -> !run.explanationOnly() && run.state() == ReviewRun.State.ACCEPTED && run.worktreeTreeSha().isEmpty() && run.headSha().equals(commit))) {
             return Optional.of("This finding needs an accepted review of its source commit before publication");
         }
         return Optional.empty();

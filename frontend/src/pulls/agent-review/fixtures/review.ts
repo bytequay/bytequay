@@ -53,6 +53,7 @@ const RUN: ReviewRunDto = {
   baseSha: '3f1e77a1b2c3d4e5f60718293a4b5c6d7e8f9012',
   mergeBaseSha: '3f1e77a1b2c3d4e5f60718293a4b5c6d7e8f9012',
   headSha: 'd9a0c41a1b2c3d4e5f60718293a4b5c6d7e8f904',
+  worktreeTreeSha: null,
   priorHeadSha: null,
   commits: COMMITS,
   changedFiles: 30,

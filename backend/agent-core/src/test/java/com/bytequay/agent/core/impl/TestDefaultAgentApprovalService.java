@@ -106,7 +106,7 @@ class TestDefaultAgentApprovalService
                 eventService,
                 scheduler,
                 Clock.fixed(NOW, ZoneOffset.UTC),
-                new AgentRuntimeRegistry(ignored -> {}));
+                new AgentRuntimeRegistry(stores, ignored -> {}));
     }
 
     @AfterEach
@@ -458,7 +458,7 @@ class TestDefaultAgentApprovalService
                 restartedEvents,
                 scheduler,
                 Clock.fixed(NOW, ZoneOffset.UTC),
-                new AgentRuntimeRegistry(ignored -> {}));
+                new AgentRuntimeRegistry(stores, ignored -> {}));
 
         restarted.denyAllPending();
 
@@ -499,7 +499,7 @@ class TestDefaultAgentApprovalService
                 restartedEvents,
                 scheduler,
                 Clock.fixed(NOW, ZoneOffset.UTC),
-                new AgentRuntimeRegistry(ignored -> {}));
+                new AgentRuntimeRegistry(stores, ignored -> {}));
         assertThat(restarted.resolve(command).decision()).isEqualTo(ApprovalDecision.Decision.ALLOW);
         assertThat(stores.outboxEntries().getLast().sequence()).isPresent();
         assertThat(restartedEvents.events).singleElement().satisfies(event -> assertThat(event.payload()).isInstanceOf(AgentEventPayload.ApprovalResolved.class));

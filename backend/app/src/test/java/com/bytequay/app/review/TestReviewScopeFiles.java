@@ -132,7 +132,7 @@ class TestReviewScopeFiles
 
     private static ReviewRun run(ReviewRun.Scope scope, String base, String head, List<DiffFile> diff)
     {
-        return new ReviewRun("run-" + head, "review", 1, scope, "main", base, base, head, Optional.empty(), ImmutableList.of(), diff,
+        return new ReviewRun("run-" + head, "review", 1, scope, "main", base, base, head, Optional.empty(), Optional.empty(), ImmutableList.of(), diff,
                 ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
     }

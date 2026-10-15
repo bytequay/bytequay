@@ -12,6 +12,7 @@ import pandas
 from streamlit import config
 from streamlit.testing.v1 import AppTest
 
+import advisor
 import batch
 import charts
 import cleanup
@@ -138,6 +139,9 @@ class TestPage(Kept):
             patched = mock.patch.object(monitor, name, value)
             patched.start()
             self.addCleanup(patched.stop)
+        self.key = mock.patch.object(batch, "has_key", return_value=False)  # a page test never asks the real Keychain
+        self.key.start()
+        self.addCleanup(self.key.stop)
 
     def page(self):
         return AppTest.from_file(str(PAGE), default_timeout=30).run()
@@ -159,7 +163,7 @@ class TestPage(Kept):
                          [("App memory", "1.46 GB"), ("CPU cores", "1.00"), ("Threads", "150"), ("Processes", "6"), ("Turns running", "1"), ("Open tasks", "6"),
                           ("Could be freed", "41.0 GB"), ("Idle open tasks", "15.5 GB")])
         self.assertEqual(page.metric[8].label, "Free on this disk")
-        self.assertEqual([heading.value for heading in page.subheader], ["Over time", "Every part", "Memory while no turn ran", "Disk", "Clean up"])
+        self.assertEqual([heading.value for heading in page.subheader], ["Risks", "Over time", "Every part", "Memory while no turn ran", "Disk", "Clean up"])
         self.assertEqual(len(page.get("plotly_chart")), 8)  # memory and CPU live; memory, turns, CPU and threads over time; disk by owner and by place
         self.assertEqual(frame(page, "what it is")["owner"].tolist(), [monitor.OPEN, monitor.IDLE, monitor.REMOVED, monitor.RETIRED, monitor.REPOSITORIES])
         # What a clean-up would delete, with what its owner held at the last count.
@@ -179,6 +183,56 @@ class TestPage(Kept):
         page = self.page()
         self.assertEqual(([note.value for note in page.info][:2], len(page.get("plotly_chart")), list(page.exception)),
                          (["Nothing is sampled yet. Start the monitor with `uv run monitor.py --start`", "Nothing was sampled in this stretch."], 0, []))
+
+    def test_without_a_key_the_agent_cannot_look_and_the_page_says_how_to_give_it_one(self):
+        page = self.page()
+        self.assertTrue(page.button(key="advice_look").disabled)
+        self.assertIn("The agent needs a DeepSeek key. Store it once with `uv run batch.py --store-key`", [caption.value for caption in page.caption])
+
+    def test_with_a_key_a_look_starts_on_the_button(self):
+        with mock.patch.object(batch, "has_key", return_value=True), mock.patch.object(advisor, "start") as started:
+            page = self.page()
+            self.assertFalse(page.button(key="advice_look").disabled)
+            page.button(key="advice_look").click().run()
+        self.assertEqual(started.call_args_list, [mock.call(self.folder)])
+
+    def test_a_running_look_shows_how_far_it_got(self):
+        own = advisor.place(self.folder)
+        own["folder"].mkdir(parents=True)
+        held = batch.claim(own)
+        self.addCleanup(held.close)
+        saved.write(own["folder"], advisor.STATE, {"version": 1, "state": "running", "started": "2026-10-15T08:00:00Z", "ended": None, "model": "deepseek-v4-pro",
+                                                   "steps": 3, "usage": None, "summary": None, "suggestions": [], "overview": None, "problem": None})
+        with mock.patch.object(batch, "has_key", return_value=True):
+            page = self.page()
+        self.assertIn("The agent is looking: 3 model calls so far, 20 at most.", [note.value for note in page.info])
+        self.assertTrue(page.button(key="advice_look").disabled)
+
+    def found(self, **changed):
+        suggestion = {"title": "Clean up what nothing uses", "risk": "high", "seen": "Retired features hold 29.7 GB.", "do": "Delete it.", "where": "The Clean up section",
+                      "watch": "Could be freed", "action": "clean_up"}
+        saved.write(advisor.place(self.folder)["folder"], advisor.STATE, {
+            "version": 1, "state": "done", "started": "2026-10-15T08:00:00Z", "ended": "2026-10-15T08:02:00Z", "model": "deepseek-v4-pro", "steps": 4,
+            "usage": {"inputTokens": 12000, "cachedInputTokens": 8000, "outputTokens": 900, "cost": None}, "summary": "The disk is 91% full; it costs $0 to clean.",
+            "suggestions": [suggestion, suggestion | {"title": "Watch the backend", "risk": "low", "action": "none"}], "overview": "Samples from ...", "problem": None} | changed)
+
+    def test_what_the_last_look_found_is_shown_and_its_clean_up_asks_to_be_confirmed(self):
+        self.found()
+        page = self.page()
+        said = [text.value for text in page.markdown]
+        self.assertIn("The disk is 91% full; it costs \\$0 to clean.", said)  # a dollar sign would start a formula
+        self.assertEqual([text for text in said if text in ("Clean up what nothing uses", "Watch the backend")], ["Clean up what nothing uses", "Watch the backend"])
+        self.assertIn("**Seen.** Retired features hold 29.7 GB.", said)
+        self.assertTrue(any("High risk" in text for text in said) and any("Low risk" in text for text in said))
+        self.assertTrue(next(caption.value for caption in page.caption if caption.value.startswith("Looked ")).endswith(
+            "with deepseek-v4-pro: 4 model calls, 12,000 tokens in and 900 out."))
+        self.assertEqual([button.key for button in page.button if button.key.startswith("advice_clean")], ["advice_clean_0"])  # only the one it carries out
+        page.button(key="advice_clean_0").click().run()
+        self.assertEqual([note.value for note in page.warning][-1:], ["Delete 1 folder or file? This cannot be undone."])
+
+    def test_a_look_that_failed_says_why(self):
+        self.found(state="failed", problem="RuntimeError: the API is down", suggestions=[], summary=None)
+        self.assertIn("The last look failed: RuntimeError: the API is down", [note.value for note in self.page().warning])
 
     def test_a_clean_up_starts_only_once_you_confirm_it(self):
         page = self.page()

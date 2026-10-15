@@ -10,6 +10,7 @@ import pandas
 import streamlit as st
 
 import activity
+import advisor
 import batch
 import cleanup
 import dashboard
@@ -18,6 +19,75 @@ import resources
 import saved
 
 GUIDE = "Start the monitor with `uv run monitor.py --start`"
+RISK = {"high": ("High risk", ":material/error:", "red"), "medium": ("Medium risk", ":material/warning:", "orange"), "low": ("Low risk", ":material/info:", "blue")}
+
+
+def plain(text):
+    """Text the agent wrote, shown as it is: a dollar sign would otherwise start a formula."""
+    return text.replace("$", "\\$")
+
+
+@st.fragment(run_every=2)
+def looking(folder):
+    """How a look goes, looked at again every two seconds. Once it ends the whole page runs again, with what it found."""
+    own = advisor.place(folder)
+    running = batch.runner(own) is not None
+    if st.session_state.get("advice_running") and not running:
+        st.session_state["advice_running"] = False
+        st.rerun(scope="app")
+    st.session_state["advice_running"] = running
+    if running:
+        try:
+            steps = (saved.read(own["folder"], advisor.STATE) or {}).get("steps", 0)
+        except (OSError, ValueError):
+            steps = 0
+        st.info(f"The agent is looking: {activity.count(steps, 'model call')} so far, {advisor.STEPS} at most.", icon=":material/hourglass_top:")
+
+
+def found(last):
+    """What the last look found, the gravest first."""
+    if last["state"] != "done":
+        st.warning({"failed": f"The last look failed: {last['problem']}", "stopped": "The last look was stopped before it finished."}.get(
+            last["state"], "The last look ended before it finished."))
+        return
+    usage = last["usage"] or {}
+    st.caption(f"Looked {dashboard.when(last['ended'])} with {last['model']}: {activity.count(last['steps'], 'model call')}, "
+               f"{usage.get('inputTokens', 0):,} tokens in and {usage.get('outputTokens', 0):,} out.")
+    st.markdown(plain(last["summary"]))
+    for number, one in enumerate(last["suggestions"]):
+        with st.container(border=True):
+            label, icon, color = RISK[one["risk"]]
+            st.badge(label, icon=icon, color=color)
+            st.markdown(plain(one["title"]))
+            for name, field in (("Seen", "seen"), ("Do", "do"), ("Where", "where"), ("Watch", "watch")):
+                st.markdown(f"**{name}.** {plain(one[field])}")
+            if one["action"] == "clean_up" and st.button("Clean up…", key=f"advice_clean_{number}"):
+                st.session_state["cleanup_confirm"] = True
+                st.caption("Confirm it under Clean up, at the end of the page.")
+    with st.expander("What the agent saw first"):
+        st.text(last["overview"] or "")
+
+
+def risks(folder):
+    st.subheader("Risks")
+    looking(folder)
+    own = advisor.place(folder)
+    running = batch.runner(own) is not None
+    try:
+        last = saved.read(own["folder"], advisor.STATE)
+    except (OSError, ValueError):
+        last = None
+        st.warning("What the agent found last could not be read.")
+    if last is not None and not running:
+        found(last)
+    elif not running:
+        st.caption("The lab's agent reads the monitor's numbers through read-only tools, finds risks and suggests what to do about each.")
+    key = batch.has_key()
+    if st.button("Look for risks", key="advice_look", disabled=running or not key):
+        advisor.start(folder)
+        st.rerun()
+    st.caption("A look sends the monitor's counters to DeepSeek's API, never a path, a command or a title, and spends tokens on your key." if key
+               else "The agent needs a DeepSeek key. Store it once with `uv run batch.py --store-key`")
 NUMBERS = {"memory MB": "%,.0f", "typical MB": "%,.0f", "peak MB": "%,.0f", "CPU cores": "%.2f", "typical CPU": "%.2f", "peak CPU": "%.2f", "threads": "%,.0f", "open files": "%,.0f"}
 
 
@@ -192,6 +262,7 @@ FOLDER = arguments.parse_known_args()[0].folder
 MODE = "dark" if st.context.theme.type == "dark" else "light"
 st.title("Resources")
 st.caption("What ByteQuay takes from this Mac: its Electron app, its Java backend, and the agents it runs with the commands they start.")
+risks(FOLDER)
 live(FOLDER, MODE)
 MADE = over_time(FOLDER, MODE)
 disk(MADE, MODE)

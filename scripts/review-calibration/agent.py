@@ -1,7 +1,7 @@
 """The lab's own agent, written on the raw model API: one loop, given by each use its own tools and a tool that hands the
 answer in. A review gives it three read-only tools kept to one folder; run.py starts it with --provider agent, on
 the same frozen input and with the same prompt as the Codex and Claude command lines, so the three can be scored side by
-side.
+side. The advisor gives it the monitor's numbers.
 
 The loop: send the conversation and the tools to the model. If it calls tools, run them and add their results to the
 conversation. If it hands the answer in, stop. A limit on model calls and a deadline end a run that does neither."""

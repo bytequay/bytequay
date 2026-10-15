@@ -101,8 +101,9 @@ DEEPSEEK_API_KEY=... uv run run.py --repo /path/to/source --base BASE_SHA --head
 
 `agent.py` is an agent written on the model API itself, with no agent
 framework, so every part of it can be read and changed here. Each use gives its
-loop the tools it offers and the one that hands the answer in; a review is
-described here. `--provider agent`
+loop the tools it offers and the one that hands the answer in. A review is
+described here; the Resources page's risk look (see Monitor) is the other.
+`--provider agent`
 runs it on the same frozen input, with the same prompt and the same answer shape
 as the two command lines, so the judge scores all three alike. It calls
 DeepSeek through the OpenAI SDK, as the judge does, and records the effort
@@ -349,6 +350,27 @@ tasks idle for a week hold, the free space on this disk, every owner with what
 it is, and every place with how much it grew since the first count kept.
 Memory is what a process holds in RAM. The app's helpers share a little of
 it, so the sum runs slightly high.
+
+At the top of the page, "Look for risks" has the lab's own agent look at these
+numbers (`uv run advisor.py` looks once from a terminal). `advisor.py` gives
+the agent loop four read-only tools: an overview of every part's memory, CPU,
+threads and open files typically, at the peak and now, with the Mac's totals,
+the agent turns and the limits (the backend's heap limit and whether it stops
+when that runs out, read from its command line, and the disk's free space); a
+series of one amount of one part, or of the Mac, per hour, optionally from the
+samples when no turn ran; the Mac's busiest moments with what ByteQuay took of
+them; and the disk by owner with its growth and what Clean up would delete.
+The agent hands in a summary and at most eight suggestions, each with a risk
+(high, medium or low), the numbers behind it, what to do, where, the number to
+watch, and whether Clean up carries it out; an answer whose numbers are
+missing, or that offers a clean-up when nothing is left to clean, goes back to
+it as an error. The page shows them the gravest first, each that Clean up
+carries out with a button that asks for the same confirmation, and what the
+agent saw first. A look runs apart from the page and keeps
+`advice/advice.json` and every model and tool call in `advice/events.jsonl` in
+the lab's folder. It takes the DeepSeek key from the Keychain
+(`uv run batch.py --store-key`) and sends counters only, never a path, a
+command or a title; it ends after 20 model calls or five minutes.
 
 Below the disk, "Clean up" lists what nothing in the app uses any more, by the
 same rules as the disk count: what removed tasks left in the runtime and among

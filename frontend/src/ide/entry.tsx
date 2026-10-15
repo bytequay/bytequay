@@ -30,6 +30,8 @@ import FileExplorer from './FileExplorer';
 import { useResizablePane } from '../useResizablePane';
 import { PanelLeft, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal } from 'lucide-react';
 import ReviewZones from './ReviewZones';
+import ReviewComments from './ReviewComments';
+import { openReviewComment, reviewCommentCards } from './reviewCommentModel';
 import LineChanges from './LineChanges';
 import EditorNavigation from './EditorNavigation';
 import Usages from './Usages';
@@ -100,6 +102,8 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [file, setFile] = useState<(ReviewCodeFileDto & { revision: string; sourceFingerprint: string | null }) | null>(null);
   const [filesReload, setFilesReload] = useState(0);
   const [filesVisible, setFilesVisible] = useState(true);
+  const [commentsVisible, setCommentsVisible] = useState(false);
+  const commentButton = useRef<HTMLButtonElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [filesError, setFilesError] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -183,6 +187,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
 
   const selected = active?.document.uri.scheme === 'vscode-remote' && active.document.uri.path.startsWith(connection.root + '/')
     ? active.document.uri.path.slice(connection.root.length + 1) : null;
+  const commentPath = active?.document.uri.scheme === 'bytequay-git' ? active.document.uri.path.slice(1) : selected;
   useEffect(() => {
     let live = true;
     setFile(null);
@@ -246,7 +251,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       <button aria-label="Forward" onClick={() => command('workbench.action.navigateForward')} title="Forward"><ArrowRight size={15} /></button>
       {!filesVisible && <button aria-label="Show files" title="Show files" onClick={() => setFilesVisible(true)}><PanelLeft size={15} /></button>}
       <Search editors={runtime.editors} workspace={runtime.workspace} files={files} />
-      <button disabled={!comments.onComment} onClick={commentSelection}><MessageSquare size={14} /> Comment</button>
+      <button ref={commentButton} aria-expanded={commentsVisible} aria-pressed={commentsVisible} onClick={() => setCommentsVisible(value => !value)} title="Browse review comments"><MessageSquare size={14} /> Comment</button>
       <EditorNavigation runtime={runtime} active={active} context={context} file={file} revision={files?.revision}
         onHistory={commit => { setBottom('history'); setPanelCollapsed(false); void chooseCommit(commit); }} />
       <select aria-label="IDE theme" value={theme} onChange={event => {
@@ -275,6 +280,10 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
           event.preventDefault(); column.setWidth(width => Math.max(180, Math.min(650, width + (event.key === 'ArrowLeft' ? -20 : 20))));
         }} />}
       <section className="ide-editor" aria-label="Source code"><Part part={Parts.EDITOR_PART} />{comments.unplaced}</section>
+      {commentsVisible && <ReviewComments cards={reviewCommentCards(context)} selectedPath={commentPath} repository={context.comments?.repo ?? context.review?.repo}
+        unavailable={context.comments?.threads.unavailable ?? false} onJump={target => openReviewComment(runtime, target, files)}
+        onComment={comments.onComment ? commentSelection : undefined}
+        onClose={() => { setCommentsVisible(false); commentButton.current?.focus(); }} />}
     </div>
     {active && <ReviewZones runtime={runtime} uri={active.document.uri.toString()} cards={comments.cards} renderCard={comments.renderCard}
       onComment={comments.onComment} commentRange={comments.commentRange} />}

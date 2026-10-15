@@ -217,6 +217,14 @@ updated lines, and red at deletion points. Markers compare saved contents with
 the base and refresh after saving; they hide while the editor differs from the
 saved file. Retained read-only files show the same markers.
 
+Choose **Comment** in the editor toolbar to browse review cards beside the code.
+**All** shows agent findings, GitHub threads, private discussions, and pending
+comments across files. **This file** follows the active editor file. Read a card
+and choose **Jump to code** to open its file and line range. Older comments with a
+saved revision open that revision; threads without an exact code location offer
+**Open file**. Use **Comment on selection** or the line-number gutter to write new
+feedback.
+
 Select a line or range and choose **Add to review** or **Post now** when the
 displayed file matches the latest PR revision and the selected lines belong to
 its diff. Your comments do not require an updated agent review. Local edits or

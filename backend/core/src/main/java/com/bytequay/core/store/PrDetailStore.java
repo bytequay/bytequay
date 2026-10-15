@@ -59,6 +59,9 @@ public interface PrDetailStore
 
     Optional<String> findCommitStatusesEtag(long prId);
 
+    /** The ETag each REST discussion source last answered with, keyed by the source name the GitHub client chose. */
+    Map<String, String> findDiscussionEtags(long prId);
+
     void save(long prId, StoredPrDetail detail);
 
     /** Applies locally known changes without claiming any remote group was validated. */
@@ -69,6 +72,8 @@ public interface PrDetailStore
     void updateEtag(long prId, Optional<String> etag);
 
     void updateStatusEtags(long prId, Optional<String> checkRunsEtag, Optional<String> commitStatusesEtag);
+
+    void updateDiscussionEtags(long prId, Map<String, String> etags);
 
     /** Records or returns one local timeline event identified by its stable local event key. */
     PrTimelineEvent recordLocalTimelineEvent(PullRequestRef pullRequest, PrTimelineEvent event);

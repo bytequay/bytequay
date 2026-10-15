@@ -122,6 +122,9 @@ public class PrDetailEntity
     @Column(name = "commit_statuses_etag")
     private String commitStatusesEtag;
 
+    @Convert(converter = StringMapConverter.class)
+    private Map<String, String> discussionEtags;
+
     @Column(nullable = false)
     private Instant syncedAt;
 

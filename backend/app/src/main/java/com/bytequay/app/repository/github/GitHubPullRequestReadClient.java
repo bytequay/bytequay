@@ -101,6 +101,14 @@ public class GitHubPullRequestReadClient
             "commit_message_pattern", "commit_author_email_pattern", "committer_email_pattern", "branch_name_pattern", "tag_name_pattern",
             "file_path_restriction", "max_file_path_length", "file_extension_restriction", "max_file_size");
 
+    /** The REST reads behind a stored discussion; the GraphQL reads only add to what these return. */
+    private static final Map<String, String> DISCUSSION_SOURCES = ImmutableMap.of(
+            "reviews", "/repos/{owner}/{repo}/pulls/{number}/reviews",
+            "timeline", "/repos/{owner}/{repo}/issues/{number}/timeline",
+            "comments", "/repos/{owner}/{repo}/issues/{number}/comments",
+            "reviewComments", "/repos/{owner}/{repo}/pulls/{number}/comments",
+            "issue", "/repos/{owner}/{repo}/issues/{number}");
+
     /** The list endpoint supplies head refs immediately, without waiting for GitHub's search index. */
     public List<FetchedPullRequest> fetchPullRequestsByHead(String pat, RepoRef repository, String head)
     {
@@ -818,6 +826,41 @@ public class GitHubPullRequestReadClient
             enriched = enriched.replace(placeholder.getKey(), placeholder.getValue());
         }
         return enriched;
+    }
+
+    /**
+     * Sends each discussion source's stored ETag with one request for its first page, so an unchanged discussion costs
+     * only 304s. An ETag is kept only for a source with room left on that page: rows added to a full page land on the
+     * next one and leave page one, and its ETag, unchanged.
+     */
+    public DiscussionProbe probeDiscussion(String pat, PullRequestRef pr, Map<String, String> etags)
+    {
+        ImmutableMap.Builder<String, String> fresh = ImmutableMap.builder();
+        boolean unchanged = true;
+        for (Map.Entry<String, String> source : DISCUSSION_SOURCES.entrySet()) {
+            Optional<String> stored = Optional.ofNullable(etags.get(source.getKey()));
+            RestClient.RequestHeadersSpec<?> request = get(gitHubRestClient, pat, uri -> uri.path(source.getValue())
+                    .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
+                    .build(pr.owner(), pr.repo(), pr.number()));
+            stored.ifPresent(etag -> request.header(HttpHeaders.IF_NONE_MATCH, etag));
+            ResponseEntity<JsonNode> response = translating(() -> request.retrieve().toEntity(JsonNode.class));
+            boolean notModified = stored.isPresent() && response.getStatusCode() == HttpStatus.NOT_MODIFIED;
+            boolean roomLeft = notModified || Optional.ofNullable(response.getBody()).filter(body -> !body.isArray() || body.size() < GitHubPaginator.PAGE_SIZE).isPresent();
+            unchanged &= notModified;
+            Optional.ofNullable(response.getHeaders().getETag()).or(() -> notModified ? stored : Optional.empty())
+                    .filter(etag -> roomLeft)
+                    .ifPresent(etag -> fresh.put(source.getKey(), etag));
+        }
+        return new DiscussionProbe(unchanged, fresh.buildOrThrow());
+    }
+
+    /** {@code unchanged} when every source answered 304; otherwise {@code etags} vouch for a refetch made after the probe. */
+    public record DiscussionProbe(boolean unchanged, Map<String, String> etags)
+    {
+        public DiscussionProbe
+        {
+            etags = ImmutableMap.copyOf(etags);
+        }
     }
 
     public List<PrReaction> fetchPrDescriptionReactions(String pat, PullRequestRef pr)

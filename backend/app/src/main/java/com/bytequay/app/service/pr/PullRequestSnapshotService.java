@@ -310,6 +310,16 @@ public class PullRequestSnapshotService
         details.updateEtag(prId, etag);
     }
 
+    Map<String, String> findDiscussionEtags(long prId)
+    {
+        return details.findDiscussionEtags(prId);
+    }
+
+    void updateDiscussionEtags(long prId, Map<String, String> etags)
+    {
+        details.updateDiscussionEtags(prId, etags);
+    }
+
     Optional<String> findHeadSha(long prId)
     {
         return details.find(prId)

@@ -332,6 +332,20 @@ class TestSqlitePrDetailStore
     }
 
     @Test
+    void forgetsDiscussionEtagsWithAnInvalidatedDetailEtag()
+    {
+        store.save(prId, detail(remote(1, NOW)));
+        store.updateDiscussionEtags(prId, ImmutableMap.of("timeline", "\"timeline-1\""));
+
+        assertThat(store.findDiscussionEtags(prId)).containsExactly(Map.entry("timeline", "\"timeline-1\""));
+
+        // A local write invalidates the detail ETag; the discussion must then be read in full.
+        store.updateEtag(prId, Optional.empty());
+
+        assertThat(store.findDiscussionEtags(prId)).isEmpty();
+    }
+
+    @Test
     void derivesRequestedReviewerCountFromStoredReviewers()
     {
         StoredPrDetail detail = new StoredPrDetail(

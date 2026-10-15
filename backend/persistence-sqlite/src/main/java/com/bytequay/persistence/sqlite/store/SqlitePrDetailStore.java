@@ -226,6 +226,12 @@ public class SqlitePrDetailStore
     }
 
     @Override
+    public Map<String, String> findDiscussionEtags(long prId)
+    {
+        return detailRepo.findById(prId).map(PrDetailEntity::getDiscussionEtags).map(ImmutableMap::copyOf).orElse(ImmutableMap.of());
+    }
+
+    @Override
     @Transactional
     public void saveCached(long prId, StoredPrDetail detail)
     {
@@ -316,6 +322,7 @@ public class SqlitePrDetailStore
             if (etag.isEmpty()) {
                 detail.setMetadataValidatedAt(null);
                 detail.setDiscussionValidatedAt(null);
+                detail.setDiscussionEtags(null);
             }
         });
     }
@@ -330,6 +337,13 @@ public class SqlitePrDetailStore
             detail.setCheckRunsEtag(checkRunsEtag.orElse(null));
             detail.setCommitStatusesEtag(commitStatusesEtag.orElse(null));
         });
+    }
+
+    @Override
+    @Transactional
+    public void updateDiscussionEtags(long prId, Map<String, String> etags)
+    {
+        detailRepo.findById(prId).ifPresent(detail -> detail.setDiscussionEtags(ImmutableMap.copyOf(etags)));
     }
 
     @Override

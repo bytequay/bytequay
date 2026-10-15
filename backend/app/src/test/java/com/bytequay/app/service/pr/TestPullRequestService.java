@@ -26,6 +26,7 @@ import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubNotificationRef;
 import com.bytequay.app.repository.github.GitHubPullRequestDetailResponse;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient.DiscussionProbe;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestSummary;
 import com.bytequay.app.repository.github.GitHubPullRequestSummaryClient;
@@ -100,6 +101,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -173,6 +175,8 @@ class TestPullRequestService
                 viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext,
                 notifications, syncSettings, issues, Clock.systemUTC());
         org.mockito.Mockito.lenient().when(diffStore.findDefaultEtags(anyLong())).thenReturn(PrDiffEtags.none());
+        // Without stored ETags every source answers with a body.
+        lenient().when(gitHub.probeDiscussion(anyString(), any(), any())).thenReturn(new DiscussionProbe(false, ImmutableMap.of()));
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubCredential()).thenReturn(
                 new GitHubCredential("pat", new UserProfile("me", "Me", "", "", 0, 0, 0, "", "", "", "")));
@@ -2122,6 +2126,29 @@ class TestPullRequestService
     }
 
     @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void quietWarmReconcileAsksWithEtagsBeforeRereadingTheDiscussion(boolean unchanged)
+    {
+        Instant now = Instant.now();
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        cacheDetail(stored(), new PrDetailFreshness(Optional.of(now), Optional.of(now.minus(Duration.ofMinutes(31))), Optional.of(now), Optional.of(pullRequest().updatedAt())));
+        Map<String, String> etags = ImmutableMap.of("timeline", "\"t1\"");
+        when(detailStore.findDiscussionEtags(12L)).thenReturn(etags);
+        when(gitHub.probeDiscussion("pat", ref, etags)).thenReturn(new DiscussionProbe(unchanged, ImmutableMap.of("timeline", "\"t2\"")));
+
+        service.refreshPullRequestDetailFromGitHub("owner/repo", 7, Duration.ofSeconds(60));
+        service.refreshPullRequestDetailFromGitHub("owner/repo", 7, Duration.ofSeconds(60));
+
+        // Either way the discussion counts as validated, so the second pass asks nothing.
+        verify(gitHub).probeDiscussion("pat", ref, etags);
+        verify(detailStore).saveDiscussion(eq(12L), any(), eq(pullRequest().updatedAt()));
+        verify(gitHub, times(unchanged ? 0 : 1)).fetchPrIssueComments("pat", ref);
+        verify(gitHub, times(unchanged ? 0 : 1)).fetchPrReviewThreads("pat", ref);
+        verify(gitHub, times(unchanged ? 0 : 1)).enrichTimelineReferences(eq("pat"), eq(ref), any());
+        verify(detailStore, times(unchanged ? 0 : 1)).updateDiscussionEtags(12L, ImmutableMap.of("timeline", "\"t2\""));
+    }
+
+    @ParameterizedTest
     @CsvSource({"open, quiet, 1, 1", "merged, quiet, 0, 0", "closed, quiet, 0, 0", "merged, monitored, 1, 1", "merged, pending, 0, 1", "merged, activity, 1, 0"})
     void warmingLeavesSettledPullRequestsUntilActivityOrOpening(String state, String variant, int warmDiscussions, int warmChecks)
     {
@@ -2182,6 +2209,8 @@ class TestPullRequestService
         assertThat(service.refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7).full()).isFalse();
 
         verify(gitHub, times(discussionAgeSeconds > 60 ? 1 : 0)).fetchPrIssueComments("pat", PullRequestRef.of("owner", "repo", 7));
+        // Thread resolutions change no REST response, so opening never trusts ETags.
+        verify(gitHub, never()).probeDiscussion(anyString(), any(), any());
         verify(gitHub, never()).getPullRequest(anyString(), any(), any());
         verifyNoInteractions(actions);
     }

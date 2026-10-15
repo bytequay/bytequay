@@ -17,6 +17,7 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubNotificationRef;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient.DiscussionProbe;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestSummary;
 import com.bytequay.app.repository.github.GitHubPullRequestSummaryClient;
@@ -866,11 +867,23 @@ public class PullRequestService
         boolean timed = !warm || !settled(current);
         // Opening uses a short freshness window; periodic refreshes reconcile quiet discussions less often
         // because every pass paginates the full history, including several GraphQL reaction/thread queries.
-        boolean discussionDue = missing || force || headChanged || !detail.reviewsComplete() || !detail.timelineComplete()
-                || newer(sourceAt, times.discussionSourceUpdatedAt()) || (timed && expired(times.discussionAt(), discussionFreshness, now));
+        boolean quiet = !missing && !force && !headChanged && detail.reviewsComplete() && detail.timelineComplete() && !newer(sourceAt, times.discussionSourceUpdatedAt());
+        boolean discussionDue = !quiet || (timed && expired(times.discussionAt(), discussionFreshness, now));
         if ((!checksOnly || missing) && discussionDue) {
-            detail = snapshots.saveDiscussion(current.id(), PullRequestDetailFetcher.await(detailFetcher.fetchDiscussion(pat, ref, detail)), sourceAt);
-            full = true;
+            // A quiet warm reconcile rarely finds anything new, so it asks with ETags first and skips every GraphQL read on 304s.
+            // Refreshes someone waits for, opening included, still read everything: thread resolutions change no REST response.
+            Optional<DiscussionProbe> probe = warm && quiet ? Optional.of(gitHub.probeDiscussion(pat, ref, snapshots.findDiscussionEtags(current.id()))) : Optional.empty();
+            if (probe.filter(DiscussionProbe::unchanged).isPresent()) {
+                detail = snapshots.saveDiscussion(current.id(), detail, sourceAt);
+            }
+            else {
+                StoredPrDetail fetched = PullRequestDetailFetcher.await(detailFetcher.fetchDiscussion(pat, ref, detail));
+                detail = snapshots.saveDiscussion(current.id(), fetched, sourceAt);
+                // Taken before the refetch, these ETags can only be older than what was saved; a partial save keeps none.
+                boolean complete = fetched.reviewsComplete() && fetched.timelineComplete();
+                probe.ifPresent(asked -> snapshots.updateDiscussionEtags(current.id(), complete ? asked.etags() : ImmutableMap.of()));
+                full = true;
+            }
         }
         boolean checkChanged = current.ciStatus() != PullRequestDetailMapper.aggregateCiStatus(detail.checkRuns());
         // Checks still running when a pull request closed finish without any activity.

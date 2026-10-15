@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient.DiscussionProbe;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.FetchedPullRequest;
@@ -22,6 +23,8 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -34,6 +37,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
@@ -50,6 +54,9 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class TestGitHubPullRequestOverviewClient
 {
+    private static final Map<String, String> DISCUSSION_SOURCES = ImmutableMap.of(
+            "reviews", "pulls/7/reviews", "timeline", "issues/7/timeline", "comments", "issues/7/comments", "reviewComments", "pulls/7/comments", "issue", "issues/7");
+
     private static final PullRequestRef PULL_REQUEST = PullRequestRef.of("owner", "repo", 42);
 
     @Test
@@ -732,6 +739,40 @@ class TestGitHubPullRequestOverviewClient
                 assertThat(comment.body()).isEqualTo("Please verify this");
             });
         });
+        fixture.verify();
+    }
+
+    @Test
+    void discussionProbeIsUnchangedOnlyWhenEverySourceAnswersNotModified()
+    {
+        Fixture fixture = fixture();
+        DISCUSSION_SOURCES.forEach((source, path) -> fixture.api.expect(requestTo("https://api.github.test/repos/owner/repo/" + path + "?per_page=100"))
+                .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"" + source + "\""))
+                .andRespond(withStatus(HttpStatus.NOT_MODIFIED)));
+        Map<String, String> stored = ImmutableMap.copyOf(Maps.transformEntries(DISCUSSION_SOURCES, (source, path) -> "\"" + source + "\""));
+
+        DiscussionProbe probe = fixture.client.probeDiscussion("pat", PullRequestRef.of("owner", "repo", 7), stored);
+
+        assertThat(probe.unchanged()).isTrue();
+        assertThat(probe.etags()).isEqualTo(stored);
+        fixture.verify();
+    }
+
+    @Test
+    void discussionProbeDropsTheEtagOfAFullFirstPage()
+    {
+        Fixture fixture = fixture();
+        String fullPage = IntStream.range(0, 100).mapToObj(index -> "{}").collect(joining(",", "[", "]"));
+        DISCUSSION_SOURCES.forEach((source, path) -> fixture.api.expect(requestTo("https://api.github.test/repos/owner/repo/" + path + "?per_page=100"))
+                .andExpect(headerDoesNotExist(HttpHeaders.IF_NONE_MATCH))
+                .andRespond(withSuccess(source.equals("timeline") ? fullPage : source.equals("issue") ? "{}" : "[{}]", MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.ETAG, "\"" + source + "\"")));
+
+        DiscussionProbe probe = fixture.client.probeDiscussion("pat", PullRequestRef.of("owner", "repo", 7), ImmutableMap.of());
+
+        // A row added to a full page lands on page two and leaves page one's ETag as it was.
+        assertThat(probe.unchanged()).isFalse();
+        assertThat(probe.etags()).containsOnlyKeys("reviews", "comments", "reviewComments", "issue");
         fixture.verify();
     }
 

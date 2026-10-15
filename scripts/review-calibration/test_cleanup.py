@@ -79,6 +79,11 @@ class TestPlan(Data):
     def test_without_the_database_only_what_retired_features_left_is_planned(self):
         self.assertEqual({owner for owner, _ in self.planned(None)[0]}, {monitor.RETIRED})
 
+    def test_old_database_copies_are_planned_only_when_asked_for(self):
+        with_copies, _ = cleanup.plan(self.data, self.known, time.time(), copies=True)
+        self.assertEqual({(item.owner, item.path.relative_to(self.data).as_posix()) for item in with_copies} - self.planned(self.known)[0],
+                         {(monitor.COPIES, "database-backup-1")})
+
     def test_a_count_says_how_many_go_from_each_place(self):
         going, _ = cleanup.plan(self.data, self.known, time.time())
         self.assertEqual(cleanup.tally(self.data, going), {(monitor.RETIRED, "agent-runtime"): 2, (monitor.RETIRED, "new-flow-worktrees"): 1,
@@ -194,6 +199,12 @@ class TestApply(Data):
         self.addCleanup(connection.close)
         self.assertTrue(connection.execute("SELECT COUNT(*) FROM space").fetchone()[0])  # the disk was counted again
 
+    def test_old_database_copies_go_only_when_asked_for(self):
+        self.assertTrue((self.data / "database-backup-1").exists())
+        made = cleanup.apply(self.folder, self.data, self.database(), copies=True)
+        self.assertEqual((made["items"], made["removed"]), (9, {monitor.REMOVED: 4, monitor.RETIRED: 3, monitor.COPIES: 1}))
+        self.assertFalse((self.data / "database-backup-1").exists())
+
     def test_a_failure_or_a_stop_is_kept_as_how_it_ended(self):
         database = self.database()
         for raised, state, problem in ((RuntimeError("broken"), "failed", "RuntimeError: broken"), (KeyboardInterrupt(), "stopped", None)):
@@ -214,11 +225,24 @@ class TestCommandLine(Data):
         listed = self.command()  # no database here: only what retired features left
         self.assertEqual(listed.stdout.splitlines()[:3], ["Would delete 3 places nothing in ByteQuay uses:", "  retired features in agent-runtime: 2",
                                                           "  retired features in new-flow-worktrees: 1"])
+        self.assertIn("1 old database copy stays: --with-copies deletes them too.", listed.stdout.splitlines())
         self.assertTrue((self.data / "agent-runtime/codegraph-baselines").exists())
         applied = self.command("--apply")
         self.assertEqual((applied.returncode, applied.stdout), (0, "Deleted 3 of 3 places; 0 worktrees or folders stay.\n"))
         self.assertFalse((self.data / "agent-runtime/codegraph-baselines").exists())
+        self.assertTrue((self.data / "database-backup-1").exists())
         self.assertFalse((self.folder / "cleanup" / "running.pid").exists())
+        copied = self.command("--apply", "--with-copies")
+        self.assertEqual((copied.returncode, copied.stdout, (self.data / "database-backup-1").exists()), (0, "Deleted 1 of 1 places; 0 worktrees or folders stay.\n", False))
+
+    def test_the_page_starts_the_clean_up_apart_and_asks_for_the_copies_only_when_chosen(self):
+        with mock.patch.object(cleanup.subprocess, "Popen") as started:
+            started.return_value.poll.return_value = 0  # it ended at once, so start does not wait
+            cleanup.start(self.folder)
+            cleanup.start(self.folder, copies=True)
+        self.assertEqual([call.args[0][2:] for call in started.call_args_list],
+                         [["--apply", "--folder", str(self.folder)], ["--apply", "--folder", str(self.folder), "--with-copies"]])
+        self.assertTrue(all(call.kwargs["start_new_session"] for call in started.call_args_list))
 
     def test_two_clean_ups_never_run_at_once(self):
         (self.folder / "cleanup").mkdir(parents=True)

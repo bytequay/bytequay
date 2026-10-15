@@ -130,10 +130,12 @@ class TestPage(Kept):
         # The app's data is a folder of the test's own, with the retired code index in it and no database, so a page never
         # plans for the real one.
         self.data = self.folder.parent / "data"
-        baseline = self.data / "agent-runtime" / "codegraph-baselines"
+        baseline, copy = self.data / "agent-runtime" / "codegraph-baselines", self.data / "database-backup-9"
         (baseline / "r").mkdir(parents=True)
         (baseline / "r" / "codegraph.db").write_text("x")
-        for path in (baseline, baseline / "r"):
+        copy.mkdir()
+        (copy / "bytequay-1.0.db").write_text("x")
+        for path in (baseline, baseline / "r", copy, copy / "bytequay-1.0.db"):
             os.utime(path, (time.time() - 2 * 86400,) * 2)
         for name, value in (("APP_DATA", self.data), ("DATABASE", self.data / "bytequay-1.0.db")):
             patched = mock.patch.object(monitor, name, value)
@@ -167,7 +169,7 @@ class TestPage(Kept):
         self.assertEqual(len(page.get("plotly_chart")), 8)  # memory and CPU live; memory, turns, CPU and threads over time; disk by owner and by place
         self.assertEqual(frame(page, "what it is")["owner"].tolist(), [monitor.OPEN, monitor.IDLE, monitor.REMOVED, monitor.RETIRED, monitor.REPOSITORIES])
         # What a clean-up would delete, with what its owner held at the last count.
-        self.assertEqual(frame(page, "folders or files").values.tolist(), [[monitor.RETIRED, "agent-runtime", 1, 29.0]])
+        self.assertEqual(frame(page, "folders or files").values.tolist(), [[monitor.COPIES, "top level", 1, 0.0], [monitor.RETIRED, "agent-runtime", 1, 29.0]])
         self.assertTrue({"This Mac: 40.0 of 64 GB of memory in use.", "The monitor itself typically holds 100 MB and keeps 10.0% of one core busy."}
                         <= {caption.value for caption in page.caption})
 
@@ -243,7 +245,19 @@ class TestPage(Kept):
             self.assertNotIn("cleanup_yes", [button.key for button in page.button])
             page.button(key="cleanup_ask").click().run()
             page.button(key="cleanup_yes").click().run()
-        self.assertEqual(started.call_args_list, [mock.call(self.folder)])
+            page.checkbox(key="cleanup_copies").check().run()  # the old database copies go only when asked for
+            page.button(key="cleanup_ask").click().run()
+            self.assertEqual([note.value for note in page.warning][-1:], ["Delete 2 folders or files? This cannot be undone."])
+            page.button(key="cleanup_yes").click().run()
+        self.assertEqual(started.call_args_list, [mock.call(self.folder, copies=False), mock.call(self.folder, copies=True)])
+
+    def test_when_only_old_database_copies_are_left_the_box_must_be_ticked(self):
+        cleanup.remove(self.data / "agent-runtime")
+        page = self.page()
+        self.assertIn("Only old database copies are left: tick the box to delete them.", [caption.value for caption in page.caption])
+        self.assertNotIn("cleanup_ask", [button.key for button in page.button])
+        page.checkbox(key="cleanup_copies").check().run()
+        self.assertIn("cleanup_ask", [button.key for button in page.button])
 
     def test_a_running_clean_up_shows_how_far_it_got_and_nothing_to_start(self):
         own = cleanup.place(self.folder)

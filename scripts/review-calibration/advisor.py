@@ -60,7 +60,8 @@ Rank by risk: high when something could fail or run out soon, medium when it cos
 worth knowing. For each, say what to do and where. Where things are set in ByteQuay: the backend's heap and its other JVM
 flags in dev.sh (JVM_ARGS) and, for the packaged app, in frontend/src/backendProcess.ts; what is removed when a task
 finishes in the backend's DefaultAgentCompletionService. The Clean up section of the lab's Resources page deletes what
-removed tasks and retired features left: set action to clean_up for a suggestion it carries out. A person closes open
+removed tasks and retired features left, and the old database copies when the person ticks its box: set action to
+clean_up for a suggestion it carries out. A person closes open
 tasks in ByteQuay. When you have looked enough, call submit_advice once with everything."""
 PROMPT = "Look for risks in what ByteQuay takes from this Mac, and suggest what to do about each."
 NUDGE = "Call a tool to look further, or call submit_advice to hand in what you found."
@@ -89,6 +90,7 @@ class Seen:
     cores: int
     going: list  # what the Clean up section would delete now
     data: Path
+    copies: tuple = ()  # the old database copies, which it deletes when its box is ticked
 
 
 def place(folder):
@@ -116,9 +118,10 @@ def seen(folder, now, data=monitor.APP_DATA, database=monitor.DATABASE):
     made = resources.read(folder, now - REACH)
     if made is None or made["parts"].empty:
         raise ValueError("the monitor has kept nothing yet: start it with `uv run monitor.py --start`")
-    going, _ = cleanup.plan(data, monitor.holders(database, now), now)
+    everything, _ = cleanup.plan(data, monitor.holders(database, now), now, copies=True)
     disk = shutil.disk_usage(data)
-    return Seen(made["parts"], made["machine"], made["space"], *heap(), (disk.free, disk.total), psutil.cpu_count() or 0, going, data)
+    going, copies = ([item for item in everything if (item.owner == monitor.COPIES) == wanted] for wanted in (False, True))
+    return Seen(made["parts"], made["machine"], made["space"], *heap(), (disk.free, disk.total), psutil.cpu_count() or 0, going, data, tuple(copies))
 
 
 def local(at):
@@ -237,6 +240,10 @@ def disk(sight, _arguments):
                      + "; ".join(f"{owner} in {top}: {amount:,}" for (owner, top), amount in sorted(counted.items())) + ".")
     else:
         lines.append("The Clean up section has nothing to delete now.")
+    if sight.copies:
+        held = space.loc[(space["at"] == space["at"].max()) & (space["owner"] == monitor.COPIES), "bytes"].sum() / GB if len(space) else None
+        lines.append(f"Old database copies: {activity.count(len(sight.copies), 'folder or file', 'folders or files')}"
+                     + (f", {held:,.1f} GB at the last count" if held is not None else "") + "; Clean up deletes them too when its box is ticked.")
     return "\n".join(lines)
 
 
@@ -301,7 +308,7 @@ def look(folder, ask, model, data=monitor.APP_DATA, database=monitor.DATABASE, c
                 if event["type"] == "model":
                     made["steps"] = event["step"]
                     saved.write(own, STATE, made)
-            call = partial(agent.handed, submit="submit_advice", noun="advice", check=lambda answer: problem_of(answer, bool(sight.going)),
+            call = partial(agent.handed, submit="submit_advice", noun="advice", check=lambda answer: problem_of(answer, bool(sight.going or sight.copies)),
                            handlers={name: partial(tool, sight) for name, tool in TOOLS.items()})
             done = agent.work(agent.Brief(SYSTEM, offered(), call, NUDGE, WRAP_UP, "advice"), PROMPT, ask, time.monotonic() + SECONDS, log, STEPS)
         made["steps"], made["usage"] = done.steps, done.usage

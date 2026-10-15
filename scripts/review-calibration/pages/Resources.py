@@ -227,24 +227,31 @@ def clean_up(made, folder):
     if batch.runner(cleanup.place(folder)) is not None:
         return
     now = time.time()
-    going, recent = cleanup.plan(monitor.APP_DATA, monitor.holders(monitor.DATABASE, now), now)
+    everything, recent = cleanup.plan(monitor.APP_DATA, monitor.holders(monitor.DATABASE, now), now, copies=True)
+    copies = [item for item in everything if item.owner == monitor.COPIES]
     later = f" {activity.count(len(recent), 'folder or file', 'folders or files')} nothing uses changed in the last day, so they stay for now." if recent else ""
-    if not going:
-        st.info("Nothing to clean up: no data is left by removed tasks or by features the app no longer has." + later)
+    if not everything:
+        st.info("Nothing to clean up: no data is left by removed tasks or by features the app no longer has, and no old database copy." + later)
         return
     st.caption("What nothing in the app uses any more, found by the same rules as the disk count. A worktree goes through git, which keeps any with "
                "changes not committed; a repository stays while it has work found nowhere else; a removed task's event log stays, as the lab reads it." + later)
-    st.dataframe(resources.cleanup_rows(monitor.APP_DATA, going, made["space"] if made else pandas.DataFrame()), hide_index=True,
+    st.dataframe(resources.cleanup_rows(monitor.APP_DATA, everything, made["space"] if made else pandas.DataFrame()), hide_index=True,
                  column_config={"GB at the last count": st.column_config.NumberColumn(format="%,.1f")})
+    with_copies = bool(copies) and st.checkbox(f"Also delete the old database copies ({activity.count(len(copies), 'folder or file', 'folders or files')})", key="cleanup_copies",
+                                               help="Copies of the database made before past changes. The app does not read them, but they are the only way back to an older database.")
+    chosen = [item for item in everything if item.owner != monitor.COPIES or with_copies]
+    if not chosen:
+        st.caption("Only old database copies are left: tick the box to delete them.")
+        return
     if st.button("Clean up…", key="cleanup_ask"):
         st.session_state["cleanup_confirm"] = True
     if not st.session_state.get("cleanup_confirm"):
         return
-    st.warning(f"Delete {activity.count(len(going), 'folder or file', 'folders or files')}? This cannot be undone.")
+    st.warning(f"Delete {activity.count(len(chosen), 'folder or file', 'folders or files')}? This cannot be undone.")
     with st.container(horizontal=True):
         if st.button("Delete", key="cleanup_yes", type="primary"):
             st.session_state["cleanup_confirm"] = False
-            cleanup.start(folder)
+            cleanup.start(folder, copies=with_copies)
             st.rerun()
         if st.button("Cancel", key="cleanup_no"):
             st.session_state["cleanup_confirm"] = False

@@ -3,6 +3,7 @@ made from them. The page itself is pages/Resources.py."""
 
 from __future__ import annotations
 
+from collections import Counter
 import contextlib
 from datetime import datetime
 import sqlite3
@@ -33,7 +34,8 @@ NOTES = {
     monitor.REMOVED: "Left behind by tasks the database no longer has. Nothing uses it, but a worktree may hold work that was never committed.",
     monitor.RETIRED: "Left by features the app no longer has: the code graph's index, the old development flow's worktrees and the repository clones "
                      "kept before workspaces. Nothing reads it.",
-    monitor.COPIES: "Copies of the database made before past changes, and the database under its old name. The app does not read them.",
+    monitor.COPIES: "Copies of the database made before past changes, and the database under its old name. The app does not read them; Clean up "
+                    "deletes them when you tick its box.",
     monitor.REPOSITORIES: "The clones that worktrees are made from.",
     monitor.APP: "Its database, caches, browser data, tools and pictures.",
     monitor.SHARED: "Blocks that copies held by different owners share. They are freed only when every copy goes.",
@@ -155,10 +157,14 @@ def disk_rows(space, top=8):
 
 
 def cleanup_rows(data, going, space):
-    """What a clean-up would delete, by owner and top-level folder, with what that owner held there at the last disk count."""
-    newest = space[space["at"] == space["at"].max()].groupby(["owner", "place"])["bytes"].sum() if len(space) else None
-    return pandas.DataFrame([{"owner": owner, "place": top, "folders or files": amount, "GB at the last count": None if newest is None else newest.get((owner, top), 0) / GB}
-                             for (owner, top), amount in sorted(cleanup.tally(data, going).items())])
+    """What a clean-up would delete, by owner and top-level folder, with what that owner held there at the last disk count.
+    The old database copies are one row: each of them is a top-level folder of its own."""
+    newest = space[space["at"] == space["at"].max()] if len(space) else None
+    counted = Counter()
+    for (owner, top), amount in cleanup.tally(data, going).items():
+        counted[(owner, "top level" if owner == monitor.COPIES else top)] += amount
+    held = lambda owner, top: None if newest is None else newest.loc[(newest["owner"] == owner) & ((newest["place"] == top) | (owner == monitor.COPIES)), "bytes"].sum() / GB
+    return pandas.DataFrame([{"owner": owner, "place": top, "folders or files": amount, "GB at the last count": held(owner, top)} for (owner, top), amount in sorted(counted.items())])
 
 
 def disk_figure(rows, mode, by="place"):

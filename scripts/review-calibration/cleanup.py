@@ -32,7 +32,6 @@ UNSAVED = ((("status", "--porcelain"), "it holds changes not committed"), (("log
            (("stash", "list"), "it has a stash"))
 
 
-
 @dataclass(frozen=True)
 class Item:
     owner: str  # monitor.REMOVED or monitor.RETIRED
@@ -52,9 +51,10 @@ def newest(path):
     return max(moments)
 
 
-def plan(data, known, now):
+def plan(data, known, now, copies=False):
     """What would go, and what nothing uses but stays because it changed in the last day. Each is the first file or folder
-    on its path whose owner is freeable by the monitor's rules; `known` is what monitor.holders read."""
+    on its path whose owner is freeable by the monitor's rules, and with `copies` the old database copies too; `known` is
+    what monitor.holders read."""
     going, recent, waiting = [], [], [(data, ())]
     while waiting:
         folder, names = waiting.pop()
@@ -67,7 +67,7 @@ def plan(data, known, now):
             who = monitor.owner(found, known)
             if who is None and entry.is_dir() and not entry.is_symlink():
                 waiting.append((entry, found))
-            elif who in monitor.FREEABLE and entry.name != LOG:
+            elif (who in monitor.FREEABLE or (copies and who == monitor.COPIES)) and entry.name != LOG:
                 (recent if newest(entry) > now - QUIET else going).append(Item(who, entry))
     return sorted(going, key=lambda item: item.path), sorted(recent, key=lambda item: item.path)
 
@@ -147,13 +147,14 @@ def remove(path):
     return kept
 
 
-def apply(folder, data=monitor.APP_DATA, database=monitor.DATABASE, clock=time.time):
-    """Delete what the plan names now, from the database as it reads now, and keep how it goes in the clean-up's folder
-    for the Resources page. Then count the disk again, so the page shows what is left."""
+def apply(folder, data=monitor.APP_DATA, database=monitor.DATABASE, clock=time.time, copies=False):
+    """Delete what the plan names now, from the database as it reads now, with `copies` the old database copies too, and
+    keep how it goes in the clean-up's folder for the Resources page. Then count the disk again, so the page shows what is
+    left."""
     own = place(folder)["folder"]
-    going, _ = plan(data, monitor.holders(database, clock()), clock())
+    going, _ = plan(data, monitor.holders(database, clock()), clock(), copies)
     made = {"version": 1, "state": "running", "started": saved.stamp(clock()), "ended": None, "items": len(going), "done": 0,
-            "removed": dict.fromkeys(monitor.FREEABLE, 0), "kept": [], "freeBefore": shutil.disk_usage(data).free, "freeAfter": None, "problem": None}
+            "removed": dict.fromkeys((*monitor.FREEABLE, *[monitor.COPIES] * copies), 0), "kept": [], "freeBefore": shutil.disk_usage(data).free, "freeAfter": None, "problem": None}
     saved.write(own, STATE, made)
     try:
         for item in going:
@@ -181,13 +182,13 @@ def apply(folder, data=monitor.APP_DATA, database=monitor.DATABASE, clock=time.t
     return made
 
 
-def start(folder):
-    """Clean up apart from the page, as `uv run cleanup.py --apply` would, and wait until it has claimed the clean-up or
+def start(folder, copies=False):
+    """Clean up apart from the page, as `uv run cleanup.py --apply` would (with `--with-copies` for `copies`), and wait until it has claimed the clean-up or
     ended. What it prints goes to cleanup.log in its folder."""
     own = place(folder)
     own["folder"].mkdir(parents=True, exist_ok=True)
     with (own["folder"] / "cleanup.log").open("a") as log:
-        process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--apply", "--folder", str(folder)],
+        process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--apply", "--folder", str(folder), *["--with-copies"] * copies],
                                    stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     for _ in range(100):
         if batch.runner(own) is not None or process.poll() is not None:
@@ -201,15 +202,16 @@ def tally(data, items):
     return Counter((item.owner, item.path.relative_to(data).parts[0]) for item in items)
 
 
-def listing(data, going, recent):
-    """What `cleanup.py` with no option prints."""
+def listing(data, going, recent, spare=()):
+    """What `cleanup.py` with no option prints. `spare` is the old database copies, when they are not asked for."""
+    kept = [f"{len(spare)} old database {'copy stays' if len(spare) == 1 else 'copies stay'}: --with-copies deletes them too."] if spare else []
     if not going:
-        return ["Nothing to clean up." + (f" {len(recent)} places nothing uses changed in the last day and stay." if recent else "")]
+        return ["Nothing to clean up." + (f" {len(recent)} places nothing uses changed in the last day and stay." if recent else ""), *kept]
     return [f"Would delete {len(going)} places nothing in ByteQuay uses:",
             *(f"  {owner} in {top}: {amount}" for (owner, top), amount in sorted(tally(data, going).items())),
             "Worktrees go through git, which keeps any with changes not committed; a repository stays while it has work found nowhere else. "
-            "Event logs of removed tasks stay.",
-            *([f"{len(recent)} more changed in the last day and stay."] if recent else []), "Run again with --apply to delete them."]
+            "Event logs of removed tasks stay.", *([f"{len(recent)} more changed in the last day and stay."] if recent else []), *kept,
+            "Run again with --apply to delete them."]
 
 
 def main():
@@ -218,10 +220,14 @@ def main():
     parser.add_argument("--data", type=Path, default=monitor.APP_DATA, help="ByteQuay's data folder")
     parser.add_argument("--database", type=Path, help="ByteQuay's database, read and never written; by default the one in the data folder")
     parser.add_argument("--apply", action="store_true", help="Delete what is listed; without it nothing is deleted")
+    parser.add_argument("--with-copies", action="store_true", help="Also the old database copies: copies made before past changes, which the app does not read")
     args = parser.parse_args()
     database = args.database or args.data / monitor.DATABASE.name
     if not args.apply:
-        print("\n".join(listing(args.data, *plan(args.data, monitor.holders(database, time.time()), time.time()))))
+        known, now = monitor.holders(database, time.time()), time.time()
+        going, recent = plan(args.data, known, now, args.with_copies)
+        spare = [] if args.with_copies else [item for item in plan(args.data, known, now, copies=True)[0] if item.owner == monitor.COPIES]
+        print("\n".join(listing(args.data, going, recent, spare)))
         return
     signal.signal(signal.SIGTERM, batch.stopped)
     own = place(args.folder)
@@ -231,7 +237,7 @@ def main():
     except ValueError as problem:
         parser.exit(1, f"{problem}\n")
     try:
-        made = apply(args.folder, args.data, database)
+        made = apply(args.folder, args.data, database, copies=args.with_copies)
     finally:
         (own["folder"] / "running.pid").unlink(missing_ok=True)  # before the lock goes, so nobody takes the lock of a name that is going
         held.close()

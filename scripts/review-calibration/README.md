@@ -360,7 +360,8 @@ the agent turns and the limits (the backend's heap limit and whether it stops
 when that runs out, read from its command line, and the disk's free space); a
 series of one amount of one part, or of the Mac, per hour, optionally from the
 samples when no turn ran; the Mac's busiest moments with what ByteQuay took of
-them; and the disk by owner with its growth and what Clean up would delete.
+them; and the disk by owner with its growth, what Clean up would delete and
+the old database copies it deletes when its box is ticked.
 The agent hands in a summary and at most eight suggestions, each with a risk
 (high, medium or low), the numbers behind it, what to do, where, the number to
 watch, and whether Clean up carries it out; an answer whose numbers are
@@ -376,7 +377,9 @@ command or a title; it ends after 20 model calls or five minutes.
 Below the disk, "Clean up" lists what nothing in the app uses any more, by the
 same rules as the disk count: what removed tasks left in the runtime and among
 the worktrees, and what retired features left. `uv run cleanup.py` prints the
-same list and `uv run cleanup.py --apply` deletes it. On the page, Clean up
+same list and `uv run cleanup.py --apply` deletes it. The old database copies
+go only when asked for: with `--with-copies`, or on the page when its box is
+ticked, as they are the only way back to an older database. On the page, Clean up
 asks you to confirm, then starts `cleanup.py --apply` apart from the page and
 shows how far it got. This is the only place the lab writes to ByteQuay's data
 folder, and only once you confirm. A worktree goes through git

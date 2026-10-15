@@ -134,6 +134,8 @@ class TestTools(Kept):
                                  "The Clean up section would delete 1 folder or file now: retired features in agent-runtime: 1."])
         bare = advisor.disk(self.sight(going=[], space=self.sight().space.iloc[:0]), {}).splitlines()
         self.assertEqual(bare[1:], ["The app's data has not been counted yet.", "The Clean up section has nothing to delete now."])
+        copies = advisor.disk(self.sight(copies=(cleanup.Item(monitor.COPIES, self.data / "database-backup-1"),)), {}).splitlines()
+        self.assertEqual(copies[-1], "Old database copies: 1 folder or file, 0.0 GB at the last count; Clean up deletes them too when its box is ticked.")
 
 
 class TestAnswer(unittest.TestCase):
@@ -167,6 +169,13 @@ class TestLook(Kept):
         self.assertIn("Java backend: memory 1,150 / 1,900", script.sent[1][-1]["content"])  # what the overview handed the model
         events = [json.loads(line)["type"] for line in (self.folder / "advice" / "events.jsonl").read_text().splitlines()]
         self.assertEqual(events, ["model", "tool", "model", "model", "tool", "model", "tool", "result"])
+
+    def test_old_database_copies_alone_are_enough_for_a_clean_up_suggestion(self):
+        cleanup.remove(self.data / "agent-runtime")
+        (self.data / "database-backup-1").mkdir()
+        os.utime(self.data / "database-backup-1", (time.time() - 2 * 86400,) * 2)
+        made = self.look(Script(said(call("c1", "submit_advice", ANSWER))))
+        self.assertEqual((made["state"], made["suggestions"][0]["action"]), ("done", "clean_up"))
 
     def test_the_tools_offered_are_the_four_readers_and_the_hand_in(self):
         self.assertEqual([one["function"]["name"] for one in advisor.offered()], ["overview", "series", "peaks", "disk", "submit_advice"])

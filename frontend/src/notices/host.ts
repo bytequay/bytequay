@@ -102,7 +102,11 @@ export class NoticeHost {
     window.on('show', () => { this.publish(); void this.refresh(); });
     window.on('minimize', () => this.publish());
     window.on('restore', () => this.publish());
-    window.webContents.on('did-start-loading', () => { this.sources.clear(); this.obscured = false; this.publish(); });
+    window.webContents.on('did-start-navigation', ({ isSameDocument, isMainFrame }) => {
+      // Hash navigation keeps React mounted, so visible tasks will not register again.
+      if (isSameDocument || !isMainFrame) return;
+      this.sources.clear(); this.obscured = false; this.publish();
+    });
     this.publish();
   }
 

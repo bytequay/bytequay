@@ -209,6 +209,26 @@ it.each(['unfocused', 'hidden', 'minimized', 'obscured', 'covered'] as const)('p
   host.stop();
 });
 
+it.each([
+  { navigation: 'hash change', isSameDocument: true, isMainFrame: true, viewed: true },
+  { navigation: 'subframe load', isSameDocument: false, isMainFrame: false, viewed: true },
+  { navigation: 'page reload', isSameDocument: false, isMainFrame: true, viewed: false },
+])('tracks the visible task correctly after a $navigation', async ({ isSameDocument, isMainFrame, viewed }) => {
+  const { host, read, window } = setup();
+  await host.refresh();
+  desktop.handlers.get('notices:source')?.({ sender: window.webContents, senderFrame: window.webContents.mainFrame }, 'screen', notice.taskId);
+  window.webContents.emit('did-start-loading');
+  window.webContents.emit('did-start-navigation', { isSameDocument, isMainFrame });
+  const current = { ...notice, kind: 'TURN_FINISHED', occurredAt: new Date().toISOString() };
+  const other = { ...current, id: 'other', taskId: 'other-task' };
+  read.mockResolvedValue([current, other]); await host.refresh();
+  const view = desktop.views[0] as { webContents: { mainFrame: object } };
+  const snapshot = desktop.handlers.get('notices:read')?.({ sender: view.webContents, senderFrame: view.webContents.mainFrame }) as NoticeSnapshot;
+  expect(snapshot.viewedIds).toEqual(viewed ? [current.id] : []);
+  expect(snapshot.popupIds).toEqual(viewed ? [other.id] : [current.id, other.id]);
+  host.stop();
+});
+
 it('fits the native hit area to zoomed notices and keeps the counter eight pixels from the corner', async () => {
   const { host, read, window } = setup();
   read.mockResolvedValue([notice]); await host.refresh();

@@ -164,29 +164,10 @@ public class BranchRebaseEntity
     public BranchRebase toRebase()
     {
         return new BranchRebase(
-                BranchRebaseId.valueOf(id),
-                startIdempotencyKey,
-                agentTaskId,
-                RepoRef.of(repositoryOwner, repositoryName),
-                Path.of(worktree),
-                workBranch,
-                baseBranch,
-                originalWorkTip,
-                baseSha,
-                status,
-                Optional.ofNullable(currentStep),
-                Optional.ofNullable(pauseReason),
-                Optional.ofNullable(finishReason),
-                Optional.ofNullable(summary),
-                Optional.ofNullable(conflictCommitSha),
-                attemptCount,
-                Optional.ofNullable(currentTurnId),
-                readJournal(),
-                Optional.ofNullable(resultWorkTip),
-                version,
-                createdAt,
-                updatedAt,
-                Optional.ofNullable(terminalAt));
+                BranchRebaseId.valueOf(id), startIdempotencyKey, agentTaskId, RepoRef.of(repositoryOwner, repositoryName), Path.of(worktree), workBranch, baseBranch,
+                originalWorkTip, baseSha, status, Optional.ofNullable(currentStep), Optional.ofNullable(pauseReason), Optional.ofNullable(finishReason),
+                Optional.ofNullable(summary), Optional.ofNullable(conflictCommitSha), attemptCount, Optional.ofNullable(currentTurnId), readJournal(),
+                Optional.ofNullable(resultWorkTip), version, createdAt, updatedAt, Optional.ofNullable(terminalAt));
     }
 
     private void writeJournal(Optional<ActionJournal> journal)

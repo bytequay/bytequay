@@ -69,12 +69,7 @@ public class PrTimelineEntity
     public PrTimelineEvent toDomain()
     {
         return new PrTimelineEvent(
-                getGithubId(),
-                getEvent(),
-                getActor(),
-                getTimestamp(),
-                getBody(),
-                getPayload() == null ? com.bytequay.core.domain.PrTimelinePayload.empty() : getPayload(),
+                getGithubId(), getEvent(), getActor(), getTimestamp(), getBody(), getPayload() == null ? com.bytequay.core.domain.PrTimelinePayload.empty() : getPayload(),
                 Optional.ofNullable(getLocalEventKey()));
     }
 

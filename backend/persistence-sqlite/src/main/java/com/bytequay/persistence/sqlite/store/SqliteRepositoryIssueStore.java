@@ -58,14 +58,8 @@ public class SqliteRepositoryIssueStore
         RepositoryIssueSyncEntity sync = repository.findById(repositoryId).orElse(null);
         var rows = issueRows.findByRepositoryId(repositoryId, PageRequest.of(page, pageSize, Sort.by(Sort.Order.desc("updatedAt"), Sort.Order.desc("number"))));
         return new RepositoryIssuePage(
-                repositoryId,
-                repositoryRef,
-                rows.stream().map(RepositoryIssueEntity::toDomain).collect(ImmutableList.toImmutableList()),
-                page,
-                pageSize,
-                rows.getTotalElements(),
-                rows.hasNext(),
-                java.util.Optional.ofNullable(sync).map(RepositoryIssueSyncEntity::getSyncedAt));
+                repositoryId, repositoryRef, rows.stream().map(RepositoryIssueEntity::toDomain).collect(ImmutableList.toImmutableList()), page, pageSize, rows.getTotalElements(),
+                rows.hasNext(), java.util.Optional.ofNullable(sync).map(RepositoryIssueSyncEntity::getSyncedAt));
     }
 
     @Override

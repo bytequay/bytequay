@@ -283,42 +283,15 @@ public class CiAutofixRunEntity
     public CiAutofixRun toDomain(List<CiAutofixAttempt> attempts)
     {
         Scope scope = new Scope(
-                PullRequestRef.of(repositoryOwner, repositoryName, pullRequestNumber),
-                headRepository(),
-                workspaceId,
-                RepoRef.of(physicalRepositoryOwner, physicalRepositoryName),
-                author,
-                headRef,
-                baseRef,
-                laneId,
-                Optional.ofNullable(parentTaskId));
+                PullRequestRef.of(repositoryOwner, repositoryName, pullRequestNumber), headRepository(), workspaceId, RepoRef.of(physicalRepositoryOwner, physicalRepositoryName),
+                author, headRef, baseRef, laneId, Optional.ofNullable(parentTaskId));
         Authorization authorization = new Authorization(allowFailedJobReruns, allowHistoryRewrites, allowExactLeasePush, maxFixAttempts, authorizedAt, authorizationExpiresAt);
         return new CiAutofixRun(
-                CiAutofixRunId.valueOf(id),
-                startIdempotencyKey,
-                scope,
-                Optional.ofNullable(agentTaskId),
-                status,
-                Optional.ofNullable(pauseReason),
-                Optional.ofNullable(finishReason),
-                Optional.ofNullable(summary),
-                taskStartCommit,
-                expectedRemoteHead,
-                latestObservedBaseSha,
-                authorization,
-                attemptsUsed,
-                new RerunCounter(Optional.ofNullable(rerunHeadSha), rerunsUsed),
-                finalCheck(),
-                Optional.ofNullable(currentTurnId),
-                Optional.ofNullable(currentRebaseId),
-                pushJournal(),
-                rerunJournal(),
-                warningsJson == null || warningsJson.isBlank() ? ImmutableList.of() : CI_AUTOFIX.read(warningsJson, WARNINGS, "CI Autofix warnings"),
-                attempts,
-                version,
-                createdAt,
-                updatedAt,
-                Optional.ofNullable(terminalAt));
+                CiAutofixRunId.valueOf(id), startIdempotencyKey, scope, Optional.ofNullable(agentTaskId), status, Optional.ofNullable(pauseReason),
+                Optional.ofNullable(finishReason), Optional.ofNullable(summary), taskStartCommit, expectedRemoteHead, latestObservedBaseSha, authorization, attemptsUsed,
+                new RerunCounter(Optional.ofNullable(rerunHeadSha), rerunsUsed), finalCheck(), Optional.ofNullable(currentTurnId), Optional.ofNullable(currentRebaseId),
+                pushJournal(), rerunJournal(), warningsJson == null || warningsJson.isBlank() ? ImmutableList.of() : CI_AUTOFIX.read(warningsJson, WARNINGS, "CI Autofix warnings"),
+                attempts, version, createdAt, updatedAt, Optional.ofNullable(terminalAt));
     }
 
     private RepoRef headRepository()
@@ -376,11 +349,7 @@ public class CiAutofixRunEntity
     {
         return Optional.ofNullable(rerunAttemptId)
                 .map(attempt -> new RerunJournal(
-                        CiAutofixAttemptId.valueOf(attempt),
-                        rerunWorkflowRunId,
-                        rerunJournalHeadSha,
-                        rerunPreviousAttempt,
-                        rerunStartedAt,
+                        CiAutofixAttemptId.valueOf(attempt), rerunWorkflowRunId, rerunJournalHeadSha, rerunPreviousAttempt, rerunStartedAt,
                         Optional.ofNullable(rerunObservedAttempt)));
     }
 }

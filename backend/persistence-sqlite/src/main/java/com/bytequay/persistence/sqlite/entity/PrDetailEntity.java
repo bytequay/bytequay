@@ -131,30 +131,9 @@ public class PrDetailEntity
     {
         List<String> requestedReviewers = getRequestedReviewers() != null ? getRequestedReviewers() : ImmutableList.of();
         return new PrRawDetail(
-                getTitle(),
-                getHtmlUrl(),
-                getState(),
-                getAuthor(),
-                getAuthorAvatarUrl(),
-                getCreatedAt(),
-                getUpdatedAt(),
-                getMergedAt(),
-                getBody(),
-                getLabels(),
-                getLabelColors() != null ? getLabelColors() : ImmutableMap.of(),
-                getAssignees() != null ? getAssignees() : ImmutableList.of(),
-                getMilestone(),
-                isDraft(),
-                getMergeable(),
-                getMergeableState(),
-                getAdditions(),
-                getDeletions(),
-                getChangedFiles(),
-                requestedReviewers.size(),
-                requestedReviewers,
-                getHeadSha(),
-                getHeadRef(),
-                getBaseRef(),
-                getBaseSha());
+                getTitle(), getHtmlUrl(), getState(), getAuthor(), getAuthorAvatarUrl(), getCreatedAt(), getUpdatedAt(), getMergedAt(), getBody(), getLabels(),
+                getLabelColors() != null ? getLabelColors() : ImmutableMap.of(), getAssignees() != null ? getAssignees() : ImmutableList.of(), getMilestone(), isDraft(),
+                getMergeable(), getMergeableState(), getAdditions(), getDeletions(), getChangedFiles(), requestedReviewers.size(), requestedReviewers, getHeadSha(), getHeadRef(),
+                getBaseRef(), getBaseSha());
     }
 }

@@ -115,12 +115,7 @@ public class AgentEventOutboxEntity
     public AgentEventOutboxEntry toDomain()
     {
         return new AgentEventOutboxEntry(
-                EventId.valueOf(eventId),
-                TaskId.valueOf(taskId),
-                Optional.ofNullable(turnId).map(TurnId::valueOf),
-                AgentEventOutboxJson.decodeSource(sourceJson),
-                AgentEventOutboxJson.decodePayload(AgentEventPayload.Kind.valueOf(payloadKind), blobBacked, payloadJson),
-                occurredAt,
-                Optional.ofNullable(eventSequence));
+                EventId.valueOf(eventId), TaskId.valueOf(taskId), Optional.ofNullable(turnId).map(TurnId::valueOf), AgentEventOutboxJson.decodeSource(sourceJson),
+                AgentEventOutboxJson.decodePayload(AgentEventPayload.Kind.valueOf(payloadKind), blobBacked, payloadJson), occurredAt, Optional.ofNullable(eventSequence));
     }
 }

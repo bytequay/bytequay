@@ -57,11 +57,7 @@ final class CherryPickJson
     {
         return journal
                 .map(entry -> CHERRY_PICK.write(new JournalValue(
-                        entry.type().name(),
-                        entry.sourceSha().orElse(null),
-                        entry.expectedHead(),
-                        entry.attempt(),
-                        entry.idempotencyKey(),
+                        entry.type().name(), entry.sourceSha().orElse(null), entry.expectedHead(), entry.attempt(), entry.idempotencyKey(),
                         entry.startedAt().toString()), "cherry-pick action journal"))
                 .orElse(null);
     }
@@ -74,11 +70,7 @@ final class CherryPickJson
         return CHERRY_PICK.guard("Cannot deserialize cherry-pick action journal", mapper -> {
             JournalValue value = mapper.readValue(json, JournalValue.class);
             return Optional.of(new ActionJournal(
-                    ActionType.valueOf(value.type()),
-                    Optional.ofNullable(value.sourceSha()),
-                    value.expectedHead(),
-                    value.attempt(),
-                    value.idempotencyKey(),
+                    ActionType.valueOf(value.type()), Optional.ofNullable(value.sourceSha()), value.expectedHead(), value.attempt(), value.idempotencyKey(),
                     Instant.parse(value.startedAt())));
         });
     }
@@ -98,9 +90,7 @@ final class CherryPickJson
                         ? ImmutableList.of()
                         : value.conflictPaths().stream()
                                 .map(path -> new ConflictPath(
-                                        path.path(),
-                                        ConflictType.valueOf(path.type()),
-                                        Optional.ofNullable(path.module()),
+                                        path.path(), ConflictType.valueOf(path.type()), Optional.ofNullable(path.module()),
                                         path.stages() == null ? ImmutableList.of() : path.stages()))
                                 .collect(toImmutableList()),
                 value.agentTurnCount());

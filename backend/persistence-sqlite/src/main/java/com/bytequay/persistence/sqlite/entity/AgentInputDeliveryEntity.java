@@ -92,14 +92,6 @@ public class AgentInputDeliveryEntity
     public AgentInputDelivery toDomain()
     {
         return new AgentInputDelivery(
-                InputDeliveryId.valueOf(id),
-                TaskId.valueOf(taskId),
-                TurnId.valueOf(turnId),
-                idempotencyKey,
-                state,
-                createdAt,
-                updatedAt,
-                Optional.ofNullable(failure),
-                version);
+                InputDeliveryId.valueOf(id), TaskId.valueOf(taskId), TurnId.valueOf(turnId), idempotencyKey, state, createdAt, updatedAt, Optional.ofNullable(failure), version);
     }
 }

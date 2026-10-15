@@ -121,19 +121,8 @@ public class AgentQueuedInputEntity
     public QueuedAgentInput toDomain()
     {
         return new QueuedAgentInput(
-                QueuedInputId.valueOf(id),
-                TaskId.valueOf(taskId),
-                position,
-                state,
-                idempotencyKey,
-                new BlobRef(textBlobPath, textBlobMediaType, textBlobSize),
-                "Queued input",
-                settings.toDomain(),
-                Optional.ofNullable(messageEventId).map(EventId::valueOf),
-                Optional.ofNullable(turnId).map(TurnId::valueOf),
-                Optional.ofNullable(pauseReason),
-                createdAt,
-                updatedAt,
-                version);
+                QueuedInputId.valueOf(id), TaskId.valueOf(taskId), position, state, idempotencyKey, new BlobRef(textBlobPath, textBlobMediaType, textBlobSize), "Queued input",
+                settings.toDomain(), Optional.ofNullable(messageEventId).map(EventId::valueOf), Optional.ofNullable(turnId).map(TurnId::valueOf), Optional.ofNullable(pauseReason),
+                createdAt, updatedAt, version);
     }
 }

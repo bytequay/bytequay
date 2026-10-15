@@ -104,17 +104,8 @@ public class CommitEnrichmentEntity
     public CommitEnrichment toDomain()
     {
         return new CommitEnrichment(
-                getId().getRepositoryId(),
-                getId().getSha(),
-                Optional.ofNullable(getAuthorLogin()),
-                Optional.ofNullable(getAvatarKey()),
-                Optional.ofNullable(getCommitterLogin()),
-                Optional.ofNullable(getCommitterAvatarKey()),
-                Optional.ofNullable(getPullRequestNumber()),
-                Optional.ofNullable(getPullRequestTitle()),
-                Optional.ofNullable(getPullRequestUrl()),
-                Optional.ofNullable(getAvatarCheckedAt()),
-                Optional.ofNullable(getAssociationCheckedAt()),
-                getLastSeenAt());
+                getId().getRepositoryId(), getId().getSha(), Optional.ofNullable(getAuthorLogin()), Optional.ofNullable(getAvatarKey()), Optional.ofNullable(getCommitterLogin()),
+                Optional.ofNullable(getCommitterAvatarKey()), Optional.ofNullable(getPullRequestNumber()), Optional.ofNullable(getPullRequestTitle()),
+                Optional.ofNullable(getPullRequestUrl()), Optional.ofNullable(getAvatarCheckedAt()), Optional.ofNullable(getAssociationCheckedAt()), getLastSeenAt());
     }
 }

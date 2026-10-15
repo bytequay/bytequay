@@ -150,24 +150,10 @@ public class WorkspaceEntity
         Optional<Long> upstreamId = Optional.ofNullable(upstreamRepositoryId);
         Optional<RepoRef> upstream = upstreamId.isPresent() ? persistedUpstream : Optional.empty();
         return new Workspace(
-                id,
-                name,
-                selectedRepositoryId,
-                selected,
-                upstreamId,
-                upstream,
-                upstreamId.isPresent() ? monitoredRepositoryId : selectedRepositoryId,
-                upstreamId.isPresent() ? RepoRef.of(monitoredOwner, monitoredRepo) : selected,
-                topology,
-                defaultBranch,
-                originCloneUrl,
+                id, name, selectedRepositoryId, selected, upstreamId, upstream, upstreamId.isPresent() ? monitoredRepositoryId : selectedRepositoryId,
+                upstreamId.isPresent() ? RepoRef.of(monitoredOwner, monitoredRepo) : selected, topology, defaultBranch, originCloneUrl,
                 upstreamId.isPresent() ? Optional.ofNullable(upstreamDefaultBranch) : Optional.empty(),
-                upstreamId.isPresent() ? Optional.ofNullable(upstreamCloneUrl) : Optional.empty(),
-                localRepositoryPath,
-                Optional.ofNullable(lastCodeSyncAt),
-                Optional.ofNullable(lastMetadataSyncAt),
-                displayOrder,
-                createdAt,
-                updatedAt);
+                upstreamId.isPresent() ? Optional.ofNullable(upstreamCloneUrl) : Optional.empty(), localRepositoryPath, Optional.ofNullable(lastCodeSyncAt),
+                Optional.ofNullable(lastMetadataSyncAt), displayOrder, createdAt, updatedAt);
     }
 }

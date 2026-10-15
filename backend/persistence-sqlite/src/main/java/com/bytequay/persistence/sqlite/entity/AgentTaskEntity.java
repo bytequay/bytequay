@@ -265,11 +265,7 @@ public class AgentTaskEntity
             throw new AgentStorageException("Stored task worktree facts are incomplete: " + id);
         }
         return Optional.of(new TaskWorktree(
-                TaskId.valueOf(Optional.ofNullable(worktreeOwnerTaskId).orElse(id)),
-                workspaceId,
-                new RepositoryIdentity(repositoryOwner, repositoryName),
-                Path.of(worktree),
-                generatedBranch,
-                startCommit));
+                TaskId.valueOf(Optional.ofNullable(worktreeOwnerTaskId).orElse(id)), workspaceId, new RepositoryIdentity(repositoryOwner, repositoryName), Path.of(worktree),
+                generatedBranch, startCommit));
     }
 }

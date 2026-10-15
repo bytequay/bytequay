@@ -93,18 +93,8 @@ public class RepositoryMetadataEntity
     public RepositoryMetadataSnapshot toDomain()
     {
         return new RepositoryMetadataSnapshot(
-                getRepositoryId(),
-                RepoRef.of(getOwner(), getRepo()),
-                getDescription(),
-                getStargazersCount(),
-                getLanguages(),
-                getContributors(),
-                getPickerUsers(),
-                getLabels(),
-                getTopics(),
-                Optional.ofNullable(getOverviewSyncedAt()),
-                Optional.ofNullable(getContributorsSyncedAt()),
-                Optional.ofNullable(getPickerUsersSyncedAt()),
+                getRepositoryId(), RepoRef.of(getOwner(), getRepo()), getDescription(), getStargazersCount(), getLanguages(), getContributors(), getPickerUsers(), getLabels(),
+                getTopics(), Optional.ofNullable(getOverviewSyncedAt()), Optional.ofNullable(getContributorsSyncedAt()), Optional.ofNullable(getPickerUsersSyncedAt()),
                 Optional.ofNullable(getLabelsTopicsSyncedAt()));
     }
 }

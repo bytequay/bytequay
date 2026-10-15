@@ -103,18 +103,7 @@ public class AgentReviewMessageEntity
     public ReviewMessage toDomain()
     {
         return new ReviewMessage(
-                id,
-                reviewId,
-                Optional.ofNullable(findingId),
-                Optional.ofNullable(cardId),
-                author,
-                body,
-                targetRevision,
-                runId,
-                Optional.ofNullable(turnId),
-                Optional.ofNullable(queuedInputId),
-                version,
-                createdAt,
-                Optional.ofNullable(developerTaskId));
+                id, reviewId, Optional.ofNullable(findingId), Optional.ofNullable(cardId), author, body, targetRevision, runId, Optional.ofNullable(turnId),
+                Optional.ofNullable(queuedInputId), version, createdAt, Optional.ofNullable(developerTaskId));
     }
 }

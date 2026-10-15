@@ -174,31 +174,11 @@ public class LocalRunEntity
     public LocalRun toDomain()
     {
         return new LocalRun(
-                id,
-                taskId,
-                workspaceId,
-                ordinal,
-                initiator,
-                scope,
-                Optional.ofNullable(path),
-                Optional.ofNullable(testClass),
-                Optional.ofNullable(testMethod),
-                Optional.ofNullable(module),
-                command,
-                Optional.ofNullable(sourceHeadSha),
-                REVIEW.read(localPathsJson, STRINGS, "local run paths"),
-                Optional.ofNullable(sourceFingerprint),
-                status,
-                startedAt,
-                Optional.ofNullable(endedAt),
-                exitCode == null ? OptionalInt.empty() : OptionalInt.of(exitCode),
-                tests == null ? Optional.empty() : Optional.of(new LocalRun.Counts(tests, failures, errors, skipped)),
-                outputTruncated,
-                omittedBytes == null ? OptionalLong.empty() : OptionalLong.of(omittedBytes),
-                REVIEW.read(resultsJson, RESULTS, "local run results"),
-                Optional.ofNullable(agentEventId),
-                Optional.ofNullable(launchId),
-                treeUnverified,
-                version);
+                id, taskId, workspaceId, ordinal, initiator, scope, Optional.ofNullable(path), Optional.ofNullable(testClass), Optional.ofNullable(testMethod),
+                Optional.ofNullable(module), command, Optional.ofNullable(sourceHeadSha), REVIEW.read(localPathsJson, STRINGS, "local run paths"),
+                Optional.ofNullable(sourceFingerprint), status, startedAt, Optional.ofNullable(endedAt), exitCode == null ? OptionalInt.empty() : OptionalInt.of(exitCode),
+                tests == null ? Optional.empty() : Optional.of(new LocalRun.Counts(tests, failures, errors, skipped)), outputTruncated,
+                omittedBytes == null ? OptionalLong.empty() : OptionalLong.of(omittedBytes), REVIEW.read(resultsJson, RESULTS, "local run results"),
+                Optional.ofNullable(agentEventId), Optional.ofNullable(launchId), treeUnverified, version);
     }
 }

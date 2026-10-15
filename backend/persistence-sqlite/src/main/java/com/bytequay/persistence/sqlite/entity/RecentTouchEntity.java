@@ -112,20 +112,7 @@ public class RecentTouchEntity
     public RecentTouch toDomain()
     {
         return new RecentTouch(
-                id,
-                RecentItemType.valueOf(itemType),
-                itemKey,
-                LocalDate.parse(touchDay),
-                touchedAt,
-                RecentReason.valueOf(reason),
-                reasonCount,
-                itemNumber,
-                title,
-                repo,
-                workspaceId,
-                htmlUrl,
-                mine,
-                prId,
-                subtitle);
+                id, RecentItemType.valueOf(itemType), itemKey, LocalDate.parse(touchDay), touchedAt, RecentReason.valueOf(reason), reasonCount, itemNumber, title, repo,
+                workspaceId, htmlUrl, mine, prId, subtitle);
     }
 }

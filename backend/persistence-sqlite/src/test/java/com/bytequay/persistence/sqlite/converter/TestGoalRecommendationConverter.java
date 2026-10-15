@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.converter;
 
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.GoalRecommendationConverter;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 

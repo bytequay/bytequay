@@ -21,7 +21,7 @@ import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiDescriptionChange;
 import com.bytequay.core.ci.CiRerunAssessment;
-import com.bytequay.persistence.sqlite.converter.StringListConverter;
+import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringListConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;

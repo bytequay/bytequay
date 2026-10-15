@@ -14,7 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.TeamActivityEvent;
-import com.bytequay.persistence.sqlite.converter.TeamActivityEventConverter;
+import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.TeamActivityEventConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;

@@ -14,7 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.GoalKnowledgeNote;
-import com.bytequay.persistence.sqlite.converter.GoalKnowledgeNoteConverter;
+import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.GoalKnowledgeNoteConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;

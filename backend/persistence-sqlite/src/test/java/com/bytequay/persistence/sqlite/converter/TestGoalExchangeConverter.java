@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.converter;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.GoalExchangeConverter;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 

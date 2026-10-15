@@ -14,7 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.backport.BackportChain;
-import com.bytequay.persistence.sqlite.converter.BackportChainConverter;
+import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.BackportChainConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;

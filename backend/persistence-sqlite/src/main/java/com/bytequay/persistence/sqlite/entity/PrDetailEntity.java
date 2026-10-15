@@ -14,8 +14,8 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.PrRawDetail;
-import com.bytequay.persistence.sqlite.converter.StringListConverter;
-import com.bytequay.persistence.sqlite.converter.StringMapConverter;
+import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringListConverter;
+import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringMapConverter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.Column;

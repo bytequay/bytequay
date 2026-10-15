@@ -21,6 +21,7 @@ import { cherryPickItem, ciFixItem, reviewItem } from './taskList';
 import { CI_RUN } from './fixtures/ciAutofix';
 import { runningReviewFixture } from '../pulls/agent-review/fixtures/review';
 import type { TaskDiscussions } from './discussions/useTaskDiscussions';
+import type { LocalReviewThreadDto } from '../pulls/local-review/types';
 import { AgentTaskBody, providerStatusFromUnavailable, type AttachmentPreview } from './AgentTaskScreen';
 import { PlanSteps } from './AgentConversation';
 import fixture from './fixtures/agent-events-v2.json';
@@ -612,6 +613,20 @@ describe('agent task side panel', () => {
     expect(render({}, [pullRequest(482, 'Fix preview output limit')])).toContain('Code &amp; Tests');
     expect(render({ checkoutRemovedAt: '2026-08-21T10:00:00Z' })).toMatch(/<button[^>]*disabled=""[^>]*>[^]*?Code &amp; Tests/);
     expect(render({ interactive: false })).toContain('Code &amp; Tests');
+  });
+
+  it('lists private review comments as Summary findings, one round per pull request head they were written against', () => {
+    const pull = pullRequest(482, 'Fix preview output limit');
+    const thread = (id: string, headSha: string): LocalReviewThreadDto => ({ id, taskId: 't-1', taskVersion: 1, workspaceId: 'w', repo: pull.repo, number: pull.number,
+      path: 'src/Main.java', side: 'RIGHT' as const, startLine: null, line: 3, baseSha: null, headSha, code: 'x', resolved: false, version: 1,
+      createdAt: `2026-10-0${id}T00:00:00Z`, updatedAt: '2026-10-09T00:00:00Z', messages: [] });
+    const localReview = { threads: [thread('1', '1'.repeat(40)), thread('2', '1'.repeat(40)), thread('3', '2'.repeat(40))],
+      onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {} };
+    const markup = renderToStaticMarkup(<AgentTaskBody state={{ ...state, task: { ...state.task, interactive: true } }} panelOpen panelTab="review"
+      pullRequests={[pull]} localReview={localReview} {...props} />);
+    expect(markup).toMatch(/All rounds<span>3<\/span>.*Last round<span>1<\/span>.*Round 1<span>2<\/span>/);
+    expect(markup).toContain('Round 2 · head 2222222 · 1 new');
+    expect(markup.match(/<div hidden="">/g)).toHaveLength(2);
   });
 
   it('keeps an opened Discussions tab beside PR and WorkBench, with or without a pull request', () => {

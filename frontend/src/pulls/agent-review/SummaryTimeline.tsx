@@ -23,6 +23,44 @@ export function TimelineEvent({ avatar, children, actions, id }: { avatar: React
   </div>;
 }
 
+/** A review round, by the head it read; rounds go oldest first. */
+export type FindingsRound = { id: string; headSha: string };
+
+/** The round a Findings tab names: 'all' is every round, 'last' follows the newest one, anything else is a round's id. */
+export function shownRound<T extends FindingsRound>(rounds: T[], round: string): T | null {
+  return round === 'all' ? null : round === 'last' ? rounds.at(-1) ?? null : rounds.find(item => item.id === round) ?? null;
+}
+
+/** The Summary's Findings heading: a tab per review round with its count, then a line about what the tab shows. */
+export function FindingsHead({ rounds, round, onRound, count, overall, children }: {
+  rounds: FindingsRound[];
+  round: string;
+  onRound: (round: string) => void;
+  /** How many findings a round holds; null counts every round. */
+  count: (round: FindingsRound | null) => number;
+  /** What All rounds says about the findings, such as how many are open. */
+  overall: string;
+  children?: ReactNode;
+}) {
+  const shown = shownRound(rounds, round);
+  const index = shown === null ? -1 : rounds.indexOf(shown);
+  const shownCount = count(shown);
+  const tabs = [{ id: 'all', label: 'All rounds', round: null }, ...rounds.map((item, position) => position === rounds.length - 1
+    ? { id: 'last', label: 'Last round', round: item } : { id: item.id, label: `Round ${position + 1}`, round: item }).reverse()];
+  return <header className="agr-findings">
+    <div className="agr-findings__head">
+      <h2>Findings</h2>
+      {children}
+      {rounds.length > 0 && <div className="agr-findings__filters" aria-label="Review rounds">
+        {tabs.map(tab => <button key={tab.id} type="button" aria-pressed={round === tab.id} onClick={() => onRound(tab.id)}>
+          {tab.label}<span>{count(tab.round)}</span></button>)}
+      </div>}
+    </div>
+    <p className="agr-findings__meta">{shown === null ? `All rounds · ${overall}`
+      : `Round ${index + 1} · head ${shown.headSha.slice(0, 7)} · ${shownCount} ${index > 0 ? 'new' : shownCount === 1 ? 'finding' : 'findings'}`}</p>
+  </header>;
+}
+
 /** One entry in a Summary's outline: the intention or a commit, and how many messages discuss it. */
 export function SummaryOutlineItem({ label, ordinal, messages, current, onSelect }: {
   label: string;

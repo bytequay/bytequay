@@ -54,10 +54,10 @@ describe('the Summary strip and review event', () => {
     const timeline = section(state(review));
     expect(timeline).toContain('<strong>Agent review</strong> left 3 local review comments');
     expect(timeline).toContain('Local · never posted to GitHub');
-    // The page's strip and this event replace the review's own strip and Findings heading, and the developer's
-    // cards above already explain the change. Review details retain discovery and unselected records here.
+    // The page's strip and this event replace the review's own strip, and the developer's cards above already
+    // explain the change. Findings keep the design's round tabs; Review details retain discovery and unselected records.
     expect(timeline).not.toContain('agr-strip');
-    expect(timeline).not.toContain('<h2>Findings</h2>');
+    expect(timeline).toMatch(/<h2>Findings<\/h2>.*aria-label="Review rounds"/);
     expect(timeline).not.toContain('data-review-card=');
     expect(timeline).toContain('Review details');
   });

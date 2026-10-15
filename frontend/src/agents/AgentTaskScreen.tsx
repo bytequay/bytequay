@@ -86,6 +86,7 @@ import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
 import DevelopmentLearningPanel from './DevelopmentLearningPanel';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
+import { FindingsHead, shownRound } from '../pulls/agent-review/SummaryTimeline';
 import { IssueAttachment } from './IssueAttachment';
 import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
 import { useReviewCardFocus } from './reviewCardNavigation';
@@ -495,6 +496,21 @@ function PlanCard({ steps, open, onToggle, repository }: { steps: PlanStep[]; op
  * The diff brings its own toolbar and scroller, so it mounts flush and fills the frame instead
  * of sitting inside a second scroller with its own padding.
  */
+/** The task's private review comments as the Summary's Findings, one round per pull request head they were written against. */
+function LocalFindings({ local }: { local: LocalReviewThreads }): React.JSX.Element {
+  const [round, setRound] = useState('last');
+  const rounds = [...new Set(local.threads.map(thread => thread.headSha).filter((sha): sha is string => sha !== null))].map(headSha => ({ id: headSha, headSha }));
+  const shown = shownRound(rounds, round);
+  const inRound = (thread: LocalReviewThreadDto) => shown === null || thread.headSha === shown.id;
+  const open = local.threads.filter(thread => !thread.resolved).length;
+  return <section className="agr-local-comments" aria-label="Findings">
+    <FindingsHead rounds={rounds} round={round} onRound={setRound} overall={`${open} open · ${local.threads.length - open} resolved`}
+      count={item => local.threads.filter(thread => item === null || thread.headSha === item.id).length} />
+    {shown !== null && !local.threads.some(inRound) && <p className="agr-card__empty">No findings in this round.</p>}
+    {local.threads.map(thread => <div key={thread.id} hidden={!inRound(thread)}><LocalReviewThreadCard thread={thread} {...local} /></div>)}
+  </section>;
+}
+
 function PanelFrame({ label, tabs, width, flush = false, overview = false, kept = null, keptShown = false, children }: {
   label: string;
   tabs: React.JSX.Element;
@@ -772,10 +788,7 @@ function SidePanel({
   } : undefined;
   const summaryBody = summaryVisited ? <ReviewCommentIndex className="agr-development-learning" ref={reviewContainer} hidden={tab !== 'review'}>
     {(typeof learning === 'function' ? learning(sha => selectCommit('task', sha), taskReview) : learning) ?? <p className="agr-card__empty">After a turn changes code or commits, the agent will refine the summary here automatically.</p>}
-    {localThreads.threads.length > 0 && <section className="agr-local-comments" aria-label="Local review comments">
-      <div className="agr-findings__head"><h2>Local review comments</h2><span className="agr-findings__count">{localThreads.threads.length} private discussions</span></div>
-      {localThreads.threads.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...localThreads} />)}
-    </section>}
+    {localThreads.threads.length > 0 && <LocalFindings local={localThreads} />}
     {taskReview !== undefined ? null
       : pullRequest !== null && reviewLoading ? <div className="agt-panel__empty" role="status">Loading review cards…</div>
       : reviewError !== null ? <div className="agt-panel__empty" role="alert">{reviewError}

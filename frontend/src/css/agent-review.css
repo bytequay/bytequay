@@ -285,10 +285,12 @@
 .agr-summary-nav__ordinal { min-width: 12px; flex: none; color: var(--fg-dim); font-size: 12px; }
 .agr-summary-nav__title { min-width: 0; flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agr-summary-nav__count { display: inline-flex; flex: none; align-items: center; gap: 3px; color: var(--fg-dim); font-size: 11px; }
-.agr-summary-nav__heading { padding: 14px 10px 6px; color: var(--fg-dim); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.agr-summary-nav__heading { padding: 14px 10px 6px; color: light-dark(#8c959f, var(--dark-disabled)); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
 .agr-summary-reader { min-width: 0; flex: 999 1 360px; background: var(--surface-canvas); padding: 22px 26px; }
 .agr-summary-outline + .agr-summary-page__review { margin-top: 16px; }
-.agr-timeline .agr-findings__head { margin-left: 22px; }
+.agr-findings > .agr-findings__head { border-top: 0; padding-top: 0; }
+.agr-findings__meta { margin: -4px 0 12px; color: var(--fg-muted); font-size: 12px; }
+.agr-timeline .agr-findings { margin-left: 22px; }
 
 /* A review on the Summary timeline: its passes, the reviewer's recent actions, and what it has read. */
 .agr-run { overflow: hidden; border: 1px solid var(--line-default); border-radius: 8px; background: var(--surface-canvas); color: var(--fg-muted); font-size: 13px; }
@@ -410,10 +412,10 @@
 /* findings */
 .agr-findings__head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 20px 0 12px; padding-top: 16px; border-top: 1px solid #d8dee4; }
 .agr-findings__head h2 { display: inline-flex; align-items: center; gap: 7px; margin: 0; font-size: 14px; font-weight: 600; }
-.agr-findings__filters { display: flex; gap: 3px; margin-left: auto; }
-.agr-findings__filters button { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 6px; background: transparent; color: #59636e; padding: 4px 8px; font: inherit; font-size: 12px; }
+.agr-findings__filters { display: flex; gap: 2px; margin-left: auto; border: 1px solid var(--line-default); border-radius: 8px; background: var(--surface-elevated); padding: 3px; }
+.agr-findings__filters button { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 6px; background: transparent; color: var(--fg-subtle); padding: 5px 12px; font: inherit; font-size: 12px; }
 .agr-findings__filters button[aria-pressed="true"] { background: #eef1f4; color: #1f2328; font-weight: 600; }
-.agr-findings__filters button > span { border-radius: 8px; background: #e3e6ea; padding: 0 5px; font-size: 11px; }
+.agr-findings__filters button > span { color: var(--fg-dim); font-size: 11px; }
 .agr-findings__count { color: #57606a; font-size: 13px; }
 .agr-none { border: 1px solid #d0d7de; border-radius: 8px; padding: 22px; text-align: center; }
 .agr-none__title { color: #1a7f37; font-size: 14px; font-weight: 600; }

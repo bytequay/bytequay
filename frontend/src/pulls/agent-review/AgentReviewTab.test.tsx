@@ -229,7 +229,7 @@ describe('banners', () => {
     expect(html).toContain('coverage was not recorded');
     expect(html).not.toContain('Retry review');
     expect(html).toContain('>Resume review</button>');
-    expect(html).toContain('none saved');
+    expect(html).toContain('Round 1 · head d9a0c41 · 0 findings');
     expect(html).toContain('No summary was saved for this run');
     expect(html).not.toContain('Incomplete');
     expect(html).not.toContain('finished ');
@@ -378,7 +378,7 @@ describe('review details', () => {
     expect(html).toContain('No findings were selected for the main result.');
     expect(html).toContain('Add to my review');
     expect(html).toContain('Useful context, below the reporting threshold.');
-    expect(html).toContain('0 open · 0 resolved');
+    expect(html).toContain('Round 1 · head d9a0c41 · 0 findings');
   });
 
   it('renders unsealed discovery provenance and all three perspective statuses', () => {

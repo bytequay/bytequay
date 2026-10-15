@@ -50,6 +50,7 @@ import ReviewDetails from './ReviewDetails';
 import ReviewRunCards from './ReviewRunCards';
 import { recordReviewAttentionAction, useFindingActions } from './useFindingActions';
 import ReviewSummaryCard from './ReviewSummaryCard';
+import { FindingsHead, shownRound } from './SummaryTimeline';
 import { findingLines } from './contracts';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
 import { explanationRun, findingInResults, isExplanationRun, latestRun, newCommits, openFindings, provisional, reviewElapsed, reviewProgress, reviewRecoveryRequired, reviewRunning, reviewStatus, reviewWorktreeNotice, shortSha } from './model';
@@ -188,7 +189,7 @@ export default function AgentReviewTab({
   const findings = review === null ? [] : openFindings(review);
   const withdrawn = review === null ? [] : review.findings.filter(finding => finding.state === 'WITHDRAWN' && findingInResults(review, finding));
   const rounds = review === null ? [] : review.runs.filter(item => !isExplanationRun(item));
-  const roundRun = rounds.length < 2 || round === 'all' ? null : round === 'last' ? currentRun : rounds.find(item => item.id === round) ?? null;
+  const roundRun = shownRound(rounds, round);
   const inRound = (finding: ReviewFindingDto) => roundRun === null || finding.runId === roundRun.id;
 
   useEffect(() => {
@@ -748,22 +749,15 @@ export default function AgentReviewTab({
               requestAnimationFrame(() => scrollToFinding(finding.id));
             }} />}
 
-          {(!timeline || findings.length + withdrawn.length > 0) && <div className="agr-findings__head">
-            <h2><CircleAlert size={16} aria-hidden="true" />Findings</h2>
+          {(!timeline || findings.length + withdrawn.length > 0) && <FindingsHead rounds={rounds} round={round} onRound={setRound}
+            count={item => [...findings, ...withdrawn].filter(finding => item === null || finding.runId === item.id).length}
+            overall={findings.length === 0 && provisional(review) ? 'none saved'
+              : `${findings.filter(finding => finding.state === 'OPEN').length} open · ${findings.filter(finding => finding.state === 'RESOLVED').length} resolved`}>
             {!timeline && (['Critical', 'High', 'Medium', 'Low'] as const).map(severity => {
               const count = findings.filter(finding => finding.severity === severity).length;
               return count === 0 ? null : <span key={severity} className={`agr-severity is-${severity.toLowerCase()}`}>{count} {severity}</span>;
             })}
-            <span className="agr-findings__count">{roundRun !== null ? `Round ${rounds.indexOf(roundRun) + 1} · head ${shortSha(roundRun.headSha)}`
-              : findings.length === 0 && provisional(review) ? 'none saved'
-                : `${findings.filter(finding => finding.state === 'OPEN').length} open · ${findings.filter(finding => finding.state === 'RESOLVED').length} resolved`}</span>
-            {rounds.length > 1 && <div className="agr-findings__filters" aria-label="Review rounds">
-              {[{ id: 'all', label: 'All rounds', run: null }, ...rounds.map((item, index) => index === rounds.length - 1
-                ? { id: 'last', label: 'Last round', run: item } : { id: item.id, label: `Round ${index + 1}`, run: item }).reverse()]
-                .map(tab => <button key={tab.id} type="button" aria-pressed={round === tab.id} onClick={() => setRound(tab.id)}>{tab.label}
-                  <span>{[...findings, ...withdrawn].filter(finding => tab.run === null || finding.runId === tab.run.id).length}</span></button>)}
-            </div>}
-          </div>}
+          </FindingsHead>}
           {roundRun !== null && findings.length + withdrawn.length > 0 && ![...findings, ...withdrawn].some(inRound)
             && <p className="agr-card__empty">No findings in this round.</p>}
 

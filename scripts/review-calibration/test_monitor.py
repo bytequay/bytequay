@@ -206,6 +206,11 @@ class TestSpace(Folder):
                               {(monitor.OPEN, "w"): 0, (monitor.REMOVED, "w"): 1, (monitor.RETIRED, "a"): 2})
         self.assertEqual(dict(held), {(monitor.OPEN, "w"): 140, (monitor.REMOVED, "w"): 50, (monitor.RETIRED, "a"): 150,  # its own two overlap: once
                                       (monitor.SHARED, "w"): 50, (monitor.SHARED, "several places"): 10})
+        # Two owners' stretches end to end on the disk share no byte, whichever edge the sweep meets first.
+        for order in ([0, 1], [1, 0]):
+            touching = monitor.shares(array("q", [[0, 100][place] for place in order]), array("q", [100, 100]), array("H", order),
+                                      {(monitor.OPEN, "w"): 0, (monitor.RETIRED, "a"): 1})
+            self.assertEqual(dict(touching), {(monitor.OPEN, "w"): 100, (monitor.RETIRED, "a"): 100})
 
     def write(self, path, size):
         path.parent.mkdir(parents=True, exist_ok=True)

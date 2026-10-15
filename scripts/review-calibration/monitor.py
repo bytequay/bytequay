@@ -277,6 +277,8 @@ def shares(starts, lengths, marks, labels):
     held, named = Counter(), {mark: label for label, mark in labels.items()}
     found, where = numpy.unique(holding[:-1], return_inverse=True)  # each stretch between two edges, by who holds it
     for mask, size in zip(found.tolist(), numpy.bincount(where, weights=numpy.diff(edges)).tolist()):
+        if not size:
+            continue  # where one stretch ends just as another begins, both hold that edge and no byte
         owning = [named[mark] for mark in range(len(labels)) if mask >> mark & 1]
         if len(owning) == 1:
             held[owning[0]] += size

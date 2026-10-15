@@ -15,6 +15,8 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentStorageException;
+import com.bytequay.core.review.ReviewConflictException;
+import com.bytequay.core.store.StorageException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 
@@ -40,6 +42,33 @@ class TestSqliteStoreExceptions
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("CHECK constraint failed: state in ('CREATED')")
                 .extracting(Throwable::getMessage).asString().doesNotContain("already exists");
+    }
+
+    @Test
+    void reviewSchemaFailureDoesNotClaimThatTheReviewAlreadyExists()
+    {
+        assertThat(StoreWrites.REVIEW.rejectedInsert().apply("Review already exists: r1",
+                rejected("[SQLITE_CONSTRAINT_NOTNULL] A NOT NULL constraint failed (NOT NULL constraint failed: agent_review.number)")))
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("NOT NULL constraint failed: agent_review.number")
+                .extracting(Throwable::getMessage).asString().doesNotContain("already exists");
+    }
+
+    @Test
+    void reviewDuplicateStillReportsAConflict()
+    {
+        assertThat(StoreWrites.REVIEW.rejectedInsert().apply("Review already exists: r1",
+                rejected("[SQLITE_CONSTRAINT_UNIQUE] A UNIQUE constraint failed (UNIQUE constraint failed: agent_review.task_id)")))
+                .isInstanceOf(ReviewConflictException.class)
+                .hasMessage("Review already exists: r1");
+    }
+
+    @Test
+    void reviewDatabaseFailureDoesNotClaimThatTheReviewAlreadyExists()
+    {
+        assertThat(StoreWrites.REVIEW.rejectedInsert().apply("Review already exists: r1", rejected("[SQLITE_BUSY] database is locked")))
+                .isInstanceOf(StorageException.class)
+                .hasMessage("Database write failed");
     }
 
     private static DataIntegrityViolationException rejected(String sqliteMessage)

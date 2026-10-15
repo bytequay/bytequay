@@ -15,6 +15,8 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentStorageException;
+import com.bytequay.core.review.ReviewConflictException;
+import com.bytequay.core.store.StorageException;
 import org.springframework.dao.DataAccessException;
 
 import java.util.function.BiFunction;
@@ -53,14 +55,25 @@ final class SqliteStoreExceptions
      */
     public static RuntimeException mapConstraint(String message, DataAccessException failure)
     {
+        return mapConstraint(message, failure, AgentConflictException::new, AgentStorageException::new);
+    }
+
+    public static RuntimeException mapReviewConstraint(String message, DataAccessException failure)
+    {
+        return mapConstraint(message, failure, ReviewConflictException::new, StorageException::new);
+    }
+
+    private static RuntimeException mapConstraint(String message, DataAccessException failure,
+            BiFunction<String, Throwable, RuntimeException> conflict, BiFunction<String, Throwable, RuntimeException> storage)
+    {
         String detail = constraintDetail(failure);
         if (detail == null) {
-            return new AgentStorageException(message, failure);
+            return storage.apply("Database write failed", failure);
         }
         if (detail.contains("SQLITE_CONSTRAINT_CHECK") || detail.contains("SQLITE_CONSTRAINT_NOTNULL")) {
-            return new AgentStorageException("Database rejected the write: " + detail, failure);
+            return storage.apply("Database rejected the write: " + detail, failure);
         }
-        return new AgentConflictException(message, failure);
+        return conflict.apply(message, failure);
     }
 
     private static String constraintDetail(Throwable failure)

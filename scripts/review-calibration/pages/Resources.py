@@ -233,7 +233,7 @@ def clean_up(made, folder):
         st.info("Nothing to clean up: no data is left by removed tasks or by features the app no longer has." + later)
         return
     st.caption("What nothing in the app uses any more, found by the same rules as the disk count. A worktree goes through git, which keeps any with "
-               "changes not committed; a removed task's event log stays, as the lab reads it." + later)
+               "changes not committed; a repository stays while it has work found nowhere else; a removed task's event log stays, as the lab reads it." + later)
     st.dataframe(resources.cleanup_rows(monitor.APP_DATA, going, made["space"] if made else pandas.DataFrame()), hide_index=True,
                  column_config={"GB at the last count": st.column_config.NumberColumn(format="%,.1f")})
     if st.button("Clean up…", key="cleanup_ask"):

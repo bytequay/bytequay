@@ -321,7 +321,8 @@ folder of the app's data is a place, and each file has an owner: an open task
 (apart: open tasks nobody changed for a week), a finished task, a removed task
 (its worktree or run data is still there, but the database no longer has the
 task), a retired feature (the code graph's index, the old development flow's
-worktrees), an old database copy, the repositories worktrees are made from, or
+worktrees, the repository clones kept in `repos/` before workspaces), an old
+database copy, the repositories worktrees are made from, or
 the app itself. Whose task data is whose comes read-only from the database: a
 task's id, its state and when it last changed, and the worktree each task,
 rebase or cherry-pick row names (a test checks that no other table names a
@@ -381,7 +382,11 @@ shows how far it got. This is the only place the lab writes to ByteQuay's data
 folder, and only once you confirm. A worktree goes through git
 (`git worktree remove`, never with `--force`), which keeps one with changes not
 committed or files it does not track; its branch stays in the repository, so
-no commit is lost. A removed task's event log stays, as the lab reads it.
+no commit is lost. A repository's own folder, such as an old clone in `repos/`,
+goes after the worktrees made from it, and only once all its work is on a
+remote: nothing left uncommitted, no commit that no remote branch has, no stash,
+and no worktree made from it still there. A removed task's event log stays, as
+the lab reads it.
 Nothing that changed in the last day goes, and the database is read again just
 before anything is deleted. When it is done, the page says what was deleted,
 how much the disk gained and what was kept and why, and the disk is counted

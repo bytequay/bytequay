@@ -163,14 +163,14 @@ class TestSpace(Folder):
             ("workspaces", "w"): None, ("workspaces", "w", "repository"): monitor.REPOSITORIES, ("workspaces", "w", "worktrees"): None,
             ("workspaces", "w", "worktrees", "open-tree"): monitor.OPEN, ("workspaces", "w", "worktrees", "rebase-tree"): monitor.APP,
             ("workspaces", "w", "worktrees", "gone-tree"): monitor.REMOVED, ("workspaces", "w", "lock"): monitor.APP,
-            ("repos",): monitor.REPOSITORIES, ("new-flow-worktrees",): monitor.RETIRED, ("database-backup-20260921T172146",): monitor.COPIES,
+            ("repos",): monitor.RETIRED, ("new-flow-worktrees",): monitor.RETIRED, ("database-backup-20260921T172146",): monitor.COPIES,
             ("backup-before-local-run-20260916T181723",): monitor.COPIES, ("bytequay.db",): monitor.COPIES, ("bytequay-1.0.db",): monitor.APP,
             ("Cache",): monitor.APP,
         }
         self.assertEqual({names: monitor.owner(names, self.KNOWN) for names in cases}, cases)
         # With no database, nothing is said about whose task data is whose; what the path alone tells still holds.
         self.assertEqual([monitor.owner(names, None) for names in [("agent-runtime", OPEN_TASK, "events.jsonl"), ("workspaces", "w", "worktrees", "open-tree"),
-                                                                   ("agent-runtime", OPEN_TASK, "codegraph"), ("repos",)]],
+                                                                   ("agent-runtime", OPEN_TASK, "codegraph"), ("workspaces", "w", "repository")]],
                          [monitor.NOT_KNOWN, monitor.NOT_KNOWN, monitor.RETIRED, monitor.REPOSITORIES])
 
     def test_owners_are_read_from_the_database_without_writing(self):

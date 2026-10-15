@@ -31,7 +31,8 @@ NOTES = {
     monitor.IDLE: "Open tasks nobody changed for a week or more. Closing the ones you are done with frees this.",
     monitor.FINISHED: "Kept after a task finished.",
     monitor.REMOVED: "Left behind by tasks the database no longer has. Nothing uses it, but a worktree may hold work that was never committed.",
-    monitor.RETIRED: "Left by features the app no longer has: the code graph's index and the old development flow's worktrees. Nothing reads it.",
+    monitor.RETIRED: "Left by features the app no longer has: the code graph's index, the old development flow's worktrees and the repository clones "
+                     "kept before workspaces. Nothing reads it.",
     monitor.COPIES: "Copies of the database made before past changes, and the database under its old name. The app does not read them.",
     monitor.REPOSITORIES: "The clones that worktrees are made from.",
     monitor.APP: "Its database, caches, browser data, tools and pictures.",

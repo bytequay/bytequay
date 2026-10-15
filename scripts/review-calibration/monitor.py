@@ -48,9 +48,10 @@ OPEN, IDLE, FINISHED, REMOVED, RETIRED, COPIES, REPOSITORIES, APP, SHARED, NOT_K
     "the app itself", "shared", "tasks not known")
 FREEABLE = (REMOVED, RETIRED)  # nothing in the app uses these any more
 IDLE_AFTER = 7 * 86400  # seconds an open task goes unchanged before it counts as idle
-# What features the app no longer has left behind: the code graph's index in the runtime, the old development flow's worktrees.
+# What features the app no longer has left behind: the code graph's index in the runtime, the old development flow's
+# worktrees, and the repository clones of the layout before workspaces, which nothing reads since the workspaces came.
 CODE_INDEX = {"codegraph", "codegraph-home", "codegraph.head", "codegraph-baselines"}
-RETIRED_FOLDERS = {"new-flow-worktrees"}
+RETIRED_FOLDERS = {"new-flow-worktrees", "repos"}
 COPIES_NAMED = ("database-backup", "backup-before", "bytequay.db")  # copies made before past changes, and the database's old name
 # Besides tasks, the operations whose rows name a worktree folder; such a worktree is the app's own while the row is there.
 # (A CI fix's worktree column holds the id of its workspace.) A test checks that no other table names a worktree.
@@ -237,7 +238,7 @@ def owner(names, known):
     if place in RETIRED_FOLDERS:
         return RETIRED
     # ponytail: a copy is known by its name; the app has no record of the copies made before past changes
-    return COPIES if place.startswith(COPIES_NAMED) else REPOSITORIES if place == "repos" else APP
+    return COPIES if place.startswith(COPIES_NAMED) else APP
 
 
 def stretches(path, size):

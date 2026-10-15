@@ -26,7 +26,11 @@ LOG = "events.jsonl"  # a task's event log: small, and the lab's history of the 
 QUIET = 86400  # seconds; what changed more recently than this stays, in case something is still making it
 STATE = "cleanup.json"
 # Why git keeps a worktree, from what it says; anything else is "git refused to remove it". Its own words name paths.
-REFUSALS = {"modified or untracked": "it holds changes not committed", "main working tree": "it is a repository of its own", "locked": "it is locked"}
+REFUSALS = {"modified or untracked": "it holds changes not committed", "locked": "it is locked"}
+# What makes a repository's own folder hold work found nowhere else, asked of git in this order.
+UNSAVED = ((("status", "--porcelain"), "it holds changes not committed"), (("log", "--branches", "--not", "--remotes", "--oneline", "-1"), "it has commits on no remote"),
+           (("stash", "list"), "it has a stash"))
+
 
 
 @dataclass(frozen=True)
@@ -78,10 +82,29 @@ def repositories_in(path):
     return found
 
 
+def unsaved(repository):
+    """Why a repository's own folder holds work found nowhere else, or None when all of it is on a remote: changes not
+    committed, commits on no remote branch, a stash, or a worktree made from it that is still there."""
+    git = lambda *arguments: subprocess.run(["git", "-C", str(repository), *arguments], capture_output=True, text=True)
+    git("worktree", "prune")  # forget the worktrees whose folders are gone already
+    for arguments, why in UNSAVED:
+        done = git(*arguments)
+        if done.returncode:
+            return "git cannot read it"
+        if done.stdout.strip():
+            return why
+    listed = git("worktree", "list", "--porcelain")
+    if listed.returncode:
+        return "git cannot read it"
+    return "a worktree made from it is still there" if sum(line.startswith("worktree ") for line in listed.stdout.splitlines()) > 1 else None
+
+
 def let_go(tree):
-    """Remove a git worktree through git. None when it is gone, else why it stays. Git refuses a worktree with changes not
-    committed or files it does not track, and a repository's own folder. Its branch stays in the repository, so no commit
-    is lost."""
+    """Let a git worktree or repository go: None when it may be deleted, or is gone already, else why it stays. A worktree is
+    removed through git, which refuses one with changes not committed or files it does not track; its branch stays in the
+    repository, so no commit is lost. A repository's own folder is kept while it holds work found nowhere else."""
+    if (tree / ".git").is_dir():
+        return unsaved(tree)
     common = subprocess.run(["git", "-C", str(tree), "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True)
     if common.returncode:
         return "git cannot read it"
@@ -113,8 +136,13 @@ def clear(path, kept):
 
 
 def remove(path):
-    """Delete a file or a folder, the worktrees in it through git first. Returns {worktree: why it stays}."""
-    kept = {tree: why for tree in repositories_in(path) if (why := let_go(tree))}
+    """Delete a file or a folder, its git worktrees through git first and then its repositories, each only once all its
+    work is found elsewhere. Returns {worktree or repository: why it stays}."""
+    kept = {}
+    for tree in sorted(repositories_in(path), key=lambda tree: (tree / ".git").is_dir()):  # a repository goes after the worktrees made from it
+        why = let_go(tree)
+        if why:
+            kept[tree] = why
     clear(path, kept)
     return kept
 
@@ -179,7 +207,8 @@ def listing(data, going, recent):
         return ["Nothing to clean up." + (f" {len(recent)} places nothing uses changed in the last day and stay." if recent else "")]
     return [f"Would delete {len(going)} places nothing in ByteQuay uses:",
             *(f"  {owner} in {top}: {amount}" for (owner, top), amount in sorted(tally(data, going).items())),
-            "Worktrees go through git, which keeps any with changes not committed. Event logs of removed tasks stay.",
+            "Worktrees go through git, which keeps any with changes not committed; a repository stays while it has work found nowhere else. "
+            "Event logs of removed tasks stay.",
             *([f"{len(recent)} more changed in the last day and stay."] if recent else []), "Run again with --apply to delete them."]
 
 

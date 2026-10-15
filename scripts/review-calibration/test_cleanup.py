@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -92,7 +93,7 @@ class TestRemove(Data):
         self.assertIn("gone-clean", git("branch", "--list", "gone-clean", cwd=self.repository))  # its commits stay in the repository
         self.assertEqual(cleanup.let_go(self.trees["gone-dirty"]), "it holds changes not committed")
         self.assertEqual((self.trees["gone-dirty"] / "tracked.txt").read_text(), "changed")
-        self.assertEqual(cleanup.let_go(self.repository), "it is a repository of its own")
+        self.assertEqual(cleanup.let_go(self.repository), "it has commits on no remote")  # a repository with no remote holds them alone
         broken = self.data / "workspaces/w/worktrees/broken"
         broken.mkdir()
         (broken / ".git").write_text("gitdir: /nowhere/.git/worktrees/broken\n")  # its repository is gone, so git cannot say what it holds
@@ -111,6 +112,58 @@ class TestRemove(Data):
         self.addCleanup(lambda: locked.exists() and locked.chmod(0o700))
         self.assertEqual(cleanup.remove(locked), {})
         self.assertFalse(locked.exists())
+
+
+class TestRepositories(unittest.TestCase):
+    """A clone of the layout before workspaces with its remote, and a worktree made from it in the folder beside it."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name).resolve()
+        self.origin, self.repos = root / "origin.git", root / "data" / "repos"
+        git("init", "-q", "--bare", str(self.origin), cwd=root)
+        self.clone = self.repos / "o" / "r"
+        git("clone", "-q", str(self.origin), str(self.clone), cwd=root)
+        (self.clone / "tracked.txt").write_text("one")
+        git("add", "tracked.txt", cwd=self.clone)
+        git("commit", "-q", "-m", "first", cwd=self.clone)
+        git("push", "-q", "origin", "HEAD", cwd=self.clone)
+        self.tree = self.repos / "o" / "r.bytequay-worktrees" / "pick" / "abc"
+        git("worktree", "add", "-q", "-b", "pick", str(self.tree), "HEAD", cwd=self.clone)
+        git("push", "-q", "origin", "pick", cwd=self.clone)
+
+    def test_a_repository_goes_once_all_its_work_is_on_its_remote_and_its_worktrees_are_gone(self):
+        self.assertEqual(cleanup.remove(self.repos), {})
+        self.assertFalse(self.repos.exists())
+        self.assertIn("first", git("log", "--oneline", cwd=self.origin))  # nothing was only there
+
+    def test_a_repository_with_work_found_nowhere_else_stays(self):
+        for change, why in (
+                (lambda: (git("commit", "-q", "--allow-empty", "-m", "only here", cwd=self.clone)), "it has commits on no remote"),
+                (lambda: ((self.clone / "tracked.txt").write_text("two"), git("stash", "-q", cwd=self.clone)), "it has a stash"),
+                (lambda: (self.clone / "tracked.txt").write_text("three"), "it holds changes not committed")):
+            with self.subTest(why=why):
+                self.setUp()
+                change()
+                self.assertEqual(cleanup.remove(self.repos), {self.clone: why})
+                self.assertTrue((self.clone / ".git").is_dir())
+                self.assertFalse(self.tree.exists())  # its worktree had nothing of its own, so it went
+
+    def test_a_worktree_deleted_by_hand_does_not_keep_its_repository(self):
+        stale = self.repos.parent / "gone-tree"
+        git("worktree", "add", "-q", "-b", "gone", str(stale), "HEAD", cwd=self.clone)
+        git("push", "-q", "origin", "gone", cwd=self.clone)
+        shutil.rmtree(stale)  # git still lists it until it is pruned
+        self.assertEqual(cleanup.remove(self.repos), {})
+        self.assertFalse(self.repos.exists())
+
+    def test_a_repository_with_a_worktree_elsewhere_stays(self):
+        elsewhere = self.repos.parent / "workspaces" / "w" / "worktrees" / "open-tree"
+        git("worktree", "add", "-q", "-b", "open", str(elsewhere), "HEAD", cwd=self.clone)
+        git("push", "-q", "origin", "open", cwd=self.clone)
+        self.assertEqual(cleanup.remove(self.repos / "o"), {self.clone: "a worktree made from it is still there"})
+        self.assertTrue((elsewhere / "tracked.txt").exists())
 
 
 class TestApply(Data):

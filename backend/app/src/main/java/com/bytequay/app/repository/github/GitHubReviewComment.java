@@ -20,7 +20,7 @@ import java.time.Instant;
 public record GitHubReviewComment(
         Long id,
         @JsonProperty("node_id") String nodeId,
-        User user,
+        GitHubUser user,
         String body,
         @JsonProperty("created_at") Instant createdAt,
         @JsonProperty("html_url") String htmlUrl,
@@ -33,7 +33,4 @@ public record GitHubReviewComment(
         @JsonProperty("start_line") Integer startLine,
         @JsonProperty("original_start_line") Integer originalStartLine,
         String side,
-        GitHubReactions reactions)
-{
-    public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
-}
+        GitHubReactions reactions) {}

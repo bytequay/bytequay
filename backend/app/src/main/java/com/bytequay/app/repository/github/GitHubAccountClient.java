@@ -426,13 +426,13 @@ public class GitHubAccountClient
     }
 
     private static UserRepo toUserRepoFromSearch(GitHubUserRepoItem item) {
-        String owner = Optional.ofNullable(item.owner()).map(GitHubUserRepoItem.Owner::login).orElse("");
+        String owner = Optional.ofNullable(item.owner()).map(GitHubUser::login).orElse("");
         Optional<UserRepo.Upstream> upstream = Optional.ofNullable(item.source())
                 .or(() -> Optional.ofNullable(item.parent()))
                 .map(repository -> new UserRepo.Upstream(
                         repository.id(),
                         Optional.ofNullable(repository.owner())
-                                .map(GitHubUserRepoItem.Owner::login)
+                                .map(GitHubUser::login)
                                 .orElse(""),
                         Optional.ofNullable(repository.name()).orElse(""),
                         Optional.ofNullable(repository.defaultBranch()).orElse(""),
@@ -554,10 +554,8 @@ public class GitHubAccountClient
             String email)
     {}
 
-    record GitHubEventItem(String type, Actor actor, Repo repo, Payload payload, @JsonProperty("created_at") Instant createdAt)
+    record GitHubEventItem(String type, GitHubUser actor, Repo repo, Payload payload, @JsonProperty("created_at") Instant createdAt)
     {
-        record Actor(String login, @JsonProperty("avatar_url") String avatarUrl) {}
-
         record Repo(String name) {}
 
         record Payload(

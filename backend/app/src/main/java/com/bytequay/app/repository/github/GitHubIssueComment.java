@@ -21,11 +21,8 @@ import java.time.Instant;
 public record GitHubIssueComment(
         long id,
         @JsonProperty("node_id") String nodeId,
-        User user,
+        GitHubUser user,
         String body,
         @JsonProperty("created_at") Instant createdAt,
         @JsonProperty("html_url") String htmlUrl,
-        GitHubReactions reactions)
-{
-    public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
-}
+        GitHubReactions reactions) {}

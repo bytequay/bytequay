@@ -775,12 +775,10 @@ public class GitHubActionsClient
     private record PullRequestResponse(
             String state,
             String body,
-            UserResponse user,
+            GitHubUser user,
             BranchResponse head,
             BranchResponse base,
             @JsonProperty("html_url") String htmlUrl) {}
-
-    private record UserResponse(String login) {}
 
     private record BranchResponse(String ref, String sha, RepositoryResponse repo) {}
 

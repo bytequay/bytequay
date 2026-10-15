@@ -25,33 +25,27 @@ public record GitHubPullRequestDetailResponse(
         String title,
         @JsonProperty("html_url") String htmlUrl,
         String state,
-        User user,
+        GitHubUser user,
         @JsonProperty("created_at") Instant createdAt,
         @JsonProperty("updated_at") Instant updatedAt,
         @JsonProperty("merged_at") Instant mergedAt,
         String body,
         List<Label> labels,
-        List<Assignee> assignees,
+        List<GitHubUser> assignees,
         Milestone milestone,
         boolean draft,
         int additions,
         int deletions,
         @JsonProperty("changed_files") int changedFiles,
-        @JsonProperty("requested_reviewers") List<RequestedReviewer> requestedReviewers,
+        @JsonProperty("requested_reviewers") List<GitHubUser> requestedReviewers,
         Head head,
         Base base,
         Boolean mergeable,
         @JsonProperty("mergeable_state") String mergeableState)
 {
-    public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
-
     public record Label(String name, String color) {}
 
-    public record Assignee(String login) {}
-
     public record Milestone(String title) {}
-
-    public record RequestedReviewer(String login) {}
 
     public record Head(String sha, String ref) {}
 

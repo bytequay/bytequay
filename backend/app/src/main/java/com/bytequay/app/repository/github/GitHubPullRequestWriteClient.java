@@ -170,7 +170,7 @@ public class GitHubPullRequestWriteClient
         UpdatedIssue updated = updateIssue(pat, issue, request);
         return new IssueMetadata(
                 Optional.ofNullable(updated.assignees()).orElse(ImmutableList.of()).stream()
-                        .map(UpdatedUser::login)
+                        .map(GitHubUser::login)
                         .filter(login -> login != null && !login.isBlank())
                         .collect(ImmutableList.toImmutableList()),
                 Optional.ofNullable(updated.labels()).orElse(ImmutableList.of()).stream()
@@ -386,12 +386,10 @@ public class GitHubPullRequestWriteClient
     private record UpdatedIssue(
             JsonNode type,
             List<UpdatedLabel> labels,
-            List<UpdatedUser> assignees,
+            List<GitHubUser> assignees,
             @JsonProperty("updated_at") Instant updatedAt) {}
 
     private record UpdatedLabel(String name) {}
-
-    private record UpdatedUser(String login) {}
 
     private record GitHubReaction(long id) {}
 

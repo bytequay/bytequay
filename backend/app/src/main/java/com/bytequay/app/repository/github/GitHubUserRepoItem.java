@@ -21,7 +21,7 @@ record GitHubUserRepoItem(
         long id,
         String name,
         @JsonProperty("full_name") String fullName,
-        Owner owner,
+        GitHubUser owner,
         String description,
         boolean fork,
         String visibility,
@@ -33,14 +33,12 @@ record GitHubUserRepoItem(
         @JsonProperty("stargazers_count") int stargazersCount,
         List<String> topics)
 {
-    record Owner(String login) {}
-
     record Permissions(Boolean push) {}
 
     record Repository(
             long id,
             String name,
-            Owner owner,
+            GitHubUser owner,
             @JsonProperty("default_branch") String defaultBranch,
             @JsonProperty("clone_url") String cloneUrl) {}
 }

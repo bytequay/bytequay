@@ -108,10 +108,10 @@ public class GitHubRepoClient
                         .filter(commit -> commit.author() != null || commit.committer() != null)
                         .map(commit -> new CommitAvatar(
                                 commit.sha(),
-                                accountValue(commit.author(), CommitAuthor::login),
-                                accountValue(commit.author(), CommitAuthor::avatarUrl),
-                                accountValue(commit.committer(), CommitAuthor::login),
-                                accountValue(commit.committer(), CommitAuthor::avatarUrl)))
+                                accountValue(commit.author(), GitHubUser::login),
+                                accountValue(commit.author(), GitHubUser::avatarUrl),
+                                accountValue(commit.committer(), GitHubUser::login),
+                                accountValue(commit.committer(), GitHubUser::avatarUrl)))
                         .forEach(avatars::add);
                 remaining -= commits.size();
                 if (commits.size() < pageSize) {
@@ -245,11 +245,11 @@ public class GitHubRepoClient
         }
         return new RepositoryIssue(
                 value.id(), value.number(), value.title(), Optional.ofNullable(value.body()).orElse(""),
-                Optional.ofNullable(value.user()).map(IssueUser::login).orElse("unknown"),
-                Optional.ofNullable(value.user()).map(IssueUser::avatarUrl).orElse(""),
+                Optional.ofNullable(value.user()).map(GitHubUser::login).orElse("unknown"),
+                Optional.ofNullable(value.user()).map(GitHubUser::avatarUrl).orElse(""),
                 Optional.ofNullable(value.htmlUrl()).orElse(""), issueLabels(value),
                 Optional.ofNullable(value.assignees()).orElse(ImmutableList.of()).stream()
-                        .map(IssueUser::login).filter(Objects::nonNull).collect(toImmutableList()),
+                        .map(GitHubUser::login).filter(Objects::nonNull).collect(toImmutableList()),
                 Math.max(0, value.comments()), value.createdAt(), value.updatedAt());
     }
 
@@ -299,7 +299,7 @@ public class GitHubRepoClient
             return new GitHubIssuePreview(
                     issue.title(),
                     Optional.ofNullable(issue.body()).orElse(""),
-                    Optional.ofNullable(issue.user()).map(IssueUser::login).orElse("unknown"),
+                    Optional.ofNullable(issue.user()).map(GitHubUser::login).orElse("unknown"),
                     issueLabels(issue),
                     issue.updatedAt(),
                     issue.state(),
@@ -386,7 +386,7 @@ public class GitHubRepoClient
         }
     }
 
-    private static Optional<String> accountValue(CommitAuthor account, Function<CommitAuthor, String> value)
+    private static Optional<String> accountValue(GitHubUser account, Function<GitHubUser, String> value)
     {
         return Optional.ofNullable(account)
                 .map(value)
@@ -448,10 +448,10 @@ public class GitHubRepoClient
             String title,
             String body,
             String state,
-            IssueUser user,
+            GitHubUser user,
             @JsonProperty("html_url") String htmlUrl,
             List<IssueLabel> labels,
-            List<IssueUser> assignees,
+            List<GitHubUser> assignees,
             int comments,
             @JsonProperty("created_at") java.time.Instant createdAt,
             @JsonProperty("updated_at") java.time.Instant updatedAt,
@@ -460,13 +460,7 @@ public class GitHubRepoClient
 
     private record IssueTypeResponse(String name) {}
 
-    private record IssueUser(
-            String login,
-            @JsonProperty("avatar_url") String avatarUrl) {}
-
     private record IssueLabel(String name) {}
 
-    private record CommitResponse(String sha, CommitAuthor author, CommitAuthor committer) {}
-
-    private record CommitAuthor(String login, @JsonProperty("avatar_url") String avatarUrl) {}
+    private record CommitResponse(String sha, GitHubUser author, GitHubUser committer) {}
 }

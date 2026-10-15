@@ -101,7 +101,7 @@ class TestGitHubAccountClientEvents
     {
         return new GitHubEventItem(
                 type,
-                new GitHubEventItem.Actor("octocat", "https://avatars.githubusercontent.com/u/1?v=4"),
+                new GitHubUser("octocat", "https://avatars.githubusercontent.com/u/1?v=4", null),
                 new GitHubEventItem.Repo("chenjian2664/ByteQuay"),
                 payload,
                 Instant.parse("2026-07-19T00:00:00Z"));

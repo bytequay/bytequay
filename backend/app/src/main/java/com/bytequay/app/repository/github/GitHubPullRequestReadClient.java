@@ -117,7 +117,7 @@ public class GitHubPullRequestReadClient
                 .retrieve().body(new ParameterizedTypeReference<List<GitHubPullRequestDetailResponse>>() {})),
                 rows -> rows.forEach(row -> result.add(toPullRequest(row, repository.fullName(),
                         Optional.ofNullable(row.requestedReviewers()).orElse(ImmutableList.of()).stream()
-                                .map(GitHubPullRequestDetailResponse.RequestedReviewer::login).collect(toImmutableList())))));
+                                .map(GitHubUser::login).collect(toImmutableList())))));
         return result.build();
     }
 
@@ -621,12 +621,12 @@ public class GitHubPullRequestReadClient
                 .filter(label -> label.name() != null && label.color() != null)
                 .collect(toImmutableMap(GitHubPullRequestDetailResponse.Label::name, GitHubPullRequestDetailResponse.Label::color, (left, right) -> left));
         List<String> assignees = Optional.ofNullable(r.assignees()).orElse(ImmutableList.of()).stream()
-                .map(GitHubPullRequestDetailResponse.Assignee::login)
+                .map(GitHubUser::login)
                 .filter(Objects::nonNull)
                 .collect(toImmutableList());
         List<String> reviewerLogins =
                 Optional.ofNullable(r.requestedReviewers()).orElse(ImmutableList.of()).stream()
-                        .map(GitHubPullRequestDetailResponse.RequestedReviewer::login)
+                        .map(GitHubUser::login)
                         .filter(Objects::nonNull)
                         .collect(toImmutableList());
         int reviewerCount = reviewerLogins.size();
@@ -642,10 +642,10 @@ public class GitHubPullRequestReadClient
                 .map(GitHubPullRequestDetailResponse.Base::ref)
                 .orElse(null);
         String author = Optional.ofNullable(r.user())
-                .map(GitHubPullRequestDetailResponse.User::login)
+                .map(GitHubUser::login)
                 .orElse(null);
         String authorAvatarUrl = Optional.ofNullable(r.user())
-                .map(GitHubPullRequestDetailResponse.User::avatarUrl)
+                .map(GitHubUser::avatarUrl)
                 .orElse(null);
         return new PrRawDetail(
                 r.title(),
@@ -912,7 +912,7 @@ public class GitHubPullRequestReadClient
                                     .map(GitHubPullRequestCommit.Parent::sha)
                                     .orElse(null),
                             Optional.ofNullable(commit.commit()).map(GitHubPullRequestCommit.Commit::message).orElse(null),
-                            Optional.ofNullable(commit.author()).map(GitHubPullRequestCommit.User::login)
+                            Optional.ofNullable(commit.author()).map(GitHubUser::login)
                                     .orElseGet(() -> Optional.ofNullable(author)
                                             .map(GitHubPullRequestCommit.Author::name)
                                             .orElse(null)),
@@ -1208,15 +1208,15 @@ public class GitHubPullRequestReadClient
 
     private static PrTimelineEvent toCommentedTimelineEvent(GitHubIssueComment c, Set<String> viewerReactions)
     {
-        GitHubIssueComment.User user = c.user();
+        GitHubUser user = c.user();
         return new PrTimelineEvent(
                 c.id(),
                 "commented",
-                Optional.ofNullable(user).map(GitHubIssueComment.User::login).orElse(null),
+                Optional.ofNullable(user).map(GitHubUser::login).orElse(null),
                 c.createdAt(),
                 c.body(),
                 PrTimelinePayload.builder()
-                        .actorAvatarUrl(Optional.ofNullable(user).map(GitHubIssueComment.User::avatarUrl).orElse(null))
+                        .actorAvatarUrl(Optional.ofNullable(user).map(GitHubUser::avatarUrl).orElse(null))
                         .actorBot(user != null && "Bot".equalsIgnoreCase(user.type()))
                         .htmlUrl(c.htmlUrl())
                         .reactions(toReactions(c.reactions(), viewerReactions))
@@ -1232,12 +1232,12 @@ public class GitHubPullRequestReadClient
                     .map(GitHubTimelineEvent.Author::name)
                     .orElse(null);
             case "reviewed" -> Optional.ofNullable(event.user())
-                    .map(GitHubTimelineEvent.User::login)
+                    .map(GitHubUser::login)
                     .orElse(null);
             default -> Optional.ofNullable(event.actor())
-                    .map(GitHubTimelineEvent.Actor::login)
+                    .map(GitHubUser::login)
                     .orElseGet(() -> Optional.ofNullable(event.user())
-                            .map(GitHubTimelineEvent.User::login)
+                            .map(GitHubUser::login)
                             .orElse(null));
         };
         // GitHub's committed timeline row has no created_at; committer time keeps rewritten commits near their push.
@@ -1250,13 +1250,13 @@ public class GitHubPullRequestReadClient
             default -> event.createdAt();
         };
         String actorAvatarUrl = Optional.ofNullable(event.actor())
-                .map(GitHubTimelineEvent.Actor::avatarUrl)
+                .map(GitHubUser::avatarUrl)
                 .orElseGet(() -> Optional.ofNullable(event.user())
-                        .map(GitHubTimelineEvent.User::avatarUrl)
+                        .map(GitHubUser::avatarUrl)
                         .orElse(null));
         boolean actorBot = Optional.ofNullable(event.actor())
-                .map(GitHubTimelineEvent.Actor::type)
-                .or(() -> Optional.ofNullable(event.user()).map(GitHubTimelineEvent.User::type))
+                .map(GitHubUser::type)
+                .or(() -> Optional.ofNullable(event.user()).map(GitHubUser::type))
                 .map("Bot"::equalsIgnoreCase)
                 .orElse(false);
         GitHubTimelineEvent.Issue source = Optional.ofNullable(event.source())
@@ -1273,10 +1273,10 @@ public class GitHubPullRequestReadClient
                         .actorBot(actorBot)
                         .state(event.state())
                         .htmlUrl(event.htmlUrl())
-                        .requestedReviewer(Optional.ofNullable(event.requestedReviewer()).map(GitHubTimelineEvent.User::login)
+                        .requestedReviewer(Optional.ofNullable(event.requestedReviewer()).map(GitHubUser::login)
                                 .or(() -> Optional.ofNullable(event.requestedTeam()).map(GitHubTimelineEvent.Team::slug).filter(slug -> !slug.isBlank()).map(slug -> owner + "/" + slug))
                                 .orElse(null))
-                        .assignee(Optional.ofNullable(event.assignee()).map(GitHubTimelineEvent.User::login).orElse(null))
+                        .assignee(Optional.ofNullable(event.assignee()).map(GitHubUser::login).orElse(null))
                         .label(Optional.ofNullable(event.label()).map(GitHubTimelineEvent.Label::name).orElse(null))
                         .labelColor(Optional.ofNullable(event.label()).map(GitHubTimelineEvent.Label::color).orElse(null))
                         .renameFrom(Optional.ofNullable(event.rename()).map(GitHubTimelineEvent.Rename::from).orElse(null))
@@ -1307,7 +1307,7 @@ public class GitHubPullRequestReadClient
 
     private static PrTimelineEvent toCommittedTimelineEvent(GitHubPullRequestCommit commit)
     {
-        GitHubPullRequestCommit.User user = commit.author();
+        GitHubUser user = commit.author();
         GitHubPullRequestCommit.Commit details = commit.commit();
         GitHubPullRequestCommit.Author author = Optional.ofNullable(details)
                 .map(GitHubPullRequestCommit.Commit::author)
@@ -1454,7 +1454,7 @@ public class GitHubPullRequestReadClient
     private static PrTimelineEvent toReviewThreadEvent(List<GitHubReviewComment> thread, GitHubReviewThreadsResponse.Thread details, Map<String, Set<String>> viewerReactions)
     {
         GitHubReviewComment root = thread.getFirst();
-        GitHubReviewComment.User user = root.user();
+        GitHubUser user = root.user();
         List<PrTimelineComment> replies = thread.stream()
                 .map(comment -> toTimelineComment(comment, viewerReactions.get(comment.nodeId())))
                 .collect(toImmutableList());
@@ -1490,7 +1490,7 @@ public class GitHubPullRequestReadClient
 
     private static PrTimelineComment toTimelineComment(GitHubReviewComment comment, Set<String> viewerReactions)
     {
-        GitHubReviewComment.User user = comment.user();
+        GitHubUser user = comment.user();
         return new PrTimelineComment(
                 comment.id(),
                 user == null ? null : user.login(),
@@ -1550,7 +1550,7 @@ public class GitHubPullRequestReadClient
         GitHubPullRequestDetailResponse item = response.getBody();
         checkState(item != null, "Empty response from GitHub for " + fullName + "#" + pr.number());
         List<String> reviewers = Optional.ofNullable(item.requestedReviewers()).orElse(ImmutableList.of()).stream()
-                .map(GitHubPullRequestDetailResponse.RequestedReviewer::login).filter(Objects::nonNull).collect(toImmutableList());
+                .map(GitHubUser::login).filter(Objects::nonNull).collect(toImmutableList());
         return new PullRequestFetch(Optional.of(toPullRequest(item, fullName, reviewers)), responseEtag, Optional.of(item));
     }
 
@@ -1573,7 +1573,7 @@ public class GitHubPullRequestReadClient
     {
         List<GitHubPullRequestDetailResponse.Label> labels = Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
         return new FetchedPullRequest(
-                item.id(), fullName, item.number(), item.title(), Optional.ofNullable(item.user()).map(GitHubPullRequestDetailResponse.User::login).orElse(null),
+                item.id(), fullName, item.number(), item.title(), Optional.ofNullable(item.user()).map(GitHubUser::login).orElse(null),
                 item.htmlUrl(), item.createdAt(), item.updatedAt(), OTHER, labels.stream().map(GitHubPullRequestDetailResponse.Label::name).collect(toImmutableList()),
                 labels.stream().filter(label -> label.name() != null && label.color() != null)
                         .collect(toImmutableMap(GitHubPullRequestDetailResponse.Label::name, GitHubPullRequestDetailResponse.Label::color, (left, right) -> left)),
@@ -1597,7 +1597,7 @@ public class GitHubPullRequestReadClient
                 rawLabels.stream()
                         .filter(l -> l.name() != null && l.color() != null)
                         .collect(toImmutableMap(GitHubSearchResponse.Label::name, GitHubSearchResponse.Label::color, (a, b) -> a));
-        String author = Optional.ofNullable(item.user()).map(GitHubSearchResponse.User::login).orElse(null);
+        String author = Optional.ofNullable(item.user()).map(GitHubUser::login).orElse(null);
         return new FetchedPullRequest(
                 item.id(),
                 extractRepo(item.repositoryUrl()),
@@ -1652,10 +1652,8 @@ public class GitHubPullRequestReadClient
             @JsonProperty("node_id") String nodeId,
             GitHubReactions reactions) {}
 
-    private record GitHubPullRequestCommit(String sha, @JsonProperty("html_url") String htmlUrl, User author, Commit commit, List<Parent> parents)
+    private record GitHubPullRequestCommit(String sha, @JsonProperty("html_url") String htmlUrl, GitHubUser author, Commit commit, List<Parent> parents)
     {
-        public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
-
         public record Commit(String message, Author author, Author committer) {}
 
         public record Author(String name, Instant date) {}
@@ -1686,11 +1684,11 @@ public class GitHubPullRequestReadClient
             String event,
             @JsonProperty("created_at") Instant createdAt,
             @JsonProperty("submitted_at") Instant submittedAt,
-            Actor actor,
-            User user,
-            @JsonProperty("requested_reviewer") User requestedReviewer,
+            GitHubUser actor,
+            GitHubUser user,
+            @JsonProperty("requested_reviewer") GitHubUser requestedReviewer,
             @JsonProperty("requested_team") Team requestedTeam,
-            User assignee,
+            GitHubUser assignee,
             String body,
             String state,
             @JsonProperty("html_url") String htmlUrl,
@@ -1704,10 +1702,6 @@ public class GitHubPullRequestReadClient
             String message,
             GitHubReactions reactions)
     {
-        public record Actor(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
-
-        public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
-
         public record Team(String slug) {}
 
         public record Author(String name, Instant date) {}

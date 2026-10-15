@@ -20,15 +20,13 @@ import java.time.Instant;
 
 public record GitHubReview(
         Long id,
-        User user,
+        GitHubUser user,
         String state,
         String body,
         @JsonProperty("submitted_at") Instant submittedAt,
         @JsonProperty("html_url") String htmlUrl,
         @JsonProperty("commit_id") String commitId)
 {
-    public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
-
     public PrReviewState toReviewState()
     {
         return new PrReviewState(

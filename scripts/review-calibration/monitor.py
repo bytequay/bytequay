@@ -105,18 +105,22 @@ def records(path):
 
 
 class Watch:
-    """What the sampler remembers from one sample to the next: the program of every process it has seen, read once, and
-    the processes of ByteQuay, whose CPU is counted between two samples."""
+    """What the sampler remembers from one sample to the next: the program of every process it has seen, read again only
+    when it changes, and the processes of ByteQuay, whose CPU is counted between two samples."""
 
     def __init__(self, database=DATABASE):
         self.database, self.programs, self.counted = database, {}, {}
 
     def parts(self):
-        parents = {process.pid: process.info["ppid"] for process in psutil.process_iter(["ppid"])}
-        for gone in self.programs.keys() - parents.keys():
+        seen = {process.pid: (process.info["ppid"], process.info["exe"] or "") for process in psutil.process_iter(["ppid", "exe"])}
+        for gone in self.programs.keys() - seen.keys():
             del self.programs[gone]
-        for pid in parents.keys() - self.programs.keys():
-            self.programs[pid] = program(pid)
+        for pid, (_, executable) in seen.items():
+            # A process can turn into another program and keep its pid: dev.sh's copy of itself runs the build and only then
+            # becomes the backend. The executable comes with the parent at no extra cost, so a change is noticed at once.
+            if pid not in self.programs or self.programs[pid][0] != executable:
+                self.programs[pid] = program(pid)
+        parents = {pid: parent for pid, (parent, _) in seen.items()}
         return assign(parents, self.programs) | {os.getpid(): "monitor"}  # its own cost is counted, apart from the app's
 
     def sample(self):

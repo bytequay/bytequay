@@ -265,11 +265,14 @@ by its program, the packaged ByteQuay or Electron started from a ByteQuay
 checkout with `.` (a browser test's Electron runs a script of its own), and the
 backend by `bytequay-backend.jar`, and it counts everything they started. A
 process's program and arguments only tell the parts apart and are not kept.
-It also counts, read-only from ByteQuay's database, the turns running, the
-open tasks and the inputs waiting in their queues, with the states the backend
-itself counts as running and waiting (a test reads them from its source). A
-few times a day it counts the disk each top-level part of the app's data
-takes, at the lowest priority, as a count walks every file.
+They are read again whenever a process turns into another program: `dev.sh`
+starts the backend as a copy of itself that runs the build first and only
+then becomes Java, with the same process id. It also counts, read-only from
+ByteQuay's database, the turns running, the open tasks and the inputs waiting
+in their queues, with the states the backend itself counts as running and
+waiting (a test reads them from its source). A few times a day it counts the
+disk each top-level part of the app's data takes, at the lowest priority, as
+a count walks every file.
 
 The numbers go to `monitor.db` in the lab's folder. Every sample is kept for a
 week; older ones are folded into one row an hour with the hour's average and

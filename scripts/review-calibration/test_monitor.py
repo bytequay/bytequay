@@ -46,6 +46,23 @@ class TestParts(unittest.TestCase):
             200: "app", 201: "window", 202: "gpu", 203: "helpers", 204: "helpers", 205: "commands", 400: "backend", 401: "agents", 402: "agents",
             403: "commands", 404: "commands", 405: "commands", 500: "app", 501: "backend"})
 
+    def test_a_process_that_turns_into_another_program_is_read_again(self):
+        # dev.sh starts the backend as a copy of itself that first runs the build, then turns into Java with the same pid.
+        table = {10: (1, "/bin/sh", ["sh", "dev.sh"]), 11: (10, "/bin/sh", ["sh", "dev.sh"])}
+        reads = []
+
+        def program(pid):
+            reads.append(pid)
+            return table[pid][1:]
+        listed = lambda attributes: [mock.Mock(pid=pid, info={"ppid": parent, "exe": executable}) for pid, (parent, executable, _) in table.items()]
+        watch = monitor.Watch(database=Path("/nowhere/bytequay.db"))
+        with mock.patch.object(monitor.psutil, "process_iter", listed), mock.patch.object(monitor, "program", program):
+            self.assertNotIn("backend", watch.parts().values())
+            table[11] = (10, "/usr/bin/java", ["java", "-jar", "/tmp/bytequay-backend.x/bytequay-backend.jar"])
+            self.assertEqual(watch.parts().get(11), "backend")
+            watch.parts()
+        self.assertEqual(reads, [10, 11, 11])  # when first seen and when its program changed, not on every look
+
     def test_this_process_is_counted_as_the_monitor_with_real_numbers(self):
         watch = monitor.Watch(database=Path("/nowhere/bytequay.db"))
         watch.sample()

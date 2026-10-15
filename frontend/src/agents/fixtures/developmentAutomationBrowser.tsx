@@ -20,6 +20,7 @@ import { TaskComposer, useAgentTaskCreation } from '../AgentTasksView';
 import { createPreviewBridge } from './previewBridge';
 import AgentTaskScreen from '../AgentTaskScreen';
 import { runCiAutofixScenarios } from './ciAutofixBrowser';
+import { CI_PROJECTION, CI_RUN } from './ciAutofix';
 import { runDevelopmentDeliveryScenarios } from './developmentDeliveryBrowser';
 import { automationForSubmission, DEFAULT_DEVELOPMENT_AUTOMATION } from '../developmentAutomation';
 import { assert, changeInput, settle } from '../../fixtures/harness';
@@ -213,7 +214,7 @@ async function multilineDraft(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [...await createLocalTask(), ...await createDeepSeekTask(), ...await multilineDraft(), ...await retryLocalTurn(), ...await developerFeedback(), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(),
+  return [...await createLocalTask(), ...await createDeepSeekTask(), ...await multilineDraft(), ...await retryLocalTurn(), ...await developerFeedback(), ...await continuationAdmission(), ...await stopPreservesTask(), ...await stopWaitingCi(), ...await pullRequestLookupPolicy(),
     ...await pullRequestLookupPolicy(true), ...await pausedPullRequestLookup(), ...await worktreeVersionRefresh(), ...await worktreeVersionRefresh(true), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
 }
 
@@ -365,6 +366,79 @@ async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> 
     assert(requests.length === 1 && (requests[0].args[0] as StartAgentTurnRequest).message === 'Continue with the smaller change', 'Only the explicit new message may start a turn');
     return [{ name: 'Verified Stop preserves the task and draft while unresolved shutdown remains blocked' }];
   } catch (error) { return [{ name: 'Stop preserves the open task', error: error instanceof Error ? error.message : String(error) }]; }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+async function stopWaitingCi(): Promise<{ name: string; error?: string }[]> {
+  const bridge = createPreviewBridge('workspace-1');
+  const event = bridge.events[0];
+  assert(event.turnId !== null, 'Fixture must identify a completed turn');
+  let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, mutationClaim: null,
+    developmentContinuationUnfinished: true,
+    developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'WATCHING_CI', attemptsUsed: 0, canMessage: false } };
+  const turn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z' };
+  bridge.getAgentTask = async () => task;
+  bridge.getAgentTurn = async () => turn;
+  bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
+  bridge.readAgentPendingApprovals = async () => [];
+  bridge.getCiAutofixRun = async () => ({ ...CI_RUN, status: 'ACTIVE', activity: 'WATCHING_CI', attemptsUsed: 0, canMessage: false });
+  bridge.subscribeAgentTask = async (taskId, _after, listener) => {
+    listener({ subscriptionId: 'waiting-ci', taskId, kind: 'state', state: 'open' });
+    return () => {};
+  };
+  bridge.getAgentRuntimeStopImpact = async () => ({ taskId: task.id, generation: `task:${task.version}`, activeTurnId: null, liveProcess: false });
+  let releaseStop: (task: AgentTaskDto) => void = () => {};
+  const stopped = new Promise<AgentTaskDto>(resolve => { releaseStop = resolve; });
+  let stops = 0;
+  bridge.stopAgentRuntime = async () => { stops++; return stopped; };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
+  try {
+    await settle();
+    assert(host.querySelector('.agt-state')?.textContent === 'Idle', 'CI waiting must leave the agent idle');
+    assert(host.querySelector('.agt-state .agt-spin') === null && host.querySelector('.agt-stop-square') === null,
+      'CI waiting must not show a running agent spinner or square Stop');
+    assert(host.querySelector('.agt-automation-progress__pill')?.textContent === 'CI automation · Waiting for CI', 'Waiting CI needs its own automation pill');
+    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
+    assert(input !== null, 'Waiting CI must allow drafting');
+    changeInput(input, 'Continue with another change');
+    await settle();
+    const stop = host.querySelector<HTMLButtonElement>('button[aria-label="Stop automation"]');
+    assert(stop?.textContent === 'Stop automation and continue…', 'The exit from automation must be a visible text action');
+    stop.click();
+    await settle();
+    const cancel = Array.from(document.querySelectorAll<HTMLButtonElement>('dialog button')).find(button => button.textContent === 'Cancel');
+    assert(cancel !== undefined, 'Stopping must remain cancellable');
+    cancel.click();
+    await settle();
+    assert(stops === 0 && input.value === 'Continue with another change', 'Cancelling must preserve monitoring and the draft');
+    stop.click();
+    await settle();
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>('dialog button')).find(button => button.textContent === 'Stop automation');
+    assert(confirm !== undefined, 'Waiting CI must use the existing stop confirmation');
+    confirm.click();
+    await settle();
+    assert(Number(stops) === 1 && host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === true,
+      'Send must wait for verified shutdown');
+    task = { ...task, version: task.version + 1, developmentContinuationUnfinished: false,
+      developmentCi: { ...CI_PROJECTION, status: 'FINISHED', activity: 'FINISHED', finishReason: 'CANCELLED', canMessage: false } };
+    releaseStop(task);
+    await settle();
+    assert(host.querySelector('.agt-automation-progress') === null, 'Stopped automation must remove its pill');
+    assert(input.value === 'Continue with another change', 'Stopping must preserve the draft');
+    assert(!bridge.commands.some(command => command.name === 'startAgentTurn'), 'Stopping must not submit the draft automatically');
+    const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');
+    assert(send !== null && !send.disabled, 'Verified shutdown must enable Send');
+    send.click();
+    await settle();
+    const requests = bridge.commands.filter(command => command.name === 'startAgentTurn');
+    assert(requests.length === 1 && (requests[0].args[0] as StartAgentTurnRequest).message === 'Continue with another change',
+      'The explicit Send must deliver the retained draft exactly once');
+    return [{ name: 'Waiting CI is distinct from agent execution and verified stop enables the retained draft' }];
+  }
+  catch (error) { return [{ name: 'Stop waiting CI and continue', error: error instanceof Error ? error.message : String(error) }]; }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 

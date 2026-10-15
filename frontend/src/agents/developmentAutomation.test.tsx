@@ -146,8 +146,12 @@ it('blocks competing actions during a continuation without inventing a running p
   expect(canSteer(executing)).toBe(false);
   expect(canQueue(executing)).toBe(false);
   const html = renderToStaticMarkup(<AgentTaskBody state={owned} models={[]} {...TASK_BODY_NOOPS} />);
-  expect(html).toContain('Automation running');
+  expect(html).toContain('Automation active');
   expect(html).toContain('aria-label="Stop automation"');
+  expect(html).toContain('Stop automation and continue…');
+  expect(html).toContain('Stop automation to send another message. Your draft will be kept.');
+  expect(html).not.toContain('agt-stop-square');
+  expect(html).toMatch(/<button[^>]*aria-label="Send message"[^>]*disabled/);
   expect(html).toContain('Keep this draft</textarea>');
   expect(html).not.toMatch(/<textarea[^>]*disabled/);
   expect(html).toMatch(/<button[^>]*aria-label="Mark it complete"[^>]*disabled/);

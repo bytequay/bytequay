@@ -164,7 +164,7 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
     task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, status: 'FINISHED', finishReason: 'GREEN', canMessage: false } };
     emit('DEVELOPMENT_AUTOMATION_UPDATED');
     await settle();
-    assert(host.querySelector('.agt-status')?.textContent?.startsWith('Automation running') === true
+    assert(host.querySelector('.agt-automation-progress__pill')?.textContent === 'Automation active'
       && !host.textContent?.includes('Ready for review'), 'Green alone must not imply promotion');
     assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled !== false
       && host.querySelector('button[aria-label="Stop automation"]') !== null, 'Green must retain ownership until source synchronization and final checks finish');

@@ -61,7 +61,7 @@ it('requires current paused CI authority and a bounded text message', () => {
   expect(ciMessageUnavailable({ ...paused, task: { ...paused.task, state: 'COMPLETED' } })).not.toBeNull();
 });
 
-it('keeps CI activity in the task header and routes the composer without a status or history panel', () => {
+it('shows CI activity separately and routes the composer without a history panel', () => {
   expect(ciActivity(CI_PROJECTION)).toBe('CI needs your input');
   const render = (state: AgentTaskState = paused) => renderToStaticMarkup(<AgentTaskBody state={state} models={[]} {...TASK_BODY_NOOPS} />);
   const html = render();
@@ -81,6 +81,23 @@ it('keeps CI activity in the task header and routes the composer without a statu
   expect(finished).toContain('This CI Autofix run has ended.');
   expect(finished).not.toContain('Previous CI Autofix run');
   expect(finished).toMatch(/<button[^>]*aria-label="Send to CI agent"[^>]*disabled/);
+});
+
+it('shows waiting CI as automation while the agent is idle and keeps the next draft visible', () => {
+  const state: AgentTaskState = { ...paused, composer: 'Make another change', task: { ...paused.task,
+    developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'WATCHING_CI', attemptsUsed: 0, canMessage: false } } };
+  const html = renderToStaticMarkup(<AgentTaskBody state={state} models={[]} {...TASK_BODY_NOOPS} />);
+  expect(html).toContain('CI automation · Waiting for CI');
+  expect(html).toContain('class="agt-state is-idle">Idle</span>');
+  expect(html).not.toContain('agt-spin');
+  expect(html).not.toContain('agt-stop-square');
+  expect(html).not.toContain('>Steer<');
+  expect(html).not.toContain('>Run next<');
+  expect(html).toContain('Stop automation and continue…');
+  expect(html).toContain('placeholder="Draft your next message…"');
+  expect(html).toContain('Make another change</textarea>');
+  expect(html).toMatch(/<button[^>]*aria-label="Send message"[^>]*disabled/);
+  expect(ciMessageUnavailable({ ...state, composer: '@ci Continue' })).not.toBeNull();
 });
 
 it('allows steering the linked CI turn using its own provider capability', () => {

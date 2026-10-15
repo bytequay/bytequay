@@ -22,6 +22,6 @@ it('preserves accepted automation and continuation admission in Chromium', async
     global: 'DevelopmentAutomationTests',
     styles: true,
   });
-  expect(results).toHaveLength(22);
+  expect(results).toHaveLength(23);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

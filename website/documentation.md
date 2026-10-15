@@ -475,12 +475,15 @@ committed automatically. Publication depends on the choices you accept:
 Change defaults for new tasks in **Settings → Agents → Workflow**. A started task’s
 automation settings are read-only.
 
-1. Follow delivery and CI activity in the task header after development finishes.
+1. While waiting for CI, the agent shows **Idle**. A **CI automation** pill above
+   the composer shows waiting, repair, or approval activity separately.
 2. Type `@ci` followed by a text message to guide the running CI repair agent when
    its provider supports steering. When **CI needs your input**, the same action
    replies to the paused run and resumes it.
-3. Use **Stop automation** to stop the continuation. Review and merge the resulting PR
-   yourself when it is ready.
+3. To send another development message, choose **Stop automation and continue…** and
+   confirm **Stop automation**. Your draft is kept, and **Send** becomes available
+   once the agents have stopped. Review and merge the resulting PR yourself when it
+   is ready.
 
 Ordinary PR details do not have a general “Start CI Autofix” button. Reading logs or
 monitoring a PR does not authorize repairs.

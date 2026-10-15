@@ -1139,10 +1139,9 @@ export function AgentTaskBody({
     : state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY' ? 'Refining summary…' : null;
   const ciWaiting = pendingApprovals?.some(approval => approval.taskId !== state.task?.id) ?? false;
   const statusLabel = question !== null ? 'Waiting for your response'
-    : (status === 'running' && waiting) || (status === 'idle' && automationActive && ciWaiting) ? 'Needs approval'
+    : status === 'running' && waiting ? 'Needs approval'
     : status === 'running' && generatedActivity !== null ? generatedActivity
-    : status === 'idle' && automationActive && currentCi != null ? ciActivity(currentCi)
-    : status === 'idle' && automationActive ? 'Automation running' : STATUS_LABELS[status];
+    : STATUS_LABELS[status];
   const statusText = state.turn === null
     ? statusLabel
     : `${statusLabel} · turn ${state.turn.state.toLowerCase()}`;
@@ -1181,7 +1180,7 @@ export function AgentTaskBody({
           onRename={state.task === null ? undefined : onRename}
         />
         <span className={`agt-state is-${status}${waiting && status === 'running' ? ' is-waiting' : ''}`}>
-          {((status === 'running' && !waiting) || (status === 'idle' && automationActive)) && <Spinner />}
+          {status === 'running' && !waiting && <Spinner />}
           {(status === 'loading' || (status === 'running' && waiting)) && <span className="agt-state__dot" aria-hidden="true" />}
           {statusLabel}
         </span>
@@ -1351,15 +1350,26 @@ export function AgentTaskBody({
       {state.task?.jiraSource != null && <JiraSourceAttachment source={state.task.jiraSource} />}
       {state.task?.issueSource != null && <IssueAttachment source={state.task.issueSource} />}
 
+      {status === 'idle' && automationActive && <div className="agt-automation-progress">
+        <span className="agt-automation-progress__pill" role="status">
+          <span className="agt-automation-progress__dot" aria-hidden="true" />
+          {currentCi != null ? `CI automation · ${ciWaiting ? 'Needs approval' : ciActivity(currentCi)}` : 'Automation active'}
+        </span>
+        <button type="button" className="agt-automation-progress__stop" aria-label="Stop automation"
+          disabled={state.sending || ciSubmissionBlocked} onClick={onStopServer}>Stop automation and continue…</button>
+        {!routedToCi && <p>Stop automation to send another message. Your draft will be kept.</p>}
+      </div>}
+
       {/* The design's composer: the message above one row of controls, and one round button. */}
       {!terminal && status !== 'recovery' && !providerRecoveryRequired && (
         <ConversationComposer
           automation={automation}
           ciMention={state.task?.interactive === true} routedToCi={routedToCi}
           ciMessageHint={routedToCi ? ciUnavailable ?? (currentCi?.status === 'ACTIVE' ? 'Steer the running CI agent' : 'Send to CI Autofix') : undefined}
-          placeholder={question !== null ? 'Waiting for your response…' : undefined}
+          placeholder={question !== null ? 'Waiting for your response…'
+            : status === 'idle' && automationActive && !routedToCi ? 'Draft your next message…' : undefined}
           value={state.composer} onChange={onCompose} onSend={onSend} onStop={automationActive ? onStopServer : onCancel} onSteer={onSteer} onQueue={onQueue}
-          running={status === 'running' || automationActive} sending={state.sending}
+          running={status === 'running'} sending={state.sending}
           stopLabel={automationActive ? 'Stop automation' : undefined}
           stopTitle={automationActive ? 'Stops automation and keeps this task open after its agents stop' : undefined}
           disabled={status === 'closing' || state.connection === 'connecting' || (state.sending && !attaching)}

@@ -126,6 +126,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -1110,6 +1111,38 @@ class TestPullRequestService
         assertThat(summarized.getAllValues().stream().flatMap(List::stream)).hasSize(121);
         verify(store, never()).completeRepositorySync(anyString(), any());
         verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
+    }
+
+    @Test
+    void workspaceRechecksOnlyTheViewersUnchangedCardsOnATimer()
+    {
+        AtomicReference<Instant> now = new AtomicReference<>(REVIEWED_AT);
+        Clock clock = mock(Clock.class);
+        when(clock.instant()).thenAnswer(ignored -> now.get());
+        service = new PullRequestService(
+                gitHub, writes, repositories, accounts, store, snapshots,
+                new PullRequestDetailFetcher(gitHub, Runnable::run),
+                viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext,
+                notifications, syncSettings, issues, clock);
+        PullRequest mine = storedPullRequest(pullRequestNumber(7));
+        PullRequest others = storedPullRequest(pullRequestNumber(8).withOrigin(PullRequest.Origin.OTHER));
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequestNumber(7), pullRequestNumber(8)), false));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(7L));
+        when(store.findIdByRepoAndNumber("owner/repo", 8)).thenReturn(Optional.of(8L));
+        when(store.findById(7L)).thenReturn(Optional.of(mine));
+        when(store.findById(8L)).thenReturn(Optional.of(others));
+        when(store.saveObserved(any())).thenAnswer(invocation -> invocation.<FetchedPullRequest>getArgument(0).number() == 7 ? mine : others);
+        when(summaries.fetchSummaries(eq("pat"), anyList(), eq("me"))).thenAnswer(invocation -> invocation.<List<PullRequestRef>>getArgument(1).stream()
+                .map(ref -> summary(pullRequestNumber(ref.number()), PullRequestDetail.CiStatus.PASSING, "v1")).toList());
+
+        service.syncRepository(RepoRef.of("owner", "repo"));
+        now.set(REVIEWED_AT.plus(Duration.ofMinutes(11)));
+        service.syncRepository(RepoRef.of("owner", "repo"));
+
+        verify(summaries).fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 7), PullRequestRef.of("owner", "repo", 8)), "me");
+        verify(summaries).fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 7)), "me");
+        verifyNoMoreInteractions(summaries);
     }
 
     @Test

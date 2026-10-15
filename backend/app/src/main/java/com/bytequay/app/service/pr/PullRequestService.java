@@ -582,6 +582,15 @@ public class PullRequestService
         return row.monitoredAt() == null && row.state() != null && !"open".equalsIgnoreCase(row.state());
     }
 
+    /**
+     * Rechecking every open card in the watched repositories keeps GitHub's secondary limit nearly full. Someone else's
+     * pull request is summarized again only when discovery reports activity, or while its checks are still running.
+     */
+    private static boolean timed(PullRequest row)
+    {
+        return !settled(row) && (row.origin() != OTHER || row.monitoredAt() != null || row.ciStatus() == PullRequestDetail.CiStatus.PENDING);
+    }
+
     // One stream: concurrent scans would summarize the same pull requests twice and together exceed GitHub's GraphQL execution allowance.
     private synchronized void enrichCards(GitHubCredential credential, List<PullRequestRef> candidates)
     {
@@ -595,7 +604,7 @@ public class PullRequestService
             PullRequest cached = row.orElseThrow();
             Instant source = store.findDiscussionActivityAt(cached.id()).filter(at -> at.isAfter(cached.updatedAt())).orElse(cached.updatedAt());
             Duration interval = cached.ciStatus() == PullRequestDetail.CiStatus.PENDING ? Duration.ofMinutes(1) : Duration.ofMinutes(10);
-            return source.isAfter(stamp.sourceAt()) || (!settled(cached) && !now.isBefore(stamp.checkedAt().plus(interval)));
+            return source.isAfter(stamp.sourceAt()) || (timed(cached) && !now.isBefore(stamp.checkedAt().plus(interval)));
         }).collect(toImmutableList());
         Set<PullRequestRef> reviewRequests = notifications.reviewRequests(credential.profile().login());
         for (int offset = 0; offset < refs.size(); offset += GitHubPullRequestSummaryClient.BATCH_SIZE) {

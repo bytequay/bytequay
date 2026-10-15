@@ -214,7 +214,7 @@ async function multilineDraft(): Promise<{ name: string; error?: string }[]> {
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   return [...await createLocalTask(), ...await createDeepSeekTask(), ...await multilineDraft(), ...await retryLocalTurn(), ...await developerFeedback(), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(),
-    ...await pullRequestLookupPolicy(true), ...await worktreeVersionRefresh(), ...await worktreeVersionRefresh(true), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
+    ...await pullRequestLookupPolicy(true), ...await pausedPullRequestLookup(), ...await worktreeVersionRefresh(), ...await worktreeVersionRefresh(true), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
 }
 
 async function developerFeedback(): Promise<{ name: string; error?: string }[]> {
@@ -542,6 +542,66 @@ async function pullRequestLookupPolicy(initiallyRunning = false): Promise<{ name
     return [{ name: 'Task pull requests are looked up only on settled turns and settled automation markers' }];
   }
   catch (error) { return [{ name: 'Task pull request lookup', error: error instanceof Error ? error.message : String(error) }]; }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    if (originalBridge === undefined) delete (window as { bridge?: unknown }).bridge;
+    else Object.defineProperty(window, 'bridge', originalBridge);
+  }
+}
+
+async function pausedPullRequestLookup(): Promise<{ name: string; error?: string }[]> {
+  const bridge = createPreviewBridge('workspace-1');
+  const originalBridge = Object.getOwnPropertyDescriptor(window, 'bridge');
+  Object.defineProperty(window, 'bridge', { configurable: true, value: {
+    ...bridge,
+    fetchPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    refreshPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    refreshAllPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    fetchPrDiffFiles: async (): Promise<[]> => [],
+    fetchPrDiffCommits: async (): Promise<[]> => [],
+    getUserProfile: async (): Promise<null> => null,
+    findAgentReview: async (): Promise<null> => null,
+  } });
+  const event = bridge.events[0];
+  assert(event.turnId !== null, 'Fixture must identify a turn');
+  const task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, mutationClaim: null };
+  const turn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), id: event.turnId, state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z' };
+  bridge.getAgentTask = async () => task;
+  bridge.getAgentTurn = async () => turn;
+  bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
+  bridge.subscribeAgentTask = async (taskId, _after, listener) => {
+    listener({ subscriptionId: 'observations', taskId, kind: 'state', state: 'open' });
+    return () => {};
+  };
+  const pr: PullRequestDto = {
+    id: 7, repo: 'acme/demo', number: 7, title: 'Existing PR', author: 'alice', htmlUrl: 'https://github.com/acme/demo/pull/7',
+    createdAt: '', updatedAt: '', origin: 'AUTHORED', labels: [], labelColors: null, draft: false, viewedAt: null, reviewedAt: null,
+    handledAction: null, requestedReviewers: [], ciStatus: null, additions: 1, deletions: 0, commentCount: 0,
+    state: 'open', mergeable: null, mergeableState: null, headPushedAt: null, headRef: task.generatedBranch,
+  };
+  let remoteLookups = 0;
+  bridge.listAgentTaskPullRequests = async (_taskId, _workspaceId, refresh) => {
+    if (refresh !== true) return [pr];
+    if (++remoteLookups === 1) throw new Error(`GitHub secondary API rate limit reached; retry after ${new Date().toISOString()}`);
+    return [pr];
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
+  try {
+    for (let frame = 0; frame < 30 && remoteLookups === 0; frame++) await settle();
+    assert(remoteLookups === 1, 'A settled task must check GitHub for its pull request');
+    await settle();
+    assert(host.querySelector('.agt-pr-chip')?.textContent?.includes('#7') === true, 'The saved pull request must stay on screen');
+    assert(!host.textContent?.includes('Could not refresh'), 'A paused background check must not show an error under its pull request');
+    const lookups = (): number => remoteLookups;
+    for (let wait = 0; wait < 40 && lookups() === 1; wait++) await new Promise(resolve => setTimeout(resolve, 50));
+    assert(lookups() === 2, 'The check must run again once GitHub\'s pause ends');
+    return [{ name: 'A paused background pull request check stays quiet and retries after the pause' }];
+  }
+  catch (error) { return [{ name: 'Paused pull request check', error: error instanceof Error ? error.message : String(error) }]; }
   finally {
     flushSync(() => root.unmount());
     host.remove();

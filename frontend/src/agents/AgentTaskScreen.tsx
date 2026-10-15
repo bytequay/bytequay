@@ -91,7 +91,7 @@ import { IssueAttachment } from './IssueAttachment';
 import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
 import { useReviewCardFocus } from './reviewCardNavigation';
 import { pullRequestDiffRevision, usePullRequestChanges } from '../pulls/usePullRequestChanges';
-import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
+import { gitHubRetryAt, usePullRequestDetail } from '../pulls/usePullRequestDetail';
 import { AutomationControl } from './AutomationControl';
 import { developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
@@ -1575,6 +1575,8 @@ export default function AgentTaskScreen({
   const [pullRequestError, setPullRequestError] = useState<string | null>(null);
   const [pullRequestLoading, setPullRequestLoading] = useState(false);
   const [pullRequestRefresh, setPullRequestRefresh] = useState(0);
+  const pullRequestRefreshSeen = useRef(0);
+  const [pullRequestRetry, setPullRequestRetry] = useState(0);
   // Whether a lookup has ever finished, so a later one refreshes under what is on screen instead
   // of replacing it with "Checking for a pull request…" again.
   const pullRequestChecked = useRef(false);
@@ -1865,11 +1867,16 @@ export default function AgentTaskScreen({
   useEffect(() => {
     if (!taskLoaded) return;
     let active = true;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const asked = pullRequestRefresh !== pullRequestRefreshSeen.current;
+    pullRequestRefreshSeen.current = pullRequestRefresh;
+    let shown = false;
     setPullRequestLoading(true);
     const lookup = async (): Promise<void> => {
       const cached = await live().listAgentTaskPullRequests(taskId, workspaceId);
       if (!active) return;
       setPullRequests(cached);
+      shown = cached.length > 0;
       // Saved associations are visible during a turn; remote discovery waits for it to settle.
       if (!canRefreshPullRequests) return;
       const found = await live().listAgentTaskPullRequests(taskId, workspaceId, true);
@@ -1880,15 +1887,24 @@ export default function AgentTaskScreen({
     };
     void lookup()
       .catch((failure: unknown) => {
-        if (active) setPullRequestError(remoteErrorMessage(failure));
+        if (!active) return;
+        // A check nobody asked for stays quiet while the pull request is on screen, and one GitHub
+        // paused for its rate limit runs again once the pause ends.
+        if (asked || !shown) setPullRequestError(remoteErrorMessage(failure));
+        const retryAt = gitHubRetryAt(failure);
+        if (retryAt !== null) retry = setTimeout(() => setPullRequestRetry(value => value + 1), Math.max(0, retryAt - Date.now()) + 1_000);
       })
       .finally(() => {
         if (!active) return;
         pullRequestChecked.current = true;
         setPullRequestLoading(false);
       });
-    return () => { active = false; };
-  }, [live, taskLoaded, canRefreshPullRequests, pullRequestTurnId, pullRequestTurnEndedAt, pullRequestRefresh, taskId, workspaceId, continuationUnfinished]);
+    return () => {
+      active = false;
+      clearTimeout(retry);
+    };
+  }, [live, taskLoaded, canRefreshPullRequests, pullRequestTurnId, pullRequestTurnEndedAt, pullRequestRefresh, pullRequestRetry, taskId, workspaceId,
+    continuationUnfinished]);
 
   // The panel reads the pull request itself, so the detail and its diff are read here rather
   // than by the body, which stays a pure function of the state a test can hand it.

@@ -43,11 +43,17 @@ export function mergePullRequestDetailStatus<T>(
  * window to reopen instead of repeating rejected requests.
  */
 export function pullRequestDetailRefreshDelay(failure: unknown, now = Date.now()): number {
-  const match = remoteErrorMessage(failure).match(/GitHub \S+ API rate limit reached; retry after (\S+)/);
-  const resetAt = match ? Date.parse(match[1]) : Number.NaN;
-  return Number.isNaN(resetAt)
+  const resetAt = gitHubRetryAt(failure);
+  return resetAt === null
     ? DETAIL_REFRESH_INTERVAL
     : Math.max(DETAIL_REFRESH_INTERVAL, resetAt - now + 1_000);
+}
+
+/** When GitHub accepts requests again after refusing this one for its rate limit; null for any other failure. */
+export function gitHubRetryAt(failure: unknown): number | null {
+  const match = remoteErrorMessage(failure).match(/GitHub \S+ API rate limit reached; retry after (\S+)/);
+  const resetAt = match ? Date.parse(match[1]) : Number.NaN;
+  return Number.isNaN(resetAt) ? null : resetAt;
 }
 
 /** Addresses one pull request the way GitHub does, so a late response can be matched to its row. */

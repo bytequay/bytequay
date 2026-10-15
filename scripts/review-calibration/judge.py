@@ -32,7 +32,8 @@ class Reply:
 
 
 def make_client():
-    """Return an OpenAI SDK client that talks to DeepSeek with the key from DEEPSEEK_API_KEY."""
+    """Return an OpenAI SDK client that talks to DeepSeek with the key from DEEPSEEK_API_KEY. DEEPSEEK_BASE_URL points it
+    elsewhere, as the tests do at a stand-in on this machine."""
     key = os.environ.get("DEEPSEEK_API_KEY")
     if not key:
         raise SystemExit("Set DEEPSEEK_API_KEY to your DeepSeek API key")
@@ -40,7 +41,17 @@ def make_client():
     # A judge answer is short, so two silent minutes mean a dead connection; the SDK would wait ten.
     # ponytail: that is the longest silence, not a total. DeepSeek sends keep-alive lines while a request queues; add a wall-clock limit if a run hangs.
     # One failed call ends the whole run, so outlast a brief 429 or 503: five retries back off for about 15 seconds, the SDK's two for 1.5.
-    return OpenAI(api_key=key, base_url=BASE_URL, timeout=120.0, max_retries=5)
+    return OpenAI(api_key=key, base_url=os.environ.get("DEEPSEEK_BASE_URL", BASE_URL), timeout=120.0, max_retries=5)
+
+
+def usage_of(response) -> dict:
+    """The token counts of one chat completion, under the names in USAGE."""
+    spent = response.usage
+    detail = spent.completion_tokens_details
+    # The two cache counts are DeepSeek's own fields: the SDK keeps them although its types do not declare them.
+    return {"prompt_tokens": spent.prompt_tokens, "completion_tokens": spent.completion_tokens,
+            "prompt_cache_hit_tokens": spent.prompt_cache_hit_tokens, "prompt_cache_miss_tokens": spent.prompt_cache_miss_tokens,
+            "reasoning_tokens": (detail.reasoning_tokens or 0) if detail else 0}
 
 
 def ask_model(client, system: str, user: str, model: str) -> Reply:
@@ -55,12 +66,7 @@ def ask_model(client, system: str, user: str, model: str) -> Reply:
     # A provider may answer under a dated name of the same model; any other name means the judge was swapped.
     if not response.model.startswith(model):
         raise RuntimeError(f"Asked {model} to judge, but {response.model} answered")
-    spent = response.usage
-    detail = spent.completion_tokens_details
-    # The two cache counts are DeepSeek's own fields: the SDK keeps them although its types do not declare them.
-    usage = {"prompt_tokens": spent.prompt_tokens, "completion_tokens": spent.completion_tokens,
-             "prompt_cache_hit_tokens": spent.prompt_cache_hit_tokens, "prompt_cache_miss_tokens": spent.prompt_cache_miss_tokens,
-             "reasoning_tokens": (detail.reasoning_tokens or 0) if detail else 0}
+    usage = usage_of(response)
     choice = response.choices[0]
     if choice.finish_reason != "stop":
         raise JudgeError(f"finish_reason {choice.finish_reason}", usage)

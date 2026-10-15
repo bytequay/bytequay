@@ -319,7 +319,7 @@ class TestArguments(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("required: --reasoning", result.stderr)
 
-    def test_only_the_two_command_lines_can_run_an_arm(self):
+    def test_only_the_two_command_lines_and_the_labs_own_agent_can_run_an_arm(self):
         result = subprocess.run([sys.executable, calibration.__file__, "--repo", "unused", "--base", "base", "--head", "head", "--policy", "policy", "--context", "context",
                                  "--output", "output", "--model", "configured", "--reasoning", "high", "--provider", "another"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)

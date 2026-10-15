@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Run one discovery-only calibration arm against isolated, frozen Git trees, with the Codex or the Claude command line."""
+"""Run one discovery-only calibration arm against isolated, frozen Git trees, with the Codex or the Claude command line or
+the lab's own agent."""
 
 import argparse
 import hashlib
@@ -10,6 +11,15 @@ import signal
 import subprocess
 import sys
 import time
+
+import agent
+import judge
+
+FIELDS = ("responsibility", "hypothesis", "evidence", "nextCheck")
+SCHEMA = {"type": "object", "additionalProperties": False, "required": ["candidates", "coverage", "limitations"],
+          "properties": {"candidates": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": list(FIELDS),
+                                                                     "properties": {key: {"type": "string"} for key in FIELDS}}},
+                         "coverage": {"type": "string"}, "limitations": {"type": "string"}}}
 
 
 def git(repo, *args):
@@ -145,15 +155,36 @@ def completion_result(output, exit_code, provider="codex"):
         response = json.loads((output / "response.json").read_text())
     except (OSError, UnicodeError, json.JSONDecodeError):
         return {"status": "incomplete_output", "reason": "Missing or unreadable response or event JSON"}
-    fields = {"responsibility", "hypothesis", "evidence", "nextCheck"}
-    if (not isinstance(response, dict) or set(response) != {"candidates", "coverage", "limitations"}
-            or not isinstance(response["coverage"], str) or not isinstance(response["limitations"], str)
-            or not isinstance(response["candidates"], list)
-            or any(not isinstance(candidate, dict) or set(candidate) != fields
-                   or any(not isinstance(value, str) for value in candidate.values())
-                   for candidate in response["candidates"])):
+    if problem_of(response):
         return {"status": "incomplete_output", "reason": "Response does not match the discovery schema"}
     return {"status": "completed"}
+
+
+def problem_of(response):
+    """What keeps a response from matching SCHEMA, said so that a model can fix it, or None for a whole response."""
+    if not isinstance(response, dict) or set(response) != {"candidates", "coverage", "limitations"}:
+        return "the review must have exactly candidates, coverage and limitations"
+    if not isinstance(response["coverage"], str) or not isinstance(response["limitations"], str):
+        return "coverage and limitations must be strings"
+    if not isinstance(response["candidates"], list):
+        return "candidates must be a list"
+    for place, candidate in enumerate(response["candidates"], 1):
+        if not isinstance(candidate, dict) or set(candidate) != set(FIELDS) or any(not isinstance(value, str) for value in candidate.values()):
+            return f"candidate {place} must have exactly {', '.join(FIELDS)}, each a string"
+    return None
+
+
+def review_with_agent(output, bundle, prompt, model, deadline):
+    """Run the lab's own agent on the frozen input, logging each step to events.jsonl, and keep its answer in response.json.
+    Returns what runtime.json records of the run."""
+    with (output / "events.jsonl").open("w") as events:
+        def log(event):
+            events.write(json.dumps(event) + "\n")
+            events.flush()  # one line at a time, so a run stopped halfway keeps the steps it made
+        done = agent.review(bundle, prompt, SCHEMA, problem_of, agent.asker(judge.make_client(), model), deadline, log)
+    if done.answer is not None:
+        (output / "response.json").write_text(json.dumps(done.answer, indent=2) + "\n")
+    return {"status": done.status, **({"reason": done.reason} if done.reason else {}), "steps": done.steps, "usage": done.usage}
 
 
 def main():
@@ -168,7 +199,8 @@ def main():
     parser.add_argument("--model", required=True, help="The model of this arm, named in full")
     parser.add_argument("--reasoning", required=True, help="The reasoning effort of this arm, named in full")
     parser.add_argument("--timeout", type=int, default=180)
-    parser.add_argument("--provider", choices=("codex", "claude"), default="codex", help="Whose command line runs the arm")
+    parser.add_argument("--provider", choices=("codex", "claude", "agent"), default="codex",
+                        help="Whose command line runs the arm, or the lab's own agent on DeepSeek, which records the effort without sending it")
     parser.add_argument("--codex", default="codex")
     parser.add_argument("--claude", default="claude")
     args = parser.parse_args()
@@ -178,6 +210,8 @@ def main():
         parser.error("--output must be outside the source checkout")
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
+    if args.provider == "agent" and not os.environ.get("DEEPSEEK_API_KEY"):
+        parser.error("--provider agent needs DEEPSEEK_API_KEY")
     bundle, manifest = freeze(repo, args.base, args.head, args.policy, args.context, output)
     prompt = f"""Run a discovery-only prompt calibration on the frozen source in this directory.
 Read policy.md as the assigned review policy, context.md for the change's intent,
@@ -194,45 +228,48 @@ must name exact source paths/lines. An empty candidate list is valid. Do not
 claim hypotheses are proven findings.
 """
     (output / "prompt.txt").write_text(prompt)
-    schema = {"type": "object", "additionalProperties": False, "required": ["candidates", "coverage", "limitations"],
-              "properties": {"candidates": {"type": "array", "items": {"type": "object", "additionalProperties": False,
-                  "required": ["responsibility", "hypothesis", "evidence", "nextCheck"],
-                  "properties": {key: {"type": "string"} for key in ["responsibility", "hypothesis", "evidence", "nextCheck"]}}},
-                  "coverage": {"type": "string"}, "limitations": {"type": "string"}}}
-    (output / "schema.json").write_text(json.dumps(schema, indent=2) + "\n")
-    claude = args.provider == "claude"
-    command = claude_command(args.claude, args.model, args.reasoning, schema) if claude else codex_command(args.codex, args.model, args.reasoning, output, bundle)
+    (output / "schema.json").write_text(json.dumps(SCHEMA, indent=2) + "\n")
+    own = args.provider == "agent"
+    command = None if own else claude_command(args.claude, args.model, args.reasoning, SCHEMA) if args.provider == "claude" else codex_command(args.codex, args.model, args.reasoning, output, bundle)
     settings = {"provider": args.provider, "model": args.model, "effort": args.reasoning, "command": command,
-                "cliVersion": subprocess.check_output([command[0], "--version"]).decode().strip(),
+                "cliVersion": f"agent.py {agent.VERSION}" if own else subprocess.check_output([command[0], "--version"]).decode().strip(),
                 "timeoutSeconds": args.timeout, "promptSha256": hashlib.sha256(prompt.encode()).hexdigest(),
                 "policySha256": manifest["files"]["policy.md"], "status": "started"}
     (output / "runtime.json").write_text(json.dumps(settings, indent=2) + "\n")
+    started = time.monotonic()
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # a stop from outside must reach the lines below, not end this script on the spot
+    settings.update(review_with_agent(output, bundle, prompt, args.model, started + args.timeout) if own
+                    else run_command(command, prompt, output, bundle, args.provider, args.timeout))
+    settings.update(elapsedSeconds=round(time.monotonic() - started, 3))
+    (output / "runtime.json").write_text(json.dumps(settings, indent=2) + "\n")
+    print(json.dumps({"output": str(output), "status": settings["status"], "elapsedSeconds": settings["elapsedSeconds"]}))
+    return 0 if settings["status"] == "completed" else 1
+
+
+def run_command(command, prompt, output, bundle, provider, timeout):
+    """Run the Codex or Claude command line on the frozen input and return what runtime.json records of the run."""
+    made, claude = {}, provider == "claude"
     # Claude has no option for where to work, and it reads its own settings from variables a parent Claude session leaves behind:
     # its effort among them. So it starts inside the frozen input, without those variables.
     place = {"cwd": bundle, "env": {name: value for name, value in os.environ.items() if not name.startswith(("CLAUDE", "ANTHROPIC_"))}} if claude else {}
-    started = time.monotonic()
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # a stop from outside must reach the lines below, not end this script on the spot
     with (output / "events.jsonl").open("w") as events, (output / "stderr.txt").open("w") as errors:
         process = subprocess.Popen(command, stdin=subprocess.PIPE, text=True, stdout=events, stderr=errors, start_new_session=True, **place)
         try:
-            process.communicate(prompt, timeout=args.timeout)
-            settings.update(exitCode=process.returncode)
+            process.communicate(prompt, timeout=timeout)
+            made.update(exitCode=process.returncode)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.communicate()
-            settings.update(status="timed_out")
+            made.update(status="timed_out")
         finally:
             # The command line runs in a session of its own, so when this script is stopped it would go on alone and keep spending.
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)
     if claude:
         keep_claude_answer(output)
-    if settings["status"] != "timed_out":
-        settings.update(completion_result(output, process.returncode, args.provider))
-    settings.update(elapsedSeconds=round(time.monotonic() - started, 3), usage=usage(output, args.provider))
-    (output / "runtime.json").write_text(json.dumps(settings, indent=2) + "\n")
-    print(json.dumps({"output": str(output), "status": settings["status"], "elapsedSeconds": settings["elapsedSeconds"]}))
-    return 0 if settings["status"] == "completed" else 1
+    if made.get("status") != "timed_out":
+        made.update(completion_result(output, process.returncode, provider))
+    return {**made, "usage": usage(output, provider)}
 
 
 if __name__ == "__main__":

@@ -12,7 +12,8 @@ dashboard to this machine only.
 ## Review discovery calibration
 
 `run.py` runs one bounded, read-only discovery pass against exact Git objects,
-with the Codex command line or, with `--provider claude`, the Claude one. Use
+with the Codex command line or, with `--provider claude`, the Claude one, or
+with `--provider agent` the lab's own agent (see below). Use
 it to inspect whether a policy elicits useful hypotheses before running a
 production review comparison. It does not exercise ByteQuay's reporting
 tools, child agents, validation turns, final selection, or persistence. It cannot
@@ -90,6 +91,46 @@ turn event and a schema-valid response, even when the CLI exits zero. Then inspe
 `response.json` and the source cited by
 each hypothesis. Check both manifests agree on all source and context hashes.
 Do not publish model hypotheses as validated findings.
+
+## The lab's own agent
+
+```sh
+DEEPSEEK_API_KEY=... uv run run.py --repo /path/to/source --base BASE_SHA --head HEAD_SHA \
+  --policy POLICY --context CONTEXT --output OUTPUT --provider agent --model deepseek-v4-pro --reasoning default
+```
+
+`agent.py` is an agent written on the model API itself, with no agent
+framework, so every part of it can be read and changed here. Each use gives its
+loop the tools it offers and the one that hands the answer in; a review is
+described here. `--provider agent`
+runs it on the same frozen input, with the same prompt and the same answer shape
+as the two command lines, so the judge scores all three alike. It calls
+DeepSeek through the OpenAI SDK, as the judge does, and records the effort
+without sending it.
+
+The agent is one loop. It sends the conversation and four tools to the model.
+When the model calls tools, the agent runs them and adds each result to the
+conversation under the call's id; when the model hands the review in, the run
+ends. Three tools only read: `list_files`, `read_file` (300 numbered lines at a
+time) and `search` (a regular expression, 50 matches at most). Each is kept to
+the input folder: a path that leads out of it, with `..` or as an absolute path,
+is refused. The fourth, `submit_review`, takes the answer, which is checked
+against the answer shape like any tool call. A mistake, the model's or a
+file's, comes back to the model as an error it can act on: a path that is not
+there, arguments that are not JSON, a review that misses a field.
+
+A run ends after 40 model calls or at `--timeout`. The last call, or the one
+after a conversation passes 100,000 prompt tokens, comes with a request to hand
+the review in now. The model's own messages go back to it as they came,
+thinking included, which a thinking model needs between the steps of one task.
+`events.jsonl` keeps one line per model call (its time, tokens, text and the
+calls it made) and per tool call (its time, the size of its result and any
+error), and `runtime.json` the steps, the tokens and `agent.py` followed by a
+hash of its source, so a changed agent is told apart in the results.
+
+`test_agent.py` drives the loop with a stand-in model that answers from a
+script, and runs the whole arm against a stand-in of DeepSeek's chat API on
+this machine (`DEEPSEEK_BASE_URL`), so no test needs a key or the network.
 
 ## Scoring
 

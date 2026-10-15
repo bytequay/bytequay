@@ -28,6 +28,6 @@ it('renders persistent private review cards and safe diff anchors in Chromium', 
       const results = await window.webContents.executeJavaScript('LocalReviewTests.run()');
     `,
   });
-  expect(results).toHaveLength(11);
+  expect(results).toHaveLength(12);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

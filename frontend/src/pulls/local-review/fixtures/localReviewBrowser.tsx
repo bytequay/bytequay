@@ -666,6 +666,57 @@ async function pendingReviewerQuestion(): Promise<void> {
   }
 }
 
+async function editFindingInPlace(): Promise<void> {
+  for (const projection of ['review', 'changes'] as const) {
+    let review = reviewFixture({ messages: [] });
+    const finding = review.findings[0];
+    review = { ...review, draft: { repo: review.repo, number: review.number, body: '', event: 'COMMENT', version: 1,
+      updatedAt: finding.updatedAt, items: [{ id: 'outgoing-comment', source: 'AGENT_FINDING', findingId: finding.id,
+        findingRevision: finding.revision, path: finding.path, side: finding.side, line: finding.endLine, startLine: finding.startLine,
+        commitId: finding.validatedHeadSha, body: 'My saved comment', included: true, published: false, publication: null }] } };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    let saves = 0;
+    const render = () => flushSync(() => root.render(<ReviewFindingCard review={review} finding={finding} projection={projection}
+      viewerLogin="me" viewerAvatarUrl={null} actions={{ onAsk: async () => {}, onResolve: async () => {}, onReopen: async () => {},
+        onAddToReview: async () => {}, onPostNow: async () => {}, onRemoveFromReview: async () => {},
+        onEditDraft: async (target, body) => {
+          assert(target === finding && review.draft !== null, 'Save must retain the original finding');
+          if (++saves === 1) throw new Error('Could not save the edit');
+          review = { ...review, draft: { ...review.draft, items: [{ ...review.draft.items[0], body }] } };
+          render();
+        } }} />));
+    try {
+      render();
+      const location = host.querySelector('.agr-draft')?.parentElement;
+      assert(location !== null && location !== undefined, 'The outgoing comment must be visible');
+      button(host, 'Edit').click(); await settle();
+      const input = location.querySelector<HTMLTextAreaElement>('[aria-label="Outgoing comment text"]');
+      assert(input?.value === 'My saved comment' && document.activeElement === input,
+        'Edit must open and focus the saved text in the outgoing comment location');
+      assert(host.querySelector('.agr-draft, .lrc__foot') === null && host.querySelectorAll('textarea').length === 1,
+        'The editor must replace the outgoing box without adding a second editor below');
+      changeInput(input, 'Discard this edit'); await settle();
+      button(host, 'Cancel').click(); await settle();
+      assert(location.querySelector('.agr-draft__body')?.textContent === 'My saved comment' && saves === 0 && host.querySelector('textarea') === null,
+        'Cancel must restore the saved comment in the same location');
+      button(host, 'Edit').click(); await settle();
+      const reopened = location.querySelector('textarea');
+      assert(reopened?.value === 'My saved comment', 'Reopening must discard canceled changes');
+      changeInput(reopened, 'My edited comment'); await settle();
+      button(host, 'Save').click(); await settle();
+      assert(location.querySelector('textarea')?.value === 'My edited comment' && location.querySelector('[role="alert"]')?.textContent === 'Could not save the edit',
+        'Failed saves must retain the inline editor and show its error beside it');
+      button(host, 'Save').click(); await settle();
+      assert(location.querySelector('.agr-draft__body')?.textContent === 'My edited comment' && host.querySelector('textarea, [role="alert"]') === null,
+        'Save must restore the updated outgoing comment in place');
+      assert(review.findings[0] === finding, 'Editing outgoing text must leave the agent finding unchanged');
+    }
+    finally { flushSync(() => root.unmount()); host.remove(); }
+  }
+}
+
 async function copyConversations(): Promise<void> {
   const host = document.createElement('div');
   host.style.width = '420px';
@@ -782,6 +833,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['Development learning refreshes and retains source-bound discussions', developmentLearningRefresh],
     ['Review editor reuses diff presentation and preserves private and outgoing behavior', sharedReviewEditor],
     ['Slow reviewer questions clear the editor immediately and restore failed drafts', pendingReviewerQuestion],
+    ['Outgoing finding comments edit in place in Summary and Changes', editFindingInPlace],
     ['Copy retains full private conversations and reports clipboard failures', copyConversations],
   ];
   const results: { name: string; error?: string }[] = [];

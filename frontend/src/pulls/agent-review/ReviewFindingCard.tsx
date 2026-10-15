@@ -134,6 +134,34 @@ export default function ReviewFindingCard({
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not remove this comment.'); }
   };
 
+  const editor = composer !== null && (
+    <ReviewComposer
+      key={composer}
+      repository={review.repo}
+      workspaceId={review.workspaceId}
+      value={text}
+      suggestion={composer === 'post' ? suggestion : undefined}
+      autoFocus
+      busy={busy}
+      disabledReason={composer === 'post' && awaitingConfirmation ? 'Wait for delivery confirmation before sending again.' : null}
+      allowEmpty={(composer === 'resolve' && !remember) || (composer === 'draft' && reviewText !== null)}
+      extra={composer === 'resolve' && lines !== null && <label className="agr-remember" title="Saves your reason as a rule agents get for this file">
+        <input type="checkbox" checked={remember} disabled={busy} onChange={event => setRemember(event.target.checked)} />
+        Remember for <code>{shortPath(lines.path, 36)}</code></label>}
+      placeholder={composer === 'fix' ? 'Tell the developer what to fix…' : composer === 'resolve' ? 'Why are you resolving this finding locally? (optional)'
+        : composer === 'ask' ? 'Ask the reviewer about this finding…' : reviewText !== null ? 'Your review summary…' : 'Comment text (edits here never change the finding)'}
+      ariaLabel={composer === 'fix' ? 'Instructions for the development agent' : composer === 'resolve' ? 'Resolution reason (optional)' : composer === 'ask' ? 'Ask the reviewer about this finding' : reviewText !== null ? 'Review summary text' : 'Outgoing comment text'}
+      primaryLabel={composer === 'fix' ? 'Send to developer' : composer === 'resolve' ? 'Resolve locally' : composer === 'ask' ? askLabel(review) : composer === 'post' ? 'Post now' : 'Save'}
+      outgoing={composer === 'ask' || composer === 'resolve' || composer === 'fix'
+        ? null
+        : composer === 'post' && lines !== null
+          ? `Posts to GitHub on ${shortPath(lines.path, 28)} ${lines.range} at reviewed commit ${shortSha(finding.validatedHeadSha)}`
+          : 'Your outgoing text; the agent never sees these edits'}
+      onChange={setText}
+      onSubmit={composer === 'ask' ? submit : () => { void submit(); }}
+      onCancel={close} />
+  );
+
   return (
     <article className={`agr-finding${withdrawn || finding.state === 'RESOLVED' || finding.outdated ? ' is-muted' : ''}${outgoingBody !== null ? ' is-draft' : ''}`}
       id={`agent-review-finding-${finding.id}`} data-finding-id={finding.id} data-review-closed={withdrawn || undefined}>
@@ -148,34 +176,8 @@ export default function ReviewFindingCard({
           {finding.excerpt.map((text, index) => <CommentedCodeLine key={lines.startLine + index}
             line={{ lineNumber: completeExcerpt ? lines.startLine + index : null, prefix: lines.side === 'LEFT' ? '-' : ' ', text }} />)}
         </div>}
-        controls={<footer className={`lrc__foot${composer === null ? '' : ' is-composing'}`}>
-          {composer !== null && (
-            <ReviewComposer
-              key={composer}
-              repository={review.repo}
-              workspaceId={review.workspaceId}
-              value={text}
-              suggestion={composer === 'post' ? suggestion : undefined}
-              autoFocus
-              busy={busy}
-              disabledReason={composer === 'post' && awaitingConfirmation ? 'Wait for delivery confirmation before sending again.' : null}
-              allowEmpty={(composer === 'resolve' && !remember) || (composer === 'draft' && reviewText !== null)}
-              extra={composer === 'resolve' && lines !== null && <label className="agr-remember" title="Saves your reason as a rule agents get for this file">
-                <input type="checkbox" checked={remember} disabled={busy} onChange={event => setRemember(event.target.checked)} />
-                Remember for <code>{shortPath(lines.path, 36)}</code></label>}
-              placeholder={composer === 'fix' ? 'Tell the developer what to fix…' : composer === 'resolve' ? 'Why are you resolving this finding locally? (optional)'
-                : composer === 'ask' ? 'Ask the reviewer about this finding…' : reviewText !== null ? 'Your review summary…' : 'Comment text (edits here never change the finding)'}
-              ariaLabel={composer === 'fix' ? 'Instructions for the development agent' : composer === 'resolve' ? 'Resolution reason (optional)' : composer === 'ask' ? 'Ask the reviewer about this finding' : reviewText !== null ? 'Review summary text' : 'Outgoing comment text'}
-              primaryLabel={composer === 'fix' ? 'Send to developer' : composer === 'resolve' ? 'Resolve locally' : composer === 'ask' ? askLabel(review) : composer === 'post' ? 'Post now' : 'Save'}
-              outgoing={composer === 'ask' || composer === 'resolve' || composer === 'fix'
-                ? null
-                : composer === 'post' && lines !== null
-                  ? `Posts to GitHub on ${shortPath(lines.path, 28)} ${lines.range} at reviewed commit ${shortSha(finding.validatedHeadSha)}`
-                  : 'Your outgoing text; the agent never sees these edits'}
-              onChange={setText}
-              onSubmit={composer === 'ask' ? submit : () => { void submit(); }}
-              onCancel={close} />
-          )}
+        controls={composer !== 'draft' && <footer className={`lrc__foot${composer === null ? '' : ' is-composing'}`}>
+          {editor}
 
           {composer === null && (
             <button type="button" className="lrc__ask" disabled={busy || review.state === 'CLOSED'}
@@ -280,7 +282,10 @@ export default function ReviewFindingCard({
               </span>
             </div>
           )}
-          {outgoingBody !== null && (
+          {composer === 'draft' ? <>
+            {editor}
+            {error && <span className="lrc__error" role="alert">{error}</span>}
+          </> : outgoingBody !== null && (
             <div className="agr-draft">
               <div className="agr-draft__head">
                 {reviewText !== null ? 'Outgoing review summary' : publication.kind === 'uncertain' ? 'Outgoing comment · delivery unconfirmed'

@@ -87,6 +87,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(host.textContent?.includes('Outgoing review summary') === true, 'The finding must show its outgoing summary');
     button('Edit').click(); await settle();
     assert(input().value === originalBody && document.activeElement === input(), 'Edit must seed and focus the entire saved summary');
+    assert(input().closest('.agr-finding__details') !== null && host.querySelector('.agr-draft, .lrc__foot') === null,
+      'The summary editor must replace its outgoing box in place');
     button('Preview').click(); await settle();
     assert(button('Better words').disabled, 'Rewriting is disabled in Preview');
     button('Write').click(); await settle();

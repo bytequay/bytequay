@@ -18,6 +18,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { browserBounds } from './browserTabs';
 import { backendBase, sessionToken } from './backendProcess';
+import { repositoryAvatar } from './repositoryAvatars';
 import { parseCodeHost, codeHostKey, parseReviewCodeFiles, parseReviewCodeFile, parseLocalRuns, parseLocalRunOutput, parseWorktreeChanges, type CodeHostRef } from './pulls/code-tests/contracts';
 import { parseCodeQuery, parseCodeQueryReply, queryFailure, type CodeQueryRequest, type CodeQueryReply } from './ide/codeQuery';
 import { parseExecutionRequest } from './ide/executionProtocol';
@@ -205,6 +206,7 @@ export class IdeViews {
     ipcMain.handle('ide:request', (event, method: unknown, args: unknown, userGesture: boolean) => {
       const editor = child(event);
       validateIdeAction(method, args, editor.context, userGesture === true);
+      if (method === 'getRepositoryAvatar') return repositoryAvatar(args[0], args[1]);
       // A retained editor can refresh while its parent React surface is unmounted.
       // These reads must not wait for that surface to relay a reply.
       if (['listCodeFiles', 'readCodeFile', 'listCodeRuns', 'readCodeRunOutput', 'readWorktreeChanges'].includes(String(method))) {

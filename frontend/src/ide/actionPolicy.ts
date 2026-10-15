@@ -15,7 +15,7 @@ import { findingInResults } from '../pulls/agent-review/model';
 import type { IdeContext } from './contracts';
 import { codeHostKey, parseCodeHost } from '../pulls/code-tests/contracts';
 
-const READ_METHODS = new Set(['getGitHubUserProfile', 'fetchGitHubCodeSnippet', 'listCodeFiles', 'readCodeFile', 'readCodeBlame', 'readCodeHistory', 'readHistoryCommit', 'readHistorySnapshot', 'listCodeRuns', 'readCodeRunOutput', 'readWorktreeChanges', 'getAgentReview', 'getAgentTask']);
+const READ_METHODS = new Set(['getRepositoryAvatar', 'getGitHubUserProfile', 'fetchGitHubCodeSnippet', 'listCodeFiles', 'readCodeFile', 'readCodeBlame', 'readCodeHistory', 'readHistoryCommit', 'readHistorySnapshot', 'listCodeRuns', 'readCodeRunOutput', 'readWorktreeChanges', 'getAgentReview', 'getAgentTask']);
 const PRIVATE_METHODS = new Set(['run.ask', 'stopCodeRun', 'openInAppBrowser', 'github.post', 'github.reply', 'github.resolve', 'github.edit', 'github.react', 'comments.ask', 'comments.reply', 'comments.resolve', 'comments.retry', 'comments.finding', 'comments.refresh', 'comments.pending', 'comments.detail', 'review.changed', 'askAgentReview', 'resolveAgentReviewFinding', 'reopenAgentReviewFinding', 'betterWords', 'finding.ask', 'finding.resolve', 'finding.reopen', 'finding.add', 'finding.post', 'finding.editDraft', 'finding.remove', 'finding.fix']);
 
 function text(value: unknown, limit = 30_000): asserts value is string {
@@ -43,6 +43,13 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
   if (!READ_METHODS.has(method) && !PRIVATE_METHODS.has(method)) throw new Error('This operation is unavailable in the editor');
   if (!READ_METHODS.has(method) && !['comments.refresh', 'review.changed', 'comments.detail'].includes(method) && !userGesture) {
     throw new Error('This action requires a user click or keypress in the editor');
+  }
+  if (method === 'getRepositoryAvatar') {
+    if (args.length < 1 || args.length > 2) throw new Error('Invalid avatar arguments');
+    text(args[0], 39);
+    if (!/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i.test(args[0])
+      || (args[1] !== undefined && typeof args[1] !== 'boolean')) throw new Error('Invalid repository avatar request');
+    return;
   }
   if (method === 'getGitHubUserProfile') {
     count(args, 1); text(args[0], 45);

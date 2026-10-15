@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
-import Avatar from './Avatar';
+import RepoAvatar from './RepoAvatar';
 import type {
   RepoRefDto,
   RepositorySearchResultDto,
@@ -74,11 +74,7 @@ export function WatchRepositoryConfirmation({ preview, topology, ready, adding, 
   return (
     <div className="modal-preview">
       <div className="modal-preview__title-row">
-        <Avatar
-          login={preview.monitoredRepository.owner}
-          size={32}
-          className="modal-preview__avatar"
-        />
+        <RepoAvatar owner={preview.monitoredRepository.owner} repo={preview.monitoredRepository.repo} size={32} radius={8} />
         <div>
           <div className="modal-preview__name-row">
             <span className="modal-preview__name">{fullName(preview.monitoredRepository)}</span>
@@ -300,11 +296,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
                     pick(repo);
                   }}
                 >
-                  <Avatar
-                    login={repo.repository.owner}
-                    size={28}
-                    className="modal-repo-row__avatar"
-                  />
+                  <RepoAvatar owner={repo.repository.owner} repo={repo.repository.repo} size={28} radius={7} />
                   <div className="modal-repo-row__text">
                     <div className="modal-repo-row__head">
                       <span className="modal-repo-row__name">{repo.fullName}</span>

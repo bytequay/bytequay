@@ -68,10 +68,11 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const previous = window.bridge;
   let writes = 0;
   const bridge = {
+    getRepositoryAvatar: async () => null,
     getUserProfile: async () => ({ login: 'alice', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0,
       followers: 0, following: 0, bio: null, location: null, company: null, email: null }),
     saveRecentDraft: async () => {},
-  } satisfies Pick<Bridge, 'getUserProfile' | 'saveRecentDraft'>;
+  } satisfies Pick<Bridge, 'getRepositoryAvatar' | 'getUserProfile' | 'saveRecentDraft'>;
   Object.defineProperty(window, 'bridge', { configurable: true, value: new Proxy(bridge, {
     get(target, property) {
       if (property in target) return Reflect.get(target, property);

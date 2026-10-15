@@ -18,7 +18,6 @@ import {
   LayoutDashboard, LayoutGrid, ListChecks, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Pin, Sparkles, Sun, Tags, TriangleAlert, Users,
 } from 'lucide-react';
-import Avatar from './Avatar';
 import UsageMeter from './usage/UsageMeter';
 import JiraIcon from './jira/JiraIcon';
 import RepoAvatar from './RepoAvatar';
@@ -335,7 +334,7 @@ export default function AppSidebar({
             title={workspace.localRepositoryPath}
             onClick={() => onWorkspaceTab('home')}
           >
-            <Avatar login={workspace.monitoredOwner} size={18} />
+            <RepoAvatar owner={workspace.monitoredOwner} repo={workspace.monitoredRepo} size={18} />
             <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{workspace.name}</span>
           </button>
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">

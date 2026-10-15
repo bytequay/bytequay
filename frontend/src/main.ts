@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { spawn as spawnPty } from 'node-pty';
 import { IdeViews } from './ideViews';
+import { repositoryAvatar } from './repositoryAvatars';
 import { NoticeHost } from './notices/host';
 import { GeminiSetup } from './google/geminiSetup';
 import { GeminiChat } from './google/geminiChat';
@@ -2108,6 +2109,7 @@ function registerIpc(): void {
       }).then(parseTeamActivity);
     });
   }
+  ipcMain.handle('repos:avatar', (_event, owner: unknown, refresh: unknown) => repositoryAvatar(owner, refresh));
   ipcMain.handle('repos:profile', () => backendJson(`${backendBase()}/api/profile`));
   ipcMain.handle('repos:user-profile', (_event, login: string) =>
     backendJson(`${backendBase()}/api/profile/${encodeURIComponent(login)}`));

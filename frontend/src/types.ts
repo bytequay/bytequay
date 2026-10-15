@@ -1607,6 +1607,7 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   ) => Promise<WorkspaceDto>;
   removeWorkspace: (workspaceId: string) => Promise<void>;
   deleteWorkspace: (workspaceId: string, confirmed: boolean, repositoryName: string) => Promise<void>;
+  getRepositoryAvatar: (owner: string, refresh?: boolean) => Promise<string | null>;
   getUserProfile: () => Promise<UserProfileDto>;
   getGitHubUserProfile: (login: string) => Promise<UserProfileDto>;
   getContributionCalendar: (login: string) => Promise<ContributionCalendarDto>;

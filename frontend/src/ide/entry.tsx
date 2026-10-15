@@ -48,7 +48,8 @@ import './workbench.css';
 
 const request = window.ideWorkbench.request;
 // Shared review components see only these scoped capabilities, never the full desktop preload.
-const privateBridge: Pick<Bridge, 'getGitHubUserProfile' | 'fetchGitHubCodeSnippet' | 'openInAppBrowser' | 'getAgentReview' | 'getAgentTask' | 'askAgentReview' | 'resolveAgentReviewFinding' | 'reopenAgentReviewFinding' | 'betterWords' | 'postPrReviewComment' | 'replyToReviewComment' | 'setReviewThreadResolved' | 'editPrComment' | 'setPrReaction'> = {
+const privateBridge: Pick<Bridge, 'getRepositoryAvatar' | 'getGitHubUserProfile' | 'fetchGitHubCodeSnippet' | 'openInAppBrowser' | 'getAgentReview' | 'getAgentTask' | 'askAgentReview' | 'resolveAgentReviewFinding' | 'reopenAgentReviewFinding' | 'betterWords' | 'postPrReviewComment' | 'replyToReviewComment' | 'setReviewThreadResolved' | 'editPrComment' | 'setPrReaction'> = {
+  getRepositoryAvatar: (...args) => request('getRepositoryAvatar', ...args) as ReturnType<Bridge['getRepositoryAvatar']>,
   getGitHubUserProfile: (...args) => request('getGitHubUserProfile', ...args) as ReturnType<Bridge['getGitHubUserProfile']>,
   fetchGitHubCodeSnippet: (...args) => request('fetchGitHubCodeSnippet', ...args) as ReturnType<Bridge['fetchGitHubCodeSnippet']>,
   openInAppBrowser: (...args) => request('openInAppBrowser', ...args) as ReturnType<Bridge['openInAppBrowser']>,

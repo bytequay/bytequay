@@ -107,7 +107,7 @@ describe('watch repository fork consent', () => {
 
     expect(html).toContain('reuse your existing personal fork octocat/trino');
     expect(html).toContain('class="modal-preview__name">trinodb/trino</span>');
-    expect(html).toContain('src="https://github.com/trinodb.png?size=64"');
+    expect(html).toContain('aria-label="trinodb/trino"');
     expect(html).not.toContain('octocat.png');
     expect(html).toContain('follow trinodb/trino for commits, issues and pull requests');
     expect(html).toContain('>Watch repository</button>');

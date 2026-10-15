@@ -166,6 +166,16 @@ it('loads public GitHub avatars through the IDE policies without allowing arbitr
   expect(policy.replace(images ?? '', '')).not.toContain('https://github.com');
 });
 
+it('reads repository avatars directly while the parent review surface is unmounted', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  invoke('ide:update', parent(), id, { host, review: null, task: null, detail: null });
+  fetchMock.mockResolvedValueOnce(new Response('image', { headers: { 'content-type': 'image/png' } }));
+  expect(await invoke('ide:request', child(), 'getRepositoryAvatar', ['TrinoDB', false], false)).toBe('data:image/png;base64,aW1hZ2U=');
+  expect(fetchMock).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/avatars/repositories/trinodb?refresh=false',
+    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'desktop-only-token' } }));
+  expect(sender.send).not.toHaveBeenCalledWith('ide:request', expect.anything());
+});
+
 it('stops a hidden idle worktree even if the parent keeps reporting hidden bounds', async () => {
   const id = await invoke('ide:open', parent(), host);
   invoke('ide:present', parent(), id, { x: 0, y: 0, width: 900, height: 700 });

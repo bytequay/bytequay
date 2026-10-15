@@ -29,6 +29,13 @@ describe('IDE action boundary', () => {
     }
   });
 
+  it('allows owner avatar reads but rejects arbitrary download locations', () => {
+    expect(() => validateIdeAction('getRepositoryAvatar', ['trinodb', true], context, false)).not.toThrow();
+    for (const args of [['../tokens'], ['https://example.com'], ['alice', 'yes'], ['alice', false, 'extra']]) {
+      expect(() => validateIdeAction('getRepositoryAvatar', args, context, false)).toThrow();
+    }
+  });
+
   it('rejects arbitrary app methods and direct low-level publishing', () => {
     for (const method of ['publishReviewDraftComment', 'startAgentTurn', 'savePat', 'constructor', '__proto__', 'runShell']) {
       expect(() => validateIdeAction(method, [], context, true)).toThrow('unavailable');

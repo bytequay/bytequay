@@ -125,10 +125,6 @@
   outline-offset: -2px;
 }
 
-.modal-repo-row__avatar {
-  border-radius: 7px;
-  flex: none;
-}
 
 .modal-repo-row__text {
   min-width: 0;
@@ -197,10 +193,6 @@
   gap: 10px;
 }
 
-.modal-preview__avatar {
-  border-radius: 8px;
-  flex: none;
-}
 
 .modal-preview__name-row {
   display: flex;

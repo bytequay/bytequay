@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 type Props = {
   owner: string;
@@ -46,8 +46,22 @@ function ownerTile(owner: string): [string, string] {
 export default function RepoAvatar({ owner, repo, size, radius = 5 }: Props) {
   const [loadedSource, setLoadedSource] = useState<string | null>(null);
   const [failedSource, setFailedSource] = useState<string | null>(null);
-  const source = `https://github.com/${encodeURIComponent(owner)}.png?size=${size * 2}`;
-  const loaded = loadedSource === source && failedSource !== source;
+  const login = owner.trim().toLowerCase();
+  const [image, setImage] = useState<{ owner: string; source: string } | null>(null);
+  const source = image?.owner === login ? image.source : null;
+
+  useEffect(() => {
+    if (!login || !window.bridge?.getRepositoryAvatar) return;
+    let active = true;
+    const show = (value: string | null) => {
+      if (active && value !== null) setImage({ owner: login, source: value });
+    };
+    const refresh = () => { void window.bridge.getRepositoryAvatar(login, true).then(show).catch(() => {}); };
+    void window.bridge.getRepositoryAvatar(login).then(show).catch(() => {}).then(() => { if (active) refresh(); });
+    window.addEventListener('online', refresh);
+    return () => { active = false; window.removeEventListener('online', refresh); };
+  }, [login]);
+  const loaded = source !== null && loadedSource === source && failedSource !== source;
   const name = `${owner}/${repo}`;
   const [background, color] = ownerTile(owner);
 
@@ -67,7 +81,7 @@ export default function RepoAvatar({ owner, repo, size, radius = 5 }: Props) {
       }}
     >
       {!loaded && (owner.trim().charAt(0).toUpperCase() || '?')}
-      {failedSource !== source && owner.trim() !== '' && (
+      {source !== null && failedSource !== source && (
         <img
           className="repo-avatar__image"
           src={source}

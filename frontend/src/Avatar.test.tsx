@@ -30,17 +30,6 @@ function AvatarAfterFailure({ replacement }: { replacement: Parameters<typeof Av
   return view;
 }
 
-function RepositoryAfterImageEvent({ owner, event }: { owner: string; event: keyof ImageEvents }) {
-  const [triggered, setTriggered] = useState(false);
-  const view = RepoAvatar({ owner: triggered ? owner : 'alice', repo: 'project', size: 24 });
-  if (!triggered) {
-    const image = view.props.children[1] as ReactElement<ImageEvents>;
-    image.props[event]();
-    setTriggered(true);
-  }
-  return view;
-}
-
 describe('avatar image state', () => {
   it('keeps a failed user image as a same-sized fallback', () => {
     const html = renderToStaticMarkup(<AvatarAfterFailure replacement={{ login: 'alice' }} />);
@@ -61,20 +50,12 @@ describe('avatar image state', () => {
     expect(html).not.toContain('avatar--fallback');
   });
 
-  it('keeps a failed repository image as its owner initial', () => {
-    const html = renderToStaticMarkup(<RepositoryAfterImageEvent owner="alice" event="onError" />);
-
-    expect(html).toContain('aria-label="alice/project"');
-    expect(html).toContain('>A</span>');
+  it('shows a same-sized owner initial until the local avatar arrives', () => {
+    const html = renderToStaticMarkup(<RepoAvatar owner="trinodb" repo="trino" size={24} />);
+    expect(html).toContain('aria-label="trinodb/trino"');
+    expect(html).toContain('width:24px;height:24px');
+    expect(html).toContain('>T</span>');
     expect(html).not.toContain('<img');
-  });
-
-  it.each(['onError', 'onLoad'] as const)('loads a new repository image after the previous image %s', event => {
-    const html = renderToStaticMarkup(<RepositoryAfterImageEvent owner="upstream" event={event} />);
-
-    expect(html).toContain('aria-label="upstream/project"');
-    expect(html).toContain('src="https://github.com/upstream.png?size=48"');
-    expect(html).toContain('>U<img');
-    expect(html).toContain('opacity:0');
+    expect(html).not.toContain('github.com');
   });
 });

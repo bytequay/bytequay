@@ -16,15 +16,17 @@ package com.bytequay.app.web.git;
 import com.bytequay.app.git.AvatarCache;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import static java.util.Objects.requireNonNull;
 
-/** Serves only avatars already present in ByteQuay's local file cache. */
+/** Serves cached avatars, with a separate refresh read for repository owners. */
 @RestController
 @RequestMapping("/api/avatars")
 public class AvatarController
@@ -45,5 +47,16 @@ public class AvatarController
                         .contentType(avatar.mediaType())
                         .body((Resource) new FileSystemResource(avatar.path())))
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/repositories/{owner}")
+    public ResponseEntity<Resource> repository(@PathVariable String owner, @RequestParam(defaultValue = "false") boolean refresh)
+    {
+        return cache.repository(owner, refresh)
+                .map(avatar -> ResponseEntity.ok()
+                        .cacheControl(CacheControl.noStore())
+                        .contentType(avatar.mediaType())
+                        .body((Resource) new FileSystemResource(avatar.path())))
+                .orElseGet(() -> ResponseEntity.notFound().cacheControl(CacheControl.noStore()).build());
     }
 }

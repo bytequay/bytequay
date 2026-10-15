@@ -71,6 +71,33 @@ class TestAvatarController
     }
 
     @Test
+    void separatesLocalRepositoryReadsFromRefreshAndDoesNotReuseMutableHttpResponses()
+            throws Exception
+    {
+        Path file = root.resolve("repository.png");
+        Files.write(file, new byte[] {1, 2, 3});
+        when(cache.repository("trinodb", false)).thenReturn(Optional.of(new AvatarCache.CachedAvatar(file, IMAGE_PNG)));
+        when(cache.repository("trinodb", true)).thenReturn(Optional.of(new AvatarCache.CachedAvatar(file, IMAGE_PNG)));
+
+        mvc.perform(get("/api/avatars/repositories/trinodb"))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(new byte[] {1, 2, 3}))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().doesNotExist("ETag"));
+        verify(cache, never()).repository("trinodb", true);
+        mvc.perform(get("/api/avatars/repositories/trinodb?refresh=true"))
+                .andExpect(status().isOk());
+        verify(cache).repository("trinodb", true);
+
+        mvc.perform(get("/api/avatars/repositories/missing"))
+                .andExpect(status().isNotFound())
+                .andExpect(header().string("Cache-Control", "no-store"));
+        when(cache.repository("bad.owner", true)).thenThrow(new IllegalArgumentException("repository owner is invalid"));
+        mvc.perform(get("/api/avatars/repositories/bad.owner?refresh=true"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void returnsMissingWithoutDownloadingAndRejectsMalformedKeys()
             throws Exception
     {

@@ -15,6 +15,7 @@ package com.bytequay.app.git;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
+import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,8 +33,11 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.locks.Lock;
 import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -48,6 +52,8 @@ public class AvatarCache
 {
     private static final Logger log = LoggerFactory.getLogger(AvatarCache.class);
     private static final Pattern KEY = Pattern.compile("[0-9a-f]{64}");
+    private static final Pattern OWNER = Pattern.compile("[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?");
+    private static final Duration REPOSITORY_TTL = Duration.ofDays(1);
     private static final int MAX_BYTES = 5 * 1024 * 1024;
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
     private static final List<ImageType> IMAGE_TYPES = ImmutableList.of(
@@ -58,6 +64,7 @@ public class AvatarCache
 
     private final Path root;
     private final HttpClient client;
+    private final Striped<Lock> refreshLocks = Striped.lock(64);
 
     @Autowired
     public AvatarCache(@Value("${bytequay.avatar-cache.root:${java.io.tmpdir}/bytequay-avatars}") String root)
@@ -82,6 +89,44 @@ public class AvatarCache
         if (find(key).isPresent()) {
             return Optional.of(key);
         }
+        return download(source, key);
+    }
+
+    /** Local reads never wait for a refresh; callers request refresh separately in the background. */
+    public Optional<CachedAvatar> repository(String owner, boolean refresh)
+    {
+        checkArgument(owner != null && OWNER.matcher(owner).matches(), "repository owner is invalid");
+        URI source = URI.create("https://github.com/" + owner.toLowerCase(Locale.ROOT) + ".png?size=64");
+        String key = Hashing.sha256().hashString(source.toString(), UTF_8).toString();
+        if (!refresh) {
+            return find(key);
+        }
+        Lock lock = refreshLocks.get(key);
+        lock.lock();
+        try {
+            Optional<CachedAvatar> cached = find(key);
+            if (cached.isEmpty() || expired(cached.orElseThrow())) {
+                download(source, key);
+            }
+            return find(key);
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
+    private static boolean expired(CachedAvatar avatar)
+    {
+        try {
+            return Files.getLastModifiedTime(avatar.path()).toInstant().plus(REPOSITORY_TTL).isBefore(Instant.now());
+        }
+        catch (IOException e) {
+            return true;
+        }
+    }
+
+    private Optional<String> download(URI source, String key)
+    {
         try {
             HttpRequest request = HttpRequest.newBuilder(source)
                     .timeout(TIMEOUT)
@@ -89,16 +134,13 @@ public class AvatarCache
                     .GET()
                     .build();
             HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            if (response.statusCode() != 200) {
-                return Optional.empty();
-            }
             Optional<ImageType> imageType = response.headers().firstValue("Content-Type")
                     .flatMap(AvatarCache::imageType);
-            if (imageType.isEmpty()) {
-                return Optional.empty();
-            }
             byte[] bytes;
             try (InputStream body = response.body()) {
+                if (response.statusCode() != 200 || imageType.isEmpty()) {
+                    return Optional.empty();
+                }
                 bytes = body.readNBytes(MAX_BYTES + 1);
             }
             if (bytes.length == 0 || bytes.length > MAX_BYTES) {
@@ -109,6 +151,11 @@ public class AvatarCache
             try {
                 Files.write(temporary, bytes);
                 move(temporary, file(key, imageType.orElseThrow()));
+                for (ImageType type : IMAGE_TYPES) {
+                    if (!type.equals(imageType.orElseThrow())) {
+                        Files.deleteIfExists(file(key, type));
+                    }
+                }
             }
             finally {
                 Files.deleteIfExists(temporary);

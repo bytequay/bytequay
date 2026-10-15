@@ -61,7 +61,7 @@ describe('watched repository workspace UI', () => {
     expect(workspaceSidebar).toContain('class="app-sidebar__item" aria-label="Home"');
     expect(workspaceSidebar).toContain('class="app-sidebar__item is-active" aria-label="Workspace home"');
     expect(workspaceSidebar).toContain('aria-label="contributor/project workspace home"');
-    expect(workspaceSidebar).toContain('src="https://github.com/upstream.png?size=36"');
+    expect(workspaceSidebar).toContain('aria-label="upstream/project"');
     expect(workspaceSidebar).not.toContain('contributor.png');
   });
 
@@ -82,7 +82,7 @@ describe('watched repository workspace UI', () => {
     for (const html of [home, list]) {
       expect(html).toContain('data-workspace-id="workspace-id"');
       expect(html).toContain('aria-label="upstream/project"');
-      expect(html).toContain('src="https://github.com/upstream.png?size=');
+      expect(html).not.toContain('src="https://github.com/upstream.png');
       expect(html).not.toContain('contributor.png');
     }
     expect(home).toContain('class="home-repo-tile__name">upstream/project</span>');
@@ -194,7 +194,7 @@ describe('watched repository workspace UI', () => {
 
     expect(html).toContain('Saved release work');
     expect(html).toContain('title="upstream/project">upstream/project · master</div>');
-    expect(html).toContain('src="https://github.com/upstream.png?size=40"');
+    expect(html).toContain('aria-label="upstream/project"');
     expect(html).toContain('aria-label="Open upstream/project"');
     expect(html).toContain('aria-label="Watch upstream/project again"');
     expect(html).toContain('aria-label="Delete contributor/project local data"');

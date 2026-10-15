@@ -1,3 +1,5 @@
+from array import array
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import plistlib
@@ -15,6 +17,9 @@ from test_batch import TOOLS
 
 SCRIPT = Path(monitor.__file__).resolve()
 BACKEND = Path(__file__).resolve().parents[2] / "backend/agent-core/src/main/java/com/bytequay/agent/core"
+ENTITIES = Path(__file__).resolve().parents[2] / "backend/persistence-sqlite/src/main/java/com/bytequay/persistence/sqlite/entity"
+OPEN_TASK, IDLE_TASK, DONE_TASK, GONE_TASK = (f"{digit * 8}-{digit * 4}-{digit * 4}-{digit * 4}-{digit * 12}" for digit in "1234")
+NOW = 1_800_000_000.0
 ELECTRON = "/Users/me/src/bytequay/frontend/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
 HELPER = "/Users/me/src/bytequay/frontend/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
 
@@ -62,6 +67,12 @@ class TestParts(unittest.TestCase):
             self.assertEqual(watch.parts().get(11), "backend")
             watch.parts()
         self.assertEqual(reads, [10, 11, 11])  # when first seen and when its program changed, not on every look
+
+    def test_a_process_the_monitor_starts_is_its_own_cost(self):
+        child = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+        self.assertEqual(monitor.Watch(database=Path("/nowhere/bytequay.db")).parts().get(child.pid), "monitor")  # as its disk count runs
 
     def test_this_process_is_counted_as_the_monitor_with_real_numbers(self):
         watch = monitor.Watch(database=Path("/nowhere/bytequay.db"))
@@ -115,7 +126,9 @@ class TestStore(Folder):
         for moment, memory, cpu in ((hour + 10, 100, 0.5), (hour + 20, 300, 1.5), (hour + 3610, 50, 0.1), (now - 60, 7, 0.2)):
             monitor.keep(connection, moment, self.numbers(memory, cpu), machine)
         monitor.keep(connection, now - 91 * 86400, self.numbers(1, 0), machine)  # older than anything is kept
+        connection.executemany("INSERT INTO space VALUES (?, ?, ?, ?, ?)", [(now - 91 * 86400, monitor.APP, "Cache", 1, 1), (now - 89 * 86400, monitor.APP, "Cache", 2, 1)])
         monitor.fold(connection, now)
+        self.assertEqual(connection.execute("SELECT bytes FROM space").fetchall(), [(2,)])  # a disk count is kept as long as an hourly row
         rows = connection.execute("SELECT at, seconds, memory, memory_peak, cpu, cpu_peak FROM parts WHERE part = 'app' ORDER BY at").fetchall()
         self.assertEqual(rows, [(hour, 3600, 200, 300, 1.0, 1.5), (hour + 3600, 3600, 50, 50, 0.1, 0.1), (now - 60, 5, 7, 7, 0.2, 0.2)])
         self.assertEqual(connection.execute("SELECT at, seconds, memory_used, cpu, turns, queued FROM machine ORDER BY at").fetchall(),
@@ -132,22 +145,105 @@ class TestStore(Folder):
         self.assertEqual((connection.execute("SELECT COUNT(*), SUM(memory) FROM parts").fetchone(), connection.execute("SELECT COUNT(*), SUM(tasks) FROM machine").fetchone()),
                          ((3 * len(monitor.PARTS), 30 * len(monitor.PARTS)), (3, 9)))
         self.assertEqual(watch.sample.call_count, 4)  # one look first that is not kept: it reads every process as idle
-        # Counted once, at the start, apart from the samples: a count takes minutes.
-        self.assertEqual([(call.kwargs["target"], call.kwargs["args"][0]) for call in counting.call_args_list], [(monitor.count_disk, self.folder)])
+        # Counted once, at the start, apart from the samples and in a process of its own at the lowest priority: a count takes minutes.
+        self.assertEqual([(call.kwargs["target"], call.kwargs["args"][0]) for call in counting.call_args_list],
+                         [(subprocess.run, ["nice", "-n", "20", sys.executable, str(SCRIPT), "--count-disk", "--folder", str(self.folder)])])
 
-    def test_disk_is_counted_for_every_top_level_part_of_the_apps_data(self):
+
+class TestSpace(Folder):
+    KNOWN = ({OPEN_TASK: monitor.OPEN, IDLE_TASK: monitor.IDLE, DONE_TASK: monitor.FINISHED},
+             {"open-tree": monitor.OPEN, "rebase-tree": monitor.APP})
+
+    def test_who_holds_a_path_follows_the_database_and_the_retired_features(self):
+        cases = {
+            ("agent-runtime",): None, ("agent-runtime", OPEN_TASK): None, ("agent-runtime", OPEN_TASK, "events.jsonl"): monitor.OPEN,
+            ("agent-runtime", OPEN_TASK, "codegraph"): monitor.RETIRED, ("agent-runtime", GONE_TASK, "blobs"): monitor.REMOVED,
+            ("agent-runtime", "ide"): None, ("agent-runtime", "ide", DONE_TASK): monitor.FINISHED, ("agent-runtime", "ide", IDLE_TASK): monitor.IDLE,
+            ("agent-runtime", "codegraph-baselines"): monitor.RETIRED, ("agent-runtime", "_processes"): monitor.APP,
+            ("workspaces", "w"): None, ("workspaces", "w", "repository"): monitor.REPOSITORIES, ("workspaces", "w", "worktrees"): None,
+            ("workspaces", "w", "worktrees", "open-tree"): monitor.OPEN, ("workspaces", "w", "worktrees", "rebase-tree"): monitor.APP,
+            ("workspaces", "w", "worktrees", "gone-tree"): monitor.REMOVED, ("workspaces", "w", "lock"): monitor.APP,
+            ("repos",): monitor.REPOSITORIES, ("new-flow-worktrees",): monitor.RETIRED, ("database-backup-20260921T172146",): monitor.COPIES,
+            ("backup-before-local-run-20260916T181723",): monitor.COPIES, ("bytequay.db",): monitor.COPIES, ("bytequay-1.0.db",): monitor.APP,
+            ("Cache",): monitor.APP,
+        }
+        self.assertEqual({names: monitor.owner(names, self.KNOWN) for names in cases}, cases)
+        # With no database, nothing is said about whose task data is whose; what the path alone tells still holds.
+        self.assertEqual([monitor.owner(names, None) for names in [("agent-runtime", OPEN_TASK, "events.jsonl"), ("workspaces", "w", "worktrees", "open-tree"),
+                                                                   ("agent-runtime", OPEN_TASK, "codegraph"), ("repos",)]],
+                         [monitor.NOT_KNOWN, monitor.NOT_KNOWN, monitor.RETIRED, monitor.REPOSITORIES])
+
+    def test_owners_are_read_from_the_database_without_writing(self):
+        self.folder.mkdir()
+        database = self.folder / "bytequay.db"
+        stamp = lambda days: datetime.fromtimestamp(NOW - days * 86400, timezone.utc).isoformat().replace("+00:00", "Z")
+        with sqlite3.connect(database) as connection:
+            connection.executescript("CREATE TABLE agent_task (id TEXT, state TEXT, updated_at TEXT, worktree TEXT); CREATE TABLE branch_rebase (worktree TEXT);"
+                                     "CREATE TABLE cherry_pick_execution (worktree TEXT);")
+            connection.executemany("INSERT INTO agent_task VALUES (?, ?, ?, ?)", [(OPEN_TASK, "OPEN", stamp(6.9), "/data/workspaces/w/worktrees/open-tree"),
+                                                                                  (IDLE_TASK, "OPEN", stamp(7.1), None),
+                                                                                  (DONE_TASK, "COMPLETED", stamp(30), "/data/workspaces/w/worktrees/done-tree")])
+            connection.execute("INSERT INTO branch_rebase VALUES ('/data/workspaces/w/worktrees/rebase-tree')")
+        connection.close()
+        before = database.stat().st_mtime_ns
+        self.assertEqual(monitor.holders(database, NOW), ({OPEN_TASK: monitor.OPEN, IDLE_TASK: monitor.IDLE, DONE_TASK: monitor.FINISHED},
+                                                          {"open-tree": monitor.OPEN, "done-tree": monitor.FINISHED, "rebase-tree": monitor.APP}))
+        self.assertEqual(database.stat().st_mtime_ns, before)
+        self.assertIsNone(monitor.holders(self.folder / "missing.db", NOW))
+
+    @unittest.skipUnless(ENTITIES.is_dir(), "the application's source is not beside the lab")
+    def test_every_table_whose_rows_name_a_worktree_is_read(self):
+        sources = [path.read_text() for path in ENTITIES.glob("*Entity.java")]
+        named = {re.search(r'@Table\(name = "(\w+)"', source)[1] for source in sources if "private String worktree;" in source}
+        self.assertEqual(named, {"agent_task", "ci_autofix_run", *monitor.WORKTREES})  # a CI fix's worktree column holds the id of its workspace
+        task = (ENTITIES / "AgentTaskEntity.java").read_text()
+        for field in ("id", "state", "updatedAt", "worktree"):
+            with self.subTest(field=field):
+                self.assertRegex(task, rf"private [\w<>.]+ {field};")
+
+    def test_a_block_is_counted_once_for_the_owner_that_holds_it(self):
+        held = monitor.shares(array("q", [0, 50, 200, 250, 400, 450]), array("q", [100, 100, 100, 100, 100, 10]), array("H", [0, 1, 2, 2, 0, 2]),
+                              {(monitor.OPEN, "w"): 0, (monitor.REMOVED, "w"): 1, (monitor.RETIRED, "a"): 2})
+        self.assertEqual(dict(held), {(monitor.OPEN, "w"): 140, (monitor.REMOVED, "w"): 50, (monitor.RETIRED, "a"): 150,  # its own two overlap: once
+                                      (monitor.SHARED, "w"): 50, (monitor.SHARED, "several places"): 10})
+
+    def write(self, path, size):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as made:
+            made.write(os.urandom(size))
+            os.fsync(made.fileno())  # so the file system gives it its blocks now
+
+    def clone(self, source, target):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if subprocess.run(["cp", "-c", str(source), str(target)], capture_output=True).returncode:
+            self.skipTest("this file system makes no copy-on-write copies")
+
+    def test_disk_is_counted_by_owner_with_each_copied_block_once(self):
         data = self.folder / "data"
-        (data / "worktrees" / "one").mkdir(parents=True)
-        (data / "worktrees" / "one" / "big.bin").write_bytes(b"x" * 200_000)
-        (data / "bytequay.db").write_bytes(b"x" * 50_000)
-        sizes = monitor.disk(data)
-        self.assertEqual(sorted(sizes), ["bytequay.db", "worktrees"])
-        self.assertTrue(sizes["worktrees"] >= 200_000 and sizes["bytequay.db"] >= 50_000)
-        self.assertEqual(monitor.disk(self.folder / "missing"), {})
-        monitor.count_disk(self.folder, 5.0, data)
+        self.write(data / "agent-runtime" / OPEN_TASK / "events.jsonl", 1000)
+        self.write(data / "agent-runtime" / OPEN_TASK / "codegraph" / "codegraph.db", 2**20)
+        self.clone(data / "agent-runtime" / OPEN_TASK / "codegraph" / "codegraph.db", data / "agent-runtime" / "codegraph-baselines" / "r" / "codegraph.db")
+        self.write(data / "workspaces" / "w" / "worktrees" / "open-tree" / "big.bin", 2**19)
+        self.clone(data / "workspaces" / "w" / "worktrees" / "open-tree" / "big.bin", data / "workspaces" / "w" / "worktrees" / "gone-tree" / "big.bin")
+        self.write(data / "workspaces" / "w" / "repository" / "object", 3000)
+        os.link(data / "workspaces" / "w" / "repository" / "object", data / "workspaces" / "w" / "repository" / "same-object")
+        self.write(data / "Cache" / "entry", 100)
+        rows = {(owner, place): (size, files) for owner, place, size, files in monitor.space(data, self.KNOWN)}
+        block = (data / "Cache" / "entry").stat().st_blocks * 512
+        self.assertEqual(rows, {
+            (monitor.OPEN, "agent-runtime"): (block, 1),
+            (monitor.RETIRED, "agent-runtime"): (2**20, 2),  # the index and its copy hold one megabyte between them
+            (monitor.OPEN, "workspaces"): (0, 1), (monitor.REMOVED, "workspaces"): (0, 1), (monitor.SHARED, "workspaces"): (2**19, 0),
+            (monitor.REPOSITORIES, "workspaces"): (block, 1),  # two names, one file
+            (monitor.APP, "Cache"): (block, 1)})
+        # Without the database the task data is not known, and the two copies of one task file are then one owner's: counted once.
+        monitor.count_disk(self.folder, 5.0, data, self.folder / "missing.db")
         connection = monitor.store(self.folder)
         self.addCleanup(connection.close)
-        self.assertEqual(connection.execute("SELECT at, place FROM disk ORDER BY place").fetchall(), [(5.0, "bytequay.db"), (5.0, "worktrees")])
+        self.assertEqual(connection.execute("SELECT DISTINCT at FROM space").fetchall(), [(5.0,)])
+        self.assertEqual(dict(connection.execute("SELECT owner, SUM(files) FROM space GROUP BY owner")),
+                         {monitor.RETIRED: 2, monitor.REPOSITORIES: 1, monitor.APP: 1, monitor.NOT_KNOWN: 3})
+        self.assertEqual(connection.execute("SELECT SUM(bytes) FROM space WHERE owner = ? AND place = 'workspaces'", (monitor.NOT_KNOWN,)).fetchone(), (2**19,))
 
 
 class TestCommandLine(Folder):

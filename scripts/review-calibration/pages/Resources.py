@@ -3,11 +3,13 @@
 import argparse
 from datetime import datetime
 from pathlib import Path
+import shutil
 import time
 
 import streamlit as st
 
 import dashboard
+import monitor
 import resources
 import saved
 
@@ -95,12 +97,24 @@ def over_time(folder, mode):
 
 def disk(made, mode):
     st.subheader("Disk")
-    rows = None if made is None else resources.disk_rows(made["disk"])
-    if rows is None:
+    owners = None if made is None else resources.owner_rows(made["space"])
+    if owners is None:
         st.info("The app's data is counted a few times a day. The first count starts with the monitor and takes a few minutes.")
         return
-    st.caption(f"What each part of the app's data takes on disk, counted {datetime.fromtimestamp(made['disk']['at'].max()):%Y-%m-%d %H:%M}. "
-               "Grew is the change since the first count kept.")
+    size = lambda chosen: f"{owners.loc[owners['owner'].isin(chosen), 'GB'].sum():,.1f} GB"
+    disk_now = shutil.disk_usage(Path.home())
+    with st.container(horizontal=True):
+        st.metric("Could be freed", size(monitor.FREEABLE), border=True, width=dashboard.TILE,
+                  help="Left by removed tasks and by features the app no longer has. Nothing in the app uses it.")
+        st.metric("Idle open tasks", size([monitor.IDLE]), border=True, width=dashboard.TILE,
+                  help="Held by open tasks nobody changed for a week or more. Closing the tasks you are done with frees it.")
+        st.metric("Free on this disk", f"{disk_now.free / resources.GB:,.0f} GB", border=True, width=dashboard.TILE, help=f"Of {disk_now.total / resources.GB:,.0f} GB.")
+    st.caption(f"Who holds the app's data, counted {datetime.fromtimestamp(made['space']['at'].max()):%Y-%m-%d %H:%M}. "
+               "A block that copy-on-write copies share is counted once, so these add up to what the data really takes.")
+    dashboard.draw("disk_owners", resources.disk_figure(owners, mode, by="owner"))
+    st.dataframe(owners, hide_index=True, column_config={"GB": st.column_config.NumberColumn(format="%,.1f"), "files": st.column_config.NumberColumn(format="%,.0f")})
+    rows = resources.disk_rows(made["space"])
+    st.caption("By place: each top-level folder of the app's data. Grew is the change since the first count kept.")
     dashboard.draw("disk", resources.disk_figure(rows, mode))
     st.dataframe(rows, hide_index=True, column_config={"GB": st.column_config.NumberColumn(format="%,.1f"), "grew GB": st.column_config.NumberColumn(format="%+,.1f")})
 

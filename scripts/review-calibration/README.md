@@ -270,23 +270,44 @@ starts the backend as a copy of itself that runs the build first and only
 then becomes Java, with the same process id. It also counts, read-only from
 ByteQuay's database, the turns running, the open tasks and the inputs waiting
 in their queues, with the states the backend itself counts as running and
-waiting (a test reads them from its source). A few times a day it counts the
-disk each top-level part of the app's data takes, at the lowest priority, as
-a count walks every file.
+waiting (a test reads them from its source).
+
+A few times a day it counts who holds the app's data on disk
+(`--count-disk` counts once). The count walks every file, so the sampler
+starts it as a process of its own at the lowest priority. Each top-level
+folder of the app's data is a place, and each file has an owner: an open task
+(apart: open tasks nobody changed for a week), a finished task, a removed task
+(its worktree or run data is still there, but the database no longer has the
+task), a retired feature (the code graph's index, the old development flow's
+worktrees), an old database copy, the repositories worktrees are made from, or
+the app itself. Whose task data is whose comes read-only from the database: a
+task's id, its state and when it last changed, and the worktree each task,
+rebase or cherry-pick row names (a test checks that no other table names a
+worktree). A file of 64 KB or more is mapped onto the disk without being read,
+so a block that copy-on-write copies share is counted once; one that copies of
+different owners share counts as shared. `du` counts every copy in full and
+said 72 GB for the code graph's index, where the blocks came to 29 GB. A file
+with two names counts once.
 
 The numbers go to `monitor.db` in the lab's folder. Every sample is kept for a
 week; older ones are folded into one row an hour with the hour's average and
-peak, and kept for 90 days. The sampler counts its own cost apart, as the part
-`monitor`: on the Mac it was built on, about 37 MB and under 1% of one core.
+peak, and kept for 90 days, as are the disk counts. The sampler counts its own
+cost apart, with the disk count it starts, as the part `monitor`: on the Mac
+it was built on, about 37 MB and under 1% of one core. A disk count of 4.7
+million files took two minutes, and up to about 470 MB while it lined up 2.4
+million stretches of the disk.
 
 The dashboard's Resources page shows them: tiles and the last 15 minutes,
 looked at again every two seconds; memory, CPU, threads and turns running over
 the last hour, day, week, 30 or 90 days, on one clock so a spike can be set
 against the work; every part now, typically and at its peak; the typical
 memory of each group on each day from the samples when no turn ran, so memory
-held with no work to do shows as a column that rises; and the disk. Memory is
-what a process holds in RAM. The app's helpers share a little of it, so the
-sum runs slightly high.
+held with no work to do shows as a column that rises; and the disk: what could
+be freed (removed tasks and retired features, which nothing uses), what open
+tasks idle for a week hold, the free space on this disk, every owner with what
+it is, and every place with how much it grew since the first count kept.
+Memory is what a process holds in RAM. The app's helpers share a little of
+it, so the sum runs slightly high.
 
 The dashboard's Processes page lists every program the lab's own Python runs
 now (its pages, the monitor, experiments and their review runs, tests) with

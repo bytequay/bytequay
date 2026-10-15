@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """Watch what ByteQuay takes from this Mac: for each part of the app its memory, CPU, threads, open files and processes,
-the agent turns and tasks it has open, and the disk its data fills. `--sample` keeps the numbers in the lab's folder, and
-the Resources page of the dashboard shows them live and over time. Run with no option, it prints how the parts stand now."""
+the agent turns and tasks it has open, and the disk its data fills and who holds it. `--sample` keeps the numbers in the
+lab's folder, and the Resources page of the dashboard shows them live and over time. Run with no option, it prints how the
+parts stand now."""
 
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
+from array import array
+from collections import Counter, defaultdict
 import contextlib
+from datetime import datetime
+import fcntl
 import os
 from pathlib import Path
 import sqlite3
+import struct
 import subprocess
 import sys
 import threading
@@ -36,12 +41,28 @@ AGENTS = ("codex", "claude")
 # What TurnState.active() and QueuedAgentInput.State.live() hold in the backend; a test reads them from its source.
 ACTIVE_TURNS = ("ACCEPTED", "RUNNING")
 LIVE_INPUTS = ("QUEUED", "PAUSED", "STARTING")
+# Who holds the app's data on disk, in the order the page lists them. SHARED is a block that copy-on-write copies of
+# different owners share, so it goes only when all of them go. NOT_KNOWN is task data while the database cannot be read.
+OPEN, IDLE, FINISHED, REMOVED, RETIRED, COPIES, REPOSITORIES, APP, SHARED, NOT_KNOWN = OWNERS = (
+    "open tasks", "open tasks idle a week", "finished tasks", "removed tasks", "retired features", "old database copies", "repositories",
+    "the app itself", "shared", "tasks not known")
+FREEABLE = (REMOVED, RETIRED)  # nothing in the app uses these any more
+IDLE_AFTER = 7 * 86400  # seconds an open task goes unchanged before it counts as idle
+# What features the app no longer has left behind: the code graph's index in the runtime, the old development flow's worktrees.
+CODE_INDEX = {"codegraph", "codegraph-home", "codegraph.head", "codegraph-baselines"}
+RETIRED_FOLDERS = {"new-flow-worktrees"}
+COPIES_NAMED = ("database-backup", "backup-before", "bytequay.db")  # copies made before past changes, and the database's old name
+# Besides tasks, the operations whose rows name a worktree folder; such a worktree is the app's own while the row is there.
+# (A CI fix's worktree column holds the id of its workspace.) A test checks that no other table names a worktree.
+WORKTREES = ("branch_rebase", "cherry_pick_execution")
+BIG = 64 * 1024  # from this size up a file is mapped onto the disk, so a block that copies share counts once
+LOG2PHYS_EXT = 65  # F_LOG2PHYS_EXT: where on the disk a stretch of a file lies
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS parts (at REAL, seconds REAL, part TEXT, processes REAL, memory REAL, memory_peak REAL, cpu REAL, cpu_peak REAL, threads REAL, files REAL);
 CREATE INDEX IF NOT EXISTS parts_at ON parts (at);
 CREATE TABLE IF NOT EXISTS machine (at REAL, seconds REAL, memory_used REAL, memory_total REAL, cpu REAL, turns REAL, tasks REAL, queued REAL);
 CREATE INDEX IF NOT EXISTS machine_at ON machine (at);
-CREATE TABLE IF NOT EXISTS disk (at REAL, place TEXT, bytes REAL);
+CREATE TABLE IF NOT EXISTS space (at REAL, owner TEXT, place TEXT, bytes REAL, files REAL);
 """
 
 
@@ -121,7 +142,8 @@ class Watch:
             if pid not in self.programs or self.programs[pid][0] != executable:
                 self.programs[pid] = program(pid)
         parents = {pid: parent for pid, (parent, _) in seen.items()}
-        return assign(parents, self.programs) | {os.getpid(): "monitor"}  # its own cost is counted, apart from the app's
+        # Its own cost is counted apart from the app's, with the disk count it runs as a process of its own.
+        return assign(parents, self.programs) | {pid: "monitor" for pid, parent in parents.items() if parent == os.getpid()} | {os.getpid(): "monitor"}
 
     def sample(self):
         """The numbers of every part, of the machine, and of ByteQuay's records at one moment. CPU is in cores: 1.0 is one
@@ -169,25 +191,152 @@ def fold(connection, now):
                        "FROM machine WHERE seconds < 3600 AND at < ? GROUP BY CAST(at / 3600 AS INTEGER)", (edge,))
     for table in ("parts", "machine"):
         connection.execute(f"DELETE FROM {table} WHERE seconds < 3600 AND at < ?", (edge,))
-    for table in ("parts", "machine", "disk"):
+    for table in ("parts", "machine", "space"):
         connection.execute(f"DELETE FROM {table} WHERE at < ?", (now - HOURLY,))
     connection.commit()
 
 
-def disk(data):
-    """Bytes on disk of every top-level part of the app's data, counted by `du` at the lowest priority."""
-    made = {}
-    for place in sorted(data.iterdir()) if data.is_dir() else []:
-        counted = subprocess.run(["nice", "-n", "20", "du", "-sk", str(place)], capture_output=True, text=True)
-        with contextlib.suppress(ValueError, IndexError):  # a file that went away while it was counted
-            made[place.name] = int(counted.stdout.split()[0]) * 1024
-    return made
+def holders(path, now):
+    """From ByteQuay's database, read without writing: the owner of every task, by its id, and of every worktree a row names,
+    by the worktree folder's name. None when the database cannot be read."""
+    try:
+        with contextlib.closing(sqlite3.connect(f"file:{quote(str(path))}?mode=ro", uri=True, timeout=3)) as connection:
+            tasks, worktrees = {}, {}
+            for task, state, changed, worktree in connection.execute("SELECT id, state, updated_at, worktree FROM agent_task"):
+                idle = changed and now - datetime.fromisoformat(changed).timestamp() >= IDLE_AFTER
+                tasks[task] = FINISHED if state != "OPEN" else IDLE if idle else OPEN
+                if worktree:
+                    worktrees[Path(worktree).name] = tasks[task]
+            for table in WORKTREES:
+                worktrees |= {Path(worktree).name: APP for (worktree,) in connection.execute(f"SELECT worktree FROM {table} WHERE worktree IS NOT NULL")}
+            return tasks, worktrees
+    except (sqlite3.Error, ValueError, TypeError):  # TypeError: a time stored in another shape than the text it is today
+        return None
 
 
-def count_disk(folder, now, data=APP_DATA):
-    sizes = disk(data)
+def owner(names, known):
+    """Who holds what lies at a path of the app's data, from the path's first names; None while they do not tell yet.
+    `known` is what `holders` read."""
+    tasks, worktrees = known or ({}, {})
+    of = lambda name, owners: owners.get(name, REMOVED) if known else NOT_KNOWN
+    place, depth = names[0], len(names)
+    if place == "agent-runtime":
+        if depth < 2 or (depth < 3 and names[1] == "ide"):
+            return None
+        if names[1] in CODE_INDEX:
+            return RETIRED
+        if names[1] == "ide":
+            return of(names[2], tasks)
+        if len(names[1]) == 36:  # a task's own folder, named by its id
+            return None if depth < 3 else RETIRED if names[2] in CODE_INDEX else of(names[1], tasks)
+        return APP
+    if place == "workspaces":
+        if depth < 3 or (depth < 4 and names[2] == "worktrees"):
+            return None
+        return REPOSITORIES if names[2] == "repository" else of(names[3], worktrees) if names[2] == "worktrees" else APP
+    if place in RETIRED_FOLDERS:
+        return RETIRED
+    # ponytail: a copy is known by its name; the app has no record of the copies made before past changes
+    return COPIES if place.startswith(COPIES_NAMED) else REPOSITORIES if place == "repos" else APP
+
+
+def stretches(path, size):
+    """Where each stretch of a file lies on the disk, as (start, length) with neighbours joined, read from the file system
+    without reading the file. Fails with OSError when the file system cannot tell."""
+    found, offset, descriptor = [], 0, os.open(path, os.O_RDONLY)
+    try:
+        while offset < size:
+            _, length, start = struct.unpack("=Iqq", fcntl.fcntl(descriptor, LOG2PHYS_EXT, struct.pack("=Iqq", 0, size - offset, offset)))
+            if length <= 0:
+                break
+            if found and sum(found[-1]) == start:
+                found[-1] = (found[-1][0], found[-1][1] + length)
+            else:
+                found.append((start, length))
+            offset += length
+    finally:
+        os.close(descriptor)
+    return found
+
+
+def shares(starts, lengths, marks, labels):
+    """Bytes of each label from the stretches files of that label take on the disk: a byte one label holds is its own, a
+    byte two or more hold is SHARED, in their place when they share one. One pass over the stretches sorted by start."""
+    import numpy  # only a disk count needs it, and it runs in a process of its own
+    begin = numpy.frombuffer(starts, dtype=numpy.int64)
+    edges = numpy.concatenate([begin, begin + numpy.frombuffer(lengths, dtype=numpy.int64)])
+    order = numpy.argsort(edges, kind="stable")
+    edges = edges[order]
+    steps = numpy.concatenate([numpy.ones(len(begin), numpy.int32), numpy.full(len(begin), -1, numpy.int32)])[order]
+    marked = numpy.tile(numpy.frombuffer(marks, dtype=numpy.uint16), 2)[order]
+    # ponytail: one bit per label in an int64, so up to 63 labels (the app's data has about 40), and a few arrays as long as
+    # all the stretches: about 350 MB for 2.4 million for a minute. Join each label's own stretches first if that grows.
+    holding = numpy.zeros(len(edges), dtype=numpy.int64)
+    for mark in range(len(labels)):
+        holding |= (numpy.cumsum(numpy.where(marked == mark, steps, 0)) > 0).astype(numpy.int64) << mark
+    held, named = Counter(), {mark: label for label, mark in labels.items()}
+    found, where = numpy.unique(holding[:-1], return_inverse=True)  # each stretch between two edges, by who holds it
+    for mask, size in zip(found.tolist(), numpy.bincount(where, weights=numpy.diff(edges)).tolist()):
+        owning = [named[mark] for mark in range(len(labels)) if mask >> mark & 1]
+        if len(owning) == 1:
+            held[owning[0]] += size
+        elif owning:
+            places = {place for _, place in owning}
+            held[(SHARED, places.pop() if len(places) == 1 else "several places")] += size
+    return held
+
+
+def space(data, known):
+    """What the app's data takes on disk, as (owner, place, bytes, files): the place is its top-level folder. A file of
+    BIG or more is mapped onto the disk, so a block that copy-on-write copies share is counted once."""
+    held, files, seen = Counter(), Counter(), set()
+    labels, starts, lengths, marks = {}, array("q"), array("q"), array("H")
+    waiting = [(data, (), None)]
+    while waiting:
+        folder, names, label = waiting.pop()
+        try:
+            entries = list(os.scandir(folder))
+        except OSError:
+            continue  # it went away while it was counted
+        for entry in entries:
+            found = (*names, entry.name)
+            mine = label or ((who, found[0]) if (who := owner(found, known)) else None)
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    waiting.append((entry.path, found, mine))
+                    continue
+                if not entry.is_file(follow_symlinks=False):
+                    continue
+                facts = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            if facts.st_nlink > 1:  # a file with more than one name is counted once
+                if (facts.st_dev, facts.st_ino) in seen:
+                    continue
+                seen.add((facts.st_dev, facts.st_ino))
+            mine = mine or (APP, found[0])
+            files[mine] += 1
+            try:
+                pieces = stretches(entry.path, facts.st_size) if facts.st_size >= BIG else []
+            except OSError:
+                pieces = []
+            if not pieces:  # a small file, or one the file system cannot map: its blocks, taken as its own
+                held[mine] += facts.st_blocks * 512
+                continue
+            mark = labels.setdefault(mine, len(labels))
+            for start, length in pieces:
+                starts.append(start)
+                lengths.append(length)
+                marks.append(mark)
+    if labels:
+        held.update(shares(starts, lengths, marks, labels))
+    return [(who, place, float(held[(who, place)]), files[(who, place)]) for who, place in sorted(held.keys() | files.keys())]
+
+
+def count_disk(folder, now, data=APP_DATA, database=DATABASE):
+    rows = space(data, holders(database, now))
     with contextlib.closing(store(folder)) as connection:
-        connection.executemany("INSERT INTO disk VALUES (?, ?, ?)", [(now, place, size) for place, size in sizes.items()])
+        connection.executemany("INSERT INTO space VALUES (?, ?, ?, ?, ?)", [(now, *row) for row in rows])
         connection.commit()
 
 
@@ -204,7 +353,10 @@ def run(folder, watch=None, rounds=None):
             fold(connection, now)
             folded = now
         if now - counted >= DISK_EVERY:
-            threading.Thread(target=count_disk, args=(folder, now), daemon=True).start()
+            # A count walks millions of files and holds a map of the disk for a while, so it runs as a process of its own at the
+            # lowest priority, and the sampler stays small.
+            command = ["nice", "-n", "20", sys.executable, str(Path(__file__).resolve()), "--count-disk", "--folder", str(folder)]
+            threading.Thread(target=subprocess.run, args=(command,), daemon=True).start()
             counted = now
         done += 1
         if rounds is None or done < rounds:
@@ -238,9 +390,12 @@ def main():
     chosen.add_argument("--sample", action="store_true", help="Sample every five seconds until stopped (what the LaunchAgent runs)")
     chosen.add_argument("--start", action="store_true", help="Keep the sampler running from now on: at every login and whenever it stops")
     chosen.add_argument("--stop", action="store_true", help="Stop the sampler and remove its LaunchAgent")
+    chosen.add_argument("--count-disk", action="store_true", help="Count once who holds the app's data on disk (what the sampler starts a few times a day)")
     args = parser.parse_args()
     if args.sample:
         run(args.folder)
+    elif args.count_disk:
+        count_disk(args.folder, time.time())
     elif args.start or args.stop:
         try:
             batch.keep_agent(AGENT, args.start and agent(args.folder))

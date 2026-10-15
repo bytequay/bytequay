@@ -11,6 +11,7 @@ import pandas
 from streamlit import config
 from streamlit.testing.v1 import AppTest
 
+import charts
 import dashboard
 import monitor
 import resources
@@ -79,14 +80,30 @@ class TestFrames(Kept):
         self.assertIsNone(resources.idle_days(made["parts"], made["machine"].assign(turns=1)))
 
     def test_disk_lists_the_biggest_places_with_their_growth_and_adds_up_the_rest(self):
-        disk = pandas.DataFrame([(1.0, "workspaces", 50 * resources.GB), (1.0, "repos", 9 * resources.GB), (1.0, "logs", 1 * resources.GB),
-                                 (2.0, "workspaces", 60 * resources.GB), (2.0, "repos", 9 * resources.GB), (2.0, "logs", 2 * resources.GB), (2.0, "new", 1 * resources.GB)],
-                                columns=["at", "place", "bytes"])
+        space = pandas.DataFrame([(1.0, monitor.OPEN, "workspaces", 30 * resources.GB), (1.0, monitor.REMOVED, "workspaces", 20 * resources.GB),
+                                  (1.0, monitor.REPOSITORIES, "repos", 9 * resources.GB), (1.0, monitor.APP, "logs", 1 * resources.GB),
+                                  (2.0, monitor.OPEN, "workspaces", 60 * resources.GB), (2.0, monitor.REPOSITORIES, "repos", 9 * resources.GB),
+                                  (2.0, monitor.APP, "logs", 2 * resources.GB), (2.0, monitor.APP, "new", 1 * resources.GB)], columns=["at", "owner", "place", "bytes"])
         unknown = -1  # a growth that cannot be known: the place was not there at the first count
-        self.assertEqual(resources.disk_rows(disk).fillna(unknown).to_dict("records"), [{"place": "workspaces", "GB": 60, "grew GB": 10}, {"place": "repos", "GB": 9, "grew GB": 0},
-                                                                                         {"place": "logs", "GB": 2, "grew GB": 1}, {"place": "new", "GB": 1, "grew GB": unknown}])
-        self.assertEqual(resources.disk_rows(disk, top=2).fillna(unknown).to_dict("records")[-1], {"place": "2 more", "GB": 3, "grew GB": unknown})  # one was not there before
-        self.assertIsNone(resources.disk_rows(disk.iloc[:0]))
+        self.assertEqual(resources.disk_rows(space).fillna(unknown).to_dict("records"), [{"place": "workspaces", "GB": 60, "grew GB": 10}, {"place": "repos", "GB": 9, "grew GB": 0},
+                                                                                          {"place": "logs", "GB": 2, "grew GB": 1}, {"place": "new", "GB": 1, "grew GB": unknown}])
+        self.assertEqual(resources.disk_rows(space, top=2).fillna(unknown).to_dict("records")[-1], {"place": "2 more", "GB": 3, "grew GB": unknown})  # one was not there before
+        self.assertIsNone(resources.disk_rows(space.iloc[:0]))
+
+    def test_owners_of_the_newest_count_come_in_the_monitors_order_with_what_they_are(self):
+        space = pandas.DataFrame([(1.0, monitor.OPEN, "workspaces", 9 * resources.GB, 10), (2.0, monitor.APP, "Cache", 1 * resources.GB, 7),
+                                  (2.0, monitor.RETIRED, "agent-runtime", 3 * resources.GB, 2), (2.0, monitor.RETIRED, "new-flow-worktrees", 1 * resources.GB, 5),
+                                  (2.0, monitor.OPEN, "workspaces", 4 * resources.GB, 20)], columns=["at", "owner", "place", "bytes", "files"])
+        rows = resources.owner_rows(space)
+        self.assertEqual(rows[["owner", "GB", "files"]].to_dict("records"), [{"owner": monitor.OPEN, "GB": 4, "files": 20}, {"owner": monitor.RETIRED, "GB": 4, "files": 7},
+                                                                             {"owner": monitor.APP, "GB": 1, "files": 7}])
+        self.assertEqual(set(resources.NOTES), set(monitor.OWNERS))  # every owner says what it is
+        self.assertIsNone(resources.owner_rows(space.iloc[:0]))
+        # What could be freed wears the warning color; a place never does.
+        colors = list(resources.disk_figure(rows, "light", by="owner").data[0].marker.color)
+        self.assertEqual(colors, [charts.COLORS["light"]["model"], charts.COLORS["light"]["warning"], charts.COLORS["light"]["model"]])
+        places = resources.disk_rows(space)
+        self.assertEqual(set(resources.disk_figure(places, "light").data[0].marker.color), {charts.COLORS["light"]["model"]})
 
     def test_nothing_kept_reads_as_nothing(self):
         self.assertIsNone(resources.read(self.folder, 0))
@@ -108,16 +125,22 @@ class TestPage(Kept):
         now = time.time()
         self.keep((now - 6, numbers(), MACHINE), (now - 1, numbers(), MACHINE))
         connection = monitor.store(self.folder)
-        connection.executemany("INSERT INTO disk VALUES (?, ?, ?)", [(now - 30, "workspaces", 60 * resources.GB), (now - 30, "repos", 9 * resources.GB)])
+        connection.executemany("INSERT INTO space VALUES (?, ?, ?, ?, ?)", [(now - 30, monitor.OPEN, "workspaces", 40 * resources.GB, 9), (now - 30, monitor.IDLE, "workspaces", 15.5 * resources.GB, 8),
+                                                                            (now - 30, monitor.REMOVED, "workspaces", 12 * resources.GB, 7),
+                                                                            (now - 30, monitor.RETIRED, "agent-runtime", 29 * resources.GB, 6),
+                                                                            (now - 30, monitor.REPOSITORIES, "repos", 9 * resources.GB, 5)])
         connection.commit()
         connection.close()
         page = self.page()
         # A turn ran in every sample, so nothing is known of memory at rest.
         self.assertEqual((list(page.exception), [note.value for note in page.warning], [note.value for note in page.info]), ([], [], ["No sample of this stretch was taken while no turn ran."]))
-        self.assertEqual([(tile.label, tile.value) for tile in page.metric],  # 1,500 MB; the monitor's own 100 MB are not the app's
-                         [("App memory", "1.46 GB"), ("CPU cores", "1.00"), ("Threads", "150"), ("Processes", "6"), ("Turns running", "1"), ("Open tasks", "6")])
+        self.assertEqual([(tile.label, tile.value) for tile in page.metric][:8],  # 1,500 MB; the monitor's own 100 MB are not the app's
+                         [("App memory", "1.46 GB"), ("CPU cores", "1.00"), ("Threads", "150"), ("Processes", "6"), ("Turns running", "1"), ("Open tasks", "6"),
+                          ("Could be freed", "41.0 GB"), ("Idle open tasks", "15.5 GB")])
+        self.assertEqual(page.metric[8].label, "Free on this disk")
         self.assertEqual([heading.value for heading in page.subheader], ["Over time", "Every part", "Memory while no turn ran", "Disk"])
-        self.assertEqual(len(page.get("plotly_chart")), 7)  # memory and CPU live; memory, turns, CPU and threads over time; disk
+        self.assertEqual(len(page.get("plotly_chart")), 8)  # memory and CPU live; memory, turns, CPU and threads over time; disk by owner and by place
+        self.assertEqual(page.dataframe[-2].value["owner"].tolist(), [monitor.OPEN, monitor.IDLE, monitor.REMOVED, monitor.RETIRED, monitor.REPOSITORIES])
         self.assertTrue({"This Mac: 40.0 of 64 GB of memory in use.", "The monitor itself typically holds 100 MB and keeps 10.0% of one core busy."}
                         <= {caption.value for caption in page.caption})
 

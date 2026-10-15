@@ -24,6 +24,19 @@ SPANS = {"Last hour": (3600, 30), "Last day": (86400, 300), "7 days": (7 * 86400
 LIVE = 900  # seconds the live view reaches back
 STALE = 20  # seconds without a sample before the monitor counts as stopped
 AMOUNTS = ["processes", "memory", "cpu", "threads", "files"]
+# What each owner of the app's data is, and what can be done about it.
+NOTES = {
+    monitor.OPEN: "Worktrees and run data of open tasks changed in the last week.",
+    monitor.IDLE: "Open tasks nobody changed for a week or more. Closing the ones you are done with frees this.",
+    monitor.FINISHED: "Kept after a task finished.",
+    monitor.REMOVED: "Left behind by tasks the database no longer has. Nothing uses it, but a worktree may hold work that was never committed.",
+    monitor.RETIRED: "Left by features the app no longer has: the code graph's index and the old development flow's worktrees. Nothing reads it.",
+    monitor.COPIES: "Copies of the database made before past changes, and the database under its old name. The app does not read them.",
+    monitor.REPOSITORIES: "The clones that worktrees are made from.",
+    monitor.APP: "Its database, caches, browser data, tools and pictures.",
+    monitor.SHARED: "Blocks that copies held by different owners share. They are freed only when every copy goes.",
+    monitor.NOT_KNOWN: "Task data counted while the database could not be read.",
+}
 
 
 def read(folder, since):
@@ -33,7 +46,7 @@ def read(folder, since):
         return None
     with contextlib.closing(sqlite3.connect(path, timeout=5)) as connection:
         made = {table: pandas.read_sql_query(f"SELECT * FROM {table} WHERE at >= ? ORDER BY at", connection, params=(since,)) for table in ("parts", "machine")}
-        return made | {"disk": pandas.read_sql_query("SELECT * FROM disk ORDER BY at", connection)}
+        return made | {"space": pandas.read_sql_query("SELECT * FROM space ORDER BY at", connection)}
 
 
 def moments(at):
@@ -113,11 +126,22 @@ def idle_days(parts, machine):
     return table[[group for group in GROUPS if group in table.columns]].reset_index()
 
 
-def disk_rows(disk, top=8):
+def owner_rows(space):
+    """The newest count of the app's data by owner, in the monitor's order: its size, its files and what the owner is.
+    None before the first count."""
+    if space.empty:
+        return None
+    newest = space[space["at"] == space["at"].max()].groupby("owner")[["bytes", "files"]].sum()
+    return pandas.DataFrame([{"owner": owner, "GB": newest.loc[owner, "bytes"] / GB, "files": int(newest.loc[owner, "files"]), "what it is": NOTES[owner]}
+                             for owner in monitor.OWNERS if owner in newest.index])
+
+
+def disk_rows(space, top=8):
     """The newest count of the app's data by place, biggest first, and how much each grew since the first count kept. The
     places past the biggest few are added up."""
-    if disk.empty:
+    if space.empty:
         return None
+    disk = space.groupby(["at", "place"], as_index=False)["bytes"].sum()
     newest, first = disk[disk["at"] == disk["at"].max()], disk[disk["at"] == disk["at"].min()].set_index("place")["bytes"]
     newest = newest.sort_values("bytes", ascending=False)
     rows = [{"place": place, "GB": size / GB, "grew GB": (size - first[place]) / GB if place in first else None} for place, size in zip(newest["place"], newest["bytes"])]
@@ -128,9 +152,11 @@ def disk_rows(disk, top=8):
     return pandas.DataFrame(rows)
 
 
-def disk_figure(rows, mode):
-    """The places of the app's data as bars, each with its size at the tip."""
-    figure = go.Figure(go.Bar(orientation="h", y=rows["place"], x=rows["GB"], text=[f"{size:,.1f} GB" for size in rows["GB"]], textposition="outside", cliponaxis=False,
-                              marker={"color": charts.COLORS[mode]["model"]}, hovertemplate="%{y}: %{x:,.1f} GB<extra></extra>"))
+def disk_figure(rows, mode, by="place"):
+    """The places or the owners of the app's data as bars, each with its size at the tip. What could be freed wears the
+    warning color, so the eye goes there first."""
+    colors = [charts.COLORS[mode]["warning" if name in monitor.FREEABLE else "model"] for name in rows[by]]
+    figure = go.Figure(go.Bar(orientation="h", y=rows[by], x=rows["GB"], text=[f"{size:,.1f} GB" for size in rows["GB"]], textposition="outside", cliponaxis=False,
+                              marker={"color": colors}, hovertemplate="%{y}: %{x:,.1f} GB<extra></extra>"))
     figure.update_xaxes(range=[0, rows["GB"].max() * 1.6])
     return charts.bar_list(figure, 34 * len(rows) + 12)

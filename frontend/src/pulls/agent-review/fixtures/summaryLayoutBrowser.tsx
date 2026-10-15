@@ -88,19 +88,26 @@ export async function run() {
       'The retained explanation must identify its original head and keep its accepted status');
     assert(host.querySelector('[data-review-card="run-2:details"]')?.textContent?.includes('Follow the sort field from parsing to storage.') === true,
       'Current review details must remain visible beside the original explanation');
-    assert(intention !== null && commits.length === 3 && commits[0].getBoundingClientRect().left > intention.getBoundingClientRect().left,
-      'Commits must nest beneath the intention');
-    assert(commits[2].getBoundingClientRect().bottom - host.getBoundingClientRect().top < 600, 'The intention and three commits must fit on one screen');
+    const outline = [...host.querySelectorAll<HTMLButtonElement>('.agr-summary-nav__item')];
+    assert(intention !== null && commits.length === 3 && outline.length === 4 && intention.getBoundingClientRect().height > 0
+      && commits.every(card => card.getBoundingClientRect().height === 0), 'The outline must list the intention and three commits and open on the intention');
+    assert(outline[1].getBoundingClientRect().left < intention.getBoundingClientRect().left, 'The outline must sit beside the selected card');
+    outline[1].click(); await settle();
+    assert(commits[0].getBoundingClientRect().height > 0 && intention.getBoundingClientRect().height === 0
+      && outline[1].getAttribute('aria-current') === 'true', 'Picking a commit must show only that commit');
     const finding = host.querySelector<HTMLElement>('.agr-finding');
     assert(finding !== null && finding.querySelector('.lrc.is-local') !== null, 'Findings must retain the existing local card');
+    assert(finding.getBoundingClientRect().height === 0 && host.textContent?.includes('No findings in this round.') === true,
+      'Findings must open on the last review round');
+    button('.agr-findings__filters button', 'Round 1').click(); await settle();
     button('.agr-finding button', 'Ask reviewer').click(); await settle();
     const draft = finding.querySelector('textarea');
     assert(draft !== null, 'Finding discussion must remain available');
     changeInput(draft, 'Keep this private draft'); await settle();
-    button('.agr-findings__filters button', 'Resolved').click(); await settle();
-    assert(finding.getBoundingClientRect().height === 0, 'Resolved must hide open findings');
-    button('.agr-findings__filters button', 'All').click(); await settle();
-    assert(finding.querySelector('textarea')?.value === 'Keep this private draft', 'Filtering must retain a finding draft and its card instance');
+    button('.agr-findings__filters button', 'Last round').click(); await settle();
+    assert(finding.getBoundingClientRect().height === 0, 'Another round must hide this round\'s findings');
+    button('.agr-findings__filters button', 'All rounds').click(); await settle();
+    assert(finding.querySelector('textarea')?.value === 'Keep this private draft', 'Switching rounds must retain a finding draft and its card instance');
     button('.agr-explanation.is-commit button', 'Ask reviewer').click(); await settle();
     const question = commits[0].querySelector('textarea');
     assert(question !== null, 'The compact question icon must open its own composer');

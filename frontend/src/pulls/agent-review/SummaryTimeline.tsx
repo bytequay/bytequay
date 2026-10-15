@@ -11,9 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState, type ReactNode } from 'react';
-import { Diff, GitCommitHorizontal } from 'lucide-react';
-import { relativeTime } from '../../relativeTime';
+import type { ReactNode } from 'react';
+import { MessageSquare } from 'lucide-react';
 
 /** One line on the Summary timeline, like an event in a pull request's timeline: who did what, and when. */
 export function TimelineEvent({ avatar, children, actions, id }: { avatar: ReactNode; children: ReactNode; actions?: ReactNode; id?: string }) {
@@ -24,28 +23,18 @@ export function TimelineEvent({ avatar, children, actions, id }: { avatar: React
   </div>;
 }
 
-/** A commit on the timeline. Its card follows directly, so the row carries only what identifies the commit. */
-export function CommitEvent({ ordinal, sha, title, body = '', time = null, onViewChanges }: {
-  ordinal: number;
-  sha: string;
-  title: string;
-  body?: string;
-  time?: string | null;
-  onViewChanges?: () => void;
+/** One entry in a Summary's outline: the intention or a commit, and how many messages discuss it. */
+export function SummaryOutlineItem({ label, ordinal, messages, current, onSelect }: {
+  label: string;
+  ordinal?: number;
+  messages: number;
+  current: boolean;
+  onSelect: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  return <>
-    <TimelineEvent avatar={<GitCommitHorizontal size={16} aria-hidden="true" />}
-      actions={onViewChanges && <button type="button" className="agr-event__action" title="Open this commit's diff in Changes" onClick={onViewChanges}>
-        <Diff size={14} aria-hidden="true" />View changes
-      </button>}>
-      <span className="agr-event__ordinal">{ordinal}.</span>
-      <strong className="agr-commit__title">{title}</strong>
-      {body !== '' && <button type="button" className="agr-commit__more" aria-expanded={open} aria-label="Show commit message"
-        title="Show commit message" onClick={() => setOpen(value => !value)}>···</button>}
-      <code className="agr-commit__sha">{sha.slice(0, 7)}</code>
-      {time !== null && <span className="agr-event__time"> · {relativeTime(time)}</span>}
-    </TimelineEvent>
-    {open && <pre className="agr-commit__message">{body}</pre>}
-  </>;
+  return <button type="button" className="agr-summary-nav__item" aria-current={current} title={label} onClick={onSelect}>
+    {ordinal !== undefined && <span className="agr-summary-nav__ordinal">{ordinal}</span>}
+    <span className="agr-summary-nav__title">{label}</span>
+    {messages > 0 && <span className="agr-summary-nav__count" title={`${messages} ${messages === 1 ? 'message' : 'messages'}`}>
+      <MessageSquare size={12} aria-hidden="true" />{messages}</span>}
+  </button>;
 }

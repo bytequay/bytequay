@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { useReviewDraft } from '../ReviewDrafts';
 import Avatar from '../../Avatar';
 import UserAvatar from '../../UserAvatar';
@@ -25,10 +25,12 @@ import { localReviewConversation } from './conversation';
 import type { LocalReviewThreadActions, LocalReviewThreadDto, LocalReviewThreads } from './types';
 
 export default function LocalReviewThreadCard({ thread, viewer, onReply, onResolve, onRetry, disabledReason: codeDisabledReason, learningDisabledReason,
-  showCode = true, outdated = false }: LocalReviewThreadActions & Pick<LocalReviewThreads, 'viewer'> & {
+  showCode = true, outdated = false, badges }: LocalReviewThreadActions & Pick<LocalReviewThreads, 'viewer'> & {
   thread: LocalReviewThreadDto;
   showCode?: boolean;
   outdated?: boolean;
+  /** Actions the page adds beside the copy-link button. */
+  badges?: ReactNode;
 }) {
   const learning = thread.learningAnchor ?? null;
   const disabledReason = learning !== null && learningDisabledReason !== undefined ? learningDisabledReason : codeDisabledReason;
@@ -88,7 +90,7 @@ export default function LocalReviewThreadCard({ thread, viewer, onReply, onResol
   </div> : undefined;
   return <LocalCard tone={learning === null ? 'local' : learningSha === undefined ? 'purpose' : 'commit'}
     resolved={thread.resolved} outdated={outdated} attributes={{ 'data-local-review-thread': thread.id }}
-    badges={<CopyLinkButton label="conversation" value={localReviewConversation(thread, outdated)} />}
+    badges={<>{badges}<CopyLinkButton label="conversation" value={localReviewConversation(thread, outdated)} /></>}
     title={learning !== null ? <SummaryCardTitle sha={learningSha} tooltip={learning.title} />
       : showCode ? <code className="lrc__title is-path" title={thread.path}><bdi dir="ltr">{thread.path}:{range}</bdi></code>
       : <span className="lrc__title">Comment on {start === thread.line ? 'line' : 'lines'} <strong>{range}</strong></span>}

@@ -156,14 +156,15 @@ export default function AgentReviewTab({
   const [now, setNow] = useState(() => Date.now());
   const navigationToken = useRef(0);
   const cardsRef = useRef<HTMLDivElement>(null);
-  const [findingFilter, setFindingFilter] = useState<'All' | 'Open' | 'Resolved'>('All');
   const [reportRunId, setReportRunId] = useState<string | null>(null);
+  // Findings by review round: 'last' follows the newest round, 'all' shows every round, otherwise a run id.
+  const [round, setRound] = useState('last');
   useEffect(() => {
     if (mode === 'cards' && !timeline && focusReviewCard?.target.kind === 'card') setReportRunId(focusReviewCard.target.runId);
-    if (focusReviewCard?.target.kind === 'finding') setFindingFilter('All');
+    if (focusReviewCard?.target.kind === 'finding') setRound('all');
   }, [focusReviewCard, mode, timeline]);
   useReviewCardFocus(cardsRef, focusReviewCard, mode === 'cards' && review !== null
-    && (focusReviewCard?.target.kind !== 'finding' || findingFilter === 'All'));
+    && (focusReviewCard?.target.kind !== 'finding' || round === 'all'));
   const running = review !== null && reviewRunning(review);
   const recovery = review !== null && reviewRecoveryRequired(review);
   // A Code & Tests run holds the working copy; agent work and head moves wait for it.
@@ -186,6 +187,9 @@ export default function AgentReviewTab({
   const summaryRun = reportRunId !== null && run?.summary != null && (!isExplanationRun(run) || run.state === 'ACCEPTED') ? run : currentExplanation ?? currentRun;
   const findings = review === null ? [] : openFindings(review);
   const withdrawn = review === null ? [] : review.findings.filter(finding => finding.state === 'WITHDRAWN' && findingInResults(review, finding));
+  const rounds = review === null ? [] : review.runs.filter(item => !isExplanationRun(item));
+  const roundRun = rounds.length < 2 || round === 'all' ? null : round === 'last' ? currentRun : rounds.find(item => item.id === round) ?? null;
+  const inRound = (finding: ReviewFindingDto) => roundRun === null || finding.runId === roundRun.id;
 
   useEffect(() => {
     if (!running) return;
@@ -434,7 +438,7 @@ export default function AgentReviewTab({
 
   useEffect(() => {
     if (focusFindingId === null) return;
-    setFindingFilter('All');
+    setRound('all');
     const frame = requestAnimationFrame(() => scrollToFinding(focusFindingId));
     return () => cancelAnimationFrame(frame);
   }, [focusFindingId]);
@@ -738,29 +742,30 @@ export default function AgentReviewTab({
               onReviewChange(await window.bridge.askAgentReview(review.id, null, revision, text, cardId));
               recordReviewAttentionAction(review, 'prompt');
             }, 'other', true)}
+            focus={focusReviewCard}
             onSelectFinding={finding => {
-              setFindingFilter('All');
+              setRound('all');
               requestAnimationFrame(() => scrollToFinding(finding.id));
             }} />}
 
-          {!timeline && <div className="agr-findings__head">
+          {(!timeline || findings.length + withdrawn.length > 0) && <div className="agr-findings__head">
             <h2><CircleAlert size={16} aria-hidden="true" />Findings</h2>
-            {(['Critical', 'High', 'Medium', 'Low'] as const).map(severity => {
+            {!timeline && (['Critical', 'High', 'Medium', 'Low'] as const).map(severity => {
               const count = findings.filter(finding => finding.severity === severity).length;
               return count === 0 ? null : <span key={severity} className={`agr-severity is-${severity.toLowerCase()}`}>{count} {severity}</span>;
             })}
-            <span className="agr-findings__count">
-              {findings.length === 0 && provisional(review) ? 'none saved'
-                : `${findings.filter(finding => finding.state === 'OPEN').length} open · ${findings.filter(finding => finding.state === 'RESOLVED').length} resolved`}
-            </span>
-            <div className="agr-findings__filters" aria-label="Filter findings">
-              {(['All', 'Open', 'Resolved'] as const).map(filter => <button key={filter} type="button" aria-pressed={findingFilter === filter}
-                onClick={() => setFindingFilter(filter)}>{filter}<span>{filter === 'All' ? findings.length
-                  : findings.filter(finding => finding.state === filter.toUpperCase()).length}</span></button>)}
-            </div>
+            <span className="agr-findings__count">{roundRun !== null ? `Round ${rounds.indexOf(roundRun) + 1} · head ${shortSha(roundRun.headSha)}`
+              : findings.length === 0 && provisional(review) ? 'none saved'
+                : `${findings.filter(finding => finding.state === 'OPEN').length} open · ${findings.filter(finding => finding.state === 'RESOLVED').length} resolved`}</span>
+            {rounds.length > 1 && <div className="agr-findings__filters" aria-label="Review rounds">
+              {[{ id: 'all', label: 'All rounds', run: null }, ...rounds.map((item, index) => index === rounds.length - 1
+                ? { id: 'last', label: 'Last round', run: item } : { id: item.id, label: `Round ${index + 1}`, run: item }).reverse()]
+                .map(tab => <button key={tab.id} type="button" aria-pressed={round === tab.id} onClick={() => setRound(tab.id)}>{tab.label}
+                  <span>{[...findings, ...withdrawn].filter(finding => tab.run === null || finding.runId === tab.run.id).length}</span></button>)}
+            </div>}
           </div>}
-          {!timeline && findings.length > 0 && findingFilter !== 'All' && !findings.some(finding => finding.state === findingFilter.toUpperCase())
-            && <p className="agr-card__empty">No {findingFilter.toLowerCase()} findings.</p>}
+          {roundRun !== null && findings.length + withdrawn.length > 0 && ![...findings, ...withdrawn].some(inRound)
+            && <p className="agr-card__empty">No findings in this round.</p>}
 
           {findings.length === 0 && status?.status === 'nofindings' && (
             <div className="agr-none">
@@ -779,7 +784,7 @@ export default function AgentReviewTab({
           )}
 
           {findings.map(finding => (
-            <div key={finding.id} hidden={!timeline && findingFilter !== 'All' && finding.state !== findingFilter.toUpperCase()}>
+            <div key={finding.id} hidden={!inRound(finding)}>
             <ReviewFindingCard
               review={review}
               finding={finding}
@@ -791,7 +796,7 @@ export default function AgentReviewTab({
               defaultOpen={finding.state === 'OPEN'} />
             </div>
           ))}
-          {withdrawn.map(finding => (
+          {withdrawn.filter(inRound).map(finding => (
             <ReviewFindingCard
               key={finding.id}
               review={review}

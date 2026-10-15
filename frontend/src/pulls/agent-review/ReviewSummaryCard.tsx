@@ -19,6 +19,8 @@ import LocalCard, { LocalCardMessage, ReviewerAvatar, SummaryCardTitle } from '.
 import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
 import ReviewDetails from './ReviewDetails';
+import { SummaryOutlineItem } from './SummaryTimeline';
+import type { ReviewCardFocus } from '../../agents/ReviewRequestCard';
 import type { AgentReviewDto, ReviewFindingDto, ReviewRunDto } from './contracts';
 import { askLabel, askQueues, isExplanationRun, latestExplanationRun, latestRun, shortSha } from './model';
 
@@ -27,6 +29,14 @@ type AskAboutCard = (message: string, targetRevision: number, cardId: string) =>
 
 function bullets(items: string[]): string {
   return [...new Set(items)].map(item => `- ${item}`).join('\n');
+}
+
+/** The discussion of one card; the intention also holds questions saved before cards had ids. */
+function cardMessages(review: AgentReviewDto, run: ReviewRunDto, cardId: string) {
+  return review.messages.filter(message => message.findingId === null && (
+    message.cardId === cardId || (message.cardId == null && cardId === `${run.id}:purpose`
+      && (message.runId == null || message.runId === run.id))
+  ));
 }
 
 function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, busy, onAsk, ordinal, onSelectCommit, retainedFindings, refreshControl, refreshStatus }: {
@@ -49,10 +59,7 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
   const [error, setError] = useState<string | null>(null);
   const revision = run.summary?.revision ?? 1;
   const provisional = run.state !== 'ACCEPTED' || (!isExplanationRun(run) && (run.coverage?.complete !== true || run.coverage.omissions.length > 0));
-  const messages = review.messages.filter(message => message.findingId === null && (
-    message.cardId === card.id || (message.cardId == null && card.id === `${run.id}:purpose`
-      && (message.runId == null || message.runId === run.id))
-  ));
+  const messages = cardMessages(review, run, card.id);
   const close = () => { setComposing(false); setText(''); setError(null); };
   const submit = async () => {
     if (text.trim() === '') return;
@@ -122,7 +129,7 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
   </article>;
 }
 
-export default function ReviewSummaryCard({ review, run, findings, viewerLogin, viewerAvatarUrl, busy, onAsk, onSelectFinding, onSelectCommit, retainedFindings, onRefresh, refreshDisabledReason }: {
+export default function ReviewSummaryCard({ review, run, findings, viewerLogin, viewerAvatarUrl, busy, onAsk, onSelectFinding, onSelectCommit, retainedFindings, onRefresh, refreshDisabledReason, focus }: {
   review: AgentReviewDto;
   run: ReviewRunDto | null;
   findings: ReviewFindingDto[];
@@ -135,7 +142,15 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
   onSelectFinding: (finding: ReviewFindingDto) => void;
   onRefresh?: () => Promise<void>;
   refreshDisabledReason?: string;
+  /** A link to a card selects it in the outline. */
+  focus?: ReviewCardFocus | null;
 }) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const [followed, setFollowed] = useState<ReviewCardFocus | null | undefined>(null);
+  if (focus !== followed && focus?.target.kind === 'card') {
+    setFollowed(focus);
+    setSelected(focus.target.cardId);
+  }
   const [startingRefresh, setStartingRefresh] = useState(false);
   const [refreshError, setRefreshError] = useState<{ runId: string; revision: number; message: string } | null>(null);
   const currentRefreshError = refreshError?.runId === run?.id && refreshError?.revision === run?.summary?.revision ? refreshError?.message ?? null : null;
@@ -218,12 +233,24 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
   const renderCard = (card: SummaryCard, ordinal?: number) => <SummarySectionCard key={card.id} card={card} review={review} run={run}
     refreshControl={refreshControl} refreshStatus={refreshStatus}
     ordinal={ordinal} onSelectCommit={onSelectCommit} retainedFindings={retainedFindings} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} busy={busy} onAsk={onAsk} />;
+  const shown = commits.some(card => card.id === selected) ? selected : purpose.id;
+  const outlineItem = (card: SummaryCard, label: string, ordinal?: number) => <SummaryOutlineItem key={card.id} label={label} ordinal={ordinal}
+    messages={cardMessages(review, run, card.id).length} current={card.id === shown} onSelect={() => setSelected(card.id)} />;
   return <div className="agr-review-timeline">
     {run.id !== latestRun(review)?.id && <p className="agr-learning-cards__scope">{isExplanationRun(run) ? 'Change explanation' : 'Original change explanation'} · head {shortSha(run.headSha)}</p>}
-    {renderCard(purpose)}
-    <div className="agr-review-timeline__commits">{commits.map((card, index) => renderCard(card, index + 1))}</div>
-    {earlier.length > 0 && <details className="agr-learning-history"><summary>Earlier discussions · {earlier.length}</summary>
-      {earlier.map(card => renderCard(card))}
-    </details>}
+    <div className="agr-summary-outline">
+      <nav className="agr-summary-nav" aria-label="Summary outline">
+        {outlineItem(purpose, 'Intention')}
+        {commits.length > 0 && <span className="agr-summary-nav__heading">Commits</span>}
+        {commits.map((card, index) => outlineItem(card, card.commit?.message.split('\n')[0] ?? card.title, index + 1))}
+      </nav>
+      {/* Unselected cards stay mounted, so a question being written survives switching to another card. */}
+      <div className="agr-summary-reader">
+        {[purpose, ...commits].map((card, index) => <div key={card.id} hidden={card.id !== shown}>{renderCard(card, index === 0 ? undefined : index)}</div>)}
+        {earlier.length > 0 && <details className="agr-learning-history"><summary>Earlier discussions · {earlier.length}</summary>
+          {earlier.map(card => renderCard(card))}
+        </details>}
+      </div>
+    </div>
   </div>;
 }

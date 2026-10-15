@@ -235,8 +235,9 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         assert(visible()[29].getAttribute('aria-label')?.startsWith('65.') === true, 'Repopulating an empty index must start at the latest comments');
       }],
       ['Summary findings, filtering and scoped navigation', async () => {
-        const render = (extra = false, hidden = false) => <Surface><ReviewCommentIndex hidden={hidden}>
-          <AgentReviewTab workspaceId={base.workspaceId} viewer={null} review={review} onReviewChange={() => {}}
+        const twoRounds = { ...review, runs: [...review.runs, { ...review.runs[0], id: 'run-2', ordinal: 2 }] };
+        const render = (extra = false, hidden = false, value = review) => <Surface><ReviewCommentIndex hidden={hidden}>
+          <AgentReviewTab workspaceId={base.workspaceId} viewer={null} review={value} onReviewChange={() => {}}
             onNavigateToChanges={() => {}} focusFindingId={null} ownStream={false}
             localReview={{ ...localReview, threads: [{ ...local, messages: extra ? [...local.messages, { ...local.messages[1], id: 'live-reply', body: 'New streamed reply' }] : local.messages }] }} />
         </ReviewCommentIndex></Surface>;
@@ -258,10 +259,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
           const button = Array.from(host.querySelectorAll<HTMLButtonElement>('.agr-findings__filters button')).find(item => item.textContent?.startsWith(text));
           assert(button !== undefined, `Missing ${text} filter`); button.click();
         };
-        filter('Resolved'); await settle();
+        await mount(render(false, false, twoRounds));
         assert(!entries().some(button => review.findings.some(finding => button.getAttribute('aria-label')?.includes(finding.title))),
-          'Filtered findings must not leave unreachable index entries');
-        filter('All'); await settle();
+          'Findings of another review round must not leave unreachable index entries');
+        filter('All rounds'); await settle();
         await mount(render(true));
         assert(entries().length === 6, 'New replies must join the index without remounting');
         marker('New streamed reply').click(); await settle();

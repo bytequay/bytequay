@@ -183,9 +183,13 @@ export async function run(): Promise<string[]> {
       assert(pane.querySelector(`[data-review-card="${current.id}:${section}"]`) === null,
         `The normal report must not render a redundant ${section} card`);
     }
+    const outline = [...pane.querySelectorAll<HTMLButtonElement>('.agr-summary-nav__item')];
+    assert(outline.length === current.commits.length + 1, 'The outline must list the intention and every commit');
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index];
       const card = commitCards[index];
+      outline[index + 1].click();
+      await settle();
       const title = row.querySelector<HTMLElement>('.agr-commit__title');
       assert(card !== null && card.querySelector('.lrc.is-commit') !== null, 'Each commit must have its own review card');
       assert(title !== null && title.textContent === current.commits[index].message.split('\n')[0],
@@ -217,13 +221,14 @@ export async function run(): Promise<string[]> {
       assert(title.getBoundingClientRect().height > 0, 'Collapsing review discussion must leave the Git commit title visible');
       shell.open = true;
       const previous = commitCards[index - 1];
-      if (previous) assert(row.getBoundingClientRect().top > previous.getBoundingClientRect().bottom,
-        'The next numbered commit must follow the previous commit and its review discussion');
+      if (previous) assert(previous.getBoundingClientRect().height === 0, 'Picking the next commit in the outline must replace the previous one');
     }
     const findingsHeading = [...pane.querySelectorAll('h2')].find(heading => heading.textContent === 'Findings');
     const lastCommit = commitCards.at(-1);
     assert(findingsHeading !== undefined && lastCommit != null && Boolean(lastCommit.compareDocumentPosition(findingsHeading)
       & Node.DOCUMENT_POSITION_FOLLOWING), 'Findings must follow the commit list');
+    outline[0].click();
+    await settle();
     results.push('Change intention and numbered Git commits with separate review discussion cards lead directly to findings');
 
     const target = (selector: string) => {

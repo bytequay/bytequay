@@ -407,6 +407,16 @@ async function developmentLearningRefresh(): Promise<void> {
     assert(host.querySelectorAll('[data-learning-card]').length === 3 && !host.textContent?.includes('Start review')
       && host.querySelector('[data-learning-card="evidence"], [data-learning-card="combined-result"], [data-learning-card="limitations"]') === null,
       'The report must contain only its intention and two implementation cards, without a separate review launcher');
+    const visible = () => [...host.querySelectorAll<HTMLElement>('[data-learning-card]')].filter(item => item.closest('[hidden]') === null)
+      .map(item => item.dataset.learningCard).join();
+    const outline = [...host.querySelectorAll<HTMLButtonElement>('.agr-summary-nav__item')];
+    assert(outline.map(item => item.title).join() === ['Intention', ...summary.commits.map(commit => commit.title)].join()
+      && visible() === 'purpose' && host.querySelector('.agr-event') === null,
+    'The outline must list the intention and each commit, open on the intention, and draw no timeline rows above the cards');
+    outline[1].click();
+    await settle();
+    assert(visible() === commitId && outline[1].getAttribute('aria-current') === 'true',
+      'Picking a commit in the outline must show only that commit and its card');
     button(card(commitId), 'Ask agent').click();
     await settle();
     const blockedInput = card(commitId).querySelector<HTMLTextAreaElement>('textarea');

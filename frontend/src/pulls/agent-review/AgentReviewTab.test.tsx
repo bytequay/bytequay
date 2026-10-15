@@ -199,6 +199,20 @@ describe('the status strip', () => {
   });
 });
 
+describe('findings on a development task Summary', () => {
+  it('opens on the last review round and keeps earlier rounds one tab away', () => {
+    const base = reviewFixture();
+    const runs = [1, 2].map(ordinal => ({ ...base.runs[0], id: `run-${ordinal}`, ordinal, headSha: String(ordinal).repeat(40) }));
+    const review = { ...base, runs, findings: [{ ...base.findings[0], runId: 'run-1' }, { ...base.findings[1], runId: 'run-2' }] };
+    const html = renderToStaticMarkup(<AgentReviewTab timeline workspaceId="workspace-1" viewer={null} review={review}
+      onReviewChange={() => {}} onNavigateToChanges={() => {}} focusFindingId={null} />);
+    expect(html).toContain('Round 2 · head 2222222');
+    expect(html).toMatch(/aria-pressed="false">All rounds<span>2<\/span>.*aria-pressed="true">Last round<span>1<\/span>.*aria-pressed="false">Round 1<span>1<\/span>/);
+    expect(html).toMatch(new RegExp(`<div hidden=""><[^>]*data-finding-id="${base.findings[0].id}"`));
+    expect(html).toMatch(new RegExp(`<div><[^>]*data-finding-id="${base.findings[1].id}"`));
+  });
+});
+
 describe('banners', () => {
   it('mirrors a pending approval in the summary so the wait is not hidden behind Activity', () => {
     const html = tab({ ...runningReviewFixture(), pendingApprovals: 1 });
@@ -541,9 +555,9 @@ describe('the summary card', () => {
     expect(summary(review)).not.toContain('Verification warning');
   });
 
-  it('leads with the intention and nests compact commit cards without repeating author rows', () => {
+  it('leads with the intention and outlines compact commit cards without repeating author rows', () => {
     const html = summary(review);
-    expect(html).toContain('class="agr-review-timeline__commits"');
+    expect(html).toContain('aria-label="Summary outline"');
     expect(html).not.toContain('described the change intention');
     expect(html).toContain('<details class="lrc is-purpose" open=""');
     expect(html).toContain('<span class="lrc__title">Change intention</span>');

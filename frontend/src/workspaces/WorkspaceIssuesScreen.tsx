@@ -658,7 +658,9 @@ function IssueRow({ issue, repository, labelColors, labelFilter, onFilterLabel, 
 }) {
   const owner = repository.split('/')[0] ?? repository;
   return (
-    <div className={`pull-row issues-row${selected ? ' is-selected' : ''}`}>
+    // The gaps around the row's buttons open the issue too; keyboard users reach it through the title button.
+    <div className={`pull-row issues-row${selected ? ' is-selected' : ''}`}
+      onClick={event => { if (!(event.target instanceof Element && event.target.closest('button'))) onPick(); }}>
       <button type="button" className="issues-row__select" aria-pressed={selected} onClick={onPick}>
       <span className="pull-row__title">
         <span className="pull-row__state issues-row__state" aria-hidden="true"><IssueIcon /></span>

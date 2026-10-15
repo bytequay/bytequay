@@ -344,7 +344,6 @@ class TestPullRequestService
 
         verify(gitHub, times(2)).fetchPullRequestsByHead("pat", repository, "contributor:feature");
         verify(store, times(2)).saveRepositorySyncPage(eq("owner/repo"), eq(ImmutableList.of(found.withViewerOrigin("me"))), anyString());
-        verify(store, never()).completeRepositorySync(anyString(), any());
         verifyNoInteractions(detailStore, diffStore);
     }
 
@@ -534,7 +533,6 @@ class TestPullRequestService
         verify(gitHub).searchPullRequestsPaged("pat", "is:pr is:open author:@me", 2, 100);
         verify(gitHub, times(6)).searchPullRequestsPaged(eq("pat"), anyString(), anyInt(), eq(100));
         verifyNoMoreInteractions(gitHub);
-        verify(store, never()).completeDashboardSync(anyString(), anyString());
         verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
     }
 
@@ -550,7 +548,6 @@ class TestPullRequestService
         verify(gitHub, times(10)).searchPullRequestsPaged(eq("pat"), eq("is:pr is:open author:@me"), anyInt(), eq(100));
         verify(store).saveObserved(pullRequest());
         verify(store, never()).saveDashboardSyncPage(anyList(), anyString());
-        verify(store, never()).completeDashboardSync(anyString(), anyString());
         verifyNoInteractions(summaries, detailStore, diffStore, actions, accounts);
     }
 
@@ -585,7 +582,6 @@ class TestPullRequestService
         assertThat(summarized.getAllValues().stream().flatMap(List::stream).map(PullRequestRef::number))
                 .containsExactlyElementsOf(IntStream.rangeClosed(1, 31).boxed().collect(toImmutableList()));
         verifyNoMoreInteractions(summaries);
-        verify(store, never()).completeDashboardSync(anyString(), anyString());
     }
 
     @ParameterizedTest
@@ -609,7 +605,6 @@ class TestPullRequestService
         verify(summaries).fetchSummaries("pat", firstBatch, "me");
         verifyNoMoreInteractions(summaries);
         verify(service, never()).warmDetails(anyList());
-        verify(store, never()).completeDashboardSync(anyString(), anyString());
         verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
     }
 
@@ -1079,8 +1074,6 @@ class TestPullRequestService
         verify(store, times(2)).saveRepositorySyncPage(eq("owner/repo"), saved.capture(), anyString());
         assertThat(saved.getAllValues().getFirst()).containsExactly(fetched);
         verify(store).saveObserved(fetched.withOrigin(notified ? PullRequest.Origin.REVIEW_REQUESTED : PullRequest.Origin.OTHER));
-        verify(store, never()).findRepositoryRowsMissingSync(anyString(), anyString());
-        verify(store, never()).completeRepositorySync(anyString(), any());
         verify(store, never()).saveDashboardSyncPage(anyList(), anyString());
         verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
     }
@@ -1109,7 +1102,6 @@ class TestPullRequestService
         assertThat(summarized.getAllValues().subList(0, 24)).allSatisfy(batch -> assertThat(batch).hasSize(5));
         assertThat(summarized.getValue()).containsExactly(PullRequestRef.of("owner", "repo", 121));
         assertThat(summarized.getAllValues().stream().flatMap(List::stream)).hasSize(121);
-        verify(store, never()).completeRepositorySync(anyString(), any());
         verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
     }
 

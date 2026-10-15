@@ -65,11 +65,10 @@ class TestSurefireReports
         write("TEST-demo.TestCode$Inner.xml", """
                 <testsuite name="demo.TestCode$Inner"><testcase name="inner" classname="demo.TestCode$Inner" time="0.004"/></testsuite>
                 """, startedAt.plusMillis(1));
-        // Another class sharing the prefix, and a report an earlier run left behind, are not this run's.
-        write("TEST-demo.TestCodeExtra.xml", REPORT, startedAt);
+        // A report an earlier run left behind is not this run's.
         write("TEST-demo.TestCode$Stale.xml", REPORT, startedAt.minusMillis(1));
 
-        List<TestClass> classes = SurefireReports.read(reports, "demo.TestCode", startedAt).orElseThrow();
+        List<TestClass> classes = read(reports, startedAt).orElseThrow();
 
         assertThat(classes).containsExactly(
                 new TestClass("demo.TestCode", OptionalLong.of(1_001_514), ImmutableList.of(
@@ -88,18 +87,18 @@ class TestSurefireReports
             throws IOException
     {
         Instant startedAt = Instant.now().minusSeconds(5);
-        assertThat(SurefireReports.read(reports.resolve("missing"), "demo.TestCode", startedAt)).contains(ImmutableList.of());
+        assertThat(read(reports.resolve("missing"), startedAt)).contains(ImmutableList.of());
 
         write("TEST-demo.TestCode.xml", """
                 <testsuite name="demo.TestCode"><testcase name="fails"><failure message="%s">%s</failure></testcase></testsuite>
                 """.formatted("m".repeat(10_000), "x".repeat(40_000)), startedAt);
-        TestMethod bounded = SurefireReports.read(reports, "demo.TestCode", startedAt).orElseThrow().getFirst().methods().getFirst();
+        TestMethod bounded = read(reports, startedAt).orElseThrow().getFirst().methods().getFirst();
         assertThat(bounded.trace().orElseThrow()).hasSize(16 * 1024);
         assertThat(bounded.message().orElseThrow()).hasSize(4 * 1024 + 1).endsWith("m…");
         assertThat(bounded.durationMs()).isEmpty();
 
         write("TEST-demo.TestCode.xml", "<testsuite name=\"demo.TestCode\"><testcase name=\"cut\"", startedAt);
-        assertThat(SurefireReports.read(reports, "demo.TestCode", startedAt)).isEmpty();
+        assertThat(read(reports, startedAt)).isEmpty();
 
         Path secret = Files.writeString(reports.resolve("secret.txt"), "secret");
         write("TEST-demo.TestCode.xml", """
@@ -107,12 +106,18 @@ class TestSurefireReports
                 <!DOCTYPE testsuite [<!ENTITY secret SYSTEM "%s">]>
                 <testsuite name="demo.TestCode"><testcase name="fails"><failure>&secret;</failure></testcase></testsuite>
                 """.formatted(secret.toUri()), startedAt);
-        assertThat(SurefireReports.read(reports, "demo.TestCode", startedAt)).isEmpty();
+        assertThat(read(reports, startedAt)).isEmpty();
+    }
+
+    private static Optional<List<TestClass>> read(Path root, Instant startedAt)
+    {
+        return SurefireReports.readWindow(root, startedAt, startedAt.plusSeconds(1));
     }
 
     private void write(String name, String content, Instant modifiedAt)
             throws IOException
     {
-        Files.setLastModifiedTime(Files.writeString(reports.resolve(name), content), FileTime.from(modifiedAt));
+        Path directory = Files.createDirectories(reports.resolve("target/surefire-reports"));
+        Files.setLastModifiedTime(Files.writeString(directory.resolve(name), content), FileTime.from(modifiedAt));
     }
 }

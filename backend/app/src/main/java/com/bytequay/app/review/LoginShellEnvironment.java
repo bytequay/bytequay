@@ -44,8 +44,6 @@ class LoginShellEnvironment
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Pattern NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
     private static final Pattern JAVA_VERSION = Pattern.compile("JAVA_VERSION=\"(\\d+)(?:\\.(\\d+))?.*\"");
-    // A macOS stub that exists without any JDK and can open an install dialog, so it is never counted or run.
-    private static final Path SYSTEM_JAVA_STUB = Path.of("/usr/bin/java");
 
     private final Map<String, String> backendEnvironment;
     private final Path javaHomeTool;
@@ -69,27 +67,6 @@ class LoginShellEnvironment
             environment = Optional.of(probe());
         }
         return environment.orElseThrow();
-    }
-
-    /** Drops the cached environment, so the next run reads a login shell again. */
-    synchronized void forget()
-    {
-        environment = Optional.empty();
-    }
-
-    /** Whether a run in this environment has a Java runtime, without ever executing the system stub. */
-    boolean hasJava(Map<String, String> login)
-    {
-        if (Optional.ofNullable(login.get("JAVA_HOME")).map(home -> Path.of(home, "bin", "java")).filter(LoginShellEnvironment::executable).isPresent()) {
-            return true;
-        }
-        for (String directory : Splitter.on(':').omitEmptyStrings().split(login.getOrDefault("PATH", ""))) {
-            Path java = Path.of(directory, "java");
-            if (executable(java) && !realPath(java).equals(SYSTEM_JAVA_STUB)) {
-                return true;
-            }
-        }
-        return executable(javaHomeTool) && run(login, new ProcessBuilder(javaHomeTool.toString())).isPresent();
     }
 
     /** The newest installed JDK, when its feature release is at least the given one. */
@@ -130,7 +107,7 @@ class LoginShellEnvironment
         probeEnvironment.putIfAbsent("LANG", "en_US.UTF-8");
         String shell = Optional.ofNullable(backendEnvironment.get("SHELL")).filter(value -> !value.isBlank()).orElse("/bin/zsh");
         String output = run(probeEnvironment, new ProcessBuilder(shell, "-ilc", "env -0"))
-                .orElseThrow(() -> new LocalRunRefusedException("Your login shell environment could not be read", true));
+                .orElseThrow(() -> new LocalRunRefusedException("Your login shell environment could not be read"));
         Map<String, String> login = new HashMap<>();
         for (String entry : Splitter.on('\0').omitEmptyStrings().split(output)) {
             int equals = entry.indexOf('=');
@@ -203,15 +180,5 @@ class LoginShellEnvironment
     private static boolean executable(Path file)
     {
         return Files.isRegularFile(file) && Files.isExecutable(file);
-    }
-
-    private static Path realPath(Path file)
-    {
-        try {
-            return file.toRealPath();
-        }
-        catch (IOException failure) {
-            return file;
-        }
     }
 }

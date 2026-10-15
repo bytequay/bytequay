@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 export type ContextActivityDto = { at: string; text: string; tone: 'DONE' | 'FAILED' };
-export type ContextBaselineDto = { branch: string; sha: string };
 /** How the current check turn ended; SAVED means the turn saved its candidates or its reproduction result. */
 export type ContextRunOutcome = 'RUNNING' | 'SAVED' | 'STOPPED' | 'FAILED';
 /** The workspace's current run, a spec check turn, a memory harvest or a Goal's research: its task, whether it runs, and what its tools did. */
@@ -67,13 +66,6 @@ function nonblank(value: unknown, field: string): string {
 function activity(value: unknown): ContextActivityDto {
   const item = object(value, 'run activity');
   return { at: text(item.at, 'activity time'), text: text(item.text, 'activity text'), tone: oneOf(item.tone, ['DONE', 'FAILED'], 'activity tone') };
-}
-export function parseContextBaseline(value: unknown): ContextBaselineDto | null {
-  if (value == null) return null;
-  const item = object(value, 'monitored baseline');
-  const sha = text(item.sha, 'baseline commit');
-  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha)) malformed('baseline commit');
-  return { branch: text(item.branch, 'baseline branch'), sha };
 }
 export function parseContextBuildView(value: unknown, workspaceId: string): ContextBuildViewDto {
   const item = object(value, 'build view');

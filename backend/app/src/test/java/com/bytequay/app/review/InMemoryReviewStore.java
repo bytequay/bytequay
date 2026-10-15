@@ -21,7 +21,6 @@ import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
 
-import java.time.Instant;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -153,18 +152,6 @@ class InMemoryReviewStore
     }
 
     @Override
-    public List<ReviewRun> listRecentRuns(String workspaceId, String repo, int limit)
-    {
-        checkArgument(limit >= 1 && limit <= 10, "Recent run limit must be between 1 and 10");
-        return runs.values().stream()
-                .filter(run -> findReview(run.reviewId())
-                        .filter(review -> review.workspaceId().equals(workspaceId) && review.repo().equalsIgnoreCase(repo)).isPresent())
-                .sorted(Comparator.comparing(ReviewRun::updatedAt).reversed().thenComparing(ReviewRun::id))
-                .limit(limit)
-                .collect(toImmutableList());
-    }
-
-    @Override
     public ReviewFinding insertFinding(ReviewFinding finding)
     {
         findings.put(finding.id(), finding);
@@ -225,20 +212,6 @@ class InMemoryReviewStore
     public Optional<ReviewMessage> findMessage(String messageId)
     {
         return Optional.ofNullable(messages.get(messageId));
-    }
-
-    @Override
-    public List<ReviewMessage> listEarlierMessages(String reviewId, String runId, Optional<String> findingId, Optional<String> cardId,
-            int targetRevision, Instant createdAt, String messageId, int limit)
-    {
-        return messages.values().stream()
-                .filter(message -> message.reviewId().equals(reviewId) && message.runId().equals(runId))
-                .filter(message -> message.findingId().equals(findingId) && message.cardId().equals(cardId))
-                .filter(message -> message.targetRevision() == targetRevision)
-                .filter(message -> message.createdAt().isBefore(createdAt) || (message.createdAt().equals(createdAt) && message.id().compareTo(messageId) < 0))
-                .sorted(Comparator.comparing(ReviewMessage::createdAt).thenComparing(ReviewMessage::id).reversed())
-                .limit(limit)
-                .collect(toImmutableList());
     }
 
     @Override

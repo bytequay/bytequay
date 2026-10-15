@@ -214,9 +214,6 @@ class TestClaudeQuota
         }
 
         @Override
-        public void abandon() {}
-
-        @Override
         public long pid()
         {
             return 1;

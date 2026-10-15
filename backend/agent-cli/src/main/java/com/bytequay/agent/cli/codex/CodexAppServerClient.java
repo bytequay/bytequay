@@ -106,11 +106,6 @@ final class CodexAppServerClient
     private volatile boolean closed;
     private volatile boolean workFinished;
 
-    CodexAppServerClient(ProcessSupervisor supervisor, ProcessSpec processSpec, ObjectMapper objectMapper, SecretRedactor redactor)
-    {
-        this(supervisor, processSpec, objectMapper, redactor, Optional.empty());
-    }
-
     CodexAppServerClient(ProcessSupervisor supervisor, ProcessSpec processSpec, ObjectMapper objectMapper, SecretRedactor redactor, Optional<DeepSeekLoopback> deepSeekLoopback)
     {
         this.supervisor = requireNonNull(supervisor, "supervisor is null");

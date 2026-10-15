@@ -275,12 +275,6 @@ class TestClaudeCliDriver
                             throw new AssertionError(failure);
                         }
                     }
-
-                    @Override
-                    public void abandon()
-                    {
-                        launch.abandon();
-                    }
                 };
             }
 
@@ -2137,9 +2131,6 @@ class TestClaudeCliDriver
             {
                 return "scripted";
             }
-
-            @Override
-            public void abandon() {}
 
             @Override
             public ManagedProcess start(ProcessOutputSink output)

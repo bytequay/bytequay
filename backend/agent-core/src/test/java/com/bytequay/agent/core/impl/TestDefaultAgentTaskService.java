@@ -14,7 +14,6 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentConflictException;
-import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
@@ -34,7 +33,6 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskNames;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
-import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
@@ -274,14 +272,11 @@ class TestDefaultAgentTaskService
         assertThat(task.taskWorktree()).contains(managedWorktrees.provisioned.getFirst());
         assertThat(resources.allocated).contains(task.id());
         assertThat(service.get(task.id())).isEqualTo(task);
-        assertThat(service.list(1)).containsExactly(task);
         assertThat(service.list(WORKSPACE_ID, 1)).isEmpty();
         assertThatThrownBy(() -> service.getInteractive(WORKSPACE_ID, task.id()))
                 .isInstanceOf(AgentTaskNotFoundException.class);
         assertThatThrownBy(() -> service.getInteractive("workspace-b", task.id()))
                 .isInstanceOf(AgentTaskNotFoundException.class);
-        assertThatThrownBy(() -> service.list(0))
-                .isInstanceOf(InvalidAgentRequestException.class);
         assertThatThrownBy(() -> service.list(" ", 1))
                 .isInstanceOf(InvalidAgentRequestException.class);
     }
@@ -294,36 +289,6 @@ class TestDefaultAgentTaskService
         assertThat(service.list(WORKSPACE_ID, 10)).isEmpty();
         assertThatThrownBy(() -> service.getInteractive(WORKSPACE_ID, task.id()))
                 .isInstanceOf(AgentTaskNotFoundException.class);
-    }
-
-    @Test
-    void listsCompletedSummariesWithoutOpeningTaskResources()
-    {
-        AgentTask older = service.createInteractive(interactiveCommand(TaskId.random()));
-        AgentTask newer = service.createInteractive(interactiveCommand(TaskId.random()));
-        TaskSummary summary = new TaskSummary("Retained agent conclusion", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of());
-        AgentTask completed = stores.update(older.complete(summary, NOW.plusSeconds(1), NOW.plusSeconds(100)));
-        stores.update(newer.complete(summary, NOW.plusSeconds(2), NOW.plusSeconds(100)));
-
-        assertThat(service.listCompleted(WORKSPACE_ID, new RepositoryIdentity("BYTEQUAY", "BYTEQUAY"), 1))
-                .extracting(AgentTask::id).containsExactly(newer.id());
-        assertThat(service.listCompleted(WORKSPACE_ID, REPOSITORY, 2)).contains(completed);
-        assertThat(service.listCompleted("another-workspace", REPOSITORY, 1)).isEmpty();
-        assertThat(service.listCompleted(WORKSPACE_ID, new RepositoryIdentity("other", "bytequay"), 1)).isEmpty();
-        assertThat(resources.allocated).containsExactly(older.id(), newer.id());
-        assertThat(resources.deleted).isEmpty();
-        assertThat(managedWorktrees.cleaned).isEmpty();
-    }
-
-    @Test
-    void validatesCompletedSummaryReadArguments()
-    {
-        assertThatThrownBy(() -> service.listCompleted(null, REPOSITORY, 1)).isInstanceOf(InvalidAgentRequestException.class);
-        assertThatThrownBy(() -> service.listCompleted(" ", REPOSITORY, 1)).isInstanceOf(InvalidAgentRequestException.class);
-        assertThatThrownBy(() -> service.listCompleted(WORKSPACE_ID, null, 1)).isInstanceOf(NullPointerException.class).hasMessage("repository is null");
-        assertThatThrownBy(() -> service.listCompleted(WORKSPACE_ID, REPOSITORY, 0)).isInstanceOf(InvalidAgentRequestException.class);
-        assertThatThrownBy(() -> service.listCompleted(WORKSPACE_ID, REPOSITORY, -1)).isInstanceOf(InvalidAgentRequestException.class);
-        assertThat(resources.allocated).isEmpty();
     }
 
     @Test

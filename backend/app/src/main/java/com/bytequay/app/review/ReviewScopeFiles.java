@@ -25,7 +25,7 @@ import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
-/** Shares frozen review scope while preserving publication filenames and both sides of rename matching. */
+/** Shares frozen review scope while preserving publication filenames. */
 public final class ReviewScopeFiles
 {
     private ReviewScopeFiles() {}
@@ -46,25 +46,6 @@ public final class ReviewScopeFiles
             return run.diff().stream().map(DiffFile::filename).collect(toImmutableList());
         }
         return changed(git, repository, previous.orElseThrow().headSha(), run.headSha());
-    }
-
-    /**
-     * Returns the same frozen change scope with both old and new rename paths for context matching.
-     *
-     * @param git shared bounded local Git runner
-     * @param repository application-verified readable repository
-     * @param run frozen review run
-     * @param previous previously accepted, complete run resolved against this run's prior head
-     * @return literal changed paths; no source or history hydration is performed
-     * @throws ReviewInvalidRequestException when path discovery fails or is truncated
-     *
-     * Full/fallback matching compares the frozen merge base with the head. Incremental matching
-     * compares the accepted prior head, including paths reverted out of the current publication diff.
-     */
-    public static List<String> matching(GitCommandRunner git, Path repository, ReviewRun run, Optional<ReviewRun> previous)
-    {
-        String base = run.scope() == ReviewRun.Scope.INCREMENTAL && previous.isPresent() ? previous.orElseThrow().headSha() : run.mergeBaseSha();
-        return changed(git, repository, base, run.headSha());
     }
 
     private static List<String> changed(GitCommandRunner git, Path repository, String base, String head)

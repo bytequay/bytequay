@@ -597,15 +597,6 @@ public final class DefaultProcessSupervisor
             }
         }
 
-        @Override
-        public void abandon()
-        {
-            if (used.compareAndSet(false, true)) {
-                intents.forget(launchId());
-                store.delete(launchId());
-            }
-        }
-
         private void abort(Process launcher, LaunchMarker recorded, boolean released)
         {
             if (released) {

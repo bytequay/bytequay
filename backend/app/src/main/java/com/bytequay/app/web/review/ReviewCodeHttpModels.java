@@ -109,11 +109,6 @@ final class ReviewCodeHttpModels
             boolean treeUnverified,
             List<TestClass> results) {}
 
-    record SaveFileRequest(String path, String content, String expectedHash) {}
-
-    /** The renderer recognizes a stale save by {@code currentHash}; the content is null when the file cannot be shown. */
-    record SaveConflictResponse(String currentHash, Optional<String> currentContent) {}
-
     /** For Electron main only, which never forwards these paths to a renderer. */
     record TerminalResponse(String workingDirectory, Optional<String> claudeConfigDirectory) {}
 }

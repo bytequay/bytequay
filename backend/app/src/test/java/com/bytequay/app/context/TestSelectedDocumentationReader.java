@@ -224,6 +224,7 @@ class TestSelectedDocumentationReader
 
     private static DocumentationHttpReader.Read capture(String text)
     {
-        return new DocumentationHttpReader.Read(URL, text, Hashing.sha256().hashString(text, UTF_8).toString(), READ_AT, false, ImmutableList.of());
+        return new DocumentationHttpReader.Read(URL, text, Hashing.sha256().hashString(text, UTF_8).toString(),
+                READ_AT, false, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false, ImmutableMap.of());
     }
 }

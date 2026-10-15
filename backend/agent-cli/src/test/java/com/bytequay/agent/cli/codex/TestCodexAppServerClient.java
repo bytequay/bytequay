@@ -37,6 +37,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -98,9 +99,6 @@ class TestCodexAppServerClient
                         process.output(output);
                         return process;
                     }
-
-                    @Override
-                    public void abandon() {}
                 };
             }
 
@@ -125,7 +123,7 @@ class TestCodexAppServerClient
                 1024,
                 Duration.ofMinutes(1),
                 Duration.ZERO);
-        CodexAppServerClient client = new CodexAppServerClient(supervisor, spec, objectMapper, SecretRedactor.fromEnvironment(ImmutableMap.of()));
+        CodexAppServerClient client = new CodexAppServerClient(supervisor, spec, objectMapper, SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty());
         client.start();
         assertThat(acknowledged).isEmpty();
         if (exitBeforeStop) {

@@ -42,12 +42,11 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Comparator.comparing;
 
-/** Reads the Surefire XML reports one run wrote for its test class. */
+/** Reads the Surefire XML reports a run wrote. */
 final class SurefireReports
 {
     private static final int MAXIMUM_TRACE_CHARACTERS = 16 * 1024;
@@ -61,36 +60,6 @@ final class SurefireReports
     private static String boundedMessage(String message)
     {
         return message.length() <= MAXIMUM_MESSAGE_CHARACTERS ? message : message.substring(0, MAXIMUM_MESSAGE_CHARACTERS) + "…";
-    }
-
-    /**
-     * Rows from the class's reports modified at or after the run started, including its nested classes' reports.
-     *
-     * @return classes in report order, empty when there is no fresh report; empty optional when a report cannot be read
-     */
-    static Optional<List<TestClass>> read(Path directory, String testClass, Instant startedAt)
-    {
-        String report = "TEST-" + testClass;
-        ListMultimap<String, TestMethod> methods = LinkedListMultimap.create();
-        try (Stream<Path> files = Files.list(directory)) {
-            // By class name, so an outer class precedes its nested classes, whose '$' sorts before ".xml".
-            for (Path file : files.sorted(comparing(path -> path.getFileName().toString().replaceFirst("\\.xml$", ""))).toList()) {
-                String name = file.getFileName().toString();
-                boolean selected = name.equals(report + ".xml") || name.startsWith(report + "$") && name.endsWith(".xml");
-                if (selected && Files.getLastModifiedTime(file).toMillis() >= startedAt.toEpochMilli()) {
-                    try (InputStream input = Files.newInputStream(file)) {
-                        parse(input, testClass, methods);
-                    }
-                }
-            }
-        }
-        catch (NoSuchFileException missing) {
-            return Optional.of(ImmutableList.of());
-        }
-        catch (IOException | XMLStreamException | RuntimeException unreadable) {
-            return Optional.empty();
-        }
-        return Optional.of(classes(methods));
     }
 
     /**

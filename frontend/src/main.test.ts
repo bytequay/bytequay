@@ -412,17 +412,6 @@ it('routes Code & Tests reads and writes to the review or the development task t
 
   expect(desktop.handlers.has('code:runs:start')).toBe(false);
 
-  fetch.mockResolvedValueOnce(json({ currentHash: 'h2', currentContent: 'disk' }, 409));
-  await expect(handler('code:save')(task, 'core/src/main/java/io/x/Access.java', 'draft', 'h1'))
-    .resolves.toEqual({ conflict: { currentHash: 'h2', currentContent: 'disk' } });
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/agent/tasks/task%2Fone/code/file?workspaceId=workspace%2Fone',
-    expect.objectContaining({ method: 'PUT', body: JSON.stringify({ path: 'core/src/main/java/io/x/Access.java', content: 'draft', expectedHash: 'h1' }) }));
-
-  fetch.mockResolvedValueOnce(json({ message: "The task's worktree was removed" }, 409));
-  await expect(handler('code:save')(task, 'a.java', 'draft', 'h1')).rejects.toThrow("The task's worktree was removed");
-
-
-
   const calls = fetch.mock.calls.length;
   await expect(handler('code:files')({ kind: 'task', taskId: 'task/one' })).rejects.toThrow('Malformed Code & Tests host');
   expect(fetch).toHaveBeenCalledTimes(calls);
@@ -454,10 +443,6 @@ it('routes spec check runs, their baseline and their recovery through the authen
   fetch.mockImplementation(async () => new Response(JSON.stringify(impact)));
   await expect(desktop.handlers.get('repository-context:build:stop-impact')?.({}, 'workspace/one', 'task/one')).resolves.toEqual(impact);
   expect(fetch).toHaveBeenLastCalledWith(base + '/runtime/stop-impact?taskId=task%2Fone', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
-  const baseline = { branch: 'main', sha: 'a'.repeat(40) };
-  fetch.mockImplementation(async () => new Response(JSON.stringify(baseline)));
-  await expect(desktop.handlers.get('repository-context:build:baseline')?.({}, 'workspace/one')).resolves.toEqual(baseline);
-  expect(fetch).toHaveBeenLastCalledWith(base + '/baseline', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
   fetch.mockImplementation(async () => new Response(JSON.stringify({ ...view, notebookRevision: 7, build: { ...view.build, outcome: 'SUBMITTED' } })));
   await expect(desktop.handlers.get('repository-context:build:get')?.({}, 'workspace/one')).rejects.toThrow('Malformed spec check: run outcome');
 });

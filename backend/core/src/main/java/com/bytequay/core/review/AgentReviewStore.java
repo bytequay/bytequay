@@ -13,7 +13,6 @@
  */
 package com.bytequay.core.review;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -53,18 +52,6 @@ public interface AgentReviewStore
 
     List<ReviewRun> listRuns(String reviewId);
 
-    /**
-     * Reads bounded local history across open and closed reviews of one workspace and repository.
-     * The storage query applies the limit before loading run records; this is not a complete history search.
-     *
-     * @param workspaceId owning workspace
-     * @param repo case-insensitive owner/repository name
-     * @param limit maximum results, from 1 through 10
-     * @return runs ordered by descending update time, then ascending ID
-     * @throws IllegalArgumentException when the limit is outside the supported range
-     */
-    List<ReviewRun> listRecentRuns(String workspaceId, String repo, int limit);
-
     ReviewFinding insertFinding(ReviewFinding finding);
 
     ReviewFinding updateFinding(ReviewFinding finding);
@@ -81,10 +68,6 @@ public interface AgentReviewStore
     void deleteMessage(String messageId);
 
     Optional<ReviewMessage> findMessage(String messageId);
-
-    /** Reads only the preceding messages on one saved discussion target, newest first. */
-    List<ReviewMessage> listEarlierMessages(String reviewId, String runId, Optional<String> findingId, Optional<String> cardId,
-            int targetRevision, Instant createdAt, String messageId, int limit);
 
     List<ReviewMessage> listMessages(String reviewId);
 }

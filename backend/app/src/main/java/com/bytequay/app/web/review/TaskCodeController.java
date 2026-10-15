@@ -17,18 +17,12 @@ import com.bytequay.app.review.LocalRunService;
 import com.bytequay.app.review.LocalRunService.OutputChunk;
 import com.bytequay.app.review.ReviewCodeService;
 import com.bytequay.app.review.ReviewCodeService.CodeFiles;
-import com.bytequay.app.review.ReviewFileConflictException;
 import com.bytequay.app.review.TaskCodeHost;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.file.Path;
@@ -81,12 +75,6 @@ public class TaskCodeController
         return ReviewCodeHttpModels.file(code.file(new TaskCodeHost(workspaceId, taskId), path, expectedRevision));
     }
 
-    @PutMapping("/file")
-    public ReviewCodeHttpModels.FileResponse save(@PathVariable String taskId, @RequestParam String workspaceId, @RequestBody ReviewCodeHttpModels.SaveFileRequest request)
-    {
-        return ReviewCodeHttpModels.file(code.save(new TaskCodeHost(workspaceId, taskId), request.path(), request.content(), request.expectedHash()));
-    }
-
     @PostMapping("/terminal")
     public ReviewCodeHttpModels.TerminalResponse terminal(@PathVariable String taskId, @RequestParam String workspaceId)
     {
@@ -116,12 +104,5 @@ public class TaskCodeController
             @RequestParam(defaultValue = "0") long after)
     {
         return localRuns.output(new TaskCodeHost(workspaceId, taskId), runId, after);
-    }
-
-    @ExceptionHandler(ReviewFileConflictException.class)
-    @ResponseStatus(HttpStatus.CONFLICT)
-    public ReviewCodeHttpModels.SaveConflictResponse fileChanged(ReviewFileConflictException conflict)
-    {
-        return new ReviewCodeHttpModels.SaveConflictResponse(conflict.currentHash(), conflict.currentContent());
     }
 }

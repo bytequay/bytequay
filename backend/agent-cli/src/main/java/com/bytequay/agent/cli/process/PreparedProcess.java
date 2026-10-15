@@ -37,7 +37,4 @@ public interface PreparedProcess
      * @throws AgentUnavailableException when the gated launch cannot be completed
      */
     ManagedProcess start(ProcessOutputSink output);
-
-    /** Removes a known-unsent prepared marker after the owner rolls its launch intent back. */
-    void abandon();
 }

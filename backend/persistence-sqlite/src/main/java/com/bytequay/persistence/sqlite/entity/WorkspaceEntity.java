@@ -44,12 +44,10 @@ public class WorkspaceEntity
     private String name;
 
     @Column(nullable = false, columnDefinition = "boolean default true")
-    @Getter
     @Setter
     private boolean watched = true;
 
     @Column(name = "selected_repository_id", nullable = false, unique = true)
-    @Getter
     private long selectedRepositoryId;
 
     @Column(nullable = false)
@@ -98,7 +96,6 @@ public class WorkspaceEntity
     private Instant lastMetadataSyncAt;
 
     @Column(nullable = false)
-    @Getter
     private int displayOrder;
 
     @Column(nullable = false)

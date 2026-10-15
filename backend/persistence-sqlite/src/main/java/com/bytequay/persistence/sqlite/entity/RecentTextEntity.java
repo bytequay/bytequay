@@ -21,7 +21,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
-import lombok.Getter;
 
 import java.time.Instant;
 
@@ -37,7 +36,6 @@ public class RecentTextEntity
 
     @Id
     @Column(name = "id")
-    @Getter
     private String id;
 
     @Column(name = "item_type", nullable = false)
@@ -53,7 +51,6 @@ public class RecentTextEntity
     // The distinction matters: Hibernate refuses LOWER() on a CLOB, which is
     // exactly what the word search needs.
     @Column(name = "body", nullable = false, length = MAX_BODY)
-    @Getter
     private String body;
 
     @Column(name = "written_at", nullable = false)

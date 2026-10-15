@@ -60,7 +60,6 @@ import { parseDiscussionReplyDraft, parseTaskDiscussion, parseTaskDiscussions, t
 import { parseLocalReviewThread, parseLocalReviewThreads, type CreateDevelopmentLearningCommentRequest, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import { parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import {
-  parseContextBaseline,
   parseContextBuildView,
   parseContextSpecCheck,
   parseContextSpecChecks,
@@ -1092,19 +1091,6 @@ function registerIpc(): void {
   ipcMain.handle('code:runs:stop', (_event, host: unknown, runId: string) =>
     backendJson(codeUrl(host, `/runs/${encodeURIComponent(runId)}/stop`), { method: 'POST', headers: agentHeaders() }).then(parseLocalRun));
   // A stale draft is a conflict the editor resolves with the user, not an error.
-  ipcMain.handle('code:save', async (_event, host: unknown, path: string, content: string, expectedHash: string) => {
-    const response = await fetch(codeUrl(host, '/file'), jsonInit('PUT', { path, content, expectedHash }, agentHeaders(true)));
-    const body = await response.text();
-    if (response.status === 409) {
-      const parsed = JSON.parse(body) as { currentHash?: unknown; currentContent?: unknown };
-      if ('currentHash' in parsed) {
-        return { conflict: { currentHash: typeof parsed.currentHash === 'string' ? parsed.currentHash : null,
-          currentContent: typeof parsed.currentContent === 'string' ? parsed.currentContent : null } };
-      }
-    }
-    if (!response.ok) throw new Error(extractMessage(body) || `Saving the file returned ${response.status}`);
-    return { file: parseReviewCodeFile(JSON.parse(body)) };
-  });
   ipcMain.handle('code:runs:output', (_event, host: unknown, runId: string, after: number) =>
     backendJson(codeUrl(host, `/runs/${encodeURIComponent(runId)}/output`, { after: String(Math.max(0, Math.floor(after))) }), { headers: agentHeaders() })
       .then(parseLocalRunOutput));
@@ -1423,8 +1409,6 @@ function registerIpc(): void {
   const contextBuildUrl = (workspaceId: string) => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/build`;
   ipcMain.handle('repository-context:build:get', (_event, workspaceId: string) =>
     backendJson(contextBuildUrl(workspaceId), { headers: agentHeaders() }).then(value => parseContextBuildView(value, workspaceId)));
-  ipcMain.handle('repository-context:build:baseline', (_event, workspaceId: string) =>
-    backendJson(contextBuildUrl(workspaceId) + '/baseline', { headers: agentHeaders() }).then(parseContextBaseline));
   const specCheckUrl = (workspaceId: string) => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/spec-checks`;
   ipcMain.handle('repository-context:spec-checks:get', (_event, workspaceId: string) =>
     backendJson(specCheckUrl(workspaceId), { headers: agentHeaders() }).then(parseContextSpecChecks));
@@ -1615,8 +1599,6 @@ function registerIpc(): void {
       method: 'POST',
       signal: AbortSignal.timeout(15 * 60_000),
     }));
-  ipcMain.handle('prs:detail', (_event, prId: number) =>
-    backendJson(`${backendBase()}/prs/${encodeURIComponent(String(prId))}/detail`));
   ipcMain.handle('prs:detail:by-ref', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/detail', repo, number)));
   ipcMain.handle('prs:users', (_event, repo: string, workspaceId?: string) => {

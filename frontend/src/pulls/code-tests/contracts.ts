@@ -267,7 +267,6 @@ export function parseLocalRunOutput(value: unknown): LocalRunOutputDto {
 /** A start the backend refused before creating a record: the reason and the one action the panel offers. */
 
 /** The file on disk no longer matches the draft's starting point; nothing was written. */
-export type SaveConflictDto = { currentHash: string | null; currentContent: string | null };
 
 export type WorktreeChangeScope = 'ALL' | 'UNCOMMITTED' | 'COMMITTED' | 'COMMIT';
 export type WorktreeChangesRequest = { scope: WorktreeChangeScope; commit?: string; base?: string; head?: string };

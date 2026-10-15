@@ -66,8 +66,6 @@ class TestSqliteGoalStore
 
         assertThat(store.list("workspace-1")).containsExactly(withItems, other);
         assertThat(store.find("goal-1")).contains(withItems);
-        assertThat(store.findBySource(source)).containsExactly(withItems);
-        assertThat(store.findBySource(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#1"))).isEmpty();
         // Pinning leaves the revision; a definition moves it, so a proposal from before it cannot be accepted.
         Goal defined = withItems.withPinned(false, NOW.plusSeconds(7))
                 .withDefinition("Iceberg reads", "Explain how reads plan files", new GoalDefinition("Explain a scan", "", "Five hours a week", "exchange-1", NOW),
@@ -88,10 +86,6 @@ class TestSqliteGoalStore
         store.save(paused);
         assertThat(store.find("goal-1")).contains(paused);
         assertThat(paused.revision()).as("pausing guidance changes nothing the goal means").isEqualTo(2);
-
-        store.delete("goal-1");
-        assertThat(store.list("workspace-1")).containsExactly(other);
-        assertThat(store.find("goal-1")).isEmpty();
     }
 
     @Test

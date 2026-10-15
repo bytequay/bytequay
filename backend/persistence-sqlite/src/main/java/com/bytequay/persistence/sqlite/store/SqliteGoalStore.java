@@ -14,7 +14,6 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.Goal;
-import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.store.GoalStore;
 import com.bytequay.persistence.sqlite.entity.GoalEntity;
 import com.bytequay.persistence.sqlite.repository.GoalJpaRepository;
@@ -52,12 +51,6 @@ public class SqliteGoalStore
     }
 
     @Override
-    public List<Goal> findBySource(GoalSource source)
-    {
-        return goals.findBySourceKindAndSourceKey(source.kind().name(), source.key()).stream().map(GoalEntity::toDomain).collect(toImmutableList());
-    }
-
-    @Override
     @Transactional
     public void save(Goal goal)
     {
@@ -65,12 +58,5 @@ public class SqliteGoalStore
         GoalEntity entity = goals.findById(goal.id()).orElseGet(() -> new GoalEntity(goal));
         entity.update(goal);
         goals.saveAndFlush(entity);
-    }
-
-    @Override
-    @Transactional
-    public void delete(String goalId)
-    {
-        goals.deleteById(goalId);
     }
 }

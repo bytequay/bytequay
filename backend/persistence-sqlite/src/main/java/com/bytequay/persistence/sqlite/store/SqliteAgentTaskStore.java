@@ -17,7 +17,6 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.CleanupState;
-import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -143,18 +142,6 @@ public class SqliteAgentTaskStore
         checkArgument(!workspaceId.isBlank(), "workspaceId is blank");
         checkLimit(limit);
         return repository.findByWorkspaceIdAndInteractiveTrueOrderByUpdatedAtDesc(workspaceId, PageRequest.of(0, limit)).stream()
-                .map(AgentTaskEntity::toDomain)
-                .collect(toImmutableList());
-    }
-
-    @Override
-    public List<AgentTask> listRecentCompletedInteractive(String workspaceId, RepositoryIdentity repositoryIdentity, int limit)
-    {
-        requireNonNull(workspaceId, "workspaceId is null");
-        checkArgument(!workspaceId.isBlank(), "workspaceId is blank");
-        requireNonNull(repositoryIdentity, "repositoryIdentity is null");
-        checkLimit(limit);
-        return repository.findRecentCompletedInteractive(workspaceId, repositoryIdentity.owner(), repositoryIdentity.name(), TaskState.COMPLETED, PageRequest.of(0, limit)).stream()
                 .map(AgentTaskEntity::toDomain)
                 .collect(toImmutableList());
     }

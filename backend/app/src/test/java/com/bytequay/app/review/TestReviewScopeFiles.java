@@ -45,7 +45,7 @@ class TestReviewScopeFiles
     private Path repository;
 
     @Test
-    void fullMatchingIncludesBothRenamePathsWhileCoverageRetainsPublicationFilenames()
+    void fullCoverageRetainsPublicationFilenames()
             throws IOException
     {
         initialize();
@@ -58,7 +58,6 @@ class TestReviewScopeFiles
         ReviewRun run = run(ReviewRun.Scope.FULL, base, head, ImmutableList.of(new DiffFile("新/Table.java", "renamed", 0, 0, null)));
 
         assertThat(ReviewScopeFiles.required(GIT, repository, run, Optional.empty())).containsExactly("新/Table.java");
-        assertThat(ReviewScopeFiles.matching(GIT, repository, run, Optional.empty())).containsExactly("old/Table.java", "新/Table.java");
     }
 
     @Test
@@ -77,21 +76,16 @@ class TestReviewScopeFiles
                 .ended(ReviewRun.State.ACCEPTED, Optional.empty(), Instant.EPOCH);
 
         assertThat(ReviewScopeFiles.required(GIT, repository, run, Optional.of(previous))).containsExactly("metadata.bin");
-        assertThat(ReviewScopeFiles.matching(GIT, repository, run, Optional.of(previous))).containsExactly("metadata.bin");
-        assertThat(ReviewScopeFiles.matching(GIT, repository, run, Optional.empty())).isEmpty();
     }
 
     @Test
-    void coverageFallbackDoesNotRequireGitWhileMatchingStillReadsTheFrozenRange()
+    void coverageFallbackDoesNotRequireGit()
     {
         GitCommandRunner git = mock(GitCommandRunner.class);
         ReviewRun run = run(ReviewRun.Scope.INCREMENTAL, BASE, HEAD, ImmutableList.of(new DiffFile("current.txt", "modified", 1, 0, "patch")));
 
         assertThat(ReviewScopeFiles.required(git, repository, run, Optional.empty())).containsExactly("current.txt");
         verifyNoInteractions(git);
-        when(git.run(repository, "diff", "--name-only", "--no-renames", "-z", BASE, HEAD, "--"))
-                .thenReturn(new GitCommandRunner.Result(0, "old.txt\u0000current.txt\u0000", false));
-        assertThat(ReviewScopeFiles.matching(git, repository, run, Optional.empty())).containsExactly("old.txt", "current.txt");
     }
 
     @Test
@@ -104,7 +98,6 @@ class TestReviewScopeFiles
             when(git.run(repository, "diff", "--name-only", "--no-renames", "-z", BASE, HEAD, "--")).thenReturn(result);
 
             assertThatThrownBy(() -> ReviewScopeFiles.required(git, repository, run, Optional.of(previous))).isInstanceOf(ReviewInvalidRequestException.class);
-            assertThatThrownBy(() -> ReviewScopeFiles.matching(git, repository, run, Optional.empty())).isInstanceOf(ReviewInvalidRequestException.class);
         }
     }
 

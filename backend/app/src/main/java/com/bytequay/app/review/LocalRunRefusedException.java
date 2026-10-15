@@ -19,22 +19,8 @@ import static java.util.Objects.requireNonNull;
 public class LocalRunRefusedException
         extends RuntimeException
 {
-    private final boolean openTerminal;
-
-    /**
-     * Creates a refusal.
-     *
-     * @param reason what the user sees where the run would have appeared
-     * @param openTerminal whether the terminal is the one action that can fix it
-     */
-    public LocalRunRefusedException(String reason, boolean openTerminal)
+    public LocalRunRefusedException(String reason)
     {
         super(requireNonNull(reason, "reason is null"));
-        this.openTerminal = openTerminal;
-    }
-
-    public boolean openTerminal()
-    {
-        return openTerminal;
     }
 }

@@ -239,64 +239,6 @@ class TestSqliteReviewStores
     }
 
     @Test
-    void readsOnlyBoundedEarlierMessagesFromTheSameTargetAndRevision()
-    {
-        store.insertReview(newReview("review-discussion", "workspace-a", "bytequay/sample", 7, "task-discussion", NOW));
-        store.insertRun(newRun("run-discussion", "review-discussion"));
-        ReviewMessage first = new ReviewMessage("message-a", "review-discussion", Optional.of("finding-1"), Optional.empty(),
-                ReviewMessage.Author.USER, "First", 1, "run-discussion", Optional.empty(), Optional.empty(), 0, NOW);
-        ReviewMessage second = new ReviewMessage("message-b", "review-discussion", Optional.of("finding-1"), Optional.empty(),
-                ReviewMessage.Author.AGENT, "Second", 1, "run-discussion", Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1));
-        ReviewMessage changedRevision = new ReviewMessage("message-c", "review-discussion", Optional.of("finding-1"), Optional.empty(),
-                ReviewMessage.Author.USER, "Later revision", 2, "run-discussion", Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1));
-        ReviewMessage differentTarget = new ReviewMessage("message-aa", "review-discussion", Optional.of("finding-2"), Optional.empty(),
-                ReviewMessage.Author.USER, "Other finding", 1, "run-discussion", Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1));
-        ReviewMessage laterId = new ReviewMessage("message-z", "review-discussion", Optional.of("finding-1"), Optional.empty(),
-                ReviewMessage.Author.USER, "Same time, later ID", 1, "run-discussion", Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1));
-        ReviewMessage source = new ReviewMessage("message-d", "review-discussion", Optional.of("finding-1"), Optional.empty(),
-                ReviewMessage.Author.AGENT, "Selected", 1, "run-discussion", Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1));
-        store.insertMessage(first);
-        store.insertMessage(second);
-        store.insertMessage(changedRevision);
-        store.insertMessage(differentTarget);
-        store.insertMessage(laterId);
-        store.insertMessage(source);
-        entityManager.clear();
-
-        assertThat(store.findMessage("message-d")).contains(source);
-        assertThat(store.listEarlierMessages("review-discussion", "run-discussion", Optional.of("finding-1"), Optional.empty(), 1,
-                source.createdAt(), source.id(), 1)).containsExactly(second);
-        assertThat(store.listEarlierMessages("review-discussion", "run-discussion", Optional.of("finding-1"), Optional.empty(), 1,
-                source.createdAt(), source.id(), 3)).containsExactly(second, first);
-    }
-
-    @Test
-    void readsRecentRunsWithWorkspaceRepositoryAndDatabaseBounds()
-    {
-        for (int index = 0; index < 12; index++) {
-            AgentReview review = newReview("review-" + index, "workspace-a", "bytequay/sample", index + 1, "task-" + index, NOW);
-            if (index == 11) {
-                review = review.closed(NOW.plusSeconds(1));
-            }
-            store.insertReview(review);
-            store.insertRun(newRun("run-" + index, review.id()).withTurn("history", NOW.plusSeconds(index / 2)));
-        }
-        store.insertReview(newReview("review-other-workspace", "workspace-b", "bytequay/sample", 1, "task-other-workspace", NOW));
-        store.insertReview(newReview("review-other-repo", "workspace-a", "bytequay/other", 1, "task-other-repo", NOW));
-        store.insertRun(newRun("run-other-workspace", "review-other-workspace").withTurn("history", NOW.plusSeconds(100)));
-        store.insertRun(newRun("run-other-repo", "review-other-repo").withTurn("history", NOW.plusSeconds(100)));
-        // An excluded older payload cannot be decoded: applying the bound after loading domain runs would fail.
-        entityManager.createNativeQuery("UPDATE agent_review_run SET diff_json = 'invalid' WHERE id = 'run-0'").executeUpdate();
-        entityManager.clear();
-
-        assertThat(store.listRecentRuns("workspace-a", "ByteQuay/Sample", 3)).extracting(ReviewRun::id).containsExactly("run-10", "run-11", "run-8");
-        assertThat(store.listRecentRuns("workspace-a", "bytequay/sample", 10)).hasSize(10);
-        assertThat(store.listRecentRuns("workspace-missing", "bytequay/sample", 10)).isEmpty();
-        assertThatThrownBy(() -> store.listRecentRuns("workspace-a", "bytequay/sample", 0)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> store.listRecentRuns("workspace-a", "bytequay/sample", 11)).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
     void roundTripsTheSealedEvidenceRequestResponseAndFinalSelection()
     {
         AgentReview review = newReview("review-loop", "workspace-a", "bytequay/sample", 7, "task-loop", NOW);

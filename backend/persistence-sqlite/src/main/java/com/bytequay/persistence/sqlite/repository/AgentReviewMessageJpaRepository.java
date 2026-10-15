@@ -14,35 +14,12 @@
 package com.bytequay.persistence.sqlite.repository;
 
 import com.bytequay.persistence.sqlite.entity.AgentReviewMessageEntity;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
-import java.time.Instant;
 import java.util.List;
 
 public interface AgentReviewMessageJpaRepository
         extends JpaRepository<AgentReviewMessageEntity, String>
 {
     List<AgentReviewMessageEntity> findByReviewIdOrderByCreatedAtAsc(String reviewId);
-
-    @Query("""
-            SELECT message FROM AgentReviewMessageEntity message
-            WHERE message.reviewId = :reviewId AND message.runId = :runId
-                AND ((:findingId IS NULL AND message.findingId IS NULL) OR message.findingId = :findingId)
-                AND ((:cardId IS NULL AND message.cardId IS NULL) OR message.cardId = :cardId)
-                AND message.targetRevision = :targetRevision
-                AND (message.createdAt < :createdAt OR (message.createdAt = :createdAt AND message.id < :messageId))
-            ORDER BY message.createdAt DESC, message.id DESC
-            """)
-    List<AgentReviewMessageEntity> findEarlier(
-            @Param("reviewId") String reviewId,
-            @Param("runId") String runId,
-            @Param("findingId") String findingId,
-            @Param("cardId") String cardId,
-            @Param("targetRevision") int targetRevision,
-            @Param("createdAt") Instant createdAt,
-            @Param("messageId") String messageId,
-            Pageable pageable);
 }

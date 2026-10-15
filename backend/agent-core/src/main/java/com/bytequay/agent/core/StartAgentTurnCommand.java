@@ -67,11 +67,6 @@ public record StartAgentTurnCommand(
         return new StartAgentTurnCommand(taskId, expectedTaskVersion, message, attachments, idempotencyKey, useTrustedTaskCreationReadiness, automation, useRepositoryContext);
     }
 
-    public StartAgentTurnCommand withRepositoryContext(Optional<Boolean> enabled)
-    {
-        return new StartAgentTurnCommand(taskId, expectedTaskVersion, message, attachments, idempotencyKey, useTrustedTaskCreationReadiness, developmentAutomation, enabled);
-    }
-
     /** Starts against an exact task snapshot, for callers that validated its mutable defaults. */
     public StartAgentTurnCommand(TaskId taskId, long expectedTaskVersion, String message, List<AgentAttachment> attachments, String idempotencyKey)
     {

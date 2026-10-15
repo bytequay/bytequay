@@ -84,19 +84,6 @@ class TestSqliteWorkItemStore
     }
 
     @Test
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void deletingWorkFreesItsSourceForOtherWork()
-    {
-        WorkItem owner = item("deleted-owner", "workspace");
-        store.insert(owner);
-        store.delete(owner);
-        assertThat(store.find("deleted-owner")).isEmpty();
-        assertThat(store.findByIdentity(sourceIdentity)).isEmpty();
-        store.insert(item("next-owner", "workspace"));
-        assertThat(store.findByIdentity(sourceIdentity)).map(WorkItem::id).contains("next-owner");
-    }
-
-    @Test
     void anEpicRoundTripsItsChildrenAndWhatTheUserDidWithThem()
     {
         EpicChild synced = new EpicChild("ISSUE:github.com:8", GoalItemKind.ISSUE, "org/repo#8", "#8", "Parse", "Open", false, Optional.of("https://github.com/org/repo/issues/8"));

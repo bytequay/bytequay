@@ -12,9 +12,8 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { explanationRunFixture, reviewFixture } from '../agent-review/fixtures/review';
 import { parseLocalRun, parseLocalRunOutput, type LocalRunDto, type ReviewCodeFilesDto } from './contracts';
-import { commandLabel, runGate, runIsStale, runLabel, runSummary, shownResults } from './runModel';
+import { commandLabel, runIsStale, runLabel, runSummary, shownResults } from './runModel';
 
 function run(overrides: Partial<LocalRunDto> = {}): LocalRunDto {
   return {
@@ -47,37 +46,6 @@ describe('result tree', () => {
     ] }]);
     expect(shownResults(mixed, false)).toBe(mixed.results);
     expect(shownResults(run(), true)).toEqual([]);
-  });
-});
-
-describe('run gate', () => {
-  it('allows a run only on an idle open review with a working copy', () => {
-    expect(runGate(reviewFixture(), files)).toEqual({ hidden: false, blocked: null });
-    expect(runGate(reviewFixture({ state: 'CLOSED' }), files).hidden).toBe(true);
-    expect(runGate(reviewFixture(), { ...files, source: 'REVISION' }).hidden).toBe(true);
-  });
-
-  it('names what holds the working copy', () => {
-    const task = reviewFixture().task;
-    expect(runGate(reviewFixture({ task: { ...task, mutationClaim: 'LOCAL_RUN' } }), files).blocked).toBe('A run is using this working copy');
-    expect(runGate(reviewFixture({ task: { ...task, mutationClaim: 'COMPLETION' } }), files).blocked).toBe('The working copy is being updated');
-    expect(runGate(reviewFixture({ activeTurn: { id: 't', state: 'RUNNING', startedAt: null, cancellationRequestedAt: null } as never }), files).blocked)
-      .toBe('The review agent is working');
-    expect(runGate(reviewFixture({ queuedInputIds: ['q'] }), files).blocked).toBe('Remove or resume the queued question');
-  });
-
-  it('treats a paused review whose pass is still RUNNING as idle', () => {
-    const review = reviewFixture();
-    const running = { ...review.runs[0], state: 'RUNNING' as const };
-    expect(runGate({ ...review, runs: [running], followUpPaused: false }, files).blocked).toBe('The review agent is working');
-    expect(runGate({ ...review, runs: [running], followUpPaused: true }, files).blocked).toBeNull();
-  });
-
-  it('waits for explanation refresh completion even after its provider turn settles', () => {
-    const review = reviewFixture();
-    const explaining = explanationRunFixture({ state: 'RUNNING' });
-    expect(runGate({ ...review, runs: [...review.runs, explaining] }, files).blocked).toBe('The review agent is working');
-    expect(runGate({ ...review, runs: [...review.runs, { ...explaining, state: 'ACCEPTED' }] }, files).blocked).toBeNull();
   });
 });
 

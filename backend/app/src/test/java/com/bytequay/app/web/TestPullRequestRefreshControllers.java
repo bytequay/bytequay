@@ -289,18 +289,6 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
-    void servesDetailForARowIdSoTheAttentionListCanOpenIt()
-    {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
-        when(pullRequests.openPullRequestDetail(50L)).thenReturn(detail());
-
-        assertThat(controller.detail(50L)).isEqualTo(detail());
-
-        verify(pullRequests).openPullRequestDetail(50L);
-    }
-
-    @Test
     void forwardsPullRequestReactionToggleRequestWithoutKnownViewerState()
             throws Exception
     {

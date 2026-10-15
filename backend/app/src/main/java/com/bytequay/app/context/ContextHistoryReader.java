@@ -47,8 +47,6 @@ public class ContextHistoryReader
     private static final int EXCERPT_BYTES = 16 * 1024;
     private static final int ACTIVITY_ITEMS = 20;
     private static final int DIFF_FILES = 3;
-    private static final TopKSelector ACTIVITY = new TopKSelector(ACTIVITY_ITEMS);
-    private static final TopKSelector PATCHES = new TopKSelector(DIFF_FILES);
     private static final Comparator<PullRequestDetail.ActivityItem> PR_ACTIVITY_ORDER = Comparator
             .comparing(PullRequestDetail.ActivityItem::timestamp, Comparator.nullsLast(Comparator.reverseOrder()))
             .thenComparing(PullRequestDetail.ActivityItem::githubId, Comparator.nullsLast(Comparator.reverseOrder()));
@@ -117,7 +115,7 @@ public class ContextHistoryReader
         body.field("Title", detail.title(), 500);
         body.field("Body", detail.body(), 3000);
         body.activitySelection(detail.recentActivity().size(), gaps);
-        for (PullRequestDetail.ActivityItem item : ACTIVITY.select(detail.recentActivity().stream(), PR_ACTIVITY_ORDER).collect(toImmutableList())) {
+        for (PullRequestDetail.ActivityItem item : detail.recentActivity().stream().sorted(PR_ACTIVITY_ORDER).limit(ACTIVITY_ITEMS).collect(toImmutableList())) {
             body.activity(item.githubId(), item.actor(), item.eventType(), item.timestamp(), item.body());
         }
         boolean refreshFailed = read.refreshFailed();
@@ -127,7 +125,7 @@ public class ContextHistoryReader
             gaps.addAll(diff.gaps());
             body.line("Default diff artifact: " + diff.version() + "; separately observed head=" + diff.observedHeadSha().orElse("unknown")
                     + "; sourceUpdatedAt=" + diff.sourceUpdatedAt().map(Instant::toString).orElse("unknown"));
-            for (DiffFile file : PATCHES.select(diff.files().stream()).collect(toImmutableList())) {
+            for (DiffFile file : diff.files().stream().limit(DIFF_FILES).collect(toImmutableList())) {
                 body.field("File", file.filename(), 500);
                 body.field("Status", file.status(), 100);
                 body.field("Patch", file.patch() == null ? "[patch unavailable]" : file.patch(), 1000);
@@ -176,7 +174,7 @@ public class ContextHistoryReader
         body.field("Title", preview.title(), 500);
         body.field("Body", preview.body(), 3000);
         body.activitySelection(detail.timeline().size(), gaps);
-        for (PrTimelineEvent item : ACTIVITY.select(detail.timeline().stream(), ISSUE_ACTIVITY_ORDER).collect(toImmutableList())) {
+        for (PrTimelineEvent item : detail.timeline().stream().sorted(ISSUE_ACTIVITY_ORDER).limit(ACTIVITY_ITEMS).collect(toImmutableList())) {
             body.activity(item.githubId(), item.actor(), item.event(), item.timestamp(), item.body());
         }
         String provenance = "preview=exact selected issue; activityRefreshedAt=" + detail.refreshedAt().map(Instant::toString).orElse("unknown")
@@ -201,7 +199,7 @@ public class ContextHistoryReader
         if (truncated) {
             sourceGaps.add("This bounded history excerpt omits source text or items; omissions do not establish absence. Read the selected source for more detail.");
         }
-        List<String> gaps = new TopKSelector(sourceGaps.size() > 10 ? 9 : 10).select(sourceGaps.stream()).map(gap -> ContextText.excerpt(gap, 1000)).collect(toImmutableList());
+        List<String> gaps = sourceGaps.stream().limit(sourceGaps.size() > 10 ? 9 : 10).map(gap -> ContextText.excerpt(gap, 1000)).collect(toImmutableList());
         if (sourceGaps.size() > 10) {
             gaps = ImmutableList.<String>builder().addAll(gaps).add("Omitted " + (sourceGaps.size() - 9) + " additional source limitations.").build();
         }

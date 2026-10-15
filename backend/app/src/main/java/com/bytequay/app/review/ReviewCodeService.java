@@ -546,19 +546,6 @@ public class ReviewCodeService
         return bytes.toString(UTF_8);
     }
 
-    /**
-     * Writes a file of the review's working copy over the version the editor loaded.
-     *
-     * @param expectedHash the {@link CodeFile#contentHash} the edit started from
-     * @return the saved file, read back like {@link #file}
-     * @throws ReviewFileConflictException when the bytes on disk no longer hash to {@code expectedHash}
-     */
-    public CodeFile save(String reviewId, String path, String content, String expectedHash)
-    {
-        saveBytes(reviewId, path, savedBytes(content, expectedHash), expectedHash);
-        return file(source(reviewId), path);
-    }
-
     /** IDE encoders supply bytes directly, so UTF-16 and BOMs retain the same conflict-safe save boundary. */
     public void saveBytes(String reviewId, String path, byte[] content, String expectedHash)
     {
@@ -567,20 +554,6 @@ public class ReviewCodeService
             overwrite(source(reviewId), path, content, expectedHash);
             return null;
         });
-    }
-
-    /**
-     * Writes any file of the task's working copy over the version the editor loaded, under the task's worktree claim, which the core
-     * refuses while a turn, queued input, another claim or development automation holds the task.
-     *
-     * @param expectedHash the {@link CodeFile#contentHash} the edit started from
-     * @return the saved file, read back like {@link #file}
-     * @throws ReviewFileConflictException when the bytes on disk no longer hash to {@code expectedHash}
-     */
-    public CodeFile save(TaskCodeHost host, String path, String content, String expectedHash)
-    {
-        saveBytes(host, path, savedBytes(content, expectedHash), expectedHash);
-        return file(source(host), path);
     }
 
     public void saveBytes(TaskCodeHost host, String path, byte[] content, String expectedHash)
@@ -597,15 +570,6 @@ public class ReviewCodeService
         checkPath(path);
         checkArgument(content != null && content.length <= MAXIMUM_FILE_BYTES, "The file is larger than 2 MiB");
         checkArgument(expectedHash != null, "expectedHash is required");
-    }
-
-    private static byte[] savedBytes(String content, String expectedHash)
-    {
-        checkArgument(content != null, "content is required");
-        checkArgument(expectedHash != null, "expectedHash is required");
-        byte[] bytes = content.getBytes(UTF_8);
-        checkArgument(bytes.length <= MAXIMUM_FILE_BYTES, "The file is larger than 2 MiB");
-        return bytes;
     }
 
     /** Overwrites an existing file in place, so its mode stays; run under the worktree claim. */

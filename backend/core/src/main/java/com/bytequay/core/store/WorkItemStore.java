@@ -30,7 +30,4 @@ public interface WorkItemStore
 
     /** Atomically replaces the expected revision and reserves new source/task identities. */
     boolean update(WorkItem item, long expectedRevision);
-
-    /** Deletes the work and frees the sources and tasks it owned, so other work can take them. */
-    void delete(WorkItem item);
 }

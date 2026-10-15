@@ -14,7 +14,6 @@
 package com.bytequay.app.service.goal;
 
 import com.bytequay.core.domain.Goal;
-import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.store.GoalStore;
 
 import java.util.Comparator;
@@ -44,20 +43,8 @@ final class InMemoryGoalStore
     }
 
     @Override
-    public List<Goal> findBySource(GoalSource source)
-    {
-        return goals.values().stream().filter(goal -> goal.source().equals(Optional.of(source))).collect(toImmutableList());
-    }
-
-    @Override
     public void save(Goal goal)
     {
         goals.put(goal.id(), goal);
-    }
-
-    @Override
-    public void delete(String goalId)
-    {
-        goals.remove(goalId);
     }
 }

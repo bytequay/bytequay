@@ -28,8 +28,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Optional;
-
 import static java.util.Objects.requireNonNull;
 
 /** Purpose-scoped controls for a noninteractive spec check task; no generic interactive-task coercion. */
@@ -54,12 +52,6 @@ public class ContextBuildController
     public ContextBuildService.View get(@PathVariable String workspaceId)
     {
         return builds.get(workspaceId);
-    }
-
-    @GetMapping("/baseline")
-    public Optional<ContextBuildService.Baseline> baseline(@PathVariable String workspaceId)
-    {
-        return builds.baseline(workspaceId);
     }
 
     @PostMapping("/stop")

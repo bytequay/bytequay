@@ -152,13 +152,6 @@ public class PullRequestController
         refreshService.refreshDashboard();
     }
 
-    /** Used by Home's attention list, which holds a row id and no reference. */
-    @GetMapping("/prs/{prId}/detail")
-    public PullRequestDetail detail(@PathVariable long prId)
-    {
-        return pullRequests.openPullRequestDetail(prId);
-    }
-
     @GetMapping("/prs/detail")
     public PullRequestDetail detail(@RequestParam("repo") String repo, @RequestParam("number") int number)
     {

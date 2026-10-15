@@ -22,7 +22,6 @@ import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import lombok.Getter;
 import lombok.Setter;
 
 import java.time.Instant;
@@ -31,7 +30,6 @@ import java.util.Optional;
 
 @Entity
 @Table(name = "repository_issue_details")
-@Getter
 @Setter
 public class RepositoryIssueDetailEntity
 {

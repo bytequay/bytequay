@@ -14,7 +14,6 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.Goal;
-import com.bytequay.core.domain.GoalSource;
 
 import java.util.List;
 import java.util.Optional;
@@ -26,11 +25,6 @@ public interface GoalStore
 
     Optional<Goal> find(String goalId);
 
-    /** Every Goal referencing the issue or Jira ticket, in any workspace. */
-    List<Goal> findBySource(GoalSource source);
-
     /** Inserts the goal or replaces the stored one with the same id. */
     void save(Goal goal);
-
-    void delete(String goalId);
 }

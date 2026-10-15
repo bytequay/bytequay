@@ -67,16 +67,6 @@ final class InteractiveAgentHttpContract
             AgentMetrics metrics,
             Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
             Optional<TaskPullRequestResponse> pullRequest,
-            Optional<IssueSourceResponse> issueSource)
-    {
-        return task(task, metrics, developmentCi, pullRequest, issueSource, Optional.empty());
-    }
-
-    static TaskResponse task(
-            AgentTask task,
-            AgentMetrics metrics,
-            Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
-            Optional<TaskPullRequestResponse> pullRequest,
             Optional<IssueSourceResponse> issueSource,
             Optional<JiraSourceResponse> jiraSource)
     {

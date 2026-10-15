@@ -17,12 +17,10 @@ import com.bytequay.app.review.LocalRunService;
 import com.bytequay.app.review.ReviewCodeService;
 import com.bytequay.app.review.ReviewCodeService.ChangeScope;
 import com.bytequay.app.review.ReviewCodeService.Changes;
-import com.bytequay.app.review.ReviewCodeService.CodeFile;
 import com.bytequay.app.review.ReviewCodeService.CodeFileEntry;
 import com.bytequay.app.review.ReviewCodeService.CodeFiles;
 import com.bytequay.app.review.ReviewCodeService.CodeSource;
 import com.bytequay.app.review.ReviewCodeService.TerminalLaunch;
-import com.bytequay.app.review.ReviewFileConflictException;
 import com.bytequay.app.review.TaskCodeHost;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.core.domain.DiffFile;
@@ -32,7 +30,6 @@ import com.bytequay.core.review.ReviewNotFoundException;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.json.JsonCompareMode;
@@ -48,7 +45,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -70,14 +66,11 @@ class TestTaskCodeController
             .build();
 
     @Test
-    void readsAndSavesTheTaskWorkingCopyWithTheReviewRouteShapes()
+    void readsTheTaskWorkingCopyWithTheReviewRouteShapes()
             throws Exception
     {
         when(code.files(HOST)).thenReturn(new CodeFiles(CodeSource.WORKING_COPY, HEAD, Optional.of("fingerprint"), false, false, ImmutableList.of(
                 new CodeFileEntry("src/main/java/Code.java", true, false, false, true))));
-        when(code.save(HOST, "src/main/java/Code.java", "class Code {}\n", "loaded")).thenReturn(new CodeFile(
-                "src/main/java/Code.java", Optional.of("class Code {}\n"), Optional.of("saved"), Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of()));
-        when(code.save(HOST, "src/main/java/Code.java", "draft\n", "stale")).thenThrow(new ReviewFileConflictException("disk", Optional.of("class Code { int x; }\n")));
         when(code.terminal(HOST)).thenReturn(new TerminalLaunch(Path.of("/managed/worktrees/task-1"), Optional.of(Path.of("/profiles/work"))));
 
         mvc.perform(withWorkspace(get(BASE + "/files")))
@@ -86,19 +79,6 @@ class TestTaskCodeController
                         {"source": "WORKING_COPY", "revision": "%s", "sourceFingerprint": "fingerprint", "savedExperiment": false, "truncated": false,
                          "files": [{"path": "src/main/java/Code.java", "changedInPr": true, "addedInPr": false, "onlyInWorkingCopy": false, "uncommitted": true}]}
                         """.formatted(HEAD), JsonCompareMode.STRICT));
-        mvc.perform(withWorkspace(put(BASE + "/file")).contentType(MediaType.APPLICATION_JSON).content("""
-                        {"path": "src/main/java/Code.java", "content": "class Code {}\\n", "expectedHash": "loaded"}
-                        """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.contentHash").value("saved"))
-                .andExpect(jsonPath("$.editable").value(true));
-        mvc.perform(withWorkspace(put(BASE + "/file")).contentType(MediaType.APPLICATION_JSON).content("""
-                        {"path": "src/main/java/Code.java", "content": "draft\\n", "expectedHash": "stale"}
-                        """))
-                .andExpect(status().isConflict())
-                .andExpect(content().json("""
-                        {"currentHash": "disk", "currentContent": "class Code { int x; }\\n"}
-                        """, JsonCompareMode.STRICT));
         mvc.perform(withWorkspace(post(BASE + "/terminal")))
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"workingDirectory\": \"/managed/worktrees/task-1\", \"claudeConfigDirectory\": \"/profiles/work\"}", JsonCompareMode.STRICT));

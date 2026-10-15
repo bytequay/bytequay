@@ -20,7 +20,6 @@ import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestPage;
-import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
@@ -35,7 +34,6 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,13 +52,6 @@ import static java.util.Objects.requireNonNull;
 public class SqlitePullRequestStore
         implements PullRequestStore
 {
-    // How long a recently-handled PR stays in the list after it falls out of
-    // the GitHub search results. GitHub removes a PR from the
-    // `review-requested:@me` search the moment you submit a review, so
-    // without this retention window, a PR disappears from our Handled view
-    // seconds after you approve it.
-    private static final int HANDLED_RETENTION_DAYS = 30;
-
     private final PullRequestJpaRepository jpaRepository;
     private final PrViewStateStore viewStateStore;
 
@@ -158,14 +149,6 @@ public class SqlitePullRequestStore
     }
 
     @Override
-    public Map<Long, Instant> findUpdatedAtByIds(Set<Long> ids)
-    {
-        requireNonNull(ids, "ids is null");
-        return jpaRepository.findAllById(ids).stream()
-                .collect(toImmutableMap(PullRequestEntity::getId, PullRequestEntity::getUpdatedAt));
-    }
-
-    @Override
     @Transactional
     public List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests, String syncMarker)
     {
@@ -191,17 +174,6 @@ public class SqlitePullRequestStore
 
     @Override
     @Transactional
-    public Set<Long> completeDashboardSync(String syncMarker, String currentLogin)
-    {
-        requireNonNull(syncMarker, "syncMarker is null");
-        requireNonNull(currentLogin, "currentLogin is null");
-        jpaRepository.demoteAuthoredByOthers(currentLogin);
-        jpaRepository.hideStaleDashboardRows(syncMarker, Instant.now().minus(HANDLED_RETENTION_DAYS, ChronoUnit.DAYS));
-        return deleteInvisibleRows();
-    }
-
-    @Override
-    @Transactional
     public List<PullRequest> saveRepositorySyncPage(String repository, List<FetchedPullRequest> pullRequests, String syncMarker)
     {
         requireNonNull(repository, "repository is null");
@@ -218,17 +190,6 @@ public class SqlitePullRequestStore
             }));
         }
         return saved.build();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<PullRequest> findRepositoryRowsMissingSync(String repository, String syncMarker)
-    {
-        requireNonNull(repository, "repository is null");
-        requireNonNull(syncMarker, "syncMarker is null");
-        return jpaRepository.findWorkspaceRowsMissingSync(repository, syncMarker).stream()
-                .map(entity -> entity.toDomain(null))
-                .collect(toImmutableList());
     }
 
     @Override
@@ -284,16 +245,6 @@ public class SqlitePullRequestStore
         return jpaRepository.save(entity).toDomain(null);
     }
 
-    @Override
-    @Transactional
-    public Set<Long> completeRepositorySync(String repository, Instant retentionCutoff)
-    {
-        requireNonNull(repository, "repository is null");
-        requireNonNull(retentionCutoff, "retentionCutoff is null");
-        jpaRepository.hideExpiredWorkspaceRows(repository, retentionCutoff);
-        return deleteInvisibleRows();
-    }
-
     private PullRequestPage toPage(Page<PullRequestEntity> rows, int page, int pageSize, long openPullRequests)
     {
         Set<Long> ids = rows.stream()
@@ -338,15 +289,6 @@ public class SqlitePullRequestStore
         return jpaRepository.findByRepoIgnoreCaseAndNumber(pullRequest.repo(), pullRequest.number());
     }
 
-    private Set<Long> deleteInvisibleRows()
-    {
-        Set<Long> removed = ImmutableSet.copyOf(jpaRepository.findInvisibleIds());
-        if (!removed.isEmpty()) {
-            jpaRepository.deleteInvisibleRows();
-        }
-        return removed;
-    }
-
     @Override
     public Optional<Long> findIdByRepoAndNumber(String repo, int number)
     {
@@ -363,13 +305,6 @@ public class SqlitePullRequestStore
         return jpaRepository.findByRepoIgnoreCaseAndHeadRefOrderByNumberDesc(repo, headRef).stream()
                 .map(entity -> entity.toDomain(null))
                 .collect(toImmutableList());
-    }
-
-    @Override
-    public Optional<PullRequestRef> findRefById(long prId)
-    {
-        return jpaRepository.findById(prId)
-                .flatMap(entity -> PullRequestRef.parse(entity.getRepo() + "#" + entity.getNumber()));
     }
 
     @Override

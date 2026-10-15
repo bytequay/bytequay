@@ -19,7 +19,6 @@ import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
-import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.google.common.collect.ImmutableList;
@@ -40,7 +39,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.tuple;
 
 class TestSqlitePullRequestWorkspaceScope
         extends AbstractTestSqliteStore
@@ -87,7 +85,7 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
-    void monitorSurvivesSyncAndRetentionAndDisablesWithoutChangingActivity()
+    void monitorSurvivesSyncAndDisablesWithoutChangingActivity()
     {
         FetchedPullRequest fetched = pullRequest(1, "owner/project", 1, "closed", RETENTION_CUTOFF.minusSeconds(1), RETENTION_CUTOFF.minusSeconds(1))
                 .withOrigin(PullRequest.Origin.OTHER);
@@ -95,7 +93,6 @@ class TestSqlitePullRequestWorkspaceScope
         store.setMonitored(row.id(), true);
         Instant baseline = store.findById(row.id()).orElseThrow().monitoredAt();
         store.saveDashboardSyncPage(ImmutableList.of(fetched), "old");
-        store.completeDashboardSync("new", "alice");
 
         assertThat(store.findById(row.id()).orElseThrow().monitoredAt()).isEqualTo(baseline);
         assertThat(store.findPage(0, 50).pullRequests()).extracting(PullRequest::id).contains(row.id());
@@ -103,7 +100,6 @@ class TestSqlitePullRequestWorkspaceScope
         store.setMonitored(row.id(), false);
         assertThat(store.findById(row.id()).orElseThrow().monitoredAt()).isNull();
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(fetched.updatedAt());
-        assertThat(store.findAttentionCandidates()).isEmpty();
     }
 
     @Test
@@ -273,7 +269,7 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
-    void staleObservedAndScanRowsPreserveNewerFactsAndCompleteTheirSyncMarkers()
+    void staleObservedAndScanRowsPreserveNewerFacts()
     {
         Instant freshTime = Instant.parse("2026-08-22T00:00:00Z");
         PullRequest fresh = store.saveObserved(new FetchedPullRequest(
@@ -285,8 +281,6 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(store.saveDashboardSyncPage(ImmutableList.of(stale), "dashboard-current")).containsExactly(fresh);
         assertThat(store.saveRepositorySyncPage("owner/project", ImmutableList.of(stale), "workspace-current")).containsExactly(fresh);
 
-        assertThat(store.findRepositoryRowsMissingSync("owner/project", "workspace-current")).isEmpty();
-        assertThat(store.completeDashboardSync("dashboard-current", "alice")).isEmpty();
         assertThat(store.findById(fresh.id())).contains(fresh);
     }
 
@@ -412,11 +406,8 @@ class TestSqlitePullRequestWorkspaceScope
         workspaceStore.createOrGet(workspace);
 
         store.saveDashboardSyncPage(ImmutableList.of(global, shared), "global-1");
-        store.completeDashboardSync("global-1", "alice");
         store.saveRepositorySyncPage("owner/project", ImmutableList.of(shared, workspaceOnly), "workspace-1");
-        store.completeRepositorySync("owner/project", RETENTION_CUTOFF);
         store.saveRepositorySyncPage("other/project", ImmutableList.of(otherWorkspace), "workspace-2");
-        store.completeRepositorySync("other/project", RETENTION_CUTOFF);
 
         assertThat(store.findPage(0, 50).pullRequests())
                 .extracting(PullRequest::id)
@@ -430,7 +421,6 @@ class TestSqlitePullRequestWorkspaceScope
                 .doesNotContain(4L);
 
         store.saveDashboardSyncPage(ImmutableList.of(global), "global-2");
-        store.completeDashboardSync("global-2", "alice");
 
         assertThat(store.findPage(0, 50).pullRequests())
                 .extracting(PullRequest::id)
@@ -462,7 +452,6 @@ class TestSqlitePullRequestWorkspaceScope
             pullRequests.add(pullRequest(index, "owner/project", index));
         }
         store.saveRepositorySyncPage("owner/project", pullRequests.build(), "workspace-page");
-        store.completeRepositorySync("owner/project", RETENTION_CUTOFF);
 
         var first = store.findRepositoryPage("owner/project", 0, 50);
         var second = store.findRepositoryPage("owner/project", 1, 50);
@@ -480,7 +469,6 @@ class TestSqlitePullRequestWorkspaceScope
         FetchedPullRequest first = pullRequest(1, "owner/project", 41);
         FetchedPullRequest second = pullRequest(2, "owner/project", 42);
         store.saveRepositorySyncPage("owner/project", ImmutableList.of(first, second), "workspace-search");
-        store.completeRepositorySync("owner/project", RETENTION_CUTOFF);
 
         assertThat(store.findRepositoryPage("owner/project", 0, 50, "pr 41").pullRequests())
                 .extracting(PullRequest::number)
@@ -498,22 +486,7 @@ class TestSqlitePullRequestWorkspaceScope
         PullRequest stored = store.saveObserved(observed);
 
         assertThat(store.findIdByRepoAndNumber("external/project", 12)).contains(stored.id());
-        assertThat(store.findRefById(stored.id())).contains(PullRequestRef.of("external", "project", 12));
         assertThat(store.findPage(0, 50).pullRequests()).containsExactly(stored);
-    }
-
-    @Test
-    void repairsAuthoredOriginsForTheCurrentGitHubUser()
-    {
-        long mine = store.saveObserved(pullRequest(92, "external/project", 12)).id();
-        long someoneElses = store.saveObserved(pullRequest(93, "external/project", 13)).id();
-        jdbc.update("UPDATE pull_requests SET author = 'bob' WHERE id = ?", someoneElses);
-
-        store.completeDashboardSync("dashboard", "ALICE");
-
-        assertThat(store.findPage(0, 50).pullRequests())
-                .extracting(PullRequest::id, PullRequest::origin)
-                .containsExactlyInAnyOrder(tuple(mine, PullRequest.Origin.AUTHORED), tuple(someoneElses, PullRequest.Origin.OTHER));
     }
 
     @Test
@@ -534,62 +507,17 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
-    void keepsSweptPullRequestsThatStillCarryViewState()
-    {
-        FetchedPullRequest reviewed = pullRequest(301, "owner/project", 301);
-        long id = store.saveObserved(reviewed).id();
-        viewStateStore.markReviewed(id, HandledAction.APPROVED, "headsha", Instant.now());
-        jdbc.update("UPDATE pull_requests SET dashboard_visible = 0, workspace_visible = 0 WHERE id = ?", id);
-
-        assertThat(store.completeDashboardSync("sweep", "alice")).doesNotContain(id);
-        assertThat(store.findRefById(id)).isPresent();
-    }
-
-    @Test
     void keepsOpenPullRequestsOmittedFromLaterDiscovery()
     {
         FetchedPullRequest first = pullRequest(101, "owner/project", 101);
         FetchedPullRequest second = pullRequest(102, "owner/project", 102);
         store.saveRepositorySyncPage("owner/project", ImmutableList.of(first), "first-discovery");
-        store.completeRepositorySync("owner/project", RETENTION_CUTOFF);
 
         store.saveRepositorySyncPage("owner/project", ImmutableList.of(second), "second-discovery");
-        store.completeRepositorySync("owner/project", RETENTION_CUTOFF);
 
         assertThat(store.findRepositoryPage("owner/project", 0, 50).pullRequests())
                 .extracting(PullRequest::number)
                 .containsExactlyInAnyOrder(101, 102);
-    }
-
-    @Test
-    void findsRowsOmittedFromTheCurrentRepositoryDiscovery()
-    {
-        FetchedPullRequest omitted = pullRequest(111, "owner/project", 111);
-        FetchedPullRequest discovered = pullRequest(112, "owner/project", 112);
-        store.saveRepositorySyncPage("owner/project", ImmutableList.of(omitted, discovered), "first-discovery");
-        store.saveRepositorySyncPage("owner/project", ImmutableList.of(discovered), "current-discovery");
-
-        assertThat(store.findRepositoryRowsMissingSync("owner/project", "current-discovery"))
-                .extracting(PullRequest::number)
-                .containsExactly(111);
-    }
-
-    @Test
-    void expiresOnlyClosedPullRequestsInactiveBeforeTheCutoff()
-    {
-        FetchedPullRequest expired = pullRequest(201, "owner/project", 201, "closed", Instant.parse("2026-06-30T00:00:00Z"), Instant.parse("2026-07-01T00:00:00Z"));
-        FetchedPullRequest recentlyUpdated = pullRequest(202, "owner/project", 202, "closed", Instant.parse("2026-06-30T00:00:00Z"), Instant.parse("2026-08-20T00:00:00Z"));
-        FetchedPullRequest open = pullRequest(203, "owner/project", 203, "open", null, Instant.parse("2026-06-01T00:00:00Z"));
-        FetchedPullRequest merged = pullRequest(204, "owner/project", 204, "merged", Instant.parse("2026-06-30T00:00:00Z"), Instant.parse("2026-07-01T00:00:00Z"));
-        store.saveRepositorySyncPage("owner/project", ImmutableList.of(expired, recentlyUpdated, open, merged), "retention");
-
-        store.completeRepositorySync("owner/project", RETENTION_CUTOFF);
-
-        assertThat(store.findRepositoryPage("owner/project", 0, 50).pullRequests())
-                .extracting(PullRequest::number)
-                .containsExactlyInAnyOrder(202, 203);
-        assertThat(store.findIdByRepoAndNumber("owner/project", 201)).isEmpty();
-        assertThat(store.findIdByRepoAndNumber("owner/project", 204)).isEmpty();
     }
 
     @Test

@@ -39,11 +39,9 @@ public class RepositoryIssueEntity
     private Long id;
 
     @Column(name = "repository_id", nullable = false)
-    @Getter
     private Long repositoryId;
 
     @Column(nullable = false)
-    @Getter
     private Integer number;
 
     @Column(nullable = false, columnDefinition = "TEXT")
@@ -76,7 +74,6 @@ public class RepositoryIssueEntity
     private Instant createdAt;
 
     @Column(name = "updated_at", nullable = false)
-    @Getter
     private Instant updatedAt;
 
     @Column(name = "sync_marker")

@@ -29,6 +29,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -144,6 +145,9 @@ class TestCiAutofixEndToEnd
 
     @Autowired
     private AgentTaskService tasks;
+
+    @Autowired
+    private AgentTaskStore taskStore;
 
     @Autowired
     private AgentTurnService turns;
@@ -565,7 +569,7 @@ class TestCiAutofixEndToEnd
             throws Exception
     {
         int runsBefore = service.list(200).size();
-        int tasksBefore = tasks.list(200).size();
+        int tasksBefore = taskStore.listRecent(200).size();
         CiAutofixE2eHarness.Fixture fixture = harness.createFixture("unauthorized");
         int branchWrites = fixture.repository().headRefUpdates();
         RepoRef repository = RepoRef.of(fixture.repository().pullRequest().owner(), fixture.repository().pullRequest().repo());
@@ -580,7 +584,7 @@ class TestCiAutofixEndToEnd
         assertThat(harness.startStatus(fixture, "push-consent", true, true, false)).isEqualTo(400);
 
         assertThat(service.list(200)).hasSize(runsBefore);
-        assertThat(tasks.list(200)).hasSize(tasksBefore);
+        assertThat(taskStore.listRecent(200)).hasSize(tasksBefore);
         assertThat(gitHub.rerunCalls()).isEmpty();
         assertThat(agent.turns()).isEmpty();
         assertThat(fixture.repository().headRefUpdates()).isEqualTo(branchWrites);

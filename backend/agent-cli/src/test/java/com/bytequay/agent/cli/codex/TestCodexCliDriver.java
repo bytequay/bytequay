@@ -2751,7 +2751,7 @@ class TestCodexCliDriver
                 1024,
                 Duration.ofMinutes(1),
                 Duration.ZERO);
-        return new CodexAppServerClient(supervisor, spec, objectMapper, SecretRedactor.fromEnvironment(ImmutableMap.of()));
+        return new CodexAppServerClient(supervisor, spec, objectMapper, SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty());
     }
 
     private CodexCliDriver driver(ProcessSupervisor supervisor, Duration quiescenceTimeout)
@@ -3962,9 +3962,6 @@ class TestCodexCliDriver
             {
                 return "scripted";
             }
-
-            @Override
-            public void abandon() {}
 
             @Override
             public ManagedProcess start(ProcessOutputSink output)

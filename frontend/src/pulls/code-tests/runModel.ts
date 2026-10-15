@@ -11,8 +11,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { AgentReviewDto } from '../agent-review/contracts';
-import { reviewRunning } from '../agent-review/model';
 import type { LocalRunDto, LocalRunMethodDto, LocalRunStatus, ReviewCodeFilesDto } from './contracts';
 
 const STATUS_LABELS: Record<LocalRunStatus, string> = {
@@ -152,23 +150,4 @@ export function formatDuration(milliseconds: number | null) {
 /** Whether the working copy changed since the run took its snapshot; only comparable while the working copy exists. */
 export function runIsStale(run: LocalRunDto, files: ReviewCodeFilesDto | null) {
   return files !== null && files.sourceFingerprint !== null && run.sourceFingerprint !== null && files.sourceFingerprint !== run.sourceFingerprint;
-}
-
-/** Availability of working-copy mutations; the backend enforces the same restrictions. */
-export function runGate(review: AgentReviewDto, files: ReviewCodeFilesDto | null) {
-  if (review.state !== 'OPEN' || files === null || files.source !== 'WORKING_COPY') return { hidden: true, blocked: null };
-  const claim = review.task.mutationClaim;
-  const turnRunning = review.activeTurn !== null && (review.activeTurn.state === 'RUNNING' || review.activeTurn.state === 'ACCEPTED');
-  if (claim === 'LOCAL_RUN') {
-    return { hidden: false, blocked: 'A run is using this working copy' };
-  }
-  if (claim === 'RECOVERY' || (claim === 'TURN' && !turnRunning)) {
-    return { hidden: false, blocked: 'The working copy needs recovery — see Summary' };
-  }
-  if (claim === 'COMPLETION') return { hidden: false, blocked: 'The working copy is being updated' };
-  if (review.activeTurn !== null || reviewRunning(review)) {
-    return { hidden: false, blocked: 'The review agent is working' };
-  }
-  if (review.queuedInputIds.length > 0) return { hidden: false, blocked: 'Remove or resume the queued question' };
-  return { hidden: false, blocked: null };
 }

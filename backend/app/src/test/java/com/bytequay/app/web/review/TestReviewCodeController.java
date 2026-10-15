@@ -22,7 +22,6 @@ import com.bytequay.app.review.ReviewCodeService.CodeFiles;
 import com.bytequay.app.review.ReviewCodeService.CodeSource;
 import com.bytequay.app.review.ReviewCodeService.LineChange;
 import com.bytequay.app.review.ReviewCodeService.TerminalLaunch;
-import com.bytequay.app.review.ReviewFileConflictException;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.core.review.LocalRun;
 import com.bytequay.core.review.ReviewConflictException;
@@ -30,7 +29,6 @@ import com.bytequay.core.review.ReviewNotFoundException;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.json.JsonCompareMode;
@@ -48,7 +46,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -139,44 +136,6 @@ class TestReviewCodeController
     }
 
     @Test
-    void savesAFileOrAnswersAStaleSaveWithTheDiskVersion()
-            throws Exception
-    {
-        when(code.save("review-1", "src/test/java/TestCode.java", "class TestCode { int x; }\n", "loaded")).thenReturn(new CodeFile(
-                "src/test/java/TestCode.java", Optional.of("class TestCode { int x; }\n"), Optional.of("saved"), Optional.empty(), Optional.empty(), Optional.of("@@ -1 +1 @@"), ImmutableList.of()));
-        when(code.save("review-1", "src/test/java/TestCode.java", "draft\n", "stale")).thenThrow(new ReviewFileConflictException("disk", Optional.of("class TestCode {}\n")));
-        when(code.save("review-1", "src/test/image.png", "draft\n", "stale")).thenThrow(new ReviewFileConflictException("binary", Optional.empty()));
-        when(code.save("review-1", ".git/config", "draft\n", "loaded")).thenThrow(new IllegalArgumentException("path must not name Git metadata"));
-        when(code.save("review-1", "src/test/java/TestBusy.java", "draft\n", "loaded")).thenThrow(new ReviewConflictException("The review agent is working"));
-
-        mvc.perform(put("/api/agent-review/review-1/code/file").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"path": "src/test/java/TestCode.java", "content": "class TestCode { int x; }\\n", "expectedHash": "loaded"}
-                        """))
-                .andExpect(status().isOk())
-                .andExpect(content().json("""
-                        {"path": "src/test/java/TestCode.java", "content": "class TestCode { int x; }\\n", "contentHash": "saved", "editable": true,
-                         "readOnlyReason": null, "unavailableReason": null, "prPatch": "@@ -1 +1 @@", "lineChanges": []}
-                        """, JsonCompareMode.STRICT));
-        mvc.perform(put("/api/agent-review/review-1/code/file").contentType(MediaType.APPLICATION_JSON).content(saveRequest("src/test/java/TestCode.java", "stale")))
-                .andExpect(status().isConflict())
-                .andExpect(content().json("""
-                        {"currentHash": "disk", "currentContent": "class TestCode {}\\n"}
-                        """, JsonCompareMode.STRICT));
-        mvc.perform(put("/api/agent-review/review-1/code/file").contentType(MediaType.APPLICATION_JSON).content(saveRequest("src/test/image.png", "stale")))
-                .andExpect(status().isConflict())
-                .andExpect(content().json("""
-                        {"currentHash": "binary", "currentContent": null}
-                        """, JsonCompareMode.STRICT));
-        mvc.perform(put("/api/agent-review/review-1/code/file").contentType(MediaType.APPLICATION_JSON).content(saveRequest(".git/config", "loaded")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("path must not name Git metadata"));
-        mvc.perform(put("/api/agent-review/review-1/code/file").contentType(MediaType.APPLICATION_JSON).content(saveRequest("src/test/java/TestBusy.java", "loaded")))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value("The review agent is working"))
-                .andExpect(jsonPath("$.currentHash").doesNotExist());
-    }
-
-    @Test
     void terminalAnswersTheWorkingDirectoryOfAnOpenReview()
             throws Exception
     {
@@ -249,11 +208,6 @@ class TestReviewCodeController
                         {"text": "tail", "nextOffset": 2000004, "skippedBytes": 1930000, "complete": true}
                         """, JsonCompareMode.STRICT));
         mvc.perform(get("/api/agent-review/review-1/code/runs/run-2/output").param("after", "-1")).andExpect(status().isBadRequest());
-    }
-
-    private static String saveRequest(String path, String expectedHash)
-    {
-        return "{\"path\": \"%s\", \"content\": \"draft\\n\", \"expectedHash\": \"%s\"}".formatted(path, expectedHash);
     }
 
     private static LocalRun runningRun()

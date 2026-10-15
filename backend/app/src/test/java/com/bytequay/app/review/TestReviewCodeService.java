@@ -708,7 +708,7 @@ class TestReviewCodeService
         CodeFile loaded = service.file(REVIEW_ID, TEST_PATH);
         assertThat(loaded.content()).contains("test source\n");
         assertThat(loaded.editable()).isTrue();
-        assertThat(service.save(REVIEW_ID, TEST_PATH, "exploration edit\n", loaded.contentHash().orElseThrow()).content()).contains("exploration edit\n");
+        assertThat(save(REVIEW_ID, TEST_PATH, "exploration edit\n", loaded.contentHash().orElseThrow()).content()).contains("exploration edit\n");
         assertThat(service.changes(REVIEW_ID, ChangeScope.UNCOMMITTED, Optional.empty(), Optional.empty(), Optional.empty()).files()).isNotEmpty();
         assertThatThrownBy(() -> service.files("missing")).isInstanceOf(ReviewNotFoundException.class);
     }
@@ -718,7 +718,7 @@ class TestReviewCodeService
     {
         CodeFile loaded = service.file(REVIEW_ID, TEST_PATH);
 
-        CodeFile saved = service.save(REVIEW_ID, TEST_PATH, "edited test\n", loaded.contentHash().orElseThrow());
+        CodeFile saved = save(REVIEW_ID, TEST_PATH, "edited test\n", loaded.contentHash().orElseThrow());
 
         assertThat(checkout.resolve(TEST_PATH)).hasContent("edited test\n");
         assertThat(saved.content()).contains("edited test\n");
@@ -734,13 +734,13 @@ class TestReviewCodeService
         for (String path : ImmutableList.of(MAIN_PATH, "src/lib.rs", "main.go", "Cargo.toml")) {
             write(checkout, path, "original\n");
             CodeFile loaded = service.file(REVIEW_ID, path);
-            CodeFile saved = service.save(REVIEW_ID, path, "experiment\n", loaded.contentHash().orElseThrow());
+            CodeFile saved = save(REVIEW_ID, path, "experiment\n", loaded.contentHash().orElseThrow());
             assertThat(saved.editable()).isTrue();
             assertThat(saved.content()).contains("experiment\n");
             assertThat(checkout.resolve(path)).hasContent("experiment\n");
 
             write(checkout, path, "agent edit\n");
-            assertThatThrownBy(() -> service.save(REVIEW_ID, path, "stale edit\n", saved.contentHash().orElseThrow()))
+            assertThatThrownBy(() -> save(REVIEW_ID, path, "stale edit\n", saved.contentHash().orElseThrow()))
                     .isInstanceOf(ReviewFileConflictException.class);
             assertThat(checkout.resolve(path)).hasContent("agent edit\n");
         }
@@ -771,7 +771,7 @@ class TestReviewCodeService
         String loaded = service.file(REVIEW_ID, TEST_PATH).contentHash().orElseThrow();
         write(checkout, TEST_PATH, "changed by the agent\n");
 
-        assertThatThrownBy(() -> service.save(REVIEW_ID, TEST_PATH, "my draft\n", loaded))
+        assertThatThrownBy(() -> save(REVIEW_ID, TEST_PATH, "my draft\n", loaded))
                 .isInstanceOfSatisfying(ReviewFileConflictException.class, conflict -> {
                     assertThat(conflict.currentHash()).isEqualTo(Hashing.sha256().hashString("changed by the agent\n", UTF_8).toString());
                     assertThat(conflict.currentContent()).contains("changed by the agent\n");
@@ -780,7 +780,7 @@ class TestReviewCodeService
 
         byte[] binary = {'P', 'K', 0, 1};
         Files.write(checkout.resolve(TEST_PATH), binary);
-        assertThatThrownBy(() -> service.save(REVIEW_ID, TEST_PATH, "my draft\n", ""))
+        assertThatThrownBy(() -> save(REVIEW_ID, TEST_PATH, "my draft\n", ""))
                 .isInstanceOfSatisfying(ReviewFileConflictException.class, conflict -> {
                     assertThat(conflict.currentHash()).isEqualTo(Hashing.sha256().hashBytes(binary).toString());
                     assertThat(conflict.currentContent()).isEmpty();
@@ -792,25 +792,25 @@ class TestReviewCodeService
             throws IOException
     {
         String hash = Hashing.sha256().hashString("production source\n", UTF_8).toString();
-        assertThatThrownBy(() -> service.save(REVIEW_ID, "src/test/.git/config", "edited\n", hash)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.save(REVIEW_ID, "src/test/../main/java/Code.java", "edited\n", hash)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.save(REVIEW_ID, TEST_PATH, "a".repeat(ReviewCodeService.MAXIMUM_FILE_BYTES + 1), hash))
+        assertThatThrownBy(() -> save(REVIEW_ID, "src/test/.git/config", "edited\n", hash)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> save(REVIEW_ID, "src/test/../main/java/Code.java", "edited\n", hash)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> save(REVIEW_ID, TEST_PATH, "a".repeat(ReviewCodeService.MAXIMUM_FILE_BYTES + 1), hash))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage("The file is larger than 2 MiB");
-        assertThatThrownBy(() -> service.save(REVIEW_ID, "src/test/java/Missing.java", "edited\n", hash)).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> save(REVIEW_ID, "src/test/java/Missing.java", "edited\n", hash)).isInstanceOf(ReviewNotFoundException.class);
 
         // A link in the file or any parent can redirect a write away from the named file.
         Files.createSymbolicLink(checkout.resolve("src/test/linked"), checkout.resolve("src/main/java"));
-        assertThatThrownBy(() -> service.save(REVIEW_ID, "src/test/linked/Code.java", "edited\n", hash))
+        assertThatThrownBy(() -> save(REVIEW_ID, "src/test/linked/Code.java", "edited\n", hash))
                 .isInstanceOf(ReviewConflictException.class).hasMessage("Symbolic links are read-only here");
         Files.createSymbolicLink(checkout.resolve("src/test/java/Link.java"), checkout.resolve(MAIN_PATH));
-        assertThatThrownBy(() -> service.save(REVIEW_ID, "src/test/java/Link.java", "edited\n", hash))
+        assertThatThrownBy(() -> save(REVIEW_ID, "src/test/java/Link.java", "edited\n", hash))
                 .isInstanceOf(ReviewConflictException.class).hasMessage("Symbolic links are read-only here");
         assertThat(checkout.resolve(MAIN_PATH)).hasContent("production source\n");
 
         doThrow(new ReviewConflictException("A run is using this working copy")).when(reviews).mutateWorkingCopy(eq(REVIEW_ID), any());
         String loaded = Hashing.sha256().hashString("test source\n", UTF_8).toString();
-        assertThatThrownBy(() -> service.save(REVIEW_ID, TEST_PATH, "edited\n", loaded)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
-        assertThatThrownBy(() -> service.save(REVIEW_ID, MAIN_PATH, "edited\n", hash)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
+        assertThatThrownBy(() -> save(REVIEW_ID, TEST_PATH, "edited\n", loaded)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
+        assertThatThrownBy(() -> save(REVIEW_ID, MAIN_PATH, "edited\n", hash)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
         assertThat(checkout.resolve(TEST_PATH)).hasContent("test source\n");
         assertThat(checkout.resolve(MAIN_PATH)).hasContent("production source\n");
     }
@@ -846,22 +846,22 @@ class TestReviewCodeService
         assertThat(production.prPatch()).hasValueSatisfying(patch -> assertThat(patch).contains("+committed production"));
         assertThat(service.file(taskHost(), "README.md").editable()).isTrue();
 
-        CodeFile saved = service.save(taskHost(), MAIN_PATH, "edited production\n", production.contentHash().orElseThrow());
+        CodeFile saved = save(taskHost(), MAIN_PATH, "edited production\n", production.contentHash().orElseThrow());
         assertThat(checkout.resolve(MAIN_PATH)).hasContent("edited production\n");
         assertThat(saved.content()).contains("edited production\n");
         assertThat(saved.editable()).isTrue();
         verify(turns).synchronizeWorktree(eq(worktree.taskId()), anyLong(), any());
-        assertThatThrownBy(() -> service.save(taskHost(), MAIN_PATH, "stale\n", production.contentHash().orElseThrow()))
+        assertThatThrownBy(() -> save(taskHost(), MAIN_PATH, "stale\n", production.contentHash().orElseThrow()))
                 .isInstanceOfSatisfying(ReviewFileConflictException.class, conflict -> assertThat(conflict.currentContent()).contains("edited production\n"));
 
         // Git metadata, links anywhere in the chain and new files stay refused.
         String hash = Hashing.sha256().hashString("test source\n", UTF_8).toString();
-        assertThatThrownBy(() -> service.save(taskHost(), ".git/config", "edited\n", hash)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.save(taskHost(), "src/main/java/New.java", "edited\n", hash)).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> save(taskHost(), ".git/config", "edited\n", hash)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> save(taskHost(), "src/main/java/New.java", "edited\n", hash)).isInstanceOf(ReviewNotFoundException.class);
         assertThat(checkout.resolve("src/main/java/New.java")).doesNotExist();
         Files.createSymbolicLink(checkout.resolve("src/main/linked"), checkout.resolve("src/test/java"));
         assertThat(service.file(taskHost(), "src/main/linked/TestCode.java").readOnlyReason()).contains("Symbolic links are read-only here");
-        assertThatThrownBy(() -> service.save(taskHost(), "src/main/linked/TestCode.java", "edited\n", hash))
+        assertThatThrownBy(() -> save(taskHost(), "src/main/linked/TestCode.java", "edited\n", hash))
                 .isInstanceOf(ReviewConflictException.class).hasMessage("Symbolic links are read-only here");
         assertThat(checkout.resolve(TEST_PATH)).hasContent("test source\n");
     }
@@ -872,10 +872,10 @@ class TestReviewCodeService
         when(tasks.get(worktree.taskId())).thenReturn(developmentTask().claimWorktreeMutation(WorktreeMutationClaim.localRun("run-1", NOW), NOW));
         String hash = Hashing.sha256().hashString("production source\n", UTF_8).toString();
 
-        assertThatThrownBy(() -> service.save(taskHost(), MAIN_PATH, "edited\n", hash)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
+        assertThatThrownBy(() -> save(taskHost(), MAIN_PATH, "edited\n", hash)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
 
         when(tasks.get(worktree.taskId())).thenReturn(developmentTask().withDevelopmentContinuation(true, NOW));
-        assertThatThrownBy(() -> service.save(taskHost(), MAIN_PATH, "edited\n", hash)).isInstanceOf(ReviewConflictException.class).hasMessage("Development automation is working");
+        assertThatThrownBy(() -> save(taskHost(), MAIN_PATH, "edited\n", hash)).isInstanceOf(ReviewConflictException.class).hasMessage("Development automation is working");
         verify(turns, never()).synchronizeWorktree(any(), anyLong(), any());
         assertThat(checkout.resolve(MAIN_PATH)).hasContent("production source\n");
     }
@@ -942,7 +942,7 @@ class TestReviewCodeService
         assertThatThrownBy(() -> service.files(otherWorkspace)).isInstanceOf(ReviewNotFoundException.class).hasMessageContaining("does not belong to this workspace");
         assertThatThrownBy(() -> service.file(otherWorkspace, MAIN_PATH)).isInstanceOf(ReviewNotFoundException.class);
         assertThatThrownBy(() -> service.terminal(otherWorkspace)).isInstanceOf(ReviewNotFoundException.class);
-        assertThatThrownBy(() -> service.save(otherWorkspace, MAIN_PATH, "edited\n", "hash")).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> save(otherWorkspace, MAIN_PATH, "edited\n", "hash")).isInstanceOf(ReviewNotFoundException.class);
         verify(turns, never()).synchronizeWorktree(any(), anyLong(), any());
     }
 
@@ -1114,7 +1114,7 @@ class TestReviewCodeService
         assertThat(service.files(taskHost()).files()).isNotEmpty();
         assertThat(service.file(taskHost(), MAIN_PATH).content()).contains("production source\n");
         assertThat(service.file(taskHost(), MAIN_PATH).editable()).isFalse();
-        assertThatThrownBy(() -> service.save(taskHost(), MAIN_PATH, "change", "hash"))
+        assertThatThrownBy(() -> save(taskHost(), MAIN_PATH, "change", "hash"))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("read-only");
         assertThatThrownBy(() -> service.terminal(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessageContaining("read-only");
         verify(turns, never()).synchronizeWorktree(any(), anyLong(), any());
@@ -1187,5 +1187,17 @@ class TestReviewCodeService
         return new ReviewRun("run-" + headSha, REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", baseSha, mergeBaseSha, headSha, tree, Optional.empty(), ImmutableList.of(), diff,
                 ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+    }
+
+    private CodeFile save(String reviewId, String path, String content, String expectedHash)
+    {
+        service.saveBytes(reviewId, path, content.getBytes(UTF_8), expectedHash);
+        return service.file(reviewId, path);
+    }
+
+    private CodeFile save(TaskCodeHost host, String path, String content, String expectedHash)
+    {
+        service.saveBytes(host, path, content.getBytes(UTF_8), expectedHash);
+        return service.file(host, path);
     }
 }

@@ -15,14 +15,8 @@ package com.bytequay.persistence.sqlite.repository;
 
 import com.bytequay.persistence.sqlite.entity.WorkItemIdentityEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
 public interface WorkItemIdentityJpaRepository
         extends JpaRepository<WorkItemIdentityEntity, String>
 {
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("DELETE FROM WorkItemIdentityEntity identity WHERE identity.workItemId = :workItemId")
-    void deleteByWorkItemId(@Param("workItemId") String workItemId);
 }

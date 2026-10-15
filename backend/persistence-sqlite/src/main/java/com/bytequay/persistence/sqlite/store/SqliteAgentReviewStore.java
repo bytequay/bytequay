@@ -27,12 +27,10 @@ import com.bytequay.persistence.sqlite.repository.AgentReviewFindingJpaRepositor
 import com.bytequay.persistence.sqlite.repository.AgentReviewJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentReviewMessageJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentReviewRunJpaRepository;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -42,7 +40,6 @@ import java.util.function.Supplier;
 import java.util.function.ToLongFunction;
 
 import static com.bytequay.persistence.sqlite.store.StoreWrites.REVIEW;
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -166,15 +163,6 @@ public class SqliteAgentReviewStore
     }
 
     @Override
-    public List<ReviewRun> listRecentRuns(String workspaceId, String repo, int limit)
-    {
-        checkArgument(limit >= 1 && limit <= 10, "Recent run limit must be between 1 and 10");
-        return runs.findRecentRuns(workspaceId, repo.toLowerCase(Locale.ROOT), PageRequest.of(0, limit)).stream()
-                .map(AgentReviewRunEntity::toDomain)
-                .collect(toImmutableList());
-    }
-
-    @Override
     @Transactional
     public ReviewFinding insertFinding(ReviewFinding finding)
     {
@@ -239,15 +227,6 @@ public class SqliteAgentReviewStore
     public Optional<ReviewMessage> findMessage(String messageId)
     {
         return messages.findById(messageId).map(AgentReviewMessageEntity::toDomain);
-    }
-
-    @Override
-    public List<ReviewMessage> listEarlierMessages(String reviewId, String runId, Optional<String> findingId, Optional<String> cardId,
-            int targetRevision, Instant createdAt, String messageId, int limit)
-    {
-        checkArgument(limit > 0 && limit <= 10, "Message limit must be between 1 and 10");
-        return messages.findEarlier(reviewId, runId, findingId.orElse(null), cardId.orElse(null), targetRevision, createdAt, messageId, PageRequest.of(0, limit))
-                .stream().map(AgentReviewMessageEntity::toDomain).collect(toImmutableList());
     }
 
     @Override

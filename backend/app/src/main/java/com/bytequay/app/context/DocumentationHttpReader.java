@@ -595,11 +595,6 @@ public class DocumentationHttpReader
     public record Read(String resolvedUrl, String text, String contentHash, Instant readAt, boolean truncated, List<String> gaps,
             List<Link> links, List<String> suggestedExpansionUrls, boolean linksTruncated, Map<String, Integer> sections)
     {
-        public Read(String resolvedUrl, String text, String contentHash, Instant readAt, boolean truncated, List<String> gaps)
-        {
-            this(resolvedUrl, text, contentHash, readAt, truncated, gaps, ImmutableList.of(), ImmutableList.of(), false, ImmutableMap.of());
-        }
-
         public Read
         {
             requireNonNull(resolvedUrl, "resolvedUrl is null");

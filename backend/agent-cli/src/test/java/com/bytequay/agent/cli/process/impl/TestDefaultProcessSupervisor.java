@@ -841,11 +841,6 @@ class TestDefaultProcessSupervisor
         assertThat(marker.pid()).isEmpty();
         assertThat(store.gateReleased(prepared.launchId())).isFalse();
         assertThat(intents.attempted(prepared.launchId())).contains(false);
-
-        prepared.abandon();
-
-        assertThat(store.read(prepared.launchId())).isEmpty();
-        assertThat(intents.attempted(prepared.launchId())).isEmpty();
     }
 
     @Test

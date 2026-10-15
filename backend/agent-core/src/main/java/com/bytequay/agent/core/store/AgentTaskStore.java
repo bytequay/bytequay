@@ -15,7 +15,6 @@ package com.bytequay.agent.core.store;
 
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
-import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 
@@ -81,20 +80,6 @@ public interface AgentTaskStore
      * @return at most {@code limit} matching tasks
      */
     List<AgentTask> listRecentInteractive(String workspaceId, int limit);
-
-    /**
-     * Lists completed interactive tasks with retained summaries for one workspace and physical repository.
-     *
-     * <p>Implementations apply all predicates before limiting rows or decoding task payloads. Repository
-     * owner and name match without case sensitivity. Archived tasks and summaries surviving runtime cleanup
-     * remain eligible. This reads durable task facts only, never transcripts or provider state.
-     *
-     * @param workspaceId exact owning workspace
-     * @param repository physical repository recorded on the task, not a fork's monitored upstream
-     * @param limit positive maximum row count
-     * @return matching tasks in descending update-time order, then ascending task-identifier order
-     */
-    List<AgentTask> listRecentCompletedInteractive(String workspaceId, RepositoryIdentity repository, int limit);
 
     /** Lists every task owned by the workspace, including archived and workflow tasks, oldest first. */
     List<AgentTask> listByWorkspace(String workspaceId);

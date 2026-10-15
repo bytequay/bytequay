@@ -384,54 +384,6 @@ class TestSqliteAgentStores
     }
 
     @Test
-    void scopesCompletedSummariesBeforeLimitingOrDecodingRows()
-    {
-        Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        RepositoryIdentity repository = new RepositoryIdentity("bytequay", "sample");
-        AgentTask expected = completedTask(TaskId.random(), "workspace-a", true, repository, now);
-        AgentTask otherWorkspace = completedTask(TaskId.random(), "workspace-b", true, repository, now.plusSeconds(1));
-        AgentTask otherOwner = completedTask(TaskId.random(), "workspace-a", true, new RepositoryIdentity("other", "sample"), now.plusSeconds(2));
-        AgentTask otherName = completedTask(TaskId.random(), "workspace-a", true, new RepositoryIdentity("bytequay", "other"), now.plusSeconds(3));
-        AgentTask internal = completedTask(TaskId.random(), "workspace-a", false, repository, now.plusSeconds(4));
-        AgentTask open = newTask(now.plusSeconds(5), Optional.of("workspace-a"), true);
-        AgentTask missingSummary = completedTask(TaskId.random(), "workspace-a", true, repository, now.plusSeconds(6));
-        AgentTask failed = newTask(now.plusSeconds(7), Optional.of("workspace-a"), true)
-                .fail("failed", now.plusSeconds(8), now.plusSeconds(100));
-        ImmutableList.of(expected, otherWorkspace, otherOwner, otherName, internal, open, missingSummary, failed).forEach(taskStore::insert);
-        entityManager.flush();
-        // Excluded rows must never be decoded, even when their retained payload is unreadable.
-        for (AgentTask excluded : ImmutableList.of(otherWorkspace, otherOwner, otherName, internal, open, failed)) {
-            jdbc.update("UPDATE agent_task SET summary_json = ? WHERE id = ?", "invalid-json", excluded.id().toString());
-        }
-        jdbc.update("UPDATE agent_task SET summary_json = NULL WHERE id = ?", missingSummary.id().toString());
-        entityManager.clear();
-
-        assertThat(taskStore.listRecentCompletedInteractive("workspace-a", new RepositoryIdentity("ByteQuay", "SAMPLE"), 1)).containsExactly(expected);
-        assertThat(taskStore.listRecentCompletedInteractive("workspace-a", repository, 10)).containsExactly(expected);
-        assertThat(taskStore.listRecentCompletedInteractive("WORKSPACE-A", repository, 1)).isEmpty();
-    }
-
-    @Test
-    void ordersCompletedSummariesWithStableTiesAndRetainsArchivedCleanedTasks()
-    {
-        Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        RepositoryIdentity repository = new RepositoryIdentity("bytequay", "sample");
-        AgentTask first = completedTask(TaskId.valueOf("00000000-0000-0000-0000-000000000001"), "workspace-a", true, repository, now)
-                .withArchived(true, now)
-                .withCleanupState(CleanupState.DELETED, Optional.empty(), now);
-        AgentTask second = completedTask(TaskId.valueOf("00000000-0000-0000-0000-000000000002"), "workspace-a", true, repository, now);
-        AgentTask newest = completedTask(TaskId.random(), "workspace-a", true, repository, now.plusSeconds(1));
-        ImmutableList.of(second, first, newest).forEach(taskStore::insert);
-        entityManager.flush();
-        entityManager.clear();
-
-        assertThat(taskStore.listRecentCompletedInteractive("workspace-a", repository, 2)).containsExactly(newest, first);
-        assertThat(taskStore.listRecentCompletedInteractive("workspace-a", repository, 3)).containsExactly(newest, first, second);
-        assertThatThrownBy(() -> taskStore.listRecentCompletedInteractive("workspace-a", repository, 0)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> taskStore.listRecentCompletedInteractive(" ", repository, 1)).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
     void readsLegacyNullOwnershipAsInternal()
     {
         AgentTask task = newTask(Instant.parse("2026-08-16T00:00:00Z"));

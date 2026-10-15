@@ -19,7 +19,6 @@ import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestPage;
-import com.bytequay.core.domain.PullRequestRef;
 
 import java.time.Instant;
 import java.util.List;
@@ -47,29 +46,18 @@ public interface PullRequestStore
 
     PullRequestPage findRepositoryPage(String repository, int page, int pageSize, String search);
 
-    Map<Long, Instant> findUpdatedAtByIds(Set<Long> ids);
-
     /** Stores a page of fetched pull requests and returns them as stored rows. */
     List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests, String syncMarker);
 
-    Set<Long> completeDashboardSync(String syncMarker, String currentLogin);
-
     List<PullRequest> saveRepositorySyncPage(String repository, List<FetchedPullRequest> pullRequests, String syncMarker);
 
-    List<PullRequest> findRepositoryRowsMissingSync(String repository, String syncMarker);
-
-    /** Stores a pull request opened directly by the user until normal sync reconciliation runs. */
     /** Stores the pull request and returns the stored row, creating one if needed. */
     PullRequest saveObserved(FetchedPullRequest pullRequest);
-
-    Set<Long> completeRepositorySync(String repository, Instant retentionCutoff);
 
     Optional<Long> findIdByRepoAndNumber(String repo, int number);
 
     /** Every stored pull request whose head is the given branch of the repository, newest number first. */
     List<PullRequest> findByHeadRef(String repo, String headRef);
-
-    Optional<PullRequestRef> findRefById(long prId);
 
     void updateDetails(long prId, PrRawDetail detail);
 

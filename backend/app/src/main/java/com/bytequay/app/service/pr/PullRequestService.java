@@ -723,14 +723,6 @@ public class PullRequestService
         return summaries.hasAuthorReplyAfter(pat, parseRef(row.repo(), row.number()), login, row.author(), reviewedAt, summary.activityVersion());
     }
 
-    /** Opens a stored row, fetching its detail on a local miss. */
-    public PullRequestDetail openPullRequestDetail(long prId)
-    {
-        PullRequestRef ref = store.findRefById(prId)
-                .orElseThrow(() -> PullRequestSnapshotService.missing("Pull request"));
-        return openPullRequestDetail(ref.repoFullName(), ref.number());
-    }
-
     /** Returns detail for a pull request the user opened. Background readers use {@link #getPullRequestDetail} instead. */
     public PullRequestDetail openPullRequestDetail(String repo, int number)
     {

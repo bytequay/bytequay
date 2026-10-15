@@ -22,6 +22,4 @@ public interface GoalJpaRepository
         extends JpaRepository<GoalEntity, String>
 {
     List<GoalEntity> findByWorkspaceIdOrderByCreatedAtAscIdAsc(String workspaceId);
-
-    List<GoalEntity> findBySourceKindAndSourceKey(String sourceKind, String sourceKey);
 }

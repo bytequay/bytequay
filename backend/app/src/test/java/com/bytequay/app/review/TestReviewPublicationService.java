@@ -1009,9 +1009,6 @@ class TestReviewPublicationService
         }
 
         @Override
-        public List<ReviewRun> listRecentRuns(String workspaceId, String repo, int limit) { throw new UnsupportedOperationException(); }
-
-        @Override
         public ReviewFinding insertFinding(ReviewFinding finding) { throw new UnsupportedOperationException(); }
 
         @Override
@@ -1031,10 +1028,6 @@ class TestReviewPublicationService
 
         @Override
         public void deleteMessage(String messageId) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public List<ReviewMessage> listEarlierMessages(String reviewId, String runId, Optional<String> findingId, Optional<String> cardId,
-                int targetRevision, Instant createdAt, String messageId, int limit) { throw new UnsupportedOperationException(); }
 
         @Override
         public List<ReviewMessage> listMessages(String reviewId) { throw new UnsupportedOperationException(); }

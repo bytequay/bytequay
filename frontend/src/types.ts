@@ -23,7 +23,6 @@ import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import type { LocalReviewThreadDto } from './pulls/local-review/types';
 import type {
-  ContextBaselineDto,
   ContextBuildViewDto,
   ContextSpecCheckDto,
   ContextSpecCheckStartedDto,
@@ -39,7 +38,7 @@ import type {
   ReviewEvent,
   ReviewSide,
 } from './pulls/agent-review/contracts';
-import type { WorktreeChangesDto, WorktreeChangesRequest, CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto, SaveConflictDto } from './pulls/code-tests/contracts';
+import type { WorktreeChangesDto, WorktreeChangesRequest, CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto } from './pulls/code-tests/contracts';
 
 type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
 export type PullRequestDto = {
@@ -1431,7 +1430,6 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   onPrNotificationOpen: (callback: (reference: { repo: string; number: number }) => void) => () => void;
   syncPrs: (workspaceId?: string) => Promise<void>;
   onPullRequestsSynced: (callback: () => void) => () => void;
-  fetchPullRequestDetail: (prId: number) => Promise<PullRequestDetailDto>;
   fetchPullRequestDetailByRef: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   fetchRepoUsers: (repo: string, workspaceId?: string) => Promise<RepoUserDto[]>;
   fetchRepoLabels: (repo: string) => Promise<RepoLabelDto[]>;
@@ -1747,7 +1745,6 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   deleteGitHubToken: () => Promise<void>;
 
   getWorkspaceSettings: (workspaceId: string) => Promise<WorkspaceSettingsDto>;
-  getRepositoryContextBaseline: (workspaceId: string) => Promise<ContextBaselineDto | null>;
   getRepositoryContextBuild: (workspaceId: string) => Promise<ContextBuildViewDto>;
   /** The latest spec check of each directory; reads only. */
   getRepositoryContextSpecChecks: (workspaceId: string) => Promise<ContextSpecCheckDto[]>;
@@ -1937,7 +1934,6 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   stopCodeRun: (host: CodeHostRef, runId: string) => Promise<LocalRunDto>;
   readCodeRunOutput: (host: CodeHostRef, runId: string, after: number) => Promise<LocalRunOutputDto>;
   /** Writes an editable file of the working copy only if it still has the hash the edit started from. */
-  saveCodeFile: (host: CodeHostRef, path: string, content: string, expectedHash: string) => Promise<{ file: ReviewCodeFileDto } | { conflict: SaveConflictDto }>;
   /** Attaches to the host's login shell in its working copy, starting one if none is alive; replays its recent output. */
   openCodeTerminal: (host: CodeHostRef, cols: number, rows: number) => Promise<{ terminalId: string; scrollback: string }>;
   /** Runs this lane's own sign-in command in a one-shot login shell; it exits when the sign-in ends. */

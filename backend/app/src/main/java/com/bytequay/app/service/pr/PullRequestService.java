@@ -123,6 +123,7 @@ public class PullRequestService
 
     private final Map<PullRequestRef, SummaryStamp> summaryStamps = new ConcurrentHashMap<>();
     private String summaryCredential;
+    private String lastDiscovery = "";
     private final Map<PullRequestRef, DetailWork> detailRefreshes = new ConcurrentHashMap<>();
 
     private final GitHubPullRequestReadClient gitHub;
@@ -430,16 +431,27 @@ public class PullRequestService
         queries.put("is:pr involves:@me", OTHER);
         workspaces.findAll().stream().map(workspace -> workspace.monitoredRepository().fullName()).distinct()
                 .forEach(repo -> queries.put("is:pr repo:" + repo, OTHER));
-        queries.forEach((query, origin) -> {
+        // One search per tick, in turn: back to back, a tick's searches land as one burst on GitHub's secondary limit.
+        // Each query keeps its own checkpoint, so a query that waits for its turn still reads everything since its last run.
+        List<String> order = ImmutableList.copyOf(queries.keySet());
+        int next = order.indexOf(lastDiscovery) + 1;
+        for (int offset = 0; offset < order.size(); offset++) {
+            String query = order.get((next + offset) % order.size());
+            // A failed query uses its turn too, so it cannot starve the queries after it.
+            boolean ran = true;
             try {
-                discoverRecent(credential, query, origin, seen);
+                ran = discoverRecent(credential, query, queries.get(query), seen);
             }
             catch (RuntimeException failure) {
                 if (!isRateLimit(failure)) {
                     log.info("Recent PR discovery deferred for {}: {}", query, failure.getMessage());
                 }
             }
-        });
+            if (ran) {
+                lastDiscovery = query;
+                break;
+            }
+        }
         seen.values().stream().map(row -> parseRef(row.repo(), row.number())).forEach(changed::add);
         store.findAttentionCandidates().stream()
                 .filter(row -> {
@@ -452,13 +464,14 @@ public class PullRequestService
         enrichCards(credential, ImmutableList.copyOf(changed));
     }
 
-    private void discoverRecent(GitHubCredential credential, String query, PullRequest.Origin origin, Map<String, FetchedPullRequest> seen)
+    /** Returns whether the query was due; one that completed within two minutes is skipped. */
+    private boolean discoverRecent(GitHubCredential credential, String query, PullRequest.Origin origin, Map<String, FetchedPullRequest> seen)
     {
         String key = "github.discovery." + credential.profile().login().toLowerCase(Locale.ROOT) + "." + Hashing.sha256().hashString(query, StandardCharsets.UTF_8);
         Instant started = clock.instant();
         Optional<Instant> completed = syncSettings.get(key).map(Instant::parse).filter(at -> !at.isAfter(started));
         if (completed.filter(at -> started.isBefore(at.plusSeconds(120))).isPresent()) {
-            return;
+            return false;
         }
         Instant since = completed.orElse(started.minus(Duration.ofHours(1))).minusSeconds(300);
         discoverQuery(credential.token(), query + " updated:>=" + since.truncatedTo(java.time.temporal.ChronoUnit.SECONDS), page -> {
@@ -479,6 +492,7 @@ public class PullRequestService
         });
         // A failed page leaves this query's checkpoint unchanged; already saved pages replay safely.
         syncSettings.put(key, started.toString());
+        return true;
     }
 
     private void ingestNotification(GitHubCredential credential, GitHubNotificationRef notification, Set<PullRequestRef> changed)

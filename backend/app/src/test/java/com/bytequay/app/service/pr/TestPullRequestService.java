@@ -98,6 +98,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -123,6 +124,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -733,8 +735,8 @@ class TestPullRequestService
         });
         service.syncAttentionSummaries();
         verify(store, times(120)).saveObserved(any());
-        verify(syncSettings, times(4)).put(anyString(), anyString());
-        verify(gitHub, times(5)).searchPullRequestsPaged(eq("pat"), anyString(), anyInt(), eq(100));
+        verify(syncSettings).put(anyString(), anyString());
+        verify(gitHub, times(2)).searchPullRequestsPaged(eq("pat"), anyString(), anyInt(), eq(100));
         verifyNoInteractions(detailStore, diffStore, actions);
     }
 
@@ -752,8 +754,31 @@ class TestPullRequestService
         });
         service.syncAttentionSummaries();
         verify(store).saveObserved(pullRequest().withViewerOrigin("me"));
-        verify(syncSettings, times(3)).put(anyString(), anyString());
+        verify(syncSettings, never()).put(anyString(), anyString());
+
+        // The failed query used its turn; the next tick moves on instead of retrying it first.
+        service.syncAttentionSummaries();
+        verify(syncSettings).put(anyString(), anyString());
+        verify(gitHub, times(2)).searchPullRequestsPaged(eq("pat"), startsWith("is:pr author:@me updated:>="), anyInt(), eq(100));
         verifyNoInteractions(detailStore, diffStore, actions);
+    }
+
+    @Test
+    void eachAttentionTickSearchesOneQueryInTurnFromItsOwnCheckpoint()
+    {
+        Instant completed = Instant.now().minus(Duration.ofMinutes(10)).truncatedTo(ChronoUnit.SECONDS);
+        when(syncSettings.get(anyString())).thenReturn(Optional.of(completed.toString()));
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100))).thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+
+        for (int tick = 0; tick < 5; tick++) {
+            service.syncAttentionSummaries();
+        }
+
+        ArgumentCaptor<String> queries = ArgumentCaptor.forClass(String.class);
+        verify(gitHub, times(5)).searchPullRequestsPaged(eq("pat"), queries.capture(), eq(1), eq(100));
+        String since = " updated:>=" + completed.minusSeconds(300);
+        assertThat(queries.getAllValues()).containsExactly(
+                "is:pr author:@me" + since, "is:pr user-review-requested:@me" + since, "is:pr reviewed-by:@me" + since, "is:pr involves:@me" + since, "is:pr author:@me" + since);
     }
 
     @Test

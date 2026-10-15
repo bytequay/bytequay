@@ -31,7 +31,6 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -60,6 +59,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -772,7 +772,6 @@ public class GitHubActionsClient
         }
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record PullRequestResponse(
             String state,
             String body,
@@ -781,16 +780,12 @@ public class GitHubActionsClient
             BranchResponse base,
             @JsonProperty("html_url") String htmlUrl) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record UserResponse(String login) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record BranchResponse(String ref, String sha, RepositoryResponse repo) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record RepositoryResponse(@JsonProperty("full_name") String fullName) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record WorkflowRunsResponse(
             @JsonProperty("total_count") Integer totalCount,
             @JsonProperty("workflow_runs") List<WorkflowRunResponse> rows)
@@ -798,7 +793,6 @@ public class GitHubActionsClient
 
     private record WorkflowKey(long workflowId, Optional<String> event) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record WorkflowRunResponse(
             long id,
             @JsonProperty("workflow_id") long workflowId,
@@ -811,13 +805,11 @@ public class GitHubActionsClient
             @JsonProperty("head_sha") String headSha,
             @JsonProperty("html_url") String htmlUrl) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record JobsResponse(
             @JsonProperty("total_count") Integer totalCount,
             @JsonProperty("jobs") List<JobResponse> rows)
             implements Page<JobResponse> {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record JobResponse(
             long id,
             String name,
@@ -827,10 +819,31 @@ public class GitHubActionsClient
             @JsonProperty("html_url") String htmlUrl,
             List<StepResponse> steps) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record StepResponse(
             int number,
             String name,
             String status,
             String conclusion) {}
+
+    private record GitHubCheckRunsResponse(@JsonProperty("total_count") int totalCount, @JsonProperty("check_runs") List<CheckRun> checkRuns)
+    {
+        public record CheckRun(
+                Long id,
+                String name,
+                String status,
+                String conclusion,
+                @JsonProperty("details_url") String detailsUrl,
+                @JsonProperty("started_at") Instant startedAt,
+                @JsonProperty("completed_at") Instant completedAt) {}
+    }
+
+    private record GitHubCombinedStatusResponse(List<Status> statuses)
+    {
+        public record Status(
+                Long id,
+                String context,
+                String state,
+                @JsonProperty("target_url") String targetUrl,
+                @JsonProperty("updated_at") Instant updatedAt) {}
+    }
 }

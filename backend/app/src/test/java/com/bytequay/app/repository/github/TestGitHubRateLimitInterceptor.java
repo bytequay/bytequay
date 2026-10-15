@@ -90,17 +90,15 @@ class TestGitHubRateLimitInterceptor
         GitHubRateLimitInterceptor interceptor = interceptor(4);
         MockClientHttpResponse limited = quota(HttpStatus.FORBIDDEN, "{\"message\":\"You have exceeded a secondary rate limit.\"}", "core", 4900);
         assertThatThrownBy(() -> call(interceptor, "/repos/owner/repo", "pat", limited))
-                .isInstanceOfSatisfying(GitHubRateLimitException.class, failure -> {
-                    assertThat(failure.resource()).isEqualTo("secondary");
-                    assertThat(failure.retryAt()).isEqualTo(NOW.plusSeconds(60));
-                });
+                .isInstanceOf(GitHubRateLimitException.class)
+                .hasMessageContaining(limitMessage("secondary", NOW.plusSeconds(60)));
         assertBlocked(interceptor, "/search/issues", "pat", "secondary", NOW.plusSeconds(60));
         assertBlocked(interceptor, "/graphql", "pat", "secondary", NOW.plusSeconds(60));
         assertThat(interceptor.snapshot("pat").rateLimitedResponses()).isEqualTo(1);
         assertThat(interceptor.snapshot("pat").inFlight()).isZero();
         now.set(NOW.plusSeconds(60));
         assertThatThrownBy(() -> call(interceptor, "/graphql", "pat", response(HttpStatus.OK, "{\"errors\":[{\"message\":\"You have exceeded a secondary rate limit\"}]}")))
-                .isInstanceOfSatisfying(GitHubRateLimitException.class, failure -> assertThat(failure.retryAt()).isEqualTo(NOW.plusSeconds(180)));
+                .isInstanceOf(GitHubRateLimitException.class).hasMessageContaining("retry after " + NOW.plusSeconds(180));
     }
 
     @Test
@@ -111,13 +109,13 @@ class TestGitHubRateLimitInterceptor
         MockClientHttpResponse limited = quota(HttpStatus.FORBIDDEN, "{}", "core", 100);
         limited.getHeaders().set(HttpHeaders.RETRY_AFTER, "10");
         assertThatThrownBy(() -> call(interceptor, "/repos/owner/repo", "pat", limited))
-                .isInstanceOfSatisfying(GitHubRateLimitException.class, failure -> assertThat(failure.retryAt()).isEqualTo(NOW.plusSeconds(10)));
+                .isInstanceOf(GitHubRateLimitException.class).hasMessageContaining("retry after " + NOW.plusSeconds(10));
         now.set(NOW.plusSeconds(10));
         call(interceptor, "/graphql", "pat", response(HttpStatus.OK, "{\"data\":{}}")).close();
         MockClientHttpResponse dated = response(HttpStatus.TOO_MANY_REQUESTS, "{}");
         dated.getHeaders().set(HttpHeaders.RETRY_AFTER, DateTimeFormatter.RFC_1123_DATE_TIME.format(NOW.plusSeconds(40).atZone(ZoneOffset.UTC)));
         assertThatThrownBy(() -> call(interceptor, "/repos/owner/repo", "pat", dated))
-                .isInstanceOfSatisfying(GitHubRateLimitException.class, failure -> assertThat(failure.retryAt()).isEqualTo(NOW.plusSeconds(40)));
+                .isInstanceOf(GitHubRateLimitException.class).hasMessageContaining("retry after " + NOW.plusSeconds(40));
         assertThat(interceptor.snapshot("pat").cooldowns()).containsOnlyKeys("secondary");
     }
 
@@ -129,7 +127,7 @@ class TestGitHubRateLimitInterceptor
         MockClientHttpResponse limited = quota(HttpStatus.FORBIDDEN, "{}", "core", 0);
         limited.getHeaders().set(HttpHeaders.RETRY_AFTER, "10");
         assertThatThrownBy(() -> call(interceptor, "/repos/owner/repo", "pat", limited))
-                .isInstanceOfSatisfying(GitHubRateLimitException.class, failure -> assertThat(failure.retryAt()).isEqualTo(NOW.plusSeconds(3600)));
+                .isInstanceOf(GitHubRateLimitException.class).hasMessageContaining("retry after " + NOW.plusSeconds(3600));
         assertBlocked(interceptor, "/graphql", "pat", "secondary", NOW.plusSeconds(10));
         now.set(NOW.plusSeconds(10));
         call(interceptor, "/graphql", "pat", response(HttpStatus.OK, "{}")).close();
@@ -294,14 +292,16 @@ class TestGitHubRateLimitInterceptor
         server.verify();
     }
 
+    private static String limitMessage(String resource, Instant retryAt)
+    {
+        return "GitHub " + resource + " API rate limit reached; retry after " + retryAt;
+    }
+
     private static void assertBlocked(GitHubRateLimitInterceptor interceptor, String path, String pat, String resource, Instant retryAt)
     {
         assertThatThrownBy(() -> interceptor.intercept(request(path, pat), new byte[0], (request, body) -> {
             throw new AssertionError("A blocked request must not reach GitHub");
-        })).isInstanceOfSatisfying(GitHubRateLimitException.class, failure -> {
-            assertThat(failure.resource()).isEqualTo(resource);
-            assertThat(failure.retryAt()).isEqualTo(retryAt);
-        });
+        })).isInstanceOf(GitHubRateLimitException.class).hasMessageContaining(limitMessage(resource, retryAt));
     }
 
     private static HttpRequest request(String path, String pat)

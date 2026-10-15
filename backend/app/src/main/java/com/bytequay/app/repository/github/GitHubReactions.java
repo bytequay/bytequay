@@ -13,10 +13,8 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-@JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubReactions(
         @JsonProperty("+1") int plusOne,
         @JsonProperty("-1") int minusOne,

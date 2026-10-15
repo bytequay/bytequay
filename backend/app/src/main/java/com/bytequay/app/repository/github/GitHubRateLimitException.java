@@ -21,31 +21,16 @@ import java.time.Instant;
 public final class GitHubRateLimitException
         extends ResponseStatusException
 {
-    private final String resource;
-    private final Instant retryAt;
-
     public GitHubRateLimitException(String resource, long resetAtEpochSecond)
     {
         super(HttpStatus.TOO_MANY_REQUESTS, "GitHub " + resource + " API rate limit reached; retry after " + Instant.ofEpochSecond(resetAtEpochSecond));
-        this.resource = resource;
-        this.retryAt = Instant.ofEpochSecond(resetAtEpochSecond);
-    }
-
-    public String resource()
-    {
-        return resource;
-    }
-
-    public Instant retryAt()
-    {
-        return retryAt;
     }
 
     public static boolean isRateLimit(Throwable failure)
     {
         for (Throwable current = failure; current != null; current = current.getCause()) {
-            if (current instanceof GitHubRateLimitException
-                    || current instanceof ResponseStatusException response && response.getStatusCode().value() == 429) {
+            // GitHubRateLimitException is itself a 429.
+            if (current instanceof ResponseStatusException response && response.getStatusCode().value() == 429) {
                 return true;
             }
         }

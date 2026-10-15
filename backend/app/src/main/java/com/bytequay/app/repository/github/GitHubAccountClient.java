@@ -19,7 +19,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.UserRepo;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -112,7 +111,6 @@ public class GitHubAccountClient
         }
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record UserIdentityResponse(long id, String login, String name, @JsonProperty("avatar_url") String avatarUrl, String type) {}
 
     private static UserProfile toUserProfile(GitHubUserProfileResponse response) {
@@ -209,28 +207,20 @@ public class GitHubAccountClient
         }
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ContributionGqlResponse(ContributionGqlData data, List<ContributionGqlError> errors) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ContributionGqlError(String type, String message) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ContributionGqlData(ContributionGqlUser user) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ContributionGqlUser(ContributionGqlCollection contributionsCollection) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ContributionGqlCollection(ContributionGqlCalendar contributionCalendar) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ContributionGqlCalendar(Integer totalContributions, List<ContributionGqlWeek> weeks) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ContributionGqlWeek(List<ContributionGqlDay> contributionDays) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ContributionGqlDay(String date, Integer contributionCount, String color) {}
 
     public List<UserCommitSummary> fetchUserCommitsOnDate(
@@ -292,23 +282,18 @@ public class GitHubAccountClient
         return new UserCommitSummary(item.sha() == null ? "" : item.sha(), repoFullName, shortMessage, item.htmlUrl() == null ? "" : item.htmlUrl(), authoredAt);
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record CommitSearchResponse(List<CommitSearchItem> items) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record CommitSearchItem(
             String sha,
             @JsonProperty("html_url") String htmlUrl,
             CommitSearchCommit commit,
             CommitSearchRepo repository) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record CommitSearchCommit(String message, CommitSearchAuthor author) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record CommitSearchAuthor(String date) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record CommitSearchRepo(@JsonProperty("full_name") String fullName) {}
 
     public List<UserRepo> fetchUserRepos(String pat) {
@@ -325,23 +310,9 @@ public class GitHubAccountClient
     }
 
     public boolean fetchViewerCanWrite(String pat, RepoRef repo) {
-        // /repos/{owner}/{repo} returns a `permissions` block when called
-        // with an authenticated PAT; `permissions.push` is true for users
-        // with write/maintain/admin access. Swallowing errors keeps the
-        // merge button greyed-out on any failure (404, rate-limit, scope) —
-        // which is the safe default.
+        // Swallowing errors keeps the merge button greyed-out on any failure (404, rate-limit, scope), which is the safe default.
         try {
-            GitHubUserRepoItem response =
-                    get(gitHubRestClient, pat, u ->
-                                    u.path("/repos/{owner}/{repo}")
-                                            .build(repo.owner(), repo.repo()))
-                            .retrieve()
-                            .body(GitHubUserRepoItem.class);
-            return Optional.ofNullable(response)
-                    .map(GitHubUserRepoItem::permissions)
-                    .map(GitHubUserRepoItem.Permissions::push)
-                    .map(Boolean.TRUE::equals)
-                    .orElse(false);
+            return fetchRepository(pat, repo.owner(), repo.repo()).map(UserRepo::viewerCanPush).orElse(false);
         }
         catch (Exception e) {
             return false;
@@ -565,5 +536,46 @@ public class GitHubAccountClient
         String headline = first.lines().findFirst().orElse(first);
         int remaining = Math.max(commitCount, commits.size()) - 1;
         return remaining == 0 ? headline : headline + " · +" + remaining + " more";
+    }
+
+    private record GitHubRepoSearchResponse(List<GitHubUserRepoItem> items) {}
+
+    private record GitHubUserProfileResponse(
+            String login,
+            String name,
+            @JsonProperty("avatar_url") String avatarUrl,
+            @JsonProperty("html_url") String htmlUrl,
+            @JsonProperty("public_repos") int publicRepos,
+            int followers,
+            int following,
+            String bio,
+            String location,
+            String company,
+            String email)
+    {}
+
+    record GitHubEventItem(String type, Actor actor, Repo repo, Payload payload, @JsonProperty("created_at") Instant createdAt)
+    {
+        record Actor(String login, @JsonProperty("avatar_url") String avatarUrl) {}
+
+        record Repo(String name) {}
+
+        record Payload(
+                Integer size,
+                String action,
+                @JsonProperty("ref_type") String refType,
+                String ref,
+                @JsonProperty("pull_request") PrPayload pullRequest,
+                IssuePayload issue,
+                ReviewPayload review,
+                List<CommitPayload> commits) {}
+
+        record PrPayload(int number, String title) {}
+
+        record IssuePayload(int number, String title) {}
+
+        record ReviewPayload(String state) {}
+
+        record CommitPayload(String message) {}
     }
 }

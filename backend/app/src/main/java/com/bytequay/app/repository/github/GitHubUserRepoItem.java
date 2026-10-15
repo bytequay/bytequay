@@ -13,12 +13,10 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
 
-@JsonIgnoreProperties(ignoreUnknown = true)
 record GitHubUserRepoItem(
         long id,
         String name,
@@ -35,13 +33,10 @@ record GitHubUserRepoItem(
         @JsonProperty("stargazers_count") int stargazersCount,
         List<String> topics)
 {
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record Owner(String login) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record Permissions(Boolean push) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record Repository(
             long id,
             String name,

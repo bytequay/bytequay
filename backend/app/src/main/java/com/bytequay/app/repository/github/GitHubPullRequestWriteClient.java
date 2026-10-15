@@ -20,7 +20,6 @@ import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
@@ -260,7 +259,6 @@ public class GitHubPullRequestWriteClient
         });
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record PendingReview(Long id, @JsonProperty("node_id") String nodeId, String state) {}
 
     public PrTimelineEvent createReviewComment(String pat, PullRequestRef pr, InlineReviewComment comment)
@@ -376,7 +374,6 @@ public class GitHubPullRequestWriteClient
                 .body(CreatedPullRequest.class), "Empty response from GitHub when creating pull request"));
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record IssueMetadata(List<String> assignees, List<String> labels, Instant updatedAt)
     {
         public IssueMetadata
@@ -386,23 +383,19 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record UpdatedIssue(
             JsonNode type,
             List<UpdatedLabel> labels,
             List<UpdatedUser> assignees,
             @JsonProperty("updated_at") Instant updatedAt) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record UpdatedLabel(String name) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record UpdatedUser(String login) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record GitHubReaction(long id) {}
 
-    private record ReviewThreadMutationResponse(List<GitHubReviewThreadsResponse.Error> errors) {}
+    private record ReviewThreadMutationResponse(List<GraphQlError> errors) {}
 
     public boolean hasMergeQueue(String pat, RepoRef repo, String branch)
     {
@@ -507,7 +500,6 @@ public class GitHubPullRequestWriteClient
         return state != null ? "Added to merge queue (" + state + ")" : "Added to merge queue";
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record MergeResponse(String sha, boolean merged, String message)
     {
         MergeResult toDomain()
@@ -516,51 +508,35 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ProbeResponse(ProbeData data, List<GraphQlError> errors) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record MergeQueueResponse(MergeQueueData data, List<GraphQlError> errors) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record MergeQueueData(MergeQueueRepository repository) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record MergeQueueRepository(MergeQueue mergeQueue) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record MergeQueue(String id) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ProbeData(ProbeRepository repository) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ProbeRepository(ProbePullRequest pullRequest) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record ProbePullRequest(String id) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record GraphQlError(String type, String message) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record EnqueueResponse(EnqueueData data, List<GraphQlError> errors) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record EnqueueData(EnqueuePayload enqueuePullRequest) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record EnqueuePayload(QueueEntry mergeQueueEntry) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record QueueEntry(Integer position, String state) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record DequeueResponse(DequeueData data, List<GraphQlError> errors) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record DequeueData(DequeuePayload dequeuePullRequest) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     record DequeuePayload(String clientMutationId) {}
 }

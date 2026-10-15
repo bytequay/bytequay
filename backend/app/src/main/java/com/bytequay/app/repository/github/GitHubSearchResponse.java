@@ -13,19 +13,16 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 import java.util.List;
 
-@JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubSearchResponse(
         @JsonProperty("total_count") int totalCount,
         @JsonProperty("items") List<Item> items,
         @JsonProperty("incomplete_results") Boolean incompleteResults)
 {
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Item(
             long id,
             int number,
@@ -45,12 +42,9 @@ public record GitHubSearchResponse(
 
     /** Search reports a merged PR as {@code state=closed}; {@code merged_at}
      *  lives only in this nested object, and is null for a plain close. */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record PullRequestLink(@JsonProperty("merged_at") Instant mergedAt) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String login) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Label(String name, String color) {}
 }

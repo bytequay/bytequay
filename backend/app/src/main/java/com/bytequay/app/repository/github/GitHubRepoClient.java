@@ -20,7 +20,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryLabel;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
@@ -394,7 +393,6 @@ public class GitHubRepoClient
                 .filter(result -> !result.isBlank());
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record ContributorResponse(
             long id,
             String login,
@@ -439,14 +437,11 @@ public class GitHubRepoClient
         }
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record SubIssueResponse(long id, int number, String title, String state, @JsonProperty("html_url") String htmlUrl,
             @JsonProperty("repository_url") String repositoryUrl) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record LabelResponse(long id, String name, String color) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record IssueResponse(
             long id,
             int number,
@@ -463,20 +458,15 @@ public class GitHubRepoClient
             @JsonProperty("pull_request") Map<String, Object> pullRequest,
             JsonNode type) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record IssueTypeResponse(String name) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record IssueUser(
             String login,
             @JsonProperty("avatar_url") String avatarUrl) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record IssueLabel(String name) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record CommitResponse(String sha, CommitAuthor author, CommitAuthor committer) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record CommitAuthor(String login, @JsonProperty("avatar_url") String avatarUrl) {}
 }

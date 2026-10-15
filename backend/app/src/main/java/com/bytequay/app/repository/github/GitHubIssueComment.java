@@ -13,13 +13,11 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 
 /** Fields consumed from {@code GET /repos/:owner/:repo/issues/:n/comments}. */
-@JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubIssueComment(
         long id,
         @JsonProperty("node_id") String nodeId,
@@ -29,6 +27,5 @@ public record GitHubIssueComment(
         @JsonProperty("html_url") String htmlUrl,
         GitHubReactions reactions)
 {
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
 }

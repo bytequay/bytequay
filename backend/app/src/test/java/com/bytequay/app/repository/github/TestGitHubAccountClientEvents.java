@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.app.repository.github.GitHubAccountClient.GitHubEventItem;
 import com.bytequay.core.domain.RecentEvent;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;

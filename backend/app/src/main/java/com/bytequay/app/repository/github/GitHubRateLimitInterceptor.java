@@ -70,11 +70,6 @@ public final class GitHubRateLimitInterceptor
     private final Map<String, AccountBudget> credentials = new HashMap<>();
     private final Map<String, AccountBudget> accounts = new HashMap<>();
 
-    public GitHubRateLimitInterceptor()
-    {
-        this(Clock.systemUTC(), MAX_CONCURRENT_REQUESTS);
-    }
-
     @Autowired
     public GitHubRateLimitInterceptor(Clock clock)
     {

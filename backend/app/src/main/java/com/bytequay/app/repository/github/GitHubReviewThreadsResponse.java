@@ -13,26 +13,18 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-
 import java.util.List;
 
-@JsonIgnoreProperties(ignoreUnknown = true)
-public record GitHubReviewThreadsResponse(Data data, List<Error> errors)
+public record GitHubReviewThreadsResponse(Data data)
 {
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Data(Repository repository) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Repository(PullRequest pullRequest) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record PullRequest(ReviewThreads reviewThreads) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record ReviewThreads(List<Thread> nodes, PageInfo pageInfo) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Thread(
             String id,
             boolean isResolved,
@@ -45,15 +37,9 @@ public record GitHubReviewThreadsResponse(Data data, List<Error> errors)
             String diffSide,
             Comments comments) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Comments(List<Comment> nodes) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Comment(Long databaseId) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record PageInfo(boolean hasNextPage, String endCursor) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Error(String message) {}
 }

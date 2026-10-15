@@ -14,12 +14,10 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.PrReviewState;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 
-@JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubReview(
         Long id,
         User user,
@@ -29,7 +27,6 @@ public record GitHubReview(
         @JsonProperty("html_url") String htmlUrl,
         @JsonProperty("commit_id") String commitId)
 {
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
 
     public PrReviewState toReviewState()

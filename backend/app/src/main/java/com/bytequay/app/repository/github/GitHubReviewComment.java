@@ -13,12 +13,10 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 
-@JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubReviewComment(
         Long id,
         @JsonProperty("node_id") String nodeId,
@@ -37,6 +35,5 @@ public record GitHubReviewComment(
         String side,
         GitHubReactions reactions)
 {
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
 }

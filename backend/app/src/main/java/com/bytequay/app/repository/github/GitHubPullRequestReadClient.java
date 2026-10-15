@@ -28,7 +28,6 @@ import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepoUser;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
@@ -537,7 +536,6 @@ public class GitHubPullRequestReadClient
         return RepoRef.of(parts[0], parts[1]);
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record PublicationPullRequest(
             int number,
             @JsonProperty("html_url") String htmlUrl,
@@ -551,13 +549,10 @@ public class GitHubPullRequestReadClient
             PublicationBranch base,
             PublicationUser user) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record PublicationBranch(String ref, String sha, PublicationRepository repo) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record PublicationRepository(long id, @JsonProperty("full_name") String fullName) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record PublicationUser(String login) {}
 
     public List<RepoUser> fetchAssignableUsers(String pat, RepoRef repo)
@@ -938,24 +933,15 @@ public class GitHubPullRequestReadClient
         if (ref == null || ref.isBlank()) {
             return null;
         }
-        return fetchRepositoryFile(pat, RepoRef.of(pr.owner(), pr.repo()), path, ref).orElse(null);
-    }
-
-    public Optional<String> fetchRepositoryFile(String pat, RepoRef repository, String path, String ref)
-    {
-        requirePat(pat);
-        requireNonNull(repository, "repository is null");
-        requireNotBlank(path, "path must not be blank");
-        requireNotBlank(ref, "ref must not be blank");
         try {
-            return Optional.ofNullable(get(gitHubRestClient, pat, repositoryFileUri(repository, path, ref))
+            return get(gitHubRestClient, pat, repositoryFileUri(RepoRef.of(pr.owner(), pr.repo()), path, ref))
                     .header("Accept", "application/vnd.github.raw+json")
                     .retrieve()
-                    .body(String.class));
+                    .body(String.class);
         }
         catch (RestClientResponseException e) {
             if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
-                return Optional.empty();
+                return null;
             }
             throw toReadableException(e);
         }
@@ -1538,16 +1524,12 @@ public class GitHubPullRequestReadClient
                 .collect(toImmutableList());
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record ViewerReactionsResponse(ViewerReactionsData data) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record ViewerReactionsData(List<ViewerReactionNode> nodes) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record ViewerReactionNode(String id, List<ViewerReactionGroup> reactionGroups) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record ViewerReactionGroup(String content, Boolean viewerHasReacted) {}
 
     public FetchedPullRequest getPullRequest(String pat, PullRequestRef pr) {
@@ -1601,7 +1583,6 @@ public class GitHubPullRequestReadClient
 
     // ── GraphQL: review-thread resolution ────────────────────────────────
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record GitHubAssignableUser(
             long id,
             String login,
@@ -1655,5 +1636,93 @@ public class GitHubPullRequestReadClient
             return repositoryUrl;
         }
         return repositoryUrl.substring(index + REPOS_SEGMENT.length());
+    }
+
+    private record GitHubCompareResponse(List<GitHubPullRequestFileWithPatch> files) {}
+
+    /** One changed file with its unified-diff patch. */
+    private record GitHubPullRequestFileWithPatch(
+            String filename,
+            int additions,
+            int deletions,
+            String status,
+            String patch) {}
+
+    private record GitHubIssueReactionsResponse(
+            @JsonProperty("node_id") String nodeId,
+            GitHubReactions reactions) {}
+
+    private record GitHubPullRequestCommit(String sha, @JsonProperty("html_url") String htmlUrl, User author, Commit commit, List<Parent> parents)
+    {
+        public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
+
+        public record Commit(String message, Author author, Author committer) {}
+
+        public record Author(String name, Instant date) {}
+
+        public record Parent(String sha) {}
+    }
+
+    private record GitHubReviewReactionsResponse(Data data)
+    {
+        public record Data(Repository repository) {}
+
+        public record Repository(PullRequest pullRequest) {}
+
+        public record PullRequest(Reviews reviews) {}
+
+        public record Reviews(List<Review> nodes, GitHubReviewThreadsResponse.PageInfo pageInfo) {}
+
+        public record Review(Long databaseId, List<ReactionGroup> reactionGroups) {}
+
+        public record ReactionGroup(String content, Users users, Boolean viewerHasReacted) {}
+
+        public record Users(int totalCount) {}
+    }
+
+    /** GitHub timeline fields consumed by ByteQuay. */
+    private record GitHubTimelineEvent(
+            Long id,
+            String event,
+            @JsonProperty("created_at") Instant createdAt,
+            @JsonProperty("submitted_at") Instant submittedAt,
+            Actor actor,
+            User user,
+            @JsonProperty("requested_reviewer") User requestedReviewer,
+            @JsonProperty("requested_team") Team requestedTeam,
+            User assignee,
+            String body,
+            String state,
+            @JsonProperty("html_url") String htmlUrl,
+            Author author,
+            Author committer,
+            Label label,
+            Rename rename,
+            Milestone milestone,
+            Source source,
+            String sha,
+            String message,
+            GitHubReactions reactions)
+    {
+        public record Actor(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
+
+        public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
+
+        public record Team(String slug) {}
+
+        public record Author(String name, Instant date) {}
+
+        public record Label(String name, String color) {}
+
+        public record Rename(String from, String to) {}
+
+        public record Milestone(String title) {}
+
+        public record Source(Issue issue) {}
+
+        public record Issue(
+                int number,
+                String title,
+                @JsonProperty("html_url") String htmlUrl) {}
     }
 }

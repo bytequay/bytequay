@@ -13,13 +13,11 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 import java.util.List;
 
-@JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubPullRequestDetailResponse(
         long id,
         int number,
@@ -45,24 +43,17 @@ public record GitHubPullRequestDetailResponse(
         Boolean mergeable,
         @JsonProperty("mergeable_state") String mergeableState)
 {
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Label(String name, String color) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Assignee(String login) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Milestone(String title) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record RequestedReviewer(String login) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Head(String sha, String ref) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Base(String sha, String ref) {}
 }

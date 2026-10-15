@@ -48,7 +48,7 @@ export async function run() {
   };
   const make = (id: string, kind: AppNotice['kind']): AppNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn', reviewId: null,
     title: kind === 'QUESTION' ? 'Improve task recovery' : 'Review the settings screen',
-    pullRequestTitle: null, changeSummary: null,
+    pullRequest: null, pullRequestTitle: null, changes: null,
     message: kind === 'QUESTION' ? 'Should interrupted tasks resume automatically?' : 'The latest response is ready to read.',
     laneId: 'codex', repository: 'bytequay/bytequay', occurredAt: new Date().toISOString() });
   const originalTimeout = window.setTimeout.bind(window);
@@ -77,11 +77,17 @@ export async function run() {
     assert(front.querySelector('h2')?.textContent === 'Review the settings screen' && !front.querySelector('.app-notice__changes'),
       'Tasks without PR context keep their title and omit change counts');
     const pullRequestTitle = 'Improve recovery when interrupted tasks resume with queued messages and pending approval requests across repositories';
-    state = { ...state, notices: [{ ...state.notices[0], title: 'Review bytequay/bytequay#42', pullRequestTitle,
-      changeSummary: '2 commits · 3 files · +42 / −12 lines' }, ...state.notices.slice(1)] }; listener(state); await wait();
-    assert(front.querySelector('h2')?.textContent === pullRequestTitle && front.textContent?.includes('Review bytequay/bytequay#42'),
+    assert(front.querySelector('.app-notice__head')?.textContent?.startsWith('Turn finished') && front.querySelector('.app-notice__time')?.textContent === 'just now'
+      && !front.querySelector('.app-notice__message'), 'Completed tasks state the outcome and its age without a generic message');
+    assert(front.querySelector('.app-notice__actions span')?.textContent === 'bytequay/bytequay', 'The action row names the task repository');
+    state = { ...state, notices: [{ ...state.notices[0], title: 'Review bytequay/bytequay#42', reviewId: 'review', pullRequest: 'bytequay/bytequay#42', pullRequestTitle,
+      changes: { update: false, commits: 2, files: 3, additions: 42, deletions: 12 } }, ...state.notices.slice(1)] }; listener(state); await wait();
+    assert(front.querySelector('h2')?.textContent === pullRequestTitle && front.querySelector('.app-notice__ref')?.textContent === 'bytequay/bytequay#42',
       'Review cards show both the PR title and its identity');
-    assert(front.querySelector('.app-notice__changes')?.textContent === '2 commits · 3 files · +42 / −12 lines', 'Review cards show compact change counts');
+    assert(front.querySelector('.app-notice__head')?.textContent?.startsWith('Review finished'), 'Review completions name the review');
+    const counts = [...front.querySelectorAll('.app-notice__changes span')];
+    assert(counts.map(span => span.textContent).join() === '2 commits,3 files,+42,−12', 'Review cards show compact change counts');
+    assert(getComputedStyle(counts[2]).color !== getComputedStyle(counts[3]).color, 'Added and deleted lines use different colors');
     const heading = front.querySelector('h2'); assert(heading, 'Review title missing');
     assert(heading.title === pullRequestTitle && heading.getBoundingClientRect().height <= parseFloat(getComputedStyle(heading).lineHeight) * 2 + 1,
       'Long PR titles stay within two lines and retain the full title on hover');
@@ -123,6 +129,8 @@ export async function run() {
       'Expanded notices still show at most two cards and advance one notice at a time');
     next.click(); await wait();
     const questionAction = host.querySelector<HTMLButtonElement>('.is-question .app-notice__actions button'); assert(questionAction, 'Question must remain reachable');
+    assert(host.querySelector('.is-question .app-notice__message')?.textContent === 'Should interrupted tasks resume automatically?'
+      && host.querySelector('.is-question .app-notice__head')?.textContent?.startsWith('Waiting for you'), 'Questions show what the agent asked');
     assert(!questionAction.closest('.is-preview'), 'Paging brings the second card forward for interaction');
     rejectOpen = true; questionAction.click(); await wait();
     assert(host.querySelector('.is-question') && host.querySelector('[role="alert"]'), 'Failed navigation keeps the card available to retry');
@@ -229,9 +237,13 @@ export async function run() {
     listener(state); await wait();
     assert(!host.querySelector('.app-notices__edge') && !sizes.at(-1)?.folded, 'A fresh batch appears normally after the folded stack empties');
     const question = host.querySelector('.is-question'); assert(question, 'The new task card appears');
-    const openQuestion = question.querySelector<HTMLButtonElement>('.app-notice__actions button'); assert(openQuestion?.textContent === 'View question', 'Questions navigate to their task');
+    const openQuestion = question.querySelector<HTMLButtonElement>('.app-notice__actions button'); assert(openQuestion?.textContent === 'Reply', 'Questions navigate to their task');
     openQuestion.click(); await wait();
     assert(opened.includes('fresh-question') && !host.querySelector('.is-question'), 'Opening the task closes its card');
+    state = { ...state, notices: [{ ...make('failed', 'FAILURE'), message: 'Rate limited by GitHub API' }], popupIds: ['failed'] }; listener(state); await wait();
+    const failed = host.querySelector<HTMLElement>('.is-failure'); assert(failed, 'Failure card missing');
+    assert(failed.querySelector('.app-notice__message')?.textContent === 'Rate limited by GitHub API'
+      && failed.querySelector('.app-notice__actions button')?.textContent === 'View log', 'Failures show their reason and open the task log');
     const occlusion: boolean[] = [];
     const stopOcclusion = observeNoticeOcclusion(value => occlusion.push(value));
     const modal = document.createElement('section'); modal.setAttribute('aria-modal', 'true'); modal.textContent = 'Submit review';

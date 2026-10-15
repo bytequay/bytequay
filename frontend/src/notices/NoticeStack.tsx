@@ -12,11 +12,15 @@
  * limitations under the License.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import { ArrowLeft, ArrowRight, Bell, Check, ChevronLeft, ChevronRight, CircleAlert, MessageCircleQuestion, Pause, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Bell, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ago } from '../relativeTime';
 import { NOTICE_LABELS, NOTICE_WIDTH, needsAction, type AppNotice, type NoticeBridge, type NoticeSnapshot } from './contracts';
 
-const ICONS = { TURN_FINISHED: Check, QUESTION: MessageCircleQuestion, APPROVAL: ShieldCheck, FAILURE: CircleAlert, RECOVERY: CircleAlert, QUEUE_PAUSED: Pause };
-const ACTIONS = { TURN_FINISHED: 'View response', QUESTION: 'View question', APPROVAL: 'Review request', FAILURE: 'View task', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue' };
+const ACTIONS = { TURN_FINISHED: 'View response', QUESTION: 'Reply', APPROVAL: 'Review request', FAILURE: 'View log', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue' };
+const label = (notice: AppNotice): string => notice.reviewId === null ? NOTICE_LABELS[notice.kind]
+  : notice.kind === 'TURN_FINISHED' ? 'Review finished' : notice.kind === 'FAILURE' ? 'Review failed' : NOTICE_LABELS[notice.kind];
+const describe = (notice: AppNotice): string => `${label(notice)}: ${notice.pullRequestTitle ?? notice.title}`;
+const count = (value: number, noun: string): string => `${value} ${noun}${value === 1 ? '' : 's'}`;
 
 function NoticeCard({ notice, active, popup, preview, onDismiss, onClose, onOpen }: {
   notice: AppNotice; active: boolean; popup: boolean; preview: boolean; onDismiss: () => void; onClose: () => void; onOpen: () => void;
@@ -33,24 +37,23 @@ function NoticeCard({ notice, active, popup, preview, onDismiss, onClose, onOpen
     const timer = window.setTimeout(() => dismiss.current(), remaining.current);
     return () => { window.clearTimeout(timer); remaining.current = Math.max(0, remaining.current - (Date.now() - start)); };
   }, [actionable, popup, active, hovered, focused]);
-  const Icon = ICONS[notice.kind];
-  const provider = notice.laneId.startsWith('claude') ? 'Claude' : notice.laneId.startsWith('codex') ? 'Codex' : notice.laneId;
-  const source = `${provider} · ${notice.repository}`;
+  const heading = notice.pullRequestTitle ?? notice.title;
+  const changes = actionable ? null : notice.changes;
   return <article className={`app-notice is-${notice.kind.toLowerCase()}${preview ? ' is-preview' : ''}`} inert={preview} aria-hidden={preview || undefined}
-    aria-label={`${NOTICE_LABELS[notice.kind]}: ${notice.title}${notice.pullRequestTitle ? `: ${notice.pullRequestTitle}` : ''}`}
+    aria-label={describe(notice)}
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
-    <div className="app-notice__head"><span className="app-notice__icon"><Icon size={16} aria-hidden="true" /></span>
-      <span>{NOTICE_LABELS[notice.kind]}</span><span className="app-notice__spacer" />
-      <button type="button" className="app-notice__close" aria-label={`Close ${NOTICE_LABELS[notice.kind].toLowerCase()} notification`} onClick={onClose}><X size={14} /></button>
+    <div className="app-notice__head"><span className="app-notice__dot" aria-hidden="true" /><span>{label(notice)}</span>
+      <time className="app-notice__time" dateTime={notice.occurredAt}>{ago(notice.occurredAt)}</time>
+      <button type="button" className="app-notice__close" aria-label={`Close ${label(notice).toLowerCase()} notification`} onClick={onClose}><X size={14} /></button>
     </div>
-    <h2 title={notice.pullRequestTitle ?? notice.title}>{notice.pullRequestTitle ?? notice.title}</h2>
-    {notice.pullRequestTitle && <div className="app-notice__meta" title={notice.title}>{notice.title}</div>}
-    {notice.changeSummary && <p className="app-notice__changes" title={notice.changeSummary}>{notice.changeSummary}</p>}
-    <p title={notice.message}>{notice.message}</p>
-    <div className="app-notice__meta" title={source}>{source}</div>
+    <div className="app-notice__subject"><h2 title={heading}>{heading}</h2>
+      {notice.pullRequest && <div className="app-notice__ref" title={notice.pullRequest}>{notice.pullRequest}</div>}</div>
+    {changes ? <div className="app-notice__changes">{changes.update && <span>Update</span>}<span>{count(changes.commits, 'commit')}</span>
+      <span>{count(changes.files, 'file')}</span><span className="is-added">+{changes.additions}</span><span className="is-deleted">−{changes.deletions}</span></div>
+      : actionable && <p className="app-notice__message" title={notice.message}>{notice.message}</p>}
     <div className="app-notice__actions"><button type="button" onClick={onOpen}>{ACTIONS[notice.kind]}</button>
-      {needsAction(notice) && <span>Needs your attention</span>}</div>
+      <span title={notice.repository}>{notice.repository}</span></div>
   </article>;
 }
 
@@ -72,7 +75,7 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
     const update = (next: NoticeSnapshot) => {
       if (!active) return;
       const added = next.notices.filter(item => next.popupIds.includes(item.id) && !prior.has(item.id));
-      if (next.active && added.length) setAnnouncement(added.map(item => `${NOTICE_LABELS[item.kind]}: ${item.title}${item.pullRequestTitle ? `: ${item.pullRequestTitle}` : ''}`).join('. '));
+      if (next.active && added.length) setAnnouncement(added.map(describe).join('. '));
       prior = new Set(next.popupIds);
       setState(next);
       if (next.notices.length === 0) { setExpanded(false); setFolded(false); setError(null); }

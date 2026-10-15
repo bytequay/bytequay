@@ -25,8 +25,9 @@ public record AppNotice(
         Optional<String> turnId,
         Optional<String> reviewId,
         String title,
+        Optional<String> pullRequest,
         Optional<String> pullRequestTitle,
-        Optional<String> changeSummary,
+        Optional<Changes> changes,
         String message,
         String repository,
         String laneId,
@@ -41,4 +42,7 @@ public record AppNotice(
         RECOVERY,
         QUEUE_PAUSED
     }
+
+    /** Counts for the latest review run; {@code update} marks a run that covers only changes since the prior review. */
+    public record Changes(boolean update, int commits, int files, long additions, long deletions) {}
 }

@@ -180,26 +180,24 @@ public class AppNoticeService
 
     private AppNotice notice(AgentTask task, Optional<AgentReview> review, Optional<AgentTurn> turn, String id, AppNotice.Kind kind, String message, Instant occurredAt)
     {
-        Optional<String> pullRequestTitle = review.filter(value -> value.number().isPresent())
+        Optional<AgentReview> numbered = review.filter(value -> value.number().isPresent());
+        Optional<String> pullRequest = numbered.map(value -> value.repo() + "#" + value.number().getAsInt());
+        Optional<String> pullRequestTitle = numbered
                 .flatMap(value -> pullRequests.findIdByRepoAndNumber(value.repo(), value.number().getAsInt()))
                 .flatMap(pullRequests::findById)
                 .map(PullRequest::title)
                 .filter(title -> !title.isBlank())
                 .map(title -> clip(title, 240));
-        Optional<String> changeSummary = review.flatMap(value -> reviews.listRuns(value.id()).stream().max(comparing(ReviewRun::ordinal)))
-                .map(AppNoticeService::changeSummary);
+        Optional<AppNotice.Changes> changes = review.flatMap(value -> reviews.listRuns(value.id()).stream().max(comparing(ReviewRun::ordinal)))
+                .map(AppNoticeService::changes);
         return new AppNotice(id, kind, task.id().toString(), task.workspaceId().orElseThrow(), turn.map(value -> value.id().toString()), review.map(AgentReview::id),
-                clip(task.title(), 160), pullRequestTitle, changeSummary, clip(message, 280), task.repository().toString(), task.laneId().value(), occurredAt);
+                clip(task.title(), 160), pullRequest, pullRequestTitle, changes, clip(message, 280), task.repository().toString(), task.laneId().value(), occurredAt);
     }
 
-    private static String changeSummary(ReviewRun run)
+    private static AppNotice.Changes changes(ReviewRun run)
     {
-        long additions = run.diff().stream().mapToLong(DiffFile::additions).sum();
-        long deletions = run.diff().stream().mapToLong(DiffFile::deletions).sum();
-        return (run.scope() == ReviewRun.Scope.INCREMENTAL ? "Update · " : "")
-                + run.commits().size() + (run.commits().size() == 1 ? " commit · " : " commits · ")
-                + run.diff().size() + (run.diff().size() == 1 ? " file · " : " files · ")
-                + "+" + additions + " / −" + deletions + " lines";
+        return new AppNotice.Changes(run.scope() == ReviewRun.Scope.INCREMENTAL, run.commits().size(), run.diff().size(),
+                run.diff().stream().mapToLong(DiffFile::additions).sum(), run.diff().stream().mapToLong(DiffFile::deletions).sum());
     }
 
     private static String clip(String text, int limit)

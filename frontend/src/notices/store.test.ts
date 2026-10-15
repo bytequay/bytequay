@@ -20,7 +20,7 @@ import { NoticeStore } from './store';
 
 const now = Date.parse('2026-09-27T10:00:00Z');
 const notice = (id: string, kind: AppNotice['kind'] = 'TURN_FINISHED', taskId = 'task'): AppNotice => ({
-  id, kind, taskId, workspaceId: 'workspace', turnId: 'turn', reviewId: null, title: 'Fix recovery', pullRequestTitle: null, changeSummary: null,
+  id, kind, taskId, workspaceId: 'workspace', turnId: 'turn', reviewId: null, title: 'Fix recovery', pullRequest: null, pullRequestTitle: null, changes: null,
   message: 'Ready', repository: 'owner/repo', laneId: 'codex', occurredAt: new Date(now).toISOString(),
 });
 let directory: string;
@@ -178,13 +178,17 @@ it('bounds recent completions, retains actionable requests, and keeps background
 
 it('rejects malformed data at the desktop boundary', () => {
   expect(parseNotices([notice('one')])).toEqual([notice('one')]);
-  const review = { ...notice('review'), pullRequestTitle: 'Improve recovery', changeSummary: '2 commits · 3 files · +42 / −12 lines' };
+  const review = { ...notice('review'), pullRequest: 'owner/repo#42', pullRequestTitle: 'Improve recovery',
+    changes: { update: false, commits: 2, files: 3, additions: 42, deletions: 12 } };
   expect(parseNotices([review])).toEqual([review]);
   for (const value of [{}, [notice('one'), notice('one')], [{ ...notice('one'), kind: 'RAW_ERROR' }], [{ ...notice('one'), kind: 'MAIL' }], [{ ...notice('one'), occurredAt: 'unknown' }]]) {
     expect(() => parseNotices(value)).toThrow();
   }
   for (const reviewId of [undefined, '', ' ', 1, 'r'.repeat(201)]) expect(() => parseNotices([{ ...notice('one'), reviewId }])).toThrow();
-  for (const field of ['pullRequestTitle', 'changeSummary']) {
+  for (const field of ['pullRequest', 'pullRequestTitle']) {
     for (const value of [undefined, '', ' ', 1, {}, 'a'.repeat(1001)]) expect(() => parseNotices([{ ...review, [field]: value }])).toThrow();
+  }
+  for (const changes of [undefined, '2 commits', {}, { ...review.changes, update: 'no' }, { ...review.changes, files: -1 }, { ...review.changes, additions: 1.5 }]) {
+    expect(() => parseNotices([{ ...review, changes }])).toThrow();
   }
 });

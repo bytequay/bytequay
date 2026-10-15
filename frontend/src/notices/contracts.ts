@@ -16,8 +16,11 @@ export const NOTICE_WIDTH = 340;
 export type NoticeKind = typeof NOTICE_KINDS[number];
 export type AppNotice = {
   id: string; kind: NoticeKind; taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null;
-  title: string; pullRequestTitle: string | null; changeSummary: string | null; message: string; repository: string; laneId: string; occurredAt: string;
+  title: string; pullRequest: string | null; pullRequestTitle: string | null; changes: NoticeChanges | null;
+  message: string; repository: string; laneId: string; occurredAt: string;
 };
+/** Latest review run counts; `update` marks a run that covers only changes since the prior review. */
+export type NoticeChanges = { update: boolean; commits: number; files: number; additions: number; deletions: number };
 export type NoticeSnapshot = { notices: AppNotice[]; popupIds: string[]; viewedIds: string[]; active: boolean; maxHeight: number };
 export type AppNoticeBounds = { x: number; y: number; width: number; height: number } | null;
 export type NoticeBridge = {
@@ -30,7 +33,7 @@ export type NoticeBridge = {
 };
 export const needsAction = (notice: AppNotice): boolean => notice.kind !== 'TURN_FINISHED';
 export const NOTICE_LABELS: Record<NoticeKind, string> = {
-  TURN_FINISHED: 'Turn finished', QUESTION: 'Question for you', APPROVAL: 'Approval needed',
+  TURN_FINISHED: 'Turn finished', QUESTION: 'Waiting for you', APPROVAL: 'Approval needed',
   FAILURE: 'Turn failed', RECOVERY: 'Task is blocked', QUEUE_PAUSED: 'Queued messages paused',
 };
 export function parseNotices(value: unknown): AppNotice[] {
@@ -48,13 +51,21 @@ export function parseNotices(value: unknown): AppNotice[] {
     for (const key of ['turnId', 'reviewId']) {
       if (item[key] !== null && (typeof item[key] !== 'string' || !(item[key] as string).trim() || (item[key] as string).length > 200)) throw new Error('Invalid notice identity');
     }
-    for (const key of ['pullRequestTitle', 'changeSummary']) {
+    for (const key of ['pullRequest', 'pullRequestTitle']) {
       if (item[key] !== null && (typeof item[key] !== 'string' || !(item[key] as string).trim() || (item[key] as string).length > 1000)) throw new Error('Invalid notice context');
     }
     return { id: item.id, kind: item.kind, taskId: item.taskId, workspaceId: item.workspaceId, turnId: item.turnId, reviewId: item.reviewId,
-      title: item.title, pullRequestTitle: item.pullRequestTitle, changeSummary: item.changeSummary,
+      title: item.title, pullRequest: item.pullRequest, pullRequestTitle: item.pullRequestTitle, changes: parseChanges(item.changes),
       message: item.message, repository: item.repository, laneId: item.laneId, occurredAt: item.occurredAt } as AppNotice;
   });
+}
+function parseChanges(raw: unknown): NoticeChanges | null {
+  if (raw === null) return null;
+  if (typeof raw !== 'object') throw new Error('Invalid notice context');
+  const { update, commits, files, additions, deletions } = raw as Record<string, unknown>;
+  const counts = [commits, files, additions, deletions];
+  if (typeof update !== 'boolean' || counts.some(count => !Number.isSafeInteger(count) || (count as number) < 0)) throw new Error('Invalid notice context');
+  return { update, commits, files, additions, deletions } as NoticeChanges;
 }
 
 declare global { interface Window { noticeBridge: NoticeBridge } }

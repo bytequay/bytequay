@@ -90,8 +90,9 @@ class TestAppNoticeService
             assertThat(notice.turnId()).contains(turn.id().toString());
             assertThat(notice.reviewId()).isEmpty();
             assertThat(notice.title()).isEqualTo(task.title());
+            assertThat(notice.pullRequest()).isEmpty();
             assertThat(notice.pullRequestTitle()).isEmpty();
-            assertThat(notice.changeSummary()).isEmpty();
+            assertThat(notice.changes()).isEmpty();
         });
         show(task.withDevelopmentContinuation(true, NOW), turn.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10)));
         assertThat(service.current()).isEmpty();
@@ -197,8 +198,9 @@ class TestAppNoticeService
             assertThat(notice.taskId()).isEqualTo(reviewer.id().toString());
             assertThat(notice.reviewId()).contains(review.id());
             assertThat(notice.title()).isEqualTo("Review owner/repo#42");
+            assertThat(notice.pullRequest()).contains("owner/repo#42");
             assertThat(notice.pullRequestTitle()).contains("Improve recovery for interrupted tasks");
-            assertThat(notice.changeSummary()).isEmpty();
+            assertThat(notice.changes()).isEmpty();
         });
         show(reviewer, turn);
         approval(turn, ImmutableList.of("AskUserQuestion"), "");
@@ -209,7 +211,7 @@ class TestAppNoticeService
         });
         when(pullRequests.findById(123L)).thenReturn(Optional.empty());
         assertThat(service.current()).singleElement().satisfies(notice -> {
-            assertThat(notice.title()).isEqualTo("Review owner/repo#42");
+            assertThat(notice.pullRequest()).contains("owner/repo#42");
             assertThat(notice.pullRequestTitle()).isEmpty();
         });
         when(reviews.listOpenReviews()).thenReturn(ImmutableList.of());
@@ -230,14 +232,14 @@ class TestAppNoticeService
                 ImmutableList.of(done.id().toString()), ReviewRun.State.ACCEPTED, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.of(NOW));
         when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(full));
-        assertThat(service.current()).singleElement().extracting(AppNotice::changeSummary).isEqualTo(Optional.of("2 commits · 2 files · +42 / −12 lines"));
+        assertThat(service.current()).singleElement().extracting(AppNotice::changes).isEqualTo(Optional.of(new AppNotice.Changes(false, 2, 2, 42, 12)));
 
         ReviewRun update = new ReviewRun("update", review.id(), 2, ReviewRun.Scope.INCREMENTAL, "main", "base", "base", "head", Optional.empty(), Optional.of("prior"),
                 ImmutableList.of(new ReviewCommit("c", "Rename image", "author")), ImmutableList.of(new DiffFile("image.png", "renamed", 0, 0, null)),
                 ImmutableList.of(done.id().toString()), ReviewRun.State.ACCEPTED, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.of(NOW));
         when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(update, full));
-        assertThat(service.current()).singleElement().extracting(AppNotice::changeSummary).isEqualTo(Optional.of("Update · 1 commit · 1 file · +0 / −0 lines"));
+        assertThat(service.current()).singleElement().extracting(AppNotice::changes).isEqualTo(Optional.of(new AppNotice.Changes(true, 1, 1, 0, 0)));
     }
 
     @Test

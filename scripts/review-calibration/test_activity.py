@@ -527,6 +527,8 @@ class TestTurns(Logs):
         """Two tasks over two days: a full turn, a turn that was interrupted, and a turn that is still running. Two of them ran two tools at once."""
         day = 86400
         first = self.log("aaaa-1111", TEN_MINUTES, [event(day, "lifecycle", "t2", phase="TURN_STARTED"), event(day + 300, "lifecycle", "t2", phase="INTERRUPTED")],
+                         [event(590, "development_result", readyForDelivery=True, message="Ready: the secret-project parser", learningSummary="hunter2 lives in a file"),
+                          event(day + 290, "development_result", "t2", readyForDelivery=False, message="Not ready: two tests fail")],
                          command(day + 20, day + 140, "cd /Users/someone/secret-project && npm test -- --token=hunter2", item="n1", turn="t2", ended="FAILED", code=1,
                                  output="Tests: 3 failed, 12 passed\n".ljust(2000, ".")),
                          [event(day + second, "lifecycle", "t2", phase=phase, message=message) for second, phase, message in (
@@ -553,6 +555,14 @@ class TestTurns(Logs):
     def test_each_turn_names_its_task_and_how_it_ended(self):
         self.assertEqual([(one.task, one.ended) for one in self.two_days().each],
                          [("aaaa-1111", "TURN_COMPLETED"), ("aaaa-1111", "INTERRUPTED"), ("bbbb-2222", "")])
+
+    def test_a_development_result_is_kept_as_ready_or_not_and_its_text_is_not(self):
+        made = activity.turn_table(self.two_days(), WHEN, recorded=self.recorded())
+        self.assertEqual([(row["task"], row["result"]) for row in made["turns"]], [("aaaa-1111", "ready"), ("aaaa-1111", "not ready"), ("bbbb-2222", None), ("cccc-3333", None)])
+        saved_text = json.dumps(made)
+        for secret in ["secret-project", "hunter2", "Not ready:", "two tests fail"]:
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, saved_text)
         # A mark after the turn has closed does not change how it ended, and neither does a mark before it started.
         late = self.log("cccc-3333", [event(0, "lifecycle", phase="TASK_FAILED")], turn(10, 70), [event(90, "lifecycle", phase="INTERRUPTED")])
         self.assertEqual([one.ended for one in activity.measure([late]).each], ["TURN_COMPLETED"])

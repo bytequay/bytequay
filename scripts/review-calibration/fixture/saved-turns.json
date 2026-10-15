@@ -77,6 +77,7 @@
         }
       ],
       "notices": {},
+      "result": "ready",
       "calls": [
         {
           "kind": "command",
@@ -175,6 +176,7 @@
         "rate limit: rejected": 1,
         "retry": 1
       },
+      "result": "not ready",
       "calls": [
         {
           "kind": "command",
@@ -237,6 +239,7 @@
       ],
       "approvals": [],
       "notices": {},
+      "result": null,
       "calls": [
         {
           "kind": "command",
@@ -294,6 +297,7 @@
       "longRuns": [],
       "approvals": [],
       "notices": {},
+      "result": null,
       "calls": [],
       "hops": [],
       "repeats": []

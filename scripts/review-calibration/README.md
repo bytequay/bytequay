@@ -371,6 +371,31 @@ typical minutes and calls of a turn, and the steering or stops and the rate
 limits for every 100 turns, so a change can be judged by the turns before and
 after it. Turns from before ByteQuay named setups have none.
 
+## Delivery
+
+The dashboard's Delivery page shows what development tasks delivered for the
+agent time, tokens and dollars they took, from the turn table
+`uv run activity.py --save` keeps. A result is the agent's own report when a
+development ends: the change is ready to deliver, or it is not. Every task
+with a result counts, under the model and effort most of its turns ran with;
+a task whose turns the database no longer holds counts under "not known".
+`delivery.py` adds them up for the last 7 days, 30 days or all of it.
+
+Tiles: the development tasks, the ready results of all results, the agent
+minutes per ready result, and the tasks never ready. For each model and
+effort: its tasks, the share of results that said ready, and the agent
+minutes, tokens and dollars per ready result. Minutes per ready count the
+minutes of every task, those never ready too, so a setting that often misses
+pays for it. A share and minutes per ready come with the range they could lie
+in, drawn by task (see Ranges); with fewer than three tasks behind them there
+is none. Tokens count every input token, cached ones too, and the output; a
+task with a turn that records no tokens is left out of them, and dollars come
+only from tasks whose every turn records a cost. "Never ready" lists the tasks
+with results and none ready, the most agent time first. The tasks of one
+setting are not those of another, so this shows what happened, not a fair
+race; the Experiments compare settings on the same cases. A table saved
+before results were kept asks to be saved again.
+
 ## Agent activity
 
 `activity.py` shows where the wall-clock time of ByteQuay agent turns goes. It
@@ -465,7 +490,9 @@ seconds) or a long step. And for every program, it keeps the runs of a command
 line already run in the same folder of the same task, and how many of them had
 nothing written in between: no file changed, and nothing ran that could
 write, which is any command that does more than read, an editing tool or a
-subagent. A wait loop run again is not counted.
+subagent. A wait loop run again is not counted. A turn that ended a
+development keeps the agent's result: ready to deliver, or not ready. Its
+message and what it learned are text and stay unread.
 Both files hold names, counts and times and nothing else: no command
 arguments, no paths and no message text.
 

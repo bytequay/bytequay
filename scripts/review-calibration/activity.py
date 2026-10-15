@@ -360,6 +360,7 @@ class Turn:
     long_runs: list = field(default_factory=list)  # (program, seconds) for every single command of LONG_RUN seconds or more
     approvals: list = field(default_factory=list)  # (kind, outcome, seconds the turn waited for the user)
     notices: Counter = field(default_factory=Counter)  # rate limit notices by their status, and retries
+    result: str = ""  # "ready" or "not ready" when the turn ended a development with the agent's report, empty otherwise
     # For each (command or tool, name): its runs, how many failed, how many searches found nothing, its seconds, and the characters it printed.
     calls: defaultdict = field(default_factory=lambda: defaultdict(Counter))
     reasons: defaultdict = field(default_factory=lambda: defaultdict(Counter))  # for each program, why its failed runs failed
@@ -417,6 +418,12 @@ def notices(events):
     return counted
 
 
+def results(events):
+    """For each turn that ended a development, whether the agent reported the change ready to deliver. Its message and
+    what it learned are text, and stay unread."""
+    return {event.get("turnId"): "ready" if event["payload"].get("readyForDelivery") else "not ready" for event in events if event["type"] == "development_result"}
+
+
 def measure(logs, since=None):
     """Add up the given task logs, one turn at a time. Turns that started before `since` are left out."""
     total, tools = Totals(), set(STATES[1][1])
@@ -429,8 +436,9 @@ def measure(logs, since=None):
             continue
         total.tasks += 1
         total.skipped += skipped
-        closed, noticed = endings(events), notices(events)
-        turns = {turn: Turn(log.parent.name, turn, begin, end, closed.get(turn, ""), notices=noticed[turn]) for turn, (begin, end) in windows.items()}
+        closed, noticed, reported = endings(events), notices(events), results(events)
+        turns = {turn: Turn(log.parent.name, turn, begin, end, closed.get(turn, ""), notices=noticed[turn], result=reported.get(turn, ""))
+                 for turn, (begin, end) in windows.items()}
         for item in unfinished:
             if item.turn in turns:
                 turns[item.turn].unfinished += 1
@@ -620,7 +628,7 @@ def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
                      "parallel": round(one.parallel, 3), "mostAtOnce": one.most_at_once, "unfinished": one.unfinished,
                      "longRuns": [{"program": name, "seconds": round(length, 3)} for name, length in sorted(one.long_runs, key=lambda run: (-run[1], run[0]))],
                      "approvals": [{"kind": kind, "outcome": outcome, "seconds": round(length, 3)} for kind, outcome, length in one.approvals],
-                     "notices": dict(sorted(one.notices.items())),
+                     "notices": dict(sorted(one.notices.items())), "result": one.result or None,
                      # Only a command's output is in the log, so only a command says how much it printed and why it failed.
                      "calls": [{"kind": kind, "name": name, "runs": made["runs"], "failed": made["failed"], "noMatch": made["noMatch"], "seconds": round(made["seconds"], 3),
                                 **({"characters": made["characters"], "reasons": dict(sorted(one.reasons[name].items()))} if kind == "command" else {})}
@@ -634,7 +642,7 @@ def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
         if (owner, turn) not in logged and (since is None or facts["start"] >= midnight(since)) and (task is None or owner.startswith(task)):
             rows.append({"task": owner, "start": saved.stamp(facts["start"]), "seconds": round(facts["seconds"], 3), "logged": False, "outcome": facts["outcome"] or OUTCOMES[""],
                          **{name: facts[name] for name in FACTS}, "setup": facts["setup"], "groups": {}, "programs": {}, "after": {}, "parallel": 0.0, "mostAtOnce": 0, "unfinished": 0,
-                         "longRuns": [], "approvals": [], "notices": {}, "calls": [], "hops": [], "repeats": []})
+                         "longRuns": [], "approvals": [], "notices": {}, "result": None, "calls": [], "hops": [], "repeats": []})
     database = {"problem": problem or "the database was not read"} if recorded is None else {"turns": len(known), "matched": len(logged & set(known))}
     return {"version": 1, "savedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "since": since, "task": task, "database": database,
             "leftOut": {"skippedLines": total.skipped, "unreadLogs": total.unread}, "turns": rows}

@@ -12,8 +12,9 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import { LogIn, Plus, RefreshCw } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import type { AgentModelSettingDto, AgentModelType, ModelSettingsDto } from '../types';
+import ProviderRow from './ProviderRow';
 import ClaudeAccountsCard from './ClaudeAccountsCard';
 import { isClaudeAccount, isDeepSeekKeyLane, providerStatusLabel } from './model';
 import { AddAction, Dialog, SelectPill, SettingsCard, SettingsRow, StatusDot, dotTone, type PillOption } from './primitives';
@@ -223,37 +224,9 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
             <button type="button" className="setw-btn" disabled={checking} onClick={onCheck}>Check</button>
           </SettingsRow>
         )}
-        {globalSettings.providers.filter(provider => !isDeepSeekKeyLane(provider.id) && !isClaudeAccount(provider.id)).map(provider => {
-          const status = providerStatusLabel(provider.readiness, checking, provider.id);
-          return (
-            <SettingsRow
-              key={provider.id}
-              title={provider.id === 'claude' ? 'Claude Code CLI · Default account' : `${provider.label} CLI`}
-              subtitle={
-                <span className="setw-status">
-                  <StatusDot tone={dotTone(status.tone)} />
-                  <span>
-                    {status.label}
-                    {provider.id === 'claude' && (provider.readiness === 'READY' || provider.readiness === 'DEGRADED') && provider.diagnostic
-                      ? ` · ${provider.diagnostic}` : ''}
-                    {provider.version ? ` · v${provider.version}` : ''}
-                  </span>
-                </span>
-              }
-            >
-              {onSignIn !== undefined && provider.readiness === 'AUTHENTICATION_REQUIRED' && (
-                <button type="button" className="setw-btn" disabled={checking} onClick={() => onSignIn(provider.id)}>
-                  <LogIn size={12} strokeWidth={2.2} color="var(--text-3)" />
-                  <span>Sign in</span>
-                </button>
-              )}
-              <button type="button" className="setw-btn" disabled={checking} onClick={onCheck}>
-                <RefreshCw size={12} strokeWidth={2.2} color="var(--text-3)" />
-                <span>{checking ? 'Checking…' : 'Check'}</span>
-              </button>
-            </SettingsRow>
-          );
-        })}
+        {globalSettings.providers.filter(provider => !isDeepSeekKeyLane(provider.id) && !isClaudeAccount(provider.id)).map(provider => (
+          <ProviderRow key={provider.id} provider={provider} checking={checking} onSignIn={onSignIn} onCheck={onCheck} />
+        ))}
         {settings.apiKeys.map(key => {
           const lane = settings.providers.find(provider => isDeepSeekKeyLane(provider.id) && provider.label === `${key.provider} · ${key.alias}`);
           const status = lane === undefined ? null : providerStatusLabel(lane.readiness, checking, lane.id);

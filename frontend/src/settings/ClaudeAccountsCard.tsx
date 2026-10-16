@@ -12,10 +12,10 @@
  * limitations under the License.
  */
 import { useRef, useState } from 'react';
-import { LogIn, RefreshCw } from 'lucide-react';
 import type { ModelProviderDto } from '../types';
-import { isClaudeAccount, isClaudeLane, providerStatusLabel } from './model';
-import { AddAction, Badge, Dialog, SettingsCard, SettingsRow, StatusDot, dotTone } from './primitives';
+import ProviderRow from './ProviderRow';
+import { isClaudeAccount, isClaudeLane } from './model';
+import { AddAction, Badge, Dialog, SettingsCard } from './primitives';
 
 /** Repository account setup; model overrides select the login used by its new tasks. */
 export default function ClaudeAccountsCard({ providers, checking, onCheck, onSignIn, onAdd, onRemove, repository = false, onRestrict }: {
@@ -38,31 +38,16 @@ export default function ClaudeAccountsCard({ providers, checking, onCheck, onSig
   return <>
     <div className="setw-section"><span className="setw-section-title">Claude accounts</span></div>
     <SettingsCard footer={onAdd === undefined ? undefined : <AddAction label="Add Claude account" onClick={() => setAdding(true)} />}>
-      {accounts.map(provider => {
-        const status = providerStatusLabel(provider.readiness, checking, provider.id);
-        const available = provider.readiness === 'READY' || provider.readiness === 'DEGRADED';
-        return <SettingsRow key={provider.id} title={provider.id === 'claude' ? 'Claude Code · Default account' : provider.label}
-          subtitle={<span className="setw-status">
-            <StatusDot tone={dotTone(status.tone)} />
-            <span>{provider.readiness === 'AUTHENTICATION_REQUIRED' && provider.diagnostic ? provider.diagnostic : status.label}
-              {available && provider.diagnostic ? ` · ${provider.diagnostic}` : ''}{provider.version ? ` · v${provider.version}` : ''}</span>
-          </span>}>
-          {onSignIn !== undefined && provider.readiness === 'AUTHENTICATION_REQUIRED' && (
-            <button type="button" className="setw-btn" disabled={checking} onClick={() => onSignIn(provider.id)}>
-              <LogIn size={12} strokeWidth={2.2} color="var(--text-3)" /><span>Sign in</span>
-            </button>
-          )}
-          <button type="button" className="setw-btn" disabled={checking} onClick={onCheck}>
-            <RefreshCw size={12} strokeWidth={2.2} color="var(--text-3)" /><span>{checking ? 'Checking…' : 'Check'}</span>
-          </button>
+      {accounts.map(provider => (
+        <ProviderRow key={provider.id} provider={provider} checking={checking} account onSignIn={onSignIn} onCheck={onCheck}>
           <Badge>{provider.workspaceId == null ? 'global' : 'this repository'}</Badge>
           {onRestrict !== undefined && isClaudeAccount(provider.id) && provider.workspaceId == null && (
             <button type="button" className="setw-btn" disabled={checking} onClick={() => { setRestrictError(null); setRestricting(provider); }}>Use only here</button>
           )}
           {onRemove !== undefined && isClaudeAccount(provider.id) && <button type="button" className="setw-btn"
             disabled={checking} onClick={() => setRemoving(provider)}>Remove</button>}
-        </SettingsRow>;
-      })}
+        </ProviderRow>
+      ))}
     </SettingsCard>
     <div className="setw-footnote">
       {repository

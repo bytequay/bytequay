@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import { LogIn, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import type {
   AgentModelType,
   ModelSettingsDto,
@@ -22,10 +22,11 @@ import type {
 } from '../types';
 import RepoAvatar from '../RepoAvatar';
 import { RelatedWorkspaceSettings } from '../workspaces/RelatedWorkspaces';
-import { isClaudeLane, isDeepSeekKeyLane, providerStatusLabel } from './model';
+import { isClaudeLane, isDeepSeekKeyLane } from './model';
+import ProviderRow from './ProviderRow';
 import ClaudeAccountsCard from './ClaudeAccountsCard';
 import { AgentModelControls, typeLabel, type ModelChoice } from './ModelsPage';
-import { AddAction, Badge, SettingsCard, SettingsRow, StatusDot, dotTone } from './primitives';
+import { AddAction, Badge, SettingsCard, SettingsRow } from './primitives';
 
 /** Every workspace page carries which workspace it edits, because the picker can point anywhere. */
 function Eyebrow({ workspace }: { workspace: WorkspaceDto }) {
@@ -229,28 +230,10 @@ export function WorkspaceAgentsPage({
           </button>
         </div>
       }>
-        {(models?.providers ?? []).filter(provider => !isClaudeLane(provider.id)).map(provider => {
-          const status = providerStatusLabel(provider.readiness, checking, provider.id);
-          return (
-            <SettingsRow
-              key={provider.id}
-              title={isDeepSeekKeyLane(provider.id) ? provider.label : `${provider.label} CLI`}
-              subtitle={
-                <span className="setw-status">
-                  <StatusDot tone={dotTone(status.tone)} />
-                  <span>{status.label}{provider.version ? ` · v${provider.version}` : ''}</span>
-                </span>
-              }
-            >
-              {onSignIn !== undefined && !isDeepSeekKeyLane(provider.id) && provider.readiness === 'AUTHENTICATION_REQUIRED' && (
-                <button type="button" className="setw-btn" disabled={checking} onClick={() => onSignIn(provider.id)}>
-                  <LogIn size={12} strokeWidth={2.2} color="var(--text-3)" />
-                  <span>Sign in</span>
-                </button>
-              )}
-            </SettingsRow>
-          );
-        })}
+        {(models?.providers ?? []).filter(provider => !isClaudeLane(provider.id)).map(provider => (
+          <ProviderRow key={provider.id} provider={provider} checking={checking}
+            onSignIn={isDeepSeekKeyLane(provider.id) ? undefined : onSignIn} />
+        ))}
       </SettingsCard>
       <ClaudeAccountsCard providers={models?.providers ?? []} checking={checking} onCheck={onCheck}
         onSignIn={onSignIn} onAdd={onAddClaudeAccount} onRemove={onRemoveClaudeAccount} repository onRestrict={onRestrictClaudeAccount} />

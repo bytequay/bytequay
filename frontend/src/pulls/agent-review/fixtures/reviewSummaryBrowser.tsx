@@ -47,8 +47,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       return new Promise<NonNullable<typeof saved.draft>>((resolve, reject) => completions.push(failure => {
         if (failure) { reject(failure); return; }
         assert(saved.draft !== null, 'The draft must exist');
-        assert(args[0] === saved.repo && args[1] === saved.number && args[2] === saved.draft.version,
-          'Summary edits must retain the exact PR and latest durable draft version');
+        assert(args[0] === saved.repo && args[1] === saved.number, 'Summary edits must retain the exact PR');
+        if (args[2] !== saved.draft.version) { reject(new Error('Your pending review changed in another window; reload it')); return; }
         const draft = { ...saved.draft, body: args[3], event: args[4], version: args[2] + 1 };
         saved = { ...saved, draft };
         resolve(draft);
@@ -62,8 +62,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     },
   } satisfies Pick<Bridge, 'getAgentReview' | 'saveReviewDraft' | 'addReviewDraftFinding' | 'betterWords'>;
   Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
+  let replaceReview: (value: typeof saved) => void = () => {};
   function Surface() {
     const [review, setReview] = useState(saved);
+    replaceReview = setReview;
     const { actions, busy } = useFindingActions({ review, onReviewChange: setReview, onNavigate: () => {} });
     return <ReviewFindingCard review={review} finding={review.findings[0]} projection="review"
       viewerLogin="reviewer" viewerAvatarUrl={null} actions={actions} busy={busy} />;
@@ -135,6 +137,19 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     completions[4](); await settle();
     assert(saved.draft?.body === '' && host.querySelector('textarea') === null, 'An empty summary save must complete');
     assert(JSON.stringify(saved.findings) === originalFindings, 'Outgoing edits and removal must never rewrite agent findings');
+    button('Add to my review').click(); await settle();
+    button('Edit').click(); await settle();
+    assert(saved.draft !== null, 'The draft must exist');
+    const opened = saved.draft.version;
+    // Another window adds to the summary after Edit opened; this window's Save must not overwrite it.
+    saved = { ...saved, draft: { ...saved.draft, body: `${saved.draft.body}\n\nAnother window's note`, version: opened + 1 } };
+    flushSync(() => replaceReview(saved));
+    await write('Overwrite attempt');
+    button('Save').click(); await settle();
+    assert(requests.at(-1)?.[2] === opened, 'Save must use the draft version Edit opened on');
+    completions.at(-1)?.(); await settle();
+    assert(input().value === 'Overwrite attempt' && host.textContent?.includes('changed in another window') === true
+      && saved.draft?.body.endsWith("Another window's note") === true, 'A summary changed elsewhere must conflict instead of being overwritten');
     return [{ name }];
   }
   catch (error) { return [{ name, error: error instanceof Error ? error.message : String(error) }]; }

@@ -217,7 +217,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       onReopen: async finding => { await request('finding.reopen', finding.id); },
       onAddToReview: async finding => { await request('finding.add', finding.id); },
       onPostNow: async (finding, body) => { await request('finding.post', finding.id, body); },
-      onEditDraft: async (finding, body) => { await request('finding.editDraft', finding.id, body); },
+      onEditDraft: async (finding, body, expectedVersion) => { await request('finding.editDraft', finding.id, body, expectedVersion); },
       onRemoveFromReview: async finding => { await request('finding.remove', finding.id); },
       onRequestFix: context.review?.sourceTaskId ? async (finding, instruction) => { await request('finding.fix', finding.id, instruction); } : undefined,
       onNavigate: finding => { void request('comments.finding', finding.id); },

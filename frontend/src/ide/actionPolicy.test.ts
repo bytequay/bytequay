@@ -48,6 +48,9 @@ describe('IDE action boundary', () => {
     expect(() => validateIdeAction('finding.ask', ['finding-1', 'Explain this'], context, true)).not.toThrow();
     expect(() => validateIdeAction('finding.resolve', ['finding-1', 'Verified', 'yes'], context, true)).toThrow('remember choice');
     expect(() => validateIdeAction('finding.post', ['finding-1', 'Publish'], context, true)).toThrow('cannot publish');
+    expect(() => validateIdeAction('finding.editDraft', ['finding-1', 'Edited'], context, true)).toThrow('Invalid IDE action arguments');
+    expect(() => validateIdeAction('finding.editDraft', ['finding-1', 'Edited', 'latest'], context, true)).toThrow('Invalid action version');
+    expect(() => validateIdeAction('finding.editDraft', ['finding-1', 'Edited', 4], context, true)).toThrow('cannot publish');
   });
 
   it('does not expose unselected or unfinished findings as IDE action targets', () => {

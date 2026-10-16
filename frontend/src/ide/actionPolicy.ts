@@ -128,6 +128,7 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
     const finding = review?.findings.find(item => item.id === args[0] && findingInResults(review, item));
     if (!finding) throw new Error('Unknown finding');
     if (['finding.reopen', 'finding.add', 'finding.remove'].includes(method)) count(args, 1);
+    else if (method === 'finding.editDraft') { count(args, 3); text(args[1]); integer(args[2]); }
     else {
       count(args, 2, method === 'finding.resolve' ? 3 : 2); text(args[1]);
       if (args[2] !== undefined && typeof args[2] !== 'boolean') throw new Error('Invalid remember choice');

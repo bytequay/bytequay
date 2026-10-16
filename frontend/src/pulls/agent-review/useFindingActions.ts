@@ -137,13 +137,13 @@ export function useFindingActions({
       recordAttentionAction(`${review.repo}#${number()}`, 'comment');
       await reload();
     }, true),
-    onEditDraft: (finding, body) => guard(async () => {
+    onEditDraft: (finding, body, expectedVersion) => guard(async () => {
       const item = review.draft?.items.find(candidate => candidate.findingId === finding.id) ?? null;
       if (item !== null) {
-        await window.bridge.editReviewDraftComment(review.repo, number(), draftVersion(), item.id, body, item.included);
+        await window.bridge.editReviewDraftComment(review.repo, number(), expectedVersion, item.id, body, item.included);
       }
       else if (finding.path === null && review.draft !== null) {
-        await window.bridge.saveReviewDraft(review.repo, number(), draftVersion(), body, review.draft.event);
+        await window.bridge.saveReviewDraft(review.repo, number(), expectedVersion, body, review.draft.event);
       }
       else return;
       await reload();

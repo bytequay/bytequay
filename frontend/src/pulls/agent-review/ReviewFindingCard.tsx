@@ -34,7 +34,8 @@ export type FindingActions = {
   onReopen: (finding: ReviewFindingDto) => Promise<void>;
   onAddToReview: (finding: ReviewFindingDto) => Promise<void>;
   onPostNow: (finding: ReviewFindingDto, body: string) => Promise<void>;
-  onEditDraft: (finding: ReviewFindingDto, body: string) => Promise<void>;
+  /** Saves against the draft version Edit opened on, so a change made meanwhile conflicts instead of being overwritten. */
+  onEditDraft: (finding: ReviewFindingDto, body: string, expectedVersion: number) => Promise<void>;
   onRemoveFromReview: (finding: ReviewFindingDto) => Promise<void>;
   /** Opens the finding at its diff location, or returns to its card from Changes; absent when there is nowhere to go. */
   onNavigate?: (finding: ReviewFindingDto) => void;
@@ -81,6 +82,7 @@ export default function ReviewFindingCard({
   const [fixSent, setFixSent] = useState(false);
   const [remember, setRemember] = useReviewDraft(`finding:${finding.id}:remember`, false);
   const [text, setText] = useReviewDraft(`finding:${finding.id}:text`, '');
+  const [editVersion, setEditVersion] = useReviewDraft<number | null>(`finding:${finding.id}:version`, null);
   const [error, setError] = useState<string | null>(null);
   const pill = findingPill(review, finding);
   const publication = findingPublication(review, finding);
@@ -112,6 +114,7 @@ export default function ReviewFindingCard({
     setComposer(null);
     setText('');
     setRemember(false);
+    setEditVersion(null);
   };
   const submit = async () => {
     const body = text.trim();
@@ -123,7 +126,7 @@ export default function ReviewFindingCard({
       if (composer === 'ask') await actions.onAsk(finding, body);
       if (composer === 'resolve') await actions.onResolve(finding, body, remember);
       if (composer === 'post') await actions.onPostNow(finding, body);
-      if (composer === 'draft') await actions.onEditDraft(finding, body);
+      if (composer === 'draft') await actions.onEditDraft(finding, body, editVersion ?? review.draft?.version ?? 0);
       close();
     }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send your message.'); }
@@ -295,7 +298,8 @@ export default function ReviewFindingCard({
                 </span>}
                 <span className="agr-spacer" />
                 <span className="agr-draft__note">Editing this never changes the finding</span>
-                <button type="button" disabled={busy || awaitingConfirmation} onClick={() => openComposer('draft', outgoingBody)}>Edit</button>
+                <button type="button" disabled={busy || awaitingConfirmation}
+                  onClick={() => { setEditVersion(review.draft?.version ?? 0); openComposer('draft', outgoingBody); }}>Edit</button>
                 <button type="button" disabled={busy || awaitingConfirmation} title={reviewText !== null ? "Remove this finding's text from your review summary" : undefined}
                   onClick={() => { void remove(); }}>Remove</button>
               </div>

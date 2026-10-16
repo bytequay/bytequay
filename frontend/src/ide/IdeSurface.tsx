@@ -62,7 +62,7 @@ async function handleRequest(props: IdeSurfaceProps, request: IdeRequest, findin
       case 'finding.reopen': return findings.actions.onReopen(finding);
       case 'finding.add': return findings.actions.onAddToReview(finding);
       case 'finding.post': return findings.actions.onPostNow(finding, args[1] as string);
-      case 'finding.editDraft': return findings.actions.onEditDraft(finding, args[1] as string);
+      case 'finding.editDraft': return findings.actions.onEditDraft(finding, args[1] as string, args[2] as number);
       case 'finding.remove': return findings.actions.onRemoveFromReview(finding);
       case 'finding.fix': return findings.actions.onRequestFix?.(finding, args[1] as string);
     }

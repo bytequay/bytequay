@@ -15,8 +15,10 @@ package com.bytequay.app.repository.github;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,8 +47,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -63,6 +67,14 @@ public final class GitHubRateLimitInterceptor
     private static final String REMAINING = "X-RateLimit-Remaining";
     private static final String RESET = "X-RateLimit-Reset";
     private static final String RESOURCE = "X-RateLimit-Resource";
+    private static final Pattern NUMBER = Pattern.compile("[0-9]+");
+    private static final Pattern SHA = Pattern.compile("[0-9a-f]{40}");
+    // Any other segment becomes {}, so an owner, branch, or file path never reaches the snapshot.
+    private static final Set<String> PATH_WORDS = ImmutableSet.of("actions", "assignees", "branches", "check-runs", "check-suites", "code-snippet", "comments",
+            "commits", "compare", "contents", "contributors", "events", "files", "forks", "git", "graphql", "heads", "issue-types", "issues", "jobs", "labels",
+            "languages", "logs", "merge", "notifications", "orgs", "preview", "public", "pulls", "reactions", "received_events", "ref", "refs", "replies", "repos",
+            "repositories", "requested_reviewers", "rerun-failed-jobs", "reviews", "rules", "runs", "search", "status", "statuses", "sub_issues", "threads", "timeline",
+            "user", "users", "workflows");
 
     private final Clock clock;
     private final Semaphore permits;
@@ -91,6 +103,7 @@ public final class GitHubRateLimitInterceptor
         String credential = credential(request.getURI().getAuthority(), request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION));
         String resource = resource(request.getURI().getPath());
         String family = family(request.getURI().getPath(), body);
+        String endpoint = endpoint(request.getURI().getPath());
         rejectWhileBlocked(credential, resource);
         try {
             permits.acquire();
@@ -109,11 +122,11 @@ public final class GitHubRateLimitInterceptor
         catch (IOException | RuntimeException | Error failure) {
             permits.release();
             if (!(failure instanceof GitHubRateLimitException)) {
-                completed(credential, family, resource, 0, started, Optional.empty());
+                completed(credential, family, endpoint, resource, 0, started, Optional.empty());
             }
             throw failure;
         }
-        TrackedResponse tracked = new TrackedResponse(response, credential, family, resource, started);
+        TrackedResponse tracked = new TrackedResponse(response, credential, family, endpoint, resource, started);
         try {
             int status = response.getStatusCode().value();
             tracked.status = status;
@@ -310,9 +323,9 @@ public final class GitHubRateLimitInterceptor
         return credentials.computeIfAbsent(credential, ignored -> new AccountBudget());
     }
 
-    private synchronized void completed(String credential, String family, String resource, int status, long started, Optional<Long> cost)
+    private synchronized void completed(String credential, String family, String endpoint, String resource, int status, long started, Optional<Long> cost)
     {
-        budget(credential).requests.computeIfAbsent(new RequestKey(family, resource, status), ignored -> new Totals())
+        budget(credential).requests.computeIfAbsent(new RequestKey(family, endpoint, resource, status), ignored -> new Totals())
                 .add(1, System.nanoTime() - started, cost.orElse(0L), cost.isPresent() ? 1 : 0);
     }
 
@@ -321,7 +334,7 @@ public final class GitHubRateLimitInterceptor
     {
         AccountBudget budget = budget(credential("api.github.com", GitHubApiSupport.authorization(pat)));
         List<RequestCount> requests = budget.requests.entrySet().stream()
-                .map(entry -> new RequestCount(entry.getKey().family(), entry.getKey().resource(), entry.getKey().status(),
+                .map(entry -> new RequestCount(entry.getKey().family(), entry.getKey().endpoint(), entry.getKey().resource(), entry.getKey().status(),
                         entry.getValue().count, entry.getValue().nanos / 1_000_000, entry.getValue().reportedCost, entry.getValue().costedRequests))
                 .collect(toImmutableList());
         Map<String, Instant> cooldowns = new HashMap<>();
@@ -348,6 +361,31 @@ public final class GitHubRateLimitInterceptor
             return "graphql";
         }
         return path.startsWith("/search/") ? "search" : "core";
+    }
+
+    /** The request path with owner, repository, number, and SHA segments replaced, e.g. /repos/{o}/{r}/pulls/{n}/reviews. */
+    static String endpoint(String path)
+    {
+        List<String> segments = Splitter.on('/').splitToList(path);
+        StringBuilder template = new StringBuilder();
+        for (int index = 1; index < segments.size(); index++) {
+            template.append('/').append(template(segments.get(1), index, segments.get(index)));
+        }
+        return template.toString();
+    }
+
+    private static String template(String root, int index, String segment)
+    {
+        if (root.equals("repos") && (index == 2 || index == 3)) {
+            return index == 2 ? "{o}" : "{r}";
+        }
+        if (PATH_WORDS.contains(segment)) {
+            return segment;
+        }
+        if (NUMBER.matcher(segment).matches()) {
+            return "{n}";
+        }
+        return SHA.matcher(segment).matches() ? "{sha}" : "{}";
     }
 
     private static String family(String path, byte[] body)
@@ -384,7 +422,7 @@ public final class GitHubRateLimitInterceptor
     }
 
     /** Cost is reported only by instrumented GraphQL queries; costedRequests distinguishes missing data from zero cost. */
-    public record RequestCount(String family, String resource, int status, long count, long totalDurationMillis, long reportedCost, long costedRequests) {}
+    public record RequestCount(String family, String endpoint, String resource, int status, long count, long totalDurationMillis, long reportedCost, long costedRequests) {}
 
     public record Quota(String resource, Optional<Long> limit, Optional<Long> remaining, Optional<Long> used, Optional<Instant> resetAt) {}
 
@@ -399,7 +437,7 @@ public final class GitHubRateLimitInterceptor
         }
     }
 
-    private record RequestKey(String family, String resource, int status) {}
+    private record RequestKey(String family, String endpoint, String resource, int status) {}
 
     private static final class Totals
     {
@@ -434,6 +472,7 @@ public final class GitHubRateLimitInterceptor
         private final ClientHttpResponse delegate;
         private final String credential;
         private final String family;
+        private final String endpoint;
         private final String resource;
         private final long started;
         private final AtomicBoolean closed = new AtomicBoolean();
@@ -441,11 +480,12 @@ public final class GitHubRateLimitInterceptor
         private Optional<Long> cost = Optional.empty();
         private Optional<byte[]> buffered = Optional.empty();
 
-        private TrackedResponse(ClientHttpResponse delegate, String credential, String family, String resource, long started)
+        private TrackedResponse(ClientHttpResponse delegate, String credential, String family, String endpoint, String resource, long started)
         {
             this.delegate = delegate;
             this.credential = credential;
             this.family = family;
+            this.endpoint = endpoint;
             this.resource = resource;
             this.started = started;
         }
@@ -493,7 +533,7 @@ public final class GitHubRateLimitInterceptor
                 delegate.close();
             }
             finally {
-                completed(credential, family, resource, status, started, cost);
+                completed(credential, family, endpoint, resource, status, started, cost);
                 permits.release();
             }
         }

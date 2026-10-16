@@ -44,6 +44,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.HttpMethod.GET;
@@ -290,6 +291,39 @@ class TestGitHubRateLimitInterceptor
         });
         assertThat(interceptor.snapshot("pat").inFlight()).isZero();
         server.verify();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "/repos/trinodb/trino/pulls/123/reviews, /repos/{o}/{r}/pulls/{n}/reviews",
+            "/repos/actions/checkout/commits/0123456789abcdef0123456789abcdef01234567/pulls, /repos/{o}/{r}/commits/{sha}/pulls",
+            "/repos/trinodb/trino/commits/feature-branch/check-runs, /repos/{o}/{r}/commits/{}/check-runs",
+            "/repos/trinodb/trino/compare/main...topic, /repos/{o}/{r}/compare/{}",
+            "/repositories/42/issues, /repositories/{n}/issues",
+            "/users/octocat/events/public, /users/{}/events/public",
+            "/graphql, /graphql"})
+    void endpointTemplateKeepsOnlyApiWords(String path, String template)
+    {
+        assertThat(GitHubRateLimitInterceptor.endpoint(path)).isEqualTo(template);
+    }
+
+    @Test
+    void snapshotCountsRequestsPerEndpointAndStatus()
+            throws Exception
+    {
+        GitHubRateLimitInterceptor interceptor = interceptor(4);
+        call(interceptor, "/repos/trinodb/trino/pulls/1", "pat", response(HttpStatus.OK, "{}")).close();
+        call(interceptor, "/repos/airlift/airlift/pulls/2", "pat", response(HttpStatus.NOT_MODIFIED, "")).close();
+        call(interceptor, "/repos/trinodb/trino/pulls/3", "pat", response(HttpStatus.NOT_MODIFIED, "")).close();
+        call(interceptor, "/repos/trinodb/trino/pulls/3/reviews", "pat", response(HttpStatus.OK, "[]")).close();
+
+        GitHubRateLimitInterceptor.Snapshot snapshot = interceptor.snapshot("pat");
+        assertThat(snapshot.requests()).extracting(GitHubRateLimitInterceptor.RequestCount::endpoint, GitHubRateLimitInterceptor.RequestCount::status,
+                GitHubRateLimitInterceptor.RequestCount::count).containsExactlyInAnyOrder(
+                tuple("/repos/{o}/{r}/pulls/{n}", 200, 1L),
+                tuple("/repos/{o}/{r}/pulls/{n}", 304, 2L),
+                tuple("/repos/{o}/{r}/pulls/{n}/reviews", 200, 1L));
+        assertThat(snapshot.toString()).doesNotContain("trinodb", "airlift");
     }
 
     private static String limitMessage(String resource, Instant retryAt)

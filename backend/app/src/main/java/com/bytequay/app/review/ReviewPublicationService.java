@@ -30,10 +30,12 @@ import com.bytequay.core.review.ReviewPublication;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -68,6 +70,8 @@ public class ReviewPublicationService
     private static final Logger log = LoggerFactory.getLogger(ReviewPublicationService.class);
     private static final List<String> EVENTS = ImmutableList.of("COMMENT", "APPROVE", "REQUEST_CHANGES");
     private static final int MAX_BODY = 60_000;
+    // GitHub answers these before acting on a write, as do the checks before one; the work-item publish uses the same set.
+    private static final Set<Integer> REFUSED = ImmutableSet.of(400, 401, 403, 404, 422, 429);
 
     private final ReviewDraftStore drafts;
     private final AgentReviewStore reviews;
@@ -265,6 +269,8 @@ public class ReviewPublicationService
     {
         String chosen = requireEvent(event);
         String text = body == null ? "" : body.strip();
+        // Before reserving, so a failed lookup leaves nothing to reconcile.
+        long prId = prId(repo, number);
         Reservation reservation = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             if (draft.items().stream().anyMatch(item -> item.publication().filter(value -> value.state() != ReviewPublication.State.PUBLISHED).isPresent())) {
@@ -310,7 +316,7 @@ public class ReviewPublicationService
                 Reservation group = new Reservation(reservation.attemptId(), reservation.draft(), batch);
                 PullRequestService.Posted posted;
                 try {
-                    posted = pullRequests.submitReview(repo, number, prId(repo, number), last ? chosen : "COMMENT", last ? text : "",
+                    posted = pullRequests.submitReview(repo, number, prId, last ? chosen : "COMMENT", last ? text : "",
                             batch.stream().map(this::comment).collect(toImmutableList()));
                 }
                 catch (RuntimeException failure) {
@@ -392,19 +398,22 @@ public class ReviewPublicationService
     }
 
     /**
-     * A send that threw. Delivery is unknown, so the reservation is kept as uncertain rather than
-     * released: nothing may resend it, and the user sees why.
+     * A send that threw. A refusal GitHub answers before acting sent nothing, so those items return
+     * to the pending review. Any other failure may have landed: the items stay uncertain rather than
+     * released, nothing may resend them, and the user sees why.
      */
     private Publication releaseAfterFailure(String repo, int number, Reservation reservation, RuntimeException failure)
     {
         log.warn("Review publication {} for {}#{} failed: {}", reservation.attemptId(), repo, number, failure.toString());
+        boolean refused = failure instanceof ResponseStatusException response && REFUSED.contains(response.getStatusCode().value());
+        Optional<ReviewPublication> outcome = refused ? Optional.empty() : Optional.of(uncertain(reservation.attemptId(), now()));
         return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = stored(repo, number);
             List<ReviewDraftItem> items = new ArrayList<>(draft.items());
             for (ReviewDraftItem sent : reservation.items()) {
                 int index = indexOf(items, sent.id());
                 if (index >= 0) {
-                    items.set(index, items.get(index).withPublication(Optional.of(uncertain(reservation.attemptId(), now()))));
+                    items.set(index, items.get(index).withPublication(outcome));
                 }
             }
             drafts.save(draft.withItems(items, now()));

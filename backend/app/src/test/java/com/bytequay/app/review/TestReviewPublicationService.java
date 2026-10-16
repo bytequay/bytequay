@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.review;
 
+import com.bytequay.app.repository.github.GitHubRateLimitException;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.PrTimelineComment;
@@ -42,6 +43,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -642,6 +645,7 @@ class TestReviewPublicationService
         assertThat(after.items().getFirst().body()).isEqualTo("Rename this");
         // A send whose outcome is unknown is never retried from here; the refusal is what keeps a duplicate comment off GitHub.
         assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, after.version(), itemId)).hasMessageContaining("unknown outcome");
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
         assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), "Review", "COMMENT")).hasMessageContaining("unknown outcome");
         assertThatThrownBy(() -> service.editItem(REPO, NUMBER, after.version(), itemId, "Changed", true)).hasMessageContaining("unknown outcome");
         assertThatThrownBy(() -> service.removeItem(REPO, NUMBER, after.version(), itemId)).hasMessageContaining("unknown outcome");
@@ -699,6 +703,7 @@ class TestReviewPublicationService
         drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withItems(ImmutableList.of(item), NOW));
 
         ReviewDraft restarted = new ReviewPublicationService(drafts, reviews, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC)).draft(REPO, NUMBER);
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
 
         assertThat(restarted.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
         assertThat(restarted.items().getFirst().publication().orElseThrow().attemptId()).isEqualTo("before-restart");
@@ -724,6 +729,36 @@ class TestReviewPublicationService
         assertThat(after.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
         assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, after.version(), lastItemId(after))).hasMessageContaining("unknown outcome");
         verify(pullRequests, times(1)).createReviewComment(eq(REPO), eq(NUMBER), any());
+    }
+
+    @Test
+    void aSendGitHubRefusedReturnsToThePendingReview()
+    {
+        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
+        ResponseStatusException invalid = new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Line could not be resolved");
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenThrow(invalid);
+
+        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft))).isSameAs(invalid);
+
+        ReviewDraft after = service.draft(REPO, NUMBER);
+        assertThat(after.items().getFirst().publication()).isEmpty();
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenThrow(new GitHubRateLimitException("secondary", NOW.getEpochSecond() + 60));
+        assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), "Review", "COMMENT")).isInstanceOf(GitHubRateLimitException.class);
+        assertThat(service.draft(REPO, NUMBER).items().getFirst().publication()).isEmpty();
+    }
+
+    @Test
+    void aFailedPullRequestLookupReservesAndSendsNothing()
+    {
+        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
+        IllegalStateException unreachable = new IllegalStateException("github is unreachable");
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenThrow(unreachable);
+
+        assertThatThrownBy(() -> service.submit(REPO, NUMBER, draft.version(), "Review", "COMMENT")).isSameAs(unreachable);
+
+        assertThat(service.draft(REPO, NUMBER)).isEqualTo(draft);
+        verify(pullRequests, never()).submitReview(any(), anyInt(), anyLong(), any(), any(), any());
     }
 
     @Test

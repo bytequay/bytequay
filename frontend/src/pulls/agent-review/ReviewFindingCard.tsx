@@ -310,7 +310,7 @@ export default function ReviewFindingCard({
             <div className="agr-notice is-outdated" role="alert">
               <span aria-hidden="true">⚠</span>
               <span>GitHub did not confirm this comment. Check the <a href={`https://github.com/${review.repo}/pull/${review.number}`}>pull request on GitHub</a>.
-                {' '}If it is missing, open <strong>Submit review</strong> and choose <strong>Confirmed not posted</strong> to prepare it again.
+                {' '}Then open <strong>Submit review</strong> and choose <strong>Confirmed posted</strong> if it is there, or <strong>Confirmed not posted</strong> to prepare it again.
                 {' '}Your comment is saved here and will not be sent again automatically.</span>
             </div>
           )}

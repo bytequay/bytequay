@@ -1799,13 +1799,16 @@ export function ReviewDialog({
     reloadReview();
   };
 
-  const confirmNotPosted = async (itemId: string) => {
+  const confirmDelivery = async (itemId: string, posted: boolean) => {
     if (!review?.draft || inFlight.current) return;
     inFlight.current = true;
     setSaving(true);
     setError(null);
     try {
-      const updated = await window.bridge.confirmReviewDraftCommentNotPosted(detail.repo, detail.number, savedDraft.current?.version ?? review.draft.version, itemId);
+      const version = savedDraft.current?.version ?? review.draft.version;
+      const updated = posted
+        ? await window.bridge.confirmReviewDraftCommentPosted(detail.repo, detail.number, version, itemId)
+        : await window.bridge.confirmReviewDraftCommentNotPosted(detail.repo, detail.number, version, itemId);
       if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current.event) savedDraft.current = updated;
       onReviewChange({ ...review, draft: updated });
     }
@@ -1987,9 +1990,14 @@ export function ReviewDialog({
                     <span className="pull-diff-pending__badge">{publication?.state === 'UNCERTAIN' ? 'Delivery unconfirmed'
                       : publication?.state === 'RESERVED' ? 'Sending…' : 'Pending'}</span></>}
                   menu={<>
-                    {publication?.state === 'UNCERTAIN' && <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
-                      title="I checked GitHub and this comment is not there. Return it to pending without sending it."
-                      onClick={() => { void confirmNotPosted(key); }}>Confirmed not posted</button>}
+                    {publication?.state === 'UNCERTAIN' && <>
+                      <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
+                        title="I found this comment on GitHub. Mark it posted so it is never sent again."
+                        onClick={() => { void confirmDelivery(key, true); }}>Confirmed posted</button>
+                      <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
+                        title="I checked GitHub and this comment is not there. Return it to pending without sending it."
+                        onClick={() => { void confirmDelivery(key, false); }}>Confirmed not posted</button>
+                    </>}
                     <button className="pr-review-sheet__edit" type="button" disabled={busy || locked || commentEdit !== null}
                       onClick={() => { setError(null); setCommentPreview(false); setCommentEdit({ key, body: comment.body, version: review?.draft?.version ?? 0 }); }}>Edit</button>
                     <button className="pr-review-sheet__remove" type="button" disabled={busy || locked || commentEdit !== null} onClick={remove}>Remove</button>
@@ -2030,7 +2038,7 @@ export function ReviewDialog({
           onChange={() => { edited.current = true; setEvent('REQUEST_CHANGES'); }} />}
         {unconfirmed && <div className="pr-review-sheet__error" role="alert">
           An earlier comment is still sending or its delivery is unconfirmed. Check the <a href={`https://github.com/${detail.repo}/pull/${detail.number}`}>pull request on GitHub</a>.
-          {' '}For each unconfirmed comment that is missing, choose <strong>Confirmed not posted</strong> to return it to pending, then submit your review.
+          {' '}For each unconfirmed comment, choose <strong>Confirmed posted</strong> if it is there, or <strong>Confirmed not posted</strong> to return it to pending, then submit your review.
         </div>}
         {error && <div className="pr-review-sheet__error" role="alert">{error}</div>}
     </PullActionSheet>

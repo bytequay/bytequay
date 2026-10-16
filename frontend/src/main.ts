@@ -1077,6 +1077,9 @@ function registerIpc(): void {
   ipcMain.handle('review:draft:confirm-not-posted', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
     draft(`/drafts/items/${encodeURIComponent(itemId)}/confirm-not-posted`,
       { repo, number: String(number), expectedVersion: String(expectedVersion) }, { method: 'POST' }));
+  ipcMain.handle('review:draft:confirm-posted', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
+    draft(`/drafts/items/${encodeURIComponent(itemId)}/confirm-posted`,
+      { repo, number: String(number), expectedVersion: String(expectedVersion) }, { method: 'POST' }));
   ipcMain.handle('review:draft:save', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string) =>
     draft('/drafts/review', { repo, number: String(number) }, jsonInit('PUT', { expectedVersion, body, event })));
   ipcMain.handle('review:draft:publish', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>

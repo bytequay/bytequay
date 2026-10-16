@@ -521,6 +521,7 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pr-review-sheet__remove" type="button" disabled=""');
     expect(html).toContain('class="is-primary" type="button" disabled="">Submit review');
     expect(html.includes('>Confirmed not posted</button>')).toBe(state === 'UNCERTAIN');
+    expect(html.includes('>Confirmed posted</button>')).toBe(state === 'UNCERTAIN');
   });
 
   it('submits body-only findings through the durable draft and reloads its cleared prose', async () => {

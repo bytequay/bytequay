@@ -343,7 +343,8 @@ and understand context costs. Record a change and check the results.
   available provider.
 - **Queue paused:** address the displayed cause, then **Resume queue**.
 - **Comment delivery unconfirmed:** check GitHub. For a missing comment, choose
-  **Submit review → Confirmed not posted** before submitting again.
+  **Submit review → Confirmed not posted** before submitting again. If it posted,
+  choose **Confirmed posted** so it is never sent again.
 - **Check failed:** expand it in **PR → Show log**, or use **Open in GitHub**.
   **Rerun failed tests** appears when supported and permitted.
 

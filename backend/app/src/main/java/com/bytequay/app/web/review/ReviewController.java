@@ -436,6 +436,13 @@ public class ReviewController
         return ReviewHttpModels.draft(publications.confirmNotPosted(repo, number, expectedVersion, itemId));
     }
 
+    @PostMapping("/drafts/items/{itemId}/confirm-posted")
+    public ReviewHttpModels.DraftResponse confirmPosted(@RequestParam String repo, @RequestParam int number, @RequestParam long expectedVersion, @PathVariable String itemId)
+    {
+        PullRequestRefUtil.parseRef(repo, number);
+        return ReviewHttpModels.draft(publications.confirmPosted(repo, number, expectedVersion, itemId));
+    }
+
     @PutMapping("/drafts/review")
     public ReviewHttpModels.DraftResponse saveReview(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.DraftReviewRequest request)
     {

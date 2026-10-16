@@ -221,11 +221,20 @@ public class ReviewPublicationService
     {
         return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
-            ReviewDraftItem item = requireItem(draft, itemId);
-            if (item.publication().filter(value -> value.state() == ReviewPublication.State.UNCERTAIN).isEmpty()) {
-                throw new ReviewConflictException("Only a comment with unconfirmed delivery can be returned to your pending review");
-            }
+            ReviewDraftItem item = requireUncertain(draft, itemId);
             return drafts.save(draft.withItems(replace(draft.items(), item.withPublication(Optional.empty())), now()));
+        });
+    }
+
+    /** The user found this uncertain comment on GitHub; it counts as posted and is never sent again. */
+    public ReviewDraft confirmPosted(String repo, int number, long expectedVersion, String itemId)
+    {
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
+            ReviewDraft draft = expect(repo, number, expectedVersion);
+            ReviewDraftItem item = requireUncertain(draft, itemId);
+            ReviewPublication posted = new ReviewPublication(
+                    item.publication().orElseThrow().attemptId(), ReviewPublication.State.PUBLISHED, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), now());
+            return drafts.save(draft.withItems(replace(draft.items(), item.withPublication(Optional.of(posted))), now()));
         });
     }
 
@@ -547,6 +556,15 @@ public class ReviewPublicationService
     {
         return draft.items().stream().filter(item -> item.id().equals(itemId)).findFirst()
                 .orElseThrow(() -> new ReviewNotFoundException("Draft comment not found: " + itemId));
+    }
+
+    private static ReviewDraftItem requireUncertain(ReviewDraft draft, String itemId)
+    {
+        ReviewDraftItem item = requireItem(draft, itemId);
+        if (item.publication().filter(value -> value.state() == ReviewPublication.State.UNCERTAIN).isEmpty()) {
+            throw new ReviewConflictException("Only a comment with unconfirmed delivery can be marked as posted or not posted");
+        }
+        return item;
     }
 
     private static ReviewDraftItem reserve(ReviewDraftItem item, String attemptId)

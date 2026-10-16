@@ -680,7 +680,7 @@ class TestReviewPublicationService
     }
 
     @Test
-    void confirmedMissingCannotResetPendingOrSuccessfulComments()
+    void confirmingDeliveryCannotResetPendingOrSuccessfulComments()
     {
         ReviewDraft saved = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Comment"));
         for (Optional<ReviewPublication> publication : ImmutableList.of(Optional.<ReviewPublication>empty(),
@@ -688,10 +688,33 @@ class TestReviewPublicationService
             ReviewDraft current = drafts.save(saved.withItems(ImmutableList.of(saved.items().getFirst().withPublication(publication)), NOW));
             assertThatThrownBy(() -> service.confirmNotPosted(REPO, NUMBER, current.version(), lastItemId(current)))
                     .isInstanceOf(ReviewConflictException.class).hasMessageContaining("Only a comment with unconfirmed delivery");
+            assertThatThrownBy(() -> service.confirmPosted(REPO, NUMBER, current.version(), lastItemId(current)))
+                    .isInstanceOf(ReviewConflictException.class).hasMessageContaining("Only a comment with unconfirmed delivery");
             assertThat(service.draft(REPO, NUMBER)).isEqualTo(current);
             saved = current;
         }
         verifyNoInteractions(pullRequests);
+    }
+
+    @Test
+    void aCommentFoundOnGitHubIsRecordedAsPostedAndNeverSentAgain()
+    {
+        ReviewPublication uncertain = new ReviewPublication("failed-send", ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW);
+        ReviewDraftItem original = manual("src/A.java", 10, "Delivered after all").withPublication(Optional.of(uncertain));
+        ReviewDraft saved = drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withItems(ImmutableList.of(original), NOW));
+
+        ReviewDraft confirmed = service.confirmPosted(REPO, NUMBER, saved.version(), original.id());
+
+        assertThat(confirmed.items().getFirst().published()).isTrue();
+        assertThat(confirmed.items().getFirst().publication().orElseThrow().attemptId()).isEqualTo("failed-send");
+        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, confirmed.version(), original.id())).hasMessageContaining("already posted to GitHub");
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Thanks"), any())).thenReturn(posted());
+        service.submit(REPO, NUMBER, confirmed.version(), "Thanks", "COMMENT");
+        ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
+        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Thanks"), sent.capture());
+        assertThat(sent.getValue()).isEmpty();
+        verify(pullRequests, never()).createReviewComment(any(), anyInt(), any());
     }
 
     @Test
@@ -865,6 +888,7 @@ class TestReviewPublicationService
             assertThatThrownBy(() -> service.editItem(REPO, NUMBER, sending.version(), itemId, "Changed", true)).hasMessageContaining("being sent");
             assertThatThrownBy(() -> service.removeItem(REPO, NUMBER, sending.version(), itemId)).hasMessageContaining("being sent");
             assertThatThrownBy(() -> service.confirmNotPosted(REPO, NUMBER, sending.version(), itemId)).hasMessageContaining("Only a comment with unconfirmed delivery");
+            assertThatThrownBy(() -> service.confirmPosted(REPO, NUMBER, sending.version(), itemId)).hasMessageContaining("Only a comment with unconfirmed delivery");
             service.saveReview(REPO, NUMBER, sending.version(), "Next review notes", "REQUEST_CHANGES");
             return posted();
         });

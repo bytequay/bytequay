@@ -152,9 +152,9 @@ class TestAnswer(unittest.TestCase):
 
 
 class TestLook(Kept):
-    def look(self, script):
+    def look(self, script, clock=time.time):
         with mock.patch.object(advisor, "heap", return_value=(2000.0, True)):
-            return advisor.look(self.folder, script, "deepseek-v4-pro", self.data, self.data / "missing.db")
+            return advisor.look(self.folder, script, "deepseek-v4-pro", self.data, self.data / "missing.db", clock)
 
     def test_a_look_reads_with_tools_and_keeps_its_answer_the_gravest_first(self):
         script = Script(said(call("c1", "overview", {})), said(content="The backend looks fine."), said(call("c2", "submit_advice", {**ANSWER, "summary": ""})),
@@ -169,6 +169,18 @@ class TestLook(Kept):
         self.assertIn("Java backend: memory 1,150 / 1,900", script.sent[1][-1]["content"])  # what the overview handed the model
         events = [json.loads(line)["type"] for line in (self.folder / "advice" / "events.jsonl").read_text().splitlines()]
         self.assertEqual(events, ["model", "tool", "model", "model", "tool", "model", "tool", "result"])
+
+    def test_every_finished_look_is_kept_and_the_next_is_told_what_the_last_one_found(self):
+        now = time.time()
+        first = self.look(Script(said(call("c1", "submit_advice", ANSWER))), lambda: now)
+        self.look(Script(RuntimeError("the API is down")), lambda: now + 1)  # a look that failed is not kept
+        script = Script(said(call("c1", "submit_advice", ANSWER)))
+        second = self.look(script, lambda: now + 2)
+        self.assertEqual(advisor.looks(self.folder), [first, second])
+        self.assertEqual(script.sent[0][-1]["content"], advisor.asked(first))
+        self.assertTrue(advisor.asked(first).startswith(advisor.PROMPT + "\n\nThe last look, on "))
+        self.assertTrue(advisor.asked(first).endswith("".join(f"\n- {one['title']}" for one in first["suggestions"])))  # the gravest first
+        self.assertEqual((advisor.asked(None), advisor.asked(first | {"suggestions": []})), (advisor.PROMPT, advisor.PROMPT))
 
     def test_old_database_copies_alone_are_enough_for_a_clean_up_suggestion(self):
         cleanup.remove(self.data / "agent-runtime")

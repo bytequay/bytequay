@@ -91,9 +91,25 @@ class TestRecord(unittest.TestCase):
         self.assertEqual([(row["suggestion"], row["stands"], row["since"], row["what it did"]) for row in rows],
                          [("Let Codex run maven without asking", "being worked on", date(2026, 1, 7), None), (MAVEN, "made", date(2026, 1, 5), "helped"),
                           ("Shorten what a turn starts with", "not wanted: the context is needed", date(2026, 1, 6), None)])
+        self.assertEqual({row["from"] for row in rows}, {"lab rules"})
         maven = rows[1]
         self.assertEqual((round(maven["could save then"], 1), maven["could save now"], maven["number to watch"], round(maven["before"], 1), round(maven["after"], 1)),
                          (52.0, next(one.saves for one in listed if one.title == MAVEN), "long maven minutes in an agent hour", 42.0, 32.5))
+
+    def test_a_risk_the_agent_found_shares_the_record_and_a_fix_is_checked_by_the_looks_after_it(self):
+        made, calls = two_models()
+        heap = {"title": "Give the backend more heap", "risk": "high", "seen": "1,991 of 2,000 MB", "do": "Raise -Xmx.", "where": "dev.sh",
+                "watch": "the backend's peak memory", "action": "none"}
+        idle = heap | {"title": "Close idle tasks", "watch": "idle open tasks"}
+        looks = [{"ended": "2026-01-04T10:00:00Z", "suggestions": [heap, idle]}, {"ended": "2026-01-07T10:00:00Z", "suggestions": [idle]}]
+        rows = record.table({idle["title"]: ("doing", date(2026, 1, 6), "")}, [{"day": date(2026, 1, 5), "what": heap["title"]}], [], made, calls, None, (),
+                            date(2026, 1, 8), UTC, looks)
+        self.assertEqual([(row["suggestion"], row["from"], row["stands"], row["number to watch"], row["could save now"], row["what it did"]) for row in rows],
+                         [("Close idle tasks", "risk look", "being worked on", "idle open tasks", None, None),
+                          ("Give the backend more heap", "risk look", "made", "the backend's peak memory", None, "gone")])
+        # Only a look on a later day than the change counts: one on the same day may have run before it.
+        self.assertEqual([record.gone(heap["title"], date(2026, 1, 4), seen, UTC) for seen in (looks[:1], looks)], ["no look since yet", "gone"])
+        self.assertEqual(record.gone(idle["title"], date(2026, 1, 5), looks, UTC), "still found")
 
 
 if __name__ == "__main__":

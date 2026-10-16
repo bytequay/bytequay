@@ -384,9 +384,18 @@ it as an error. The page shows them the gravest first, each that Clean up
 carries out with a button that asks for the same confirmation, and what the
 agent saw first. A look runs apart from the page and keeps
 `advice/advice.json` and every model and tool call in `advice/events.jsonl` in
-the lab's folder. It takes the DeepSeek key from the Keychain
-(`uv run batch.py --store-key`) and sends counters only, never a path, a
-command or a title; it ends after 20 model calls or five minutes.
+the lab's folder; every look that finishes is also kept in `advice/looks/`.
+The agent is told the titles the last look found and gives a risk it finds
+again the same title, so each risk says how many earlier looks found it too,
+and the page lists the risks gone since the look before. A risk takes the
+marks of the lab's own suggestions, kept in the same `record.json` and
+`changes.json`: being worked on, not wanted (left out until brought back on
+the Suggestions tab), or made. What became of them, on the Suggestions tab,
+lists both kinds; a risk that was made is checked by whether the newest look
+on a later day than the change still finds it. A look takes the DeepSeek key
+from the Keychain (`uv run batch.py --store-key`) and sends counters and the
+last look's titles, never a path, a command or a task's title; it ends after
+20 model calls or five minutes.
 
 Below the disk, "Clean up" lists what nothing in the app uses any more, by the
 same rules as the disk count: what removed tasks left in the runtime and among

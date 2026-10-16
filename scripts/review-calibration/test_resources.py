@@ -1,4 +1,5 @@
 import ast
+from datetime import date
 import logging
 import os
 from pathlib import Path
@@ -17,9 +18,12 @@ import batch
 import charts
 import cleanup
 import dashboard
+import digest
 import monitor
+import record
 import resources
 import saved
+import suggest
 
 PAGE = Path(__file__).with_name("pages") / "Resources.py"
 # As in test_dashboard: outside a running page Streamlit warns on every start that there is no page.
@@ -231,6 +235,27 @@ class TestPage(Kept):
         self.assertEqual([button.key for button in page.button if button.key.startswith("advice_clean")], ["advice_clean_0"])  # only the one it carries out
         page.button(key="advice_clean_0").click().run()
         self.assertEqual([note.value for note in page.warning][-1:], ["Delete 1 folder or file? This cannot be undone."])
+
+    def test_a_risk_says_what_the_looks_before_found_and_takes_the_marks_of_a_suggestion(self):
+        own = advisor.place(self.folder)["folder"]
+        self.found()
+        shown = saved.read(own, advisor.STATE)
+        saved.write(own / advisor.LOOKS, "2026-10-14T08-00-00Z.json", shown | {"started": "2026-10-14T08:00:00Z", "ended": "2026-10-14T08:02:00Z",
+                                                                             "suggestions": [shown["suggestions"][0], shown["suggestions"][1] | {"title": "Close the idle tasks"}]})
+        saved.write(own / advisor.LOOKS, "2026-10-15T08-00-00Z.json", shown)  # the look shown is kept too, as every look that finished
+        page = self.page()
+        said = lambda: [caption.value for caption in page.caption]
+        self.assertTrue({"Earlier looks found it too: 1 of 1.", "New in this look.", "Gone since the look before: Close the idle tasks."} <= set(said()), said())
+        page.button(key="risk_doing_1").click().run()
+        self.assertEqual(record.marks(self.folder), {"Watch the backend": ("doing", date.today(), "")})  # the record the lab's own suggestions keep
+        self.assertIn(f"Being worked on since {suggest.said(date.today())}.", said())
+        page.text_input(key="risk_why_0").input("it runs by itself").run()
+        page.button(key="risk_drop_0").click().run()
+        self.assertNotIn("Clean up what nothing uses", [text.value for text in page.markdown])
+        self.assertIn("1 risk you marked not wanted is left out. Bring one back under What became of them, on the Suggestions tab.", said())
+        page.button(key="risk_noted_1").click().run()
+        self.assertEqual(digest.changes(self.folder), [{"day": date.today(), "what": "Watch the backend"}])
+        self.assertIn(f"You noted this change on {suggest.said(date.today())}. No look since then yet.", said())
 
     def test_a_look_that_failed_says_why(self):
         self.found(state="failed", problem="RuntimeError: the API is down", suggestions=[], summary=None)

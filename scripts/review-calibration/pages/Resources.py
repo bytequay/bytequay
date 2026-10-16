@@ -1,7 +1,7 @@
 """The lab's Resources page: what ByteQuay takes from this Mac, live and over time, from the samples monitor.py keeps."""
 
 import argparse
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 import shutil
 import time
@@ -14,9 +14,12 @@ import advisor
 import batch
 import cleanup
 import dashboard
+import digest
 import monitor
+import record
 import resources
 import saved
+import suggest
 
 GUIDE = "Start the monitor with `uv run monitor.py --start`"
 RISK = {"high": ("High risk", ":material/error:", "red"), "medium": ("Medium risk", ":material/warning:", "orange"), "low": ("Low risk", ":material/info:", "blue")}
@@ -44,8 +47,21 @@ def looking(folder):
         st.info(f"The agent is looking: {activity.count(steps, 'model call')} so far, {advisor.STEPS} at most.", icon=":material/hourglass_top:")
 
 
-def found(last):
-    """What the last look found, the gravest first."""
+def marks(folder, number, title, state):
+    """The same marks as the lab's own suggestions, kept in the same record."""
+    with st.container(horizontal=True):
+        st.button("I changed it again" if state == "done" else "I made this change", key=f"risk_noted_{number}", on_click=digest.note, args=(folder, title, date.today()))
+        if state != "done":
+            st.button("Not working on it" if state == "doing" else "Working on it", key=f"risk_doing_{number}", on_click=record.mark,
+                      args=(folder, title, None if state == "doing" else "doing", date.today()))
+        with st.popover("Not wanted"):
+            st.text_input("Why not", key=f"risk_why_{number}")
+            st.button("Leave it out", key=f"risk_drop_{number}", on_click=lambda: record.mark(folder, title, "dropped", date.today(), st.session_state.get(f"risk_why_{number}", "")))
+
+
+def found(folder, last, earlier):
+    """What the last look found, the gravest first, each with how often the looks before found it and the marks of the
+    lab's own suggestions. A risk marked not wanted is left out."""
     if last["state"] != "done":
         st.warning({"failed": f"The last look failed: {last['problem']}", "stopped": "The last look was stopped before it finished."}.get(
             last["state"], "The last look ended before it finished."))
@@ -54,16 +70,41 @@ def found(last):
     st.caption(f"Looked {dashboard.when(last['ended'])} with {last['model']}: {activity.count(last['steps'], 'model call')}, "
                f"{usage.get('inputTokens', 0):,} tokens in and {usage.get('outputTokens', 0):,} out.")
     st.markdown(plain(last["summary"]))
+    try:
+        noted, marked = digest.changes(folder), record.marks(folder)
+    except (OSError, KeyError, TypeError, ValueError):
+        noted, marked = [], {}
+        st.caption("The marks in `record.json` or the changes in `changes.json` could not be read, so every risk is shown as open.")
+    before = [look for look in earlier if look["started"] != last["started"]]
+    left_out = 0
     for number, one in enumerate(last["suggestions"]):
+        state, day, _ = record.standing(one["title"], marked, noted)
+        if state == "dropped":
+            left_out += 1
+            continue
         with st.container(border=True):
             label, icon, color = RISK[one["risk"]]
             st.badge(label, icon=icon, color=color)
             st.markdown(plain(one["title"]))
             for name, field in (("Seen", "seen"), ("Do", "do"), ("Where", "where"), ("Watch", "watch")):
                 st.markdown(f"**{name}.** {plain(one[field])}")
+            times = sum(any(other["title"] == one["title"] for other in look["suggestions"]) for look in before)
+            st.caption(f"Earlier looks found it too: {times} of {len(before)}." if times else "New in this look.")
+            if state == "done":
+                st.caption(f"You noted this change on {suggest.said(day)}. " + (
+                    "No look since then yet." if record.gone(one["title"], day, [last]) == "no look since yet" else "This look, after it, still finds it."))
+            elif state == "doing":
+                st.caption(f"Being worked on since {suggest.said(day)}.")
             if one["action"] == "clean_up" and st.button("Clean up…", key=f"advice_clean_{number}"):
                 st.session_state["cleanup_confirm"] = True
                 st.caption("Confirm it under Clean up, at the end of the page.")
+            marks(folder, number, one["title"], state)
+    if left_out:
+        st.caption(f"{activity.count(left_out, 'risk')} you marked not wanted {'is' if left_out == 1 else 'are'} left out. "
+                   "Bring one back under What became of them, on the Suggestions tab.")
+    went = [one["title"] for one in before[-1]["suggestions"] if one["title"] not in {now["title"] for now in last["suggestions"]}] if before else []
+    if went:
+        st.caption(plain("Gone since the look before: " + "; ".join(went) + "."))
     with st.expander("What the agent saw first"):
         st.text(last["overview"] or "")
 
@@ -78,15 +119,21 @@ def risks(folder):
     except (OSError, ValueError):
         last = None
         st.warning("What the agent found last could not be read.")
+    try:
+        earlier = advisor.looks(folder)
+    except (OSError, ValueError):
+        earlier = []
+        st.caption("The earlier looks could not be read, so every risk is shown as new.")
     if last is not None and not running:
-        found(last)
+        found(folder, last, earlier)
     elif not running:
         st.caption("The lab's agent reads the monitor's numbers through read-only tools, finds risks and suggests what to do about each.")
     key = batch.has_key()
     if st.button("Look for risks", key="advice_look", disabled=running or not key):
         advisor.start(folder)
         st.rerun()
-    st.caption("A look sends the monitor's counters to DeepSeek's API, never a path, a command or a title, and spends tokens on your key." if key
+    st.caption("A look sends the monitor's counters and the titles of the last look's suggestions to DeepSeek's API, never a path, a command or a "
+               "task's title, and spends tokens on your key." if key
                else "The agent needs a DeepSeek key. Store it once with `uv run batch.py --store-key`")
 NUMBERS = {"memory MB": "%,.0f", "typical MB": "%,.0f", "peak MB": "%,.0f", "CPU cores": "%.2f", "typical CPU": "%.2f", "peak CPU": "%.2f", "threads": "%,.0f", "open files": "%,.0f"}
 

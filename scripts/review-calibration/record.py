@@ -1,13 +1,14 @@
 """What became of the lab's suggestions. In the dashboard you mark a suggestion as being worked on, or as not wanted with a
 reason; "I made this change" notes it in `changes.json` as before. A change that was made is checked by the suggestion's
 own number: the seven days before the change against the days since, comparing like with like, with the suggestion as it
-stood in the days before it. The marks are kept in `record.json` beside the saved tables, the newest one for each
-suggestion."""
+stood in the days before it. The risks the lab's agent finds on the Resources page share the record: a risk that was made
+is checked by whether the looks since still find it. The marks are kept in `record.json` beside the saved tables, the
+newest one for each suggestion."""
 
 from __future__ import annotations
 
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import charts
 import explain
@@ -96,17 +97,31 @@ def verdict(moved):
     return f"No clear change yet: somewhere from {moved[0]:+,.1f} to {moved[1]:+,.1f}, within the same models and efforts."
 
 
-def table(marked, noted, listed, made, calls, reviews, asks, last, zone=None):
+def gone(title, day, looks, zone=None):
+    """What a fix did to a risk the agent found: whether the newest look after the day of the change still finds it."""
+    later = [look for look in looks if datetime.fromisoformat(look["ended"]).astimezone(zone).date() > day]
+    if not later:
+        return "no look since yet"
+    return "still found" if any(one["title"] == title for one in later[-1]["suggestions"]) else "gone"
+
+
+def table(marked, noted, listed, made, calls, reviews, asks, last, zone=None, looks=()):
     """One row for every suggestion that was marked or made: where it stands, the minutes a week it could save when it was
-    made and now, and for one that was made, its number in the days before and since and what the change did. A noted change
-    that is not a suggestion's title is left out."""
+    made and now, and for one that was made, its number in the days before and since and what the change did. A risk from
+    the agent's looks has no minutes; once made, it is checked by the looks since. A noted change that is not a
+    suggestion's title is left out."""
     now = {one.title: one.saves for one in listed}
+    risks = {one["title"]: one for look in looks for one in look["suggestions"]}  # the newest look's words for each
     rows = []
     for title in sorted(set(marked) | {one["what"] for one in noted}):
         state, day, reason = standing(title, marked, noted)
-        row = {"suggestion": title, "stands": {"dropped": f"not wanted: {reason}" if reason else "not wanted", "done": "made", "doing": "being worked on"}[state],
+        risk = title in risks and title not in now
+        row = {"suggestion": title, "from": "risk look" if risk else "lab rules",
+               "stands": {"dropped": f"not wanted: {reason}" if reason else "not wanted", "done": "made", "doing": "being worked on"}[state],
                "since": day, "could save then": None, "could save now": now.get(title), "number to watch": None, "before": None, "after": None, "what it did": None}
-        if state == "done":
+        if risk:
+            row |= {"number to watch": risks[title]["watch"], "what it did": gone(title, day, looks, zone) if state == "done" else None}
+        elif state == "done":
             found = then(title, made, calls, reviews, asks, day, zone)
             if found is None and title not in now:
                 continue  # a change noted in words of its own, or one the saved tables no longer show

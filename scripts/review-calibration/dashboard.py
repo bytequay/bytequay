@@ -15,6 +15,7 @@ import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 import activity
+import advisor
 import approvals
 import batch
 import charts
@@ -545,11 +546,17 @@ def suggestions(made, table, folder, runtime):
                     st.text_input("Why not", key=f"why_{place}")
                     st.button("Leave it out", key=f"drop_{place}", on_click=lambda title=one.title, why=f"why_{place}": record.mark(
                         folder, title, "dropped", date.today(), st.session_state.get(why, "")))
-    kept = record.table(marked, noted, listed, made, calls, reviews, asks, last)
+    try:
+        looks = advisor.looks(folder)
+    except (OSError, ValueError):
+        looks = []
+        st.caption("The risk looks of the Resources page could not be read, so the risks marked there are shown without what became of them.")
+    kept = record.table(marked, noted, listed, made, calls, reviews, asks, last, looks=looks)
     if kept:
         st.markdown("##### What became of them")
-        st.caption("Every suggestion you marked or made. A change that was made is checked by its own number, the seven days before it against the days since, "
-                   "within the same models and efforts. Could save now is empty when the suggestion is no longer listed in the days picked above.")
+        st.caption("Every suggestion you marked or made, here or among the risks of the Resources page. A change that was made is checked by its own number, the seven "
+                   "days before it against the days since, within the same models and efforts; a risk, by whether the look after the change still finds it. Could save "
+                   "now is empty when the suggestion is no longer listed in the days picked above.")
         st.dataframe(kept, hide_index=True, column_config={"could save then": st.column_config.NumberColumn(format="%.1f min a week"),
                                                            "could save now": st.column_config.NumberColumn(format="%.1f min a week"),
                                                            "before": st.column_config.NumberColumn(format="%.1f"), "after": st.column_config.NumberColumn(format="%.1f")})

@@ -2,7 +2,8 @@
 """The lab's agent looks at what ByteQuay takes from this Mac and finds risks. It reads the monitor's numbers through
 read-only tools and hands in ranked suggestions, each with the numbers behind it, what to do, where, and the number to
 watch. The Resources page starts it with "Look for risks"; `uv run advisor.py` looks once from a terminal. The tools give
-it counters only, never a path, a command or a title, and what it reads goes to DeepSeek's API."""
+it counters only, never a path, a command or a task's title; besides them it is told the titles of the last look's own
+suggestions. What it reads goes to DeepSeek's API. Every look that finishes is kept, so a risk can be seen to go away."""
 
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ import resources
 import saved
 
 STATE = "advice.json"
+LOOKS = "looks"  # every look that finished, kept so a risk can be seen to go away after a fix
 REACH = 7 * 86400  # seconds of samples the agent looks over
 SECONDS = 300.0  # the longest one look may take
 STEPS = 20  # model calls in one look
@@ -96,6 +98,21 @@ class Seen:
 def place(folder):
     """The agent's own folder in the lab's: its lock, its log and what it found last."""
     return {"folder": folder / "advice"}
+
+
+def looks(folder):
+    """Every look that finished, oldest first."""
+    kept = place(folder)["folder"] / LOOKS
+    return [saved.read(kept, path.name) for path in sorted(kept.glob("*.json"))]
+
+
+def asked(previous):
+    """What the agent is asked, with the risks the last look found: one found again keeps its title, so the page can tell a
+    risk that went away from one that stayed."""
+    if previous is None or not previous["suggestions"]:
+        return PROMPT
+    titles = "\n".join(f"- {one['title']}" for one in previous["suggestions"])
+    return f"{PROMPT}\n\nThe last look, on {previous['ended'][:10]}, found these. Give a risk you find again the same title, word for word:\n{titles}"
 
 
 def heap():
@@ -295,6 +312,10 @@ def look(folder, ask, model, data=monitor.APP_DATA, database=monitor.DATABASE, c
     """Look once and keep what was found in the agent's folder, with every model and tool call in events.jsonl. How far it
     got is saved after every model call, so the page can show it."""
     own = place(folder)["folder"]
+    try:
+        earlier = looks(folder)
+    except (OSError, ValueError):
+        earlier = []  # the look goes on without the titles of the last one
     made = {"version": 1, "state": "running", "started": saved.stamp(clock()), "ended": None, "model": model, "steps": 0, "usage": None,
             "summary": None, "suggestions": [], "overview": None, "problem": None}
     saved.write(own, STATE, made)
@@ -310,7 +331,8 @@ def look(folder, ask, model, data=monitor.APP_DATA, database=monitor.DATABASE, c
                     saved.write(own, STATE, made)
             call = partial(agent.handed, submit="submit_advice", noun="advice", check=lambda answer: problem_of(answer, bool(sight.going or sight.copies)),
                            handlers={name: partial(tool, sight) for name, tool in TOOLS.items()})
-            done = agent.work(agent.Brief(SYSTEM, offered(), call, NUDGE, WRAP_UP, "advice"), PROMPT, ask, time.monotonic() + SECONDS, log, STEPS)
+            done = agent.work(agent.Brief(SYSTEM, offered(), call, NUDGE, WRAP_UP, "advice"), asked(earlier[-1] if earlier else None), ask,
+                              time.monotonic() + SECONDS, log, STEPS)
         made["steps"], made["usage"] = done.steps, done.usage
         if done.answer is None:
             made["state"], made["problem"] = "failed", done.reason
@@ -326,6 +348,8 @@ def look(folder, ask, model, data=monitor.APP_DATA, database=monitor.DATABASE, c
     finally:
         made["ended"] = saved.stamp(clock())
         saved.write(own, STATE, made)
+        if made["state"] == "done":
+            saved.write(own / LOOKS, made["started"].replace(":", "-") + ".json", made)
     return made
 
 

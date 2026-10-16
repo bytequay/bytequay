@@ -1219,7 +1219,13 @@ public final class DefaultAgentTurnService
                 task = requireStartableTaskWithoutReadiness(taskId);
             }
             catch (AgentConflictException busy) {
-                // A turn the user sent got there first; the queue waits for it like any other.
+                // A turn or development follow-up that got there first starts the queue again when it ends. Anything else,
+                // such as a local run or a review on the shared working copy, would leave the input waiting with nothing
+                // to start it, so it waits for the user instead.
+                AgentTask current = taskStore.require(taskId);
+                if (turnStore.findActive(taskId).isEmpty() && !current.developmentContinuationUnfinished() && !runtimeRegistry.hasDevelopmentOwner(taskId)) {
+                    pauseQueuedHead(head.orElseThrow(), "Not started: " + message(busy));
+                }
                 return;
             }
             catch (RuntimeException unavailable) {

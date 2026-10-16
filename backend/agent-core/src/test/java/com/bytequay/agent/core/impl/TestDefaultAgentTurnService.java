@@ -381,6 +381,29 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void pausesAQueuedInputThatNothingWillStart()
+    {
+        List<Runnable> queueStarts = new ArrayList<>();
+        service = service(driver, runtimeRegistry, events, approvals, CLOCK, queueStarts::add);
+        TaskId reviewerId = TaskId.random();
+        stores.insert(AgentTask.created(reviewerId, false, "Reviewer", TitleSource.USER, task.laneId(), task.taskWorktree().orElseThrow(), task.defaults(), NOW));
+        resources.allocate(reviewerId);
+        service.start(command("first", "key-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "Next", ImmutableList.of(), "queued"));
+        driver.complete("first done");
+
+        // A run on the shared working copy took it between the turn's end and the queue start; its end starts nothing.
+        service.claimLocalRun(reviewerId, "review-build");
+        queueStarts.forEach(Runnable::run);
+
+        QueuedAgentInput paused = stores.find(queued.id()).orElseThrow();
+        assertThat(paused.state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+        assertThat(paused.pauseReason().orElseThrow()).startsWith("Not started: ").contains("shared working copy");
+        service.releaseLocalRun(reviewerId, "review-build");
+        assertThat(service.resumeQueued(task.id()).state()).isEqualTo(TurnState.RUNNING);
+    }
+
+    @Test
     void runsMultipleTurnsInOneSessionAndRoutesSynchronousUsage()
     {
         driver.emitUsageOnOpen(usage("usage-1", 4, 1, 2));

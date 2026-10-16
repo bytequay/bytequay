@@ -1535,6 +1535,17 @@ class TestCodexCliDriver
     }
 
     @Test
+    void readsTheAccountOncePerProcess()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {})
+                .start(command("probe"));
+
+        // The open checks the account; the turn's own checks in the same process do not wait on ChatGPT again.
+        assertThat(supervisor.server().accountReads.get()).isEqualTo(1);
+    }
+
+    @Test
     void provesTheLaunchProfileAndItsLayersBeforeCreatingAThread()
     {
         ScriptedProcessSupervisor noLayers = new ScriptedProcessSupervisor(objectMapper);
@@ -4162,6 +4173,7 @@ class TestCodexCliDriver
         private final AtomicInteger turns = new AtomicInteger();
         private final AtomicInteger threads = new AtomicInteger();
         private final AtomicInteger resumes = new AtomicInteger();
+        private final AtomicInteger accountReads = new AtomicInteger();
         private final List<String> approvalPolicies = new CopyOnWriteArrayList<>();
         private final Supplier<String> managedRequirements;
         private final Supplier<String> account;
@@ -4470,7 +4482,10 @@ class TestCodexCliDriver
                     }
                     respond(id, requirements);
                 }
-                case "account/read" -> respond(id, account.get());
+                case "account/read" -> {
+                    accountReads.incrementAndGet();
+                    respond(id, account.get());
+                }
                 case "config/read" -> respond(id, configReadResponse().toString());
                 case "skills/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()

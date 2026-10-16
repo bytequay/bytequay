@@ -50,6 +50,8 @@ import static java.util.Objects.requireNonNull;
 final class CodexIsolationGuard
 {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
+    /** A fresh App Server answers its first account/read only after its own ChatGPT requests return. */
+    private static final Duration ACCOUNT_TIMEOUT = Duration.ofSeconds(60);
     private static final String REQUIREMENTS_FIELD = "requirements";
 
     private final CodexAppServerClient client;
@@ -61,6 +63,7 @@ final class CodexIsolationGuard
     private final boolean allowGitHubCommands;
     private final boolean review;
     private final Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek;
+    private boolean accountVerified;
 
     CodexIsolationGuard(
             CodexAppServerClient client,
@@ -95,7 +98,11 @@ final class CodexIsolationGuard
         requireNonNull(cwd, "cwd is null");
         verifyReportedCodexHome();
         verifyNoManagedRequirements();
-        verifyChatGptAccount();
+        if (!accountVerified) {
+            verifyChatGptAccount();
+            // The login lives in the isolated Codex home, which no turn's sandbox can write, so it holds for the process.
+            accountVerified = true;
+        }
         verifyLifecycleHooks(cwd);
         verifyNoAmbientExecPolicyRules(cwd);
         verifySkillOrigin(cwd);
@@ -475,7 +482,7 @@ final class CodexIsolationGuard
      */
     private void verifyNoManagedRequirements()
     {
-        JsonNode response = request("configRequirements/read");
+        JsonNode response = request("configRequirements/read", REQUEST_TIMEOUT);
         if (!response.isObject()) {
             throw unavailable("configRequirements/read returned no policy object");
         }
@@ -490,7 +497,7 @@ final class CodexIsolationGuard
 
     private void verifyChatGptAccount()
     {
-        JsonNode response = request("account/read");
+        JsonNode response = request("account/read", ACCOUNT_TIMEOUT);
         if (!response.path("requiresOpenaiAuth").asBoolean(false)
                 || !response.path("account").path("type").asText().equals("chatgpt")) {
             throw unavailable("Codex must use the isolated ChatGPT account");
@@ -535,10 +542,10 @@ final class CodexIsolationGuard
         }
     }
 
-    private JsonNode request(String method)
+    private JsonNode request(String method, Duration timeout)
     {
         try {
-            return client.request(method, new CodexProtocol.EmptyParams(), JsonNode.class, REQUEST_TIMEOUT);
+            return client.request(method, new CodexProtocol.EmptyParams(), JsonNode.class, timeout);
         }
         catch (RuntimeException failure) {
             throw unavailable(method + " could not be verified: " + failure.getMessage());

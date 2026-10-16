@@ -79,7 +79,7 @@ public class TaskActivityReader
     private Optional<TaskMessage> lastMessage(AgentTask task)
     {
         if (task.cleanupState() == CleanupState.DELETED) {
-            // Retention removed the transcript; the kept final answer is the last thing the agent said.
+            // Older cleanups removed the transcript, so a cleaned task quotes its kept final answer, the last thing the agent said.
             return task.summary()
                     .filter(summary -> !summary.finalResponse().isBlank())
                     .map(summary -> new TaskMessage(TaskMessage.Author.AGENT, clip(summary.finalResponse()), task.terminalAt().orElse(task.updatedAt()), Optional.empty()));

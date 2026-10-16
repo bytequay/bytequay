@@ -557,7 +557,8 @@ class TestDefaultAgentCompletionService
         resources.failDeletion = false;
         assertThat(cleanup(dueService)).isEqualTo(CleanupState.DELETED);
         assertThat(cleanup(dueService)).isEqualTo(CleanupState.DELETED);
-        assertThat(resources.deletions).isEqualTo(2);
+        assertThat(resources.transcriptKept).isEqualTo(2);
+        assertThat(resources.deletions).isZero();  // retention keeps the transcript; only deleting the task removes it
     }
 
     @Test
@@ -568,11 +569,11 @@ class TestDefaultAgentCompletionService
         worktrees.failCleanup = true;
 
         assertThat(cleanup(dueService)).isEqualTo(CleanupState.RETRY_PENDING);
-        assertThat(resources.deletions).isZero();
+        assertThat(resources.transcriptKept).isZero();
 
         worktrees.failCleanup = false;
         assertThat(cleanup(dueService)).isEqualTo(CleanupState.DELETED);
-        assertThat(resources.deletions).isOne();
+        assertThat(resources.transcriptKept).isOne();
     }
 
     @Test
@@ -611,12 +612,12 @@ class TestDefaultAgentCompletionService
 
         assertThat(cleanup(due)).isEqualTo(CleanupState.RETRY_PENDING);
         assertThat(worktrees.cleaned).isEmpty();
-        assertThat(resources.deletions).isZero();
+        assertThat(resources.transcriptKept).isZero();
         assertThat(stores.listPending(taskId, 10)).hasSize(1);
 
         assertThat(cleanup(due)).isEqualTo(CleanupState.DELETED);
         assertThat(worktrees.cleaned).hasSize(1);
-        assertThat(resources.deletions).isOne();
+        assertThat(resources.transcriptKept).isOne();
         assertThat(stores.listPending(taskId, 10)).isEmpty();
     }
 
@@ -631,7 +632,7 @@ class TestDefaultAgentCompletionService
 
         assertThat(cleanup(due)).isEqualTo(CleanupState.RETRY_PENDING);
         assertThat(worktrees.cleaned).isEmpty();
-        assertThat(resources.deletions).isZero();
+        assertThat(resources.transcriptKept).isZero();
         assertThatThrownBy(() -> due.delete(taskId))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("not recorded");
@@ -859,6 +860,7 @@ class TestDefaultAgentCompletionService
         }
         private boolean failDeletion;
         private int deletions;
+        private int transcriptKept;
 
         @Override
         public TaskResources allocate(TaskId taskId)
@@ -884,6 +886,15 @@ class TestDefaultAgentCompletionService
         public void delete(TaskId taskId)
         {
             deletions++;
+            if (failDeletion) {
+                throw new IllegalStateException("disk busy");
+            }
+        }
+
+        @Override
+        public void deleteExceptTranscript(TaskId taskId)
+        {
+            transcriptKept++;
             if (failDeletion) {
                 throw new IllegalStateException("disk busy");
             }

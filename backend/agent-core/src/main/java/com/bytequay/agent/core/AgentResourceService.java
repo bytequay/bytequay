@@ -35,7 +35,8 @@ public interface AgentResourceService
     TaskResources allocate(TaskId taskId);
 
     /**
-     * Resolves existing task resources without creating them.
+     * Resolves existing task resources without creating them. The provider directory may be gone once retention
+     * cleanup has kept only the transcript.
      *
      * @param taskId task that owns the resources
      * @return validated existing paths
@@ -75,6 +76,15 @@ public interface AgentResourceService
 
     /** Deletes disposable worktree evidence after worktree removal, retaining the task transcript. */
     void deleteWorktreeCache(TaskId taskId);
+
+    /**
+     * Deletes a finished task's runtime resources except its transcript: the event log and the blobs it refers to,
+     * attachments included, stay, so the task's conversation still opens after its retention has passed.
+     *
+     * @param taskId task whose resources should be deleted
+     * @throws AgentStorageException when safe deletion cannot be completed
+     */
+    void deleteExceptTranscript(TaskId taskId);
 
     /**
      * Deletes all ByteQuay-owned runtime resources for a task.

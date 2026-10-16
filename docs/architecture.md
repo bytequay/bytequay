@@ -244,7 +244,9 @@ cherry-pick sessions do not receive this socket allowance.
 
 Normal cleanup preserves dirty, active, mismatched, or unverifiable work. Removing
 a clean worktree does not imply permission to delete its generated branch.
-Destructive deletion is a separate explicit action.
+Destructive deletion is a separate explicit action. Cleanup after the retention
+period keeps a task's event log and the blobs it refers to, so its conversation
+still opens; deleting the task removes them.
 
 ## Architectural tradeoffs
 

@@ -38,11 +38,14 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 import static java.util.Objects.requireNonNull;
 
@@ -254,9 +257,9 @@ public final class FileAgentResourceService
             Path blobsDirectory = taskDirectory.resolve("blobs");
             rejectSymbolicLinks(root, blobsDirectory);
             requireDirectory(blobsDirectory);
+            // Not required to exist: retention cleanup removes the provider's scratch, and the transcript it keeps must still read.
             Path providerDirectory = taskDirectory.resolve("provider").resolve("scratch");
             rejectSymbolicLinks(root, providerDirectory);
-            requireDirectory(providerDirectory);
             return new TaskResources(taskDirectory, eventsFile, blobsDirectory, providerDirectory);
         }
         catch (IOException | RuntimeException e) {
@@ -290,7 +293,7 @@ public final class FileAgentResourceService
     @Override
     public void delete(TaskId taskId)
     {
-        deleteDirectory(taskId, pathsForDeletion(taskId).runtimeDirectory());
+        deleteTree(taskId, pathsForDeletion(taskId).runtimeDirectory());
     }
 
     @Override
@@ -298,17 +301,35 @@ public final class FileAgentResourceService
     {
         Path directory = pathsForDeletion(taskId).worktreeCacheDirectory();
         rejectSymbolicLinks(runtimeRoot, directory);
-        deleteDirectory(taskId, directory);
+        deleteTree(taskId, directory);
     }
 
-    private void deleteDirectory(TaskId taskId, Path taskDirectory)
+    @Override
+    public void deleteExceptTranscript(TaskId taskId)
+    {
+        TaskResources paths = pathsForDeletion(taskId);
+        if (!Files.exists(paths.runtimeDirectory(), NOFOLLOW_LINKS)) {
+            return;
+        }
+        List<Path> disposable;
+        try (Stream<Path> entries = Files.list(paths.runtimeDirectory())) {
+            disposable = entries.filter(entry -> !entry.equals(paths.eventsFile()) && !entry.equals(paths.blobsDirectory())).collect(toImmutableList());
+        }
+        catch (IOException e) {
+            throw new AgentStorageException("Cannot list resources for task " + taskId, e);
+        }
+        // A file or a link goes as itself, a folder with all it holds; a link is never followed.
+        disposable.forEach(entry -> deleteTree(taskId, entry));
+    }
+
+    private void deleteTree(TaskId taskId, Path tree)
     {
         requireNonNull(taskId, "taskId is null");
         try {
-            if (!Files.exists(taskDirectory, NOFOLLOW_LINKS)) {
+            if (!Files.exists(tree, NOFOLLOW_LINKS)) {
                 return;
             }
-            Files.walkFileTree(taskDirectory, new SimpleFileVisitor<>()
+            Files.walkFileTree(tree, new SimpleFileVisitor<>()
             {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attributes)

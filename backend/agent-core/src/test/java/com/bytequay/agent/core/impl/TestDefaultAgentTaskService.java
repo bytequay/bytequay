@@ -510,6 +510,11 @@ class TestDefaultAgentTaskService
         }
 
         @Override
+        public void deleteExceptTranscript(TaskId taskId)
+        {
+        }
+
+        @Override
         public void validateAttachment(StoreAgentAttachmentCommand command)
         {
             throw new UnsupportedOperationException();

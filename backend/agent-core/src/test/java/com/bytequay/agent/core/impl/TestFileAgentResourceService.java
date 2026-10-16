@@ -163,6 +163,37 @@ class TestFileAgentResourceService
     }
 
     @Test
+    void deletingAllButTheTranscriptKeepsTheEventLogAndItsBlobs()
+            throws IOException
+    {
+        FileAgentResourceService service = new FileAgentResourceService(temporaryDirectory.resolve("runtime"));
+        TaskId taskId = TaskId.random();
+        TaskResources resources = service.allocate(taskId);
+        Files.writeString(resources.eventsFile(), "{}\n");
+        Path attachment = Files.writeString(Files.createDirectories(resources.blobsDirectory().resolve("attachments")).resolve("image.png"), "png");
+        Files.writeString(resources.providerDirectory().resolve("session.json"), "{}");
+        Files.writeString(Files.createDirectories(resources.worktreeCacheDirectory()).resolve("diff"), "diff");
+        Path note = Files.writeString(resources.runtimeDirectory().resolve("ci-memory.md"), "note");
+        Path outside = Files.writeString(temporaryDirectory.resolve("outside.txt"), "keep");
+        Path link = Files.createSymbolicLink(resources.runtimeDirectory().resolve("link"), outside);
+
+        service.deleteExceptTranscript(taskId);
+
+        assertThat(resources.eventsFile()).hasContent("{}\n");
+        assertThat(attachment).hasContent("png");
+        assertThat(resources.providerDirectory().getParent()).doesNotExist();
+        assertThat(resources.worktreeCacheDirectory()).doesNotExist();
+        assertThat(note).doesNotExist();
+        assertThat(link).doesNotExist();
+        assertThat(outside).hasContent("keep");
+        assertThat(service.require(taskId).eventsFile()).isEqualTo(resources.eventsFile());  // so the conversation still reads
+        service.deleteExceptTranscript(taskId);  // a second cleanup finds nothing more to delete
+        service.delete(taskId);
+        assertThat(resources.runtimeDirectory()).doesNotExist();
+        service.deleteExceptTranscript(taskId);  // nor once the task is deleted
+    }
+
+    @Test
     void rejectsSymbolicLinkInResourcePath()
             throws IOException
     {

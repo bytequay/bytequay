@@ -339,7 +339,8 @@ public final class DefaultAgentCompletionService
                 drainPending(outboxStore, eventService, taskId);
                 beforeRemoval.accept(task);
                 task = removeWorktree(task);
-                resourceService.delete(taskId);
+                // The transcript stays, so the finished task's conversation still opens; deleting the task removes it.
+                resourceService.deleteExceptTranscript(taskId);
             }
             catch (RuntimeException failure) {
                 taskStore.update(task.withCleanupState(CleanupState.RETRY_PENDING, Optional.of(message(failure)), Instant.now(clock)));

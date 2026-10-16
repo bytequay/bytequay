@@ -119,6 +119,7 @@ public class PullRequestService
     private static final Logger log = LoggerFactory.getLogger(PullRequestService.class);
     private static final int CLOSED_RETENTION_DAYS = 30;
     private static final int SEARCH_PAGE_SIZE = 100;
+    private static final Duration NOTIFICATION_SETTLE = Duration.ofMinutes(2);
     private static final Set<String> REACTION_CONTENTS = ImmutableSet.of("+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes");
 
     private final Map<PullRequestRef, SummaryStamp> summaryStamps = new ConcurrentHashMap<>();
@@ -619,7 +620,10 @@ public class PullRequestService
             PullRequest cached = row.orElseThrow();
             Instant source = store.findDiscussionActivityAt(cached.id()).filter(at -> at.isAfter(cached.updatedAt())).orElse(cached.updatedAt());
             Duration interval = cached.ciStatus() == PullRequestDetail.CiStatus.PENDING ? Duration.ofMinutes(1) : Duration.ofMinutes(10);
-            return source.isAfter(stamp.sourceAt()) || (timed(cached) && !now.isBefore(stamp.checkedAt().plus(interval)));
+            // A notification's time trails the activity it reports, so GitHub's timeline can stay behind that marker for good;
+            // a summary read a while after the notification already holds the activity.
+            boolean behind = source.isAfter(stamp.sourceAt()) && stamp.checkedAt().isBefore(source.plus(NOTIFICATION_SETTLE));
+            return behind || (timed(cached) && !now.isBefore(stamp.checkedAt().plus(interval)));
         }).collect(toImmutableList());
         Set<PullRequestRef> reviewRequests = notifications.reviewRequests(credential.profile().login());
         for (int offset = 0; offset < refs.size(); offset += GitHubPullRequestSummaryClient.BATCH_SIZE) {

@@ -171,11 +171,7 @@ class TestPullRequestService
     void setUp()
     {
         snapshots = new PullRequestSnapshotService(gitHub, actions, detailStore, diffStore);
-        service = new PullRequestService(
-                gitHub, writes, repositories, accounts, store, snapshots,
-                new PullRequestDetailFetcher(gitHub, Runnable::run),
-                viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext,
-                notifications, syncSettings, issues, Clock.systemUTC());
+        service = newService(Clock.systemUTC());
         org.mockito.Mockito.lenient().when(diffStore.findDefaultEtags(anyLong())).thenReturn(PrDiffEtags.none());
         // Without stored ETags every source answers with a body.
         lenient().when(gitHub.probeDiscussion(anyString(), any(), any())).thenReturn(new DiscussionProbe(false, ImmutableMap.of()));
@@ -791,6 +787,7 @@ class TestPullRequestService
         Instant notificationAt = fetched.updatedAt().plusSeconds(60);
         GitHubPullRequestSummary caughtUp = new GitHubPullRequestSummary(fetched, stale.ciStatus(), 4, 2, 1, "head", stale.headCommittedAt(),
                 stale.reviewDecision(), Optional.empty(), Optional.empty(), "new-discussion", notificationAt, Optional.empty());
+        service = serviceAt(new AtomicReference<>(notificationAt.plusSeconds(5)));
         when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
         when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(row));
@@ -807,6 +804,33 @@ class TestPullRequestService
         verify(summaries, times(2)).fetchSummaries("pat", ImmutableList.of(ref), "me");
         verify(store).observeActivity(row.id(), Optional.empty(), notificationAt);
         verifyNoInteractions(detailStore, diffStore, actions);
+    }
+
+    @Test
+    void aNotificationMarkerTheTimelineNeverReachesStopsRetryingOnceItSettles()
+    {
+        FetchedPullRequest fetched = pullRequest();
+        PullRequest row = storedPullRequest(fetched);
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        // GitHub stamps the notification after the activity it reports, so the timeline stays behind this marker.
+        Instant notificationAt = fetched.updatedAt().plusSeconds(20);
+        AtomicReference<Instant> now = new AtomicReference<>(notificationAt.plusSeconds(5));
+        service = serviceAt(now);
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+        when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(row));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(row.id()));
+        when(store.findById(row.id())).thenReturn(Optional.of(row));
+        when(store.findDiscussionActivityAt(row.id())).thenReturn(Optional.of(notificationAt));
+        when(store.saveObserved(fetched)).thenReturn(row);
+        when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary(fetched, PullRequestDetail.CiStatus.PASSING, "v1")));
+
+        service.syncAttentionSummaries();
+        now.set(notificationAt.plus(Duration.ofMinutes(3)));
+        service.syncAttentionSummaries();
+        service.syncAttentionSummaries();
+
+        verify(summaries, times(2)).fetchSummaries("pat", ImmutableList.of(ref), "me");
     }
 
     @ParameterizedTest
@@ -1138,13 +1162,7 @@ class TestPullRequestService
     void workspaceRechecksOnlyTheViewersUnchangedCardsOnATimer()
     {
         AtomicReference<Instant> now = new AtomicReference<>(REVIEWED_AT);
-        Clock clock = mock(Clock.class);
-        when(clock.instant()).thenAnswer(ignored -> now.get());
-        service = new PullRequestService(
-                gitHub, writes, repositories, accounts, store, snapshots,
-                new PullRequestDetailFetcher(gitHub, Runnable::run),
-                viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext,
-                notifications, syncSettings, issues, clock);
+        service = serviceAt(now);
         PullRequest mine = storedPullRequest(pullRequestNumber(7));
         PullRequest others = storedPullRequest(pullRequestNumber(8).withOrigin(PullRequest.Origin.OTHER));
         when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
@@ -2392,6 +2410,22 @@ class TestPullRequestService
     {
         return new PrRawDetail(null, null, null, null, null, null, updatedAt, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 4, 2, 1, 0,
                 ImmutableList.of(), "head", "feature", "main", "base");
+    }
+
+    private PullRequestService newService(Clock clock)
+    {
+        return new PullRequestService(
+                gitHub, writes, repositories, accounts, store, snapshots,
+                new PullRequestDetailFetcher(gitHub, Runnable::run),
+                viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext,
+                notifications, syncSettings, issues, clock);
+    }
+
+    private PullRequestService serviceAt(AtomicReference<Instant> now)
+    {
+        Clock clock = mock(Clock.class);
+        when(clock.instant()).thenAnswer(ignored -> now.get());
+        return newService(clock);
     }
 
     private static PullRequest storedPullRequest()

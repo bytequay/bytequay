@@ -178,7 +178,9 @@ review only removes its own runtime resources. The developer owns checkout remov
 Reviews freeze committed and uncommitted files in Git tree objects with a temporary
 index; HEAD, branch history, and the user's staging area stay unchanged. Retained
 trees support stable source reads and anchors. Reviews with local edits cannot be
-published as reviews of a GitHub commit.
+published as reviews of a GitHub commit. A review of a GitHub pull request ends by
+itself once a refresh finds the pull request merged or closed; a running turn or
+saved edits keep it open until a later refresh.
 
 Private question sessions receive a read-only context capability scoped to their
 selected discussion or comment batch. The prompt carries the question and a short

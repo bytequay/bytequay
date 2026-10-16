@@ -117,6 +117,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -2730,6 +2731,65 @@ class TestAgentReviewService
         // Ignored build output alone is not a saved edit.
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false, false));
         assertThat(fixture.service.end(reviewId).review().state()).isEqualTo(AgentReview.State.CLOSED);
+    }
+
+    @Test
+    void aPullRequestMergedOrClosedOnGitHubEndsItsOpenReviewAndSaysWhy()
+    {
+        for (String state : ImmutableList.of("merged", "CLOSED")) {
+            Fixture fixture = new Fixture();
+            String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+            when(fixture.pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(storedPullRequest(state)));
+
+            assertThat(fixture.service.endIfPullRequestEnded("Owner/Repo", NUMBER)).isTrue();
+
+            assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.CLOSED);
+            verify(fixture.completions).complete(new CompleteAgentTaskCommand(TASK_ID,
+                    Optional.of("Agent review ended: the pull request was " + state.toLowerCase(Locale.ROOT) + " on GitHub")));
+            verify(fixture.completions).cleanupWorktree(TASK_ID);
+        }
+    }
+
+    @Test
+    void aPullRequestStillOpenOrNotStoredLeavesItsReviewOpen()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+
+        assertThat(fixture.service.endIfPullRequestEnded(REPO, NUMBER)).isFalse();
+        when(fixture.pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(storedPullRequest("open")));
+        assertThat(fixture.service.endIfPullRequestEnded(REPO, NUMBER)).isFalse();
+        // Another pull request of the same repository that merged ends none of this one's reviews.
+        when(fixture.pullRequests.findStored(REPO, NUMBER + 1)).thenReturn(Optional.of(storedPullRequest("merged")));
+        assertThat(fixture.service.endIfPullRequestEnded(REPO, NUMBER + 1)).isTrue();
+
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.OPEN);
+        verify(fixture.completions, never()).complete(any());
+    }
+
+    @Test
+    void aReviewWithSavedEditsStaysOpenUntilALaterRefreshFindsThemGone()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        when(fixture.pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(storedPullRequest("merged")));
+        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false, true));
+
+        assertThat(fixture.service.endIfPullRequestEnded(REPO, NUMBER)).isTrue();  // and nothing is thrown at the refresh
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.OPEN);
+        verify(fixture.completions, never()).complete(any());
+
+        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false, false));
+        fixture.service.endIfPullRequestEnded(REPO, NUMBER);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.CLOSED);
+    }
+
+    private static PullRequest storedPullRequest(String state)
+    {
+        return new PullRequest(
+                1L, REPO, NUMBER, "Avoid duplicate field index lookup", "alice", "url", NOW, NOW, PullRequest.Origin.AUTHORED,
+                ImmutableList.of(), null, false, null, null, null, ImmutableList.of(), null,
+                0, 0, 0, state, null, null, null, null, null, null, null, null, null, null);
     }
 
     @Test

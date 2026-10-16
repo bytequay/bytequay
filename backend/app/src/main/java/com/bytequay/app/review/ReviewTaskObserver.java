@@ -44,7 +44,8 @@ import static java.util.Objects.requireNonNull;
  * <p>One in-process subscription per open review reacts to settled lifecycle events by asking the
  * review service to reconcile; the service reads the durable turn and claim facts, so a duplicate
  * or early event is harmless. Startup restores every open review's subscription, and pull-request
- * refreshes record newer heads and catch up idle clean working copies without starting another review.
+ * refreshes record newer heads and catch up idle clean working copies without starting another review,
+ * or end the review once GitHub reports its pull request merged or closed.
  */
 @Component
 public class ReviewTaskObserver
@@ -93,17 +94,21 @@ public class ReviewTaskObserver
         }
     }
 
+    /** A pull request merged or closed on GitHub ends its open reviews; one still open may have a newer head to follow. */
     @EventListener
     public void onDetailRefreshed(PullRequestDetailRefreshed event)
     {
-        event.headSha().ifPresent(head -> executor.execute(() -> {
+        executor.execute(() -> {
             try {
-                reviews.getObject().observeHead(event.repo(), event.number(), head);
+                AgentReviewService service = reviews.getObject();
+                if (!service.endIfPullRequestEnded(event.repo(), event.number())) {
+                    event.headSha().ifPresent(head -> service.observeHead(event.repo(), event.number(), head));
+                }
             }
             catch (RuntimeException failure) {
-                log.warn("Cannot observe head {} for {}#{}: {}", head, event.repo(), event.number(), failure.toString());
+                log.warn("Cannot follow {}#{} after its refresh: {}", event.repo(), event.number(), failure.toString());
             }
-        }));
+        });
     }
 
     /** A list refresh says nothing about heads; each open review asks for its own conditional detail refresh. */

@@ -83,6 +83,7 @@ import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -101,6 +102,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -131,6 +133,8 @@ public class AgentReviewService
     private static final Logger log = LoggerFactory.getLogger(AgentReviewService.class);
     private static final List<String> GIT_OPERATION_PATHS = ImmutableList.of(
             "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "BISECT_LOG", "BISECT_START", "rebase-merge", "rebase-apply");
+    // The states the pull-request store keeps for one GitHub no longer shows as open.
+    private static final Set<String> ENDED_PULL_REQUEST_STATES = ImmutableSet.of("merged", "closed");
 
     private final Map<String, SyncFailure> syncFailures = new ConcurrentHashMap<>();
 
@@ -519,6 +523,39 @@ public class AgentReviewService
     /** Completes the task, closes the review durably, then requests clean worktree cleanup. */
     public AgentReviewProjection end(String reviewId)
     {
+        return end(reviewId, "Agent review ended by the user");
+    }
+
+    /**
+     * Ends the open reviews of a pull request that GitHub reports merged or closed, as End does, and says why on the task.
+     * A review that cannot end yet, with a turn running or edits saved in its working copy, stays open and is tried again
+     * after a later refresh. Returns whether the pull request has ended.
+     */
+    public boolean endIfPullRequestEnded(String repo, int number)
+    {
+        String repository = normalize(repo);
+        Optional<String> ended = pullRequests.findStored(repository, number)
+                .map(pullRequest -> pullRequest.state().toLowerCase(Locale.ROOT))
+                .filter(ENDED_PULL_REQUEST_STATES::contains);
+        if (ended.isEmpty()) {
+            return false;
+        }
+        store.listOpenReviews().stream()
+                .filter(review -> review.sourceTaskId().isEmpty())
+                .filter(review -> review.repo().equals(repository) && review.number().stream().anyMatch(value -> value == number))
+                .forEach(review -> {
+                    try {
+                        end(review.id(), "Agent review ended: the pull request was " + ended.orElseThrow() + " on GitHub");
+                    }
+                    catch (ReviewConflictException busy) {
+                        log.info("Review {} stays open although its pull request was {}: {}", review.id(), ended.orElseThrow(), busy.getMessage());
+                    }
+                });
+        return true;
+    }
+
+    private AgentReviewProjection end(String reviewId, String reason)
+    {
         return withLock(locks.lock(reviewId), () -> {
             AgentReview review = requireOpen(reviewId);
             TaskId taskId = TaskId.valueOf(review.taskId());
@@ -541,7 +578,7 @@ public class AgentReviewService
             observer.unwatch(reviewId);
             sweeps.cancel(reviewId);
             if (task.state() == TaskState.OPEN) {
-                completions.complete(new CompleteAgentTaskCommand(taskId, Optional.of("Agent review ended by the user")));
+                completions.complete(new CompleteAgentTaskCommand(taskId, Optional.of(reason)));
             }
             latestRun(reviewId).filter(ReviewRun::active)
                     .ifPresent(run -> store.updateRun(run.ended(ReviewRun.State.STOPPED, Optional.of("Review ended"), Instant.now(clock))));

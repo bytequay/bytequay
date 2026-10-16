@@ -35,6 +35,7 @@ import java.util.OptionalLong;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -66,5 +67,33 @@ class TestReviewTaskObserver
         finally {
             observer.close();
         }
+    }
+
+    @Test
+    void aRefreshedPullRequestThatEndedEndsItsReviewsInsteadOfFollowingItsHead()
+    {
+        AgentReviewService service = mock(AgentReviewService.class);
+        ObjectProvider<AgentReviewService> services = mock(ObjectProvider.class);
+        when(services.getObject()).thenReturn(service);
+        when(service.endIfPullRequestEnded("acme/widgets", 1)).thenReturn(true);
+        ReviewTaskObserver observer = new ReviewTaskObserver(mock(AgentEventService.class), mock(AgentReviewStore.class), mock(AgentTurnStore.class), services,
+                mock(ObjectProvider.class), mock(ObjectProvider.class));
+        try {
+            observer.onDetailRefreshed(new PullRequestDetailRefreshed("acme/widgets", 1, Optional.of("ended-head")));
+            observer.onDetailRefreshed(new PullRequestDetailRefreshed("acme/widgets", 2, Optional.of("open-head")));
+            // One refresh is handled at a time, so once the open one follows its head the ended one is done.
+            verify(service, timeout(1000)).observeHead("acme/widgets", 2, "open-head");
+            verify(service).endIfPullRequestEnded("acme/widgets", 1);
+            verify(service, never()).observeHead(eq("acme/widgets"), eq(1), any());
+        }
+        finally {
+            observer.close();
+        }
+    }
+
+    private static AgentReview review(String id, int number, Optional<String> sourceTaskId)
+    {
+        return new AgentReview(id, "workspace-1", "acme/widgets", OptionalInt.of(number), OptionalLong.empty(), TaskId.random().toString(), sourceTaskId,
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
     }
 }

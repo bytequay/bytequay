@@ -110,7 +110,8 @@
 .ct-run__tab { display: flex; max-width: 260px; flex: none; align-items: center; border: 1px solid transparent; border-radius: 6px; }
 .ct-run__tab.is-selected { border-color: light-dark(#d6dce2, var(--dark-border)); background: var(--surface-canvas); }
 .ct-run__tab-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--text-1); cursor: pointer; padding: 2px 4px 2px 7px; }
-.ct-run__tab-label { overflow: hidden; font-family: var(--mono); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.ct-run__tab-label,
+.ct-run__row-name { overflow: hidden; font-family: var(--mono); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .ct-run__initiator { flex: none; color: var(--fg-dim); }
 .ct-run__tab-close { display: inline-flex; width: 16px; height: 16px; flex: none; align-items: center; justify-content: center; margin-right: 3px; border: 0; border-radius: 4px; background: transparent; color: var(--fg-dim); cursor: pointer; padding: 0; }
 .ct-run__tab-close:hover { background: light-dark(#eceff2, var(--dark-subtle)); color: var(--text-1); }
@@ -163,7 +164,6 @@
 .ct-run__duration { flex: none; min-width: 38px; color: var(--fg-dim); font-size: 10.5px; text-align: right; }
 .ct-run__row { display: flex; align-items: center; gap: 3px; padding: 1px 9px 1px 22px; }
 .ct-run__row-label { display: flex; min-width: 0; flex: 1; align-items: center; gap: 5px; color: var(--text-1); padding: 1px 0; }
-.ct-run__row-name { overflow: hidden; font-family: var(--mono); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .ct-run__row-rerun { display: inline-flex; width: 18px; height: 18px; flex: none; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--fg-success); cursor: pointer; padding: 0; }
 .ct-run__row-rerun:hover:not(:disabled) { border-color: var(--fg-success); background: var(--bg-success); }
 .ct-run__row-rerun:disabled { color: var(--fg-dim); cursor: not-allowed; }

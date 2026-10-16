@@ -184,7 +184,8 @@
   background: var(--surface-elevated);
 }
 
-.cmt-menu-search input {
+.cmt-menu-search input,
+.cmt-pr-panel-search input {
   width: 100%;
   box-sizing: border-box;
   padding: 5px 9px;
@@ -1099,16 +1100,6 @@
 }
 
 .cmt-pr-panel-search { padding: 10px 12px; border-bottom: 1px solid light-dark(#d8dee4, var(--dark-border)); }
-
-.cmt-pr-panel-search input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 5px 9px;
-  border: 1px solid var(--line-default);
-  border-radius: 6px;
-  font-size: var(--ui-font-size);
-  color: var(--text-1);
-}
 
 .cmt-pr-row {
   display: flex;

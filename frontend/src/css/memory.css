@@ -38,7 +38,8 @@
 
 .mem-section { display: flex; flex-direction: column; gap: 10px; margin-top: 28px; }
 .mem-section__bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.mem-section__title { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-muted); }
+.mem-section__title,
+.mem-label { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-muted); }
 .mem-box { border: 1px solid light-dark(#e3e3e6, var(--dark-border)); border-radius: 12px; background: var(--surface-canvas); box-shadow: 0 1px 2px light-dark(rgba(31, 35, 40, 0.05), rgb(0 0 0 / 9%)); overflow: hidden; }
 .mem-box > * + * { border-top: 1px solid light-dark(#efeff0, var(--dark-border-muted)); }
 .mem-spec-findings { padding: 16px; }
@@ -60,7 +61,8 @@
 /* The page's buttons keep to one line; a memory row wraps its text. */
 .rcp .mem-row, .rcp .mem-need { white-space: normal; }
 .mem-row:hover, .mem-need:hover, .mem-row.is-selected { background: light-dark(#f6f8fa, var(--dark-subtle)); }
-.mem-row__main, .mem-need__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.mem-row__main, .mem-need__main,
+.mem-learn__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .mem-row__title, .mem-row__text { font-size: 14px; line-height: 1.45; color: var(--fg-default); overflow-wrap: anywhere; }
 /* Under a title, the rule is the detail: muted and cut to two lines. */
 .mem-row__title + .mem-row__text { margin-top: -4px; font-size: 13px; color: var(--fg-muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
@@ -76,7 +78,8 @@
 .mem-need__icon { width: 28px; height: 28px; flex: none; border-radius: 8px; background: var(--bg-warning); color: var(--fg-warning); display: inline-flex; align-items: center;
   justify-content: center; }
 .mem-need__main { gap: 2px; }
-.mem-need__title { font-size: 14px; color: var(--fg-default); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mem-need__title,
+.mem-replay__title { font-size: 14px; color: var(--fg-default); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mem-need__meta { font-size: 12px; color: light-dark(#77797b, var(--dark-muted)); overflow-wrap: anywhere; }
 
 .mem-guideline { display: flex; align-items: center; gap: 10px; padding: 11px 16px; font-size: 12px; }
@@ -97,7 +100,6 @@
 .mem-flag { display: flex; gap: 10px; align-items: flex-start; border-radius: 8px; background: var(--bg-warning); padding: 10px 12px; font-size: 13px; color: light-dark(#4d2d00, var(--dark-orange)); }
 .mem-flag svg { flex: none; margin-top: 2px; }
 .mem-flag__text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.mem-label { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-muted); }
 .mem-source { border: 1px solid light-dark(#efeff0, var(--dark-border-muted)); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .mem-source__head { font-size: 12px; color: var(--fg-muted); overflow-wrap: anywhere; }
 .mem-source__quote.markdown-body { font-size: 13px; line-height: 1.45; color: var(--fg-default); background: light-dark(#f6f8fa, var(--dark-subtle)); border-radius: 6px; padding: 8px 10px;
@@ -114,7 +116,6 @@
   box-shadow: 0 1px 2px light-dark(rgba(31, 35, 40, 0.05), rgb(0 0 0 / 9%)); }
 .mem-learn__icon { width: 32px; height: 32px; flex: none; border-radius: 8px; background: light-dark(#f6f8fa, var(--dark-subtle)); color: light-dark(#45484c, var(--dark-text)); display: inline-flex; align-items: center;
   justify-content: center; }
-.mem-learn__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .mem-learn__title { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--fg-default); }
 .mem-learn__last { font-size: 13px; color: light-dark(#45484c, var(--dark-text)); display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .mem-learn__item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; }
@@ -137,7 +138,6 @@
 .rcp .mem-replay { white-space: normal; }
 .mem-replay:hover { background: light-dark(#f6f8fa, var(--dark-subtle)); }
 .mem-replay__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.mem-replay__title { font-size: 14px; color: var(--fg-default); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mem-replay__side, .mem-replay__sum { flex: none; display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--fg-muted); }
 .mem-replay-sides { display: flex; gap: 10px; }
 .mem-replay-side { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; border: 1px solid light-dark(#efeff0, var(--dark-border-muted)); border-radius: 10px;

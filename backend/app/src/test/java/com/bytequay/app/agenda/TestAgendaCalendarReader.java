@@ -20,9 +20,7 @@ import com.bytequay.core.domain.AgendaCalendar;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-import java.time.Clock;
 import java.time.DayOfWeek;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Optional;
@@ -73,7 +71,7 @@ class TestAgendaCalendarReader
         GoogleWorkspaceService google = mock(GoogleWorkspaceService.class);
         when(google.status()).thenReturn(new GoogleSnapshot.Status(true, "", Optional.empty(), Optional.empty(), ImmutableList.of(), ""));
         when(google.snapshot()).thenReturn(Optional.empty());
-        AgendaCalendarReader reader = new AgendaCalendarReader(google, Clock.fixed(Instant.parse("2026-10-16T01:02:00Z"), ZONE));
+        AgendaCalendarReader reader = new AgendaCalendarReader(google);
         assertThat(reader.today(ON, FRIDAY).state()).isEqualTo("not_connected");
 
         when(google.snapshot()).thenReturn(Optional.of(GoogleSnapshot.empty("people/one", "one@example.com", "One")));

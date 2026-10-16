@@ -78,10 +78,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
-import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -137,7 +137,6 @@ class AgendaReader
     private final JiraActivityLog jiraActivity;
     private final TeamService teams;
     private final AgendaDone done;
-    private final Clock clock;
 
     AgendaReader(
             PullRequestService pullRequests,
@@ -157,8 +156,7 @@ class AgendaReader
             ObjectProvider<JiraService> jira,
             JiraActivityLog jiraActivity,
             TeamService teams,
-            AgendaDone done,
-            Clock clock)
+            AgendaDone done)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.details = requireNonNull(details, "details is null");
@@ -178,7 +176,6 @@ class AgendaReader
         this.jiraActivity = requireNonNull(jiraActivity, "jiraActivity is null");
         this.teams = requireNonNull(teams, "teams is null");
         this.done = requireNonNull(done, "done is null");
-        this.clock = requireNonNull(clock, "clock is null");
     }
 
     /**
@@ -598,7 +595,7 @@ class AgendaReader
     private Week week(LocalDate today, List<PullRequest> involved, Map<String, List<WorkItemView>> workByWorkspace, List<HistoryDay> history)
     {
         LocalDate monday = today.with(DayOfWeek.MONDAY);
-        Instant weekStart = monday.atStartOfDay(clock.getZone()).toInstant();
+        Instant weekStart = monday.atStartOfDay(ZoneId.systemDefault()).toInstant();
         List<String> merged = involved.stream().filter(pr -> mine(pr) && after(pr.mergedAt(), weekStart))
                 .map(pr -> AgendaRefs.pull(pr.repo(), pr.number())).limit(WEEK_REFS).collect(toImmutableList());
         List<String> finished = workByWorkspace.values().stream().flatMap(List::stream)

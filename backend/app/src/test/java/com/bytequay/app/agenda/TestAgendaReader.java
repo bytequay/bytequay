@@ -46,10 +46,8 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -114,7 +112,7 @@ class TestAgendaReader
         return new AgendaReader(pullRequests, details, credentials, mock(WorkspaceStore.class), mock(AppNoticeService.class), mock(AgentTaskStore.class),
                 mock(TaskPullRequestOwnership.class), mock(LocalReviewService.class), mock(WorkItemStore.class), mock(WorkItemService.class), mock(EpicStore.class),
                 mock(IssueDevelopmentStore.class), mock(RepositoryIssueStore.class), mock(IssueDevelopmentService.class), jira, mock(JiraActivityLog.class),
-                mock(TeamService.class), mock(AgendaDone.class), Clock.fixed(NOW, ZoneOffset.UTC));
+                mock(TeamService.class), mock(AgendaDone.class));
     }
 
     private static PullRequest pullRequest(int number, String author, PullRequest.Origin origin, List<String> requested, String decision, int additions, int deletions)

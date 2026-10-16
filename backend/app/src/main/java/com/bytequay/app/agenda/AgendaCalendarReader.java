@@ -21,7 +21,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -52,12 +51,10 @@ class AgendaCalendarReader
     private static final int SHORTEST_FREE = 30;
 
     private final GoogleWorkspaceService google;
-    private final Clock clock;
 
-    AgendaCalendarReader(GoogleWorkspaceService google, Clock clock)
+    AgendaCalendarReader(GoogleWorkspaceService google)
     {
         this.google = requireNonNull(google, "google is null");
-        this.clock = requireNonNull(clock, "clock is null");
     }
 
     AgendaCalendar today(AgendaSchedule schedule, LocalDate day)
@@ -68,7 +65,7 @@ class AgendaCalendarReader
         if (schedule.calendarAccountId().isEmpty()) {
             return AgendaCalendar.of("off");
         }
-        ZoneId zone = clock.getZone();
+        ZoneId zone = ZoneId.systemDefault();
         Instant from = day.atStartOfDay(zone).toInstant();
         Instant to = day.plusDays(1).atStartOfDay(zone).toInstant();
         String account = schedule.calendarAccountId().orElseThrow();

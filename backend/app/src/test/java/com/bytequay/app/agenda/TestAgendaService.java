@@ -47,8 +47,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -69,9 +69,9 @@ import static org.mockito.Mockito.when;
 
 class TestAgendaService
 {
-    private static final ZoneId ZONE = ZoneOffset.UTC;
-    // Friday 16 October 2026, 09:02 UTC; the default schedule makes the agenda at 09:00 on weekdays.
-    private static final Instant FRIDAY_MORNING = Instant.parse("2026-10-16T09:02:00Z");
+    private static final ZoneId ZONE = ZoneId.systemDefault();
+    // Friday 16 October 2026, 09:02 on this machine's clock; the default schedule makes the agenda at 09:00 on weekdays.
+    private static final Instant FRIDAY_MORNING = LocalDateTime.parse("2026-10-16T09:02").atZone(ZONE).toInstant();
     private static final AgentLaneId LANE = new AgentLaneId("claude");
     private static final String REPLY = """
             {"summary": "Your conflict-retry fix merged last night.", "items": [
@@ -181,8 +181,8 @@ class TestAgendaService
     @Test
     void skipsDaysOffAndQuietHours()
     {
-        now.set(Instant.parse("2026-10-17T09:30:00Z"));
-        agenda.runIfDue(Optional.of(Instant.parse("2026-10-17T09:29:00Z")));
+        now.set(FRIDAY_MORNING.plus(Duration.ofDays(1)).plusSeconds(28 * 60));
+        agenda.runIfDue(Optional.of(FRIDAY_MORNING.plus(Duration.ofDays(1))));
         now.set(FRIDAY_MORNING);
         when(appSettings.inQuietHours()).thenReturn(true);
         agenda.runIfDue(Optional.of(FRIDAY_MORNING));

@@ -46,6 +46,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -143,7 +144,7 @@ public class AgendaService
     {
         requireNonNull(workspaceId, "workspaceId is null");
         AgendaSchedule schedule = settings.schedule();
-        LocalDate today = LocalDate.now(clock);
+        LocalDate today = today();
         Optional<AgendaDay> day = store.find(today);
         String state = running.get() ? "RUNNING" : day.map(value -> value.state().name()).orElse("NONE");
         Optional<AgendaDay> ready = day.filter(value -> value.state() == AgendaDay.State.READY);
@@ -184,7 +185,7 @@ public class AgendaService
     {
         requireNonNull(ref, "ref is null");
         requireNonNull(mark, "mark is null");
-        LocalDate today = LocalDate.now(clock);
+        LocalDate today = today();
         AgendaDay day = store.find(today).filter(value -> value.state() == AgendaDay.State.READY)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Today's agenda is not ready"));
         checkArgument(day.items().stream().anyMatch(item -> item.ref().equals(ref)), "That item is not on today's agenda");
@@ -201,11 +202,11 @@ public class AgendaService
     void runIfDue(Optional<Instant> lastSync)
     {
         AgendaSchedule schedule = settings.schedule();
-        LocalDate today = LocalDate.now(clock);
+        LocalDate today = today();
         if (!schedule.enabled() || !schedule.workingDay(today.getDayOfWeek())) {
             return;
         }
-        Instant due = today.atStartOfDay(clock.getZone()).plusMinutes(schedule.minute()).toInstant();
+        Instant due = today.atStartOfDay(ZoneId.systemDefault()).plusMinutes(schedule.minute()).toInstant();
         Instant fresh = due.isAfter(started) ? due : started;
         if (clock.instant().isBefore(due) || lastSync.filter(at -> !at.isBefore(fresh)).isEmpty() || appSettings.inQuietHours() || store.find(today).isPresent()) {
             return;
@@ -221,9 +222,15 @@ public class AgendaService
         }
     }
 
+    // The shared clock is UTC; the agenda's day and set time follow the user's wall clock, as quiet hours do.
+    private LocalDate today()
+    {
+        return LocalDate.ofInstant(clock.instant(), ZoneId.systemDefault());
+    }
+
     private void run(AgendaRun.Trigger trigger)
     {
-        LocalDate today = LocalDate.now(clock);
+        LocalDate today = today();
         Instant startedAt = clock.instant();
         List<AgendaDay> earlier = store.recent(EARLIER_DAYS + 1);
         Instant since = earlier.stream().filter(day -> day.day().isBefore(today) && day.state() == AgendaDay.State.READY)

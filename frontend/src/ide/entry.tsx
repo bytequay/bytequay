@@ -20,8 +20,8 @@ import type { Bridge } from '../types';
 import { useCodeComments, type CodeCommentsOptions, type CommentContext } from '../pulls/code-tests/useCodeComments';
 import type { ReviewCodeFileDto, ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
 import type { IdeConnection, IdeContext, HistoryComparison } from './contracts';
-import { installSemanticQueries } from './semanticQueries';
-import { startRuntime, type IdeRuntime } from './runtime';
+import { startWorkbench } from './startup';
+import type { IdeRuntime } from './runtime';
 import { ReviewDraftStorage } from '../pulls/ReviewDrafts';
 import { restoreSourceDrafts, trackSourceDrafts, restoreNavigation, trackNavigation, discardRecoveredDraft, type SourceDraft } from './drafts';
 import TestRuns, { testRunPanel } from './TestRuns';
@@ -348,14 +348,15 @@ function App() {
   const [ready, setReady] = useState<{ runtime: IdeRuntime; connection: IdeConnection } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    const stop = window.ideWorkbench.onContext(setContext);
+    let live = true;
+    let receivedContext = false;
+    const stop = window.ideWorkbench.onContext(context => { receivedContext = true; setContext(context); });
     void window.ideWorkbench.bootstrap().then(async bootstrap => {
-      if (bootstrap.context) setContext(bootstrap.context);
-      const runtime = await startRuntime(bootstrap.connection, document.body);
-      installSemanticQueries(runtime.workspace);
-      setReady({ runtime, connection: bootstrap.connection });
-    }).catch(cause => setError(String(cause)));
-    return stop;
+      if (live && !receivedContext && bootstrap.context) setContext(bootstrap.context);
+      const ready = await startWorkbench(bootstrap.connection);
+      if (live) { setReady(ready); setError(null); }
+    }).catch(cause => { if (live) setError(String(cause)); });
+    return () => { live = false; stop(); };
   }, []);
   if (error) return <div className="ide-loading" role="alert">{error}</div>;
   if (!ready || !context) return <div className="ct-tools-loading" role="status">

@@ -34,3 +34,8 @@ it('creates an exploration worktree on demand and opens it without starting a re
     body: "const results = await window.webContents.executeJavaScript('WorktreeSyncTests.runExploration()');" });
   expect(result).toContain('opens the prepared checkout');
 }, 30_000);
+
+it('retains the editor and unsaved-change guard when a review completes', async () => {
+  const result = await fixture.run<string>();
+  expect(result).toBe('Completing a review retains the editor and its unsaved-change guard');
+}, 30_000);

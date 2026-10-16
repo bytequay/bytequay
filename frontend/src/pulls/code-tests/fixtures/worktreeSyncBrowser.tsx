@@ -18,8 +18,8 @@ import { createRoot } from 'react-dom/client';
 import CodeTestsTab, { type CodeTestsBridge } from '../CodeTestsTab';
 import type { AgentReviewDto } from '../../agent-review/contracts';
 import type { PullRequestDetailDto } from '../../../types';
-import type { IdeEvent } from '../../../ide/contracts';
-import { reviewFixture } from '../../agent-review/fixtures/review';
+import type { IdeContext, IdeEvent } from '../../../ide/contracts';
+import { reviewFixture, runningReviewFixture } from '../../agent-review/fixtures/review';
 import { assert, settle } from '../../../fixtures/harness';
 import { parseAgentTask } from '../../../agents/contracts';
 import contracts from '../../../agents/fixtures/agent-contracts-v1.json';
@@ -147,5 +147,55 @@ export async function runExploration(): Promise<string> {
     finish(prepared); await settle(); await settle();
     assert(Number(opened) === 1 && host.querySelector('.ct-ide-surface') !== null, 'The prepared working copy must open without an agent run');
     return 'Exploration waits for explicit creation, retries failures, and opens the prepared checkout';
+  } finally { flushSync(() => root.unmount()); host.remove(); window.ide = oldIde; }
+}
+
+export async function run(): Promise<string> {
+  const initial = reviewFixture({ worktreeSync: { state: 'BLOCKED', headSha: 'a'.repeat(40), targetHeadSha: 'b'.repeat(40), dirty: true, reason: 'Local edits' } });
+  let update: (review: AgentReviewDto) => void = () => {};
+  let show: (active: boolean) => void = () => {};
+  let event: (event: IdeEvent) => void = () => {};
+  let context: IdeContext | undefined;
+  let unsaved = 0;
+  const calls: string[] = [];
+  const oldIde = window.ide;
+  window.ide = {
+    resume: async () => { calls.push('resume'); return 'editor'; },
+    open: async host => { assert(host.kind === 'review' && host.reviewId === initial.id, 'The editor must open the selected review'); calls.push('open'); return 'editor'; },
+    present: async () => {}, update: async (_id, value) => { context = value; }, reply: () => {},
+    onRequest: () => () => {},
+    onEvent: listener => { event = listener; return () => {}; },
+    close: async () => { calls.push('close'); event({ id: 'editor', closed: true, dirty: 0, busy: false }); },
+  };
+  const unused = async (): Promise<never> => { throw new Error('Unexpected bridge call'); };
+  const bridge: CodeTestsBridge = {
+    listCodeFiles: async () => ({ source: 'WORKING_COPY', revision: initial.worktreeSync?.headSha ?? '', sourceFingerprint: 'fingerprint', truncated: false,
+      savedExperiment: false, files: [] }),
+    readCodeFile: unused, listCodeRuns: unused, stopCodeRun: unused,
+    readCodeRunOutput: unused,
+    openCodeTerminal: unused, writeReviewTerminal: unused, resizeReviewTerminal: unused, onReviewTerminalEvent: () => () => {},
+    listAgentReviews: unused, prepareReviewWorktree: unused, getAgentReview: unused, subscribeAgentReview: unused, getAgentTask: unused,
+  };
+  const host = document.createElement('div'); host.style.cssText = 'height:820px;width:1050px'; document.body.append(host);
+  const root = createRoot(host);
+  function Harness() {
+    const [review, setReview] = useState(() => ({ ...runningReviewFixture(), worktreeSync: initial.worktreeSync })); update = setReview;
+    const [active, setActive] = useState(true); show = setActive;
+    return <CodeTestsTab workspaceId="workspace-1" review={review} onReviewChange={setReview} active={active} ownReviewStream={false}
+      bridge={bridge} onUnsavedChange={count => { unsaved = count; }} />;
+  }
+  try {
+    flushSync(() => root.render(<Harness />)); await settle();
+    assert(calls.includes('resume') && !calls.includes('open') && host.querySelector('.ct-ide-surface') !== null, 'Active reviews must reuse a ready IDE surface');
+    flushSync(() => update(initial)); await settle();
+    flushSync(() => show(false)); await settle();
+    flushSync(() => show(true)); await settle();
+    assert(context?.review?.activeTurn === null && context.review.runs[0]?.state === 'ACCEPTED', 'The editor must receive the completed review');
+    assert(calls.filter(call => call === 'resume').length === 1 && !calls.includes('open') && !calls.includes('close') && host.querySelector('.ct-ide-surface') !== null,
+      'Completing a review and reopening its code must retain the existing editor');
+    event({ id: 'editor', dirty: 1, busy: false }); await settle();
+    assert(unsaved === 1, 'Source drafts must keep the host unsaved-change guard');
+    assert(host.querySelector('dialog[open]') === null, 'No working-copy action dialog should remain');
+    return 'Completing a review retains the editor and its unsaved-change guard';
   } finally { flushSync(() => root.unmount()); host.remove(); window.ide = oldIde; }
 }

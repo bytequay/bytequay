@@ -469,6 +469,45 @@ typical minutes and calls of a turn, and the steering or stops and the rate
 limits for every 100 turns, so a change can be judged by the turns before and
 after it. Turns from before ByteQuay named setups have none.
 
+## Context
+
+```sh
+uv run context.py
+uv run context.py --save
+```
+
+`context.py` measures how the context of an agent turn grows from one model
+call to the next, what fills it, and what a call's time goes with, from the
+task logs. ByteQuay logs the tokens a Codex turn has spent after every model
+call as a running total, and the step from one total to the next is what that
+call was sent (the whole context) and what it wrote. Codex logs a call's
+tokens after the commands and tools the call started, so what started before
+them is what that call ran, and its results come into the next call. A call is
+sent what the call before it was sent, what that call wrote, and what came in:
+the results of what that call ran (and any message you sent meanwhile). So
+what came in is the step less those two, shared evenly among what the call
+before it ran; on 2,544 pairs of calls it was never less than zero, except
+where the context shrank because it was compacted. Some older turns logged the
+session's running total under the turn's own name (a Codex count fixed since);
+their first call is told by the turn's total in the database. A call's time
+runs from when all its results were back, or the turn began, to its first
+command or tool, or to its end when it ran none. Claude reports a turn's
+tokens once, at its end, so Claude turns have no calls here.
+
+It prints the calls, what fills the context and what a call's time goes with.
+`--save` keeps `context.json` in the lab's folder: one row per call with its
+task, turn, start, number in its turn, the tokens sent and written, what came
+in, the names of the command programs and tools whose results came in, and its
+seconds, with the model and effort of its turn read-only from the database;
+never a command's arguments, a path or what a tool returned. The dashboard's
+Context page shows the typical context at each call of a turn by model; for
+each program or tool the tokens it added and the input tokens it caused (what
+comes in before a call is sent again at every later call of its turn, so the
+biggest are the outputs worth trimming); and for each model with 30 timed
+calls or more, a straight fit of a call's seconds into a fixed part, a part for
+every 100,000 tokens sent and one for every 1,000 written, with the share of
+the spread it explains and the share of the time each part takes.
+
 ## Delivery
 
 The dashboard's Delivery page shows what development tasks delivered for the

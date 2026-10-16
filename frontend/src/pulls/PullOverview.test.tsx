@@ -101,6 +101,45 @@ describe('PullOverview', () => {
     expect(popup).toMatch(/<button type="button">.*Remove from merge queue<\/button>/);
   });
 
+  it.each([true, false, undefined, null])('shows target branch conflicts regardless of merge mode (%s)', mergeQueue => {
+    const value: PullRequestDetailDto = {
+      ...detail(), viewerCanWrite: true, mergeable: false, mergeableState: 'dirty', ciStatus: 'PASSING',
+      checkRuns: detail().checkRuns.filter(check => check.category === 'successful'),
+    };
+    const props = { pr: pullRequest(), detail: value, mergeQueue, onClose: () => {}, onRefresh: async () => {} };
+    const popup = renderToStaticMarkup(<MergeDialog {...props} />);
+    const actions = popup.match(/<button class="is-primary"[^>]*>/g) ?? [];
+
+    expect(popup).toContain('class="pr-merge-status-card is-danger"');
+    expect(popup).toContain('Conflicts with target branch <code>main</code>');
+    expect(popup).toContain('aria-label="Conflicted files" aria-busy="true"');
+    expect(popup).toContain('Checking conflicted files…');
+    expect(popup).toContain('All checks have passed');
+    expect(popup).not.toContain('Merge status unavailable');
+    expect(popup).not.toContain('Loading merge status');
+    expect(actions).toHaveLength(2);
+    expect(actions[1]).toContain('disabled=""');
+    expect(headerMarkup({ detail: value })).toContain('Conflicts</button>');
+
+    const mergePr = vi.fn();
+    vi.stubGlobal('window', { bridge: { mergePr } });
+    try {
+      captureMergeSubmit(props)();
+      expect(mergePr).not.toHaveBeenCalled();
+    }
+    finally { vi.unstubAllGlobals(); }
+  });
+
+  it('shows conflicts without a target branch name or write permission, even when checks fail', () => {
+    const value: PullRequestDetailDto = { ...detail(), baseRef: null, mergeable: false, mergeableState: 'dirty' };
+    const popup = renderToStaticMarkup(<MergeDialog pr={pullRequest()} detail={value} mergeQueue={null}
+      onClose={() => {}} onRefresh={async () => {}} />);
+
+    expect(popup).toContain('<strong>Conflicts with target branch</strong>');
+    expect(popup).toContain('Some checks were not successful');
+    expect(popup).not.toContain('Merge blocked');
+  });
+
   it.each([true, false])('removes a queued PR once and closes before refresh only on success (%s)', async accepted => {
     const write = Promise.withResolvers<void>();
     const refresh = Promise.withResolvers<void>();

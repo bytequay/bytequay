@@ -592,6 +592,14 @@
 }
 .pr-merge-dot { width: 8px; height: 8px; border-radius: 50%; background: #9a6700; }
 .pr-merge-dot.is-queue { background: #1a7f37; }
+.pr-conflict-files { border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+.pr-conflict-files__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pr-conflict-files__header h3 { margin: 0; font-size: var(--ui-font-size); font-weight: 600; }
+.pr-conflict-files__header button { background: none; border: 0; color: var(--accent); cursor: pointer; }
+.pr-conflict-files__header button:disabled { color: var(--fg-muted); cursor: default; }
+.pr-conflict-files p { margin: 12px 0 0; color: var(--fg-muted); }
+.pr-conflict-files ul { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.pr-conflict-files code { overflow-wrap: anywhere; white-space: pre-wrap; }
 .pr-merge-sheet__error { border: 1px solid #ff8182; border-radius: 8px; background: #fff1f0; color: #a40e26; padding: 10px 12px; font-size: var(--ui-font-size); }
 .pr-merge-sheet__footer,
 .pr-review-sheet__footer {

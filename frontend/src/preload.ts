@@ -141,6 +141,7 @@ const bridge: Bridge = {
   updatePrReviewer: (repo, number, login, requested) =>
     ipcRenderer.invoke('prs:reviewer:update', repo, number, login, requested),
   fetchMergeMode: (repo, branch) => ipcRenderer.invoke('prs:merge-mode', repo, branch),
+  fetchPrConflicts: (repo, number) => ipcRenderer.invoke('prs:conflicts', repo, number),
   refreshPullRequestDetailByRef: (repo, number, checksOnly, opened) =>
     ipcRenderer.invoke('prs:detail:refresh:by-ref', repo, number, checksOnly, opened),
   refreshAllPullRequestDetailByRef: (repo, number) =>

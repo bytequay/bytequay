@@ -99,7 +99,7 @@ public class GitCommandRunner
      */
     public Result run(Path worktree, Duration timeout, Map<String, String> environment, List<String> arguments)
     {
-        return run(worktree, timeout, environment, arguments, false);
+        return run(worktree, timeout, environment, arguments, false, 0);
     }
 
     /**
@@ -110,10 +110,16 @@ public class GitCommandRunner
      */
     public Result runStdout(Path worktree, String... arguments)
     {
-        return run(worktree, COMMAND_TIMEOUT, ImmutableMap.of(), ImmutableList.copyOf(arguments), true);
+        return runStdout(worktree, 0, arguments);
     }
 
-    private Result run(Path worktree, Duration timeout, Map<String, String> environment, List<String> arguments, boolean separateErrors)
+    /** Preserves stdout for an additional data-producing exit code, such as merge-tree reporting conflicts with exit 1. */
+    public Result runStdout(Path worktree, int stdoutExitCode, String... arguments)
+    {
+        return run(worktree, COMMAND_TIMEOUT, ImmutableMap.of(), ImmutableList.copyOf(arguments), true, stdoutExitCode);
+    }
+
+    private Result run(Path worktree, Duration timeout, Map<String, String> environment, List<String> arguments, boolean separateErrors, int stdoutExitCode)
     {
         requireNonNull(worktree, "worktree is null");
         requireNonNull(timeout, "timeout is null");
@@ -129,7 +135,7 @@ public class GitCommandRunner
         builder.environment().put("LC_ALL", "C");
         builder.environment().putAll(environment);
         try {
-            return execute(builder, timeout, MAXIMUM_OUTPUT_BYTES, "Git", separateErrors);
+            return execute(builder, timeout, MAXIMUM_OUTPUT_BYTES, "Git", separateErrors, stdoutExitCode);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -164,7 +170,7 @@ public class GitCommandRunner
         builder.environment().put("GIT_NO_LAZY_FETCH", "1");
         builder.environment().put("GIT_NO_REPLACE_OBJECTS", "1");
         try {
-            return execute(builder, timeout, maximumOutputBytes, "Git", separateErrors);
+            return execute(builder, timeout, maximumOutputBytes, "Git", separateErrors, 0);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -301,10 +307,10 @@ public class GitCommandRunner
         checkArgument(maximumOutputBytes > 0, "maximumOutputBytes is not positive");
         ProcessBuilder builder = new ProcessBuilder(command).directory(workingDirectory.toFile());
         builder.environment().putAll(environment);
-        return execute(builder, timeout, maximumOutputBytes, "Command", false);
+        return execute(builder, timeout, maximumOutputBytes, "Command", false, 0);
     }
 
-    private static Result execute(ProcessBuilder builder, Duration timeout, int maximumOutputBytes, String name, boolean separateErrors)
+    private static Result execute(ProcessBuilder builder, Duration timeout, int maximumOutputBytes, String name, boolean separateErrors, int stdoutExitCode)
             throws InterruptedException
     {
         Process process;
@@ -327,7 +333,7 @@ public class GitCommandRunner
             }
             CapturedOutput captured = output.get(DRAIN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
             CapturedOutput error = errors.get(DRAIN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-            if (separateErrors && process.exitValue() != 0) {
+            if (separateErrors && process.exitValue() != 0 && process.exitValue() != stdoutExitCode) {
                 return new Result(process.exitValue(), error.text(), error.truncated());
             }
             return new Result(process.exitValue(), captured.text(), captured.truncated());

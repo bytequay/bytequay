@@ -24,6 +24,7 @@ import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/Agen
 import CodeTestsTab from './code-tests/CodeTestsTab';
 import DevelopmentLearningPanel from '../agents/DevelopmentLearningPanel';
 import DetailSkeleton from './DetailSkeleton';
+import PullRequestConflictFiles from './PullRequestConflictFiles';
 import PullRequestTaskActions from './PullRequestTaskActions';
 import { findConversationReview } from '../agents/agentConversations';
 import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
@@ -2077,7 +2078,8 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { pending, failing, successful, unresolved, checksReported, state } = mergeStatus(detail);
-  const blocked = state === 'failed' || state === 'blocked';
+  const conflicts = hasMergeConflicts(detail);
+  const blocked = conflicts || state === 'failed' || state === 'blocked';
   const mounted = useRef(true);
   const inFlight = useRef(false);
   const submitted = useRef(false);
@@ -2086,7 +2088,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
   const queued = isQueued(detail.recentActivity);
   const canRemoveFromQueue = queued && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite;
   const canMerge = !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite && state === 'ready'
-    && typeof mergeQueue === 'boolean' && !hasMergeConflicts(detail) && !queued;
+    && typeof mergeQueue === 'boolean' && !conflicts && !queued;
 
   useEffect(() => {
     mounted.current = true;
@@ -2151,6 +2153,8 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
               : <span className={`pr-merge-dot${mergeQueue ? ' is-queue' : ''}`} />}
           <strong>{queued
             ? 'In merge queue'
+            : conflicts
+            ? <>Conflicts with target branch{detail.baseRef && <> <code>{detail.baseRef}</code></>}</>
             : blocked
             ? 'Merge blocked'
             : state === 'pending'
@@ -2160,6 +2164,8 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
                   : typeof mergeQueue !== 'boolean' ? mergeActionLabel(mergeQueue)
                     : mergeQueue ? 'Merge queue is enabled' : 'Ready to rebase and merge'}</strong>
         </div>
+        {conflicts && !queued && <PullRequestConflictFiles key={`${detail.repo}#${detail.number}:${detail.baseRef}:${detail.updatedAt}`}
+          repo={detail.repo} number={detail.number} />}
         <div className="pr-merge-status-card is-stacked">
           <div>
             {failing > 0

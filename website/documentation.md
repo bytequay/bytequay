@@ -187,6 +187,11 @@ The header’s merge/check-status control shows the actions available for that P
 **Ready for review**, **Rebase and merge**, or **Merge when ready**. Monitoring with the
 bell does not enable automatic CI repair.
 
+When a PR conflicts with its target branch, the merge panel lists the conflicted
+files for watched repositories with a local checkout. **Refresh files** compares
+the current remote PR and target branch without changing your local edits or
+staging area. For other repositories, watch the repository to enable this list.
+
 ## Explore a pull request locally
 
 For your own PR, **Development task** opens its existing conversation or prepares a

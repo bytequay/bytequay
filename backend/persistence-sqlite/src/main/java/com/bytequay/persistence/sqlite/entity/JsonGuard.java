@@ -40,6 +40,9 @@ final class JsonGuard<E extends RuntimeException>
     // Stored runs keep fields the review record has since dropped, such as summary and coverage limitations.
     static final JsonGuard<ReviewConflictException> REVIEW = new JsonGuard<>(ReviewConflictException.class, ReviewConflictException::new, JsonColumns.mapper()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES));
+    // Stored local review messages keep the send route they no longer record.
+    static final JsonGuard<AgentStorageException> LOCAL_REVIEW = new JsonGuard<>(AgentStorageException.class, AgentStorageException::new, JsonColumns.mapper()
+            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES));
     static final JsonGuard<StorageException> CHERRY_PICK = new JsonGuard<>(StorageException.class, StorageException::new, JsonColumns.mapper());
     static final JsonGuard<StorageException> CI_AUTOFIX = new JsonGuard<>(StorageException.class, StorageException::new, JsonColumns.mapper().disable(WRITE_DATES_AS_TIMESTAMPS));
 

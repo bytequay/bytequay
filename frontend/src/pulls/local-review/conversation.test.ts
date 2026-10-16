@@ -14,7 +14,7 @@
 import { expect, it } from 'vitest';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import type { ReviewFindingDto } from '../agent-review/contracts';
-import { findingConversation, findingFixPrompt, findingFixRequest, localReviewConversation } from './conversation';
+import { canSendAgain, findingConversation, findingFixPrompt, findingFixRequest, localReviewConversation } from './conversation';
 import type { LocalReviewThreadDto } from './types';
 
 it('sends a short fix request with a tool lookup instead of the saved evidence and discussion', () => {
@@ -140,4 +140,9 @@ it('exports saved local code and learning discussions with their delivery failur
   expect(learning).toContain('Source turn: summary-turn');
   expect(learning).toContain('> The original explanation');
   expect(learning).not.toMatch(/github.com|Location:|Recorded code/);
+});
+
+it('offers to send a private reply again only when its input ended without an answer', () => {
+  for (const state of ['UNSENT', 'FAILED', 'CANCELLED', 'INTERRUPTED', 'PAUSED', 'UNCERTAIN', 'REMOVED', 'ABANDONED']) expect(canSendAgain(state)).toBe(true);
+  for (const state of [null, 'ACCEPTED', 'RUNNING', 'COMPLETED', 'QUEUED', 'STARTING', 'STARTED']) expect(canSendAgain(state)).toBe(false);
 });

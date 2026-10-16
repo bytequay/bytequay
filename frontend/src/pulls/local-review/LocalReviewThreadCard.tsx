@@ -21,7 +21,7 @@ import MarkdownBody from '../MarkdownBody';
 import MarkdownEditor from '../MarkdownEditor';
 import { commentIndexTarget } from '../ReviewCommentIndex';
 import LocalCard, { LocalCardMessage, SummaryCardTitle } from './LocalCard';
-import { localReviewConversation } from './conversation';
+import { canSendAgain, localReviewConversation } from './conversation';
 import type { LocalReviewThreadActions, LocalReviewThreadDto, LocalReviewThreads } from './types';
 
 export default function LocalReviewThreadCard({ thread, viewer, onReply, onResolve, onRetry, disabledReason: codeDisabledReason, learningDisabledReason,
@@ -117,10 +117,11 @@ export default function LocalReviewThreadCard({ thread, viewer, onReply, onResol
           : message.deliveryState.toLowerCase().replaceAll('_', ' ')}</span>}>
       <MarkdownBody body={message.body} repository={thread.repo} />
       {message.deliveryError && <p className="pr-local-review__delivery-error" role="alert">{message.deliveryError}</p>}
-      {message.author === 'USER' && message.deliveryState === 'UNSENT' && <div className="pr-local-review__retry">
+      {message.author === 'USER' && canSendAgain(message.deliveryState) && <div className="pr-local-review__retry">
         <button type="button" disabled={busy || Boolean(disabledReason)} title={disabledReason ?? undefined}
           onClick={() => { void mutate(`retry:${message.id}`, () => onRetry(thread.id, message.id)); }}>
-          {pending === `retry:${message.id}` ? 'Retrying…' : 'Retry'}
+          {message.deliveryState === 'UNSENT' ? (pending === `retry:${message.id}` ? 'Retrying…' : 'Retry')
+            : pending === `retry:${message.id}` ? 'Sending…' : 'Send again'}
         </button>
       </div>}
     </LocalCardMessage>)}

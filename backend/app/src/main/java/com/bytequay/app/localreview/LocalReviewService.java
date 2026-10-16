@@ -36,7 +36,6 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.localreview.LocalReviewLearningAnchor;
 import com.bytequay.core.localreview.LocalReviewMessage;
 import com.bytequay.core.localreview.LocalReviewMessage.Author;
-import com.bytequay.core.localreview.LocalReviewMessage.Routing;
 import com.bytequay.core.localreview.LocalReviewStore;
 import com.bytequay.core.localreview.LocalReviewThread;
 import com.bytequay.core.review.AgentReview;
@@ -275,7 +274,7 @@ public class LocalReviewService
                     }
                     checkArgument(current.messages().stream().noneMatch(message -> message.id().equals(request.messageId())), "Message id already exists");
                     return store.update(current.update(current.resolved(), ImmutableList.<LocalReviewMessage>builder().addAll(current.messages())
-                            .add(userMessage(task, current.id(), request.messageId(), request.body(), Instant.now(clock))).build(),
+                            .add(userMessage(current.id(), request.messageId(), request.body(), Instant.now(clock))).build(),
                             operation(current.operations(), operationKey, signature), Instant.now(clock)));
                 }
             }
@@ -284,7 +283,7 @@ public class LocalReviewService
             }
             checkArgument(store.listByTask(taskId).size() < 500, "This task has too many local review threads");
             Instant now = Instant.now(clock);
-            LocalReviewMessage message = userMessage(task, request.id(), request.messageId(), request.body(), now);
+            LocalReviewMessage message = userMessage(request.id(), request.messageId(), request.body(), now);
             return store.insert(new LocalReviewThread(request.id(), taskId, workspaceId, request.repo().toLowerCase(Locale.ROOT), request.number(),
                     request.path(), request.side(), request.startLine(), request.line(), request.baseSha(), request.headSha(), request.code(), false, 0, now, now,
                     ImmutableList.of(message), operation(ImmutableMap.of(), operationKey, signature), learningAnchor, false));
@@ -295,7 +294,7 @@ public class LocalReviewService
     public LocalReviewView reply(String taskId, String workspaceId, String id, String messageId, String body, long expectedTaskVersion, String operationKey)
     {
         checkArgument(expectedTaskVersion >= 0, "Invalid task version");
-        AgentTask task = task(taskId, workspaceId, true);
+        task(taskId, workspaceId, true);
         LocalReviewThread thread = withLock(locks.get(taskId), () -> {
             LocalReviewThread current = requireThread(taskId, id);
             String signature = hash("reply:" + messageId + ":" + body);
@@ -304,7 +303,7 @@ public class LocalReviewService
             }
             checkArgument(current.messages().stream().noneMatch(message -> message.id().equals(messageId)), "Message id already exists");
             return store.update(current.update(current.resolved(), ImmutableList.<LocalReviewMessage>builder().addAll(current.messages())
-                    .add(userMessage(task, id, messageId, body, Instant.now(clock))).build(), operation(current.operations(), operationKey, signature), Instant.now(clock)));
+                    .add(userMessage(id, messageId, body, Instant.now(clock))).build(), operation(current.operations(), operationKey, signature), Instant.now(clock)));
         });
         return dispatch(thread, messageId, expectedTaskVersion);
     }
@@ -333,7 +332,7 @@ public class LocalReviewService
             }
             Optional<String> turnId = turnStore.findActive(TaskId.valueOf(taskId)).map(turn -> turn.id().toString());
             LocalReviewMessage message = new LocalReviewMessage(UUID.randomUUID().toString(), Author.AGENT, normalizedBody(body), Instant.now(clock),
-                    Optional.empty(), Optional.empty(), turnId, Optional.empty());
+                    Optional.empty(), turnId, Optional.empty());
             return view(store.update(thread.update(thread.resolved(), ImmutableList.<LocalReviewMessage>builder().addAll(thread.messages()).add(message).build(),
                     operation(thread.operations(), operationKey, signature), Instant.now(clock))));
         });
@@ -379,8 +378,19 @@ public class LocalReviewService
         checkArgument(message.author() == Author.USER, "Only user messages are dispatched");
         String key = message.inputKey().orElseThrow();
         TaskId taskId = TaskId.valueOf(thread.taskId());
-        if (TaskInput.accepted(turns, taskId, key).isPresent()) {
+        Delivery delivery = delivery(taskId, key);
+        if (delivery.live()) {
             return view(thread);
+        }
+        if (delivery.turn().isPresent() || delivery.queued().isPresent()) {
+            // Its last input ended without an answer, so only this explicit retry sends it again, as a new input. A paused
+            // or uncertain row leaves the queue first, so resuming the queue cannot deliver the message a second time.
+            delivery.queued().filter(input -> input.state() == QueuedAgentInput.State.PAUSED || input.state() == QueuedAgentInput.State.UNCERTAIN)
+                    .ifPresent(input -> turns.removeQueued(taskId, input.id()));
+            String retryKey = "local-review:" + UUID.nameUUIDFromBytes(key.getBytes(UTF_8));
+            store.update(thread.update(thread.resolved(), thread.messages().stream()
+                    .map(value -> value.id().equals(messageId) ? value.withInputKey(retryKey) : value).collect(toImmutableList()), thread.operations(), Instant.now(clock)));
+            key = retryKey;
         }
         Optional<String> failure = Optional.empty();
         try {
@@ -388,25 +398,19 @@ public class LocalReviewService
             boolean development = task.interactive();
             Optional<DevelopmentAutomation> automation = development && thread.learningAnchor().isPresent() ? Optional.of(DevelopmentAutomation.LOCAL_ONLY) : Optional.empty();
             String prompt = prompt(thread, message);
+            // Chosen now, from what the task is doing: a key names one input whichever way it goes, so a retry cannot run it twice.
+            boolean queue = turnStore.findActive(taskId).isPresent();
             if (!development) {
                 AgentReview review = reviews.findReviewByTask(thread.taskId()).orElseThrow();
-                reviewTasks.sendMessage(review.id(), expectedTaskVersion, prompt, key, message.routing().orElseThrow() == Routing.QUEUE);
+                reviewTasks.sendMessage(review.id(), expectedTaskVersion, prompt, key, queue);
             }
             else {
-                TaskInput.send(turns, taskId, expectedTaskVersion, prompt, key, message.routing().orElseThrow() == Routing.QUEUE, automation);
+                TaskInput.send(turns, taskId, expectedTaskVersion, prompt, key, queue, automation);
             }
         }
         catch (RuntimeException error) {
             String diagnostic = Optional.ofNullable(error.getMessage()).orElse("Could not send local review feedback");
             failure = Optional.of(diagnostic.substring(0, Math.min(2000, diagnostic.length())));
-            // Core conflicts are definite admission refusals. An uncertain transport failure must keep its original route.
-            if (error instanceof AgentConflictException && TaskInput.accepted(turns, taskId, key).isEmpty()) {
-                Routing next = turnStore.findActive(taskId).isPresent() ? Routing.QUEUE : Routing.SEND;
-                LocalReviewThread current = requireThread(thread.taskId(), thread.id());
-                store.update(current.update(current.resolved(), current.messages().stream()
-                        .map(value -> value.id().equals(messageId) ? value.withRouting(next) : value).collect(toImmutableList()),
-                        current.operations(), Instant.now(clock)));
-            }
         }
         Optional<String> error = failure;
         LocalReviewThread current = requireThread(thread.taskId(), thread.id());
@@ -415,28 +419,22 @@ public class LocalReviewService
         return view(store.update(current.update(current.resolved(), messages, current.operations(), Instant.now(clock))));
     }
 
-    private LocalReviewMessage userMessage(AgentTask task, String threadId, String id, String body, Instant now)
+    private static LocalReviewMessage userMessage(String threadId, String id, String body, Instant now)
     {
-        Routing routing = turnStore.findActive(task.id()).isPresent() ? Routing.QUEUE : Routing.SEND;
         String inputKey = "local-review:" + UUID.nameUUIDFromBytes((threadId + ":" + id).getBytes(UTF_8));
-        return new LocalReviewMessage(id, Author.USER, normalizedBody(body), now, Optional.of(inputKey), Optional.of(routing), Optional.empty(), Optional.empty());
+        return new LocalReviewMessage(id, Author.USER, normalizedBody(body), now, Optional.of(inputKey), Optional.empty(), Optional.empty());
     }
 
     private LocalReviewView view(LocalReviewThread thread)
     {
         List<LocalReviewView.Message> messages = thread.messages().stream().map(message -> {
-            Optional<QueuedAgentInput> queued = message.inputKey().flatMap(key -> queueStore.findQueuedByIdempotencyKey(TaskId.valueOf(thread.taskId()), key));
-            Optional<AgentTurn> turn = message.inputKey().flatMap(key -> turnStore.findByIdempotencyKey(TaskId.valueOf(thread.taskId()), key))
-                    .or(() -> queued.filter(input -> input.state() == QueuedAgentInput.State.STARTING || input.state() == QueuedAgentInput.State.STARTED)
-                            .flatMap(QueuedAgentInput::turnId).flatMap(turnStore::find));
-            Optional<String> turnId = turn.map(value -> value.id().toString()).or(() -> queued.flatMap(QueuedAgentInput::turnId).map(Object::toString)).or(message::turnId);
-            Optional<String> state = turn.map(value -> value.state().name()).or(() -> queued.map(value -> value.state().name()));
-            if (message.author() == Author.USER && state.isEmpty()) {
-                state = Optional.of("UNSENT");
-            }
+            Delivery delivery = message.inputKey().map(key -> delivery(TaskId.valueOf(thread.taskId()), key)).orElse(Delivery.NONE);
+            Optional<QueuedAgentInput> queued = delivery.queued();
+            Optional<String> turnId = delivery.turn().map(AgentTurn::id).or(() -> queued.flatMap(QueuedAgentInput::turnId)).map(Object::toString).or(message::turnId);
+            Optional<String> state = delivery.state().or(() -> message.author() == Author.USER ? Optional.of("UNSENT") : Optional.empty());
+            Optional<String> error = delivery.live() ? Optional.empty() : delivery.reason().or(message::deliveryError);
             return new LocalReviewView.Message(message.id(), message.author(), message.body(), message.createdAt(), turnId, queued.map(value -> value.id().toString()),
-                    queued.flatMap(QueuedAgentInput::messageEventId).map(Object::toString), state,
-                    turn.isPresent() || queued.isPresent() ? Optional.empty() : message.deliveryError());
+                    queued.flatMap(QueuedAgentInput::messageEventId).map(Object::toString), state, error);
         }).collect(toImmutableList());
         return new LocalReviewView(thread.id(), thread.taskId(), thread.workspaceId(), thread.repo(), thread.number(), thread.path(), thread.side(),
                 thread.startLine(), thread.line(), thread.baseSha(), thread.headSha(), thread.code(), thread.resolved(), thread.version(),
@@ -535,6 +533,45 @@ public class LocalReviewService
                 + "Use reply_local_review_comment to answer this thread privately; resolve_local_review_comment can resolve or reopen it. "
                 + "Never post this feedback or discussion to GitHub comments, reviews, or the PR description, and never quote private feedback in commit messages. "
                 + "\n\nUser comment:\n" + message.body();
+    }
+
+    /**
+     * What became of a message's input. A queued input runs under the queue's own turn key, so its turn is found through the
+     * queue row while that turn holds it; a paused, uncertain or removed row outlived the turn that claimed it, so the row
+     * itself says what became of the input. A direct send's turn is found by the message's key.
+     */
+    private Delivery delivery(TaskId taskId, String key)
+    {
+        Optional<QueuedAgentInput> queued = queueStore.findQueuedByIdempotencyKey(taskId, key);
+        Optional<AgentTurn> turn = queued.isPresent()
+                ? queued.filter(input -> input.state() == QueuedAgentInput.State.STARTING || input.state() == QueuedAgentInput.State.STARTED)
+                        .flatMap(QueuedAgentInput::turnId).flatMap(turnStore::find)
+                : turnStore.findByIdempotencyKey(taskId, key);
+        return new Delivery(queued, turn);
+    }
+
+    private record Delivery(Optional<QueuedAgentInput> queued, Optional<AgentTurn> turn)
+    {
+        private static final Delivery NONE = new Delivery(Optional.empty(), Optional.empty());
+
+        /** Waiting, running or answered: sending it again could run it twice. */
+        private boolean live()
+        {
+            return turn.map(value -> !value.state().terminal() || value.state() == TurnState.COMPLETED)
+                    .orElseGet(() -> queued.filter(input -> input.state() == QueuedAgentInput.State.QUEUED || input.state() == QueuedAgentInput.State.STARTING
+                            || input.state() == QueuedAgentInput.State.STARTED).isPresent());
+        }
+
+        private Optional<String> state()
+        {
+            return turn.map(value -> value.state().name()).or(() -> queued.map(value -> value.state().name()));
+        }
+
+        /** Why an input that ended without an answer stopped, as its turn or queue row recorded it. */
+        private Optional<String> reason()
+        {
+            return turn.flatMap(AgentTurn::terminalReason).or(() -> queued.flatMap(QueuedAgentInput::pauseReason));
+        }
     }
 
     /** One review finding with the review that owns it and the finding's private discussion, oldest message first. */

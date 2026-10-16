@@ -678,6 +678,9 @@ function SidePanel({
   const localThreads: LocalReviewThreads = {
     threads: [...localSources.values()].map(value => value.thread).sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
     viewer: localReview?.viewer ?? prLocalReview.viewer,
+    // Replies go to this task's agent, so they wait for what the task waits for, such as a running follow-up.
+    disabledReason: localReview?.disabledReason,
+    learningDisabledReason: localReview?.learningDisabledReason,
     onReply: (id, body) => (localSources.get(id)?.actions ?? prLocalReview).onReply(id, body),
     onResolve: (id, resolved) => (localSources.get(id)?.actions ?? prLocalReview).onResolve(id, resolved),
     onRetry: (id, messageId) => (localSources.get(id)?.actions ?? prLocalReview).onRetry(id, messageId),

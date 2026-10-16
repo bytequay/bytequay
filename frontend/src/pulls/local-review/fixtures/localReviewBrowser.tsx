@@ -241,6 +241,33 @@ async function pendingThreadResponse(): Promise<void> {
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
+async function interruptedResend(): Promise<void> {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  let thread = initialThread();
+  thread = { ...thread, messages: [{ ...thread.messages[0], deliveryState: 'INTERRUPTED', deliveryError: 'Backend restarted', turnId: 'turn-1' }] };
+  let resends = 0;
+  const render = () => flushSync(() => root.render(<LocalReviewThreadCard thread={thread}
+    onReply={async () => { throw new Error('Sending again must not create a new comment'); }} onResolve={async () => {}}
+    onRetry={async (threadId, messageId) => {
+      assert(threadId === thread.id && messageId === 'user-1', 'Sending again must keep the saved message');
+      resends++;
+      thread = { ...thread, messages: [{ ...thread.messages[0], deliveryState: 'RUNNING', deliveryError: null, turnId: 'turn-2' }] };
+      render();
+    }} />));
+  render();
+  try {
+    assert(host.textContent?.includes('interrupted') === true && host.querySelector('[role="alert"]')?.textContent === 'Backend restarted',
+      'An interrupted message must say why it got no answer');
+    button(host, 'Send again').click();
+    await settle();
+    assert(resends === 1 && !Array.from(host.querySelectorAll('button')).some(value => value.textContent === 'Send again'),
+      'A running message must not offer to send it again');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
 async function anchoredDiff(): Promise<void> {
   const host = document.createElement('div');
   document.body.append(host);
@@ -884,6 +911,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['Local discussion reply, resolution and remount', replyAndResolve],
     ['Saved unsent message retry', savedRetry],
     ['Pending responses disable only their own discussion and preserve drafts', pendingThreadResponse],
+    ['Interrupted message is sent again with its reason shown', interruptedResend],
     ['Private diff anchors preserve revision and code', anchoredDiff],
     ['Independent overview and commit discussions survive reload', independentLearningCards],
     ['Review-owned private replies use the fresh task version', reviewOwnedLocalDiscussion],

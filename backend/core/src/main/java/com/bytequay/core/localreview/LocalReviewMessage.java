@@ -19,9 +19,9 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** A durable private message; input routing is frozen before dispatch so uncertain retries cannot duplicate work. */
+/** A durable private message; a user message's input key names the one task input that carries it to the agent. */
 public record LocalReviewMessage(String id, Author author, String body, Instant createdAt,
-        Optional<String> inputKey, Optional<Routing> routing, Optional<String> turnId, Optional<String> deliveryError)
+        Optional<String> inputKey, Optional<String> turnId, Optional<String> deliveryError)
 {
     public LocalReviewMessage
     {
@@ -30,33 +30,28 @@ public record LocalReviewMessage(String id, Author author, String body, Instant 
         requireNonNull(body, "body is null");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(inputKey, "inputKey is null");
-        requireNonNull(routing, "routing is null");
         requireNonNull(turnId, "turnId is null");
         requireNonNull(deliveryError, "deliveryError is null");
         checkArgument(id.matches("[A-Za-z0-9._:-]{1,100}"), "Invalid message id");
         checkArgument(!body.isBlank() && body.length() <= 16_000, "Message must contain 1–16000 characters");
-        checkArgument((author == Author.USER) == inputKey.isPresent() && inputKey.isPresent() == routing.isPresent(), "Invalid message routing");
+        checkArgument((author == Author.USER) == inputKey.isPresent(), "Only a user message has an input key");
     }
 
     public LocalReviewMessage withError(Optional<String> error)
     {
-        return new LocalReviewMessage(id, author, body, createdAt, inputKey, routing, turnId, error);
+        return new LocalReviewMessage(id, author, body, createdAt, inputKey, turnId, error);
     }
 
-    public LocalReviewMessage withRouting(Routing value)
+    /** Sends the message again as a new input, after its last one ended without an answer. */
+    public LocalReviewMessage withInputKey(String value)
     {
-        return new LocalReviewMessage(id, author, body, createdAt, inputKey, Optional.of(value), turnId, deliveryError);
+        checkArgument(author == Author.USER, "Only a user message has an input key");
+        return new LocalReviewMessage(id, author, body, createdAt, Optional.of(value), turnId, deliveryError);
     }
 
     public enum Author
     {
         USER,
         AGENT
-    }
-
-    public enum Routing
-    {
-        SEND,
-        QUEUE
     }
 }

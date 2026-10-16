@@ -26,6 +26,7 @@ import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -73,6 +74,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -98,6 +100,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -318,6 +321,68 @@ class TestLocalReviewService
         }
         when(queueStore.findQueuedByIdempotencyKey(eq(taskId), anyString())).thenReturn(Optional.of(starting.paused("Try again", Instant.EPOCH.plusSeconds(2))));
         assertThat(service.list(taskId.toString(), "workspace").getFirst().messages().getFirst().deliveryState()).contains("PAUSED");
+    }
+
+    @Test
+    void anInterruptedReplyShowsWhyAndIsSentAgainAsANewInput()
+    {
+        create(0);
+        String firstKey = stored.get("thread").messages().getFirst().inputKey().orElseThrow();
+        accepted.put(firstKey, turn.finish(TurnState.INTERRUPTED, AgentMetrics.empty(), Optional.of("Backend restarted"), Instant.EPOCH));
+
+        LocalReviewView.Message shown = service.list(taskId.toString(), "workspace").getFirst().messages().getFirst();
+        assertThat(shown.deliveryState()).contains("INTERRUPTED");
+        assertThat(shown.deliveryError()).contains("Backend restarted");
+
+        LocalReviewView.Message retried = service.retry(taskId.toString(), "workspace", "thread", "message", 1).messages().getFirst();
+
+        verify(turns, times(2)).start(any());
+        assertThat(stored.get("thread").messages().getFirst().inputKey().orElseThrow()).isNotEqualTo(firstKey).startsWith("local-review:");
+        assertThat(retried.deliveryState()).contains("RUNNING");
+        assertThat(retried.deliveryError()).isEmpty();
+    }
+
+    @Test
+    void aPausedQueuedReplyLeavesTheQueueBeforeItIsSentAgain()
+    {
+        when(turnStore.findActive(taskId)).thenReturn(Optional.of(turn));
+        QueuedAgentInput paused = QueuedAgentInput.queued(QueuedInputId.random(), taskId, 1, "queued-key", new BlobRef("reply.txt", "text/plain", 10),
+                "Please fix this", turn.settings().orElseThrow(), Instant.EPOCH).paused("Waiting for the agent's development readiness report", Instant.EPOCH);
+        when(turns.enqueue(any())).thenAnswer(call -> {
+            QueueAgentInputCommand command = call.getArgument(0);
+            when(queueStore.findQueuedByIdempotencyKey(taskId, command.idempotencyKey())).thenReturn(Optional.of(paused));
+            return paused;
+        });
+        LocalReviewView.Message saved = create(0).messages().getFirst();
+        assertThat(saved.deliveryState()).contains("PAUSED");
+        assertThat(saved.deliveryError()).contains("Waiting for the agent's development readiness report");
+
+        when(turnStore.findActive(taskId)).thenReturn(Optional.empty());
+        service.retry(taskId.toString(), "workspace", "thread", "message", 1);
+
+        InOrder order = inOrder(turns);
+        order.verify(turns).removeQueued(taskId, paused.id());
+        order.verify(turns).start(any());
+    }
+
+    @Test
+    void aQueuedReplyShowsTheStateOfTheTurnItBecame()
+    {
+        when(turnStore.findActive(taskId)).thenReturn(Optional.of(turn));
+        AgentTurn completed = turn.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), Instant.EPOCH);
+        QueuedAgentInput started = QueuedAgentInput.queued(QueuedInputId.random(), taskId, 1, "queued-key", new BlobRef("reply.txt", "text/plain", 10),
+                "Please fix this", turn.settings().orElseThrow(), Instant.EPOCH).starting(completed.id(), EventId.random(), Instant.EPOCH).started(Instant.EPOCH);
+        when(turnStore.find(completed.id())).thenReturn(Optional.of(completed));
+        when(turns.enqueue(any())).thenAnswer(call -> {
+            when(queueStore.findQueuedByIdempotencyKey(eq(taskId), anyString())).thenReturn(Optional.of(started));
+            return started;
+        });
+
+        LocalReviewView.Message saved = create(0).messages().getFirst();
+
+        // The turn runs under the queue's own key, so only the row leads to it.
+        assertThat(saved.deliveryState()).contains("COMPLETED");
+        assertThat(saved.turnId()).contains(completed.id().toString());
     }
 
     @Test

@@ -22,7 +22,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import lombok.Getter;
 
-import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.LOCAL_REVIEW;
 
 @Entity
 @Table(name = "local_review_thread", indexes = {
@@ -67,11 +67,11 @@ public class LocalReviewThreadEntity
         taskId = thread.taskId();
         repo = thread.repo();
         number = thread.number();
-        payload = AGENT.write(thread, "local review");
+        payload = LOCAL_REVIEW.write(thread, "local review");
     }
 
     public LocalReviewThread toDomain()
     {
-        return AGENT.read(payload, LocalReviewThread.class, "local review").withVersion(version);
+        return LOCAL_REVIEW.read(payload, LocalReviewThread.class, "local review").withVersion(version);
     }
 }

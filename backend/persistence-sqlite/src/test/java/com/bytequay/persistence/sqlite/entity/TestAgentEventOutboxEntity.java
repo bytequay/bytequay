@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class TestAgentEventOutboxJson
+class TestAgentEventOutboxEntity
 {
     @Test
     void decodesDevelopmentQuestionsWithoutTurningThemIntoCompletion()
@@ -49,7 +49,7 @@ class TestAgentEventOutboxJson
 
     private static AgentEventPayload inline(AgentEventPayload.Kind kind, String json)
     {
-        AgentEventOutboxPayload payload = AgentEventOutboxJson.decodePayload(kind, false, json);
+        AgentEventOutboxPayload payload = AgentEventOutboxEntity.decodePayload(kind, false, json);
         assertThat(payload).isInstanceOf(AgentEventOutboxPayload.Inline.class);
         return ((AgentEventOutboxPayload.Inline) payload).payload();
     }

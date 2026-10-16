@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
@@ -27,10 +28,12 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
 
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 @Entity
@@ -68,6 +71,7 @@ public class AgentEventOutboxEntity
     @Column(nullable = false)
     private Instant occurredAt;
 
+    @Getter
     private Long eventSequence;
 
     public AgentEventOutboxEntity() {}
@@ -78,10 +82,13 @@ public class AgentEventOutboxEntity
         entity.eventId = entry.eventId().toString();
         entity.taskId = entry.taskId().toString();
         entity.turnId = entry.turnId().map(TurnId::toString).orElse(null);
-        entity.sourceJson = AgentEventOutboxJson.encodeSource(entry.source());
+        entity.sourceJson = AGENT.write(entry.source(), "event source");
         entity.payloadKind = entry.payload().kind().name();
         entity.blobBacked = entry.payload() instanceof AgentEventOutboxPayload.UserMessageBlob;
-        entity.payloadJson = AgentEventOutboxJson.encodePayload(entry.payload());
+        entity.payloadJson = AGENT.write(switch (entry.payload()) {
+            case AgentEventOutboxPayload.Inline inline -> inline.payload();
+            case AgentEventOutboxPayload.UserMessageBlob blob -> blob;
+        }, "event payload");
         checkEventBound(entry.payload(), entity.sourceJson, entity.payloadJson);
         entity.occurredAt = entry.occurredAt();
         entity.eventSequence = entry.sequence().orElse(null);
@@ -102,11 +109,6 @@ public class AgentEventOutboxEntity
         }
     }
 
-    public Long getEventSequence()
-    {
-        return eventSequence;
-    }
-
     public void markAppended(long sequence)
     {
         eventSequence = sequence;
@@ -115,7 +117,18 @@ public class AgentEventOutboxEntity
     public AgentEventOutboxEntry toDomain()
     {
         return new AgentEventOutboxEntry(
-                EventId.valueOf(eventId), TaskId.valueOf(taskId), Optional.ofNullable(turnId).map(TurnId::valueOf), AgentEventOutboxJson.decodeSource(sourceJson),
-                AgentEventOutboxJson.decodePayload(AgentEventPayload.Kind.valueOf(payloadKind), blobBacked, payloadJson), occurredAt, Optional.ofNullable(eventSequence));
+                EventId.valueOf(eventId), TaskId.valueOf(taskId), Optional.ofNullable(turnId).map(TurnId::valueOf), AGENT.read(sourceJson, AgentEventSource.class, "event source"),
+                decodePayload(AgentEventPayload.Kind.valueOf(payloadKind), blobBacked, payloadJson), occurredAt, Optional.ofNullable(eventSequence));
+    }
+
+    static AgentEventOutboxPayload decodePayload(AgentEventPayload.Kind kind, boolean blobBacked, String json)
+    {
+        if (blobBacked) {
+            if (kind != AgentEventPayload.Kind.USER_MESSAGE) {
+                throw new AgentStorageException("Blob-backed outbox payload is not a user message");
+            }
+            return AGENT.read(json, AgentEventOutboxPayload.UserMessageBlob.class, "event payload");
+        }
+        return new AgentEventOutboxPayload.Inline(AGENT.read(json, kind.type(), "event payload"));
     }
 }

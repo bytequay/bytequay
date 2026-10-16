@@ -68,6 +68,10 @@ The backend writes its ready port into that session's temporary directory;
 `dev.sh` verifies `/hello`, prints the URL, and passes `BYTEQUAY_BACKEND_PORT`
 to the frontend. When starting the backend and frontend separately, set that
 variable for `npm start` if the backend selected a port other than `9527`.
+Also set the same non-empty `BYTEQUAY_DESKTOP_SESSION_TOKEN` in both processes.
+Credential and pull-request write endpoints require this secret in the
+`X-ByteQuay-Session` header, which Electron supplies automatically. `./dev.sh`
+and the packaged app configure the shared secret for you.
 
 Agent turns have no wall-clock limit by default. Use **Stop this turn** to cancel
 ongoing work. Set `bytequay.agent.maximum-turn-runtime` to a positive duration

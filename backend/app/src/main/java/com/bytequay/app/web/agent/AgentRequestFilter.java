@@ -24,7 +24,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -51,8 +53,9 @@ public final class AgentRequestFilter
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request)
     {
-        String path = request.getRequestURI();
-        return !path.startsWith("/agent")
+        String path = requestPath(request);
+        return !isCredentialOrPullRequestWriteRequest(request)
+                && !path.startsWith("/agent")
                 && !path.startsWith("/api/agent-review")
                 && !(path.equals("/api/google") || path.startsWith("/api/google/"))
                 && !(path.equals("/api/jira") || path.startsWith("/api/jira/"))
@@ -68,31 +71,44 @@ public final class AgentRequestFilter
             throws ServletException, IOException
     {
         if (request.getHeader("Origin") != null) {
-            reject(request, response, HttpStatus.FORBIDDEN, "Browser-originated agent requests are forbidden");
+            reject(request, response, HttpStatus.FORBIDDEN, "Browser-originated desktop requests are forbidden");
             return;
         }
         String expected = properties.desktopSessionToken();
         if (expected.isBlank()) {
-            reject(request, response, HttpStatus.SERVICE_UNAVAILABLE, "Agent desktop session is not configured");
+            reject(request, response, HttpStatus.SERVICE_UNAVAILABLE, "Desktop session is not configured");
             return;
         }
         String actual = request.getHeader(AgentController.SESSION_HEADER);
         if (actual == null || !MessageDigest.isEqual(
                 expected.getBytes(StandardCharsets.UTF_8),
                 actual.getBytes(StandardCharsets.UTF_8))) {
-            reject(request, response, HttpStatus.UNAUTHORIZED, "Invalid agent desktop session");
+            reject(request, response, HttpStatus.UNAUTHORIZED, "Invalid desktop session");
             return;
         }
-        if (!servingGate.isReady() && !isProviderStatusRequest(request)) {
+        if (!servingGate.isReady() && !isProviderStatusRequest(request) && !isCredentialOrPullRequestWriteRequest(request)) {
             reject(request, response, HttpStatus.SERVICE_UNAVAILABLE, "Agent startup recovery is not complete");
             return;
         }
         filterChain.doFilter(request, response);
     }
 
+    private static boolean isCredentialOrPullRequestWriteRequest(HttpServletRequest request)
+    {
+        String path = requestPath(request);
+        return path.startsWith("/api/auth/")
+                || (path.startsWith("/api/workspaces/") && (path.endsWith("/github-token") || path.contains("/github-token/")))
+                || ((path.equals("/prs") || path.startsWith("/prs/")) && !request.getMethod().equals("GET") && !request.getMethod().equals("HEAD"));
+    }
+
     private static boolean isProviderStatusRequest(HttpServletRequest request)
     {
-        return request.getMethod().equals("GET") && request.getRequestURI().equals("/agent/providers/status");
+        return request.getMethod().equals("GET") && requestPath(request).equals("/agent/providers/status");
+    }
+
+    private static String requestPath(HttpServletRequest request)
+    {
+        return StringUtils.cleanPath(UrlPathHelper.defaultInstance.getPathWithinApplication(request));
     }
 
     private void reject(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String message)

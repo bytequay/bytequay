@@ -1000,7 +1000,7 @@ public class PullRequestService
         snapshots.refreshFileContent(pat, ref, storedPullRequestId(repo, number), path, baseSha, headSha);
     }
 
-    public PullRequestDetail createReviewComment(String repo, int number, InlineReviewComment comment)
+    public Posted createReviewComment(String repo, int number, InlineReviewComment comment)
     {
         validateReviewComment(comment, true);
         String pat = credentialService.resolveGitHubToken();
@@ -1008,7 +1008,7 @@ public class PullRequestService
         PullRequestDetail before = getPullRequestDetail(repo, number);
         if (comment.replyToCommentId().isPresent()) {
             replyToReviewComment(repo, number, comment.replyToCommentId().getAsLong(), comment.body());
-            return afterWrite(repo, number, () -> getPullRequestDetail(repo, number), before);
+            return new Posted(afterWrite(repo, number, () -> getPullRequestDetail(repo, number), before), OptionalLong.empty(), ImmutableList.of());
         }
         PrTimelineEvent created = pullRequestWrites.createReviewComment(pat, parseRef(repo, number), comment);
         PullRequestDetail detail = afterWrite(repo, number, () -> {
@@ -1017,7 +1017,7 @@ public class PullRequestService
             recordComment(repo, number, "review-comment", created, comment.body());
             return patched;
         }, before);
-        return detail;
+        return new Posted(detail, OptionalLong.empty(), ImmutableList.of(created));
     }
 
     public PullRequestDetail commentOnPullRequest(String repo, int number, String body)
@@ -1265,7 +1265,7 @@ public class PullRequestService
      * Submits a review, with any inline comments, for the given pull request on GitHub and
      * records a local reviewed state.
      */
-    public PullRequestDetail submitReview(String repo, int number, long prId, String event, String body, List<InlineReviewComment> comments)
+    public Posted submitReview(String repo, int number, long prId, String event, String body, List<InlineReviewComment> comments)
     {
         checkText(event, "review event");
         String normalizedEvent = event.toUpperCase(Locale.ROOT);
@@ -1313,7 +1313,21 @@ public class PullRequestService
                     inline.body()));
             return patched;
         }, before);
-        return detail;
+        return new Posted(detail, created.githubId() == null ? OptionalLong.empty() : OptionalLong.of(created.githubId()), threads);
+    }
+
+    /**
+     * A write GitHub accepted. The threads are what it returned for the new comments, empty when they
+     * could not be read back; a review id limits them to that review.
+     */
+    public record Posted(PullRequestDetail detail, OptionalLong reviewId, List<PrTimelineEvent> threads)
+    {
+        public Posted
+        {
+            requireNonNull(detail, "detail is null");
+            requireNonNull(reviewId, "reviewId is null");
+            threads = ImmutableList.copyOf(threads);
+        }
     }
 
     /**

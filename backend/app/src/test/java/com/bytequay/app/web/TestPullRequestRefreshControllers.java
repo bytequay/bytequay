@@ -407,7 +407,7 @@ class TestPullRequestRefreshControllers
         PullRequestDetail detail = detail();
         InlineReviewComment inline = new InlineReviewComment("src/Main.java", "Please simplify this", 18, "RIGHT", null, null, "head-sha", OptionalLong.empty());
         when(pullRequests.commentOnPullRequest("owner/repo", 7, "hello")).thenReturn(detail);
-        when(pullRequests.createReviewComment("owner/repo", 7, inline)).thenReturn(detail);
+        when(pullRequests.createReviewComment("owner/repo", 7, inline)).thenReturn(new PullRequestService.Posted(detail, OptionalLong.empty(), ImmutableList.of()));
 
         assertThat(controller.comment("owner/repo", 7, new PullRequestController.CommentRequest("hello"))).isSameAs(detail);
         assertThat(controller.reviewComment("owner/repo", 7, inline)).isSameAs(detail);

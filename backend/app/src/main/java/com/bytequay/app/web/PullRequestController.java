@@ -343,13 +343,13 @@ public class PullRequestController
     @PostMapping("/prs/review")
     public PullRequestDetail review(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam("id") long prId, @RequestBody ReviewRequest request)
     {
-        return pullRequests.submitReview(repo, number, prId, request.event(), request.body(), request.comments());
+        return pullRequests.submitReview(repo, number, prId, request.event(), request.body(), request.comments()).detail();
     }
 
     @PostMapping("/prs/review-comment")
     public PullRequestDetail reviewComment(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestBody InlineReviewComment comment)
     {
-        return pullRequests.createReviewComment(repo, number, comment);
+        return pullRequests.createReviewComment(repo, number, comment).detail();
     }
 
     @DeleteMapping("/prs/merge-queue")

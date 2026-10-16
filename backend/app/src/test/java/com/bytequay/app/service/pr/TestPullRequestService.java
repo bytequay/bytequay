@@ -1561,7 +1561,7 @@ class TestPullRequestService
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(cached));
 
-        PullRequestDetail detail = service.createReviewComment("owner/repo", 7, comment);
+        PullRequestDetail detail = service.createReviewComment("owner/repo", 7, comment).detail();
 
         ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).saveCached(eq(12L), saved.capture());
@@ -1898,7 +1898,7 @@ class TestPullRequestService
         when(writes.submitReview("pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this", ImmutableList.of()))
                 .thenReturn(review(501L, "REQUEST_CHANGES", "Please fix this"));
 
-        PullRequestDetail detail = service.submitReview("owner/repo", 7, 12L, "request_changes", "Please fix this", ImmutableList.of());
+        PullRequestDetail detail = service.submitReview("owner/repo", 7, 12L, "request_changes", "Please fix this", ImmutableList.of()).detail();
 
         verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.CHANGES_REQUESTED), eq("head"), any(Instant.class));
         // The submitted review is spliced into the cache, so nothing is thrown away
@@ -1988,8 +1988,10 @@ class TestPullRequestService
         when(writes.submitReview("pat", ref, "COMMENT", "", ImmutableList.of(comment))).thenReturn(review(502L, "COMMENTED", ""));
         when(gitHub.fetchReviewComments("pat", ref, 502L)).thenThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS));
 
-        service.submitReview("owner/repo", 7, 12L, "comment", "", ImmutableList.of(comment));
+        PullRequestService.Posted posted = service.submitReview("owner/repo", 7, 12L, "comment", "", ImmutableList.of(comment));
 
+        assertThat(posted.reviewId()).hasValue(502L);
+        assertThat(posted.threads()).isEmpty();
         ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).saveCached(eq(12L), saved.capture());
         assertThat(saved.getValue().reviews()).extracting(PrReviewState::githubId).contains(502L);
@@ -2006,9 +2008,10 @@ class TestPullRequestService
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         doThrow(new IllegalStateException("database is locked")).when(detailStore).saveCached(eq(12L), any());
 
-        PullRequestDetail detail = service.createReviewComment("owner/repo", 7, comment);
+        PullRequestService.Posted result = service.createReviewComment("owner/repo", 7, comment);
 
-        assertThat(detail.recentActivity()).isEmpty();
+        assertThat(result.threads()).containsExactly(posted);
+        assertThat(result.detail().recentActivity()).isEmpty();
     }
 
     @Test
@@ -2021,10 +2024,11 @@ class TestPullRequestService
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()), Optional.empty());
         when(gitHub.getPullRequest("pat", ref, Optional.empty())).thenThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS));
 
-        PullRequestDetail detail = service.createReviewComment("owner/repo", 7, reply);
+        PullRequestService.Posted result = service.createReviewComment("owner/repo", 7, reply);
 
         verify(writes).replyToReviewComment("pat", ref, 61L, "Reply");
-        assertThat(detail.body()).isEqualTo("body");
+        assertThat(result.detail().body()).isEqualTo("body");
+        assertThat(result.threads()).isEmpty();
     }
 
     @Test

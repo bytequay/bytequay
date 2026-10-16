@@ -15,6 +15,9 @@ package com.bytequay.app.review;
 
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.InlineReviewComment;
+import com.bytequay.core.domain.PrTimelineComment;
+import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetail.CiStatus;
 import com.bytequay.core.review.AgentReview;
@@ -316,7 +319,7 @@ class TestReviewPublicationService
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("accepted review");
         verifyNoInteractions(pullRequests);
 
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(detail());
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(posted());
         assertThat(service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft)).publishedItemIds()).containsExactly(lastItemId(draft));
     }
 
@@ -385,7 +388,7 @@ class TestReviewPublicationService
         verifyNoInteractions(pullRequests);
 
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), any())).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), any())).thenReturn(posted());
         service.submit(REPO, NUMBER, draft.version(), "", "COMMENT");
 
         ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
@@ -402,7 +405,7 @@ class TestReviewPublicationService
         reviews.put(original.pendingReassessment(NOW));
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
         ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(detail());
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(posted());
 
         service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
 
@@ -421,7 +424,7 @@ class TestReviewPublicationService
         draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, FINDING_ID);
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(posted());
 
         service.submit(REPO, NUMBER, draft.version(), "Please fix these", "REQUEST_CHANGES");
 
@@ -441,7 +444,7 @@ class TestReviewPublicationService
         reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case"));
         ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class))).thenReturn(detail());
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class))).thenReturn(posted());
 
         service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
 
@@ -465,7 +468,7 @@ class TestReviewPublicationService
         ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
         reviews.put(original.revised("New title", "Different wording", Optional.empty(),
                 Optional.of(new ReviewAnchor("src/Service.java", "RIGHT", 119, 132, ImmutableList.of())), ImmutableList.of(), CURRENT_HEAD, NOW));
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(detail());
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(posted());
 
         service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
 
@@ -491,7 +494,7 @@ class TestReviewPublicationService
         verifyNoInteractions(pullRequests);
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Suggested fix"), any())).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Suggested fix"), any())).thenReturn(posted());
 
         service.submit(REPO, NUMBER, draft.version(), "Suggested fix", "COMMENT");
 
@@ -521,7 +524,7 @@ class TestReviewPublicationService
         assertThat(draft.items().getFirst().commitId()).isEmpty();
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(posted());
 
         service.submit(REPO, NUMBER, draft.version(), "", "APPROVE");
 
@@ -543,7 +546,7 @@ class TestReviewPublicationService
         draft = service.editItem(REPO, NUMBER, draft.version(), excluded, "Not this one", false);
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("REQUEST_CHANGES"), eq("Please fix these"), any())).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("REQUEST_CHANGES"), eq("Please fix these"), any())).thenReturn(posted());
 
         service.submit(REPO, NUMBER, draft.version(), "Please fix these", "REQUEST_CHANGES");
 
@@ -565,7 +568,7 @@ class TestReviewPublicationService
         reviews.put(open.withState(ReviewFinding.State.RESOLVED, Optional.of("fixed it"), NOW));
 
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Please fix these"), any())).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Please fix these"), any())).thenReturn(posted());
 
         ReviewPublicationService.Publication result = service.submit(REPO, NUMBER, draft.version(), "Please fix these", "COMMENT");
 
@@ -585,7 +588,7 @@ class TestReviewPublicationService
         ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
         draft = service.editItem(REPO, NUMBER, draft.version(), lastItemId(draft), "My own review comment", true);
         reviews.put(open.withState(ReviewFinding.State.WITHDRAWN, Optional.of("misread the diff"), NOW));
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(detail());
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(posted());
 
         ReviewPublicationService.Publication result = service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
 
@@ -600,9 +603,9 @@ class TestReviewPublicationService
         ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
         String itemId = lastItemId(draft);
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class))).thenReturn(detail());
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class))).thenReturn(posted());
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Anything else?"), any())).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Anything else?"), any())).thenReturn(posted());
 
         long version = service.publishItem(REPO, NUMBER, draft.version(), itemId).draft().version();
 
@@ -661,7 +664,7 @@ class TestReviewPublicationService
         assertThat(pending.version()).isEqualTo(saved.version() + 1);
         verifyNoInteractions(pullRequests);
 
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(detail());
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(posted());
         ReviewDraft posted = service.publishItem(REPO, NUMBER, pending.version(), original.id()).draft();
         assertThat(posted.items().getFirst().published()).isTrue();
         assertThat(posted.items().getFirst().publication().orElseThrow().attemptId()).isNotEqualTo(uncertain.attemptId());
@@ -686,6 +689,44 @@ class TestReviewPublicationService
     }
 
     @Test
+    void postNowRecordsTheLinkGitHubReturned()
+    {
+        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
+        PrTimelineEvent created = thread("src/A.java", comment(9001L, 77L, "Rename this", null));
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(new PullRequestService.Posted(detail(), OptionalLong.empty(), ImmutableList.of(created)));
+
+        ReviewPublicationService.Publication result = service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
+
+        ReviewPublication publication = result.draft().items().getFirst().publication().orElseThrow();
+        assertThat(publication.remoteCommentId()).hasValue(9001L);
+        assertThat(publication.remoteReviewId()).hasValue(77L);
+        assertThat(publication.url()).contains("https://github.com/octo/widgets/pull/7#discussion_r9001");
+        assertThat(result.uncertainReason()).isEmpty();
+    }
+
+    @Test
+    void submitMatchesEachCommentByFileAndTextWithinItsReview()
+    {
+        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
+        draft = service.addManual(REPO, NUMBER, draft.version(), new ReviewDraftItem("new", Source.MANUAL, Optional.empty(), OptionalInt.empty(), "src/B.java", "RIGHT", 20,
+                OptionalInt.of(18), "Split this", true, Optional.empty(), Optional.of(REVIEWED_HEAD), OptionalLong.empty()));
+        // GitHub reports no start line for this range and an older review carries the same text; neither may block the match.
+        PrTimelineEvent range = thread("src/B.java", comment(9002L, 501L, "Split this", null));
+        PrTimelineEvent older = thread("src/A.java", comment(8000L, 400L, "Rename this", null));
+        PrTimelineEvent current = thread("src/A.java", comment(9001L, 501L, "Rename this", null));
+        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any()))
+                .thenReturn(new PullRequestService.Posted(detail(), OptionalLong.of(501L), ImmutableList.of(older, range, current)));
+
+        ReviewPublicationService.Publication result = service.submit(REPO, NUMBER, draft.version(), "", "COMMENT");
+
+        assertThat(result.draft().items()).extracting(item -> item.publication().orElseThrow().remoteCommentId()).containsExactly(OptionalLong.of(9001L), OptionalLong.of(9002L));
+        assertThat(result.draft().items()).extracting(item -> item.publication().orElseThrow().remoteReviewId()).containsOnly(OptionalLong.of(501L));
+        assertThat(result.uncertainReason()).isEmpty();
+    }
+
+    @Test
     void aSuccessfulSubmitResetsTheReviewAndMarksTheItemsPublished()
     {
         ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
@@ -693,7 +734,7 @@ class TestReviewPublicationService
         draft = service.saveReview(REPO, NUMBER, draft.version(), "Please fix these", "REQUEST_CHANGES");
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("APPROVE"), eq("Looks good"), any())).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("APPROVE"), eq("Looks good"), any())).thenReturn(posted());
 
         ReviewPublicationService.Publication published = service.submit(REPO, NUMBER, draft.version(), "Looks good", "APPROVE");
 
@@ -716,7 +757,7 @@ class TestReviewPublicationService
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
         when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any()))
-                .thenReturn(detail()).thenThrow(new IllegalStateException("Reply lost"));
+                .thenReturn(posted()).thenThrow(new IllegalStateException("Reply lost"));
         long version = draft.version();
 
         assertThatThrownBy(() -> service.submit(REPO, NUMBER, version, "Final summary", "APPROVE")).hasMessage("Reply lost");
@@ -731,7 +772,7 @@ class TestReviewPublicationService
         verify(pullRequests, times(2)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), any());
 
         ReviewDraft ready = service.confirmNotPosted(REPO, NUMBER, after.version(), after.items().get(1).id());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(posted());
         ReviewPublicationService.Publication retried = service.submit(REPO, NUMBER, ready.version(), ready.body(), ready.event());
         assertThat(retried.publishedItemIds()).containsExactly(after.items().get(1).id(), after.items().get(2).id());
         ArgumentCaptor<List<InlineReviewComment>> comments = ArgumentCaptor.captor();
@@ -751,7 +792,7 @@ class TestReviewPublicationService
             assertThatThrownBy(() -> service.editItem(REPO, NUMBER, sending.version(), itemId, "Changed", true)).hasMessageContaining("being sent");
             assertThatThrownBy(() -> service.removeItem(REPO, NUMBER, sending.version(), itemId)).hasMessageContaining("being sent");
             service.saveReview(REPO, NUMBER, sending.version(), "Next review notes", "REQUEST_CHANGES");
-            return detail();
+            return posted();
         });
 
         service.submit(REPO, NUMBER, draft.version(), "Submitted notes", "COMMENT");
@@ -773,7 +814,7 @@ class TestReviewPublicationService
         assertThat(preview.items().getFirst().commitId()).contains(REVIEWED_HEAD);
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(posted());
 
         service.submit(REPO, NUMBER, preview.version(), "", "COMMENT");
 
@@ -856,6 +897,24 @@ class TestReviewPublicationService
         return draft.items().getLast().id();
     }
 
+    private static PrTimelineEvent thread(String path, PrTimelineComment comment)
+    {
+        return new PrTimelineEvent(comment.githubId(), "review_thread", "me", NOW, null, PrTimelinePayload.builder().path(path).comments(ImmutableList.of(comment)).build(),
+                Optional.empty());
+    }
+
+    private static PrTimelineComment comment(long githubId, long reviewId, String body, Long inReplyToId)
+    {
+        return new PrTimelineComment(githubId, "me", null, false, NOW, body, "https://github.com/octo/widgets/pull/7#discussion_r" + githubId, reviewId, inReplyToId,
+                ImmutableList.of());
+    }
+
+    /** A send GitHub accepted without identifying any comment. */
+    private static PullRequestService.Posted posted()
+    {
+        return new PullRequestService.Posted(detail(), OptionalLong.empty(), ImmutableList.of());
+    }
+
     /** The cached pull request the GitHub-facing service hands back; only its id and empty activity matter here. */
     private static PullRequestDetail detail()
     {
@@ -896,7 +955,6 @@ class TestReviewPublicationService
             implements ReviewDraftStore
     {
         private final Map<String, ReviewDraft> stored = new HashMap<>();
-
         @Override
         public Optional<ReviewDraft> find(String repo, int number)
         {

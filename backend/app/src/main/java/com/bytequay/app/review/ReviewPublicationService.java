@@ -15,7 +15,6 @@ package com.bytequay.app.review;
 
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.InlineReviewComment;
-import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
@@ -240,14 +239,14 @@ public class ReviewPublicationService
             ReviewDraft reserved = drafts.save(draft.withItems(replace(draft.items(), reserve(item, attemptId)), now()));
             return new Reservation(attemptId, reserved, ImmutableList.of(item));
         });
-        PullRequestDetail detail;
+        PullRequestService.Posted posted;
         try {
-            detail = pullRequests.createReviewComment(repo, number, comment(reservation.items().getFirst()));
+            posted = pullRequests.createReviewComment(repo, number, comment(reservation.items().getFirst()));
         }
         catch (RuntimeException failure) {
             return releaseAfterFailure(repo, number, reservation, failure);
         }
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, reservation, OptionalLong.empty(), detail));
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, reservation, posted));
     }
 
     /** Publishes the included, eligible items with the user's chosen review text and event. */
@@ -295,16 +294,16 @@ public class ReviewPublicationService
             List<ReviewDraftItem> batch = batches.get(index);
             boolean last = index == batches.size() - 1;
             Reservation group = new Reservation(reservation.attemptId(), reservation.draft(), batch);
-            PullRequestDetail detail;
+            PullRequestService.Posted posted;
             try {
-                detail = pullRequests.submitReview(repo, number, prId(repo, number), last ? chosen : "COMMENT", last ? text : "",
+                posted = pullRequests.submitReview(repo, number, prId(repo, number), last ? chosen : "COMMENT", last ? text : "",
                         batch.stream().map(this::comment).collect(toImmutableList()));
             }
             catch (RuntimeException failure) {
                 releaseUnsent(repo, number, reservation, batches.subList(index + 1, batches.size()).stream().flatMap(List::stream).collect(toImmutableList()));
                 return releaseAfterFailure(repo, number, group, failure);
             }
-            Publication result = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, group, remoteReviewId(detail), detail));
+            Publication result = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, group, posted));
             published.addAll(result.publishedItemIds());
             result.uncertainReason().ifPresent(notices::add);
         }
@@ -335,13 +334,12 @@ public class ReviewPublicationService
         });
     }
 
-    /** Why each draft item cannot be sent right now, by item id; an eligible item is absent. */
     /**
      * Records what the send established. A returned remote identity is stored; a send that
      * succeeded without an unambiguous per-comment mapping stays published without one rather than
      * being sent again.
      */
-    private Publication settle(String repo, int number, Reservation reservation, OptionalLong remoteReviewId, PullRequestDetail detail)
+    private Publication settle(String repo, int number, Reservation reservation, PullRequestService.Posted posted)
     {
         ReviewDraft draft = stored(repo, number);
         List<ReviewDraftItem> items = new ArrayList<>(draft.items());
@@ -353,14 +351,14 @@ public class ReviewPublicationService
                 continue;
             }
             ReviewDraftItem item = items.get(index);
-            Optional<Remote> remote = match(detail, item, remoteReviewId);
+            Optional<Remote> remote = match(posted, item);
             if (remote.isEmpty()) {
                 ambiguous.add(item.id());
             }
             items.set(index, item.withPublication(Optional.of(new ReviewPublication(
                     reservation.attemptId(),
                     ReviewPublication.State.PUBLISHED,
-                    remoteReviewId,
+                    posted.reviewId().isPresent() ? posted.reviewId() : remote.map(Remote::reviewId).orElse(OptionalLong.empty()),
                     remote.map(Remote::commentId).map(OptionalLong::of).orElse(OptionalLong.empty()),
                     remote.flatMap(Remote::url),
                     now()))));
@@ -397,36 +395,23 @@ public class ReviewPublicationService
         });
     }
 
-    /** The remote comment for one sent item, only when path, line and body identify it unambiguously. */
-    private Optional<Remote> match(PullRequestDetail detail, ReviewDraftItem item, OptionalLong reviewId)
+    /**
+     * The remote comment for one sent item, only when its file, or the thread it answers, and its text
+     * identify it unambiguously among what the send returned. Lines are not compared: GitHub reports a
+     * thread's start line inconsistently.
+     */
+    private static Optional<Remote> match(PullRequestService.Posted posted, ReviewDraftItem item)
     {
-        if (reviewId.isEmpty()) {
-            return Optional.empty();
-        }
-        List<Remote> matches = detail.recentActivity().stream()
-                .filter(activity -> "review_thread".equals(activity.eventType()) && activity.payload() != null)
-                .filter(activity -> item.replyToCommentId().isPresent() || item.path().equals(activity.payload().path()))
-                .filter(activity -> item.replyToCommentId().isPresent()
-                        || Objects.equals(activity.payload().outdated() ? activity.payload().originalLine() : activity.payload().line(), item.line()))
-                .filter(activity -> item.replyToCommentId().isPresent() || Objects.equals(activity.payload().side(), item.side()))
-                .filter(activity -> item.replyToCommentId().isPresent()
-                        || Objects.equals(activity.payload().outdated() ? activity.payload().originalStartLine() : activity.payload().startLine(),
-                        item.startLine().isPresent() ? item.startLine().getAsInt() : null))
-                .flatMap(activity -> activity.payload().comments().stream()
-                        .filter(comment -> comment.githubId() != null && Objects.equals(comment.reviewId(), reviewId.getAsLong()) && item.body().equals(comment.body()))
-                        .filter(comment -> item.replyToCommentId().isEmpty() || Objects.equals(comment.inReplyToId(), item.replyToCommentId().getAsLong()))
-                        .map(comment -> new Remote(comment.githubId(), Optional.ofNullable(comment.htmlUrl()))))
+        List<Remote> matches = posted.threads().stream()
+                .filter(thread -> item.replyToCommentId().isPresent() || item.path().equals(thread.payload().path()))
+                .flatMap(thread -> thread.payload().comments().stream())
+                .filter(comment -> comment.githubId() != null && item.body().equals(comment.body()))
+                .filter(comment -> posted.reviewId().isEmpty() || Objects.equals(comment.reviewId(), posted.reviewId().getAsLong()))
+                .filter(comment -> item.replyToCommentId().isEmpty() || Objects.equals(comment.inReplyToId(), item.replyToCommentId().getAsLong()))
+                .map(comment -> new Remote(comment.githubId(), comment.reviewId() == null ? OptionalLong.empty() : OptionalLong.of(comment.reviewId()),
+                        Optional.ofNullable(comment.htmlUrl())))
                 .collect(toImmutableList());
         return matches.size() == 1 ? Optional.of(matches.getFirst()) : Optional.empty();
-    }
-
-    private static OptionalLong remoteReviewId(PullRequestDetail detail)
-    {
-        return detail.recentActivity().stream()
-                .filter(activity -> "reviewed".equals(activity.eventType()) && activity.githubId() != null)
-                .map(activity -> OptionalLong.of(activity.githubId()))
-                .reduce((first, second) -> second)
-                .orElse(OptionalLong.empty());
     }
 
     private static void requireSendable(List<ReviewDraftItem> items)
@@ -607,7 +592,7 @@ public class ReviewPublicationService
 
     private record Reservation(String attemptId, ReviewDraft draft, List<ReviewDraftItem> items) {}
 
-    private record Remote(long commentId, Optional<String> url) {}
+    private record Remote(long commentId, OptionalLong reviewId, Optional<String> url) {}
 
     public record Publication(ReviewDraft draft, List<String> publishedItemIds, Optional<String> uncertainReason) {}
 }

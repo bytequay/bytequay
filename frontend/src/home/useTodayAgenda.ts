@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { pollVisible } from '../ide/pollVisible';
 import type { AgendaDto } from '../types';
 
 /** How often a Home looks again while today's agenda is being made. */
@@ -42,21 +43,21 @@ export function useTodayAgenda(workspaceId?: string): TodayAgenda {
     setAgenda(value);
   }, []);
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     const ticket = ++request.current;
     try {
-      // A failed background read keeps what is on screen; the next read retries.
-      window.bridge.getAgendaToday(workspaceId).then(value => apply(value, ticket)).catch((): void => undefined);
+      apply(await window.bridge.getAgendaToday(workspaceId), ticket);
     }
     catch {
-      // A bridge without the agenda, such as a test fixture's, draws no Today section.
+      // A failed background read keeps what is on screen and the next read retries; a bridge without the agenda, such as a test
+      // fixture's, draws no Today section.
     }
   }, [apply, workspaceId]);
 
   useEffect(() => {
-    load();
-    const focused = () => load();
-    const refreshed = () => { if (Date.now() - loadedAt.current >= ATTENTION_REFRESH_MS) load(); };
+    void load();
+    const focused = () => { void load(); };
+    const refreshed = () => { if (Date.now() - loadedAt.current >= ATTENTION_REFRESH_MS) void load(); };
     window.addEventListener('focus', focused);
     window.addEventListener('bytequay:pr-attention-updated', refreshed);
     return () => {
@@ -67,11 +68,7 @@ export function useTodayAgenda(workspaceId?: string): TodayAgenda {
   }, [load]);
 
   const making = agenda?.state === 'RUNNING';
-  useEffect(() => {
-    if (!making) return;
-    const timer = window.setInterval(load, MAKING_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [making, load]);
+  useEffect(() => making ? pollVisible(load, MAKING_POLL_MS) : undefined, [making, load]);
 
   const act = useCallback((action: () => Promise<AgendaDto>) => {
     setError(null);

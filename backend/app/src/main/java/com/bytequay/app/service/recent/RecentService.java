@@ -19,8 +19,6 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
-import com.bytequay.core.domain.PrCheckRunState;
-import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.RecentItemType;
 import com.bytequay.core.domain.RecentText;
@@ -70,9 +68,6 @@ public class RecentService
      */
     public static final Duration DWELL_THRESHOLD = Duration.ofSeconds(20);
 
-    /** Timeline events that count as somebody replying to the user. */
-    private static final Set<String> REPLY_EVENTS = ImmutableSet.of("commented", "reviewed", "review_commented");
-    private static final Set<String> FAILED_CONCLUSIONS = ImmutableSet.of("failure", "timed_out", "action_required", "startup_failure");
     private static final int MAX_SENTENCE = 240;
     /**
      * How many bodies the most selective token may pull back before the
@@ -528,41 +523,20 @@ public class RecentService
         if (since == null) {
             return new RecentChange(touch.itemKey(), false, wantsYou, null);
         }
-        long replies = detail.timeline().stream()
-                .filter(event -> REPLY_EVENTS.contains(event.event()))
-                .filter(event -> after(event, since))
-                .filter(event -> viewer.map(login -> !login.equalsIgnoreCase(event.actor())).orElse(true))
-                .count();
-        long commits = detail.timeline().stream()
-                .filter(event -> "committed".equals(event.event()))
-                .filter(event -> after(event, since))
-                .count();
-        boolean ciRed = detail.checkRuns().stream().anyMatch(RecentService::failed)
-                && detail.checkRuns().stream()
-                        .anyMatch(run -> run.completedAt() != null && run.completedAt().isAfter(since));
-        return new RecentChange(touch.itemKey(), replies > 0 || commits > 0 || ciRed, wantsYou, summary(replies, commits, ciRed));
+        PrMovement movement = PrMovement.since(detail, since, viewer);
+        return new RecentChange(touch.itemKey(), movement.moved(), wantsYou, summary(movement));
     }
 
-    private static boolean failed(PrCheckRunState run)
-    {
-        return run.conclusion() != null && FAILED_CONCLUSIONS.contains(run.conclusion().toLowerCase(Locale.ROOT));
-    }
-
-    private static boolean after(PrTimelineEvent event, Instant since)
-    {
-        return event.timestamp() != null && event.timestamp().isAfter(since);
-    }
-
-    private static String summary(long replies, long commits, boolean ciRed)
+    private static String summary(PrMovement movement)
     {
         List<String> parts = new ArrayList<>();
-        if (replies > 0) {
-            parts.add(replies + (replies == 1 ? " new reply" : " new replies"));
+        if (movement.replies() > 0) {
+            parts.add(movement.replies() + (movement.replies() == 1 ? " new reply" : " new replies"));
         }
-        if (commits > 0) {
-            parts.add(commits + (commits == 1 ? " new commit" : " new commits"));
+        if (movement.commits() > 0) {
+            parts.add(movement.commits() + (movement.commits() == 1 ? " new commit" : " new commits"));
         }
-        if (ciRed) {
+        if (movement.ciRed()) {
             parts.add("CI went red");
         }
         if (parts.isEmpty()) {

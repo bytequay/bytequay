@@ -283,6 +283,7 @@ class TestRecentService
                 ImmutableList.of(
                         new PrTimelineEvent(1L, "commented", "ezra-b", NOW.minusSeconds(600), "reply", Optional.empty()),
                         new PrTimelineEvent(2L, "commented", "me", NOW.minusSeconds(500), "mine", Optional.empty()),
+                        new PrTimelineEvent(4L, "commented", "github-actions[bot]", NOW.minusSeconds(450), "coverage", Optional.empty()),
                         new PrTimelineEvent(3L, "committed", "ezra-b", NOW.minusSeconds(400), null, Optional.empty())),
                 ImmutableList.of(new PrCheckRunState(9L, "ci", "completed", "failure", null, "check_run", null, NOW.minusSeconds(300))),
                 ImmutableList.of("me"))));

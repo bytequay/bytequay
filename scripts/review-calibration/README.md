@@ -223,8 +223,11 @@ FOLDER/experiments/NAME/SETTING/CASE_repN/     one run, as run.py leaves it
 
 `FOLDER` is the lab's own folder, `~/Library/Application Support/ByteQuay Lab`,
 unless `--folder` names another. A plan names the cases, where the clone of
-each repository is, and the settings. A setting is a provider (`codex` or
-`claude`), a model, an effort, and a rules file. The rules file of the plan
+each repository is, and the settings. A setting is a provider (`codex`,
+`claude`, or `agent`: the lab's own agent on DeepSeek, which records the effort
+without sending it), a model, an effort, and a rules file. Only the agent's
+runs are handed the DeepSeek key, from `DEEPSEEK_API_KEY` or the Keychain;
+without one they wait and the experiment says so. The rules file of the plan
 counts for every setting that names none of its own. Keep a copy of it inside
 the experiment and name it by that path, so the experiment still means the
 same after the rules change.

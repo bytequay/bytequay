@@ -27,7 +27,7 @@ import report
 import saved
 
 RUN, JUDGE = Path(__file__).with_name("run.py"), Path(__file__).with_name("judge.py")
-PROVIDERS = ("codex", "claude")
+PROVIDERS = ("codex", "claude", "agent")  # agent: the lab's own agent on DeepSeek, which needs the judge's key
 ENDED = ("completed", "failed", "timed_out", "incomplete_output")
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")  # a setting and a case become folder names
 ROUND = re.compile(r".+_rep(\d+)")
@@ -160,13 +160,23 @@ def execute(plan, parallel, say=tell, total=None):
     """Run every run that has not ended, `parallel` at a time, and return how each of them ended. With `total`, the experiment
     gets that many rounds."""
     waiting = [(setting, case, run) for setting, case, run in runs(plan, total) if state(run) not in ENDED]
-    live = []
+    live, keyed = [], None
+    if any(setting["provider"] == "agent" for setting, _, _ in waiting):
+        key = os.environ.get("DEEPSEEK_API_KEY") or stored_key()
+        if key:
+            keyed = {**os.environ, "DEEPSEEK_API_KEY": key}  # handed to the agent's runs alone
+        else:
+            left = sum(setting["provider"] == "agent" for setting, _, _ in waiting)
+            say(f"{left} {'run' if left == 1 else 'runs'} of the lab's own agent {'waits' if left == 1 else 'wait'} for a key: store it once with "
+                "`uv run batch.py --store-key`.")
+            waiting = [planned for planned in waiting if planned[0]["provider"] != "agent"]
 
     def one(setting, case, run):
         if run.exists():
             shutil.rmtree(run)  # an interrupted run: run.py only writes into a new folder
         run.parent.mkdir(parents=True, exist_ok=True)
-        process = subprocess.Popen(arm(plan, setting, case, run), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        process = subprocess.Popen(arm(plan, setting, case, run), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+                                   env=keyed if setting["provider"] == "agent" else None)
         live.append(process)
         errors = process.communicate()[1]
         live.remove(process)

@@ -20,7 +20,7 @@ from test_run import ANSWER, FAKE
 
 SCRIPT = Path(batch.__file__)
 # A stand-in for run.py. Like it, it writes only into a new folder and leaves two source trees behind.
-RUN = """import json, pathlib, sys, time
+RUN = """import json, os, pathlib, sys, time
 given = dict(zip(sys.argv[1::2], sys.argv[2::2]))
 output = pathlib.Path(given["--output"])
 output.mkdir()
@@ -32,7 +32,8 @@ for part in ("input/base", "input/head", "state", "logs"):
 if given["--model"] == "dies":
     sys.exit("the command line is not installed")
 time.sleep(float(given["--model"].partition("sleeps-")[2] or 0))
-(output / "runtime.json").write_text(json.dumps({"status": "failed" if given["--model"] == "fails" else "completed", "given": given}))
+(output / "runtime.json").write_text(json.dumps({"status": "failed" if given["--model"] == "fails" else "completed", "given": given,
+                                                  "keyed": os.environ.get("DEEPSEEK_API_KEY") == "a-key"}))
 """
 # A stand-in for judge.py: it judges when it is handed a key, and says why when it is not. Its judgement names the case it was given.
 JUDGE = """import json, os, pathlib, sys
@@ -133,7 +134,7 @@ class TestPlan(Experiment):
                                  ({"cases": []}, "needs cases and settings"), ({"settings": {}}, "needs cases and settings"), ({"cases": ["../pr-1"]}, "cannot name a case"),
                                  ({"cases": ["pr-3"]}, "pr-3/case.json is not a case"), ({"clones": {}}, "clones names no folder for o/n"),
                                  ({"clones": {"o/n": "/not/there"}}, "clones names no folder for o/n"), ({"settings": {"a/b": quick}}, "cannot name a setting"),
-                                 ({"settings": {"quick": {**quick, "provider": "another"}}}, "quick: provider must be one of codex, claude"),
+                                 ({"settings": {"quick": {**quick, "provider": "another"}}}, "quick: provider must be one of codex, claude, agent"),
                                  ({"settings": {"quick": {**quick, "effort": ""}}}, "quick: model and effort must be named"),
                                  ({"policy": "missing.md"}, "quick: its rules file 'missing.md' is not there"), ({"executables": {"gemini": "/x"}}, "must each map a name to a path")]:
             with self.subTest(changed=changed):
@@ -176,6 +177,18 @@ class TestExecute(Experiment):
         self.assertEqual(sorted(self.said[4:]), ["deep pr-1_rep2: completed", "deep pr-2_rep2: completed", "quick pr-1_rep2: completed", "quick pr-2_rep2: completed"])
         given = json.loads((self.experiment / "quick" / "pr-1_rep2" / "runtime.json").read_text())["given"]
         self.assertEqual((given["--claude"], "--codex" in given), ("/opt/claude", False))
+
+    def test_the_labs_own_agent_is_a_setting_and_only_its_runs_are_handed_the_key(self):
+        self.save(repeats=1, cases=["pr-1"], settings={"agent": {"provider": "agent", "model": "deepseek-v4-pro", "effort": "high"},
+                                                       "quick": {"provider": "codex", "model": "small", "effort": "low"}})
+        with mock.patch.dict(os.environ), mock.patch.object(batch, "stored_key", return_value=None):
+            os.environ.pop("DEEPSEEK_API_KEY", None)
+            self.assertEqual(self.execute(), ["completed"])  # without a key the agent's run waits
+            self.assertEqual(self.said, ["1 run of the lab's own agent waits for a key: store it once with `uv run batch.py --store-key`.", "quick pr-1_rep1: completed"])
+            with mock.patch.object(batch, "stored_key", return_value="a-key"):
+                self.assertEqual(self.execute(), ["completed"])
+        keyed = lambda setting: json.loads((self.experiment / setting / "pr-1_rep1" / "runtime.json").read_text())["keyed"]
+        self.assertEqual((keyed("agent"), keyed("quick")), (True, False))
 
     def test_failed_run_is_kept_and_an_interrupted_one_runs_again(self):
         self.save(repeats=1, cases=["pr-1"], settings={"bad": {"provider": "codex", "model": "fails", "effort": "low"}, "gone": {"provider": "codex", "model": "dies", "effort": "low"}})

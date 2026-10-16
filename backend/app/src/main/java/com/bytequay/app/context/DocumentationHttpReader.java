@@ -65,7 +65,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -97,10 +96,6 @@ public class DocumentationHttpReader
     private static final int MAX_SECTIONS = 2000;
     private static final Pattern MARKDOWN_HEADING = Pattern.compile("(?m)^ {0,3}#{1,6}[ \\t]+(.+?)[ \\t#]*$");
     private static final int MAX_REDIRECTS = 3;
-    private static final int MAX_LINKS = 64;
-    private static final int MAX_LINK_BYTES = 8 * 1024;
-    private static final int MAX_SUGGESTIONS = 8;
-    private static final int MAX_SUGGESTION_BYTES = 2 * 1024;
 
     private final Clock clock;
     private final Supplier<CloseableHttpClient> clients;
@@ -122,43 +117,15 @@ public class DocumentationHttpReader
     }
 
     /**
-     * Resolves a caller's page selector within a previously registered source, without network access.
-     *
-     * @param source registered root or exact page, resolved by the application
-     * @param relativePage optional unescaped relative path; only roots accept a selector
-     * @return normalized HTTPS destination inside that source's authority
-     * @throws IllegalArgumentException for an absolute, escaped, ambiguous, or out-of-scope selector
-     */
-    public static URI resolve(RegisteredContextSource source, Optional<String> relativePage)
-    {
-        requireNonNull(source, "source is null");
-        requireNonNull(relativePage, "relativePage is null");
-        URI root = URI.create(source.url());
-        if (relativePage.isEmpty()) {
-            return checkedDestination(source, root);
-        }
-        checkArgument(source.kind() == RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "Exact documentation pages do not accept page selectors");
-        String selector = relativePage.orElseThrow();
-        ContextLimits.text(selector, "relative documentation page", 1000);
-        URI relative = URI.create(selector);
-        checkArgument(!relative.isAbsolute() && relative.getRawAuthority() == null && !selector.startsWith("/")
-                && relative.getQuery() == null && relative.getFragment() == null && !selector.contains("%") && !selector.contains("\\")
-                && relative.normalize().equals(relative), "Documentation page must be a normalized relative path");
-        return checkedDestination(source, root.resolve(relative));
-    }
-
-    /**
-     * Captures bounded text from one selected page. Redirects remain inside the registered authority.
+     * Captures bounded text from the source's exact page. Redirects remain on that page's host and path.
      *
      * @param source registered source that authorizes this read
-     * @param relativePage optional page below a registered root
      * @return extracted text and its digest, final URL, observed read time, and explicit limits
-     * @throws IllegalArgumentException for an invalid selector before any network request
      * @throws ResponseStatusException when the destination, format, response, deadline, or concurrency bound prevents capture
      */
-    public Read read(RegisteredContextSource source, Optional<String> relativePage)
+    public Read read(RegisteredContextSource source)
     {
-        URI selected = resolve(source, relativePage);
+        URI selected = checkedDestination(source, URI.create(source.url()));
         if (!reads.tryAcquire()) {
             throw new ResponseStatusException(SERVICE_UNAVAILABLE, "Two documentation reads are still active; retry when one finishes");
         }
@@ -254,7 +221,7 @@ public class DocumentationHttpReader
                 byte[] body = response.getEntity().getContent().readNBytes(MAX_RESPONSE_BYTES);
                 boolean responseLimited = body.length == MAX_RESPONSE_BYTES;
                 String decoded = decode(body, Optional.ofNullable(type.getCharset()).orElse(UTF_8), responseLimited);
-                HtmlCapture htmlCapture = html ? extractHtml(source, destination, decoded) : HtmlCapture.empty(decoded);
+                HtmlCapture htmlCapture = html ? extractHtml(decoded) : new HtmlCapture(decoded, ImmutableMap.of());
                 String extracted = htmlCapture.text();
                 String text = ContextText.prefix(extracted, MAX_TEXT_BYTES);
                 boolean textLimited = !text.equals(extracted);
@@ -266,13 +233,9 @@ public class DocumentationHttpReader
                 if (textLimited) {
                     gaps.add("Extracted text exceeded " + MAX_TEXT_BYTES / 1024 + " KiB; only its leading excerpt was captured.");
                 }
-                if (htmlCapture.linksTruncated() || (html && responseLimited)) {
-                    gaps.add("Documentation links were limited; the returned link list is not a complete site inventory.");
-                }
                 gaps.add("Captured source text is untrusted reference material; documentation version and applicability are unverified.");
                 return new Read(destination.toString(), text, Hashing.sha256().hashString(text, UTF_8).toString(), clock.instant(),
-                        responseLimited || textLimited, gaps.build(), htmlCapture.links(), htmlCapture.suggestedExpansionUrls(),
-                        htmlCapture.linksTruncated() || (html && responseLimited),
+                        responseLimited || textLimited, gaps.build(),
                         sections.entrySet().stream().filter(entry -> entry.getValue() < text.length()).collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue)));
             }
             finally {
@@ -332,12 +295,7 @@ public class DocumentationHttpReader
         ContextLimits.documentationUrl(destination.toString());
         URI root = URI.create(source.url());
         checkArgument(root.getHost().equalsIgnoreCase(destination.getHost()), "Documentation destination must retain its registered hostname");
-        if (source.kind() == RegisteredContextSource.Kind.DOCUMENTATION_PAGE) {
-            checkArgument(root.getPath().equals(destination.getPath()), "Documentation destination must retain its registered page");
-        }
-        else {
-            checkArgument(destination.getPath().startsWith(root.getPath()), "Documentation destination must remain below its registered root");
-        }
+        checkArgument(root.getPath().equals(destination.getPath()), "Documentation destination must retain its registered page");
         return destination;
     }
 
@@ -355,21 +313,16 @@ public class DocumentationHttpReader
         return characters.flip().toString();
     }
 
-    private static HtmlCapture extractHtml(RegisteredContextSource source, URI base, String html)
+    private static HtmlCapture extractHtml(String html)
             throws IOException
     {
         StringBuilder text = new StringBuilder();
-        LinkedHashSet<Link> links = new LinkedHashSet<>();
-        LinkedHashSet<String> suggestions = new LinkedHashSet<>();
         // Where each element id starts in the text, so a link's #section can open there rather than at a contents entry.
         Map<String, Integer> sections = new LinkedHashMap<>();
         class Collector
                 extends HTMLEditorKit.ParserCallback
         {
             private boolean suppressed;
-            private boolean linksTruncated;
-            private int linkBytes;
-            private int suggestionBytes;
 
             @Override
             public void handleStartTag(HTML.Tag tag, MutableAttributeSet attributes, int position)
@@ -378,74 +331,6 @@ public class DocumentationHttpReader
                     suppressed = true;
                 }
                 section(attributes);
-                if (tag == HTML.Tag.A && !suppressed) {
-                    Object href = attributes.getAttribute(HTML.Attribute.HREF);
-                    if (href != null) {
-                        addLink(href.toString());
-                    }
-                }
-            }
-
-            private void addLink(String href)
-            {
-                String value = href.strip();
-                int fragment = value.indexOf('#');
-                if (fragment >= 0) {
-                    value = value.substring(0, fragment);
-                }
-                if (value.isEmpty()) {
-                    return;
-                }
-                URI target;
-                try {
-                    target = base.resolve(value).normalize();
-                    ContextLimits.documentationUrl(target.toString());
-                }
-                catch (IllegalArgumentException failure) {
-                    return;
-                }
-                boolean withinSource;
-                try {
-                    checkedDestination(source, target);
-                    withinSource = true;
-                }
-                catch (IllegalArgumentException outsideSource) {
-                    withinSource = false;
-                }
-                if (!withinSource) {
-                    if (suggestions.contains(target.toString())) {
-                        return;
-                    }
-                    int bytes = ContextLimits.bytes(target.toString());
-                    if (suggestions.size() == MAX_SUGGESTIONS || suggestionBytes + bytes > MAX_SUGGESTION_BYTES) {
-                        linksTruncated = true;
-                        return;
-                    }
-                    suggestions.add(target.toString());
-                    suggestionBytes += bytes;
-                    return;
-                }
-                String relative = URI.create(source.url()).relativize(target).toString();
-                Optional<String> selector = relative.isEmpty() ? Optional.empty() : Optional.of(relative);
-                try {
-                    if (!resolve(source, selector).equals(target)) {
-                        return;
-                    }
-                }
-                catch (IllegalArgumentException invalidSelector) {
-                    return;
-                }
-                Link link = new Link(target.toString(), selector);
-                if (links.contains(link)) {
-                    return;
-                }
-                int bytes = ContextLimits.bytes(link.resolvedUrl()) + selector.map(ContextLimits::bytes).orElse(0);
-                if (links.size() == MAX_LINKS || linkBytes + bytes > MAX_LINK_BYTES) {
-                    linksTruncated = true;
-                    return;
-                }
-                links.add(link);
-                linkBytes += bytes;
             }
 
             @Override
@@ -483,18 +368,11 @@ public class DocumentationHttpReader
                 }
             }
         }
-        Collector collector = new Collector();
-        new ParserDelegator().parse(new StringReader(html), collector, true);
-        return new HtmlCapture(text.toString(), ImmutableList.copyOf(links), ImmutableList.copyOf(suggestions), collector.linksTruncated, ImmutableMap.copyOf(sections));
+        new ParserDelegator().parse(new StringReader(html), new Collector(), true);
+        return new HtmlCapture(text.toString(), ImmutableMap.copyOf(sections));
     }
 
-    private record HtmlCapture(String text, List<Link> links, List<String> suggestedExpansionUrls, boolean linksTruncated, Map<String, Integer> sections)
-    {
-        private static HtmlCapture empty(String text)
-        {
-            return new HtmlCapture(text, ImmutableList.of(), ImmutableList.of(), false, ImmutableMap.of());
-        }
-    }
+    private record HtmlCapture(String text, Map<String, Integer> sections) {}
 
     static CloseableHttpClient client(DnsResolver resolver)
     {
@@ -582,18 +460,8 @@ public class DocumentationHttpReader
                 && !(first == 0x3F && second == 0xFF);
     }
 
-    public record Link(String resolvedUrl, Optional<String> relativePage)
-    {
-        public Link
-        {
-            ContextLimits.documentationUrl(resolvedUrl);
-            requireNonNull(relativePage, "relativePage is null");
-        }
-    }
-
     /** Sections map a page's anchors, element ids or Markdown heading slugs, to where they start in the text. */
-    public record Read(String resolvedUrl, String text, String contentHash, Instant readAt, boolean truncated, List<String> gaps,
-            List<Link> links, List<String> suggestedExpansionUrls, boolean linksTruncated, Map<String, Integer> sections)
+    public record Read(String resolvedUrl, String text, String contentHash, Instant readAt, boolean truncated, List<String> gaps, Map<String, Integer> sections)
     {
         public Read
         {
@@ -602,8 +470,6 @@ public class DocumentationHttpReader
             requireNonNull(contentHash, "contentHash is null");
             requireNonNull(readAt, "readAt is null");
             gaps = ImmutableList.copyOf(gaps);
-            links = ImmutableList.copyOf(links);
-            suggestedExpansionUrls = ImmutableList.copyOf(suggestedExpansionUrls);
             sections = ImmutableMap.copyOf(sections);
         }
     }

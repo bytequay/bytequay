@@ -84,7 +84,7 @@ public class SelectedDocumentationReader
         checkArgument(page > 0, "page must be positive");
         checkArgument(page == 1 || captureId.isPresent(), "Later document pages require captureId from the first read");
         captureId.ifPresent(id -> checkArgument(id.matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}"), "Invalid document captureId"));
-        String key = DocumentationHttpReader.resolve(source, Optional.empty()).toString();
+        String key = source.url();
         Captured cached = captures.getIfPresent(key);
         boolean cacheHit = captureId.isPresent();
         boolean refreshFailed = false;
@@ -189,7 +189,7 @@ public class SelectedDocumentationReader
 
     private Captured capture(RegisteredContextSource source)
     {
-        return new Captured(UUID.randomUUID().toString(), reader.read(source, Optional.empty()));
+        return new Captured(UUID.randomUUID().toString(), reader.read(source));
     }
 
     private static ResponseStatusException restart()

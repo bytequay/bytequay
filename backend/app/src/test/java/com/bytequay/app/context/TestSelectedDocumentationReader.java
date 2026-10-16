@@ -60,7 +60,7 @@ class TestSelectedDocumentationReader
     @BeforeEach
     void setUp()
     {
-        when(http.read(any(), any())).thenReturn(capture("Captured concepts"));
+        when(http.read(any())).thenReturn(capture("Captured concepts"));
     }
 
     @Test
@@ -74,19 +74,19 @@ class TestSelectedDocumentationReader
         assertThat(reused.readAt()).isEqualTo(READ_AT);
         assertThat(reused.contentHash()).isEqualTo(first.contentHash());
         assertThat(reused.gaps()).anyMatch(gap -> gap.contains("unverified"));
-        verify(http).read(any(), any());
+        verify(http).read(any());
 
         SelectedDocumentationReader.Page fresh = first();
         assertThat(fresh.captureId()).isNotEqualTo(first.captureId());
         assertThatThrownBy(() -> read(first.captureId(), 1)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
-        verify(http, times(2)).read(argThat(source -> source.url().equals(URL)), any());
+        verify(http, times(2)).read(argThat(source -> source.url().equals(URL)));
     }
 
     @Test
     void unicodePagesReconstructExactTextAndContinuationDoesNotFetch()
     {
         String text = "a".repeat(SelectedDocumentationReader.PAGE_BYTES - 1) + "😀世界".repeat(2000);
-        when(http.read(any(), any())).thenReturn(capture(text));
+        when(http.read(any())).thenReturn(capture(text));
         SelectedDocumentationReader.Page first = first();
         StringBuilder reconstructed = new StringBuilder(first.excerpt());
         for (int page = 2; page <= first.totalPages(); page++) {
@@ -98,18 +98,18 @@ class TestSelectedDocumentationReader
         }
         assertThat(first.excerpt()).isEqualTo("a".repeat(SelectedDocumentationReader.PAGE_BYTES - 1));
         assertThat(reconstructed.toString()).isEqualTo(text);
-        verify(http).read(any(), any());
+        verify(http).read(any());
     }
 
     @Test
     void aFailedReadFallsBackToTheEarlierCaptureAndSaysSo()
     {
-        when(http.read(any(), any())).thenReturn(capture(""));
+        when(http.read(any())).thenReturn(capture(""));
         SelectedDocumentationReader.Page original = first();
         assertThat(original.totalPages()).isEqualTo(1);
         assertThat(original.excerpt()).isEmpty();
         assertThat(original.refreshFailed()).isFalse();
-        doThrow(new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "Timed out")).when(http).read(any(), any());
+        doThrow(new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "Timed out")).when(http).read(any());
 
         SelectedDocumentationReader.Page fallback = first();
         assertThat(fallback.captureId()).isEqualTo(original.captureId());
@@ -122,11 +122,11 @@ class TestSelectedDocumentationReader
     @Test
     void failedMissIsNotCachedAsEmpty()
     {
-        doThrow(new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported format")).when(http).read(any(), any());
+        doThrow(new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported format")).when(http).read(any());
         assertThatThrownBy(this::first).isInstanceOf(ResponseStatusException.class).hasMessageContaining("415");
-        doReturn(capture("Recovered document")).when(http).read(any(), any());
+        doReturn(capture("Recovered document")).when(http).read(any());
         assertThat(first().excerpt()).isEqualTo("Recovered document");
-        verify(http, times(2)).read(any(), any());
+        verify(http, times(2)).read(any());
     }
 
     @Test
@@ -138,7 +138,7 @@ class TestSelectedDocumentationReader
         SelectedDocumentationReader restarted = new SelectedDocumentationReader(http);
         assertThatThrownBy(() -> restarted.readPage(URL, Optional.of(captured.captureId()), 1, Optional.empty()))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
-        verify(http).read(any(), any());
+        verify(http).read(any());
     }
 
     @Test
@@ -147,7 +147,7 @@ class TestSelectedDocumentationReader
         SelectedDocumentationReader.Page captured = first();
         assertThatThrownBy(() -> reader.readPage("https://iceberg.apache.org/view-spec/", Optional.of(captured.captureId()), 1, Optional.empty()))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
-        verify(http).read(any(), any());
+        verify(http).read(any());
     }
 
     @Test
@@ -159,7 +159,7 @@ class TestSelectedDocumentationReader
         verifyNoInteractions(http);
         SelectedDocumentationReader.Page captured = first();
         assertThatThrownBy(() -> read(captured.captureId(), Integer.MAX_VALUE)).isInstanceOf(IllegalArgumentException.class);
-        verify(http).read(any(), any());
+        verify(http).read(any());
     }
 
     @Test
@@ -170,7 +170,7 @@ class TestSelectedDocumentationReader
             reader.readPage("https://docs.example.com/page-" + index + ".html", Optional.empty(), 1, Optional.empty());
         }
         assertThatThrownBy(() -> read(oldest.captureId(), 1)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
-        verify(http, times(33)).read(any(), any());
+        verify(http, times(33)).read(any());
     }
 
     @Test
@@ -179,8 +179,8 @@ class TestSelectedDocumentationReader
         String contents = "Partitioning\n" + "a".repeat(SelectedDocumentationReader.PAGE_BYTES);
         String text = contents + "\nPartitioning\nPartition specs describe how\n" + "b".repeat(SelectedDocumentationReader.PAGE_BYTES);
         int heading = contents.length() + 1;
-        when(http.read(any(), any())).thenReturn(new DocumentationHttpReader.Read(URL, text, Hashing.sha256().hashString(text, UTF_8).toString(),
-                READ_AT, false, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false, ImmutableMap.of("partitioning", heading)));
+        when(http.read(any())).thenReturn(new DocumentationHttpReader.Read(URL, text, Hashing.sha256().hashString(text, UTF_8).toString(),
+                READ_AT, false, ImmutableList.of(), ImmutableMap.of("partitioning", heading)));
 
         SelectedDocumentationReader.Page section = reader.readPage(URL, Optional.empty(), 1, Optional.of("partitioning"));
         assertThat(section.page()).isEqualTo(2);
@@ -202,9 +202,8 @@ class TestSelectedDocumentationReader
         String text = contents + "Partitioning 🔗\nPartition specs\n" + "a".repeat(SelectedDocumentationReader.PAGE_BYTES) + "\nManifests\nManifest files\n";
         int partitioning = contents.length();
         int manifests = text.indexOf("\nManifests\n", partitioning) + 1;
-        when(http.read(any(), any())).thenReturn(new DocumentationHttpReader.Read(URL, text, Hashing.sha256().hashString(text, UTF_8).toString(),
-                READ_AT, false, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false,
-                ImmutableMap.of("toc", 0, "partitioning", partitioning, "manifests", manifests, "manifests-1", manifests)));
+        when(http.read(any())).thenReturn(new DocumentationHttpReader.Read(URL, text, Hashing.sha256().hashString(text, UTF_8).toString(),
+                READ_AT, false, ImmutableList.of(), ImmutableMap.of("toc", 0, "partitioning", partitioning, "manifests", manifests, "manifests-1", manifests)));
 
         SelectedDocumentationReader.Page first = first();
         assertThat(first.outline()).containsExactly(new SelectedDocumentationReader.Heading("partitioning", "Partitioning", 1),
@@ -225,6 +224,6 @@ class TestSelectedDocumentationReader
     private static DocumentationHttpReader.Read capture(String text)
     {
         return new DocumentationHttpReader.Read(URL, text, Hashing.sha256().hashString(text, UTF_8).toString(),
-                READ_AT, false, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false, ImmutableMap.of());
+                READ_AT, false, ImmutableList.of(), ImmutableMap.of());
     }
 }

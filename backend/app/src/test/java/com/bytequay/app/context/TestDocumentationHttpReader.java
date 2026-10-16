@@ -56,7 +56,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bytequay.core.context.ContextEntryOrigin.USER;
 import static com.bytequay.core.context.RegisteredContextSource.Kind.DOCUMENTATION_PAGE;
-import static com.bytequay.core.context.RegisteredContextSource.Kind.DOCUMENTATION_ROOT;
 import static java.nio.charset.StandardCharsets.ISO_8859_1;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -67,13 +66,11 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @Isolated("Temporarily changes the JVM proxy selector")
 class TestDocumentationHttpReader
 {
-    private static final RegisteredContextSource ROOT = new RegisteredContextSource("docs", DOCUMENTATION_ROOT, "https://docs.example.com/manual/", USER, Optional.empty());
     private static final RegisteredContextSource PAGE = new RegisteredContextSource("page", DOCUMENTATION_PAGE, "https://docs.example.com/manual/concepts.html", USER, Optional.empty());
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
 
@@ -89,16 +86,13 @@ class TestDocumentationHttpReader
                 <body><h1>Concepts &amp; glossary</h1><p>Snapshot 😀</p><a href="other.html">Other page</a></body></html>
                 """));
 
-        DocumentationHttpReader.Read result = reader.read(ROOT, Optional.of("concepts.html"));
+        DocumentationHttpReader.Read result = reader.read(PAGE);
 
         assertThat(result.resolvedUrl()).isEqualTo(PAGE.url());
         assertThat(result.text()).contains("Concepts & glossary", "Snapshot 😀", "Other page").doesNotContain("secret", "color", "href", "other.html");
         assertThat(result.contentHash()).isEqualTo(Hashing.sha256().hashString(result.text(), UTF_8).toString());
         assertThat(result.readAt()).isEqualTo(CLOCK.instant());
         assertThat(result.truncated()).isFalse();
-        assertThat(result.links()).containsExactly(new DocumentationHttpReader.Link("https://docs.example.com/manual/other.html", Optional.of("other.html")));
-        assertThat(result.suggestedExpansionUrls()).isEmpty();
-        assertThat(result.linksTruncated()).isFalse();
         assertThat(result.gaps()).anyMatch(gap -> gap.contains("untrusted") && gap.contains("unverified"));
         ArgumentCaptor<ClassicHttpRequest> request = ArgumentCaptor.forClass(ClassicHttpRequest.class);
         verify(client).executeOpen(isNull(), request.capture(), isNull());
@@ -109,91 +103,13 @@ class TestDocumentationHttpReader
     }
 
     @Test
-    void capturesOnlyFetchableLinksUnderTheSelectedRoot()
-            throws Exception
-    {
-        when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/html", """
-                <a href="other.html#section">Other</a>
-                <a href="https://docs.example.com/manual/other.html">Duplicate</a>
-                <a href="/manual/deep/page.html">Deep</a>
-                <a href="../outside.html">Outside root</a>
-                <a href="https://other.example.com/guide.html">Other site</a>
-                <a href="javascript:alert(1)">Script</a>
-                <a href="page.html?token=secret">Query</a>
-                <a href="%2e%2e/private.html">Encoded</a>
-                <a href="#local">Fragment only</a>
-                """));
-
-        DocumentationHttpReader.Read result = reader.read(ROOT, Optional.of("concepts.html"));
-
-        assertThat(result.links()).containsExactly(
-                new DocumentationHttpReader.Link("https://docs.example.com/manual/other.html", Optional.of("other.html")),
-                new DocumentationHttpReader.Link("https://docs.example.com/manual/deep/page.html", Optional.of("deep/page.html")));
-        assertThat(result.suggestedExpansionUrls()).containsExactly("https://docs.example.com/outside.html", "https://other.example.com/guide.html");
-        assertThat(result.linksTruncated()).isFalse();
-    }
-
-    @Test
-    void exactPageLinksCannotAuthorizeSiblingReads()
-            throws Exception
-    {
-        when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/html", "<a href='sibling.html'>Sibling</a>"));
-
-        DocumentationHttpReader.Read result = reader.read(PAGE, Optional.empty());
-
-        assertThat(result.links()).isEmpty();
-        assertThat(result.suggestedExpansionUrls()).containsExactly("https://docs.example.com/manual/sibling.html");
-    }
-
-    @Test
-    void boundsLinksAndReportsIncompleteInventory()
-            throws Exception
-    {
-        StringBuilder html = new StringBuilder();
-        for (int index = 0; index < 80; index++) {
-            html.append("<a href='page-").append(index).append(".html'>Page</a>");
-        }
-        when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/html", html.toString()));
-
-        DocumentationHttpReader.Read result = reader.read(ROOT, Optional.empty());
-
-        assertThat(result.links()).hasSize(64);
-        assertThat(result.linksTruncated()).isTrue();
-        assertThat(result.gaps()).anyMatch(gap -> gap.contains("link list is not a complete"));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"", "https://elsewhere.example.com/manual/", "//elsewhere.example.com/a", "/manual/a", "../escape", "part/../a",
-            "part//a", "part\\a", "part%2fa", "part%2ea", "page?a=b", "page#part", "file:///etc/hosts", "./a"})
-    void rejectsInvalidSelectorsBeforeCreatingClient(String selector)
-    {
-        AtomicInteger created = new AtomicInteger();
-        DocumentationHttpReader selected = new DocumentationHttpReader(CLOCK, () -> {
-            created.incrementAndGet();
-            return client;
-        }, Duration.ofSeconds(2));
-
-        assertThatThrownBy(() -> selected.read(ROOT, Optional.of(selector))).isInstanceOf(IllegalArgumentException.class);
-        assertThat(created).hasValue(0);
-        verifyNoInteractions(client);
-    }
-
-    @Test
-    void exactPageHasNoSelector()
-    {
-        assertThat(DocumentationHttpReader.resolve(PAGE, Optional.empty()).toString()).isEqualTo(PAGE.url());
-        assertThatThrownBy(() -> reader.read(PAGE, Optional.of("other.html"))).isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(client);
-    }
-
-    @Test
     void followsOnlyRegisteredRedirects()
             throws Exception
     {
         when(client.executeOpen(isNull(), any(), isNull()))
                 .thenReturn(redirect("concepts.html"), response("text/plain", "Concepts"));
 
-        DocumentationHttpReader.Read result = reader.read(ROOT, Optional.empty());
+        DocumentationHttpReader.Read result = reader.read(PAGE);
 
         assertThat(result.resolvedUrl()).isEqualTo(PAGE.url());
         assertThat(result.text()).isEqualTo("Concepts");
@@ -201,14 +117,15 @@ class TestDocumentationHttpReader
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"https://outside.example.com/manual/page", "http://docs.example.com/manual/page", "/elsewhere/page", "/manual-two/page",
-            "https://docs.example.com:8443/manual/page", "https://user@docs.example.com/manual/page", "/manual/%2e%2e/elsewhere", "/manual/page?q=a"})
+    @ValueSource(strings = {"https://outside.example.com/manual/concepts.html", "http://docs.example.com/manual/concepts.html", "/elsewhere/concepts.html",
+            "/manual/concepts.html/more", "https://docs.example.com:8443/manual/concepts.html", "https://user@docs.example.com/manual/concepts.html",
+            "/manual/%2e%2e/manual/concepts.html", "/manual/concepts.html?q=a"})
     void rejectsEscapingRedirectBeforeSecondRequest(String location)
             throws Exception
     {
         when(client.executeOpen(isNull(), any(), isNull())).thenReturn(redirect(location));
 
-        assertStatus(() -> reader.read(ROOT, Optional.empty()), HttpStatus.BAD_GATEWAY);
+        assertStatus(() -> reader.read(PAGE), HttpStatus.BAD_GATEWAY);
         verify(client).executeOpen(isNull(), any(), isNull());
     }
 
@@ -218,7 +135,7 @@ class TestDocumentationHttpReader
     {
         when(client.executeOpen(isNull(), any(), isNull())).thenReturn(redirect("other.html"));
 
-        assertStatus(() -> reader.read(PAGE, Optional.empty()), HttpStatus.BAD_GATEWAY);
+        assertStatus(() -> reader.read(PAGE), HttpStatus.BAD_GATEWAY);
         verify(client).executeOpen(isNull(), any(), isNull());
     }
 
@@ -227,9 +144,9 @@ class TestDocumentationHttpReader
             throws Exception
     {
         when(client.executeOpen(isNull(), any(), isNull()))
-                .thenAnswer(_ -> redirect("next.html"));
+                .thenAnswer(_ -> redirect("concepts.html"));
 
-        assertStatus(() -> reader.read(ROOT, Optional.empty()), HttpStatus.BAD_GATEWAY);
+        assertStatus(() -> reader.read(PAGE), HttpStatus.BAD_GATEWAY);
         verify(client, times(4)).executeOpen(isNull(), any(), isNull());
     }
 
@@ -240,7 +157,7 @@ class TestDocumentationHttpReader
     {
         when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response(type, "body"));
 
-        assertStatus(() -> reader.read(PAGE, Optional.empty()), HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        assertStatus(() -> reader.read(PAGE), HttpStatus.UNSUPPORTED_MEDIA_TYPE);
     }
 
     @Test
@@ -251,7 +168,7 @@ class TestDocumentationHttpReader
         response.setHeader("Content-Encoding", "gzip");
         when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response);
 
-        assertStatus(() -> reader.read(PAGE, Optional.empty()), HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        assertStatus(() -> reader.read(PAGE), HttpStatus.UNSUPPORTED_MEDIA_TYPE);
     }
 
     @Test
@@ -260,8 +177,8 @@ class TestDocumentationHttpReader
     {
         when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/plain", ""), new BasicClassicHttpResponse(200));
 
-        assertThat(reader.read(PAGE, Optional.empty()).text()).isEmpty();
-        assertStatus(() -> reader.read(PAGE, Optional.empty()), HttpStatus.BAD_GATEWAY);
+        assertThat(reader.read(PAGE).text()).isEmpty();
+        assertStatus(() -> reader.read(PAGE), HttpStatus.BAD_GATEWAY);
     }
 
     @Test
@@ -271,8 +188,8 @@ class TestDocumentationHttpReader
         when(client.executeOpen(isNull(), any(), isNull()))
                 .thenReturn(response("text/plain; charset=ISO-8859-1", "café".getBytes(ISO_8859_1)), response("text/plain", new byte[] {(byte) 0xc3}));
 
-        assertThat(reader.read(PAGE, Optional.empty()).text()).isEqualTo("café");
-        assertStatus(() -> reader.read(PAGE, Optional.empty()), HttpStatus.BAD_GATEWAY);
+        assertThat(reader.read(PAGE).text()).isEqualTo("café");
+        assertStatus(() -> reader.read(PAGE), HttpStatus.BAD_GATEWAY);
     }
 
     @Test
@@ -281,7 +198,7 @@ class TestDocumentationHttpReader
     {
         when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/html", "<p>" + "😀".repeat(80_000) + "</p>"));
 
-        DocumentationHttpReader.Read result = reader.read(PAGE, Optional.empty());
+        DocumentationHttpReader.Read result = reader.read(PAGE);
 
         assertThat(ContextLimits.bytes(result.text())).isLessThanOrEqualTo(256 * 1024);
         assertThat(result.text()).isEqualTo("😀".repeat(65_536));
@@ -299,7 +216,7 @@ class TestDocumentationHttpReader
                 + "## Add File and Remove File\n\nA repeat.\n";
         when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/plain; charset=utf-8", markdown));
 
-        DocumentationHttpReader.Read result = reader.read(protocol, Optional.empty());
+        DocumentationHttpReader.Read result = reader.read(protocol);
 
         ArgumentCaptor<ClassicHttpRequest> request = ArgumentCaptor.forClass(ClassicHttpRequest.class);
         verify(client).executeOpen(isNull(), request.capture(), isNull());
@@ -320,7 +237,7 @@ class TestDocumentationHttpReader
         when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/html",
                 "<nav><a href=\"#partitioning\">Partitioning</a></nav><h2 id=\"partitioning\">Partitioning</h2><p>Partition specs</p>"));
 
-        DocumentationHttpReader.Read result = reader.read(PAGE, Optional.empty());
+        DocumentationHttpReader.Read result = reader.read(PAGE);
 
         assertThat(result.text().substring(result.sections().get("partitioning"))).isEqualTo("Partitioning\nPartition specs");
     }
@@ -346,7 +263,7 @@ class TestDocumentationHttpReader
         response.setEntity(entity);
         when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response);
 
-        DocumentationHttpReader.Read result = reader.read(PAGE, Optional.empty());
+        DocumentationHttpReader.Read result = reader.read(PAGE);
 
         assertThat(observed).hasValue(1024 * 1024);
         assertThat(result.truncated()).isTrue();
@@ -430,7 +347,7 @@ class TestDocumentationHttpReader
         when(resolver.resolve("docs.example.com")).thenReturn(new InetAddress[] {InetAddress.getByName("127.0.0.1")});
         DocumentationHttpReader actual = new DocumentationHttpReader(CLOCK, () -> DocumentationHttpReader.client(resolver), Duration.ofSeconds(2));
 
-        assertStatus(() -> actual.read(PAGE, Optional.empty()), HttpStatus.BAD_GATEWAY);
+        assertStatus(() -> actual.read(PAGE), HttpStatus.BAD_GATEWAY);
         verify(resolver).resolve("docs.example.com");
     }
 
@@ -458,9 +375,9 @@ class TestDocumentationHttpReader
         });
         DocumentationHttpReader bounded = new DocumentationHttpReader(CLOCK, () -> client, Duration.ofMillis(200));
         try {
-            assertStatus(() -> bounded.read(PAGE, Optional.empty()), HttpStatus.GATEWAY_TIMEOUT);
-            assertStatus(() -> bounded.read(PAGE, Optional.empty()), HttpStatus.GATEWAY_TIMEOUT);
-            assertStatus(() -> bounded.read(PAGE, Optional.empty()), HttpStatus.SERVICE_UNAVAILABLE);
+            assertStatus(() -> bounded.read(PAGE), HttpStatus.GATEWAY_TIMEOUT);
+            assertStatus(() -> bounded.read(PAGE), HttpStatus.GATEWAY_TIMEOUT);
+            assertStatus(() -> bounded.read(PAGE), HttpStatus.SERVICE_UNAVAILABLE);
             verify(client, times(2)).close(CloseMode.IMMEDIATE);
             verify(client, times(2)).executeOpen(isNull(), any(), isNull());
         }

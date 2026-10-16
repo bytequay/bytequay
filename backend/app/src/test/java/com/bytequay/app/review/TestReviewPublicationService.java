@@ -181,6 +181,32 @@ class TestReviewPublicationService
     }
 
     @Test
+    void aWholePullRequestFindingASubmittedReviewCarriedIsNeverOfferedAgain()
+    {
+        reviews.put(new ReviewFinding("f-whole", REVIEW_ID, RUN_ID, 1, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),
+                Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC));
+        reviews.put(new ReviewFinding("f-removed", REVIEW_ID, RUN_ID, 2, "Nit: description", "Describe the migration.", Optional.empty(),
+                Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC));
+        ReviewDraft added = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, "f-whole");
+        added = service.addFinding(REPO, NUMBER, added.version(), REVIEW_ID, "f-removed");
+        // The user deletes the second finding's text before submitting, so only the first one goes out.
+        ReviewDraft edited = service.saveReview(REPO, NUMBER, added.version(), "Nit: commit subject\n\nCommit message: name the behavior.", "COMMENT");
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(edited.body()), any())).thenReturn(posted());
+
+        ReviewDraft submitted = service.submit(REPO, NUMBER, edited.version(), edited.body(), "COMMENT").draft();
+
+        assertThat(submitted.body()).isEmpty();
+        assertThat(submitted.postedSummaryFindingIds()).containsExactly("f-whole");
+        assertThat(submitted.summaryFindingIds()).containsExactly("f-removed");
+        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, submitted.version(), REVIEW_ID, "f-whole"))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("already posted to GitHub");
+        assertThat(service.addFinding(REPO, NUMBER, submitted.version(), REVIEW_ID, "f-removed").body()).isEqualTo("Nit: description\n\nDescribe the migration.");
+    }
+
+    @Test
     void addFindingSnapshotsTheFindingWithoutTouchingIt()
     {
         ReviewFinding open = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");

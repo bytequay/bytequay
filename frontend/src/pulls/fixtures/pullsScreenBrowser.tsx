@@ -562,7 +562,7 @@ export async function runActionSheetDismissal(): Promise<string> {
 }
 
 export async function runReviewSheet(): Promise<string> {
-  const draft: ReviewDraftDto = { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', version: 4, updatedAt: '2026-09-06T16:20:00Z',
+  const draft: ReviewDraftDto = { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', postedSummaryFindingIds: [], version: 4, updatedAt: '2026-09-06T16:20:00Z',
     items: [{ id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, path: 'src/Finding.java', side: 'RIGHT',
       commitId: reviewFixture().findings[0].validatedHeadSha,
       line: 12, startLine: null, body: 'Promoted finding text', included: true, published: false, publication: null }] };

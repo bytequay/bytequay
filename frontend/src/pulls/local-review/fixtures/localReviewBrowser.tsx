@@ -726,7 +726,7 @@ async function editFindingInPlace(): Promise<void> {
   for (const projection of ['review', 'changes'] as const) {
     let review = reviewFixture({ messages: [] });
     const finding = review.findings[0];
-    review = { ...review, draft: { repo: review.repo, number: review.number, body: '', event: 'COMMENT', version: 1,
+    review = { ...review, draft: { repo: review.repo, number: review.number, body: '', event: 'COMMENT', postedSummaryFindingIds: [], version: 1,
       updatedAt: finding.updatedAt, items: [{ id: 'outgoing-comment', source: 'AGENT_FINDING', findingId: finding.id,
         findingRevision: finding.revision, path: finding.path, side: finding.side, line: finding.endLine, startLine: finding.startLine,
         commitId: finding.validatedHeadSha, body: 'My saved comment', included: true, published: false, publication: null }] } };

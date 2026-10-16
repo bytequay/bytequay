@@ -35,6 +35,7 @@ public class PrReviewDraftEntity
         extends AssignedIdEntity<String>
 {
     private static final TypeReference<List<ReviewDraftItem>> ITEMS = new TypeReference<>() {};
+    private static final TypeReference<List<String>> IDS = new TypeReference<>() {};
 
     @Id
     @Getter(onMethod_ = @Override)
@@ -54,6 +55,12 @@ public class PrReviewDraftEntity
 
     @Column(name = "items_json", nullable = false, columnDefinition = "TEXT")
     private String itemsJson;
+
+    @Column(name = "summary_finding_ids_json", nullable = false, columnDefinition = "TEXT DEFAULT '[]'")
+    private String summaryFindingIdsJson;
+
+    @Column(name = "posted_summary_finding_ids_json", nullable = false, columnDefinition = "TEXT DEFAULT '[]'")
+    private String postedSummaryFindingIdsJson;
 
     @Version
     @Getter
@@ -80,11 +87,23 @@ public class PrReviewDraftEntity
         body = draft.body();
         event = draft.event();
         itemsJson = REVIEW.write(draft.items(), "review draft items");
+        summaryFindingIdsJson = REVIEW.write(draft.summaryFindingIds(), "review summary findings");
+        postedSummaryFindingIdsJson = REVIEW.write(draft.postedSummaryFindingIds(), "posted review summary findings");
         updatedAt = draft.updatedAt();
     }
 
     public ReviewDraft toDomain()
     {
-        return new ReviewDraft(id, repo, number, body, event, REVIEW.read(itemsJson, ITEMS, "review draft items"), version, updatedAt);
+        return new ReviewDraft(
+                id,
+                repo,
+                number,
+                body,
+                event,
+                REVIEW.read(itemsJson, ITEMS, "review draft items"),
+                REVIEW.read(summaryFindingIdsJson, IDS, "review summary findings"),
+                REVIEW.read(postedSummaryFindingIdsJson, IDS, "posted review summary findings"),
+                version,
+                updatedAt);
     }
 }

@@ -378,7 +378,8 @@ class TestSqliteReviewStores
                 "attempt-2", ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW.plusSeconds(11))));
         ReviewDraft draft = ReviewDraft.empty("ByteQuay/Sample", 7, NOW)
                 .withReview("Close, but the counter is wrong.", "REQUEST_CHANGES", NOW.plusSeconds(1))
-                .withItems(ImmutableList.of(manual, promoted, reply), NOW.plusSeconds(2));
+                .withItems(ImmutableList.of(manual, promoted, reply), NOW.plusSeconds(2))
+                .withSummaryFindings(ImmutableList.of("finding-pending"), ImmutableList.of("finding-posted"), NOW.plusSeconds(3));
 
         ReviewDraft saved = draftStore.save(draft);
         entityManager.clear();

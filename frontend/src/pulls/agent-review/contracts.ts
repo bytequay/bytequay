@@ -251,6 +251,8 @@ export type ReviewDraftDto = {
   body: string;
   event: ReviewEvent;
   items: ReviewDraftItemDto[];
+  /** Whole-PR findings whose text went out in a submitted review; they are never offered again. */
+  postedSummaryFindingIds: string[];
   version: number;
   updatedAt: string;
 };
@@ -572,6 +574,7 @@ export function parseReviewDraft(value: unknown): ReviewDraftDto {
         },
       };
     }),
+    postedSummaryFindingIds: list(draft.postedSummaryFindingIds).map(id => text(id, 'finding id')),
     version: count(draft.version, 'review version'),
     updatedAt: text(draft.updatedAt, 'review time'),
   };

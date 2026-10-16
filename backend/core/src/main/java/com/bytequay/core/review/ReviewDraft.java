@@ -26,8 +26,22 @@ import static java.util.Objects.requireNonNull;
  * The user's local pending review for one pull request: the review text and event they chose and
  * the inline items they added, manual or promoted from agent findings. It exists without any agent
  * review and outlives the pull request cache.
+ *
+ * <p>A finding about the whole pull request joins the review text instead of becoming an item. Its
+ * id waits in {@code summaryFindingIds} until a submitted review carries its text, then moves to
+ * {@code postedSummaryFindingIds}, so it is never offered again after the text is cleared.
  */
-public record ReviewDraft(String id, String repo, int number, String body, String event, List<ReviewDraftItem> items, long version, Instant updatedAt)
+public record ReviewDraft(
+        String id,
+        String repo,
+        int number,
+        String body,
+        String event,
+        List<ReviewDraftItem> items,
+        List<String> summaryFindingIds,
+        List<String> postedSummaryFindingIds,
+        long version,
+        Instant updatedAt)
 {
     public static final String DEFAULT_EVENT = "COMMENT";
 
@@ -39,27 +53,35 @@ public record ReviewDraft(String id, String repo, int number, String body, Strin
         requireNonNull(body, "body is null");
         requireNonNull(event, "event is null");
         items = ImmutableList.copyOf(items);
+        summaryFindingIds = ImmutableList.copyOf(summaryFindingIds);
+        postedSummaryFindingIds = ImmutableList.copyOf(postedSummaryFindingIds);
         checkArgument(version >= 0, "version is negative");
         requireNonNull(updatedAt, "updatedAt is null");
     }
 
     public static ReviewDraft empty(String repo, int number, Instant now)
     {
-        return new ReviewDraft(repo.toLowerCase(Locale.ROOT) + "#" + number, repo.toLowerCase(Locale.ROOT), number, "", DEFAULT_EVENT, ImmutableList.of(), 0, now);
+        return new ReviewDraft(repo.toLowerCase(Locale.ROOT) + "#" + number, repo.toLowerCase(Locale.ROOT), number, "", DEFAULT_EVENT, ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(), 0, now);
     }
 
     public ReviewDraft withVersion(long updatedVersion)
     {
-        return new ReviewDraft(id, repo, number, body, event, items, updatedVersion, updatedAt);
+        return new ReviewDraft(id, repo, number, body, event, items, summaryFindingIds, postedSummaryFindingIds, updatedVersion, updatedAt);
     }
 
     public ReviewDraft withItems(List<ReviewDraftItem> updatedItems, Instant now)
     {
-        return new ReviewDraft(id, repo, number, body, event, updatedItems, version, now);
+        return new ReviewDraft(id, repo, number, body, event, updatedItems, summaryFindingIds, postedSummaryFindingIds, version, now);
     }
 
     public ReviewDraft withReview(String updatedBody, String updatedEvent, Instant now)
     {
-        return new ReviewDraft(id, repo, number, updatedBody, updatedEvent, items, version, now);
+        return new ReviewDraft(id, repo, number, updatedBody, updatedEvent, items, summaryFindingIds, postedSummaryFindingIds, version, now);
+    }
+
+    public ReviewDraft withSummaryFindings(List<String> pending, List<String> posted, Instant now)
+    {
+        return new ReviewDraft(id, repo, number, body, event, items, pending, posted, version, now);
     }
 }

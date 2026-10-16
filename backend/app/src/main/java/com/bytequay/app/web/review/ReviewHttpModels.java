@@ -160,6 +160,7 @@ final class ReviewHttpModels
                 draft.body(),
                 draft.event(),
                 draft.items().stream().map(ReviewHttpModels::item).collect(toImmutableList()),
+                draft.postedSummaryFindingIds(),
                 draft.version(),
                 draft.updatedAt());
     }
@@ -292,6 +293,7 @@ final class ReviewHttpModels
             String body,
             String event,
             List<DraftItemResponse> items,
+            List<String> postedSummaryFindingIds,
             long version,
             Instant updatedAt) {}
 

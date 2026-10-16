@@ -154,10 +154,17 @@ public class ReviewPublicationService
             String text = body(finding.title().strip() + "\n\n" + finding.body().strip());
             if (finding.anchor().isEmpty()) {
                 // A finding about the whole pull request has no line to comment on, so it joins the review's own text, which the user edits before submitting.
+                if (draft.postedSummaryFindingIds().contains(findingId)) {
+                    throw new ReviewConflictException("This finding was already posted to GitHub");
+                }
                 if (draft.body().contains(body(finding.body()))) {
                     throw new ReviewConflictException("This finding is already in your review");
                 }
-                return drafts.save(draft.withReview(draft.body().isBlank() ? text : draft.body().stripTrailing() + "\n\n" + text, draft.event(), now()));
+                List<String> pending = draft.summaryFindingIds().contains(findingId)
+                        ? draft.summaryFindingIds()
+                        : ImmutableList.<String>builder().addAll(draft.summaryFindingIds()).add(findingId).build();
+                return drafts.save(draft.withReview(draft.body().isBlank() ? text : draft.body().stripTrailing() + "\n\n" + text, draft.event(), now())
+                        .withSummaryFindings(pending, draft.postedSummaryFindingIds(), now()));
             }
             ReviewAnchor anchor = finding.anchor().orElseThrow();
             if (draft.items().stream().anyMatch(existing -> existing.findingId().equals(Optional.of(findingId)) && !existing.published())) {
@@ -365,8 +372,9 @@ public class ReviewPublicationService
     /**
      * Records what the send established. A returned remote identity is stored; a send that
      * succeeded without an unambiguous per-comment mapping stays published without one rather than
-     * being sent again. When the batch carried the review text, the same save clears it, so no
-     * restart in between can leave it to be submitted twice.
+     * being sent again. When the batch carried the review text, the same save clears it and records
+     * the whole-pull-request findings it carried, so no restart in between can leave either to be
+     * submitted twice.
      */
     private Publication settle(String repo, int number, Reservation reservation, PullRequestService.Posted posted, boolean carriedReview)
     {
@@ -400,8 +408,18 @@ public class ReviewPublicationService
                                 + (ambiguous.size() == 1 ? " comment was" : " comments were")
                                 + " sent, but GitHub's reply did not identify them; they are not sent again");
         ReviewDraft settled = draft.withItems(items, now());
-        if (carriedReview && draft.body().equals(reservation.draft().body()) && draft.event().equals(reservation.draft().event())) {
-            settled = settled.withReview("", ReviewDraft.DEFAULT_EVENT, now());
+        if (carriedReview) {
+            String sent = reservation.draft().body();
+            List<String> carried = draft.summaryFindingIds().stream()
+                    .filter(findingId -> reviews.findFinding(findingId).filter(finding -> sent.contains(body(finding.body()))).isPresent())
+                    .collect(toImmutableList());
+            settled = settled.withSummaryFindings(
+                    draft.summaryFindingIds().stream().filter(findingId -> !carried.contains(findingId)).collect(toImmutableList()),
+                    ImmutableList.<String>builder().addAll(draft.postedSummaryFindingIds()).addAll(carried).build(),
+                    now());
+            if (draft.body().equals(sent) && draft.event().equals(reservation.draft().event())) {
+                settled = settled.withReview("", ReviewDraft.DEFAULT_EVENT, now());
+            }
         }
         return new Publication(drafts.save(settled), ImmutableList.copyOf(published), uncertain);
     }

@@ -415,6 +415,7 @@ export function findingPublication(review: AgentReviewDto, finding: ReviewFindin
   if (item?.publication?.state === 'RESERVED') return { kind: 'sending', item };
   if (item !== null && item.published) return { kind: 'published', item };
   if (item !== null) return { kind: 'draft', item };
+  if (review.draft?.postedSummaryFindingIds.includes(finding.id)) return { kind: 'blocked', reason: 'Posted in your review summary' };
   if (finding.state === 'WITHDRAWN') return { kind: 'blocked', reason: 'The agent withdrew this finding' };
   if (finding.state === 'RESOLVED') return { kind: 'blocked', reason: 'Excluded from publication' };
   const accepted = review.runs.some(run => run.state === 'ACCEPTED' && completeCoverage(run) && run.worktreeTreeSha === null && run.headSha === finding.validatedHeadSha
@@ -437,7 +438,7 @@ export function findingPill(review: AgentReviewDto, finding: ReviewFindingDto): 
   if (finding.state === 'RESOLVED') return { text: 'Resolved locally', tone: 'neutral' };
   if (publication.kind === 'uncertain') return { text: 'Delivery unconfirmed', tone: 'warn' };
   if (publication.kind === 'sending') return { text: 'Sending…', tone: 'neutral' };
-  if (publication.kind === 'published') return { text: 'Published', tone: 'ready' };
+  if (publication.kind === 'published' || review.draft?.postedSummaryFindingIds.includes(finding.id)) return { text: 'Published', tone: 'ready' };
   if (finding.outdated) return { text: 'Needs reassessment', tone: 'warn' };
   if (draftItemFor(review.draft, finding.id) !== null
     || (finding.path === null && review.draft?.body.includes(finding.body.trim()))) return { text: 'Pending · in your review', tone: 'warn' };

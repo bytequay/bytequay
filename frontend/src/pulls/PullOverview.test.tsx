@@ -497,7 +497,7 @@ describe('PullOverview', () => {
   it('restores whole-PR review prose and the saved verdict in the submit sheet', () => {
     const review = reviewFixture();
     review.draft = { repo: 'owner/repo', number: 42, body: 'Clarify the cancellation commit message.',
-      event: 'REQUEST_CHANGES', items: [], version: 7, updatedAt: review.createdAt };
+      event: 'REQUEST_CHANGES', items: [], postedSummaryFindingIds: [], version: 7, updatedAt: review.createdAt };
     const html = renderToStaticMarkup(<ReviewDialog pr={{ ...pullRequest(), origin: 'OTHER' }} detail={detail()}
       review={review} onClose={() => {}} onReviewSubmitted={() => {}} />);
 
@@ -508,7 +508,7 @@ describe('PullOverview', () => {
 
   it.each(['UNCERTAIN', 'RESERVED'] as const)('blocks review submission and editing for %s comments', state => {
     const review = reviewFixture();
-    review.draft = { repo: review.repo, number: 42, body: 'Saved review', event: 'COMMENT', version: 7, updatedAt: review.createdAt,
+    review.draft = { repo: review.repo, number: 42, body: 'Saved review', event: 'COMMENT', postedSummaryFindingIds: [], version: 7, updatedAt: review.createdAt,
       items: [{ id: 'unconfirmed', source: 'MANUAL', findingId: null, findingRevision: null, path: 'file.java', side: 'RIGHT', line: 1,
         startLine: null, commitId: 'head', body: 'Saved comment', included: true, published: false,
         publication: { state, remoteReviewId: null, remoteCommentId: null, url: null, at: review.createdAt } }] };
@@ -527,7 +527,7 @@ describe('PullOverview', () => {
   it('submits body-only findings through the durable draft and reloads its cleared prose', async () => {
     const review = reviewFixture();
     review.draft = { repo: 'owner/repo', number: 42, body: 'Clarify the cancellation commit message.',
-      event: 'COMMENT', items: [], version: 7, updatedAt: review.createdAt };
+      event: 'COMMENT', items: [], postedSummaryFindingIds: [], version: 7, updatedAt: review.createdAt };
     const cleared = { ...review, draft: { ...review.draft, body: '', version: 9 } };
     const saveReviewDraft = vi.fn(async () => ({ ...review.draft, version: 8 }));
     const submitReviewDraft = vi.fn(async () => {});
@@ -552,7 +552,7 @@ describe('PullOverview', () => {
   it.each([false, true])('saves changed draft verdict on dismissal and keeps a stale sheet open (conflict: %s)', async conflict => {
     const review = reviewFixture();
     review.draft = { repo: 'owner/repo', number: 42, body: 'Keep these review words.',
-      event: 'APPROVE', items: [], version: 7, updatedAt: review.createdAt };
+      event: 'APPROVE', items: [], postedSummaryFindingIds: [], version: 7, updatedAt: review.createdAt };
     const saved = { ...review, draft: { ...review.draft, event: 'COMMENT' as const, version: 8 } };
     const saveReviewDraft = vi.fn(async () => {
       if (conflict) throw new Error('Review draft changed');
@@ -575,7 +575,7 @@ describe('PullOverview', () => {
   it.each(['A review summary.', ''])('preserves selected-commit comments with review prose %j', async body => {
     const review = reviewFixture();
     review.draft = { repo: 'owner/repo', number: 42, body,
-      event: 'COMMENT', items: [], version: 7, updatedAt: review.createdAt };
+      event: 'COMMENT', items: [], postedSummaryFindingIds: [], version: 7, updatedAt: review.createdAt };
     const selected: InlineReviewCommentDto = { path: 'Example.java', side: 'RIGHT', line: 10,
       startLine: null, startSide: null, commitId: 'old-head', body: 'An earlier commit comment.' };
     const saveReviewDraft = vi.fn(async () => ({ ...review.draft, version: 8 }));
@@ -1944,7 +1944,7 @@ describe('the pane tab row', () => {
   it('counts promoted findings in Submit review alongside manual comments', () => {
     const promoted = reviewFixture({
       draft: {
-        repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', version: 1,
+        repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', postedSummaryFindingIds: [], version: 1,
         updatedAt: '2026-09-06T16:30:00Z',
         items: [{
           id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, commitId: reviewFixture().findings[0].validatedHeadSha,

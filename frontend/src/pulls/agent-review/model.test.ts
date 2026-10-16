@@ -64,7 +64,7 @@ it('keeps newer finding state when review reads arrive out of order', () => {
 });
 
 function draft(items: ReviewDraftDto['items']): ReviewDraftDto {
-  return { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items, version: 1, updatedAt: '2026-09-06T16:30:00Z' };
+  return { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items, postedSummaryFindingIds: [], version: 1, updatedAt: '2026-09-06T16:30:00Z' };
 }
 
 function draftItem(overrides: Partial<ReviewDraftDto['items'][number]> = {}): ReviewDraftDto['items'][number] {
@@ -439,6 +439,13 @@ describe('publication eligibility', () => {
   it('lets an accepted, open, current finding be published', () => {
     expect(findingPublication(review, finding)).toEqual({ kind: 'publishable' });
     expect(findingPill(review, finding)).toEqual({ text: 'Private', tone: 'neutral' });
+  });
+
+  it('never offers a whole-PR finding again once a submitted review carried its text', () => {
+    const whole: typeof finding = { ...finding, path: null };
+    const submitted = { ...review, draft: { ...draft([]), postedSummaryFindingIds: [whole.id] } };
+    expect(findingPublication(submitted, whole)).toEqual({ kind: 'blocked', reason: 'Posted in your review summary' });
+    expect(findingPill(submitted, whole)).toEqual({ text: 'Published', tone: 'ready' });
   });
 
   it('blocks a provisional result from publication', () => {

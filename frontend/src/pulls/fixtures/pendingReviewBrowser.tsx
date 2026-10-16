@@ -250,7 +250,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function runDraftCommentEdit(): Promise<string> {
-  let draft: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: 'Review summary', event: 'COMMENT', version: 4,
+  let draft: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: 'Review summary', event: 'COMMENT', postedSummaryFindingIds: [], version: 4,
     updatedAt: '2026-09-07T00:00:00Z', items: [{ id: 'draft-comment', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1,
       path: files[0].filename, side: 'RIGHT', line: 1, startLine: null, commitId: 'two', body: 'Original finding', included: true,
       published: false, publication: null }] };

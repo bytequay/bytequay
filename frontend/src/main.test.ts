@@ -91,7 +91,7 @@ it.each([
 it.each(['confirm-not-posted', 'confirm-posted'])('settles an unconfirmed comment through the versioned local %s endpoint', async outcome => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: 'Saved review', event: 'COMMENT', items: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
+  const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: 'Saved review', event: 'COMMENT', items: [], postedSummaryFindingIds: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
   const fetch = vi.fn(async () => new Response(JSON.stringify(draft)));
   vi.stubGlobal('fetch', fetch);
 
@@ -720,7 +720,7 @@ it.each([
 ])('preserves the JSON body and session header for %s', async (channel, args, method, body) => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: '', event: 'COMMENT', items: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
+  const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: '', event: 'COMMENT', items: [], postedSummaryFindingIds: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
   const fetch = vi.fn(async () => new Response(JSON.stringify(draft)));
   vi.stubGlobal('fetch', fetch);
   await desktop.handlers.get(channel)?.({}, 'owner/repo', 7, 4, ...args);

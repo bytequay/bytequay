@@ -49,6 +49,7 @@ import { ExtensionPolicy } from './extensionPolicy';
 import manifest from './runtimeManifest.json';
 import light from './ideaLight.json';
 import dark from './darcula.json';
+import github from './githubLight.json';
 import githubDark from './githubDark.json';
 import type { IdeConnection } from './contracts';
 
@@ -94,13 +95,16 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
   const extension = registerExtension({
     name: 'workbench', publisher: 'bytequay', version: '1.0.0', engines: { vscode: '*' }, enabledApiProposals: ['scmHistoryProvider'],
     contributes: { themes: [
-      { id: 'ByteQuay IDEA Light', label: 'ByteQuay IDEA Light', uiTheme: 'vs', path: './ideaLight.json' },
+      // Keep the stored light-theme identifier stable when changing its display name.
+      { id: 'ByteQuay IDEA Light', label: light.name, uiTheme: 'vs', path: './ideaLight.json' },
       { id: 'ByteQuay Darcula', label: 'ByteQuay Darcula', uiTheme: 'vs-dark', path: './darcula.json' },
+      { id: github.name, label: github.name, uiTheme: 'vs', path: './githubLight.json' },
       { id: githubDark.name, label: githubDark.name, uiTheme: 'vs-dark', path: './githubDark.json' },
     ] },
   }, ExtensionHostKind.LocalProcess, { system: true });
   extension.registerFileUrl('ideaLight.json', `data:application/json,${encodeURIComponent(JSON.stringify(light))}`);
   extension.registerFileUrl('darcula.json', `data:application/json,${encodeURIComponent(JSON.stringify(dark))}`);
+  extension.registerFileUrl('githubLight.json', `data:application/json,${encodeURIComponent(JSON.stringify(github))}`);
   extension.registerFileUrl('githubDark.json', `data:application/json,${encodeURIComponent(JSON.stringify(githubDark))}`);
   const versions = Object.fromEntries([
     ...manifest.extensions.map(item => [item.id, item.version]),

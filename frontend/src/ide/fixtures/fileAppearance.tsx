@@ -88,16 +88,16 @@ export async function verifyFileAppearance() {
     const split = native.querySelector<HTMLElement>('[aria-label^="Split Editor"]');
     assert(split !== null && split.getClientRects().length > 0, 'The split-editor action remains available');
     assert(!tabs()[0].classList.contains('ide-test-tab') && tabs()[1].classList.contains('ide-test-tab'), 'Same-named main/test files have different colors');
-    for (const [name, dark] of [['ByteQuay IDEA Light', false], ['ByteQuay Darcula', true], ['GitHub Dark', true]] as const) {
+    for (const [name, dark] of [['ByteQuay IDEA Light', false], ['ByteQuay Darcula', true], ['GitHub Light', false], ['GitHub Dark', true]] as const) {
       host.classList.toggle('is-dark', dark); host.style.colorScheme = dark ? 'dark' : 'light';
       host.dataset.theme = name;
       const palette = (await theme.getColorThemes()).find(item => item.settingsId === name);
       assert(palette !== undefined, `Missing theme: ${name}`);
       await theme.setColorTheme(palette.id, undefined); await settle();
-      if (name === 'GitHub Dark') {
+      if (name === 'GitHub Light' || name === 'GitHub Dark') {
         const background = getComputedStyle(tree).backgroundColor, foreground = getComputedStyle(host).color;
-        assert(background === 'rgb(36, 39, 46)' && foreground === 'rgb(171, 178, 191)', `GitHub colors apply to the file tree and shell: ${background}, ${foreground}`);
-        assert(getComputedStyle(host).backgroundColor === 'rgb(30, 32, 37)', 'GitHub canvas uses the selected palette');
+        assert(background === (dark ? 'rgb(36, 39, 46)' : 'rgb(246, 248, 250)') && foreground === (dark ? 'rgb(171, 178, 191)' : 'rgb(31, 35, 40)'), `GitHub colors apply to the file tree and shell: ${background}, ${foreground}`);
+        assert(getComputedStyle(host).backgroundColor === (dark ? 'rgb(30, 32, 37)' : 'rgb(255, 255, 255)'), 'GitHub canvas uses the selected palette');
       }
       const tint = getComputedStyle(tabs()[1]).backgroundColor;
       assert(tint === (dark ? 'rgb(41, 56, 43)' : 'rgb(231, 242, 218)'), `${name} test tab has the green tint: ${tint}`);

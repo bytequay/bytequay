@@ -32,6 +32,7 @@ import { editor, languages, Uri } from 'monaco-editor';
 import { installHeaderFolding } from '../folding';
 import light from '../ideaLight.json';
 import dark from '../darcula.json';
+import github from '../githubLight.json';
 import githubDark from '../githubDark.json';
 import { assert } from '../../fixtures/harness';
 import { verifyFileAppearance } from './fileAppearance';
@@ -42,15 +43,17 @@ import { verifyLineChanges } from './lineChangesBrowser';
 
 export async function run() {
   window.MonacoEnvironment = { getWorker: (_id, label) => label === 'TextMateWorker' ? new TextmateWorker() : new EditorWorker() };
-  await initUserConfiguration(JSON.stringify({ 'workbench.colorTheme': light.name, 'editor.foldingImportsByDefault': true, 'editor.foldingHighlight': false, 'editor.bracketPairColorization.enabled': false }));
+  await initUserConfiguration(JSON.stringify({ 'workbench.colorTheme': 'ByteQuay IDEA Light', 'editor.foldingImportsByDefault': true, 'editor.foldingHighlight': false, 'editor.bracketPairColorization.enabled': false }));
   const extension = registerExtension({ name: 'appearance', publisher: 'bytequay', version: '1.0.0', engines: { vscode: '*' },
     contributes: { themes: [
-      { id: light.name, label: light.name, uiTheme: 'vs', path: './light.json' },
+      { id: 'ByteQuay IDEA Light', label: light.name, uiTheme: 'vs', path: './light.json' },
       { id: dark.name, label: dark.name, uiTheme: 'vs-dark', path: './dark.json' },
+      { id: github.name, label: github.name, uiTheme: 'vs', path: './github.json' },
       { id: githubDark.name, label: githubDark.name, uiTheme: 'vs-dark', path: './githubDark.json' },
     ] } }, ExtensionHostKind.LocalProcess);
   extension.registerFileUrl('light.json', `data:application/json,${encodeURIComponent(JSON.stringify(light))}`);
   extension.registerFileUrl('dark.json', `data:application/json,${encodeURIComponent(JSON.stringify(dark))}`);
+  extension.registerFileUrl('github.json', `data:application/json,${encodeURIComponent(JSON.stringify(github))}`);
   extension.registerFileUrl('githubDark.json', `data:application/json,${encodeURIComponent(JSON.stringify(githubDark))}`);
   const container = document.createElement('div');
   container.style.cssText = 'width:1050px;height:680px'; document.body.append(container);
@@ -100,9 +103,10 @@ public class Example {
   folding.toggleCollapseState([header]);
   code.setPosition({ lineNumber: 10, column: 1 });
   const results: Record<string, number> = {};
-  for (const palette of [light, dark, githubDark]) {
-    const nativeTheme = (await theme.getColorThemes()).find(item => item.settingsId === palette.name);
+  for (const palette of [light, dark, github, githubDark]) {
+    const nativeTheme = (await theme.getColorThemes()).find(item => item.settingsId === (palette === light ? 'ByteQuay IDEA Light' : palette.name));
     assert(nativeTheme !== undefined, `Missing theme ${palette.name}`);
+    assert(nativeTheme.label === palette.name, 'Theme display names are independent of saved identifiers');
     await theme.setColorTheme(nativeTheme.id, undefined);
     for (const [language, text] of [
       ['java', source], ['go', 'package main\nfunc main() { println("hello") }'], ['rust', 'fn main() { let message = "hello"; println!("{}", message); }'],

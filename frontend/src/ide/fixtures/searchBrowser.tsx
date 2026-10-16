@@ -160,7 +160,7 @@ export async function verifySearch() {
     assert(rows().some(row => row.querySelector('.ide-search-module')?.textContent === 'query-engine'), 'Java results show their Maven module');
     assert(rows().some(row => row.querySelector('.ide-search-module')?.textContent === 'tools') && rows().some(row => row.querySelector('.ide-search-module')?.textContent === 'rust'), 'Go and Rust results show their nearest module');
     assert(popup()?.textContent?.includes('limited set'), 'Search result limits are explicit');
-    for (const [name, mode] of [['ByteQuay Darcula', 'dark'], ['ByteQuay IDEA Light', 'light'], ['GitHub Dark', 'github-dark']] as const) {
+    for (const [name, mode] of [['ByteQuay Darcula', 'dark'], ['ByteQuay IDEA Light', 'light'], ['GitHub Light', 'github'], ['GitHub Dark', 'github-dark']] as const) {
       const dark = mode === 'dark' || mode === 'github-dark';
       const palette = (await theme.getColorThemes()).find(item => item.settingsId === name);
       assert(palette !== undefined, 'Search palette is registered'); await theme.setColorTheme(palette.id, undefined);

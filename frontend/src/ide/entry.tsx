@@ -273,7 +273,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       <select aria-label="IDE theme" value={theme} onChange={event => {
         const value = event.target.value;
         localStorage.setItem('bytequay.ide.theme', value); setTheme(value);
-      }}><option>Follow app</option><option>ByteQuay IDEA Light</option><option>ByteQuay Darcula</option><option>GitHub Dark</option></select>
+      }}><option>Follow app</option><option value="ByteQuay IDEA Light">ByteQuay Light</option><option>ByteQuay Darcula</option><option>GitHub Light</option><option>GitHub Dark</option></select>
     </header>
     {executionError && <div className="ide-notice" role="alert">{executionError}</div>}
     {execution?.treeUnverified && <div className="ide-notice" role="status">Execution finished; verifying process cleanup.

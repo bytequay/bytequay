@@ -1,15 +1,12 @@
-#!/usr/bin/env python3
 """Turn what the lab measured into suggestions for ByteQuay: what to change, where, how much time it could save at most,
 and the number to watch once it is changed. Made from the saved tables and the approvals in the task logs, for the last
-days only, because an older leak may already be fixed. Start it with `uv run suggest.py`."""
+days only, because an older leak may already be fixed. The dashboard's Suggestions tab shows them."""
 
 from __future__ import annotations
 
-import argparse
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 from typing import Callable
 
 import pandas
@@ -18,9 +15,7 @@ import activity
 import approvals
 import charts
 import ranges
-import saved
 
-SAVE = "uv run activity.py --save"
 DAYS = 14  # the days a suggestion looks at by default; older evidence may describe something ByteQuay has changed since
 MIN_WEEKLY = 2.0  # minutes a week; a suggestion that could save less is left out
 MIN_ASKS = 2  # asks a rule must answer by itself before it is suggested
@@ -325,59 +320,3 @@ def now(measure):
     """A number to watch as it stands, with where it could lie when its tasks are enough to tell."""
     found = None if measure is None else ranges.range_of(measure)
     return number(value(measure)) + (f" ({ranges.said(found)})" if found else "")
-
-
-def where_lines(suggestion):
-    return [what if path is None else f"{path} ({what})" for path, what in suggestion.where]
-
-
-def render(found, data, first, last):
-    """The suggestions as text, the most time first."""
-    head = f"Suggestions for ByteQuay from {said(first)} to {said(last)} {last.year}: {activity.count(len(data.made['turns']), 'turn')}, {data.hours():.1f} hours with a log"
-    if not found:
-        return head + "\n\nNothing in these days passes the limits for a suggestion."
-    lines = [head]
-    for place, one in enumerate(found, 1):
-        lines += ["", f"{place}. {one.title}: up to {one.saves:,.1f} minutes a week", f"   Seen: {one.seen}", f"   Do: {one.advice}",
-                  *(f"   Where: {where}" for where in where_lines(one)), f"   Watch: {one.watch}, now {now(one.measure(data))}"]
-    return "\n".join(lines)
-
-
-def read_asks(runtime, since=None):
-    """Every answered ask in the task logs under `runtime`, or none when there is no log."""
-    return [ask for log in sorted(runtime.glob("*/events.jsonl")) for ask in approvals.read_log(log, since)[0]]
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER, help="Folder with the saved results")
-    parser.add_argument("--runtime", type=Path, default=activity.RUNTIME, help="Folder with the task logs, read for the approvals")
-    parser.add_argument("--days", type=int, default=DAYS, help=f"How many days up to the last saved one to look at; default {DAYS}")
-    args = parser.parse_args()
-    if args.days < 1:
-        parser.error("--days takes a number of days, 1 or more")
-    try:
-        table, review_table = saved.read(args.folder, "turns.json"), saved.read(args.folder, "reviews.json")
-        if table is None:
-            parser.exit(1, f"Nothing saved yet. Save the turn table with `{SAVE}`\n")
-        made = charts.frames(table)
-        try:
-            calls = charts.call_frames(table)
-        except (KeyError, TypeError, ValueError):
-            calls = None
-        reviews = None if review_table is None else charts.review_frames(review_table)
-    except (OSError, KeyError, TypeError, ValueError):
-        parser.exit(1, f"The saved tables could not be read. Save them again with `{SAVE}`\n")
-    if made["turns"].empty:
-        parser.exit(1, "The saved turn table holds no turn.\n")
-    last = made["turns"]["day"].max()
-    first = last - timedelta(days=args.days - 1)
-    asks = read_asks(args.runtime, activity.midnight(first.isoformat()) - 86400)
-    data = window(made, calls, reviews, asks, first, last)
-    print(render(suggestions(data), data, first, last))
-    if calls is None:
-        print(f"\nThe turn table was saved before the lab counted calls, so command failures and tool hops are left out. Save again with `{SAVE}`")
-
-
-if __name__ == "__main__":
-    main()

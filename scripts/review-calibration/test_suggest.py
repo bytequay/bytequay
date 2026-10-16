@@ -1,9 +1,5 @@
 from datetime import date, datetime, timezone
-import json
 from pathlib import Path
-import subprocess
-import sys
-import tempfile
 import unittest
 
 import activity
@@ -154,8 +150,8 @@ class TestSuggestions(unittest.TestCase):
         saved = table(*rows)
         window = suggest.window(charts.frames(saved, UTC), charts.call_frames(saved), None, (), date(2026, 1, 1), date(2026, 1, 4), UTC)
         (found,) = suggest.long_runs(window)
-        self.assertTrue(suggest.render([found], window, date(2026, 1, 1), date(2026, 1, 4)).endswith("now 36.0 (34.8 to 37.5)"),
-                        "twelve tasks of 33, 36 and 39 an hour: the range is narrower than one task to the next")
+        self.assertEqual(suggest.now(found.measure(window)), "36.0 (34.8 to 37.5)",
+                         "twelve tasks of 33, 36 and 39 an hour: the range is narrower than one task to the next")
 
     def test_every_place_named_is_still_in_bytequay(self):
         if not (ROOT / "backend").is_dir():
@@ -178,31 +174,14 @@ class TestSuggestions(unittest.TestCase):
     def test_the_text_says_what_where_and_what_to_watch_and_names_no_command_argument(self):
         asks = [ask("./mvnw -o -pl secret-module test > /tmp/private.log", seconds=300), ask("./mvnw -o -pl other-module test", seconds=300)]
         made = data(asks=asks)
-        text = suggest.render(suggest.suggestions(made), made, FIRST, LAST)
-        self.assertIn("Suggestions for ByteQuay from 5 Jan to 11 Jan 2026: 1 turn, 0.2 hours with a log", text)
-        self.assertIn("1. Let Codex run maven without asking: up to 10.0 minutes a week", text)
-        self.assertIn(f"   Where: {suggest.CODEX_DRIVER} (registerApproval)", text)
-        self.assertIn("   Watch: Codex command asks in an agent hour, now 12.0", text)
+        (found,) = suggest.suggestions(made)
+        self.assertEqual((found.title, found.saves), ("Let Codex run maven without asking", 10.0))
+        self.assertIn((suggest.CODEX_DRIVER, "registerApproval"), found.where)
+        self.assertEqual((found.watch, suggest.now(found.measure(made))), ("Codex command asks in an agent hour", "12.0"))
+        text = " ".join([found.title, found.seen, found.advice, found.watch, *(what for _, what in found.where)])
         for private in ("secret-module", "other-module", "/tmp", "private"):
             self.assertNotIn(private, text)
 
-    def test_days_with_nothing_to_suggest_say_so(self):
-        made = data()
-        self.assertTrue(suggest.render([], made, FIRST, LAST).endswith("Nothing in these days passes the limits for a suggestion."))
-
-
-class TestMain(unittest.TestCase):
-    def test_the_saved_tables_and_the_logs_are_read_for_the_last_days(self):
-        with tempfile.TemporaryDirectory() as folder:
-            (Path(folder) / "turns.json").write_text(json.dumps(table(row("2026-01-01T10:00:00Z", long_runs=[("maven", 9000.0)]),
-                                                                       row("2026-01-11T10:00:00Z", long_runs=[("maven", 900.0)]))))
-            done = subprocess.run([sys.executable, str(Path(__file__).with_name("suggest.py")), folder, "--runtime", str(Path(folder) / "none"), "--days", "7"],
-                                  capture_output=True, text=True)
-            nothing = subprocess.run([sys.executable, str(Path(__file__).with_name("suggest.py")), str(Path(folder) / "empty")], capture_output=True, text=True)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertIn("1. Make long maven runs shorter: up to 14.5 minutes a week", done.stdout, "only the turn of the last seven days")
-        self.assertEqual(nothing.returncode, 1)
-        self.assertIn("Nothing saved yet.", nothing.stderr)
 
 
 if __name__ == "__main__":

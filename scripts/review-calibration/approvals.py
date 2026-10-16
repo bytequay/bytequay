@@ -1,14 +1,12 @@
-#!/usr/bin/env python3
-"""Test allow rules against the approvals ByteQuay asked you for, read from the task event logs: what was asked and how
-long you waited, which asks the rules would have answered, and what they would have let through. Nothing is saved."""
+"""Read the approvals ByteQuay asked you for from the task event logs and test allow rules against them, for the
+dashboard's Approvals tab: what was asked and how long you waited, which asks the rules would have answered, and what
+they would have let through. Nothing is saved."""
 
 from __future__ import annotations
 
-import argparse
 from collections import Counter
 from dataclasses import dataclass
 import json
-from pathlib import Path
 import re
 
 import activity
@@ -30,7 +28,6 @@ AMPERSAND_REDIRECT = re.compile(r"[<>]&|&>")  # 2>&1 and &> send output somewher
 SUBCOMMAND = re.compile(r"[a-z][a-z0-9-]*")
 FLAG = re.compile(r"--?[A-Za-z][A-Za-z0-9-]*")
 SUGGESTED_WORDS = 2  # words after the program that a suggested rule keeps
-TOP = 10  # rule sets listed by name; the rest are added up
 # What an ask's command line may do that a rule writer should know before covering it, by words in the line. The words
 # are read here and never printed; only the label is.
 # ponytail: a list of words and not a shell parser, so it says "look closer" and never "safe".
@@ -232,100 +229,3 @@ def risks(ask):
         # Quoted words count too: bash -c "rm -r x" deletes as surely as rm -r x.
         found += [label for label, words in RISKS if words.search(ask.line.lower()) and label not in found]
     return found
-
-
-def minutes(seconds):
-    return f"{seconds / 60:,.1f}"
-
-
-def tabled(label, *cells, indent="    "):
-    return f"{indent}{label:<{50 - len(indent)}}" + "".join(f"{cell:>9}" for cell in cells)
-
-
-def render(asks, automatic, lines, unanswered, rules=()):
-    """The tables. Only providers, kinds, suggested rules, counts and times are printed, never a command line or anything a card or a reviewer said."""
-    if not asks:
-        return "No approval was asked in these logs."
-    ran_out = [ask for ask in asks if ask.outcome == "expired"]
-    first, last = min(ask.start for ask in asks), max(ask.start for ask in asks)
-    lines_out = [f"Approvals: {activity.count(len(asks), 'ask')} in {activity.count(len({ask.task for ask in asks}), 'task')}, {activity.day(first)} to {activity.day(last)}. "
-                 f"You waited {minutes(sum(ask.seconds for ask in asks))} minutes in all.",
-                 f"{activity.count(len(ran_out), 'ask')} ran out with no answer, and {sum(ask.stopped for ask in ran_out)} of those ended their turn.", "",
-                 tabled("What was asked", "asks", "ran out", "minutes", indent="")]
-    lines_out += [tabled(f"{provider} {what}", number, ran, minutes(seconds)) for provider, what, number, ran, seconds in asked(asks)]
-    commands = [ask for ask in asks if ask.what == "command"]
-    if commands:
-        lines_out += ["", "A Codex ask is its model asking to run a command outside its sandbox, for example with the network.", "",
-                      tabled("Rules the asked commands need", "need it", "alone", "minutes", "codex", "claude", indent="")]
-        ranked = rule_rows(commands)
-        lines_out += [tabled(rule, need, alone, minutes(seconds), codex, claude) for rule, need, alone, seconds, codex, claude in ranked[:TOP]]
-        if ranked[TOP:]:
-            most = max(row[1] for row in ranked[TOP:])
-            lines_out.append(f"    and {activity.count(len(ranked) - TOP, 'more rule')}, each needed by {'one ask' if most == 1 else f'at most {most} asks'}")
-        hidden, unread = uncovered(commands)
-        for label, own in (("No rule can cover", hidden), ("The command could not be read", unread)):
-            if own:
-                lines_out.append(f"{label}: {activity.count(len(own), 'ask')}, {minutes(sum(ask.seconds for ask in own))} minutes.")
-        if hidden:
-            lines_out.append("No rule covers a line with $(...), backticks or <(...), or one that starts by setting a variable.")
-        lines_out += ["Alone: the asks a rule answers by itself, because their line holds no other command; minutes: what those asks waited.",
-                      "An ask is answered only when every command of its line has a rule. Test a set of rules with --allow 'Bash(...)' --allow ..."]
-    if automatic:
-        verdicts = Counter(verdict for _, verdict in automatic)
-        lines_out += ["", f"Codex's own reviewer answered {activity.count(len(automatic), 'request')} by itself, with no card, in {minutes(sum(seconds for seconds, _ in automatic))} "
-                          "minutes: " + ", ".join(f"{verdict} {number}" for verdict, number in sorted(verdicts.items(), key=lambda made: (-made[1], made[0]))) + "."]
-    if unanswered:
-        lines_out.append(f"{activity.count(unanswered, 'ask')} {'has' if unanswered == 1 else 'have'} no answer in the logs and {'is' if unanswered == 1 else 'are'} left out.")
-    if rules:
-        lines_out += ["", *with_rules(commands, lines, rules)]
-    return "\n".join(lines_out)
-
-
-def with_rules(commands, lines, rules):
-    """What these rules would have changed: the asks they answer, the waiting and turn endings they save, a warning for an ask you
-    denied, the risks among the asks they answer, and how much of every command run they cover."""
-    shown = ", ".join(f"Bash({words}{':*' if prefix else ''})" for words, prefix in rules)
-    made_by = effect(commands, lines, rules)
-    made = [f"With these rules: {shown}", "",
-            tabled("Command asks they answer", f"{made_by['answered']} of {made_by['asks']}"),
-            tabled("Minutes of waiting they save", f"{minutes(made_by['saved'])} of {minutes(made_by['waited'])}"),
-            tabled("Turns they keep from ending", f"{made_by['kept']} of {made_by['stopped']}")]
-    if made_by["denied"]:
-        made.append(f"Warning: you denied {activity.count(made_by['denied'], 'ask')} that these rules would have allowed.")
-    made.append(tabled("Risks in the asks they answer", ", ".join(f"{label} {times}" for label, times in made_by["risks"]) or "none found"))
-    made.append(tabled("Every command run in these logs", f"{sum(times for _, times in made_by['covered']):,} of {made_by['runs']:,}"))
-    if made_by["covered"]:
-        made.append(tabled("  of which", ", ".join(f"{name} {times:,}" for name, times in made_by["covered"][:5])))
-    made.append("A risk is a word in the command line worth a closer look, not a judgment. The last two lines show how wide the rules are.")
-    return made
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--runtime", type=Path, default=activity.RUNTIME, help="Folder with one sub-folder per task, each holding an events.jsonl")
-    parser.add_argument("--since", help="Only turns that started on or after this day, YYYY-MM-DD in UTC")
-    parser.add_argument("--allow", action="append", default=[], metavar="RULE", help="A rule to test, such as 'Bash(./mvnw -o:*)'; give it again for more rules")
-    args = parser.parse_args()
-    try:
-        rules = [parse_rule(text) for text in args.allow]
-    except ValueError as error:
-        parser.error(str(error))
-    try:
-        since = activity.midnight(args.since) if args.since else None
-    except ValueError:
-        parser.error("--since takes a day as YYYY-MM-DD")
-    logs = sorted(args.runtime.glob("*/events.jsonl"))
-    if not logs:
-        parser.error(f"No task log matches under {args.runtime}")
-    asks, automatic, lines, unanswered = [], [], [], 0
-    for log in logs:
-        made, reviewed, run, left = read_log(log, since)
-        asks += made
-        automatic += reviewed
-        lines += run
-        unanswered += left
-    print(render(asks, automatic, lines, unanswered, rules))
-
-
-if __name__ == "__main__":
-    main()

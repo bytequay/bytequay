@@ -1,7 +1,5 @@
 import json
 from pathlib import Path
-import subprocess
-import sys
 import tempfile
 import unittest
 
@@ -167,83 +165,6 @@ class TestReadLog(unittest.TestCase):
                           [event(8, "tool", "t1", "r3", state="STARTED", name=approvals.AUTOMATIC, summary="Reviewing action", durationMs=None)])
         self.assertEqual(read(events)[1], [(3, "approved"), (2.5, "failed")])
 
-
-def sample():
-    """Three tasks' asks: Maven asks of both providers, a run out that ended its turn, a denied one, a question and a line no rule covers."""
-    at = START.timestamp()
-    return [approvals.Ask("t1", at, "codex", "command", "./mvnw -o -pl core test > /tmp/out.log", "allowed", 120, False),
-            approvals.Ask("t1", at + 10, "codex", "command", "./mvnw -o -pl web test", "expired", 300, True),
-            approvals.Ask("t2", at + 20, "claude", "command", "cd /work && ./mvnw -o -pl core test", "allowed", 30, False),
-            approvals.Ask("t2", at + 30, "claude", "command", "cd /work && rm -rf target", "denied", 15, False),
-            approvals.Ask("t3", at + 40, "claude", "command", "TOKEN=s3cr3t gh api user", "allowed", 45, False),
-            approvals.Ask("t3", at + 50, "claude", "question", None, "allowed", 60, False)]
-
-
-class TestRender(unittest.TestCase):
-    def test_the_tables_count_asks_waiting_and_turns_that_ended(self):
-        text = approvals.render(sample(), [(3.0, "approved"), (3.0, "approved"), (6.0, "failed")], [], 0)
-        self.assertIn("Approvals: 6 asks in 3 tasks, 2026-01-01 to 2026-01-01. You waited 9.5 minutes in all.", text)
-        self.assertIn("1 ask ran out with no answer, and 1 of those ended their turn.", text)
-        self.assertIn(approvals.tabled("codex command", 2, 1, "7.0"), text)
-        self.assertIn(approvals.tabled("claude command", 3, 0, "1.5"), text)
-        self.assertIn(approvals.tabled("claude question", 1, 0, "1.0"), text)
-        self.assertIn(approvals.tabled("Bash(./mvnw -o -pl:*)", 3, 2, "7.0", 2, 1), text)
-        self.assertIn(approvals.tabled("Bash(cd:*)", 2, 0, "0.0", 0, 2), text)
-        self.assertIn(approvals.tabled("Bash(rm -rf:*)", 1, 0, "0.0", 0, 1), text)
-        self.assertIn("No rule can cover: 1 ask, 0.8 minutes.", text)
-        self.assertIn("Codex's own reviewer answered 3 requests by itself, with no card, in 0.2 minutes: approved 2, failed 1.", text)
-
-    def test_rules_say_what_they_answer_save_and_let_through(self):
-        rules = [approvals.parse_rule("Bash(./mvnw -o -pl:*)"), approvals.parse_rule("Bash(cd:*)"), approvals.parse_rule("Bash(rm -rf:*)")]
-        text = approvals.render(sample(), [], ["./mvnw -o -pl core test", "./mvnw -o -pl web test", "git log", "ls"], 0, rules)
-        self.assertIn("With these rules: Bash(./mvnw -o -pl:*), Bash(cd:*), Bash(rm -rf:*)", text)
-        self.assertIn(approvals.tabled("Command asks they answer", "4 of 5"), text)
-        self.assertIn(approvals.tabled("Minutes of waiting they save", "7.8 of 8.5"), text)
-        self.assertIn(approvals.tabled("Turns they keep from ending", "1 of 1"), text)
-        self.assertIn("Warning: you denied 1 ask that these rules would have allowed.", text)
-        self.assertIn(approvals.tabled("Risks in the asks they answer", "deletes 1, writes a file 1"), text)
-        self.assertIn(approvals.tabled("Every command run in these logs", "2 of 4"), text)
-        self.assertIn(approvals.tabled("  of which", "maven 2"), text)
-
-    def test_rules_that_answer_nothing_say_so(self):
-        text = approvals.render(sample(), [], ["ls"], 0, [approvals.parse_rule("Bash(make:*)")])
-        self.assertIn(approvals.tabled("Command asks they answer", "0 of 5"), text)
-        self.assertIn(approvals.tabled("Turns they keep from ending", "0 of 1"), text)
-        self.assertIn(approvals.tabled("Risks in the asks they answer", "none found"), text)
-        self.assertNotIn("Warning", text)
-
-    def test_nothing_from_a_command_line_or_a_card_is_printed_beyond_a_rules_plain_words(self):
-        text = approvals.render(sample(), [(3.0, "approved")], ["./mvnw -o -pl core test"], 1, [approvals.parse_rule("Bash(cd:*)")])
-        for private in ("s3cr3t", "TOKEN", "/work", "/tmp", "core", "web", "target", "user"):
-            with self.subTest(private=private):
-                self.assertNotIn(private, text)
-
-    def test_logs_with_no_ask_say_so(self):
-        self.assertEqual(approvals.render([], [], ["ls"], 0), "No approval was asked in these logs.")
-
-
-class TestMain(unittest.TestCase):
-    def run_main(self, folder, *arguments):
-        return subprocess.run([sys.executable, str(Path(__file__).with_name("approvals.py")), "--runtime", folder, *arguments], capture_output=True, text=True)
-
-    def test_a_rule_in_another_shape_is_refused(self):
-        with tempfile.TemporaryDirectory() as folder:
-            done = self.run_main(folder, "--allow", "./mvnw -o")
-        self.assertEqual(done.returncode, 2)
-        self.assertIn("is not a rule such as Bash(./mvnw -o:*)", done.stderr)
-
-    def test_the_logs_are_read_and_the_rules_tested(self):
-        events = in_order(ended(0, 400, "INTERRUPTED"), asked(1, 391, CODEX, "/bin/zsh -lc './mvnw -o test'\nReason: download", "EXPIRED"),
-                          command(392, 393, "/bin/zsh -lc './mvnw -o verify'"), tool(394, 395, "Read"))
-        with tempfile.TemporaryDirectory() as folder:
-            log = Path(folder) / "task-1" / "events.jsonl"
-            log.parent.mkdir()
-            log.write_text("".join(json.dumps(made) + "\n" for made in events))
-            done = self.run_main(folder, "--allow", "Bash(./mvnw -o:*)")
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertIn("1 ask ran out with no answer, and 0 of those ended their turn.", done.stdout, "the turn stopped 9 seconds later, which is too late to blame the ask")
-        self.assertIn(approvals.tabled("Command asks they answer", "1 of 1"), done.stdout)
-        self.assertIn(approvals.tabled("Every command run in these logs", "1 of 1"), done.stdout)
 
 
 if __name__ == "__main__":

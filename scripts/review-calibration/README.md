@@ -749,7 +749,7 @@ every suggestion marked or made: where it stands, the minutes a week it could
 save when it was made and now, and for a change that was made, its number
 before and after and what the change did. That check takes the suggestion as
 it stood in the 14 days before the change, so a suggestion that no longer
-shows because the change worked is still checked. The Approvals tab is the page form of `approvals.py`: what
+shows because the change worked is still checked. The Approvals tab, built on `approvals.py`, shows what
 was asked, the rules the asked commands need, and a test of rules picked from
 that table or written by hand, with the asks they answer, the minutes and turn
 endings they save, the risks among them, and how many of all commands run
@@ -930,13 +930,8 @@ again from today's tables, so a log removed since then is missing from them.
 
 ## Approval rules
 
-```sh
-uv run approvals.py
-uv run approvals.py --allow 'Bash(./mvnw -o -pl:*)' --allow 'Bash(cd:*)'
-```
-
 `approvals.py` reads the task logs and tests allow rules against the approval
-cards ByteQuay showed you. Without rules it lists what was asked by provider
+cards ByteQuay showed you, for the dashboard's Approvals tab. Without rules it lists what was asked by provider
 and kind, how long you waited, how many asks ran out, and how many of those
 ended their turn: a Codex command that runs out stops its turn, while Claude
 carries on. Then come the rules the asked commands would need, each with how
@@ -951,25 +946,20 @@ match a rule, and a prefix ends where a word ends. A line with `$(...)`,
 backticks or `<(...)`, or one that starts by setting a variable, is never
 covered, because it can run more than its words say.
 
-With `--allow`, the report says how many command asks the rules answer, the
+With rules to test, the tab says how many command asks the rules answer, the
 minutes of waiting and the turn endings they save, any ask you denied that
 they would allow, the risks among the asks they answer, and how many of all
 commands run in the logs they cover, which shows how wide they are. A risk is
 a word in the line worth a closer look (writes to GitHub, network, deletes,
 runs another command, writes a file, outside the sandbox), never a judgment
 that a line is safe. Nothing is saved, and only providers, kinds, rule words,
-counts and times are printed: a suggested rule keeps the program, a
+counts and times are shown: a suggested rule keeps the program, a
 subcommand and flags, and stops at a path, a value, a number or quoted text.
 
 ## Suggestions
 
-```sh
-uv run suggest.py
-uv run suggest.py --days 28
-```
-
 `suggest.py` turns what the lab measured into a list of changes to make in
-ByteQuay. Each suggestion says what was seen, what to do, where in ByteQuay to
+ByteQuay, shown in the dashboard's Suggestions tab. Each suggestion says what was seen, what to do, where in ByteQuay to
 do it (a file and a name in it, or a place in the app), how many minutes a
 week it could save at most, and the number to watch once the change is made.
 The list is ranked by those minutes, and one that could save less than two

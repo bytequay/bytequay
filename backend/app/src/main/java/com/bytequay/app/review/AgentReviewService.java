@@ -581,6 +581,11 @@ public class AgentReviewService
                     throw new ReviewConflictException("Discard saved edits before ending the review");
                 }
             }
+            // A waiting question can no longer be answered once the review ends, and completion refuses a task that still has
+            // one. It goes before unwatching, so that refusal cannot leave an open review nobody observes.
+            turns.queued(taskId).stream()
+                    .filter(input -> input.state() == QueuedAgentInput.State.QUEUED || input.state() == QueuedAgentInput.State.PAUSED)
+                    .forEach(input -> turns.removeQueued(taskId, input.id()));
             observer.unwatch(reviewId);
             sweeps.cancel(reviewId);
             if (task.state() == TaskState.OPEN) {
@@ -1353,8 +1358,12 @@ public class AgentReviewService
         String head = review.observedHeadSha().orElseThrow();
         TaskId taskId = TaskId.valueOf(review.taskId());
         AgentTask task = tasks.get(taskId);
-        if (!idle(task) || !turns.queued(taskId).isEmpty()) {
+        if (!idle(task)) {
             return;
+        }
+        if (!turns.queued(taskId).isEmpty()) {
+            // The working copy moves only with an empty queue; saying so beats an Update or Resume that silently does nothing.
+            throw new ReviewConflictException("A question is still waiting in the queue; resume or remove it in the conversation first");
         }
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
         Snapshot snapshot = review.replay().isPresent() ? frozen(runs.getFirst()) : review.sourceTaskId()

@@ -2654,6 +2654,35 @@ class TestAgentReviewService
     }
 
     @Test
+    void endDropsAWaitingQuestionBeforeItStopsObservingTheReview()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        when(fixture.turns.queued(TASK_ID)).thenReturn(ImmutableList.of(queuedInput().paused("Turn failed: provider stopped", NOW)));
+
+        fixture.service.end(reviewId);
+
+        InOrder order = inOrder(fixture.turns, fixture.observer, fixture.completions);
+        order.verify(fixture.turns).removeQueued(TASK_ID, QUEUED_INPUT);
+        order.verify(fixture.observer).unwatch(reviewId);
+        order.verify(fixture.completions).complete(new CompleteAgentTaskCommand(TASK_ID, Optional.of("Agent review ended by the user")));
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.CLOSED);
+    }
+
+    @Test
+    void resumeSaysWhyAWaitingQuestionKeepsTheReviewFromMoving()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+        fixture.store.updateRun(run.ended(ReviewRun.State.FAILED, Optional.of("Stopped for test"), NOW));
+        when(fixture.turns.queued(TASK_ID)).thenReturn(ImmutableList.of(queuedInput().paused("Turn failed: provider stopped", NOW)));
+
+        assertThatThrownBy(() -> fixture.service.resume(reviewId)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("still waiting in the queue");
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
+    }
+
+    @Test
     void askingAgainWithTheSameKeyReturnsTheSameQuestion()
     {
         Fixture fixture = new Fixture();

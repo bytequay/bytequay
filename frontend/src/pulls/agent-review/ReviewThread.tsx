@@ -47,9 +47,10 @@ export default function ReviewThread({ review, messages, viewerLogin, viewerAvat
             attributes={commentIndexTarget(mine ? 'human' : 'agent', author, message.body)}
             avatar={mine ? <Avatar login={viewerLogin || 'You'} avatarUrl={viewerAvatarUrl} size={22} allowGitHubFallback={false} />
               : developer ? <Avatar login="Agent" size={22} allowGitHubFallback={false} /> : <ReviewerAvatar />}
-            menu={queued(review, message) && (
-              <span className="agr-pill is-queued"><Spinner />Queued · runs after the current turn</span>
-            )}>
+            menu={queued(review, message) && (review.queuePause === null
+              ? <span className="agr-pill is-queued"><Spinner />Queued · runs after the current turn</span>
+              // A paused question waits for Resume in the conversation; it does not run by itself.
+              : <span className="agr-pill is-queued" title={review.queuePause}>Paused · resume it in the conversation</span>)}>
             <MarkdownBody body={message.body} repository={review.repo} />
           </LocalCardMessage>
         );

@@ -656,6 +656,8 @@ export function ReviewLineComposer({
   onAddPending,
   onPostNow,
 }: ReviewLineComposerProps) {
+  if (askAgent?.sending) return <p className="pr-local-review__note" role="status">Sending…</p>;
+
   return (
     <MarkdownEditor
       value={body}
@@ -674,7 +676,7 @@ export function ReviewLineComposer({
         <strong>{heading}</strong>
       </header>}
       isPrivate={askAgent !== undefined && !canReview}
-      statusMessage={[askAgent?.sending ? null : askAgent?.disabledReason, canReview ? reviewDisabledReason : null].filter(Boolean).join(' ')}
+      statusMessage={[askAgent?.disabledReason, canReview ? reviewDisabledReason : null].filter(Boolean).join(' ')}
       error={error}
       busy={submitting}
       autoFocus
@@ -695,7 +697,7 @@ export function ReviewLineComposer({
       {askAgent && <button type="button" className={canReview ? '' : 'is-primary'}
         disabled={!body.trim() || submitting || Boolean(askAgent.disabledReason)}
         title={askAgent.disabledReason ?? undefined}
-        onClick={askAgent.onSend}>{askAgent.sending ? 'Sending…' : 'Send to agent'}</button>}
+        onClick={askAgent.onSend}>Send to agent</button>}
       {canReview && <>
         <button type="button" disabled={!body.trim() || submitting || reviewDisabledReason !== null} title={reviewDisabledReason ?? undefined}
           onClick={onAddPending}>Add to review</button>

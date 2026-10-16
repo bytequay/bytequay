@@ -78,6 +78,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
   }
   let retries = 0;
   let finishCreate: () => void = () => {};
+  let finishRefresh: () => void = () => {};
   const getCatalog = bridge.getModelSettings;
   bridge.getModelSettings = async () => {
     const catalog = await getCatalog();
@@ -136,6 +137,10 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
         settings: turn.settings, turnId: null, pauseReason: null, createdAt, updatedAt: createdAt });
     }
     publishHistory(message, INTERNAL_PROMPT);
+    if (mode === 'idle') {
+      const refresh = new Promise<void>(resolve => { finishRefresh = resolve; });
+      bridge.getAgentTask = async () => { await refresh; return task; };
+    }
     return thread;
   };
   bridge.replyLocalReviewComment = async request => {
@@ -264,7 +269,8 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
     assert(inline !== null, 'Own draft PR must offer the shared private inline composer');
     changeInput(inline, 'Please simplify this implementation'); await settle();
     const send = button(host, 'Send to agent'); send.click(); send.click(); await settle();
-    assert(requests.length === 1 && button(host, 'Sending…').disabled, 'Double click must save and submit only one local discussion');
+    assert(requests.length === 1 && host.querySelector('.is-review-composer [role="status"]')?.textContent === 'Sending…'
+      && host.querySelector('.pull-diff-review') === null, 'Double click must submit once and replace the inline editor with a compact status');
     finishCreate(); await settle();
     const request = requests[0];
     assert(request.path === file.filename && request.side === 'RIGHT' && request.line === 1 && request.startLine === 1
@@ -275,7 +281,8 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
     assert(composer.value === 'Keep my unrelated draft' && host.querySelector('[aria-label="Remove image draft.png"]') !== null
       && task.defaults.developmentAutomation === savedAutomation,
     'Saving a local comment must preserve the main draft, attachments, and automation settings');
-    assert(host.querySelector('.pull-diff-review') === null, 'Saved comments must leave the transient composer');
+    assert(host.querySelector('.is-review-composer') === null, 'Saved comments must close the composer without waiting for the task refresh');
+    finishRefresh(); await settle();
     const localCard = host.querySelector<HTMLElement>('.pull-diff-code [data-local-review-thread]');
     assert(localCard !== null && localCard.textContent?.includes(request.body) === true, 'The saved comment must stay at its diff line');
     for (let attempt = 0; attempt < 20 && host.querySelector(`.agt-local-review [data-local-review-thread="${request.id}"]`) === null; attempt++) await settle();
@@ -369,7 +376,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
     assert(host.querySelector(`[data-local-review-thread="${request.id}"]`)?.textContent?.includes(request.body) === true
       && !host.innerText.includes(INTERNAL_PROMPT), 'Reopening a task must recover local discussion data with internal prompts folded');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }
+  finally { finishRefresh(); flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }
 }
 
 export async function runTaskInlineCommentScenarios(): Promise<{ name: string; error?: string }[]> {

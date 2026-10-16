@@ -292,8 +292,10 @@ class TestLocalReviewService
     void queuedAssociationReadsTheDurableRowWithoutReopeningAnExpiredTextBlob()
     {
         when(turnStore.findActive(taskId)).thenReturn(Optional.of(turn));
-        QueuedAgentInput queued = QueuedAgentInput.queued(QueuedInputId.random(), taskId, 1, "queue", new BlobRef("expired.txt", "text/plain", 10),
-                "Please fix this", turn.settings().orElseThrow(), Instant.EPOCH).starting(turn.id(), EventId.random(), Instant.EPOCH).started(Instant.EPOCH);
+        QueuedAgentInput starting = QueuedAgentInput.queued(QueuedInputId.random(), taskId, 1, "queue", new BlobRef("expired.txt", "text/plain", 10),
+                "Please fix this", turn.settings().orElseThrow(), Instant.EPOCH).starting(turn.id(), EventId.random(), Instant.EPOCH);
+        QueuedAgentInput queued = starting.started(Instant.EPOCH);
+        when(turnStore.find(turn.id())).thenReturn(Optional.of(turn));
         when(turns.enqueue(any())).thenAnswer(call -> {
             when(queueStore.findQueuedByIdempotencyKey(eq(taskId), anyString())).thenReturn(Optional.of(queued));
             when(turns.findQueuedByIdempotencyKey(eq(taskId), anyString())).thenReturn(Optional.of(queued));
@@ -304,10 +306,18 @@ class TestLocalReviewService
         assertThat(message.turnId()).contains(turn.id().toString());
         assertThat(message.queuedInputId()).contains(queued.id().toString());
         assertThat(message.messageEventId()).contains(queued.messageEventId().orElseThrow().toString());
+        assertThat(message.deliveryState()).contains("RUNNING");
         assertThat(service.listForAgent(taskId.toString()).getFirst().messages().getFirst()).isEqualTo(message);
         service.retry(taskId.toString(), "workspace", "thread", "message", 4);
         verify(turns, times(1)).enqueue(any());
         verify(turns, never()).start(any());
+        for (TurnState state : ImmutableList.of(TurnState.COMPLETED, TurnState.FAILED, TurnState.CANCELLED, TurnState.INTERRUPTED)) {
+            when(turnStore.find(turn.id())).thenReturn(Optional.of(turn.finish(state, AgentMetrics.empty(),
+                    state == TurnState.COMPLETED ? Optional.empty() : Optional.of("Turn ended"), Instant.EPOCH.plusSeconds(1))));
+            assertThat(service.list(taskId.toString(), "workspace").getFirst().messages().getFirst().deliveryState()).contains(state.name());
+        }
+        when(queueStore.findQueuedByIdempotencyKey(eq(taskId), anyString())).thenReturn(Optional.of(starting.paused("Try again", Instant.EPOCH.plusSeconds(2))));
+        assertThat(service.list(taskId.toString(), "workspace").getFirst().messages().getFirst().deliveryState()).contains("PAUSED");
     }
 
     @Test

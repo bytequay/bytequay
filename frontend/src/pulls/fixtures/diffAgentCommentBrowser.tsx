@@ -15,6 +15,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { DiffCommitDto, DiffFileDto, PullRequestDto } from '../../types';
 import { DiffViewer, type DiffAgentComment, type DiffViewerProps } from '../PullChanges';
+import type { LocalReviewThreadDto } from '../local-review/types';
 import { runTaskInlineCommentScenarios } from './taskInlineCommentBrowser';
 import { runArchivedCodeScenarios } from '../code-tests/fixtures/archivedCodeBrowser';
 import { resolveFinding } from '../agent-review/fixtures/resolveFindingBrowser';
@@ -196,12 +197,14 @@ async function asynchronousSubmission(): Promise<void> {
   const root = createRoot(host);
   const requests: DiffAgentComment[] = [];
   const completions: Array<(error?: Error) => void> = [];
+  const threads: LocalReviewThreadDto[] = [];
   const send = (comment: DiffAgentComment) => {
     requests.push(comment);
     return new Promise<void>((resolve, reject) => { completions.push(error => { if (error) reject(error); else resolve(); }); });
   };
   const render = (reason: string | null) => flushSync(() => root.render(<DiffViewer files={[file]} commits={commits}
-    commitRange={{ start: 1, end: 1 }} onAskAgent={send} onAskAgentDisabled={reason} />));
+    commitRange={{ start: 1, end: 1 }} onAskAgent={send} onAskAgentDisabled={reason}
+    localReview={{ threads, onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {} }} />));
   render('The agent is reconnecting.');
   try {
     await selectLine(host, 'old', 2);
@@ -220,15 +223,15 @@ async function asynchronousSubmission(): Promise<void> {
     submit.click();
     submit.click();
     await settle();
-    assert(Number(requests.length) === 1 && button(host, 'Sending…').disabled, 'An in-flight private submission must not be duplicated');
-    const input = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
-    assert(input !== null && input.disabled && input.value === 'Please explain this removal' && button(host, 'Cancel').disabled,
-      'Pending submission must preserve accepted text until the request settles');
+    assert(Number(requests.length) === 1, 'An in-flight private submission must not be duplicated');
+    assert(host.querySelector('.pull-diff-review') === null && host.querySelector('[role="status"]')?.textContent === 'Sending…',
+      'Pending submission must replace the editor with a compact sending status');
     assert(host.querySelector<HTMLButtonElement>('[aria-label="Select new line 2"]')?.disabled === true,
       'Pending submission must preserve the selected code range');
     completions[0](new Error('The provider is unavailable'));
     await settle();
-    assert(input.value === 'Please explain this removal' && !input.disabled
+    const input = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
+    assert(input !== null && input.value === 'Please explain this removal' && !input.disabled
       && host.querySelector('[role="alert"]')?.textContent === 'The provider is unavailable',
     'Failed submission must retain editable feedback and show its error');
     assert(host.querySelector('.pull-diff-review__header')?.textContent?.includes('L2 to L3') === true,
@@ -237,9 +240,18 @@ async function asynchronousSubmission(): Promise<void> {
     await settle();
     assert(Number(requests.length) === 2 && JSON.stringify(requests[0]) === JSON.stringify(requests[1]),
       'Explicit retry must submit the retained comment with its original code context');
+    threads.push({ id: 'saved-comment', taskId: 'task', workspaceId: 'workspace', taskVersion: 2, repo: pr.repo, number: pr.number,
+      path: file.filename, side: 'LEFT', startLine: 2, line: 3, baseSha: '1111111', headSha: '2222222', code: requests[1].code,
+      resolved: false, version: 1, createdAt: pr.createdAt, updatedAt: pr.updatedAt,
+      messages: [{ id: 'message', author: 'USER', body: requests[1].comment.body, createdAt: pr.createdAt,
+        turnId: 'turn', queuedInputId: null, messageEventId: null, deliveryState: 'ACCEPTED', deliveryError: null }] });
+    render(null);
+    await settle();
+    assert(host.querySelectorAll('.is-local-review-thread').length === 1 && host.querySelector('.pull-diff-review') === null,
+      'A saved comment arriving before the send response must not duplicate its text in an open editor');
     completions[1]();
     await settle();
-    assert(host.querySelector('.pull-diff-review') === null, 'Only accepted private feedback closes the composer');
+    assert(host.querySelector('.is-review-composer') === null, 'Accepted private feedback must remove the sending status');
     assert(document.activeElement?.getAttribute('aria-label') === 'Select old line 3', 'Accepted feedback must restore focus to its gutter');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }

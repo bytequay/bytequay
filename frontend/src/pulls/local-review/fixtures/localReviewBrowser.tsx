@@ -185,6 +185,62 @@ async function savedRetry(): Promise<void> {
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
+async function pendingThreadResponse(): Promise<void> {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  let thread = initialThread();
+  thread = { ...thread, messages: [...thread.messages, { ...thread.messages[0], id: 'follow-up', deliveryState: 'ACCEPTED' }] };
+  const unrelated = { ...initialThread(), id: 'other-thread' };
+  let replies = 0;
+  const actions = { onReply: async () => { replies++; }, onResolve: async () => {}, onRetry: async () => {} };
+  const render = () => flushSync(() => root.render(<>
+    <LocalReviewThreadCard thread={thread} {...actions} />
+    <LocalReviewThreadCard thread={unrelated} {...actions} />
+  </>));
+  const setDelivery = (deliveryState: string) => {
+    thread = { ...thread, messages: thread.messages.map(message => message.id === 'follow-up' ? { ...message, deliveryState } : message) };
+    render();
+  };
+  render();
+  try {
+    const card = host.querySelector<HTMLElement>('[data-local-review-thread="local-1"]');
+    const other = host.querySelector<HTMLElement>('[data-local-review-thread="other-thread"]');
+    assert(card !== null && other !== null, 'Both discussions must render');
+    for (const state of ['ACCEPTED', 'RUNNING', 'QUEUED', 'STARTING']) {
+      setDelivery(state);
+      const reason = state === 'QUEUED' ? 'Your comment is queued. You can reply when the agent finishes.'
+        : 'The agent is working on a response. You can reply when it finishes.';
+      const reply = button(card, 'Reply');
+      assert(reply.disabled && reply.title === reason && card.querySelector('[role="status"]')?.textContent === reason,
+        `${state} feedback must explain why another reply is unavailable`);
+      reply.click(); await settle();
+      assert(card.querySelector('textarea') === null && !button(other, 'Reply').disabled && !button(card, 'Resolve').disabled,
+        'Only the waiting discussion must block new replies; resolution remains available');
+    }
+    setDelivery('COMPLETED');
+    button(card, 'Reply').click(); await settle();
+    const input = card.querySelector('textarea');
+    assert(input !== null, 'Completion must make replies available again');
+    changeInput(input, 'Keep my follow-up draft'); await settle();
+    setDelivery('RUNNING');
+    assert(input.disabled && input.value === 'Keep my follow-up draft' && button(card, 'Reply to agent').disabled
+      && button(card, 'Better words').disabled && !button(card, 'Cancel').disabled
+      && card.querySelector('[role="status"]')?.textContent?.includes('working on a response') === true,
+    'A discussion becoming active must disable an already-open editor without discarding its draft');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+    button(card, 'Reply to agent').click(); await settle();
+    assert(replies === 0, 'Neither keyboard nor button submission may send while the agent is answering');
+    for (const state of ['COMPLETED', 'FAILED', 'CANCELLED', 'INTERRUPTED', 'UNSENT', 'PAUSED', 'REMOVED', 'ABANDONED']) {
+      setDelivery(state);
+      assert(!input.disabled && input.value === 'Keep my follow-up draft' && !button(card, 'Reply to agent').disabled
+        && !card.querySelector('[role="status"]')?.textContent,
+      `${state} feedback must release the editor and retain its draft`);
+    }
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
 async function anchoredDiff(): Promise<void> {
   const host = document.createElement('div');
   document.body.append(host);
@@ -827,6 +883,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['GitHub, local and pending comments share card layout and folding', sharedCardLayout],
     ['Local discussion reply, resolution and remount', replyAndResolve],
     ['Saved unsent message retry', savedRetry],
+    ['Pending responses disable only their own discussion and preserve drafts', pendingThreadResponse],
     ['Private diff anchors preserve revision and code', anchoredDiff],
     ['Independent overview and commit discussions survive reload', independentLearningCards],
     ['Review-owned private replies use the fresh task version', reviewOwnedLocalDiscussion],

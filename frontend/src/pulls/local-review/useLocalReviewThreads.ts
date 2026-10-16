@@ -70,7 +70,8 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
     });
     accept(thread, scope);
     operations.current.delete(signature);
-    await dispatched();
+    // The saved thread is authoritative; a slow task refresh must not keep its editor open.
+    void dispatched();
   }, [accept, dispatched, latest, live, operation]);
   const onReply = useCallback(async (threadId: string, body: string) => {
     const scope = latest.current.key;
@@ -85,7 +86,7 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
     });
     accept(updated, scope);
     operations.current.delete(signature);
-    await dispatched();
+    void dispatched();
   }, [accept, dispatched, find, latest, live, operation, refresh]);
   const createLearning = useCallback(async (input: Omit<CreateDevelopmentLearningCommentRequest, 'id' | 'messageId' | 'idempotencyKey'>) => {
     const createComment = live().createDevelopmentLearningComment;
@@ -96,7 +97,7 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
     const request = operation(signature);
     accept(await createComment({ ...input, expectedTaskVersion, id: request.threadId, messageId: request.messageId, idempotencyKey: request.key }), scope);
     operations.current.delete(signature);
-    await dispatched();
+    void dispatched();
   }, [accept, dispatched, latest, live, operation]);
   const onResolve = useCallback(async (threadId: string, resolved: boolean) => {
     const thread = find(threadId);
@@ -121,7 +122,7 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
     accept(await live().retryLocalReviewComment({
       taskId: thread.taskId, workspaceId: thread.workspaceId, threadId, messageId, expectedTaskVersion: thread.taskVersion,
     }), scope);
-    await dispatched();
+    void dispatched();
   }, [accept, dispatched, find, latest, live, refresh]);
   return { threads: items, viewer, onReply, onResolve, onRetry,
     disabledReason: options.disabledReason, learningDisabledReason: options.learningDisabledReason, error, refresh, create, createLearning };

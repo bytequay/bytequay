@@ -418,8 +418,10 @@ public class LocalReviewService
     private LocalReviewView view(LocalReviewThread thread)
     {
         List<LocalReviewView.Message> messages = thread.messages().stream().map(message -> {
-            Optional<AgentTurn> turn = message.inputKey().flatMap(key -> turnStore.findByIdempotencyKey(TaskId.valueOf(thread.taskId()), key));
             Optional<QueuedAgentInput> queued = message.inputKey().flatMap(key -> queueStore.findQueuedByIdempotencyKey(TaskId.valueOf(thread.taskId()), key));
+            Optional<AgentTurn> turn = message.inputKey().flatMap(key -> turnStore.findByIdempotencyKey(TaskId.valueOf(thread.taskId()), key))
+                    .or(() -> queued.filter(input -> input.state() == QueuedAgentInput.State.STARTING || input.state() == QueuedAgentInput.State.STARTED)
+                            .flatMap(QueuedAgentInput::turnId).flatMap(turnStore::find));
             Optional<String> turnId = turn.map(value -> value.id().toString()).or(() -> queued.flatMap(QueuedAgentInput::turnId).map(Object::toString)).or(message::turnId);
             Optional<String> state = turn.map(value -> value.state().name()).or(() -> queued.map(value -> value.state().name()));
             if (message.author() == Author.USER && state.isEmpty()) {

@@ -33,7 +33,12 @@ export default function LocalReviewThreadCard({ thread, viewer, onReply, onResol
   badges?: ReactNode;
 }) {
   const learning = thread.learningAnchor ?? null;
-  const disabledReason = learning !== null && learningDisabledReason !== undefined ? learningDisabledReason : codeDisabledReason;
+  const working = thread.messages.some(message => message.author === 'USER'
+    && (message.deliveryState === 'ACCEPTED' || message.deliveryState === 'RUNNING' || message.deliveryState === 'STARTING'));
+  const queued = thread.messages.some(message => message.author === 'USER' && message.deliveryState === 'QUEUED');
+  const waitingReason = working ? 'The agent is working on a response. You can reply when it finishes.'
+    : queued ? 'Your comment is queued. You can reply when the agent finishes.' : null;
+  const disabledReason = waitingReason ?? (learning !== null && learningDisabledReason !== undefined ? learningDisabledReason : codeDisabledReason);
   const [replying, setReplying] = useReviewDraft(`local:${thread.id}:replying`, false);
   const [body, setBody] = useReviewDraft(`local:${thread.id}:body`, '');
   const [preview, setPreview] = useState(false);
@@ -64,11 +69,11 @@ export default function LocalReviewThreadCard({ thread, viewer, onReply, onResol
     <MarkdownEditor value={body} onChange={setBody} ariaLabel="Reply to local review" placeholder="Reply privately to this thread…"
       repository={thread.repo} preview={preview} onPreviewChange={setPreview} textareaRef={textareaRef} isPrivate
       statusMessage={disabledReason}
-      error={error} busy={busy} autoFocus onSubmit={reply}
+      error={error} busy={busy || waitingReason !== null} autoFocus onSubmit={reply}
       // Escape must not throw away a half-written reply.
       onCancel={() => { if (!body.trim()) close(); }}>
       <BetterWordsButton text={body} textareaRef={textareaRef} repository={thread.repo} workspaceId={thread.workspaceId}
-        disabled={preview || busy} onError={cause => setError(cause === null ? null : cause instanceof Error ? cause.message : 'Could not improve the reply.')} />
+        disabled={preview || busy || waitingReason !== null} onError={cause => setError(cause === null ? null : cause instanceof Error ? cause.message : 'Could not improve the reply.')} />
       <button type="button" disabled={busy} onClick={close}>Cancel</button>
       <button className="is-primary" type="button" disabled={busy || !body.trim() || Boolean(disabledReason)} title={disabledReason ?? undefined}
         onClick={reply}>{pending === 'reply' ? 'Replying…' : 'Reply to agent'}</button>

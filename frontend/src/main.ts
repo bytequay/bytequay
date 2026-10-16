@@ -1497,13 +1497,14 @@ function registerIpc(): void {
   });
   ipcMain.handle('recent:changes', () => backendJson(`${backendBase()}/recent/changes`));
   ipcMain.handle('agenda:today', (_event, workspaceId: unknown) =>
-    backendJson(`${backendBase()}/api/agenda/today${typeof workspaceId === 'string' && workspaceId !== '' ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ''}`));
-  ipcMain.handle('agenda:again', () => backendJson(`${backendBase()}/api/agenda/today/run`, { method: 'POST' }));
+    backendJson(`${backendBase()}/api/agenda/today${typeof workspaceId === 'string' && workspaceId !== '' ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ''}`,
+      { headers: agentHeaders() }));
+  ipcMain.handle('agenda:again', () => backendJson(`${backendBase()}/api/agenda/today/run`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('agenda:mark', (_event, ref: unknown, mark: unknown) =>
-    backendJson(`${backendBase()}/api/agenda/today/marks`, jsonInit('PUT', { ref, mark: mark === 'DONE' || mark === 'DISMISSED' ? mark : null })));
-  ipcMain.handle('settings:agenda', () => backendJson(`${backendBase()}/api/settings/agenda`));
+    backendJson(`${backendBase()}/api/agenda/today/marks`, jsonInit('PUT', { ref, mark: mark === 'DONE' || mark === 'DISMISSED' ? mark : null }, agentHeaders())));
+  ipcMain.handle('settings:agenda', () => backendJson(`${backendBase()}/api/settings/agenda`, { headers: agentHeaders() }));
   ipcMain.handle('settings:agenda:save', (_event, schedule: unknown) =>
-    backendJson(`${backendBase()}/api/settings/agenda`, jsonInit('PUT', schedule)));
+    backendJson(`${backendBase()}/api/settings/agenda`, jsonInit('PUT', schedule, agentHeaders())));
   ipcMain.handle('recent:touch', (_event, touch: RecentTouchRequest) =>
     backendJson(`${backendBase()}/recent/touch`, jsonInit('POST', touch)));
   ipcMain.handle('recent:draft', (_event, draft: RecentDraftRequest) =>

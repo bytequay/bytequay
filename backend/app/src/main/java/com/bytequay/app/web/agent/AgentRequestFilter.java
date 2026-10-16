@@ -60,6 +60,8 @@ public final class AgentRequestFilter
                 && !(path.equals("/api/google") || path.startsWith("/api/google/"))
                 && !(path.equals("/api/jira") || path.startsWith("/api/jira/"))
                 && !(path.equals("/api/teams") || path.startsWith("/api/teams/"))
+                // A run spends the user's model account and the view shows their private work.
+                && !(path.equals("/api/agenda") || path.startsWith("/api/agenda/") || path.equals("/api/settings/agenda"))
                 && !path.startsWith("/api/ci-autofix")
                 && !path.startsWith("/api/cherry-pick-ranges")
                 && !(path.startsWith("/api/workspaces/")

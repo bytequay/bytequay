@@ -197,9 +197,9 @@ public class GoalResearchService
             if (completed) {
                 List<String> topics = notes.list(research.goalId()).stream().filter(note -> note.taskId().equals(build.taskId()))
                         .map(GoalKnowledgeNote::topic).collect(toImmutableList());
-                conversations.getObject().tell(build.workspaceId(), research.goalId(), "research:" + build.taskId(), topics.isEmpty()
+                conversations.ifAvailable(conversation -> conversation.tell(build.workspaceId(), research.goalId(), "research:" + build.taskId(), topics.isEmpty()
                         ? "The research run finished without saving notes."
-                        : "The research run saved " + topics.size() + (topics.size() == 1 ? " note: " : " notes: ") + String.join("; ", topics) + ".");
+                        : "The research run saved " + topics.size() + (topics.size() == 1 ? " note: " : " notes: ") + String.join("; ", topics) + "."));
             }
         }
         catch (RuntimeException failure) {

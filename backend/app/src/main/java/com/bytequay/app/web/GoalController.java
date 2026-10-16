@@ -28,6 +28,7 @@ import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalTopic;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -50,6 +51,7 @@ import static java.util.Objects.requireNonNull;
 
 /** Local workspace goals and their conversations; nothing here reaches GitHub or Jira. */
 @RestController
+@ConditionalOnProperty(name = "bytequay.experiments.goals", havingValue = "true")
 @RequestMapping("/api/workspaces/{workspaceId}/goals")
 public class GoalController
 {

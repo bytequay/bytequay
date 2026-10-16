@@ -19,6 +19,7 @@ import com.bytequay.core.store.GoalExchangeStore;
 import com.bytequay.core.store.WorkspaceStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -37,6 +38,7 @@ import static java.util.stream.Collectors.joining;
  * since it last looked. When nothing new was opened nothing is told, so no model is asked. Local reads only.
  */
 @Component
+@ConditionalOnProperty(name = "bytequay.experiments.goals", havingValue = "true")
 public class GoalDiscovery
 {
     static final int MAX_FRESH = 5;

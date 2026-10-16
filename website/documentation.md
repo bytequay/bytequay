@@ -505,6 +505,9 @@ monitoring a PR does not authorize repairs.
 
 ## Turn a goal into useful work
 
+Goals are an experiment available only in development builds. Packaged releases
+do not show Goal controls or run automatic Goal guidance.
+
 Goals help you clarify an objective, learn about a repository, and track whether the
 work actually achieved its intended result.
 

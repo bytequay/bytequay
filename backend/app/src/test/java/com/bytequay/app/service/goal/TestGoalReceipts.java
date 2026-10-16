@@ -92,6 +92,18 @@ class TestGoalReceipts
     }
 
     @Test
+    void keepsReceiptsWhenTheGoalExperimentIsDisabled()
+    {
+        beans.destroySingleton("goalConversationService");
+        when(items.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item(Optional.of("goal-1"))));
+        receipts.recover();
+        receipts.record(task(true), turn(TurnState.COMPLETED));
+        verify(work).receipt("workspace", "work-1", "turn:" + turnId, "Task turn finished: Keyed checkpoint actions by path and deletion vector; the new test passes.");
+        verify(work).linkRelated("workspace", "work-1");
+        verify(conversation, never()).report(any(), any(), any(), any(), any());
+    }
+
+    @Test
     void aFinishedTurnOfAGoalsTaskLeavesAReceiptAndIsReportedWithoutAskingTheAgent()
     {
         when(items.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item(Optional.of("goal-1"))));

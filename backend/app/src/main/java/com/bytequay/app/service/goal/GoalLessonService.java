@@ -163,8 +163,8 @@ public class GoalLessonService
                     .forEach(card -> recommendations.save(card.done(clock.instant())));
         }
         GoalView finished = goal(workspaceId, goalId);
-        conversations.getObject().tellDecision(workspaceId, goalId, "lesson:" + lessonId,
-                "The user finished the lesson \"" + item.title() + "\"." + completedPart(finished, lessonId));
+        conversations.ifAvailable(conversation -> conversation.tellDecision(workspaceId, goalId, "lesson:" + lessonId,
+                "The user finished the lesson \"" + item.title() + "\"." + completedPart(finished, lessonId)));
         return finished;
     }
 

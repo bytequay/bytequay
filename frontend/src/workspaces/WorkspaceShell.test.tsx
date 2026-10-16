@@ -23,7 +23,7 @@ import { RetiredWorkspaceCards, WorkspaceCards } from './WorkspacesPage';
 import UnwatchWorkspaceDialog from './UnwatchWorkspaceDialog';
 import WorkspaceShell from './WorkspaceShell';
 
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 /** Captures what a surface asks to zoom; the app itself listens for the same event. */
 function captureZoom() {
@@ -209,7 +209,8 @@ describe('watched repository workspace UI', () => {
     expect(html).not.toContain('<button');
   });
 
-  it('ships the agent task surfaces in every build', () => {
+  it.each([true, false])('ships agent task surfaces with development mode %s', development => {
+    vi.stubEnv('NODE_ENV', development ? 'development' : 'production');
     const props = {
       workspace: workspace('FORK'),
       tab: 'tasks' as const,
@@ -237,16 +238,16 @@ describe('watched repository workspace UI', () => {
     expect(home).toContain('aria-label="Describe a task"');
     expect(home).toContain('class="agt-headbtn agt-overview-toggle"');
 
-    // Every page, an open task included, carries the workspace's goal as a pill.
+    // The Goal experiment wraps workspace pages only in development.
     for (const page of [tasks, home, renderToStaticMarkup(<WorkspaceShell {...props} tab="prs" />)]) {
-      expect(page).toContain('class="goal-layer"');
-      expect(page).toMatch(/<button[^>]*class="goal-pill"[^>]*aria-label="Open goals"/);
+      expect(page.includes('class="goal-layer"')).toBe(development);
+      expect(/<button[^>]*class="goal-pill"[^>]*aria-label="Open goals"/.test(page)).toBe(development);
     }
 
     // The route, not component memory, decides which task is open.
     const open = renderToStaticMarkup(
       <WorkspaceShell {...props} initialAgentTaskId="task-1" />);
-    expect(open).toContain('goal-pill');
+    expect(open.includes('goal-pill')).toBe(development);
     expect(open).toContain('Message the agent');
     expect(open.match(/aria-label="Show all tasks"/g)).toHaveLength(1);
     expect(open).toMatch(/<div class="agt-screen-head">.*aria-label="Show all tasks".*<\/button><\/div>/);

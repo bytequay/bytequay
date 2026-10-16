@@ -28,7 +28,7 @@ const views = {
     source: "assets/app-goals.jpg",
     title: "Turn an objective into work that matters.",
     caption:
-      "Use guidance to clarify the result you want. Track next steps, active work, blockers, and accepted outcomes without losing the original purpose.",
+      "A development-only experiment: clarify the result you want and track next steps, active work, blockers, and accepted outcomes.",
     guide: "documentation.html#goals",
     alt: "ByteQuay Goal work board with next steps, working items, blocked work, and completed outcomes.",
   },

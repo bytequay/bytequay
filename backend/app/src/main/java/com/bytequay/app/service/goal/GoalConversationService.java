@@ -36,6 +36,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
@@ -75,6 +76,7 @@ import static java.util.Objects.requireNonNull;
  * time per goal and two at a time across the app. Nothing here starts work, creates a branch or writes to GitHub or Jira.
  */
 @Service
+@ConditionalOnProperty(name = "bytequay.experiments.goals", havingValue = "true")
 public class GoalConversationService
 {
     static final int MAX_TITLE = 120;

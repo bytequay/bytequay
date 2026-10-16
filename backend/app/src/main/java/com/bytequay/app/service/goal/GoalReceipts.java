@@ -145,13 +145,14 @@ public class GoalReceipts
     /** A turn that finished normally is progress the agent hears with its next news; a failed or interrupted one is news itself. */
     private void tell(WorkItem item, String operationId, boolean finished, String event)
     {
-        GoalConversationService conversation = conversations.getObject();
-        if (finished) {
-            conversation.report(item.workspaceId(), item.goalId().orElseThrow(), operationId, item.id(), event);
-        }
-        else {
-            conversation.tell(item.workspaceId(), item.goalId().orElseThrow(), operationId, event);
-        }
+        conversations.ifAvailable(conversation -> {
+            if (finished) {
+                conversation.report(item.workspaceId(), item.goalId().orElseThrow(), operationId, item.id(), event);
+            }
+            else {
+                conversation.tell(item.workspaceId(), item.goalId().orElseThrow(), operationId, event);
+            }
+        });
     }
 
     /**
@@ -163,7 +164,7 @@ public class GoalReceipts
     public void recover()
     {
         // Requests the agent was answering when ByteQuay stopped are settled first; while one looks pending, the agent cannot be told anything.
-        conversations.getObject().settleInterrupted();
+        conversations.ifAvailable(GoalConversationService::settleInterrupted);
         for (Workspace workspace : workspaces.findAll()) {
             for (WorkItem item : items.list(workspace.id())) {
                 try {

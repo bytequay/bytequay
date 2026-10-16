@@ -108,7 +108,7 @@ public class GoalSpecChecks
                             .filter(found -> found.state() == GoalRecommendation.State.STARTED && found.checkId().filter(check.id()::equals).isPresent()).findFirst();
                     card.ifPresent(found -> recommendations.save(found.settled(check.state() == ContextSpecCheck.State.DONE, clock.instant())));
                 }
-                card.ifPresent(found -> conversations.getObject().tell(workspaceId, goal.id(), "check:" + check.id(), summary(check)));
+                card.ifPresent(found -> conversations.ifAvailable(conversation -> conversation.tell(workspaceId, goal.id(), "check:" + check.id(), summary(check))));
             }
         }
         catch (RuntimeException failure) {

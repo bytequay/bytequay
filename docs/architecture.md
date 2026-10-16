@@ -29,6 +29,10 @@ database, enforced by an operating-system lock. Desktop browser surfaces use
 Electron `WebContentsView`; external web sessions stay separate from the
 application's privileged bridge and backend credentials.
 
+Goals are a development-only experiment. Packaged renderers omit their controls,
+and the packaged sidecar disables Goal endpoints and automatic guidance. Shared
+work-item services and saved Goal data remain available for continuity.
+
 App notices project existing task, turn, approval, and queue state through the
 authenticated `/agent/notices` endpoint. Electron polls this local snapshot and
 keeps delivery deduplication and recent notices in memory for the session.

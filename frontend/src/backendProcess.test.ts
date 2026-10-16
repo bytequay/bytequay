@@ -54,6 +54,13 @@ afterEach(() => {
 });
 
 describe('backend port discovery', () => {
+  it('disables the Goal experiment in packaged apps even when the environment enables it', async () => {
+    vi.stubEnv('BYTEQUAY_EXPERIMENTS_GOALS', 'true');
+    const backend = await import('./backendProcess');
+    backend.spawnBackend();
+    expect(mocks.spawn.mock.calls[0]?.[1]).toContain('--bytequay.experiments.goals=false');
+  });
+
   it.each([9527, 41234])('waits for the child to report port %s before connecting', async port => {
     const backend = await import('./backendProcess');
     backend.spawnBackend();

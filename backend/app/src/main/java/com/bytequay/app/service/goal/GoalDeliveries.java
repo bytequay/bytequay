@@ -185,14 +185,14 @@ public class GoalDeliveries
         }
         try {
             work.getObject().receipt(item.workspaceId(), item.id(), operation, receipt);
-            item.goalId().ifPresent(goalId -> {
+            item.goalId().ifPresent(goalId -> conversations.ifAvailable(conversation -> {
                 if (routine) {
-                    conversations.getObject().report(item.workspaceId(), goalId, operation + ":" + item.id(), item.id(), event);
+                    conversation.report(item.workspaceId(), goalId, operation + ":" + item.id(), item.id(), event);
                 }
                 else {
-                    conversations.getObject().tell(item.workspaceId(), goalId, operation + ":" + item.id(), event);
+                    conversation.tell(item.workspaceId(), goalId, operation + ":" + item.id(), event);
                 }
-            });
+            }));
         }
         catch (RuntimeException failure) {
             log.warn("{} was not recorded on Goal work {}", operation, item.id(), failure);

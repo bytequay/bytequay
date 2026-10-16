@@ -245,8 +245,14 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
     return () => window.removeEventListener(EPIC_START, take);
   }, [startIssue, workspace.id]);
 
-  // Every page of the workspace carries the pinned goal; an open task or review keeps its own spot for the pill.
-  return (
+  const page = relatedWorkspaceId !== null && (tab === 'commits' || tab === 'context')
+    ? <RelatedWorkspaceView key={relatedWorkspaceId} workspaceId={workspace.id} relatedWorkspaceId={relatedWorkspaceId} tab={tab} />
+    : tab === 'commits' && !workspaceHasReadableCode(workspace)
+    ? <WorkspaceUnavailable message="Repository code must be ready before this tab can open." />
+    : renderPage();
+
+  // Goals are a development experiment; release builds never mount their controls or conversation.
+  return process.env.NODE_ENV !== 'production' ? (
     <GoalLayer
       page={taskDetail ? 'task' : tab}
       workspaceId={workspace.id}
@@ -260,13 +266,9 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
         window.location.hash = workspaceRoute(workspace.id, 'context');
       }}
     >
-      {relatedWorkspaceId !== null && (tab === 'commits' || tab === 'context')
-        ? <RelatedWorkspaceView key={relatedWorkspaceId} workspaceId={workspace.id} relatedWorkspaceId={relatedWorkspaceId} tab={tab} />
-        : tab === 'commits' && !workspaceHasReadableCode(workspace)
-        ? <WorkspaceUnavailable message="Repository code must be ready before this tab can open." />
-        : renderPage()}
+      {page}
     </GoalLayer>
-  );
+  ) : page;
 
   function renderPage(): React.JSX.Element {
     if (tab === 'commits') {

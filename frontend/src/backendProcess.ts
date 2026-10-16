@@ -138,7 +138,7 @@ export function spawnBackend(): void {
   const java = resolveJava();
   if (!java) return;
 
-  child = spawn(java, [...jvmArgs, '-jar', jar], {
+  child = spawn(java, [...jvmArgs, '-jar', jar, '--bytequay.experiments.goals=false'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
     env: {

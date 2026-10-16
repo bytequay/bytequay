@@ -75,6 +75,13 @@ such as `2h` to impose a limit; `0` disables it. Restart ByteQuay to apply the
 setting to newly accepted turns. Login checks and other short helper operations
 keep their separate timeouts.
 
+Goals are a development-only experiment. `./dev.sh` enables their backend and
+`npm start` shows their controls. Packaged releases hide Goals and disable their
+HTTP endpoints and automatic guidance, while keeping saved data. When starting
+the backend separately, use
+`mvn spring-boot:run -Dspring-boot.run.arguments=--bytequay.experiments.goals=true`
+to enable the experiment.
+
 ## Claude accounts
 
 Settings → Models shows CLI status and the default Claude account, with Sign

@@ -175,11 +175,12 @@ function announce(workspaceId: string): void {
  */
 export function usePinnedGoals(workspaceIds: readonly string[], bridge: () => GoalBridge = windowBridge): ReadonlyMap<string, GoalDto> {
   const key = workspaceIds.join(',');
-  const [pinned, setPinned] = useState<ReadonlyMap<string, GoalDto>>(() => new Map(workspaceIds.flatMap((id) => {
+  const [pinned, setPinned] = useState<ReadonlyMap<string, GoalDto>>(() => new Map((process.env.NODE_ENV !== 'production' ? workspaceIds : []).flatMap((id) => {
     const goal = getCached<GoalDto[]>(`goals:${id}`)?.find((candidate) => candidate.pinned);
     return goal === undefined ? [] : [[id, goal] as const];
   })));
   useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
     const ids = key === '' ? [] : key.split(',');
     if (ids.length === 0) return;
     let active = true;
@@ -219,7 +220,7 @@ export function toggleGoalItem(workspaceId: string, goalId: string, ref: GoalRef
 
 export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowBridge): Goals {
   const seed = `goals:${workspaceId}`;
-  const [goals, setGoals] = useState<GoalDto[]>(() => getCached<GoalDto[]>(seed) ?? []);
+  const [goals, setGoals] = useState<GoalDto[]>(() => process.env.NODE_ENV !== 'production' ? getCached<GoalDto[]>(seed) ?? [] : []);
   const [workItems, setWorkItems] = useState<WorkItemDto[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -227,7 +228,7 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     let active = true;
     const read = (): void => {
       if (document.hidden) return;
-      void Promise.all([bridge().listGoals(workspaceId), bridge().listWorkItems(workspaceId)]).then(([found, work]) => {
+      void Promise.all([process.env.NODE_ENV !== 'production' ? bridge().listGoals(workspaceId) : Promise.resolve([]), bridge().listWorkItems(workspaceId)]).then(([found, work]) => {
         if (!active) return;
         setGoals(found);
         setWorkItems(work);

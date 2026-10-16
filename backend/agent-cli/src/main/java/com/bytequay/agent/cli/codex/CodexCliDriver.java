@@ -1752,7 +1752,8 @@ public final class CodexCliDriver
          *
          * <p>A subagent still working may take as long as the turn may, which the turn's own timer bounds.
          * Anything else that keeps the check from settling gets the shorter quiescence bound, and so does
-         * a cancelled turn, which stops the work instead of waiting for it.
+         * a cancelled turn, which stops the work instead of waiting for it. A background command still
+         * running when the bound ends is stopped the same way and gets the bound again.
          *
          * @param turn the turn whose root reported completion
          * @return empty when quiet, otherwise what was still outstanding
@@ -1761,6 +1762,8 @@ public final class CodexCliDriver
         {
             Instant deadline = Instant.now().plus(quiescenceTimeout);
             boolean stopping = false;
+            boolean stopTerminals = false;
+            boolean terminalOutstanding = false;
             int stablePasses = 0;
             String lastSeen = "";
             while (stablePasses < QUIESCENCE_STABLE_PASSES) {
@@ -1770,15 +1773,25 @@ public final class CodexCliDriver
                 }
                 if (!stopping && turn.cancellationRequested()) {
                     stopping = true;
+                    stopTerminals = true;
                     deadline = Instant.now().plus(quiescenceTimeout);
                 }
                 if (Instant.now().isAfter(deadline)) {
-                    return Optional.of(lastSeen.isEmpty() ? "the check timed out" : lastSeen);
+                    if (stopTerminals || !terminalOutstanding) {
+                        return Optional.of(lastSeen.isEmpty() ? "the check timed out" : lastSeen);
+                    }
+                    // The root has answered and this process closes next, so nothing reads the command's
+                    // output any more, as with a REPL that hangs on exit. Stopping it keeps the answer.
+                    log.info("Codex turn {} finished, but {} was still running; stopping it", turn.reference().value(), lastSeen);
+                    stopTerminals = true;
+                    deadline = Instant.now().plus(quiescenceTimeout);
                 }
                 Set<String> threads = ImmutableSet.copyOf(observedThreads);
                 Set<String> visited = new HashSet<>();
                 Set<String> working = new HashSet<>();
-                Optional<String> unfinished = firstUnfinishedAgent(reference.providerValue(), turn.reference().value(), stopping, visited, working);
+                Set<String> terminals = new HashSet<>();
+                Optional<String> unfinished = firstUnfinishedAgent(reference.providerValue(), turn.reference().value(), stopping, stopTerminals, visited, working, terminals);
+                terminalOutstanding = !terminals.isEmpty();
                 if (unfinished.isPresent()) {
                     lastSeen = unfinished.orElseThrow();
                     stablePasses = 0;
@@ -1815,10 +1828,19 @@ public final class CodexCliDriver
         /**
          * A finished agent has terminal own work, no running tools, and only finished children.
          *
-         * @param stopBackgroundWork whether outstanding work should be stopped rather than watched
+         * @param interruptAgents whether a subagent still working should be interrupted rather than watched
+         * @param stopTerminals whether a background command should be stopped rather than watched
          * @param working receives a subagent found still working
+         * @param terminals receives a background command found still running
          */
-        private Optional<String> firstUnfinishedAgent(String threadId, String providerTurnId, boolean stopBackgroundWork, Set<String> visited, Set<String> working)
+        private Optional<String> firstUnfinishedAgent(
+                String threadId,
+                String providerTurnId,
+                boolean interruptAgents,
+                boolean stopTerminals,
+                Set<String> visited,
+                Set<String> working,
+                Set<String> terminals)
         {
             if (!visited.add(threadId)) {
                 return Optional.of("the agent inventory contains a cycle or repeated parent for " + threadId);
@@ -1858,7 +1880,7 @@ public final class CodexCliDriver
             if ((!thread.status().type().equals("idle") && !unloadedChild) || turns.stream().anyMatch(turn -> !turn.terminal())) {
                 if (!rootThread && thread.status().type().equals("active")) {
                     working.add(threadId);
-                    if (stopBackgroundWork && !turns.isEmpty()) {
+                    if (interruptAgents && !turns.isEmpty()) {
                         interruptAgent(threadId, turns.getFirst().id());
                     }
                 }
@@ -1867,7 +1889,7 @@ public final class CodexCliDriver
             // A closed child has no runtime, and its background API deliberately rejects reads.
             // Its descendants can still be loaded, so recurse through the inventory below.
             if (!unloadedChild) {
-                Optional<String> background = firstBackgroundTerminal(threadId, stopBackgroundWork);
+                Optional<String> background = firstBackgroundTerminal(threadId, stopTerminals, terminals);
                 if (background.isPresent()) {
                     return background;
                 }
@@ -1881,7 +1903,7 @@ public final class CodexCliDriver
             }
             childIds.addAll(childThreads(threadId));
             for (String childId : childIds) {
-                Optional<String> childWork = firstUnfinishedAgent(childId, providerTurnId, stopBackgroundWork, visited, working);
+                Optional<String> childWork = firstUnfinishedAgent(childId, providerTurnId, interruptAgents, stopTerminals, visited, working, terminals);
                 if (childWork.isPresent()) {
                     return childWork;
                 }
@@ -1920,7 +1942,7 @@ public final class CodexCliDriver
             return childThreads.build();
         }
 
-        private Optional<String> firstBackgroundTerminal(String thread, boolean stopBackgroundWork)
+        private Optional<String> firstBackgroundTerminal(String thread, boolean stop, Set<String> terminals)
         {
             Optional<String> cursor = Optional.empty();
             do {
@@ -1938,7 +1960,8 @@ public final class CodexCliDriver
                 }
                 if (!page.data().isEmpty()) {
                     String processId = page.data().getFirst().processId();
-                    if (stopBackgroundWork) {
+                    terminals.add(processId);
+                    if (stop) {
                         terminate(thread, processId);
                     }
                     // Reported either way, so this pass is never counted as settled. A terminated

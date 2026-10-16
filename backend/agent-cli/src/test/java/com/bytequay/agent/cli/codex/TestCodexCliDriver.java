@@ -1911,6 +1911,8 @@ class TestCodexCliDriver
         supervisor.reportNoBackgroundTerminals();
         assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
                 .isEqualTo(AgentTurnResult.State.COMPLETED);
+        // A command that ends within the bound finishes its own work instead of being stopped.
+        assertThat(supervisor.server().terminated()).isEmpty();
         session.close();
     }
 
@@ -2150,7 +2152,7 @@ class TestCodexCliDriver
     }
 
     @Test
-    void failsATurnWhoseProcessCannotBeShownStopped()
+    void terminatesAYieldedCommandThatOutlivesTheBound()
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
@@ -2161,9 +2163,32 @@ class TestCodexCliDriver
 
         supervisor.server().completeTurn();
 
+        // Nothing reads the command once the root has answered, as with a REPL that hangs on exit,
+        // so it is stopped and the finished answer stands.
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        assertThat(supervisor.server().terminated()).containsExactly("proc-1");
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(result.providerQuiescent()).isTrue();
+        session.close();
+    }
+
+    @Test
+    void failsATurnWhoseProcessCannotBeShownStopped()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor, Duration.ofMillis(500));
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("yield"));
+        supervisor.reportBackgroundTerminal();
+        supervisor.ignoreBackgroundTerminalTermination();
+
+        supervisor.server().completeTurn();
+
         // The root result is not accepted as complete, but closing the per-turn process makes the
         // worktree safe even when the inventories never became quiet.
         AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        assertThat(supervisor.server().terminated()).contains("proc-1");
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
         assertThat(result.terminalReason().orElseThrow()).contains("background terminal proc-1");
         assertThat(result.providerQuiescent()).isTrue();
@@ -3682,6 +3707,7 @@ class TestCodexCliDriver
         private volatile String mcpStatuses;
         private volatile String skills = "[]";
         private volatile String backgroundTerminals = "{\"data\":[],\"nextCursor\":null}";
+        private volatile boolean terminationIgnored;
         private final ConcurrentMap<String, String> scriptedItems = new ConcurrentHashMap<>();
         private volatile String models = modelCatalog(Optional.of("v1"));
         private volatile ProcessExit.TreeTermination termination = ProcessExit.TreeTermination.VERIFIED_STOPPED;
@@ -3897,6 +3923,19 @@ class TestCodexCliDriver
             backgroundTerminals = "{\"data\":[],\"nextCursor\":null}";
         }
 
+        /** Keeps a terminated command listed, as one that survives its stop request would be. */
+        private void ignoreBackgroundTerminalTermination()
+        {
+            terminationIgnored = true;
+        }
+
+        private void terminateBackgroundTerminals()
+        {
+            if (!terminationIgnored) {
+                reportNoBackgroundTerminals();
+            }
+        }
+
         private void reportManagedRequirements(String response)
         {
             managedRequirements = response;
@@ -4011,7 +4050,7 @@ class TestCodexCliDriver
                     () -> mcpStatuses,
                     () -> skills,
                     () -> backgroundTerminals,
-                    this::reportNoBackgroundTerminals,
+                    this::terminateBackgroundTerminals,
                     thread -> scriptedItems.getOrDefault(thread, "{\"data\":[],\"nextCursor\":null}"),
                     () -> models,
                     () -> catalog ? ProcessExit.TreeTermination.VERIFIED_STOPPED : termination);

@@ -55,6 +55,7 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.app.discussion.TaskDiscussionService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -2711,6 +2712,23 @@ class TestAgentReviewService
     }
 
     @Test
+    void endWaitsForAPrivateThreadAnswerThatReadsTheWorkingCopy()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        when(fixture.discussions.isAnswering(TASK_ID)).thenReturn(true);
+
+        assertThatThrownBy(() -> fixture.service.end(reviewId)).isInstanceOf(ReviewConflictException.class)
+                .hasMessage("Wait for the private thread's answer to finish before ending the review");
+
+        verify(fixture.observer, never()).unwatch(reviewId);
+        verify(fixture.completions, never()).cleanupWorktree(TASK_ID);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.OPEN);
+        when(fixture.discussions.isAnswering(TASK_ID)).thenReturn(false);
+        assertThat(fixture.service.end(reviewId).review().state()).isEqualTo(AgentReview.State.CLOSED);
+    }
+
+    @Test
     void endRefusesSavedEditsBeforeItStopsObservingTheReview()
     {
         Fixture fixture = new Fixture();
@@ -3630,6 +3648,7 @@ class TestAgentReviewService
         private final CredentialService credentials = mock(CredentialService.class);
         private final ReviewTaskObserver observer = mock(ReviewTaskObserver.class);
         private final ReviewSweep sweeps = mock(ReviewSweep.class);
+        private final TaskDiscussionService discussions = mock(TaskDiscussionService.class);
         private final Map<String, AgentTurn> acceptedTurns = new LinkedHashMap<>();
         private final AgentReviewService service;
 
@@ -3659,6 +3678,7 @@ class TestAgentReviewService
                     credentials,
                     observer,
                     sweeps,
+                    discussions,
                     new ReviewLocks(),
                     CLOCK);
             when(drivers.require(LANE)).thenReturn(driver);

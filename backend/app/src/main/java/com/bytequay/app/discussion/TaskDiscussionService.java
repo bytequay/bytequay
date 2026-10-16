@@ -566,6 +566,12 @@ public class TaskDiscussionService
         answering.computeIfPresent(task.id().toString(), (key, current) -> current == slot ? null : current);
     }
 
+    /** Whether a read-only session is answering one of this task's questions in its working copy now. */
+    public boolean isAnswering(TaskId taskId)
+    {
+        return answering.containsKey(taskId.toString());
+    }
+
     private boolean pending(TaskDiscussion discussion)
     {
         return answering.getOrDefault(discussion.taskId(), ImmutableSet.of()).contains(discussion.id());

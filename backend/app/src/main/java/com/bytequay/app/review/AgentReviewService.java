@@ -46,6 +46,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.app.agent.TaskInput;
 import com.bytequay.app.agent.WorkflowAgentTasks;
+import com.bytequay.app.discussion.TaskDiscussionService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.review.AgentReviewProjection.WorktreeSyncView;
@@ -160,6 +161,7 @@ public class AgentReviewService
     private final CredentialService credentials;
     private final ReviewTaskObserver observer;
     private final ReviewSweep sweeps;
+    private final TaskDiscussionService discussions;
     private final Clock clock;
     private final Striped<Lock> startLocks = Striped.lock(32);
     private final ReviewLocks locks;
@@ -188,6 +190,7 @@ public class AgentReviewService
             CredentialService credentials,
             ReviewTaskObserver observer,
             ReviewSweep sweeps,
+            TaskDiscussionService discussions,
             ReviewLocks locks,
             Clock clock)
     {
@@ -214,6 +217,7 @@ public class AgentReviewService
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.observer = requireNonNull(observer, "observer is null");
         this.sweeps = requireNonNull(sweeps, "sweeps is null");
+        this.discussions = requireNonNull(discussions, "discussions is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.locks = requireNonNull(locks, "locks is null");
     }
@@ -559,6 +563,11 @@ public class AgentReviewService
             requireNoLocalRun(task);
             if (activeTurn(task).isPresent()) {
                 throw new ReviewConflictException("Stop the running turn before ending the review");
+            }
+            // The answer reads this working copy, which cleanup below removes.
+            // ponytail: an answer that starts between this check and cleanup still loses it; claim this review's lock when asking if that shows up.
+            if (discussions.isAnswering(taskId)) {
+                throw new ReviewConflictException("Wait for the private thread's answer to finish before ending the review");
             }
             // Completion refuses uncommitted work, and refusing only after unwatching would leave an open review nobody observes.
             Optional<TaskWorktree> worktree = task.taskWorktree().filter(ignored -> task.ownsWorktree() && task.state() == TaskState.OPEN && task.worktreeRemovedAt().isEmpty());

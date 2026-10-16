@@ -163,13 +163,22 @@ class TestEpicService
         service.propose("workspace", EPIC, Optional.empty());
         verify(breakdowns).start("workspace", EPIC, new EpicBreakdowns.Source("#7", "Iceberg REST catalog", "Cache table metadata"));
 
-        EpicProposal metrics = new EpicProposal("proposal-1", "Expose cache metrics", "Hits and misses are reported");
-        records.save(Epic.of(EPIC, "workspace").withProposals(ImmutableList.of(metrics, new EpicProposal("proposal-2", "Tune the cache", "Reads are faster"))));
+        EpicProposal metrics = new EpicProposal("proposal-1", "Expose cache metrics", "Hits and misses are reported", "Report cache hits and misses per catalog.",
+                Optional.empty(), Optional.of("The Epic asks for cache visibility."), Optional.empty());
+        records.save(Epic.of(EPIC, "workspace").withProposals(ImmutableList.of(metrics,
+                new EpicProposal("proposal-2", "Tune the cache", "Reads are faster", "Tune it.", Optional.empty(), Optional.empty(), Optional.empty()))));
         EpicView accepted = service.acceptProposal("workspace", EPIC, "proposal-1");
         assertThat(accepted.proposals()).extracting(EpicProposal::id).containsExactly("proposal-2");
         assertThat(service.acceptProposal("workspace", EPIC, "proposal-1")).as("accepting again changes nothing").isEqualTo(accepted);
-        verify(work, times(1)).createInEpic("workspace", "proposal-1", EPIC, "Expose cache metrics", WorkItem.Kind.DEVELOP, "Hits and misses are reported",
-                WorkItem.CompletionRule.MERGED_DELIVERY);
+        verify(work, times(1)).createInEpic("workspace", "proposal-1", EPIC, "Expose cache metrics", WorkItem.Kind.DEVELOP, """
+                ### Description
+                Report cache hits and misses per catalog.
+
+                ### Done when
+                Hits and misses are reported
+
+                ### Evidence
+                The Epic asks for cache visibility.""", WorkItem.CompletionRule.MERGED_DELIVERY);
         assertThat(service.dismissProposal("workspace", EPIC, "proposal-2").proposals()).isEmpty();
     }
 

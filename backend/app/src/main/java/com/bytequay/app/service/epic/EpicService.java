@@ -171,7 +171,7 @@ public class EpicService
                 return epic;
             }
             EpicProposal accepted = proposal.orElseThrow();
-            work.createInEpic(workspaceId, accepted.id(), epicId, accepted.title(), WorkItem.Kind.DEVELOP, accepted.doneWhen(), WorkItem.CompletionRule.MERGED_DELIVERY);
+            work.createInEpic(workspaceId, accepted.id(), epicId, accepted.title(), WorkItem.Kind.DEVELOP, accepted.context(), WorkItem.CompletionRule.MERGED_DELIVERY);
             Epic next = epic.withoutProposal(proposalId);
             epics.save(next);
             return next;
@@ -203,7 +203,7 @@ public class EpicService
     {
         return new EpicView(epic.id(), epic.children(), epic.synced().stream().map(EpicChild::identity).collect(toImmutableList()), epic.former(),
                 epic.childrenReadAt(), epic.childrenTruncated(), epic.offered(), epic.concludedAt(), epic.outcome(), epic.proposals(), breakdowns.running(epic.id()),
-                breakdowns.failure(epic.id()));
+                breakdowns.failure(epic.id()), breakdowns.note(epic.id()));
     }
 
     /** The issue or ticket a breakdown reads, from what ByteQuay keeps of it. */

@@ -34,9 +34,11 @@ import static java.util.Objects.requireNonNull;
  * @param proposals work the development model proposed, waiting until the user accepts or dismisses each
  * @param breakingDown whether the development model is proposing work now
  * @param breakdownError why the last breakdown failed, until the next one starts
+ * @param breakdownNote what the last breakdown said when it found no more work worth proposing, until the next one starts
  */
 public record EpicView(String id, List<EpicChild> children, List<String> synced, List<EpicChild> former, Optional<Instant> childrenReadAt, boolean childrenTruncated,
-        boolean offered, Optional<Instant> concludedAt, String outcome, List<EpicProposal> proposals, boolean breakingDown, Optional<String> breakdownError)
+        boolean offered, Optional<Instant> concludedAt, String outcome, List<EpicProposal> proposals, boolean breakingDown, Optional<String> breakdownError,
+        Optional<String> breakdownNote)
 {
     public EpicView
     {
@@ -49,5 +51,6 @@ public record EpicView(String id, List<EpicChild> children, List<String> synced,
         requireNonNull(outcome, "outcome is null");
         proposals = ImmutableList.copyOf(proposals);
         requireNonNull(breakdownError, "breakdownError is null");
+        requireNonNull(breakdownNote, "breakdownNote is null");
     }
 }

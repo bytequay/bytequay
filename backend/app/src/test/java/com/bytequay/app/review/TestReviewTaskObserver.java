@@ -21,6 +21,7 @@ import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.google.common.collect.ImmutableList;
@@ -33,6 +34,8 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -63,6 +66,28 @@ class TestReviewTaskObserver
         try {
             observer.watch(review);
             verify(service, timeout(1000)).reconcile(review.id());
+        }
+        finally {
+            observer.close();
+        }
+    }
+
+    @Test
+    void aListRefreshWarmsEachRemoteReviewsPullRequestInsteadOfRefetchingIt()
+    {
+        AgentReviewStore store = mock(AgentReviewStore.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        ObjectProvider<PullRequestRefreshService> refreshes = mock(ObjectProvider.class);
+        when(refreshes.getObject()).thenReturn(refresh);
+        when(store.listOpenReviews()).thenReturn(ImmutableList.of(review("remote", 1, Optional.empty()), review("local", 2, Optional.of("source-task"))));
+        ReviewTaskObserver observer = new ReviewTaskObserver(mock(AgentEventService.class), store, mock(AgentTurnStore.class), mock(ObjectProvider.class),
+                refreshes, mock(ObjectProvider.class));
+        try {
+            observer.onPullRequestsRefreshed(new PullRequestsRefreshed());
+            verify(refresh, timeout(1000)).warmDetail("acme/widgets", 1);
+            // A skipped review is never queued, so this cannot race.
+            verify(refresh, never()).warmDetail("acme/widgets", 2);
+            verify(refresh, never()).refreshDetail(anyString(), anyInt());
         }
         finally {
             observer.close();

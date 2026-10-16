@@ -97,6 +97,13 @@ public class PullRequestRefreshService
         pullRequests.warmRecentDetails(limit);
     }
 
+    /** Refreshes one pull request as the background warm pass does, then publishes what is stored, a head the pass moved included. */
+    public void warmDetail(String repo, int number)
+    {
+        pullRequests.refreshPullRequestDetailFromGitHub(repo, number, Duration.ofMinutes(10));
+        published(repo, number);
+    }
+
     /** Bypasses conditional requests and rebuilds the complete local pull-request snapshot. */
     public PullRequestDetail refreshAllDetail(String repo, int number)
     {

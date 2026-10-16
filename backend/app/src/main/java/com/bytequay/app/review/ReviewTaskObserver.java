@@ -111,7 +111,11 @@ public class ReviewTaskObserver
         });
     }
 
-    /** A list refresh says nothing about heads; each open review asks for its own conditional detail refresh. */
+    /**
+     * A list refresh says nothing about heads, so each open review asks for a warm refresh of its pull request. Discovery
+     * stores a push or a merge as a newer update time, which the warm refresh fetches; otherwise only the warm pass's own
+     * timers apply, so a quiet merged pull request costs no GitHub request.
+     */
     @EventListener
     public void onPullRequestsRefreshed(PullRequestsRefreshed event)
     {
@@ -121,7 +125,7 @@ public class ReviewTaskObserver
             }
             executor.execute(() -> {
                 try {
-                    refresh.getObject().refreshDetail(review.repo(), review.number().getAsInt());
+                    refresh.getObject().warmDetail(review.repo(), review.number().getAsInt());
                 }
                 catch (RuntimeException failure) {
                     log.debug("Review {} could not refresh its pull request: {}", review.id(), failure.toString());

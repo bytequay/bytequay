@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.review.PullRequestDetailRefreshed;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
@@ -28,7 +29,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -65,6 +69,21 @@ class TestPullRequestRefreshService
         assertThat(result.status().ciStatus()).isEqualTo(PullRequestDetail.CiStatus.PASSING);
 
         verify(pullRequests).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+    }
+
+    @Test
+    void warmingOneDetailUsesTheWarmFreshnessAndPublishesTheStoredHead()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        when(pullRequests.findHeadSha("owner/repo", 7)).thenReturn(Optional.of("head"));
+        List<Object> published = new ArrayList<>();
+        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials(credential("token-a", "alice")), noWorkspaces(), published::add);
+
+        service.warmDetail("owner/repo", 7);
+
+        verify(pullRequests).refreshPullRequestDetailFromGitHub("owner/repo", 7, Duration.ofMinutes(10));
+        verify(pullRequests, never()).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        assertThat(published).containsExactly(new PullRequestDetailRefreshed("owner/repo", 7, Optional.of("head")));
     }
 
     @Test

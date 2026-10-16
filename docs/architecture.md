@@ -152,7 +152,11 @@ retaining the task, working copy, review evidence, and application conversation.
 Agent tasks use managed local worktrees. The application retains ownership of
 those working copies, execution lifetimes, approvals, and queued input. Provider
 completion and process cleanup are separate facts: an uncertain cleanup must not
-erase a known result or permit another writer to take over prematurely.
+erase a known result or permit another writer to take over prematurely. An
+interactive task completes by itself once every pull request it owns is merged
+or closed on GitHub, as read from the stored pull requests after each list
+refresh; completion keeps its refusals, so a running turn, queued input or
+uncommitted changes keep the task open until a later refresh.
 
 The IDE, local tests, private review, and development work remain associated with
 the relevant task and working copy. They reuse existing services rather than

@@ -43,6 +43,11 @@ const workspace: WorkspaceDto = {
 };
 
 export async function run(): Promise<string[]> {
+  const otherRepository = { owner: 'octocat', repo: 'other' };
+  const otherResult = { ...result, id: 2, repository: otherRepository, fullName: 'octocat/other' };
+  const otherPreview = { ...preview, selectedRepositoryId: 2, selectedRepository: otherRepository,
+    monitoredRepositoryId: 2, monitoredRepository: otherRepository, pushRepository: otherRepository,
+    pullRequestBase: otherRepository, fingerprint: 'other-routing' };
   const search = Promise.withResolvers<RepositorySearchResultDto[]>();
   let pendingPreview = Promise.withResolvers<WatchRepositoryPreviewDto>();
   const pendingWatch = Promise.withResolvers<WorkspaceDto>();
@@ -52,7 +57,7 @@ export async function run(): Promise<string[]> {
   let closes = 0;
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     searchRepositories: () => search.promise,
-    previewWatch: () => { previews++; return pendingPreview.promise; },
+    previewWatch: (id: number) => { previews++; return id === 2 ? Promise.resolve(otherPreview) : pendingPreview.promise; },
     watchRepository: (command: WatchRepositoryCommand) => { commands.push(command); return pendingWatch.promise; },
   } satisfies Partial<Window['bridge']> });
   const host = document.createElement('div');
@@ -77,7 +82,7 @@ export async function run(): Promise<string[]> {
     render();
     await click('dialog.modal');
     assert(closes === 0 && host.textContent?.includes('Searching…'), 'Background clicks must preserve a pending search');
-    search.resolve([result]);
+    search.resolve([result, otherResult]);
     for (let i = 0; i < 30 && !host.querySelector('.modal-repo-row'); i++) await settle();
     await click('.modal-repo-row');
     await click('dialog.modal');
@@ -101,10 +106,22 @@ export async function run(): Promise<string[]> {
     render();
     for (let i = 0; i < 30 && !host.querySelector('.modal-repo-row'); i++) await settle();
     await click('.modal-repo-row');
+    assert(Number(previews) === 2, 'Reopening the dialog must start with fresh routing');
     await escape();
     pendingPreview.resolve(preview);
     await settle();
     assert(host.querySelector('.modal__search') !== null && host.querySelector('.modal-preview') === null, 'Escape must return to search and ignore the late preview');
+    await click('.modal-repo-row');
+    assert(Number(previews) === 2 && host.querySelector('.modal-preview__name')?.textContent === result.fullName,
+      'Reselecting a repository must reuse its completed preview');
+    await escape();
+    await click('.modal-repo-row:nth-child(2)');
+    assert(Number(previews) === 3 && host.querySelector('.modal-preview__name')?.textContent === otherResult.fullName,
+      'Each repository must have its own cached routing');
+    await escape();
+    await click('.modal-repo-row');
+    assert(Number(previews) === 3 && host.querySelector('.modal-preview__name')?.textContent === result.fullName,
+      'Returning to the first repository must restore its own cached routing');
     await click('.modal__close');
     assert(Number(closes) === 2 && host.childElementCount === 0, 'Explicit Close must still dismiss the modal');
     let failLookup = true;
@@ -151,7 +168,8 @@ export async function run(): Promise<string[]> {
     await click('.modal-preview__confirm');
     assert(Number(watched) === 1 && host.textContent?.includes('Start review') && host.querySelector('.modal') === null,
       'Watching must refresh the review context and close confirmation');
-    return ['background clicks preserve progress', 'explicit cancellation discards a late preview', 'watch from review confirms and refreshes'];
+    return ['background clicks preserve progress', 'explicit cancellation discards a late preview', 'preview caches belong to each repository and dialog',
+      'watch from review confirms and refreshes'];
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
@@ -202,33 +220,49 @@ export async function runStrategies(): Promise<string[]> {
     await click('input[value="FORK"]');
     assert(confirm()?.disabled && host.querySelector('.modal-routing') === null, 'Stale routing cannot be confirmed while switching');
     await click('input[value="DIRECT"]');
-    pending[0].resolve(fork);
-    await settle();
-    assert(host.querySelector<HTMLInputElement>('input[value="DIRECT"]')?.checked && host.textContent?.includes('origin/main'), 'Late fork responses must not replace direct mode');
-
+    assert(!confirm()?.disabled && requests.join(',') === ',FORK', 'The initial recommendation must also cache its explicit mode');
     await click('input[value="FORK"]');
-    pending[1].reject(new Error('Preview unavailable'));
+    assert(pending.length === 1 && requests.join(',') === ',FORK', 'Switching back to a pending mode must reuse its request');
+    pending[0].reject(new Error('Preview unavailable'));
     await settle();
     assert(host.textContent?.includes('Preview unavailable') && confirm()?.disabled, 'A failed mode preview must not allow confirming the old routing');
     await click('input[value="DIRECT"]');
     assert(!confirm()?.disabled && !host.textContent?.includes('Preview unavailable'), 'Switching back must recover from a preview failure');
 
     await click('input[value="FORK"]');
-    pending[2].resolve(fork);
+    assert(requests.join(',') === ',FORK,FORK', 'A failed preview must be retried');
+    await click('input[value="DIRECT"]');
+    pending[1].resolve(fork);
     await settle();
+    assert(host.querySelector<HTMLInputElement>('input[value="DIRECT"]')?.checked && host.textContent?.includes('origin/main'), 'Late fork responses must not replace direct mode');
+    for (let i = 0; i < 3; i++) {
+      await click('input[value="FORK"]');
+      assert(!confirm()?.disabled && host.textContent?.includes('upstream/main'), 'A completed fork preview must be reusable after switching away');
+      assert(!host.textContent?.includes('Checking repository routing'), 'Cached routing must not wait on another lookup');
+      await click('input[value="DIRECT"]');
+    }
+    await click('input[value="FORK"]');
+    assert(requests.join(',') === ',FORK,FORK', 'Repeated switches must not recompute successful previews');
     assert(confirm()?.textContent === 'Create fork and watch' && commands.length === 0, 'Choosing fork mode must not create a fork');
     await click('.modal-preview__confirm');
     assert(commands[0].topology === 'FORK' && commands[0].previewFingerprint === 'fork-routing' && commands[0].allowForkCreation,
       'Fork creation must use explicit consent for the chosen routing');
-    assert(requests.at(-1) === 'FORK', 'Watch failures must refresh the chosen workflow rather than the recommendation');
-    pending[3].resolve(fork);
+    assert(requests.join(',') === ',FORK,FORK,FORK', 'Watch failures must refresh the chosen workflow rather than reuse its cached preview');
+    pending[2].resolve({ ...fork, forkRequired: false, pushWritable: true, fingerprint: 'refreshed-fork-routing' });
     await settle();
     await click('input[value="DIRECT"]');
+    assert(requests.at(-1) === 'DIRECT', 'A watch failure must invalidate the other cached mode too');
+    await click('input[value="FORK"]');
+    assert(confirm()?.textContent === 'Watch repository' && requests.at(-1) === 'DIRECT', 'Switching back must reuse refreshed routing and fork consent');
     failWatch = false;
     await click('.modal-preview__confirm');
-    assert(commands[1].topology === 'DIRECT' && commands[1].previewFingerprint === 'direct-routing' && !commands[1].allowForkCreation,
+    assert(commands[1].previewFingerprint === 'refreshed-fork-routing' && !commands[1].allowForkCreation,
+      'A refreshed fork preview must submit its new fingerprint and consent');
+    await click('input[value="DIRECT"]');
+    await click('.modal-preview__confirm');
+    assert(commands[2].topology === 'DIRECT' && commands[2].previewFingerprint === 'direct-routing' && !commands[2].allowForkCreation,
       'Direct clone must never consent to creating a fork');
-    return ['workflow switching ignores stale previews', 'workflow errors recover without changing consent'];
+    return ['workflow switching reuses pending and completed previews', 'workflow switching ignores stale previews', 'workflow errors recover without changing consent'];
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }

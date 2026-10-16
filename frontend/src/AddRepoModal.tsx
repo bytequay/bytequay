@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { LoaderCircle } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import RepoAvatar from './RepoAvatar';
 import type {
   RepoRefDto,
@@ -175,7 +175,26 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const previewCache = useRef(new Map<string, Promise<WatchRepositoryPreviewDto>>());
   const selectedRepositoryName = repos.find(repo => repo.id === selectedRepositoryId)?.fullName;
+
+  const loadPreview = useCallback((repositoryId: number, mode?: WatchRepositoryTopology) => {
+    const cache = previewCache.current;
+    const key = `${repositoryId}:${mode ?? 'recommended'}`;
+    const cached = cache.get(key);
+    if (cached) return cached;
+    const request = window.bridge.previewWatch(repositoryId, mode)
+      .then(result => {
+        if (cache.get(key) === request) cache.set(`${repositoryId}:${result.topology}`, request);
+        return result;
+      })
+      .catch(error => {
+        if (cache.get(key) === request) cache.delete(key);
+        throw error;
+      });
+    cache.set(key, request);
+    return request;
+  }, []);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -203,12 +222,12 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
     if (selectedRepositoryId === null) return;
     let cancelled = false;
     setPreviewLoading(true);
-    window.bridge.previewWatch(selectedRepositoryId, topology)
+    loadPreview(selectedRepositoryId, topology)
       .then(result => { if (!cancelled) setPreview(result); })
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setPreviewLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedRepositoryId, topology]);
+  }, [selectedRepositoryId, topology, loadPreview]);
 
   const dialog = useModalDialog(inputRef);
 
@@ -231,8 +250,9 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      previewCache.current.clear();
       try {
-        setPreview(await window.bridge.previewWatch(command.selectedRepositoryId, command.topology));
+        setPreview(await loadPreview(command.selectedRepositoryId, command.topology));
       }
       catch { /* Keep the original confirmation error visible. */ }
     }

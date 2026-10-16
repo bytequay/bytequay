@@ -36,6 +36,7 @@ import { useMemoryNeeds } from './memory/needs';
 import { useTasksWaiting } from './agents/attention';
 import { openPinned, usePinnedItems } from './home/pinned';
 import { useLabLink } from './labLink';
+import RunningTasks from './agents/RunningTasks';
 
 /** What the sidebar needs to be the settings window's nav. Absent on every other page. */
 export type SettingsNav = {
@@ -343,6 +344,7 @@ export default function AppSidebar({
           <RelatedWorkspaceNavigation key={workspace.id} workspaceId={workspace.id} activeWorkspaceId={relatedWorkspaceId} activeTab={workspaceTab} />
         </>
       )}
+      <div className="app-sidebar__task-sections">
       {pinnedItems.length > 0 && <section className="app-sidebar__pinned" aria-label="Pinned">
         <button type="button" className="app-sidebar__pinned-heading" aria-label="Pinned items"
           aria-expanded={pinsExpanded} aria-controls="pinned-items" onClick={() => setPinsExpanded(value => !value)}>
@@ -365,6 +367,8 @@ export default function AppSidebar({
           </div>)}
         </nav>}
       </section>}
+      <RunningTasks />
+      </div>
       </>}
       {settingsBody === null && <div className="app-sidebar__spacer" />}
       <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application settings">

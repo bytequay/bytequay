@@ -1,0 +1,30 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+.app-sidebar__task-sections { min-height: 0; overflow-y: auto; }
+.app-sidebar__running-list { max-height: 30vh; overflow-y: auto; }
+.app-sidebar__running-item { flex-shrink: 0; }
+.app-sidebar__running-item > span:nth-child(2) { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-sidebar__running-status { flex: 0 0 auto; font-size: 10px; color: var(--text-3); }
+.app-sidebar__running-item.is-running > span:first-child { color: var(--fg-link); }
+.app-sidebar__running-item.is-completed > span:first-child,
+.app-sidebar__running-item.is-completed .app-sidebar__running-status { color: var(--fg-success); }
+.app-sidebar__running-item.is-failed > span:first-child,
+.app-sidebar__running-item.is-failed .app-sidebar__running-status { color: var(--fg-danger); }
+.app-sidebar__running-item.is-waiting > span:first-child,
+.app-sidebar__running-item.is-blocked > span:first-child { color: var(--fg-warning); }
+.app-sidebar__running-item.is-running > span:first-child svg { animation: running-task-spin 1.2s linear infinite; }
+@keyframes running-task-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar__running-item.is-running > span:first-child svg { animation: none; }
+}

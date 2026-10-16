@@ -1009,6 +1009,14 @@ class TestAgentHttpApi
             assertThat(owner.required("lastMessage").required("turnId").asText()).isEqualTo(turnId);
             assertThat(activity.required(otherTaskId).required("pendingApproval").isNull()).isTrue();
 
+            assertThat(get("/agent/tasks/running").getBody()).anySatisfy(running -> {
+                assertThat(running.required("id").asText()).isEqualTo(ownerTaskId);
+                assertThat(running.required("workspaceId").asText()).isEqualTo(workspaceId);
+                assertThat(running.required("kind").asText()).isEqualTo("TASK");
+                assertThat(running.required("status").asText()).isEqualTo("WAITING");
+                assertThat(running.required("expiresAt").isNull()).isTrue();
+            });
+
             assertThat(post("/agent/approvals/" + request.id(), ImmutableMap.of("decision", "DENY"), null).getStatusCode()).isEqualTo(HttpStatus.OK);
             assertThat(get(path).getBody()).isEmpty();
             assertThat(get("/agent/tasks/activity?workspaceId=" + workspaceId).getBody().required(ownerTaskId).required("pendingApproval").isNull()).isTrue();

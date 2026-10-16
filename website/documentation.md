@@ -417,6 +417,12 @@ If sign-in expires, sign in again and refresh login status. Where offered, inspe
 **Retry last message…** before resending. A **Delivery uncertain** message needs
 inspection; it is not automatically resent.
 
+The sidebar’s **Running** section shows active tasks across workspaces, newest runs
+first. Select a task to open it. A green check marks a finished run; failed or
+stopped runs have their own status icons. These results remain for 10 minutes
+after finishing, then leave the section. The section hides when empty. Tasks
+waiting for approval or recovery stay visible with their corresponding status.
+
 App notices stack in the bottom-right corner when a development or review task finishes a turn,
 asks a question, requests approval, fails, or has queued messages paused. Choose
 the card’s button to open that task or review conversation and close the card.

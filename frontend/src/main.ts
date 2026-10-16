@@ -82,6 +82,7 @@ import {
 } from './pulls/agent-review/contracts';
 import { parseWorktreeChanges, codeHostKey, parseCodeHost, parseLocalRun, parseLocalRunOutput, parseLocalRuns, parseReviewCodeFile, parseReviewCodeFiles } from './pulls/code-tests/contracts';
 import { AgentSubscriptions } from './agents/subscriptions';
+import { parseRunningTasks } from './agents/runningTaskModel';
 import { CodeTerminals, parseTerminalLaunch, terminalEnvironment } from './terminals';
 import { clipboardImagePng, MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
 import type {
@@ -624,6 +625,7 @@ function registerIpc(): void {
       method: 'POST', headers: agentHeaders(true), body: JSON.stringify({ workspaceId, repo, number }), signal: AbortSignal.timeout(15 * 60_000),
     })));
 
+  ipcMain.handle('agent:tasks:running', () => backendJson(`${backendBase()}/agent/tasks/running`, { headers: agentHeaders() }).then(parseRunningTasks));
   ipcMain.handle('agent:tasks:list', (_event, workspaceId: string, limit?: number) => {
     const query = new URLSearchParams({ workspaceId });
     if (limit !== undefined) query.set('limit', String(limit));

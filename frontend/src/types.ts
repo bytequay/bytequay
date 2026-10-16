@@ -14,6 +14,7 @@
 
 import type { WorkItemBridge } from './workitems/contracts';
 import type { AppNoticeBounds } from './notices/contracts';
+import type { RunningTask } from './agents/runningTaskModel';
 import type { GoogleBridge } from './google/contracts';
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
@@ -1816,6 +1817,7 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   clearRecent: () => Promise<void>;
 
   listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
+  listRunningTasks: () => Promise<RunningTask[]>;
   createAgentTask: (request: CreateAgentTaskRequest) => Promise<AgentTaskDto>;
   getAgentTask: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
   /** Polled while createAgentTask is in flight; the task may not exist yet, so it takes no workspace. */

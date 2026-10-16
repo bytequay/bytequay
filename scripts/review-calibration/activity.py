@@ -361,6 +361,7 @@ class Turn:
     approvals: list = field(default_factory=list)  # (kind, outcome, seconds the turn waited for the user)
     notices: Counter = field(default_factory=Counter)  # rate limit notices by their status, and retries
     result: str = ""  # "ready" or "not ready" when the turn ended a development with the agent's report, empty otherwise
+    not_ready: str = ""  # for a result that is not ready, why: one of the NOT_READY names
     # For each (command or tool, name): its runs, how many failed, how many searches found nothing, its seconds, and the characters it printed.
     calls: defaultdict = field(default_factory=lambda: defaultdict(Counter))
     reasons: defaultdict = field(default_factory=lambda: defaultdict(Counter))  # for each program, why its failed runs failed
@@ -418,10 +419,28 @@ def notices(events):
     return counted
 
 
+# Why the agent reported a change not ready, by the words of its report; the first that matches names it. The words are
+# read in memory to name the reason and are never kept. A question or research turn asked for no change at all.
+NOT_READY = (
+    ("no change asked", re.compile(r"no (code|files?) (was |were )?(changed|changes)|no code changes|nothing (to commit|was committed|should be published)|"
+                                   r"\b(question|explanation|explanatory|research|investigation|search|informational)[- ](only|turn)\b", re.I)),
+    ("waiting for you", re.compile(r"waiting (for|on) the user|user (must|needs to|has to) (pick|choose|decide)|user decision|for the user to (choose|pick|decide)|"
+                                   r"user's (go-ahead|review|decision)|held for the user", re.I)),
+    ("not committed", re.compile(r"uncommitted|not (yet |currently )?committed|not (currently )?in the working tree", re.I)),
+    ("could not publish", re.compile(r"\b(publish|publication|push|pushed|draft pull request)\b", re.I)),
+    ("checks failed", re.compile(r"\b(tests?|build|compil\w*|checks?)\b[^.]{0,40}\b(fail\w*|broke|error)", re.I)),
+)
+
+
+def why_not_ready(message):
+    return next((name for name, pattern in NOT_READY if pattern.search(message or "")), "other")
+
+
 def results(events):
-    """For each turn that ended a development, whether the agent reported the change ready to deliver. Its message and
-    what it learned are text, and stay unread."""
-    return {event.get("turnId"): "ready" if event["payload"].get("readyForDelivery") else "not ready" for event in events if event["type"] == "development_result"}
+    """For each turn that ended a development, whether the agent reported the change ready to deliver, and for one that is
+    not, why. What it learned stays unread."""
+    return {event.get("turnId"): ("ready", "") if event["payload"].get("readyForDelivery") else ("not ready", why_not_ready(str(event["payload"].get("message") or "")))
+            for event in events if event["type"] == "development_result"}
 
 
 def measure(logs, since=None):
@@ -437,7 +456,8 @@ def measure(logs, since=None):
         total.tasks += 1
         total.skipped += skipped
         closed, noticed, reported = endings(events), notices(events), results(events)
-        turns = {turn: Turn(log.parent.name, turn, begin, end, closed.get(turn, ""), notices=noticed[turn], result=reported.get(turn, ""))
+        turns = {turn: Turn(log.parent.name, turn, begin, end, closed.get(turn, ""), notices=noticed[turn], result=reported.get(turn, ("", ""))[0],
+                            not_ready=reported.get(turn, ("", ""))[1])
                  for turn, (begin, end) in windows.items()}
         for item in unfinished:
             if item.turn in turns:
@@ -628,7 +648,7 @@ def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
                      "parallel": round(one.parallel, 3), "mostAtOnce": one.most_at_once, "unfinished": one.unfinished,
                      "longRuns": [{"program": name, "seconds": round(length, 3)} for name, length in sorted(one.long_runs, key=lambda run: (-run[1], run[0]))],
                      "approvals": [{"kind": kind, "outcome": outcome, "seconds": round(length, 3)} for kind, outcome, length in one.approvals],
-                     "notices": dict(sorted(one.notices.items())), "result": one.result or None,
+                     "notices": dict(sorted(one.notices.items())), "result": one.result or None, "notReady": one.not_ready or None,
                      # Only a command's output is in the log, so only a command says how much it printed and why it failed.
                      "calls": [{"kind": kind, "name": name, "runs": made["runs"], "failed": made["failed"], "noMatch": made["noMatch"], "seconds": round(made["seconds"], 3),
                                 **({"characters": made["characters"], "reasons": dict(sorted(one.reasons[name].items()))} if kind == "command" else {})}
@@ -642,7 +662,7 @@ def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
         if (owner, turn) not in logged and (since is None or facts["start"] >= midnight(since)) and (task is None or owner.startswith(task)):
             rows.append({"task": owner, "start": saved.stamp(facts["start"]), "seconds": round(facts["seconds"], 3), "logged": False, "outcome": facts["outcome"] or OUTCOMES[""],
                          **{name: facts[name] for name in FACTS}, "setup": facts["setup"], "groups": {}, "programs": {}, "after": {}, "parallel": 0.0, "mostAtOnce": 0, "unfinished": 0,
-                         "longRuns": [], "approvals": [], "notices": {}, "result": None, "calls": [], "hops": [], "repeats": []})
+                         "longRuns": [], "approvals": [], "notices": {}, "result": None, "notReady": None, "calls": [], "hops": [], "repeats": []})
     database = {"problem": problem or "the database was not read"} if recorded is None else {"turns": len(known), "matched": len(logged & set(known))}
     return {"version": 1, "savedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "since": since, "task": task, "database": database,
             "leftOut": {"skippedLines": total.skipped, "unreadLogs": total.unread}, "turns": rows}

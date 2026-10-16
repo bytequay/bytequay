@@ -522,6 +522,22 @@ class TestBusyTurn(Logs):
         self.assertIn('{"kind": "command", "name": "maven", "runs": 1, "failed": 1, "noMatch": 0, "seconds": 120.0, "characters": %d, "reasons": {"test failure": 1}}' % len(PRINTED), saved_text)
 
 
+class TestNotReady(unittest.TestCase):
+    def test_why_a_change_is_not_ready_is_named_by_the_reports_own_words(self):
+        cases = {
+            "Answered a question about the build. No code was changed, so there is nothing to commit or publish.": "no change asked",
+            "Research-only turn: found three candidate issues; the working tree is unchanged.": "no change asked",
+            "Explanatory turn only, no code changes.": "no change asked",
+            "Waiting for the user's go-ahead on the plan before editing.": "waiting for you",
+            "The fix is verified but still uncommitted, and a user decision is needed on how to commit it.": "waiting for you",
+            "The refactor compiles but is not currently in the working tree.": "not committed",
+            "Publication step: the draft pull request already tracks this branch.": "could not publish",
+            "Two tests in TestAnalyzer still fail after the change.": "checks failed",
+            "Implemented the parser change.": "other",
+        }
+        self.assertEqual({message: activity.why_not_ready(message) for message in cases}, cases)
+
+
 class TestTurns(Logs):
     def two_days(self):
         """Two tasks over two days: a full turn, a turn that was interrupted, and a turn that is still running. Two of them ran two tools at once."""

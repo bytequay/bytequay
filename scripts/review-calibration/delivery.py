@@ -1,6 +1,7 @@
 """What development tasks delivered for the agent time, tokens and dollars they took, from the turn table that
 `activity.py --save` keeps. A result is the agent's own report at the end of a development: the change is ready to
-deliver, or it is not. Every task with a result counts, under the model and effort most of its turns ran with."""
+deliver, or it is not. A turn that answered a question or researched asked for no change, so its result does not count.
+Every task with a result that counts is here, under the model and effort most of its turns ran with."""
 
 from __future__ import annotations
 
@@ -16,6 +17,12 @@ ALL = "all settings"
 TASKS = ["task", "setting", "turns", "minutes", "tokens", "dollars", "results", "ready"]
 
 
+def asked(turns):
+    """Whether each turn's result counts: it reported a change ready, or not ready for any reason but that none was asked."""
+    named = turns["notReady"] if "notReady" in turns else pandas.Series(None, index=turns.index, dtype=object)
+    return turns["result"].notna() & (named != "no change asked")
+
+
 def tasks(table, since=0.0):
     """One row per task that reported a development result in the turns started since a moment: its setting, turns, agent
     minutes, tokens, dollars and results, and how many of those said ready. Tokens and dollars are None for a task with a
@@ -24,14 +31,25 @@ def tasks(table, since=0.0):
     if len(turns):
         turns = turns[pandas.to_datetime(turns["start"], utc=True) >= pandas.Timestamp(since, unit="s", tz="UTC")]
     rows = []
-    for task, own in turns[turns["task"].isin(turns.loc[turns["result"].notna(), "task"])].groupby("task", sort=False) if len(turns) else ():
+    for task, own in turns[turns["task"].isin(turns.loc[asked(turns), "task"])].groupby("task", sort=False) if len(turns) else ():
         named = own[own["model"].notna()]
         setting = named.groupby(["model", named["effort"].fillna("no effort")]).size().idxmax() if len(named) else None
         rows.append({"task": task, "setting": f"{setting[0]} · {setting[1]}" if setting else UNKNOWN, "turns": len(own), "minutes": own["seconds"].sum() / 60,
                      "tokens": (own["inputTokens"] + own["outputTokens"]).sum() if own[["inputTokens", "outputTokens"]].notna().all().all() else None,
                      "dollars": own["cost"].sum() if own["cost"].notna().all() else None,
-                     "results": int(own["result"].notna().sum()), "ready": int((own["result"] == "ready").sum())})
+                     "results": int(asked(own).sum()), "ready": int((own["result"] == "ready").sum())})
     return pandas.DataFrame(rows, columns=TASKS)
+
+
+def not_ready(table, since=0.0):
+    """Why the results of the turns started since a moment were not ready, the most common first. A table saved before
+    the reasons were named has none."""
+    turns = pandas.DataFrame(table["turns"])
+    if not len(turns) or "notReady" not in turns:
+        return pandas.DataFrame(columns=["why", "results"])
+    turns = turns[(pandas.to_datetime(turns["start"], utc=True) >= pandas.Timestamp(since, unit="s", tz="UTC")) & (turns["result"] == "not ready")]
+    counted = turns["notReady"].fillna("not known").value_counts()
+    return pandas.DataFrame({"why": counted.index, "results": counted.values})
 
 
 def per_ready(rows, amount):

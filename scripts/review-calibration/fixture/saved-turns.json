@@ -78,6 +78,7 @@
       ],
       "notices": {},
       "result": "ready",
+      "notReady": null,
       "calls": [
         {
           "kind": "command",
@@ -177,6 +178,7 @@
         "retry": 1
       },
       "result": "not ready",
+      "notReady": "checks failed",
       "calls": [
         {
           "kind": "command",
@@ -240,6 +242,7 @@
       "approvals": [],
       "notices": {},
       "result": null,
+      "notReady": null,
       "calls": [
         {
           "kind": "command",
@@ -298,6 +301,7 @@
       "approvals": [],
       "notices": {},
       "result": null,
+      "notReady": null,
       "calls": [],
       "hops": [],
       "repeats": []

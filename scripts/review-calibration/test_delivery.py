@@ -106,9 +106,19 @@ class TestPage(unittest.TestCase):
         page = self.page(table())
         self.assertEqual(list(page.exception), [])
         self.assertEqual([(tile.label, tile.value) for tile in page.metric], [("Development tasks", "5"), ("Ready", "5 of 8"), ("Minutes per ready", "22"), ("Never ready", "1")])
-        self.assertEqual([heading.value for heading in page.subheader], ["Agent minutes per ready change", "Never ready"])
-        self.assertEqual((len(page.get("plotly_chart")), len(page.dataframe)), (1, 2))
+        self.assertEqual([heading.value for heading in page.subheader], ["Agent minutes per ready change", "Why results were not ready", "Never ready"])
+        self.assertEqual((len(page.get("plotly_chart")), len(page.dataframe)), (1, 2))  # a table saved before the reasons were named has none to list
         self.assertEqual(page.dataframe[1].value["task"].tolist(), ["d"])
+
+    def test_a_result_that_asked_for_no_change_is_left_out_and_why_the_rest_were_not_ready_is_counted(self):
+        made = table()
+        for row, named in zip(made["turns"], (None, "waiting for you", None, None, None, None, "no change asked", None, "no change asked", None, None)):
+            row["notReady"] = named
+        self.assertEqual(delivery.tasks(made)["task"].tolist(), ["a", "b", "c", "e"])  # d only answered questions
+        self.assertEqual(delivery.not_ready(made).values.tolist(), [["no change asked", 2], ["waiting for you", 1]])
+        page = self.page(made)
+        self.assertEqual(page.metric[0].value, "4")
+        self.assertEqual(page.dataframe[1].value.values.tolist(), [["no change asked", 2], ["waiting for you", 1]])
 
     def test_a_table_saved_before_results_says_to_save_again(self):
         old = {"version": 1, "savedAt": "2027-01-15T08:00:00Z", "turns": [{key: value for key, value in turn("a", 0, 10).items() if key != "result"}]}

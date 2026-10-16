@@ -533,8 +533,13 @@ helps a finding hold up.
 The dashboard's Delivery page shows what development tasks delivered for the
 agent time, tokens and dollars they took, from the turn table
 `uv run activity.py --save` keeps. A result is the agent's own report when a
-development ends: the change is ready to deliver, or it is not. Every task
-with a result counts, under the model and effort most of its turns ran with;
+development ends: the change is ready to deliver, or it is not. Why a result
+was not ready is named by the words of the report, which `activity.py` reads in
+memory and never keeps: no change asked (a question or research turn), waiting
+for you (a choice or a review was yours), not committed, could not publish,
+checks failed, or other; the turn table keeps only that name. A result that
+asked for no change does not count. Every task with a result that counts is
+here, under the model and effort most of its turns ran with;
 a task whose turns the database no longer holds counts under "not known".
 `delivery.py` adds them up for the last 7 days, 30 days or all of it.
 
@@ -548,7 +553,8 @@ in, drawn by task (see Ranges); with fewer than three tasks behind them there
 is none. Tokens count every input token, cached ones too, and the output; a
 task with a turn that records no tokens is left out of them, and dollars come
 only from tasks whose every turn records a cost. "Never ready" lists the tasks
-with results and none ready, the most agent time first. The tasks of one
+with results and none ready, the most agent time first, and "Why results were
+not ready" counts the names. The tasks of one
 setting are not those of another, so this shows what happened, not a fair
 race; the Experiments compare settings on the same cases. A table saved
 before results were kept asks to be saved again.

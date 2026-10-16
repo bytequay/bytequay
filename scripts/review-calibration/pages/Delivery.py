@@ -40,7 +40,8 @@ FOLDER = arguments.parse_known_args()[0].folder
 MODE = "dark" if st.context.theme.type == "dark" else "light"
 st.title("Delivery")
 st.caption("What development tasks delivered for the agent time, tokens and dollars they took. A result is the agent's own report when a development "
-           "ends: the change is ready to deliver, or it is not. A task counts under the model and effort most of its turns ran with.")
+           "ends: the change is ready to deliver, or it is not. A turn that answered a question or researched asked for no change, so its result does not count "
+           "here. A task counts under the model and effort most of its turns ran with.")
 UNREADABLE = f"The saved turn table could not be read. Save it again with `{SAVE}`"
 try:
     MADE = saved.read(FOLDER, "turns.json")
@@ -71,6 +72,14 @@ st.caption("For each model and effort: the agent minutes of its development task
 dashboard.draw("minutes_per_ready", delivery.minutes_figure(TABLE, MODE))
 st.dataframe(delivery.shown(TABLE), hide_index=True, column_config={name: st.column_config.NumberColumn(format=shape) for name, shape in NUMBERS.items()})
 st.caption("Tokens count every input token, cached ones too, and the output. Dollars come only from turns that record a cost.")
+st.subheader("Why results were not ready")
+WHY = delivery.not_ready(MADE, 0.0 if REACH is None else time.time() - REACH)
+if WHY.empty:
+    st.info(f"No result was not ready in this stretch, or the table was saved before the reasons were named. Save it again with `{SAVE}`")
+else:
+    st.caption("Named by the words of each report, which are read and never kept. No change asked: a question or research turn, left out above. Waiting for "
+               "you: a choice or a review was yours to make. Not committed: the change was made but not committed. Other: the words matched none of these.")
+    st.dataframe(WHY, hide_index=True)
 st.subheader("Never ready")
 STUCK = delivery.never_ready(TASKS)
 if STUCK.empty:

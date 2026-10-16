@@ -18,7 +18,7 @@ import SettingsWindow from '../settings/SettingsWindow';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { AgentMark } from '../agents/AgentMark';
 import { Terminal } from '@xterm/xterm';
-import { followTerminalTheme } from '../pulls/code-tests/TerminalView';
+import { followTerminalTheme } from '../terminalSession';
 import { assert, settle } from './harness';
 import '../index.css';
 import '../css/agents.css';

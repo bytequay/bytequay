@@ -14,7 +14,7 @@
 import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { TERMINAL_THEME, followTerminalTheme } from './TerminalView';
+import { TERMINAL_THEME, followTerminalTheme } from '../../terminalSession';
 
 /** Historical output uses the same ANSI renderer as the terminal, with input disabled. */
 export default function TerminalOutput({ text, onSelect }: { text: string; onSelect: (text: string) => void }) {

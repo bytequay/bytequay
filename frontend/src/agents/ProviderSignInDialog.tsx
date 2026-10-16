@@ -12,20 +12,11 @@
  * limitations under the License.
  */
 import { useEffect, useId, useRef, useState } from 'react';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import '@xterm/xterm/css/xterm.css';
-import { TERMINAL_THEME, followTerminalTheme } from '../pulls/code-tests/TerminalView';
+import { attachTerminal, type TerminalStatus } from '../terminalSession';
 import type { Bridge } from '../types';
 import './css/provider-signin.css';
 
 export type SignInBridge = Pick<Bridge, 'openProviderSignIn' | 'writeReviewTerminal' | 'resizeReviewTerminal' | 'onReviewTerminalEvent'>;
-
-type Status =
-  | { kind: 'starting' }
-  | { kind: 'running' }
-  | { kind: 'done'; exitCode: number }
-  | { kind: 'failed'; message: string };
 
 /**
  * Runs a provider's own sign-in command in a terminal, so the lane signs into ByteQuay's provider
@@ -44,9 +35,9 @@ export default function ProviderSignInDialog({ laneId, providerName, bridge, onC
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const screen = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState<Status>({ kind: 'starting' });
+  const [status, setStatus] = useState<TerminalStatus>({ kind: 'opening' });
   const id = useId();
-  const signedIn = status.kind === 'done' && status.exitCode === 0;
+  const signedIn = status.kind === 'exited' && status.exitCode === 0;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -61,58 +52,9 @@ export default function ProviderSignInDialog({ laneId, providerName, bridge, onC
   useEffect(() => {
     const element = screen.current;
     if (element === null) return;
-    const term = new Terminal({
-      fontFamily: "ui-monospace, Menlo, 'Roboto Mono', monospace", fontSize: 12, cursorBlink: true, scrollback: 2000, theme: TERMINAL_THEME,
+    return attachTerminal(element, bridge, (cols, rows) => bridge.openProviderSignIn(laneId, cols, rows), {
+      scrollback: 2000, onStatus: setStatus,
     });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(element);
-    const stopTheme = followTerminalTheme(term);
-    const refit = () => {
-      if (element.clientWidth > 0 && element.clientHeight > 0) fit.fit();
-    };
-    refit();
-
-    let live = true;
-    let terminalId: string | null = null;
-    const stopEvents = bridge.onReviewTerminalEvent(event => {
-      if (event.terminalId !== terminalId) return;
-      if ('data' in event) {
-        term.write(event.data);
-        return;
-      }
-      terminalId = null;
-      setStatus({ kind: 'done', exitCode: event.exitCode });
-    });
-    // The CLI may still ask which account to use, so keystrokes reach it.
-    const input = term.onData(data => {
-      if (terminalId !== null) bridge.writeReviewTerminal(terminalId, data);
-    });
-    const resize = term.onResize(({ cols, rows }) => {
-      if (terminalId !== null) bridge.resizeReviewTerminal(terminalId, cols, rows);
-    });
-    const observer = new ResizeObserver(refit);
-    observer.observe(element);
-
-    bridge.openProviderSignIn(laneId, term.cols, term.rows).then(opened => {
-      if (!live) return;
-      terminalId = opened.terminalId;
-      term.write(opened.scrollback);
-      bridge.resizeReviewTerminal(opened.terminalId, term.cols, term.rows);
-      setStatus({ kind: 'running' });
-      term.focus();
-    }, (failure: unknown) => {
-      if (live) setStatus({ kind: 'failed', message: failure instanceof Error ? failure.message : String(failure) });
-    });
-
-    return () => {
-      live = false;
-      stopEvents();
-      input.dispose();
-      resize.dispose();
-      observer.disconnect();
-      stopTheme(); term.dispose();
-    };
   }, [bridge, laneId]);
 
   return (
@@ -129,16 +71,16 @@ export default function ProviderSignInDialog({ laneId, providerName, bridge, onC
     >
       <h2 id={`${id}-title`} className="bq-signin-dialog__title">Sign in to {providerName}</h2>
       <p className="bq-signin-dialog__lede" role="status">
-        {status.kind === 'starting' && 'Starting the sign-in…'}
-        {status.kind === 'running' && `Choose the intended email in your browser. This signs in only to ${providerName}’s separate ByteQuay profile.`}
+        {status.kind === 'opening' && 'Starting the sign-in…'}
+        {status.kind === 'open' && `Choose the intended email in your browser. This signs in only to ${providerName}’s separate ByteQuay profile.`}
         {signedIn && `${providerName} sign-in finished. Close this dialog to check the signed-in account.`}
-        {status.kind === 'done' && status.exitCode !== 0 && `The sign-in ended with status ${status.exitCode}. Check the account status before trying again.`}
-        {status.kind === 'failed' && status.message}
+        {status.kind === 'exited' && status.exitCode !== 0 && `The sign-in ended with status ${status.exitCode}. Check the account status before trying again.`}
+        {status.kind === 'failed' && (status.error instanceof Error ? status.error.message : String(status.error))}
       </p>
       <div className="bq-signin-dialog__screen" ref={screen} />
       <div className="bq-signin-dialog__actions">
         <button type="button" className="bq-signin-dialog__button" onClick={() => onClose(signedIn)}>
-          {status.kind === 'done' || status.kind === 'failed' ? 'Done' : 'Cancel'}
+          {status.kind === 'exited' || status.kind === 'failed' ? 'Done' : 'Cancel'}
         </button>
       </div>
     </dialog>

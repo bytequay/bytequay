@@ -199,6 +199,14 @@ def over_time(folder, mode):
     with right:
         st.caption("Threads")
         dashboard.draw("threads_over_time", resources.lines_figure(groups, "threads", 1, mode, "", span))
+    heap = made["heap"]
+    if len(heap):
+        last = heap.iloc[-1]
+        st.caption(f"The backend's heap, asked of its JVM once a minute: now {last['used'] / resources.MB:,.0f} MB used"
+                   + ("" if pandas.isna(last["most"]) else f" of {last['most'] / resources.MB:,.0f} MB") + f"; at most {heap['used'].max() / resources.MB:,.0f} MB used"
+                   + ("" if heap["old"].isna().all() else f", and {heap['old'].max() / resources.MB:,.0f} MB lived through collections") + " in this stretch. "
+                   "The backend's memory above is more than its heap.")
+        dashboard.draw("heap_over_time", resources.heap_figure(resources.bucketed(heap, bucket), mode, span))
     st.subheader("Every part")
     st.caption("Now, typical and peak over this stretch. Typical is the middle of the samples a part ran in.")
     st.dataframe(resources.parts_table(parts), hide_index=True, column_config={name: st.column_config.NumberColumn(format=shape) for name, shape in NUMBERS.items()})

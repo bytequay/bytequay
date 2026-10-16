@@ -93,6 +93,7 @@ class Seen:
     going: list  # what the Clean up section would delete now
     data: Path
     copies: tuple = ()  # the old database copies, which it deletes when its box is ticked
+    weighed: pandas.DataFrame | None = None  # the backend's heap as its JVM gave it, once a minute
 
 
 def place(folder):
@@ -138,7 +139,7 @@ def seen(folder, now, data=monitor.APP_DATA, database=monitor.DATABASE):
     everything, _ = cleanup.plan(data, monitor.holders(database, now), now, copies=True)
     disk = shutil.disk_usage(data)
     going, copies = ([item for item in everything if (item.owner == monitor.COPIES) == wanted] for wanted in (False, True))
-    return Seen(made["parts"], made["machine"], made["space"], *heap(), (disk.free, disk.total), psutil.cpu_count() or 0, going, data, tuple(copies))
+    return Seen(made["parts"], made["machine"], made["space"], *heap(), (disk.free, disk.total), psutil.cpu_count() or 0, going, data, tuple(copies), made["heap"])
 
 
 def local(at):
@@ -152,6 +153,19 @@ def limits(sight):
     return (f"Limits: {heap_said}; the disk the app's data is on has {free / GB:,.0f} GB free of {total / GB:,.0f} GB ({100 * (1 - free / total):.0f}% used). "
             "Memory here is what a process holds in RAM: for the Java backend that is its heap and more besides, so it shows how near the heap could be "
             "to its limit, not how full the heap is.")
+
+
+def weighed(sight):
+    """The backend's heap as its JVM gave it over the week, or why it is not known."""
+    heap = sight.weighed
+    if heap is None or heap.empty:
+        return "The backend's heap as its JVM gives it: not known (the monitor asks once a minute while the backend runs, with jcmd beside its java)."
+    old = heap["old"].dropna() / MB
+    return (f"The backend's heap as its JVM gives it, asked once a minute ({len(heap):,} asks): used typically {heap['used'].median() / MB:,.0f} MB, at most "
+            f"{heap['used'].max() / MB:,.0f} MB; set aside at most {heap['committed'].max() / MB:,.0f} MB"
+            + (f"; lived through collections typically {old.median():,.0f} MB, at most {old.max():,.0f} MB" if len(old) else "")
+            + (f"; limit {heap['most'].dropna().iloc[-1] / MB:,.0f} MB" if heap["most"].notna().any() else "")
+            + ". How near the heap is to its limit shows here, not in the backend's memory.")
 
 
 def overview(sight, _arguments):
@@ -176,7 +190,7 @@ def overview(sight, _arguments):
         lines.append(f"  {resources.NAMES[part]}: memory {mine['memory'].median() / MB:,.0f} / {mine['memory_peak'].max() / MB:,.0f} / "
                      + (f"{now / MB:,.0f}" if now else "not running now") + f"; CPU {mine['cpu'].median():,.2f} / {mine['cpu_peak'].max():,.2f}; "
                      f"threads {mine['threads'].median():,.0f} / {mine['threads'].max():,.0f}; open files {mine['files'].max():,.0f}; processes {mine['processes'].max():,.0f}")
-    return "\n".join([*lines, limits(sight)])
+    return "\n".join([*lines, weighed(sight), limits(sight)])
 
 
 def series(sight, arguments):

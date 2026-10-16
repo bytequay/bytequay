@@ -14,6 +14,7 @@ from datetime import datetime
 import fcntl
 import os
 from pathlib import Path
+import re
 import sqlite3
 import struct
 import subprocess
@@ -33,6 +34,7 @@ STORE = "monitor.db"
 AGENT = "com.bytequay.lab.monitor"
 EVERY = 5  # seconds between two samples
 DISK_EVERY = 6 * 3600  # a disk count walks every file of the app's data, so it runs only a few times a day
+HEAP_EVERY = 60  # seconds between two asks of the backend's JVM how full its heap is; an ask takes about a second
 RAW = 7 * 86400  # seconds every sample is kept; older ones are folded into one row an hour
 HOURLY = 90 * 86400  # seconds an hourly row is kept
 PARTS = ("app", "window", "gpu", "helpers", "backend", "agents", "commands", "monitor")
@@ -64,6 +66,8 @@ CREATE INDEX IF NOT EXISTS parts_at ON parts (at);
 CREATE TABLE IF NOT EXISTS machine (at REAL, seconds REAL, memory_used REAL, memory_total REAL, cpu REAL, turns REAL, tasks REAL, queued REAL);
 CREATE INDEX IF NOT EXISTS machine_at ON machine (at);
 CREATE TABLE IF NOT EXISTS space (at REAL, owner TEXT, place TEXT, bytes REAL, files REAL);
+CREATE TABLE IF NOT EXISTS heap (at REAL, used REAL, committed REAL, most REAL, old REAL);
+CREATE INDEX IF NOT EXISTS heap_at ON heap (at);
 """
 
 
@@ -112,6 +116,42 @@ def program(pid):
         process = psutil.Process(pid)
         return process.exe(), process.cmdline()
     return "", []
+
+
+def java_of(programs):
+    """The backend's pid and its Java program, from the programs the sampler knows; None while the backend is not running."""
+    return next(((pid, program) for pid, (program, arguments) in programs.items() if is_backend(arguments)), None)
+
+
+def read_heap(said):
+    """The heap from what `jcmd PID GC.heap_info` prints, in bytes: used, committed (set aside by the JVM), most (the limit)
+    and old (what lived through collections, the old and humongous regions). None when it says no heap; most and old are
+    None when this JVM does not print them."""
+    size = lambda found: None if found is None else int(found[1]) * {"K": 2**10, "M": 2**20, "G": 2**30}[found[2]]
+    line = next((line for line in said.splitlines() if "heap" in line and "used" in line), None)
+    if line is None:
+        return None
+    regions = next((line for line in said.splitlines() if "region size" in line), "")
+    parts = [size(re.search(rf"\d+ {kind} \((\d+)([KMG])\)", regions)) for kind in ("old", "humongous")]
+    return {"used": size(re.search(r"used (\d+)([KMG])", line)),
+            # Older JVMs print only the committed size, as the total.
+            "committed": size(re.search(r"committed (\d+)([KMG])", line) or re.search(r"total (\d+)([KMG])", line)),
+            "most": size(re.search(r"total reserved (\d+)([KMG])", line)), "old": None if None in parts else sum(parts)}
+
+
+def weigh(folder, now, pid, java):
+    """Ask the backend's JVM how full its heap is, with the jcmd beside its java, and keep the answer. A runtime without
+    jcmd, or a JVM that does not answer, leaves no row."""
+    try:
+        said = subprocess.run(["nice", "-n", "20", str(Path(java).with_name("jcmd")), str(pid), "GC.heap_info"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    made = read_heap(said.stdout)
+    if made is None or made["used"] is None:
+        return
+    with contextlib.closing(store(folder)) as connection:
+        connection.execute("INSERT INTO heap VALUES (?, ?, ?, ?, ?)", (now, made["used"], made["committed"], made["most"], made["old"]))
+        connection.commit()
 
 
 def records(path):
@@ -192,7 +232,7 @@ def fold(connection, now):
                        "FROM machine WHERE seconds < 3600 AND at < ? GROUP BY CAST(at / 3600 AS INTEGER)", (edge,))
     for table in ("parts", "machine"):
         connection.execute(f"DELETE FROM {table} WHERE seconds < 3600 AND at < ?", (edge,))
-    for table in ("parts", "machine", "space"):
+    for table in ("parts", "machine", "space", "heap"):
         connection.execute(f"DELETE FROM {table} WHERE at < ?", (now - HOURLY,))
     connection.commit()
 
@@ -346,7 +386,7 @@ def count_disk(folder, now, data=APP_DATA, database=DATABASE):
 def run(folder, watch=None, rounds=None):
     """Sample every few seconds until stopped, or for `rounds` samples. Old samples are folded every hour, and the disk is
     counted a few times a day apart from the samples, as a count takes minutes."""
-    connection, watch, folded, counted, done = store(folder), watch or Watch(), 0.0, 0.0, 0
+    connection, watch, folded, counted, weighed, done = store(folder), watch or Watch(), 0.0, 0.0, 0.0, 0
     watch.sample()  # not kept: CPU is counted between two looks, so the first look of every process reads as idle
     time.sleep(EVERY)
     while rounds is None or done < rounds:
@@ -361,6 +401,11 @@ def run(folder, watch=None, rounds=None):
             command = ["nice", "-n", "20", sys.executable, str(Path(__file__).resolve()), "--count-disk", "--folder", str(folder)]
             threading.Thread(target=subprocess.run, args=(command,), daemon=True).start()
             counted = now
+        if now - weighed >= HEAP_EVERY:
+            backend = java_of(watch.programs)
+            if backend:
+                threading.Thread(target=weigh, args=(folder, now, *backend), daemon=True).start()
+            weighed = now
         done += 1
         if rounds is None or done < rounds:
             time.sleep(max(0.0, EVERY - (time.time() - now)))

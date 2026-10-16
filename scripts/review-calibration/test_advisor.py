@@ -10,6 +10,8 @@ import time
 import unittest
 from unittest import mock
 
+import pandas
+
 import advisor
 import agent
 import cleanup
@@ -81,6 +83,12 @@ class TestTools(Kept):
             with self.subTest(line=line[:40]):
                 self.assertIn(line, said_)
         self.assertIn("the backend's heap limit is not known", advisor.overview(self.sight(heap=None, exits=False), {}))
+        self.assertIn("The backend's heap as its JVM gives it: not known", said_)
+        asked = pandas.DataFrame({"at": [START + 60, START + 120, START + 180], "used": [500 * MB, 900 * MB, 700 * MB], "committed": [1200 * MB] * 3,
+                                  "most": [2000 * MB] * 3, "old": [300 * MB, 350 * MB, None]})
+        self.assertIn("The backend's heap as its JVM gives it, asked once a minute (3 asks): used typically 700 MB, at most 900 MB; set aside at most 1,200 MB; "
+                      "lived through collections typically 325 MB, at most 350 MB; limit 2,000 MB. How near the heap is to its limit shows here, not in the "
+                      "backend's memory.", advisor.overview(self.sight(weighed=asked), {}))
         self.assertTrue(said_.startswith(f"Samples from {advisor.local(START + 60)} to {advisor.local(START + 7260)}, 2.0 hours.\n"))  # no gap of an hour
 
     def keep_later(self, moment, made, whole, seconds=monitor.EVERY):

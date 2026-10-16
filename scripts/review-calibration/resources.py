@@ -44,12 +44,17 @@ NOTES = {
 
 
 def read(folder, since):
-    """The monitor's samples since a moment, and every disk count, as frames. None when the monitor has kept nothing yet."""
+    """The monitor's samples since a moment, the backend's heap since then, and every disk count, as frames. None when the
+    monitor has kept nothing yet."""
     path = folder / monitor.STORE
     if not path.exists():
         return None
     with contextlib.closing(sqlite3.connect(path, timeout=5)) as connection:
-        made = {table: pandas.read_sql_query(f"SELECT * FROM {table} WHERE at >= ? ORDER BY at", connection, params=(since,)) for table in ("parts", "machine")}
+        # A monitor started before the heap was asked keeps no heap table until it starts again.
+        kept = {name for (name,) in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        made = {table: pandas.read_sql_query(f"SELECT * FROM {table} WHERE at >= ? ORDER BY at", connection, params=(since,))
+                for table in ("parts", "machine", "heap") if table in kept}
+        made.setdefault("heap", pandas.DataFrame(columns=["at", "used", "committed", "most", "old"]))
         return made | {"space": pandas.read_sql_query("SELECT * FROM space ORDER BY at", connection)}
 
 
@@ -91,6 +96,23 @@ def lines_figure(frame, value, unit, mode, suffix, span, stacked=False, height=2
                                line={"width": 2, "color": charts.COLORS[mode][COLOR[group]]}, hovertemplate=f"%{{y:,.2f}}{suffix}<extra>{group}</extra>")
     figure.update_xaxes(showgrid=False, range=list(moments(pandas.Series(span))))
     figure.update_yaxes(gridcolor=charts.COLORS[mode]["grid"], ticksuffix=suffix, rangemode="tozero")
+    return charts.tidy(figure, height, legend=True).update_layout(hovermode="x unified")
+
+
+def heap_figure(heap, mode, span, height=200):
+    """The backend's heap over a span of time: what it used, what lived through collections, and its limit."""
+    figure = go.Figure()
+    for value, name, color in (("used", "used", "tool"), ("old", "lived through collections", "other")):
+        rows = heap.dropna(subset=[value])
+        if len(rows):
+            figure.add_scatter(x=moments(rows["at"]), y=rows[value] / MB, name=name, mode="lines" if len(rows) > 2 else "lines+markers", marker={"size": 8},
+                               line={"width": 2, "color": charts.COLORS[mode][color]}, hovertemplate=f"%{{y:,.0f}} MB<extra>{name}</extra>")
+    most = heap["most"].dropna()
+    if len(most):
+        figure.add_hline(y=most.iloc[-1] / MB, line={"width": 1, "dash": "dash", "color": charts.COLORS[mode]["grid"]},
+                         annotation_text=f"limit {most.iloc[-1] / MB:,.0f} MB", annotation_position="top left")
+    figure.update_xaxes(showgrid=False, range=list(moments(pandas.Series(span))))
+    figure.update_yaxes(gridcolor=charts.COLORS[mode]["grid"], ticksuffix=" MB", rangemode="tozero")
     return charts.tidy(figure, height, legend=True).update_layout(hovermode="x unified")
 
 

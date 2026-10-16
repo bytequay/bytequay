@@ -328,6 +328,13 @@ ByteQuay's database, the turns running, the open tasks and the inputs waiting
 in their queues, with the states the backend itself counts as running and
 waiting (a test reads them from its source).
 
+Once a minute, while the backend runs, it asks the backend's JVM how full its
+heap is, with the `jcmd` beside the backend's `java` (`jcmd PID GC.heap_info`,
+at the lowest priority): what the heap uses, what the JVM has set aside for it,
+its limit, and what lived through collections (the old and humongous regions).
+The backend's memory is more than its heap, so only these numbers tell how
+near the heap is to its limit. A runtime without `jcmd` leaves no row.
+
 A few times a day it counts who holds the app's data on disk
 (`--count-disk` counts once). The count walks every file, so the sampler
 starts it as a process of its own at the lowest priority. Each top-level

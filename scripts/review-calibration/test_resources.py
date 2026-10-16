@@ -177,6 +177,19 @@ class TestPage(Kept):
         self.assertTrue({"This Mac: 40.0 of 64 GB of memory in use.", "The monitor itself typically holds 100 MB and keeps 10.0% of one core busy."}
                         <= {caption.value for caption in page.caption})
 
+    def test_the_backends_heap_is_charted_with_its_limit_when_its_jvm_was_asked(self):
+        now = time.time()
+        self.keep((now - 6, numbers(), MACHINE), (now - 1, numbers(), MACHINE))
+        connection = monitor.store(self.folder)
+        connection.executemany("INSERT INTO heap VALUES (?, ?, ?, ?, ?)", [(now - 120, 900 * resources.MB, 1700 * resources.MB, 2000 * resources.MB, 400 * resources.MB),
+                                                                           (now - 60, 700 * resources.MB, 1700 * resources.MB, 2000 * resources.MB, 450 * resources.MB)])
+        connection.commit()
+        connection.close()
+        page = self.page()
+        self.assertEqual((len(page.get("plotly_chart")), list(page.exception)), (7, []))  # memory and CPU live; memory, turns, CPU, threads and the heap over time
+        self.assertIn("The backend's heap, asked of its JVM once a minute: now 700 MB used of 2,000 MB; at most 900 MB used, and 450 MB lived through collections in this "
+                      "stretch. The backend's memory above is more than its heap.", [caption.value for caption in page.caption])
+
     def test_stopped_monitor_says_so_and_still_shows_what_it_kept(self):
         self.keep((time.time() - 120, numbers(), MACHINE | {"turns": 0}))
         page = self.page()

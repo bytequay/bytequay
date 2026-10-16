@@ -16,6 +16,11 @@ import monitor
 from test_batch import TOOLS
 
 SCRIPT = Path(monitor.__file__).resolve()
+JDK26 = """44545:
+garbage-first heap   total reserved 2048000K, committed 1778688K, used 761379K [0x0000000783000000, 0x0000000800000000)
+ region size 1M, 280 eden (280M), 58 survivor (58M), 241 old (241M), 173 humongous (173M), 985 free (985M)
+ Metaspace       used 180000K, committed 182000K, reserved 1245184K
+"""
 BACKEND = Path(__file__).resolve().parents[2] / "backend/agent-core/src/main/java/com/bytequay/agent/core"
 ENTITIES = Path(__file__).resolve().parents[2] / "backend/persistence-sqlite/src/main/java/com/bytequay/persistence/sqlite/entity"
 OPEN_TASK, IDLE_TASK, DONE_TASK, GONE_TASK = (f"{digit * 8}-{digit * 4}-{digit * 4}-{digit * 4}-{digit * 12}" for digit in "1234")
@@ -126,9 +131,11 @@ class TestStore(Folder):
         for moment, memory, cpu in ((hour + 10, 100, 0.5), (hour + 20, 300, 1.5), (hour + 3610, 50, 0.1), (now - 60, 7, 0.2)):
             monitor.keep(connection, moment, self.numbers(memory, cpu), machine)
         monitor.keep(connection, now - 91 * 86400, self.numbers(1, 0), machine)  # older than anything is kept
+        connection.executemany("INSERT INTO heap VALUES (?, ?, ?, ?, ?)", [(now - 91 * 86400, 1, 2, 3, 4), (now - 60, 5, 6, 7, 8)])
         connection.executemany("INSERT INTO space VALUES (?, ?, ?, ?, ?)", [(now - 91 * 86400, monitor.APP, "Cache", 1, 1), (now - 89 * 86400, monitor.APP, "Cache", 2, 1)])
         monitor.fold(connection, now)
         self.assertEqual(connection.execute("SELECT bytes FROM space").fetchall(), [(2,)])  # a disk count is kept as long as an hourly row
+        self.assertEqual(connection.execute("SELECT used FROM heap").fetchall(), [(5,)])  # and so is an ask of the heap
         rows = connection.execute("SELECT at, seconds, memory, memory_peak, cpu, cpu_peak FROM parts WHERE part = 'app' ORDER BY at").fetchall()
         self.assertEqual(rows, [(hour, 3600, 200, 300, 1.0, 1.5), (hour + 3600, 3600, 50, 50, 0.1, 0.1), (now - 60, 5, 7, 7, 0.2, 0.2)])
         self.assertEqual(connection.execute("SELECT at, seconds, memory_used, cpu, turns, queued FROM machine ORDER BY at").fetchall(),
@@ -137,7 +144,8 @@ class TestStore(Folder):
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM parts WHERE part = 'app'").fetchone(), (3,))
 
     def test_sampler_keeps_every_sample_and_counts_the_disk_apart(self):
-        watch = mock.Mock(sample=mock.Mock(return_value=(self.numbers(10, 0.25), {"memory_used": 1, "memory_total": 2, "cpu": 0.5, "turns": 0, "tasks": 3, "queued": 0})))
+        watch = mock.Mock(sample=mock.Mock(return_value=(self.numbers(10, 0.25), {"memory_used": 1, "memory_total": 2, "cpu": 0.5, "turns": 0, "tasks": 3, "queued": 0})),
+                          programs={})
         with mock.patch.object(monitor.threading, "Thread") as counting, mock.patch.object(monitor, "EVERY", 0):
             monitor.run(self.folder, watch, rounds=3)
         connection = monitor.store(self.folder)
@@ -148,6 +156,30 @@ class TestStore(Folder):
         # Counted once, at the start, apart from the samples and in a process of its own at the lowest priority: a count takes minutes.
         self.assertEqual([(call.kwargs["target"], call.kwargs["args"][0]) for call in counting.call_args_list],
                          [(subprocess.run, ["nice", "-n", "20", sys.executable, str(SCRIPT), "--count-disk", "--folder", str(self.folder)])])
+
+    def test_the_backends_jvm_is_asked_for_its_heap_once_a_minute_while_it_runs(self):
+        backend = (41, ("/jdk/bin/java", ["/jdk/bin/java", "-Xmx2000m", "-jar", "/b/bytequay-backend.jar"]))
+        watch = mock.Mock(sample=mock.Mock(return_value=(self.numbers(10, 0.25), {"memory_used": 1, "memory_total": 2, "cpu": 0.5, "turns": 0, "tasks": 3, "queued": 0})),
+                          programs=dict([backend, (42, ("/bin/zsh", ["zsh"]))]))
+        with mock.patch.object(monitor.threading, "Thread") as started, mock.patch.object(monitor, "EVERY", 0):
+            monitor.run(self.folder, watch, rounds=3)
+        self.assertEqual([call.kwargs["args"][2:] for call in started.call_args_list if call.kwargs["target"] is monitor.weigh], [(41, "/jdk/bin/java")])
+
+    def test_the_heap_is_read_from_what_jcmd_prints(self):
+        self.assertEqual(monitor.read_heap(JDK26), {"used": 761379 * 2**10, "committed": 1778688 * 2**10, "most": 2048000 * 2**10, "old": (241 + 173) * 2**20})
+        older = "1:\n garbage-first heap   total 1778688K, used 761379K [0x0, 0x0)\n  region size 1024K, 280 young (286720K), 58 survivors (59392K)\n"
+        self.assertEqual(monitor.read_heap(older), {"used": 761379 * 2**10, "committed": 1778688 * 2**10, "most": None, "old": None})
+        self.assertIsNone(monitor.read_heap("41: Unable to open socket file: target process not responding or HotSpot VM not loaded"))
+
+    def test_an_ask_of_the_heap_keeps_a_row_and_none_when_the_jvm_does_not_answer(self):
+        answers = [subprocess.CompletedProcess([], 0, JDK26, ""), OSError("no jcmd in this runtime"), subprocess.CompletedProcess([], 1, "", "not responding")]
+        with mock.patch.object(monitor.subprocess, "run", side_effect=answers) as ran:
+            for moment in (100, 160, 220):
+                monitor.weigh(self.folder, moment, 41, "/jdk/bin/java")
+        self.assertEqual(ran.call_args_list[0].args[0], ["nice", "-n", "20", "/jdk/bin/jcmd", "41", "GC.heap_info"])
+        connection = monitor.store(self.folder)
+        self.addCleanup(connection.close)
+        self.assertEqual(connection.execute("SELECT at, used FROM heap").fetchall(), [(100, 761379 * 2**10)])
 
 
 class TestSpace(Folder):

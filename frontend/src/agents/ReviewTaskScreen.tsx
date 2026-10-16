@@ -51,8 +51,9 @@ export default function ReviewTaskScreen({ workspaceId, reviewId, onBack, header
       <button type="button" className="agt-back" onClick={onBack}>‹ Tasks</button>
       <strong>WorkBench</strong><span className="agt-spacer" />{headerAction}
     </header>
-    <div className="agt-panel__empty" role={error === null ? 'status' : 'alert'}>
-      {error ?? 'Loading review task…'}
+    <div className="agr-workspace-status" role={error === null ? 'status' : 'alert'}>
+      {error === null && <span className="agr-spinner" aria-hidden="true" />}
+      <span>{error ?? 'Loading review task…'}</span>
       {error !== null && <button type="button" className="agt-action" onClick={() => setRetry(value => value + 1)}>Retry</button>}
     </div>
   </section>;

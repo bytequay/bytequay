@@ -1168,8 +1168,9 @@ export default function PullsScreen({
             setPaneOpen(true);
           }}
           focusFindingId={null} onNavigateToChanges={navigateToChanges} />
-          : <div className="agt-panel__empty" role={reviewError === null ? 'status' : 'alert'}>
-            {reviewError ?? 'Loading review conversation…'}
+          : <div className="agr-workspace-status" role={reviewError === null ? 'status' : 'alert'}>
+            {reviewError === null && <span className="agr-spinner" aria-hidden="true" />}
+            <span>{reviewError ?? 'Loading review conversation…'}</span>
             {reviewError !== null && <button type="button" className="agt-action" onClick={() => setReviewReload(value => value + 1)}>Retry</button>}
           </div>}
       </section>}

@@ -17,3 +17,4 @@
 .agr-workspace-conversation > .agr-pane { flex: 1; min-height: 0; }
 .agr-workspace-conversation .agt-screen-head { min-height: 45px; }
 .agr-workspace-conversation .agt-screen-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agr-workspace-status { display: flex; align-items: center; gap: 8px; padding: 16px; color: var(--fg-muted); }

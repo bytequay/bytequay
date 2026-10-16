@@ -32,10 +32,11 @@ import '../css/cards.css';
 import '../css/confirm-dialog.css';
 import '../jira/jira.css';
 import '../teams/teams.css';
+import '../css/today.css';
 
 let preferences: AppPreferencesDto = { theme: 'LIGHT', taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 };
 const surfaces = [
-  ['Home', 'home-page'], ['Workspaces', 'ws-card'], ['Pull requests', 'pulls-toolbar-button'],
+  ['Home', 'home-page'], ['Today', 'today-summary'], ['Workspaces', 'ws-card'], ['Pull requests', 'pulls-toolbar-button'],
   ['Recent', 'rc-menu'], ['Commits', 'cmt-root'], ['Agents', 'agt-compose'], ['Goals', 'goal-panel'],
   ['Epics', 'epic-view__sync'], ['Memory', 'mem-head'], ['Repository context', 'rcp'],
   ['Tears of time', 'ct'], ['Settings', 'setw-btn'], ['Jira', 'jira-btn'], ['Circles', 'cir-page'],

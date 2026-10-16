@@ -17,6 +17,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -24,6 +26,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -148,6 +153,99 @@ class TestGitCommandRunner
                 .isInstanceOf(IllegalArgumentException.class).hasMessage("failure");
         assertThatThrownBy(() -> new GitCommandRunner.Result(2, "", false).requireOutput(IllegalStateException::new))
                 .hasMessage("Git exited with status 2");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void stopsHooksAndTheirChildrenBeforeReturningFromTimeoutOrInterruption(boolean interrupt)
+            throws Exception
+    {
+        git(repository, "config", "user.name", "ByteQuay Test");
+        git(repository, "config", "user.email", "bytequay@example.com");
+        git(repository, "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-m", "Base");
+        Path hook = repository.resolve(".git/hooks/post-checkout");
+        Files.writeString(hook, """
+                #!/bin/bash
+                trap '' TERM
+                set -m
+                printf '%s\\n' "$$" > hook.pid
+                sleep 30 &
+                printf '%s\\n' "$!" > child.pid
+                wait
+                printf 'changed' > late-write
+                """);
+        assertThat(hook.toFile().setExecutable(true)).isTrue();
+        CompletableFuture<GitCommandRunner.Result> result = new CompletableFuture<>();
+        AtomicBoolean interrupted = new AtomicBoolean();
+        Thread caller = Thread.ofPlatform().start(() -> {
+            try {
+                result.complete(GIT.run(repository, Duration.ofSeconds(interrupt ? 30 : 2),
+                        ImmutableList.of("-c", "core.hooksPath=" + hook.getParent(), "checkout", "-b", "hook-cleanup")));
+                interrupted.set(Thread.currentThread().isInterrupted());
+            }
+            catch (Throwable failure) {
+                result.completeExceptionally(failure);
+            }
+        });
+        try {
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            Path childPid = repository.resolve("child.pid");
+            while ((!Files.exists(childPid) || Files.size(childPid) == 0) && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertThat(childPid).exists();
+            long child = Long.parseLong(Files.readString(childPid).strip());
+            long hookPid = Long.parseLong(Files.readString(repository.resolve("hook.pid")).strip());
+            if (interrupt) {
+                caller.interrupt();
+            }
+            assertThat(result.get(10, TimeUnit.SECONDS).output()).isEqualTo(interrupt ? "Git was interrupted" : "Git timed out");
+            caller.join(Duration.ofSeconds(5));
+            assertThat(caller.isAlive()).isFalse();
+            assertThat(interrupted.get()).isEqualTo(interrupt);
+            assertThat(ProcessHandle.of(hookPid).map(ProcessHandle::isAlive).orElse(false)).as("Git hook is stopped").isFalse();
+            assertThat(ProcessHandle.of(child).map(ProcessHandle::isAlive).orElse(false)).as("Hook child is stopped").isFalse();
+            assertThat(repository.resolve("late-write")).doesNotExist();
+        }
+        finally {
+            caller.interrupt();
+            for (String file : ImmutableList.of("hook.pid", "child.pid")) {
+                Path pid = repository.resolve(file);
+                if (Files.exists(pid) && !Files.readString(pid).isBlank()) {
+                    ProcessHandle.of(Long.parseLong(Files.readString(pid).strip())).ifPresent(ProcessHandle::destroyForcibly);
+                }
+            }
+            caller.join(Duration.ofSeconds(5));
+        }
+    }
+
+    @Test
+    void stopsHelpersThatOutliveTheCommand()
+            throws Exception
+    {
+        Path pid = repository.resolve("helper.pid");
+        try {
+            GitCommandRunner.Result result = GIT.runCommand(repository, ImmutableList.of("/bin/sh", "-c", """
+                    trap '' TERM
+                    (sleep 30; printf changed > late-write) &
+                    printf '%s\\n' "$!" > helper.pid
+                    """), Duration.ofSeconds(10), 1024);
+
+            assertThat(result.successful()).as(result.output()).isTrue();
+            long helper = Long.parseLong(Files.readString(pid).strip());
+            // A killed orphan can remain visible briefly while the OS reaps it.
+            ProcessHandle.of(helper).map(ProcessHandle::onExit).orElseGet(() -> CompletableFuture.completedFuture(null)).get(2, TimeUnit.SECONDS);
+            assertThat(ProcessHandle.of(helper).map(ProcessHandle::isAlive).orElse(false)).isFalse();
+            assertThat(repository.resolve("late-write")).doesNotExist();
+        }
+        finally {
+            if (Files.exists(pid)) {
+                ProcessHandle.of(Long.parseLong(Files.readString(pid).strip())).ifPresent(process -> {
+                    process.descendants().forEach(ProcessHandle::destroyForcibly);
+                    process.destroyForcibly();
+                });
+            }
+        }
     }
 
     private static void git(Path directory, String... arguments)

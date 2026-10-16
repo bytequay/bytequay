@@ -54,6 +54,36 @@ public class GitCommandRunner
     private static final int MAXIMUM_ERROR_BYTES = 64 * 1024;
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(60);
     private static final Duration DRAIN_TIMEOUT = Duration.ofSeconds(2);
+    // Bash job control gives the command its own group, including helpers reparented after Git exits.
+    private static final String COMMAND_LAUNCHER = """
+            bq_pid=
+            stop_group() {
+                trap '' HUP INT TERM
+                bq_pid=${bq_pid:-$!}
+                [ -n "$bq_pid" ] || return
+                if kill -0 -- "-$bq_pid" 2>/dev/null; then
+                    kill -TERM -- "-$bq_pid" 2>/dev/null || :
+                    bq_deadline=$((SECONDS + 2))
+                    while kill -0 -- "-$bq_pid" 2>/dev/null && [ "$SECONDS" -lt "$bq_deadline" ]; do
+                        /bin/sleep 0.05
+                    done
+                    kill -KILL -- "-$bq_pid" 2>/dev/null || :
+                fi
+                wait "$bq_pid" 2>/dev/null || :
+                while kill -0 -- "-$bq_pid" 2>/dev/null; do
+                    kill -KILL -- "-$bq_pid" 2>/dev/null || :
+                    /bin/sleep 0.05
+                done
+            }
+            trap stop_group EXIT
+            trap 'exit 143' HUP INT TERM
+            set -m
+            exec -- "$@" <&0 &
+            bq_pid=$!
+            exec 2>/dev/null
+            wait "$bq_pid"
+            exit "$?"
+            """;
 
     private final String executable;
 
@@ -339,12 +369,22 @@ public class GitCommandRunner
     {
         Process process;
         try {
+            // Privileged mode skips BASH_ENV and imported shell functions; argv and stdin stay literal.
+            builder.command(ImmutableList.<String>builder()
+                    .add("/bin/bash", "--noprofile", "--norc", "-p", "-c", COMMAND_LAUNCHER, "bytequay-command")
+                    .addAll(builder.command()).build());
             builder.redirectErrorStream(!separateErrors);
             process = builder.start();
-            process.getOutputStream().close();
         }
         catch (IOException | RuntimeException failure) {
             return Result.failed(name + " could not start: " + message(failure));
+        }
+        try {
+            process.getOutputStream().close();
+        }
+        catch (IOException failure) {
+            terminate(process);
+            return Result.failed(name + " input could not be closed: " + message(failure));
         }
 
         CompletableFuture<CapturedOutput> output = drain(process.getInputStream(), maximumOutputBytes);
@@ -363,11 +403,11 @@ public class GitCommandRunner
             return new Result(process.exitValue(), captured.text(), captured.truncated());
         }
         catch (InterruptedException e) {
-            process.destroyForcibly();
+            terminate(process);
             throw e;
         }
         catch (ExecutionException | TimeoutException e) {
-            process.destroyForcibly();
+            terminate(process);
             return Result.failed(name + " output could not be read: " + message(e));
         }
     }
@@ -387,12 +427,15 @@ public class GitCommandRunner
     }
 
     private static void terminate(Process process)
-            throws InterruptedException
     {
+        List<ProcessHandle> descendants = process.descendants().collect(toImmutableList());
+        CompletableFuture<?>[] children = descendants.stream().map(ProcessHandle::onExit).toArray(CompletableFuture<?>[]::new);
         process.destroy();
-        if (!process.waitFor(DRAIN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
-            process.destroyForcibly();
-        }
+        // The launcher exits only after its group is gone; interruption must not release the worktree lock early.
+        process.onExit().join();
+        // A hook may have moved a child into a different process group.
+        descendants.forEach(ProcessHandle::destroyForcibly);
+        CompletableFuture.allOf(children).join();
     }
 
     private static CapturedOutput capture(InputStream input, int maximumOutputBytes)

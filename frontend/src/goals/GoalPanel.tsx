@@ -62,8 +62,8 @@ export function GoalRing({ goal, size = 20, running = false }: { goal: GoalDto |
   const dash = goal === null ? '0 44' : ringDash(summarize(goal, new Set()));
   return (
     <svg className="goal-ring" width={size} height={size} viewBox="0 0 20 20" aria-hidden="true">
-      <circle cx="10" cy="10" r="7" fill="none" stroke="#e3e3e6" strokeWidth="3" />
-      <circle cx="10" cy="10" r="7" fill="none" stroke="#1a7f37" strokeWidth="3" strokeDasharray={dash} />
+      <circle cx="10" cy="10" r="7" fill="none" stroke="var(--line-subtle)" strokeWidth="3" />
+      <circle cx="10" cy="10" r="7" fill="none" stroke="var(--fg-success)" strokeWidth="3" strokeDasharray={dash} />
       {running && <circle className="goal-ring__run" cx="10" cy="10" r="7" fill="none" strokeWidth="3" strokeLinecap="round" strokeDasharray="9 35" />}
     </svg>
   );

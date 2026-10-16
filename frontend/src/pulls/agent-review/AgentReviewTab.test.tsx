@@ -739,8 +739,8 @@ describe('styles', () => {
   });
 
   it('gives only the GitHub-bound action the green primary treatment', () => {
-    expect(declarations('.agr-action.is-primary')).toContain('background: #1f883d');
-    expect(declarations('.agr-action')).toContain('background: #fff');
+    expect(declarations('.agr-action.is-primary')).toContain('background: light-dark(#1f883d, #287a43)');
+    expect(declarations('.agr-action')).toContain('background: var(--surface-canvas)');
   });
 
   it('bounds an evidence excerpt instead of letting it run the card', () => {

@@ -121,8 +121,8 @@ export function AgentModelControls({ agent, settings, inheritLabel, onChoose, on
         options={pillOptions}
         footer={onAddKey === undefined ? undefined : (
           <button type="button" className="setw-card-foot-link setw-menu-item" onClick={onAddKey}>
-            <Plus size={13} strokeWidth={2.2} color="#0969da" />
-            <span className="setw-menu-label" style={{ color: '#0969da' }}>Add API key</span>
+            <Plus size={13} strokeWidth={2.2} color="var(--fg-link)" />
+            <span className="setw-menu-label" style={{ color: 'var(--fg-link)' }}>Add API key</span>
           </button>
         )}
         onSelect={value => {
@@ -243,12 +243,12 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
             >
               {onSignIn !== undefined && provider.readiness === 'AUTHENTICATION_REQUIRED' && (
                 <button type="button" className="setw-btn" disabled={checking} onClick={() => onSignIn(provider.id)}>
-                  <LogIn size={12} strokeWidth={2.2} color="#6e6e73" />
+                  <LogIn size={12} strokeWidth={2.2} color="var(--text-3)" />
                   <span>Sign in</span>
                 </button>
               )}
               <button type="button" className="setw-btn" disabled={checking} onClick={onCheck}>
-                <RefreshCw size={12} strokeWidth={2.2} color="#6e6e73" />
+                <RefreshCw size={12} strokeWidth={2.2} color="var(--text-3)" />
                 <span>{checking ? 'Checking…' : 'Check'}</span>
               </button>
             </SettingsRow>

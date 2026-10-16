@@ -16,6 +16,7 @@
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 
+import '../../css/base.css';
 import '../../css/agents.css';
 import { DiscussableAnswer, revealPassage, type SelectedPassage } from '../discussions/DiscussableAnswer';
 import { assert, changeInput, settle } from '../../fixtures/harness';

@@ -390,7 +390,7 @@ describe('overflow menu', () => {
 
   it('lays the menu out over the list instead of inside a clipped strip', () => {
     expect(declarations('.pulls-filter-menu')).toEqual(expect.arrayContaining([
-      'position: absolute', 'width: 218px', 'border: 1px solid #d0d7de', 'border-radius: 10px', 'padding: 5px',
+      'position: absolute', 'width: 218px', 'border: 1px solid var(--line-default)', 'border-radius: 10px', 'padding: 5px',
     ]));
     expect(declarations('.pulls-toolbar__filters')).toContain('position: relative');
     expect(properties('.pulls-toolbar__filters')).not.toContain('overflow');
@@ -407,7 +407,7 @@ describe('the strip never overflows its row', () => {
   it('marks selection with background, color, and weight, matching the design', () => {
     expect(tabsMarkup('req')).toContain('aria-selected="true"');
     expect(declarations('.pulls-tab[aria-selected=\'true\']')).toEqual(
-      expect.arrayContaining(['background: #e4e4e8', 'color: var(--text-1)', 'font-weight: 600']),
+      expect.arrayContaining(['background: light-dark(#e4e4e8, var(--dark-subtle))', 'color: var(--text-1)', 'font-weight: 600']),
     );
     expect(declarations('.pulls-tab')).toEqual(
       expect.arrayContaining(['flex: none', 'padding: 4px 9px', 'border-radius: 6px', 'font-size: 12.5px']),

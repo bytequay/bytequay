@@ -20,7 +20,7 @@ export const AGENT_MARK_FAMILY = [
   'flower', 'flower-lotus', 'leaf', 'plant', 'sun', 'moon-stars',
   'planet', 'shooting-star', 'sparkle', 'butterfly', 'feather', 'acorn',
 ] as const;
-export const AGENT_MARK_PALETTE = ['#0969da', '#8250df', '#bf3989', '#1a7f37', '#9a6700', '#bc4c00', '#1b7c83', '#cf222e'] as const;
+export const AGENT_MARK_PALETTE = ['var(--fg-link)', 'var(--fg-purple)', 'light-dark(#bf3989, var(--dark-pink))', 'var(--fg-success)', 'var(--fg-warning)', 'var(--fg-orange)', 'light-dark(#1b7c83, var(--dark-teal))', 'var(--fg-danger)'] as const;
 type AgentMarkShape = typeof AGENT_MARK_FAMILY[number];
 
 /**
@@ -142,7 +142,7 @@ export function AgentMark({ name, size = 15, muted = false }: {
       role="img"
       aria-label={`${agentDisplayName(name)} — ${shape} mark`}
       data-shape={shape}
-      style={{ color: muted ? '#8c959f' : AGENT_MARK_PALETTE[hue] }}
+      style={{ color: muted ? 'var(--fg-dim)' : AGENT_MARK_PALETTE[hue] }}
     >
       {GLYPHS[shape]}
     </svg>

@@ -237,7 +237,7 @@ describe('agent task layout', () => {
       'display: flex',
       'min-height: 112px',
       'flex-direction: column',
-      'border-color: #647181',
+      'border-color: light-dark(#647181, var(--dark-border-strong))',
       'border-radius: 14px',
     ]));
     expect(declarations('.agt-compose.is-new-task .agt-compose__row')).toEqual(expect.arrayContaining([

@@ -155,7 +155,7 @@ export function SelectPill({ value, label, options, ariaLabel, quiet, disabled, 
         onClick={() => setOpen(current => !current)}
       >
         <span className="setw-pill-label">{label}</span>
-        <ChevronDown size={11} strokeWidth={2.6} color="#8e8e93" />
+        <ChevronDown size={11} strokeWidth={2.6} color="var(--text-3)" />
       </button>
       {open && (
         <div className={`setw-menu${wide === true ? ' is-wide' : ''}${align === 'left' ? ' is-left' : ''}`} role="listbox">
@@ -226,7 +226,7 @@ export function Dialog({ title, children, confirmLabel, confirmDisabled, destruc
         <div className="setw-dialog-head">
           <span id={titleId}>{title}</span>
           <button type="button" className="setw-dialog-close" aria-label="Close" onClick={onCancel}>
-            <X size={15} strokeWidth={2.2} color="#6e6e73" />
+            <X size={15} strokeWidth={2.2} color="var(--text-3)" />
           </button>
         </div>
         <div className="setw-dialog-body">{children}</div>

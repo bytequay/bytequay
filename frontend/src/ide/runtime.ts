@@ -61,12 +61,18 @@ const ideaKeys = [
     { key: 'cmd+f12', command: 'workbench.action.gotoSymbol' },
 ];
 
+export function resolveIdeTheme(preference: string): string {
+  return preference === 'Follow app'
+    ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'ByteQuay Darcula' : 'ByteQuay IDEA Light')
+    : preference;
+}
+
 export type IdeRuntime = Awaited<ReturnType<typeof startRuntime>>;
 
 export async function startRuntime(connection: IdeConnection, container: HTMLElement) {
   window.MonacoEnvironment = { getWorker: (_id, label) => label === 'TextMateWorker' ? new TextmateWorker() : new EditorWorker() };
   const workspace = URI.from({ scheme: 'vscode-remote', authority: connection.authority, path: connection.root });
-  const theme = localStorage.getItem('bytequay.ide.theme') ?? 'ByteQuay IDEA Light';
+  const theme = resolveIdeTheme(localStorage.getItem('bytequay.ide.theme') ?? 'Follow app');
   document.documentElement.style.colorScheme = ['ByteQuay Darcula', 'GitHub Dark'].includes(theme) ? 'dark' : 'light';
   await initUserConfiguration(JSON.stringify({
     'workbench.colorTheme': theme,

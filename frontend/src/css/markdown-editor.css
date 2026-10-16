@@ -7,17 +7,17 @@
  */
 
 /* Shared by review comments, private questions and outgoing drafts. */
-.pull-diff-review { display: grid; width: 100%; max-width: 780px; min-width: 0; gap: 8px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; padding: 10px 12px 12px; font-family: var(--font-sans); container-type: inline-size; }
+.pull-diff-review { display: grid; width: 100%; max-width: 780px; min-width: 0; gap: 8px; border: 1px solid var(--line-default); border-radius: 6px; background: var(--surface-canvas); padding: 10px 12px 12px; font-family: var(--font-sans); container-type: inline-size; }
 .pull-diff-review strong { font-size: var(--ui-font-size); font-weight: 600; }
 .pull-diff-review__header { display: flex; align-items: center; gap: 8px; }
-.pull-diff-review__bar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px; border-bottom: 1px solid #d0d7de; margin: 0 -12px; padding: 0 12px; }
+.pull-diff-review__bar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line-default); margin: 0 -12px; padding: 0 12px; }
 .pull-diff-review__tabs { display: flex; gap: 4px; }
-.pull-diff-review__tabs button { border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; background: transparent; color: #24292f; padding: 6px 14px; margin-bottom: -1px; font: inherit; font-size: var(--ui-font-size); }
-.pull-diff-review__tabs button.is-active { border-color: #d0d7de; background: #fff; }
+.pull-diff-review__tabs button { border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; background: transparent; color: var(--fg-strong); padding: 6px 14px; margin-bottom: -1px; font: inherit; font-size: var(--ui-font-size); }
+.pull-diff-review__tabs button.is-active { border-color: var(--line-default); background: var(--surface-canvas); }
 .pull-diff-review__toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 1px; padding-bottom: 4px; }
-.pull-diff-review__toolbar button { display: grid; width: 26px; height: 26px; place-items: center; cursor: pointer; border: 0; border-radius: 6px; background: transparent; color: #59636e; padding: 0; }
-.pull-diff-review__toolbar button:hover { background: #eef1f4; color: var(--accent); }
-.pull-diff-review__divider { width: 1px; height: 16px; margin: 0 5px; background: #d0d7de; }
+.pull-diff-review__toolbar button { display: grid; width: 26px; height: 26px; place-items: center; cursor: pointer; border: 0; border-radius: 6px; background: transparent; color: var(--fg-subtle); padding: 0; }
+.pull-diff-review__toolbar button:hover { background: light-dark(#eef1f4, var(--dark-subtle)); color: var(--accent); }
+.pull-diff-review__divider { width: 1px; height: 16px; margin: 0 5px; background: light-dark(#d0d7de, var(--dark-hover)); }
 .pull-diff-review__bar--private { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
 .pull-diff-review__bar--private .pull-diff-review__toolbar { justify-self: end; }
 .pull-diff-review__private {
@@ -26,27 +26,27 @@
   align-self: center;
   justify-self: center;
   gap: 4px;
-  border: 1px solid #d0d7de;
+  border: 1px solid var(--line-default);
   border-radius: 6px;
-  background: #f6f8fa;
-  color: #6e7781;
+  background: light-dark(#f6f8fa, var(--dark-subtle));
+  color: light-dark(#6e7781, var(--dark-muted));
   padding: 3px 8px;
   font: inherit;
   font-size: 12px;
 }
-.pull-diff-review__preview { min-height: 88px; border-bottom: 1px solid #d0d7de; }
+.pull-diff-review__preview { min-height: 88px; border-bottom: 1px solid var(--line-default); }
 .pull-diff-review__preview .markdown-body { padding: 4px 2px 8px; }
-.pull-diff-review__nothing { margin: 0; color: #6e7781; padding: 8px 2px; font-size: var(--ui-font-size); }
-.pull-diff-review textarea { width: 100%; min-height: 88px; max-height: 40vh; field-sizing: content; resize: vertical; border: 1px solid #8c959f; border-radius: 6px; outline: 0; background: #fff; padding: 9px; font: inherit; font-size: var(--ui-font-size); }
-.pull-diff-review textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.15); }
-.pull-diff-review__error { color: #cf222e; font-size: var(--ui-font-size); }
-.pull-diff-review__status { margin: 0; color: #59636e; font-size: var(--ui-font-size); }
+.pull-diff-review__nothing { margin: 0; color: light-dark(#6e7781, var(--dark-muted)); padding: 8px 2px; font-size: var(--ui-font-size); }
+.pull-diff-review textarea { width: 100%; min-height: 88px; max-height: 40vh; field-sizing: content; resize: vertical; border: 1px solid light-dark(#8c959f, var(--dark-border-strong)); border-radius: 6px; outline: 0; background: var(--surface-canvas); padding: 9px; font: inherit; font-size: var(--ui-font-size); }
+.pull-diff-review textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px light-dark(rgba(9, 105, 218, 0.15), rgb(0 0 0 / 27%)); }
+.pull-diff-review__error { color: var(--fg-danger); font-size: var(--ui-font-size); }
+.pull-diff-review__status { margin: 0; color: var(--fg-subtle); font-size: var(--ui-font-size); }
 .pull-diff-review footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
-.pull-diff-review footer button { border: 1px solid #d0d7de; border-radius: 6px; background: #fff; color: #24292f; padding: 5px 9px; font-size: var(--ui-font-size); }
-.pull-diff-review footer button.is-primary { border-color: #1a7f37; background: #1f883d; color: #fff; }
+.pull-diff-review footer button { border: 1px solid var(--line-default); border-radius: 6px; background: var(--surface-canvas); color: var(--fg-strong); padding: 5px 9px; font-size: var(--ui-font-size); }
+.pull-diff-review footer button.is-primary { border-color: var(--fg-success); background: light-dark(#1f883d, #287a43); color: var(--on-solid); }
 .pull-diff-review footer button:disabled { opacity: 0.5; }
-.pull-diff-review footer button.pr-better-words { margin-right: auto; border-color: #d0d7de; background: #f6f8fa; color: #6639ba; font-weight: 500; }
-.pull-diff-review footer button.pr-better-words.is-discard { color: #cf222e; }
+.pull-diff-review footer button.pr-better-words { margin-right: auto; border-color: var(--line-default); background: light-dark(#f6f8fa, var(--dark-subtle)); color: light-dark(#6639ba, var(--dark-purple)); font-weight: 500; }
+.pull-diff-review footer button.pr-better-words.is-discard { color: var(--fg-danger); }
 /* The app rings focus per component, not globally. */
 .pull-diff-review button:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 2px; }
 

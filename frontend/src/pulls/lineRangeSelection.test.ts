@@ -155,7 +155,7 @@ describe('line range selection', () => {
   it('paints selected diff rows and Code & Tests lines with the shared selection token', () => {
     const css = (name: string) => readFileSync(resolve(process.cwd(), `src/css/${name}`), 'utf8');
 
-    expect(css('base.css')).toContain('--diff-selected: #fff8c5;');
+    expect(css('base.css')).toContain('--diff-selected: var(--bg-warning);');
     expect(css('pulls.css')).toMatch(/\.pull-diff-code tr\.is-selected \.is-source \{[^}]*background: var\(--diff-selected\)/);
     expect(css('code-tests.css')).toMatch(/\.ct-snapshot__line\.is-selected \{[^}]*background: var\(--diff-selected\)/);
     expect(css('code-tests.css')).toMatch(/\.ct-snapshot__line\.is-selected \.ct-snapshot__number \{[^}]*background: var\(--diff-selected\)/);

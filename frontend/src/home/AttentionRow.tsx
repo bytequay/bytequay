@@ -231,7 +231,7 @@ function Latest({ item, summary, viewerLogin, outside }: {
 
 function labelStyle(label: AttentionLabel) {
   const hex = label.color !== null && /^[0-9a-f]{6}$/i.test(label.color) ? `#${label.color}` : '#d0d7de';
-  return { background: `${hex}33`, color: '#1f2328' };
+  return { background: `${hex}33`, color: 'var(--fg-default)' };
 }
 
 /** The newest commits: all of four, or three and how many more, since "and 1 more" takes the line the fourth would. */

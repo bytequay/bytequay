@@ -41,6 +41,7 @@ vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
   return {
     shell: { openExternal: desktop.openExternal },
+    nativeTheme: { on: vi.fn(), themeSource: 'system', shouldUseDarkColors: false },
     app: {
       setName: vi.fn(), commandLine: { appendSwitch: vi.fn() }, requestSingleInstanceLock: () => true,
       on: (event: string, listener: () => Promise<void>) => desktop.listeners.set(event, listener),

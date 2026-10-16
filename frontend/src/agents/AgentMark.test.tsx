@@ -40,10 +40,10 @@ describe('agent mark', () => {
   it('renders an inline glyph in its colour, grey when the agent has expired', () => {
     const live = renderToStaticMarkup(<AgentMark name="Preview backend" />);
     expect(live).toContain('data-shape="flower"');
-    expect(live).toContain('color:#0969da');
+    expect(live).toContain('color:var(--fg-link)');
     expect(live).toContain('aria-label="Preview backend — flower mark"');
     expect(live).toContain('width="15"');
     expect(renderToStaticMarkup(<AgentMark name="Preview backend" muted size={16} />))
-      .toContain('color:#8c959f');
+      .toContain('color:var(--fg-dim)');
   });
 });

@@ -1015,7 +1015,7 @@ export function issueAssigneeOptions(
 
 function labelStyle(color?: string | null) {
   const hex = labelColor(color);
-  return { background: `${hex}26`, color: '#4f3f3f', borderColor: `${hex}66` };
+  return { background: `${hex}26`, color: 'var(--text-2)', borderColor: `${hex}66` };
 }
 
 function labelColor(color?: string | null) {

@@ -54,11 +54,11 @@ export function workspaceSyncState(workspace: WorkspaceDto, now = Date.now()): S
 
 export function syncStateColor(state: SyncState): string {
   return {
-    queued: '#8c959f',
-    syncing: '#0969da',
-    ready: '#1a7f37',
-    stale: '#bf8700',
-    failed: '#cf222e',
+    queued: 'var(--fg-dim)',
+    syncing: 'var(--fg-link)',
+    ready: 'var(--fg-success)',
+    stale: 'var(--fg-warning)',
+    failed: 'var(--fg-danger)',
   }[state];
 }
 

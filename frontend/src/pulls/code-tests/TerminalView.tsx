@@ -31,17 +31,24 @@ export const TERMINAL_THEME = {
   brightCyan: '#3192aa', brightWhite: '#8c959f',
 };
 
-/** Follow the shared IDE theme without restarting a shell or losing its selection. */
-export function followTerminalTheme(terminal: Terminal, element: HTMLElement): () => void {
-  const owner = element.closest('.ide-workbench');
-  const apply = () => { terminal.options.theme = owner?.classList.contains('is-dark')
-    ? { background: '#2b2b2b', foreground: '#bbbbbb', cursor: '#bbbbbb', selectionBackground: '#4b6eaf',
-      black: '#2b2b2b', red: '#ff6b68', green: '#a9cfa5', yellow: '#ffc66d', blue: '#6a9fb5', magenta: '#cc7832', cyan: '#6897bb', white: '#bbbbbb' }
-    : TERMINAL_THEME; };
+/** Recolor existing output without restarting the terminal or its shell. */
+export function followTerminalTheme(terminal: Terminal): () => void {
+  const media = matchMedia('(prefers-color-scheme: dark)');
+  const apply = () => {
+    const scheme = getComputedStyle(document.documentElement).colorScheme;
+    const dark = scheme === 'dark' || (scheme !== 'light' && media.matches);
+    terminal.options.theme = dark ? {
+      background: '#1e2025', foreground: '#c9cdd4', cursor: '#c9cdd4', cursorAccent: '#1e2025', selectionBackground: '#354d70',
+      black: '#555d69', red: '#ff8589', green: '#7dce96', yellow: '#eac479', blue: '#80b6ff', magenta: '#c3a1f7', cyan: '#76c9c2', white: '#d2d7df',
+      brightBlack: '#9ba3af', brightRed: '#ffa0a3', brightGreen: '#a4e1ad', brightYellow: '#f5d994', brightBlue: '#a5cdff', brightMagenta: '#d9bcff',
+      brightCyan: '#9bded8', brightWhite: '#f2f4f7',
+    } : TERMINAL_THEME;
+  };
   apply();
   const observer = new MutationObserver(apply);
-  if (owner) observer.observe(owner, { attributes: true, attributeFilter: ['class'] });
-  return () => observer.disconnect();
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+  media.addEventListener('change', apply);
+  return () => { observer.disconnect(); media.removeEventListener('change', apply); };
 }
 
 /** The host's login shell. Unmounting only detaches: the shell keeps running and replays its output on the next attach. */
@@ -59,7 +66,7 @@ export default function TerminalView({ host: codeHost, bridge }: { host: CodeHos
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(element);
-    const stopTheme = followTerminalTheme(term, element);
+    const stopTheme = followTerminalTheme(term);
     // Hidden panes measure zero, and fitting to zero would shrink the shell to one column.
     const refit = () => {
       if (element.clientWidth > 0 && element.clientHeight > 0) fit.fit();

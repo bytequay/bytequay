@@ -26,7 +26,7 @@ export default function TerminalOutput({ text, onSelect }: { text: string; onSel
     if (!element.current) return;
     const term = new Terminal({ disableStdin: true, convertEol: true, scrollback: 20_000, fontSize: 12, theme: TERMINAL_THEME });
     const fit = new FitAddon(); term.loadAddon(fit); term.open(element.current); terminal.current = term;
-    const stopTheme = followTerminalTheme(term, element.current);
+    const stopTheme = followTerminalTheme(term);
     const resize = new ResizeObserver(() => { if (element.current?.clientHeight && element.current?.clientWidth) fit.fit(); });
     resize.observe(element.current);
     const selection = term.onSelectionChange(() => selected.current(term.getSelection().slice(0, 30_000)));

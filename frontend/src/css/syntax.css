@@ -1,0 +1,18 @@
+/* Keep highlight.js's grammar selectors; supply dark colors for every token family. */
+@import 'highlight.js/styles/github.css';
+
+.hljs { color: light-dark(#24292e, var(--dark-text)); background: var(--surface-canvas); }
+.hljs-doctag, .hljs-keyword, .hljs-meta .hljs-keyword, .hljs-template-tag,
+.hljs-template-variable, .hljs-type, .hljs-variable.language_ { color: light-dark(#cf222e, var(--dark-red)); }
+.hljs-title, .hljs-title.class_, .hljs-title.class_.inherited__, .hljs-title.function_ { color: light-dark(#6f42c1, var(--dark-purple)); }
+.hljs-attr, .hljs-attribute, .hljs-literal, .hljs-meta, .hljs-number, .hljs-operator,
+.hljs-variable, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id { color: light-dark(#005cc5, var(--dark-blue)); }
+.hljs-regexp, .hljs-string, .hljs-meta .hljs-string { color: light-dark(#032f62, var(--dark-teal)); }
+.hljs-built_in, .hljs-symbol { color: light-dark(#e36209, var(--dark-orange)); }
+.hljs-comment, .hljs-code, .hljs-formula { color: light-dark(#6a737d, var(--dark-dim)); }
+.hljs-name, .hljs-quote, .hljs-selector-tag, .hljs-selector-pseudo { color: light-dark(#22863a, var(--dark-green)); }
+.hljs-subst, .hljs-emphasis, .hljs-strong { color: light-dark(#24292e, var(--dark-text)); }
+.hljs-section { color: light-dark(#005cc5, var(--dark-blue)); }
+.hljs-bullet { color: light-dark(#735c0f, var(--dark-amber)); }
+.hljs-addition { color: light-dark(#22863a, var(--dark-green)); background-color: light-dark(#f0fff4, var(--dark-green-soft)); }
+.hljs-deletion { color: light-dark(#b31d28, var(--dark-red)); background-color: light-dark(#ffeef0, var(--dark-red-soft)); }

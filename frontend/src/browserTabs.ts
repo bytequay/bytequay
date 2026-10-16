@@ -281,7 +281,7 @@ export class BrowserTabs {
     const view = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, partition: 'persist:inapp-browser' } });
     tab.view = view;
     view.setVisible(false);
-    view.setBackgroundColor('#ffffff');
+    view.setBackgroundColor('#00000000');
     const contents = view.webContents;
     const current = () => this.tabs.get(tab.state.id) === tab && tab.view === view;
     const update = () => {

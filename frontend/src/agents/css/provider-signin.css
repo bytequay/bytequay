@@ -18,13 +18,13 @@
   padding: 16px 16px 12px;
   border: none;
   border-radius: 12px;
-  background: #ffffff;
-  color: #1f2328;
-  box-shadow: 0 16px 48px rgb(0 0 0 / 22%);
+  background: var(--surface-elevated);
+  color: var(--fg-default);
+  box-shadow: 0 16px 48px light-dark(rgb(0 0 0 / 22%), rgb(0 0 0 / 39.6%));
 }
 
 .bq-signin-dialog::backdrop {
-  background: rgb(0 0 0 / 28%);
+  background: light-dark(rgb(0 0 0 / 28%), rgb(0 0 0 / 50.4%));
 }
 
 .bq-signin-dialog__title {
@@ -35,7 +35,7 @@
 
 .bq-signin-dialog__lede {
   margin: 6px 0 10px;
-  color: #57606a;
+  color: var(--fg-muted);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -43,9 +43,9 @@
 .bq-signin-dialog__screen {
   height: 300px;
   padding: 8px;
-  border: 1px solid #d0d7de;
+  border: 1px solid var(--line-default);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface-elevated);
   overflow: hidden;
 }
 
@@ -57,15 +57,15 @@
 
 .bq-signin-dialog__button {
   padding: 5px 14px;
-  border: 1px solid #d0d7de;
+  border: 1px solid var(--line-default);
   border-radius: 6px;
-  background: #f6f8fa;
-  color: #1f2328;
+  background: light-dark(#f6f8fa, var(--dark-subtle));
+  color: var(--fg-default);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 
 .bq-signin-dialog__button:hover {
-  background: #eef1f4;
+  background: light-dark(#eef1f4, var(--dark-subtle));
 }

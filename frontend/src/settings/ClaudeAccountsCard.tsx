@@ -49,11 +49,11 @@ export default function ClaudeAccountsCard({ providers, checking, onCheck, onSig
           </span>}>
           {onSignIn !== undefined && provider.readiness === 'AUTHENTICATION_REQUIRED' && (
             <button type="button" className="setw-btn" disabled={checking} onClick={() => onSignIn(provider.id)}>
-              <LogIn size={12} strokeWidth={2.2} color="#6e6e73" /><span>Sign in</span>
+              <LogIn size={12} strokeWidth={2.2} color="var(--text-3)" /><span>Sign in</span>
             </button>
           )}
           <button type="button" className="setw-btn" disabled={checking} onClick={onCheck}>
-            <RefreshCw size={12} strokeWidth={2.2} color="#6e6e73" /><span>{checking ? 'Checking…' : 'Check'}</span>
+            <RefreshCw size={12} strokeWidth={2.2} color="var(--text-3)" /><span>{checking ? 'Checking…' : 'Check'}</span>
           </button>
           <Badge>{provider.workspaceId == null ? 'global' : 'this repository'}</Badge>
           {onRestrict !== undefined && isClaudeAccount(provider.id) && provider.workspaceId == null && (

@@ -49,6 +49,7 @@ vi.mock('electron', async () => {
     },
     net: { fetch: vi.fn(async () => new Response('asset')) },
     WebContentsView: class {
+      setBackgroundColor = vi.fn();
       private readonly handled = new Set<string>();
       get webContents() { return this.contents.destroyed ? undefined : this.contents; }
       contents = Object.assign(new EventEmitter(), {

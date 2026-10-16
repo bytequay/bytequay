@@ -1,5 +1,5 @@
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-.ide-workbench { --ide-bg: #fff; --ide-fg: #24292f; --ide-edge: #dfe3e8; --ide-bar: #f5f6f8; display: flex; flex-direction: column; width: 100%; height: 100%; color: var(--ide-fg); background: var(--ide-bg); font: 12px -apple-system, BlinkMacSystemFont, sans-serif; }
+.ide-workbench { --ide-bg: var(--surface-canvas); --ide-fg: var(--fg-strong); --ide-edge: light-dark(#dfe3e8, var(--dark-border)); --ide-bar: light-dark(#f5f6f8, var(--dark-subtle)); display: flex; flex-direction: column; width: 100%; height: 100%; color: var(--ide-fg); background: var(--ide-bg); font: 12px -apple-system, BlinkMacSystemFont, sans-serif; }
 .ide-workbench.is-dark { --ide-bg: #282c34; --ide-fg: #abb2bf; --ide-edge: #3b4048; --ide-bar: #21252b; }
 .ide-workbench[data-theme='GitHub Dark'] { --ide-bg: var(--vscode-editor-background); --ide-fg: var(--vscode-editor-foreground); --ide-edge: var(--vscode-panel-border); --ide-bar: var(--vscode-sideBar-background); }
 .ide-toolbar { display: flex; align-items: center; flex-shrink: 0; gap: 6px; min-height: 34px; padding: 3px 8px; border-bottom: 1px solid var(--ide-edge); background: var(--ide-bar); }
@@ -7,7 +7,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .ide-toolbar button:hover, .ide-toolbar select:hover { border-color: var(--ide-edge); background: var(--ide-bg); }
 .ide-toolbar button:disabled { opacity: .45; cursor: default; }
 .ide-search { min-width: 180px; text-align: left; border-color: var(--ide-edge) !important; background: var(--ide-bg) !important; }
-.ide-search kbd { float: right; margin-left: 20px; color: #888; }
+.ide-search kbd { float: right; margin-left: 20px; color: light-dark(#888, var(--dark-dim)); }
 .ide-code-row { flex: 1; min-height: 0; display: flex; }
 .ide-files-pane { flex-shrink: 0; min-width: 180px; max-width: 45%; min-height: 0; overflow: hidden; }
 .ide-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -17,7 +17,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .ide-bottom.is-collapsed > :not(:first-child) { display: none; }
 .ide-tools { flex: 1; min-height: 0; }
 .ide-spacer { flex: 1; }
-.ide-notice { display: flex; gap: 10px; justify-content: space-between; padding: 7px 12px; background: #fff1d8; color: #704100; }
+.ide-notice { display: flex; gap: 10px; justify-content: space-between; padding: 7px 12px; background: light-dark(#fff1d8, var(--dark-orange-soft)); color: light-dark(#704100, var(--dark-orange)); }
 .ide-loading { padding: 24px; font: 13px -apple-system, sans-serif; }
 .ide-review-zone { box-sizing: border-box; max-width: 800px; }
 .ide-add-comment.pull-diff-code__add-comment { transform: none; opacity: 1; pointer-events: auto; }
@@ -57,7 +57,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .ide-workbench .part.panel > .title .composite-bar-container { display: none; }
 
 .ide-workbench { --text-1: var(--ide-fg); --bg-card: var(--ide-bg); --bg-input: var(--ide-bg); --border: var(--ide-edge); --border-input: var(--ide-edge); --border-strong: var(--ide-edge); }
-.ide-workbench.is-dark { --text-2: #aaa; --text-3: #999; --text-4: #888; --accent: #6da5d9; --bg-elevated: #3c3f41; --bg-base: #2b2b2b; --bg: #2b2b2b; --bg-elev: #3c3f41; }
+.ide-workbench.is-dark { --text-2: light-dark(#45484c, var(--dark-muted)); --text-3: light-dark(#77797b, var(--dark-dim)); --text-4: light-dark(#afb1b3, var(--dark-disabled)); --accent: #6da5d9; --bg-elevated: #3c3f41; --bg-base: #2b2b2b; --bg: #2b2b2b; --bg-elev: #3c3f41; }
 .ide-workbench[data-theme='GitHub Dark'] { --text-2: var(--vscode-descriptionForeground); --text-3: var(--vscode-descriptionForeground); --accent: var(--vscode-textLink-foreground); --bg-elevated: var(--ide-bar); --bg-base: var(--ide-bg); --bg: var(--ide-bg); --bg-elev: var(--ide-bar); }
 
 .ide-toolbar { flex-wrap: wrap; }

@@ -16,7 +16,7 @@ import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
 import { parseUnifiedWorkItem, type Publication } from './workitems/contracts';
 import { parseConcludedEpics, parseEpicJoin, parseEpicRecord, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import { spawn as spawnPty } from 'node-pty';
@@ -86,6 +86,7 @@ import { parseRunningTasks } from './agents/runningTaskModel';
 import { CodeTerminals, parseTerminalLaunch, terminalEnvironment } from './terminals';
 import { clipboardImagePng, MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
 import type {
+  AppPreferencesDto,
   AgentApprovalDecision,
   AgentAttachmentDto,
   AgentDraftAttachmentDto,
@@ -382,12 +383,21 @@ function requestBrowser(url: string): void {
   catch (error) { console.warn('Unable to open browser page', error); }
 }
 
+function windowBackground(): string {
+  return nativeTheme.shouldUseDarkColors ? '#1e2025' : '#ffffff';
+}
+
+function applyAppearance(preferences: AppPreferencesDto): AppPreferencesDto {
+  nativeTheme.themeSource = preferences.theme === 'DARK' ? 'dark' : preferences.theme === 'LIGHT' ? 'light' : 'system';
+  return preferences;
+}
+
 function openPopup(url: string): void {
   if (!/^https?:/i.test(url)) return;
   const popup = new BrowserWindow({
     width: 1100,
     height: 760,
-    backgroundColor: '#ffffff',
+    backgroundColor: windowBackground(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -414,7 +424,7 @@ async function createWindow(): Promise<void> {
     height: Math.min(1000, height),
     minWidth: 1000,
     minHeight: 620,
-    backgroundColor: '#ffffff',
+    backgroundColor: windowBackground(),
     titleBarStyle: 'hiddenInset',
     vibrancy: process.platform === 'darwin' ? 'sidebar' : undefined,
     webPreferences: {
@@ -1323,7 +1333,7 @@ function registerIpc(): void {
   ipcMain.handle('settings:app', () =>
     backendJson(`${backendBase()}/api/settings/app`));
   ipcMain.handle('settings:app:save', (_event, preferences: unknown) =>
-    backendJson(`${backendBase()}/api/settings/app`, jsonInit('PUT', preferences)));
+    backendJson<AppPreferencesDto>(`${backendBase()}/api/settings/app`, jsonInit('PUT', preferences)).then(applyAppearance));
 
   ipcMain.handle('backport-chains:list', (_event, workspaceId: string) =>
     backendJson(workspaceUrl(workspaceId, `/backport-chains`)));
@@ -2082,10 +2092,17 @@ function registerIpc(): void {
 
 app.on('ready', async () => {
   configureApplication();
+  nativeTheme.on('updated', () => {
+    for (const window of BrowserWindow.getAllWindows()) window.setBackgroundColor(windowBackground());
+  });
   registerIpc();
   spawnBackend();
   const backendReady = await waitForBackendReady();
   if (!backendReady) reportBackendFailure();
+  else {
+    await backendJson<AppPreferencesDto>(`${backendBase()}/api/settings/app`)
+      .then(applyAppearance).catch(error => console.warn('Unable to load appearance; following system', error));
+  }
   await ensureWindow();
   if (!backendReady) return;
   ideViews.startQueries();

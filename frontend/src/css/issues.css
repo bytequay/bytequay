@@ -6,48 +6,48 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 .issues-page .issues-list { min-width: 280px; }
-.issues-list__count { margin-left: 3px; border-radius: 999px; background: #eceef0; color: #59636e; padding: 1px 6px; font-size: 10.5px; font-weight: 700; }
-.issues-freshness { flex: 0 0 auto; border-bottom: 1px solid #f0f1f2; color: #8c959f; padding: 5px 12px; font-size: 11px; }
-.issues-page-loading { color: #8c959f; padding: 12px; text-align: center; font-size: var(--ui-font-size); }
-.issues-error { flex: 0 0 auto; background: #fff1f0; color: #cf222e; padding: 9px 12px; font-size: var(--ui-font-size); }
+.issues-list__count { margin-left: 3px; border-radius: 999px; background: light-dark(#eceef0, var(--dark-subtle)); color: var(--fg-subtle); padding: 1px 6px; font-size: 10.5px; font-weight: 700; }
+.issues-freshness { flex: 0 0 auto; border-bottom: 1px solid light-dark(#f0f1f2, var(--dark-border-muted)); color: var(--fg-dim); padding: 5px 12px; font-size: 11px; }
+.issues-page-loading { color: var(--fg-dim); padding: 12px; text-align: center; font-size: var(--ui-font-size); }
+.issues-error { flex: 0 0 auto; background: light-dark(#fff1f0, var(--dark-red-soft)); color: var(--fg-danger); padding: 9px 12px; font-size: var(--ui-font-size); }
 .issues-search { flex-wrap: wrap; }
 .issues-search input { flex: 1 1 210px; }
-.issues-search select { max-width: 100%; padding: 6px 9px; border: 1px solid #d0d7de; border-radius: 7px; background: #fff; color: #17191c; font: inherit; font-size: 12.5px; }
+.issues-search select { max-width: 100%; padding: 6px 9px; border: 1px solid var(--line-default); border-radius: 7px; background: var(--surface-canvas); color: light-dark(#17191c, var(--dark-text)); font: inherit; font-size: 12.5px; }
 .issues-load-more { align-self: center; flex: none; margin: 8px; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
-.issues-load-more:disabled { color: #8c959f; cursor: wait; }
+.issues-load-more:disabled { color: var(--fg-dim); cursor: wait; }
 
 .issues-row { cursor: pointer; }
-.issues-row__state { color: #1a7f37; }
+.issues-row__state { color: var(--fg-success); }
 .issues-row .pull-row__labels > button { max-width: 100%; padding: 2px 8px; border-radius: 999px; font: inherit; font-size: 11px; font-weight: 500; overflow-wrap: anywhere; cursor: pointer; }
 .issues-row .pull-row__labels > button[aria-pressed="true"] { box-shadow: 0 0 0 1px currentColor; }
 .issues-row .pull-row__labels > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .issues-row .pull-row__labels > button,
 .issue-rail .pr-label { border: 1px solid transparent; }
 .issues-row__stats { justify-content: space-between; }
-.issues-row__assignees { min-width: 0; overflow: hidden; color: #8b949e; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.issues-row__assignees { min-width: 0; overflow: hidden; color: light-dark(#8b949e, var(--dark-dim)); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 
 .issues-detail .pull-detail__toolbar { justify-content: flex-end; }
 .issue-overview { max-width: 1240px; }
-.issue-overview .pr-overview__branches strong { color: #24292f; font-weight: 500; }
+.issue-overview .pr-overview__branches strong { color: var(--fg-strong); font-weight: 500; }
 .issue-overview .pr-state svg { width: 15px; height: 15px; }
-.issue-overview .pr-state.is-closed { background: #8250df; }
+.issue-overview .pr-state.is-closed { background: light-dark(#8250df, #7045ae); }
 .issue-conversation { min-width: 0; }
 .issue-comment .pr-reactions { padding-top: 0; }
 .issue-event .pr-bot { margin-left: 5px; }
 .issue-event .pr-label { margin: 0 2px; vertical-align: 1px; }
-.issues-activity-loading { color: #8b949e; }
-.issues-event-marker { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid #d0d7de; border-radius: 50%; background: #fff; box-shadow: 0 0 0 4px #fff; }
+.issues-activity-loading { color: light-dark(#8b949e, var(--dark-dim)); }
+.issues-event-marker { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid var(--line-default); border-radius: 50%; background: var(--surface-canvas); box-shadow: 0 0 0 4px light-dark(#fff, var(--dark-disabled)); }
 .issue-type-chip { cursor: default; }
-.issue-type-chip select { max-width: 130px; border: 0; outline: 0; background: transparent; color: #24292f; font: inherit; font-weight: 500; }
-.issue-type-chip[data-type="task"] select { color: #9a6700; }
-.issue-type-chip[data-type="bug"] select { color: #cf222e; }
+.issue-type-chip select { max-width: 130px; border: 0; outline: 0; background: transparent; color: var(--fg-strong); font: inherit; font-weight: 500; }
+.issue-type-chip[data-type="task"] select { color: var(--fg-warning); }
+.issue-type-chip[data-type="bug"] select { color: var(--fg-danger); }
 .issue-type-chip[data-type="feature"] select { color: var(--accent); }
-.issue-type-chip select:disabled { color: #59636e; opacity: 1; }
+.issue-type-chip select:disabled { color: var(--fg-subtle); opacity: 1; }
 
 .issues-row__select { display: block; width: 100%; border: 0; padding: 0; background: none; color: inherit; text-align: left; cursor: pointer; }
 .issues-development-actions { display: inline-flex; flex: none; align-items: center; gap: 4px; }
 .issues-development-actions .pulls-toolbar-button[aria-pressed="true"],
-.issues-development-actions .pulls-toolbar-button[aria-pressed="true"]:hover { background: #ddf4ff; color: var(--accent); }
+.issues-development-actions .pulls-toolbar-button[aria-pressed="true"]:hover { background: var(--bg-info); color: var(--accent); }
 .issues-row__footer { display: flex; align-items: center; gap: 4px; }
 .issues-row__footer .issues-row__select { width: auto; min-width: 0; }
-.issues-epic-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border: 1px solid #d0d7de; border-radius: 5px; color: #59636e; font-size: 10px; font-weight: 500; vertical-align: middle; }
+.issues-epic-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border: 1px solid var(--line-default); border-radius: 5px; color: var(--fg-subtle); font-size: 10px; font-weight: 500; vertical-align: middle; }

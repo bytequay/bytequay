@@ -69,6 +69,6 @@ describe('provider picker accessibility', () => {
     expect(source).not.toContain('agt-picker__check');
 
     const css = readFileSync(resolve(process.cwd(), 'src/css/agents.css'), 'utf8');
-    expect(css).toMatch(/\.agt-provider-picker__card \.agt-picker__row\.is-current \{\s*background: #ddf4ff;/);
+    expect(css).toMatch(/\.agt-provider-picker__card \.agt-picker__row\.is-current \{\s*background: var\(--bg-info\);/);
   });
 });

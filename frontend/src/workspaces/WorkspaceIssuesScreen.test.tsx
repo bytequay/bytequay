@@ -128,7 +128,7 @@ describe('WorkspaceIssuesScreen', () => {
     const headingRule = css.match(/\.markdown-body h1,[^{]*\{[^}]*\}/)?.[0] ?? '';
 
     expect(headingRule).toContain('.issue-overview .pr-description > .markdown-body h3');
-    expect(headingRule).toContain('border-bottom: 1px solid #e1e7eb');
+    expect(headingRule).toContain('border-bottom: 1px solid light-dark(#e1e7eb, var(--dark-border-muted))');
     expect(headingRule).toContain('font-size: 22px');
   });
 

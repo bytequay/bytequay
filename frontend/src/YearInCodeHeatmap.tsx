@@ -28,7 +28,7 @@ const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 
 /** Warm-tinted five-step ramp ending in the app's system green — the
  *  graph and the Less→More legend both draw from it. */
-const LEVEL_COLORS = ['#efece6', '#d3ead6', '#9fd8ae', '#57bd79', '#16a34a'];
+const LEVEL_COLORS = ['var(--heatmap-0)', 'var(--heatmap-1)', 'var(--heatmap-2)', 'var(--heatmap-3)', 'var(--heatmap-4)'];
 
 /** GitHub's GraphQL palette hex → intensity level. GitHub buckets each
  *  day for us; we keep its bucketing but repaint with the warm ramp. */

@@ -130,14 +130,13 @@ export function AppearancePage({ preferences, error, onChange }: {
             options={[
               { value: 'SYSTEM', label: 'System' },
               { value: 'LIGHT', label: 'Light' },
-              // No dark palette exists yet; offering the switch would change nothing.
-              { value: 'DARK', label: 'Dark', disabled: true },
+              { value: 'DARK', label: 'Dark' },
             ]}
             onChange={theme => onChange({ ...preferences, theme })}
           />
         </SettingsRow>
       </SettingsCard>
-      <div className="setw-footnote">A dark palette is still being built; System follows the light one for now.</div>
+      <div className="setw-footnote">System follows your Mac’s appearance, including automatic changes.</div>
     </div>
   );
 }

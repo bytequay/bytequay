@@ -224,7 +224,7 @@ export function WorkspaceAgentsPage({
         <div className="setw-foot-row">
           <span>{checkedAt === null ? 'Provider checks refresh in the background' : `Last checked ${checkedAt}`}</span>
           <button type="button" className="setw-btn" disabled={checking} onClick={onCheck}>
-            <RefreshCw size={12} strokeWidth={2.2} color="#6e6e73" />
+            <RefreshCw size={12} strokeWidth={2.2} color="var(--text-3)" />
             <span>{checking ? 'Checking…' : 'Check again'}</span>
           </button>
         </div>
@@ -244,7 +244,7 @@ export function WorkspaceAgentsPage({
             >
               {onSignIn !== undefined && !isDeepSeekKeyLane(provider.id) && provider.readiness === 'AUTHENTICATION_REQUIRED' && (
                 <button type="button" className="setw-btn" disabled={checking} onClick={() => onSignIn(provider.id)}>
-                  <LogIn size={12} strokeWidth={2.2} color="#6e6e73" />
+                  <LogIn size={12} strokeWidth={2.2} color="var(--text-3)" />
                   <span>Sign in</span>
                 </button>
               )}

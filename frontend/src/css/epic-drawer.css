@@ -51,8 +51,8 @@
   width: 5px;
   height: 10px;
   border-radius: 0 3px 3px 0;
-  background: #8250df;
-  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.9);
+  background: light-dark(#8250df, #7045ae);
+  box-shadow: inset 1px 0 0 light-dark(rgba(255, 255, 255, 0.9), rgb(0 0 0 / 80%));
   transition: width 120ms ease-out;
 }
 
@@ -71,8 +71,8 @@
   left: 30px;
   padding: 3px 8px;
   border-radius: 6px;
-  background: #1f2328;
-  color: #ffffff;
+  background: light-dark(#1f2328, var(--dark-elevated));
+  color: var(--on-solid);
   font-size: 11.5px;
   line-height: 16px;
   white-space: nowrap;
@@ -93,11 +93,11 @@
   flex-direction: column;
   width: clamp(260px, calc(100% - 120px), 320px);
   max-height: min(480px, calc(100% - 24px));
-  border: 1px solid #e3e3e6;
+  border: 1px solid light-dark(#e3e3e6, var(--dark-border));
   border-left: 0;
   border-radius: 0 12px 12px 0;
-  background: #ffffff;
-  box-shadow: 0 12px 32px rgba(31, 35, 40, 0.12), 0 1px 3px rgba(31, 35, 40, 0.06);
+  background: var(--surface-canvas);
+  box-shadow: 0 12px 32px light-dark(rgba(31, 35, 40, 0.12), rgb(0 0 0 / 21.6%)), 0 1px 3px light-dark(rgba(31, 35, 40, 0.06), rgb(0 0 0 / 10.8%));
   color: var(--text-1);
   pointer-events: auto;
   transform: translateX(-100%);
@@ -118,13 +118,13 @@
   gap: 8px;
   height: 40px;
   padding: 0 8px 0 14px;
-  border-bottom: 1px solid #f0f0f2;
+  border-bottom: 1px solid light-dark(#f0f0f2, var(--dark-border-muted));
   font-size: 13px;
 }
 
 .epic-drawer__glyph {
   flex: none;
-  color: #8250df;
+  color: var(--fg-purple);
 }
 
 .epic-drawer__head > .card-iconbtn {
@@ -162,7 +162,7 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-  color: #57606a;
+  color: var(--fg-muted);
   font-size: 12px;
 }
 
@@ -176,15 +176,15 @@
   height: 3px;
   overflow: hidden;
   border-radius: 2px;
-  background: #eceff2;
+  background: light-dark(#eceff2, var(--dark-subtle));
 }
 
 .epic-card__progress > .is-done {
-  background: #1a7f37;
+  background: light-dark(#1a7f37, #287a43);
 }
 
 .epic-card__progress > .is-working {
-  background: #0969da;
+  background: light-dark(#0969da, #2867b8);
 }
 
 .epic-card__meta > .epic-card__done {

@@ -21,7 +21,7 @@ import { useCodeComments, type CodeCommentsOptions, type CommentContext } from '
 import type { ReviewCodeFileDto, ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
 import type { IdeConnection, IdeContext, HistoryComparison } from './contracts';
 import { startWorkbench } from './startup';
-import type { IdeRuntime } from './runtime';
+import { resolveIdeTheme, type IdeRuntime } from './runtime';
 import { ReviewDraftStorage } from '../pulls/ReviewDrafts';
 import { restoreSourceDrafts, trackSourceDrafts, restoreNavigation, trackNavigation, discardRecoveredDraft, type SourceDraft } from './drafts';
 import TestRuns, { testRunPanel } from './TestRuns';
@@ -117,7 +117,22 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [history, setHistory] = useState<HistoryComparison | null>(null);
   const [gitHistory, setGitHistory] = useState<ReturnType<typeof installGitHistory> | null>(null);
   const [recovered, setRecovered] = useState<SourceDraft[]>([]);
-  const [theme, setTheme] = useState(localStorage.getItem('bytequay.ide.theme') ?? 'ByteQuay IDEA Light');
+  const [theme, setTheme] = useState(localStorage.getItem('bytequay.ide.theme') ?? 'Follow app');
+  const [resolvedTheme, setResolvedTheme] = useState(() => resolveIdeTheme(theme));
+  useEffect(() => {
+    const media = matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      const value = resolveIdeTheme(theme);
+      setResolvedTheme(value);
+      // Set the scheme at the document root so editor portals and native menus agree too.
+      document.documentElement.style.colorScheme = ['ByteQuay Darcula', 'GitHub Dark'].includes(value) ? 'dark' : 'light';
+      void runtime.api.workspace.getConfiguration().update('workbench.colorTheme', value, runtime.api.ConfigurationTarget.Global)
+        .then(undefined, cause => setError(String(cause)));
+    };
+    apply();
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
+  }, [runtime, theme]);
   const command = (name: string) => { void runtime.api.commands.executeCommand(name).then(undefined, cause => setError(String(cause))); };
   const report = () => {
     const privateDrafts = [...document.querySelectorAll('textarea')].filter(node => !node.classList.contains('inputarea') && node.value.trim()).length;
@@ -246,7 +261,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     catch (cause) { setError(String(cause)); }
   };
 
-  return <main className={`ide-workbench ${['ByteQuay Darcula', 'GitHub Dark'].includes(theme) ? 'is-dark' : ''}`} data-theme={theme}>
+  return <main className={`ide-workbench ${['ByteQuay Darcula', 'GitHub Dark'].includes(resolvedTheme) ? 'is-dark' : ''}`} data-theme={resolvedTheme}>
     <header className="ide-toolbar">
       <button aria-label="Back" onClick={() => command('workbench.action.navigateBack')} title="Back"><ArrowLeft size={15} /></button>
       <button aria-label="Forward" onClick={() => command('workbench.action.navigateForward')} title="Forward"><ArrowRight size={15} /></button>
@@ -258,9 +273,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       <select aria-label="IDE theme" value={theme} onChange={event => {
         const value = event.target.value;
         localStorage.setItem('bytequay.ide.theme', value); setTheme(value);
-        document.documentElement.style.colorScheme = ['ByteQuay Darcula', 'GitHub Dark'].includes(value) ? 'dark' : 'light';
-        void runtime.api.workspace.getConfiguration().update('workbench.colorTheme', value, runtime.api.ConfigurationTarget.Global);
-      }}><option>ByteQuay IDEA Light</option><option>ByteQuay Darcula</option><option>GitHub Dark</option></select>
+      }}><option>Follow app</option><option>ByteQuay IDEA Light</option><option>ByteQuay Darcula</option><option>GitHub Dark</option></select>
     </header>
     {executionError && <div className="ide-notice" role="alert">{executionError}</div>}
     {execution?.treeUnverified && <div className="ide-notice" role="status">Execution finished; verifying process cleanup.

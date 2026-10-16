@@ -11,7 +11,7 @@
   position: absolute;
   inset: 0;
   border: 0;
-  background: rgb(31 35 40 / 30%);
+  background: light-dark(rgb(31 35 40 / 30%), rgb(0 0 0 / 54%));
   cursor: default;
 }
 .inapp-browser {
@@ -26,7 +26,7 @@
 .inapp-browser-overlay.is-zoomed .inapp-browser {
   border: 1px solid var(--border);
   border-radius: 12px 12px 0 0;
-  box-shadow: 0 16px 64px rgb(31 35 40 / 24%);
+  box-shadow: 0 16px 64px light-dark(rgb(31 35 40 / 24%), rgb(0 0 0 / 43.2%));
 }
 .inapp-browser-overlay.is-zoomed .inapp-browser__toolbar { border-radius: 12px 12px 0 0; }
 .inapp-browser__toolbar {
@@ -108,9 +108,9 @@
   justify-content: center;
 }
 .inapp-browser__back-to-app:hover {
-  background: var(--accent);
+  background: light-dark(#0969da, #3378cc);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-solid);
 }
 .inapp-browser__open-external {
   appearance: none;
@@ -136,7 +136,7 @@
   flex: 1;
   min-height: 0;
   position: relative;
-  background: #fff;
+  background: var(--surface-canvas);
 }
 
 .inapp-browser__toolbar > .web-address { flex-basis: 180px; }
@@ -184,7 +184,7 @@
 .browser-rail__pages hr { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
 .browser-rail__group { display: flex; flex-direction: column; gap: 4px; }
 .browser-rail__row { display: flex; align-items: center; border-radius: 6px; position: relative; min-height: 32px; }
-.browser-rail__row.is-active::before { content: ''; position: absolute; left: 0; width: 2px; height: 18px; border-radius: 2px; background: var(--accent); }
+.browser-rail__row.is-active::before { content: ''; position: absolute; left: 0; width: 2px; height: 18px; border-radius: 2px; background: light-dark(#0969da, #2867b8); }
 .browser-rail__page { min-width: 0; flex: 1; min-height: 32px; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 6px; border-radius: 6px; }
 .browser-rail.is-expanded .browser-rail__page { justify-content: flex-start; padding-left: 12px; }
 .browser-rail__icon { position: relative; display: inline-flex; flex: 0 0 16px; width: 16px; height: 16px; align-items: center; justify-content: center; }

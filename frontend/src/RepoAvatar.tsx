@@ -22,12 +22,12 @@ type Props = {
 
 /** Background/foreground pairs for the initial tile, picked by owner name. */
 const TILES: [string, string][] = [
-  ['#e8f0fe', '#1a56b0'],
-  ['#eaf5ec', '#1a7f37'],
-  ['#fdf0e6', '#bc4c00'],
-  ['#f3eefe', '#6639ba'],
-  ['#fdeef1', '#cf222e'],
-  ['#eceff2', '#57606a'],
+  ['light-dark(#e8f0fe, var(--dark-blue-soft))', 'var(--fg-link)'],
+  ['light-dark(#eaf5ec, var(--dark-green-soft))', 'var(--fg-success)'],
+  ['light-dark(#fdf0e6, var(--dark-orange-soft))', 'var(--fg-orange)'],
+  ['light-dark(#f3eefe, var(--dark-purple-soft))', 'var(--fg-purple)'],
+  ['light-dark(#fdeef1, var(--dark-red-soft))', 'var(--fg-danger)'],
+  ['var(--surface-inset)', 'var(--fg-muted)'],
 ];
 
 function ownerTile(owner: string): [string, string] {

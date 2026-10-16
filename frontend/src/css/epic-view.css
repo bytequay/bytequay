@@ -33,7 +33,7 @@
 }
 
 .epic-tabs__progress {
-  color: #57606a;
+  color: var(--fg-muted);
   font-family: var(--mono);
   font-size: 11.5px;
   font-weight: 400;
@@ -67,15 +67,15 @@
   height: 6px;
   overflow: hidden;
   border-radius: 3px;
-  background: #eceff2;
+  background: light-dark(#eceff2, var(--dark-subtle));
 }
 
 .epic-progress > .is-done {
-  background: #1a7f37;
+  background: light-dark(#1a7f37, #287a43);
 }
 
 .epic-progress > .is-working {
-  background: #0969da;
+  background: light-dark(#0969da, #2867b8);
 }
 
 .epic-view__counts {
@@ -83,7 +83,7 @@
   flex-wrap: wrap;
   gap: 4px 14px;
   margin-top: 6px;
-  color: #57606a;
+  color: var(--fg-muted);
   font-size: 12px;
 }
 
@@ -92,11 +92,11 @@
 }
 
 .epic-view__counts > .is-ready {
-  color: #1a7f37;
+  color: var(--fg-success);
 }
 
 .epic-view__counts > .is-muted {
-  color: #8c959f;
+  color: var(--fg-dim);
 }
 
 /* Children the source reports that are not the Epic's work yet; nothing joins before Sync. */
@@ -106,8 +106,8 @@
   gap: 8px;
   padding: 6px 8px 6px 12px;
   border-radius: 10px;
-  background: #f6f8fa;
-  color: #57606a;
+  background: light-dark(#f6f8fa, var(--dark-subtle));
+  color: var(--fg-muted);
   font-size: 12.5px;
 }
 
@@ -120,14 +120,14 @@
 .epic-view__sync {
   height: 24px;
   padding: 0 10px;
-  border: 1px solid #d0d7de;
-  background: #ffffff;
+  border: 1px solid var(--line-default);
+  background: var(--surface-canvas);
   color: var(--text-1);
   font-size: 12px;
 }
 
 .epic-view__sync:hover:not(:disabled) {
-  background: #f3f4f6;
+  background: light-dark(#f3f4f6, var(--dark-subtle));
 }
 
 .epic-view__counts > .epic-view__conclude {
@@ -139,16 +139,16 @@
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid #d1e7d6;
+  border: 1px solid light-dark(#d1e7d6, var(--dark-green-soft));
   border-radius: 10px;
-  background: #f4fbf6;
+  background: light-dark(#f4fbf6, var(--dark-subtle));
 }
 
 .epic-view__concluded-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #1a7f37;
+  color: var(--fg-success);
   font-size: 12.5px;
 }
 
@@ -169,9 +169,9 @@
   display: flex;
   flex-direction: column;
   padding: 8px 12px;
-  border: 1px solid #e6dcfb;
+  border: 1px solid light-dark(#e6dcfb, #4d3f68);
   border-radius: 10px;
-  background: #fbf8ff;
+  background: light-dark(#fbf8ff, var(--dark-subtle));
 }
 
 .epic-view__proposals-head {
@@ -179,7 +179,7 @@
   align-items: center;
   gap: 6px;
   padding-bottom: 4px;
-  color: #8250df;
+  color: var(--fg-purple);
   font-size: 12.5px;
 }
 
@@ -188,7 +188,7 @@
   align-items: center;
   gap: 8px;
   padding: 7px 0;
-  border-top: 1px solid #efe7fd;
+  border-top: 1px solid light-dark(#efe7fd, var(--dark-purple-soft));
 }
 
 .epic-proposal__text {
@@ -204,17 +204,17 @@
 }
 
 .epic-proposal__done {
-  color: #57606a;
+  color: var(--fg-muted);
   font-size: 12px;
 }
 
 .epic-view__notice {
-  color: #57606a;
+  color: var(--fg-muted);
   font-size: 12px;
 }
 
 .epic-view__error {
-  color: #cf222e;
+  color: var(--fg-danger);
   font-size: 12px;
 }
 
@@ -224,45 +224,45 @@
 
 .epic-state.is-planned,
 .epic-state.is-dropped {
-  color: #8c959f;
+  color: var(--fg-dim);
 }
 
 .epic-state.is-working {
-  color: #0969da;
+  color: var(--fg-link);
 }
 
 .epic-state.is-done {
-  color: #1a7f37;
+  color: var(--fg-success);
 }
 
 .epic-row.is-dropped .item-row__title > span:first-child {
-  color: #57606a;
+  color: var(--fg-muted);
 }
 
 .epic-row__state {
-  color: #57606a;
+  color: var(--fg-muted);
 }
 
 .epic-row__upstream {
-  color: #57606a;
+  color: var(--fg-muted);
   white-space: nowrap;
 }
 
 .epic-row__upstream.is-former {
-  color: #9a6700;
+  color: var(--fg-warning);
 }
 
 .epic-row__accept {
   height: 22px;
   padding: 0 8px;
-  border: 1px solid #d0d7de;
-  background: #ffffff;
+  border: 1px solid var(--line-default);
+  background: var(--surface-canvas);
   color: var(--text-1);
   font-size: 12px;
 }
 
 .epic-row__accept:hover:not(:disabled) {
-  background: #f6f8fa;
+  background: light-dark(#f6f8fa, var(--dark-subtle));
 }
 
 .epic-row__wait {
@@ -271,14 +271,14 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #57606a;
+  color: var(--fg-muted);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 
 .epic-row__wait:hover:not(:disabled) {
-  background: rgba(31, 35, 40, 0.08);
+  background: light-dark(rgba(31, 35, 40, 0.08), rgb(210 220 235 / 8%));
 }
 
 .epic-view__new {
@@ -286,14 +286,14 @@
   align-items: center;
   gap: 8px;
   padding: 7px 8px 7px 12px;
-  border: 1px dashed #d0d7de;
+  border: 1px dashed var(--line-default);
   border-radius: 10px;
-  color: #57606a;
+  color: var(--fg-muted);
 }
 
 .epic-view__new:focus-within {
   border-style: solid;
-  border-color: #54aeff;
+  border-color: light-dark(#54aeff, var(--dark-blue));
 }
 
 .epic-view__new > input {
@@ -312,16 +312,16 @@
   padding: 0 6px;
   border: 0;
   background: transparent;
-  color: #0969da;
+  color: var(--fg-link);
   font-size: 12.5px;
 }
 
 .epic-view__link:hover {
-  background: #ddf4ff;
+  background: var(--bg-info);
 }
 
 .epic-view__dropped > summary {
-  color: #57606a;
+  color: var(--fg-muted);
   font-size: 12px;
   cursor: pointer;
 }

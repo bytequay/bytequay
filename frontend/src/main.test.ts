@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { nativeTheme } from 'electron';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
 import type { TaskDiscussionDto } from './agents/discussions/contracts';
@@ -37,6 +38,7 @@ const desktop = vi.hoisted(() => ({
 vi.mock('node-pty', () => ({ spawn: desktop.spawnPty }));
 
 vi.mock('electron', () => ({
+  nativeTheme: { on: vi.fn(), themeSource: 'system', shouldUseDarkColors: false },
   BrowserWindow: { getAllWindows: () => desktop.accountNotifications.map(send => ({ isDestroyed: () => false, webContents: { isDestroyed: () => false, send } })) },
   app: {
     setName: vi.fn(), commandLine: { appendSwitch: vi.fn() }, requestSingleInstanceLock: () => true,
@@ -694,6 +696,21 @@ it.each([false, true])('allows a Jira collection refresh beyond one minute (comp
 
   expect(await result).toEqual({ value: page });
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('applies only saved appearance and keeps the current theme when saving fails', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const save = desktop.handlers.get('settings:app:save');
+  for (const [theme, source] of [['DARK', 'dark'], ['LIGHT', 'light'], ['SYSTEM', 'system']]) {
+    const preferences = { theme, taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(preferences))));
+    await expect(save?.({}, preferences)).resolves.toEqual(preferences);
+    expect(nativeTheme.themeSource).toBe(source);
+  }
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('Cannot save', { status: 500 })));
+  await expect(save?.({}, { theme: 'DARK' })).rejects.toThrow('Cannot save');
+  expect(nativeTheme.themeSource).toBe('system');
 });
 
 it('reads API-key usage by stable ID while retaining the alias and desktop authentication', async () => {

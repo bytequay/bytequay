@@ -14,10 +14,10 @@
   min-width: 280px;
   max-width: calc(100vw - 24px);
   min-height: 120px;
-  background: #ffffff;
-  border: 1px solid #d0d7de;
+  background: var(--surface-canvas);
+  border: 1px solid var(--line-default);
   border-radius: 12px;
-  box-shadow: 0 14px 44px rgba(27, 31, 36, 0.22);
+  box-shadow: 0 14px 44px light-dark(rgba(27, 31, 36, 0.22), rgb(0 0 0 / 39.6%));
   overflow: hidden;
   resize: both;
   animation: ref-card-pop 120ms ease-out;
@@ -43,13 +43,13 @@
 /* The kind reads before the repository: this card is an issue, or it is a pull request. */
 .ref-card__kind {
   flex: none;
-  color: #59636e;
+  color: var(--fg-subtle);
 }
 
 .ref-card__meta {
   font-family: var(--mono);
   font-size: 11px;
-  color: #8c959f;
+  color: var(--fg-dim);
 }
 
 .ref-card__ref .pr-copy-button {
@@ -62,14 +62,14 @@
   border-radius: 6px;
   background: transparent;
   padding: 0;
-  color: #8c959f;
+  color: var(--fg-dim);
   cursor: pointer;
 }
 
 .ref-card__ref .pr-copy-button svg { width: 14px; height: 14px; }
 
 .ref-card__ref .pr-copy-button:hover,
-.ref-card__ref .pr-copy-button.is-copied { background: #eceff2; color: #57606a; }
+.ref-card__ref .pr-copy-button.is-copied { background: light-dark(#eceff2, var(--dark-subtle)); color: var(--fg-muted); }
 
 .ref-card__chip {
   flex: none;
@@ -96,7 +96,7 @@
   align-items: center;
   gap: 7px;
   margin-top: 8px;
-  color: #57606a;
+  color: var(--fg-muted);
   font-size: 12px;
 }
 
@@ -107,7 +107,7 @@
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  border-top: 1px solid #eceff2;
+  border-top: 1px solid light-dark(#eceff2, var(--dark-border-muted));
   padding: 0 14px 12px;
 }
 
@@ -118,16 +118,16 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 11px 6px 0 0;
-  color: #57606a;
+  color: var(--fg-muted);
   font-size: 12px;
   line-height: 1.5;
 }
 
-.ref-card__muted { color: #8c959f; }
+.ref-card__muted { color: var(--fg-dim); }
 
 .ref-card__body .markdown-body {
   padding: 0;
-  color: #57606a;
+  color: var(--fg-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -188,9 +188,9 @@
 
 .ref-card__tag {
   border-radius: 10px;
-  background: #eceff2;
+  background: light-dark(#eceff2, var(--dark-subtle));
   padding: 1px 8px;
-  color: #57606a;
+  color: var(--fg-muted);
   font-size: 10.5px;
   white-space: nowrap;
 }

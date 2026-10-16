@@ -15,7 +15,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { TERMINAL_THEME } from '../pulls/code-tests/TerminalView';
+import { TERMINAL_THEME, followTerminalTheme } from '../pulls/code-tests/TerminalView';
 import type { Bridge } from '../types';
 import './css/provider-signin.css';
 
@@ -67,6 +67,7 @@ export default function ProviderSignInDialog({ laneId, providerName, bridge, onC
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(element);
+    const stopTheme = followTerminalTheme(term);
     const refit = () => {
       if (element.clientWidth > 0 && element.clientHeight > 0) fit.fit();
     };
@@ -110,7 +111,7 @@ export default function ProviderSignInDialog({ laneId, providerName, bridge, onC
       input.dispose();
       resize.dispose();
       observer.disconnect();
-      term.dispose();
+      stopTheme(); term.dispose();
     };
   }, [bridge, laneId]);
 

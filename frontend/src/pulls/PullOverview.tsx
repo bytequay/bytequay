@@ -2276,9 +2276,9 @@ function LabelBadge({ name, color }: { name: string; color: string | null }) {
 
 function labelPalette(name: string, color: string | null) {
   const normalized = name.toLowerCase();
-  if (normalized === 'no-release-notes') return { background: '#e3f2b5', color: '#476b27' };
-  if (['cla-signed', 'docs', 'iceberg'].includes(normalized)) return { background: '#f2e7e7', color: '#8a5551' };
-  return { background: `#${color ?? 'eaeef2'}24`, color: '#4f5862' };
+  if (normalized === 'no-release-notes') return { background: 'light-dark(#e3f2b5, var(--dark-green-soft))', color: 'var(--fg-success)' };
+  if (['cla-signed', 'docs', 'iceberg'].includes(normalized)) return { background: 'light-dark(#f2e7e7, var(--dark-red-soft))', color: 'light-dark(#8a5551, var(--dark-red))' };
+  return { background: `#${color ?? 'eaeef2'}24`, color: 'var(--text-2)' };
 }
 
 export function isQueued(activity: Activity[]) {

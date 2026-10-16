@@ -302,6 +302,7 @@ export class IdeViews {
     const view = new WebContentsView({ webPreferences: {
       preload: path.join(__dirname, 'idePreload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: `persist:bytequay-ide-${connection.taskId}`,
     } });
+    view.setBackgroundColor('#00000000');
     // Electron clears view.webContents on destruction; retain the handle for cleanup and isDestroyed().
     const contents = view.webContents;
     const editor: Editor = { id, host, connection, view, contents, context: null, visible: false, dirty: 0, busy: false, lastUsed: Date.now(), queryReady: false, execution: null, executionStarting: false, queries: new Map(), closing: null, pending: new Map() };

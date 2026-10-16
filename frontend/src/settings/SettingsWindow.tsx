@@ -58,6 +58,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const [signingIn, setSigningIn] = useState<{ laneId: string; providerName: string } | null>(null);
 
   const [preferences, setPreferences] = useState<AppPreferencesDto | null>(null);
+  const savingPreferences = useRef(false);
   const [version, setVersion] = useState('');
   const [clearing, setClearing] = useState(false);
   const modelWorkspaceId = section === 'ws-agents' ? workspace?.id : undefined;
@@ -237,8 +238,11 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   };
 
   const savePreferences = (next: AppPreferencesDto) => {
-    setPreferences(next);
-    window.bridge.saveAppPreferences(next).then(setPreferences).catch(report);
+    if (savingPreferences.current) return;
+    savingPreferences.current = true;
+    setError(null);
+    window.bridge.saveAppPreferences(next).then(setPreferences).catch(report)
+      .finally(() => { savingPreferences.current = false; });
   };
 
   const copyToken = (copy: Promise<unknown>) => {

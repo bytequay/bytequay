@@ -52,13 +52,13 @@ export type ReferenceCardItem = {
 
 /** The pill tones of cards.css, for a chip drawn with inline colours; keep the two in step. */
 const TONES: Record<AttentionTone, Pick<ReferenceCardChip, 'color' | 'background'>> = {
-  blue: { color: '#0969da', background: '#ddf4ff' },
-  amber: { color: '#9a6700', background: '#fff8c5' },
-  red: { color: '#cf222e', background: '#ffebe9' },
-  green: { color: '#1a7f37', background: '#dafbe1' },
-  neutral: { color: '#57606a', background: '#eceff2' },
-  orange: { color: '#bc4c00', background: '#fff1e5' },
-  purple: { color: '#8250df', background: '#fbefff' },
+  blue: { color: 'var(--fg-link)', background: 'var(--bg-info)' },
+  amber: { color: 'var(--fg-warning)', background: 'var(--bg-warning)' },
+  red: { color: 'var(--fg-danger)', background: 'var(--bg-danger)' },
+  green: { color: 'var(--fg-success)', background: 'var(--bg-success)' },
+  neutral: { color: 'var(--fg-muted)', background: 'var(--surface-inset)' },
+  orange: { color: 'var(--fg-orange)', background: 'light-dark(#fff1e5, var(--dark-orange-soft))' },
+  purple: { color: 'var(--fg-purple)', background: 'var(--bg-purple)' },
 };
 
 const STATE_CHIPS: Record<string, ReferenceCardChip> = {

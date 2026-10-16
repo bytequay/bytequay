@@ -87,8 +87,9 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
     const network = fixture.blockNetwork === false ? ''
       : "window.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, callback) => callback({ cancel: true }));";
     await writeFile(join(directory, 'main.cjs'), `
-      const { app, BrowserWindow, ipcMain } = require('electron');
+      const { app, BrowserWindow, ipcMain, nativeTheme } = require('electron');
       ${electronFixtureLifecycle(fixture.timeoutMs ?? 20_000)}
+      nativeTheme.themeSource = 'light';
       app.setPath('userData', ${JSON.stringify(join(directory, 'profile'))});
       app.whenReady().then(async () => {
         const window = new BrowserWindow({ show: false, ${size}webPreferences: { backgroundThrottling: false${preload} } });

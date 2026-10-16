@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime
 from functools import partial
 import json
 import math
@@ -35,6 +36,7 @@ import saved
 
 STATE = "advice.json"
 LOOKS = "looks"  # every look that finished, kept so a risk can be seen to go away after a fix
+DAILY = 86400  # seconds from one look to the next that the monitor starts by itself
 REACH = 7 * 86400  # seconds of samples the agent looks over
 SECONDS = 300.0  # the longest one look may take
 STEPS = 20  # model calls in one look
@@ -105,6 +107,16 @@ def looks(folder):
     """Every look that finished, oldest first."""
     kept = place(folder)["folder"] / LOOKS
     return [saved.read(kept, path.name) for path in sorted(kept.glob("*.json"))]
+
+
+def due(folder, now):
+    """Whether the monitor should start a look: none was made yet, or the last began a day ago or more. One that runs began
+    less than a day ago, so it is never started twice; a file that cannot be read is replaced by the next look."""
+    try:
+        last = saved.read(place(folder)["folder"], STATE)
+    except (OSError, ValueError):
+        return True
+    return last is None or now - datetime.fromisoformat(last["started"]).timestamp() >= DAILY
 
 
 def asked(previous):
@@ -388,9 +400,15 @@ def main():
     parser.add_argument("--model", default=judge.MODEL, help="The DeepSeek model that looks")
     parser.add_argument("--data", type=Path, default=monitor.APP_DATA, help="ByteQuay's data folder, read and never written")
     parser.add_argument("--database", type=Path, help="ByteQuay's database, read and never written; by default the one in the data folder")
+    parser.add_argument("--if-due", action="store_true", help="Look only when the last look began a day ago or more, and say nothing without a key "
+                                                              "(what the monitor runs every hour)")
     args = parser.parse_args()
+    if args.if_due and not due(args.folder, time.time()):
+        return
     key = os.environ.get("DEEPSEEK_API_KEY") or batch.stored_key()
     if not key:
+        if args.if_due:
+            return  # nobody asked for this look, so nobody is told how to give it a key
         parser.exit(1, "The agent needs a DeepSeek key. Store it once with `uv run batch.py --store-key`\n")
     os.environ["DEEPSEEK_API_KEY"] = key  # where the model client takes it from; this process starts nothing that could read it
     signal.signal(signal.SIGTERM, batch.stopped)

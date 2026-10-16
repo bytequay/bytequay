@@ -34,6 +34,7 @@ STORE = "monitor.db"
 AGENT = "com.bytequay.lab.monitor"
 EVERY = 5  # seconds between two samples
 DISK_EVERY = 6 * 3600  # a disk count walks every file of the app's data, so it runs only a few times a day
+SAVE_EVERY = 3600  # the lab's tables are read again every hour, so no page shows numbers a day old
 HEAP_EVERY = 60  # seconds between two asks of the backend's JVM how full its heap is; an ask takes about a second
 RAW = 7 * 86400  # seconds every sample is kept; older ones are folded into one row an hour
 HOURLY = 90 * 86400  # seconds an hourly row is kept
@@ -383,10 +384,18 @@ def count_disk(folder, now, data=APP_DATA, database=DATABASE):
         connection.commit()
 
 
+def lowest(commands):
+    """Run lab scripts one after another, each as a process of its own at the lowest priority, so the sampler stays small.
+    What they print is left out of the monitor's log; what goes wrong is kept there."""
+    for script, *arguments in commands:
+        subprocess.run(["nice", "-n", "20", sys.executable, str(Path(__file__).resolve().with_name(script)), *arguments], stdout=subprocess.DEVNULL)
+
+
 def run(folder, watch=None, rounds=None):
-    """Sample every few seconds until stopped, or for `rounds` samples. Old samples are folded every hour, and the disk is
-    counted a few times a day apart from the samples, as a count takes minutes."""
-    connection, watch, folded, counted, weighed, done = store(folder), watch or Watch(), 0.0, 0.0, 0.0, 0
+    """Sample every few seconds until stopped, or for `rounds` samples. Old samples are folded every hour, the disk is
+    counted a few times a day apart from the samples, as a count takes minutes, and the tables the pages read are saved
+    again every hour."""
+    connection, watch, folded, counted, refreshed, weighed, done = store(folder), watch or Watch(), 0.0, 0.0, 0.0, 0.0, 0
     watch.sample()  # not kept: CPU is counted between two looks, so the first look of every process reads as idle
     time.sleep(EVERY)
     while rounds is None or done < rounds:
@@ -396,11 +405,15 @@ def run(folder, watch=None, rounds=None):
             fold(connection, now)
             folded = now
         if now - counted >= DISK_EVERY:
-            # A count walks millions of files and holds a map of the disk for a while, so it runs as a process of its own at the
-            # lowest priority, and the sampler stays small.
-            command = ["nice", "-n", "20", sys.executable, str(Path(__file__).resolve()), "--count-disk", "--folder", str(folder)]
-            threading.Thread(target=subprocess.run, args=(command,), daemon=True).start()
+            # A count walks millions of files and holds a map of the disk for a while.
+            threading.Thread(target=lowest, args=([("monitor.py", "--count-disk", "--folder", str(folder))],), daemon=True).start()
             counted = now
+        if now - refreshed >= SAVE_EVERY:
+            # Then the lab's agent looks for risks, when its last look is a day old.
+            saves = [("activity.py", "--save", str(folder)), ("tuning.py", "--save", str(folder)), ("context.py", "--save", str(folder)),
+                     ("memory.py", "--save", str(folder)), ("advisor.py", "--folder", str(folder), "--if-due")]
+            threading.Thread(target=lowest, args=(saves,), daemon=True).start()
+            refreshed = now
         if now - weighed >= HEAP_EVERY:
             backend = java_of(watch.programs)
             if backend:

@@ -153,9 +153,12 @@ class TestStore(Folder):
         self.assertEqual((connection.execute("SELECT COUNT(*), SUM(memory) FROM parts").fetchone(), connection.execute("SELECT COUNT(*), SUM(tasks) FROM machine").fetchone()),
                          ((3 * len(monitor.PARTS), 30 * len(monitor.PARTS)), (3, 9)))
         self.assertEqual(watch.sample.call_count, 4)  # one look first that is not kept: it reads every process as idle
-        # Counted once, at the start, apart from the samples and in a process of its own at the lowest priority: a count takes minutes.
+        # Counted and saved once, at the start, apart from the samples: a count takes minutes, and a save reads every task log.
         self.assertEqual([(call.kwargs["target"], call.kwargs["args"][0]) for call in counting.call_args_list],
-                         [(subprocess.run, ["nice", "-n", "20", sys.executable, str(SCRIPT), "--count-disk", "--folder", str(self.folder)])])
+                         [(monitor.lowest, [("monitor.py", "--count-disk", "--folder", str(self.folder))]),
+                          (monitor.lowest, [("activity.py", "--save", str(self.folder)), ("tuning.py", "--save", str(self.folder)),
+                                            ("context.py", "--save", str(self.folder)), ("memory.py", "--save", str(self.folder)),
+                                            ("advisor.py", "--folder", str(self.folder), "--if-due")])])
 
     def test_the_backends_jvm_is_asked_for_its_heap_once_a_minute_while_it_runs(self):
         backend = (41, ("/jdk/bin/java", ["/jdk/bin/java", "-Xmx2000m", "-jar", "/b/bytequay-backend.jar"]))
@@ -180,6 +183,12 @@ class TestStore(Folder):
         connection = monitor.store(self.folder)
         self.addCleanup(connection.close)
         self.assertEqual(connection.execute("SELECT at, used FROM heap").fetchall(), [(100, 761379 * 2**10)])
+
+    def test_lab_scripts_run_one_after_another_at_the_lowest_priority(self):
+        with mock.patch.object(monitor.subprocess, "run") as ran:
+            monitor.lowest([("activity.py", "--save", "lab"), ("tuning.py", "--save", "lab")])
+        self.assertEqual(ran.call_args_list, [mock.call(["nice", "-n", "20", sys.executable, str(SCRIPT.with_name(name)), "--save", "lab"], stdout=subprocess.DEVNULL)
+                                              for name in ("activity.py", "tuning.py")])
 
 
 class TestSpace(Folder):

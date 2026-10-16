@@ -17,6 +17,7 @@ import agent
 import cleanup
 import monitor
 import resources
+import saved
 from test_agent import Script, Stand, call, completion, said
 from test_batch import TOOLS
 
@@ -233,6 +234,29 @@ class TestCommandLine(Kept):
         environment |= {"PATH": f"{tools}{os.pathsep}{os.environ['PATH']}", "TOOL_CALLS": str(self.folder.parent / "calls.jsonl"), "HOME": str(self.folder.parent)}
         done = self.command(environment)
         self.assertEqual((done.returncode, done.stderr), (1, "The agent needs a DeepSeek key. Store it once with `uv run batch.py --store-key`\n"))
+
+    def test_a_look_the_monitor_starts_runs_only_when_the_last_is_a_day_old_and_says_nothing_without_a_key(self):
+        now = time.time()
+        self.assertTrue(advisor.due(self.folder, now))  # no look yet
+        own = advisor.place(self.folder)["folder"]
+        for began, expected in ((now - 3600, False), (now - advisor.DAILY - 1, True)):
+            saved.write(own, advisor.STATE, {"version": 1, "state": "done", "started": saved.stamp(began)})
+            self.assertEqual(advisor.due(self.folder, now), expected)
+        (own / advisor.STATE).write_text("{")
+        self.assertTrue(advisor.due(self.folder, now))  # the next look replaces what cannot be read
+        tools = self.folder.parent / "tools"
+        tools.mkdir()
+        (tools / "security").write_text(TOOLS.format(python=sys.executable))
+        (tools / "security").chmod(0o755)
+        environment = {name: value for name, value in os.environ.items() if name not in ("DEEPSEEK_API_KEY", "KEYCHAIN_KEY")}
+        environment |= {"PATH": f"{tools}{os.pathsep}{os.environ['PATH']}", "TOOL_CALLS": str(self.folder.parent / "calls.jsonl"), "HOME": str(self.folder.parent)}
+        done = subprocess.run([sys.executable, str(SCRIPT), "--folder", str(self.folder), "--data", str(self.data), "--if-due"], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, env=environment)
+        self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
+        saved.write(own, advisor.STATE, {"version": 1, "state": "done", "started": saved.stamp(now)})
+        done = subprocess.run([sys.executable, str(SCRIPT), "--folder", str(self.folder), "--data", str(self.data), "--if-due"], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, env=dict(os.environ, DEEPSEEK_API_KEY="a-test-key", DEEPSEEK_BASE_URL="http://127.0.0.1:9"))
+        self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))  # a look made an hour ago: not due, so no model is called
 
     def test_a_look_through_the_model_api_keeps_what_it_found(self):
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Stand)

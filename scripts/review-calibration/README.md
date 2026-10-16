@@ -328,6 +328,14 @@ ByteQuay's database, the turns running, the open tasks and the inputs waiting
 in their queues, with the states the backend itself counts as running and
 waiting (a test reads them from its source).
 
+Every hour it saves the turn, review, Tuning, context and memory tables again
+(`activity.py`, `tuning.py`, `context.py` and `memory.py` with `--save`, into the lab's folder), one after
+the other as processes of their own at the lowest priority, so no page shows
+numbers more than an hour old. A save takes about 15 seconds. Then it starts
+the lab's agent to look for risks (`advisor.py --if-due`), which looks only
+when the last look began a day ago or more and says nothing without a key, so
+a look happens about once a day.
+
 Once a minute, while the backend runs, it asks the backend's JVM how full its
 heap is, with the `jcmd` beside the backend's `java` (`jcmd PID GC.heap_info`,
 at the lowest priority): what the heap uses, what the JVM has set aside for it,
@@ -641,7 +649,8 @@ its numbers as JSON. `report.py` writes `scores.json` into the experiment it
 read. `activity.py` writes `turns.json` and `reviews.json` into
 `~/Library/Application Support/ByteQuay Lab`, or into the folder named after
 `--save`. The folder is the lab's own. A new result replaces the earlier one in
-one step. Nothing is saved when no run or turn was found, so an empty filter
+one step. While the monitor runs, it saves `turns.json`, `reviews.json` and
+`tuning.json` every hour by itself. Nothing is saved when no run or turn was found, so an empty filter
 cannot wipe a result.
 
 ```sh

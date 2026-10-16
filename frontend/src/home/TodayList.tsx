@@ -13,14 +13,16 @@
  */
 import { useState } from 'react';
 import {
-  ArrowUpRight, CalendarCheck, Check, ChevronDown, ChevronRight, Eye, EyeOff, GitMerge, ListChecks, LoaderCircle, MessageCircleQuestion,
+  ArrowUpRight, CalendarCheck, Check, ChevronDown, ChevronRight, Clock, Eye, EyeOff, GitMerge, ListChecks, LoaderCircle, MessageCircleQuestion,
   MessageSquareReply, Play, RotateCw, TriangleAlert, Wrench, X, type LucideIcon,
 } from 'lucide-react';
 import { CardActions, CardAge, Clickable, IconButton, ItemRow } from '../cards/Card';
 import { zoomReference } from '../githubReference';
 import type { AgendaAction, AgendaDto, AgendaItemDto, AgendaTargetDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
-import { allDone, clockTime, dayText, doneRatio, doneText, hiddenCount, minuteText, recapLabel, showsToday, todayRows, whereText, type TodayScope } from './today';
+import {
+  allDone, calendarFact, clockTime, dayText, doneRatio, doneText, hiddenCount, minuteText, recapLabel, showsToday, todayRows, whereText, type TodayScope,
+} from './today';
 import type { TodayAgenda } from './useTodayAgenda';
 import '../css/today.css';
 
@@ -75,6 +77,7 @@ export default function TodayList({ today, scope }: { today: TodayAgenda; scope:
   const failure = error ?? agenda.failure;
   const global = scope === 'global';
   const toggle = () => setExpanded(value => !value);
+  const calendar = calendarFact(agenda.calendar);
 
   const head = (
     <span className="today-head__label">
@@ -96,6 +99,11 @@ export default function TodayList({ today, scope }: { today: TodayAgenda; scope:
             <button type="button" className="today-fact today-fact--button" title={`Show ${hidden} set aside for today`} onClick={showHidden}>
               <EyeOff size={13} aria-hidden="true" />{hidden}
             </button>
+          )}
+          {calendar !== null && (
+            <span className={`today-fact${calendar.dim ? ' is-dim' : ''}`} title={calendar.title}>
+              <Clock size={13} aria-hidden="true" />{calendar.text}
+            </span>
           )}
           {ready && total > 0 && <span className="today-fact" title={`${done} of ${total} done`}><Check size={13} aria-hidden="true" />{done}/{total}</span>}
           {!before && agenda.generatedAt !== null && (

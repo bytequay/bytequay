@@ -98,6 +98,10 @@
   outline-offset: 2px;
 }
 
+.today-fact.is-dim {
+  color: var(--text-4);
+}
+
 .today-fact--icon {
   justify-content: center;
   width: 22px;

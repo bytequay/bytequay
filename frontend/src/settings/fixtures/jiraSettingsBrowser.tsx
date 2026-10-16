@@ -81,8 +81,9 @@ export async function mountPreview(values: JiraConnection[] = [connected, { ...c
     getQuietHours: async () => ({ ...quietHours }),
     saveQuietHours: async (value: QuietHoursDto) => { quietWrites.push(value); quietHours = await nextQuietSave(value); return { ...quietHours }; },
     // General also shows the daily agenda's schedule.
-    getAgendaSchedule: async () => ({ enabled: true, minute: 540, days: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'] }),
+    getAgendaSchedule: async () => ({ enabled: true, minute: 540, days: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'], calendarAccountId: null }),
     saveAgendaSchedule: async value => value,
+    getGoogleStatus: async () => ({ accounts: [], profile: '', installed: false, operation: '', error: null, snapshot: null }),
     getGitHubAccount: async () => ({ configured: false, source: 'PERSONAL_ACCESS_TOKEN' as const }),
     getJiraConfig: async () => ({ configured }),
     listJiraConnections: async () => { reads += 1; return accounts.map(value => ({ ...value })); },

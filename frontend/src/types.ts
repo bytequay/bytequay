@@ -1436,12 +1436,28 @@ export type AgendaDto = {
   summary: string | null;
   items: AgendaItemDto[];
   recap: { text: string; merged: AgendaLinkDto[]; slipped: AgendaLinkDto[] } | null;
+  /** How much of the day the user's calendar held, as times only; absent until an agenda is made. */
+  calendar: AgendaCalendarDto | null;
   failure: string | null;
+};
+
+export type AgendaCalendarDto = {
+  state: 'used' | 'off' | 'not_connected' | 'unavailable';
+  busyHours: number;
+  allDay: boolean;
+  busy: { from: string; to: string }[];
+  free: { from: string; to: string }[];
 };
 
 export type AgendaDay = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY';
 
-export type AgendaScheduleDto = { enabled: boolean; minute: number; days: AgendaDay[] };
+export type AgendaScheduleDto = {
+  enabled: boolean;
+  minute: number;
+  days: AgendaDay[];
+  /** The Google account whose busy times the agenda reads; null keeps the calendar out. */
+  calendarAccountId: string | null;
+};
 
 export type RecentFilterQuery = {
   from?: string;

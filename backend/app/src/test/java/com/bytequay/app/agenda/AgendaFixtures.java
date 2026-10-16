@@ -14,6 +14,7 @@
 package com.bytequay.app.agenda;
 
 import com.bytequay.app.agenda.AgendaSnapshot.RefInfo;
+import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaTarget;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -75,7 +76,8 @@ final class AgendaFixtures
         Optional<AgendaSnapshot.Week> week = Optional.of(new AgendaSnapshot.Week(ImmutableList.of("pr:trinodb/trino#31390"), ImmutableList.of(),
                 ImmutableList.of("pr:trinodb/trino#31377")));
         AgendaSnapshot.Overview overview = new AgendaSnapshot.Overview("2026-10-16", "FRIDAY", true, SINCE,
-                new AgendaSnapshot.Counts(changes, mine.size(), tasks.size(), asks.size(), epics.size()), ImmutableList.of());
+                new AgendaSnapshot.Counts(changes, mine.size(), tasks.size(), asks.size(), epics.size()), ImmutableList.of(),
+                Optional.of(AgendaSnapshot.Calendar.of(AgendaCalendar.of("off"))));
         return new AgendaSnapshot(overview, changeEntries.build(), mine, tasks, asks, epics, history, week, refs);
     }
 

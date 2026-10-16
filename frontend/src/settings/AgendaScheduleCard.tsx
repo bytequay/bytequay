@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState } from 'react';
+import type { GoogleStatus } from '../google/contracts';
 import type { AgendaDay, AgendaScheduleDto, QuietHoursDto } from '../types';
 import { formatMinuteOfDay, MINUTE_OPTIONS } from './model';
 import { SelectPill, SettingsCard, SettingsRow, Toggle } from './primitives';
@@ -37,14 +38,18 @@ export function inQuietHours(minute: number, quiet: QuietHoursDto | null): boole
 /** When the daily agenda is made: on or off, the time, and the working days; the last of them carries the week's recap. */
 export default function AgendaScheduleCard({ quietHours, onError }: { quietHours: QuietHoursDto | null; onError: (error: unknown) => void }) {
   const [schedule, setSchedule] = useState<AgendaScheduleDto | null>(null);
+  const [google, setGoogle] = useState<GoogleStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
 
   useEffect(() => {
     let current = true;
     void window.bridge.getAgendaSchedule().then(value => { if (current) setSchedule(value); }).catch(onError);
+    // Without Google Apps the calendar row stays hidden; there is nothing to nudge toward here.
+    void window.bridge.getGoogleStatus().then(value => { if (current) setGoogle(value); }).catch((): void => undefined);
     return () => { current = false; };
   }, [onError]);
+  const account = google?.snapshot ?? null;
 
   const save = (next: AgendaScheduleDto) => {
     if (saving.current) return;
@@ -76,6 +81,12 @@ export default function AgendaScheduleCard({ quietHours, onError }: { quietHours
             })}
           </span>
         </SettingsRow>
+        {account !== null && (
+          <SettingsRow title="Use my calendar's busy times" subtitle={`${account.email} · only start and end times are used; titles stay on this Mac`}>
+            <Toggle on={schedule.calendarAccountId === account.accountId} label="Use my calendar's busy times in the daily agenda" disabled={!schedule.enabled || busy}
+              onChange={on => save({ ...schedule, calendarAccountId: on ? account.accountId : null })} />
+          </SettingsRow>
+        )}
       </>}
     </SettingsCard>
   );

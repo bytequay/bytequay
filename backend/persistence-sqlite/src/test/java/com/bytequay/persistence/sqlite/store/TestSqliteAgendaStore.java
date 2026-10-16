@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaDay;
 import com.bytequay.core.domain.AgendaItem;
 import com.bytequay.core.domain.AgendaRecap;
@@ -64,7 +65,9 @@ class TestSqliteAgendaStore
                 "Changes requested yesterday.", Optional.of(MADE.minusSeconds(3600)), Optional.of("ws1"), pull, Optional.of("trinodb/trino #31402"));
         AgendaDay day = new AgendaDay(LocalDate.parse("2026-10-16"), AgendaDay.State.READY, MADE, MADE.minusSeconds(86400), "claude", "Sonnet", "Two people wait on you.",
                 ImmutableList.of(item), Optional.of(new AgendaRecap("Merged 3 PRs.", ImmutableList.of(new AgendaRecap.Link("pr:trinodb/trino#31390",
-                AgendaTarget.pull("trinodb/trino", 31390, Optional.empty()))), ImmutableList.of())), ImmutableMap.of(), Optional.empty());
+                AgendaTarget.pull("trinodb/trino", 31390, Optional.empty()))), ImmutableList.of())), ImmutableMap.of(),
+                Optional.of(new AgendaCalendar("used", 5.5, false, ImmutableList.of(new AgendaCalendar.Block("11:00", "12:30")),
+                        ImmutableList.of(new AgendaCalendar.Block("12:30", "15:00")))), Optional.empty());
         store.save(day);
         store.save(day.withMarks(ImmutableMap.of(item.ref(), AgendaDay.Mark.DONE)));
         entities.flush();
@@ -81,7 +84,7 @@ class TestSqliteAgendaStore
             store.save(failed(LocalDate.parse(date)));
             store.record(new AgendaRun(UUID.randomUUID().toString(), LocalDate.parse(date), MADE, 1200, AgendaDay.State.FAILED, AgendaRun.Trigger.SCHEDULED,
                     "claude", "sonnet", ImmutableList.of(new AgendaRun.Call("overview", 0, 0, 180, 3, Optional.empty())), ImmutableList.of(),
-                    ImmutableList.of(new AgendaRun.Drop("pr:x/y#1", "unknown ref")), Optional.of("Claude is signed out")));
+                    ImmutableList.of(new AgendaRun.Drop("pr:x/y#1", "unknown ref")), "unavailable", Optional.of("Claude is signed out")));
         }
         entities.flush();
         entities.clear();
@@ -99,6 +102,6 @@ class TestSqliteAgendaStore
     private static AgendaDay failed(LocalDate day)
     {
         return new AgendaDay(day, AgendaDay.State.FAILED, MADE, MADE, "claude", "Sonnet", "", ImmutableList.of(), Optional.empty(), ImmutableMap.of(),
-                Optional.of("Claude is signed out"));
+                Optional.empty(), Optional.of("Claude is signed out"));
     }
 }

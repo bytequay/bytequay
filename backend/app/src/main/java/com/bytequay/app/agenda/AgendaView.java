@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.agenda;
 
+import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaRecap;
 import com.bytequay.core.domain.AgendaTarget;
 import com.google.common.collect.ImmutableList;
@@ -29,6 +30,7 @@ import static java.util.Objects.requireNonNull;
  * @param state NONE before today's agenda exists, RUNNING while one is being made, READY or FAILED
  * @param at when the schedule makes it, as minutes past midnight, while today's has not been made
  * @param failure why the last attempt failed: the whole state when FAILED, or a ready agenda's failed Make again
+ * @param calendar how much of the day the user's calendar held when the agenda was made
  */
 public record AgendaView(
         String day,
@@ -40,6 +42,7 @@ public record AgendaView(
         Optional<String> summary,
         List<Item> items,
         Optional<AgendaRecap> recap,
+        Optional<AgendaCalendar> calendar,
         Optional<String> failure)
 {
     public AgendaView
@@ -51,6 +54,7 @@ public record AgendaView(
         requireNonNull(summary, "summary is null");
         items = ImmutableList.copyOf(items);
         requireNonNull(recap, "recap is null");
+        requireNonNull(calendar, "calendar is null");
         requireNonNull(failure, "failure is null");
     }
 

@@ -30,10 +30,12 @@ import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaDay;
 import com.bytequay.core.domain.AgendaRun;
 import com.bytequay.core.store.AgendaStore;
 import com.bytequay.core.store.AppSettingsStore;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -84,6 +86,7 @@ class TestAgendaService
 
     private final MemoryStore store = new MemoryStore();
     private final AgendaReader reader = mock(AgendaReader.class);
+    private final AgendaCalendarReader calendars = mock(AgendaCalendarReader.class);
     private final AgendaDone done = mock(AgendaDone.class);
     private final AppSettingsService appSettings = mock(AppSettingsService.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
@@ -127,7 +130,8 @@ class TestAgendaService
         when(session.start(any())).thenReturn(turn);
         when(turn.completion()).thenAnswer(call -> CompletableFuture.completedFuture(
                 new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of(answer.get()), Optional.empty(), Duration.ofSeconds(40), true)));
-        when(reader.read(any(), any(), anyBoolean(), any())).thenReturn(AgendaFixtures.friday(0));
+        when(reader.read(any(), any(), anyBoolean(), any(), any())).thenReturn(AgendaFixtures.friday(0));
+        when(calendars.today(any(), any())).thenReturn(new AgendaCalendar("used", 5.5, false, ImmutableList.of(), ImmutableList.of()));
         when(done.statuses(any())).thenReturn(ImmutableMap.of());
         Clock clock = new Clock()
         {
@@ -149,7 +153,7 @@ class TestAgendaService
                 return now.get();
             }
         };
-        agenda = new AgendaService(store, reader, done, new AgendaSettings(settings, AgendaFixtures.mapper()), appSettings, models, drivers, resources,
+        agenda = new AgendaService(store, reader, calendars, done, new AgendaSettings(settings, AgendaFixtures.mapper()), appSettings, models, drivers, resources,
                 AgendaFixtures.mapper(), clock);
     }
 
@@ -208,6 +212,8 @@ class TestAgendaService
         assertThat(run.calls()).extracting(AgendaRun.Call::kind).containsExactly("tasks", "mine", "history");
         assertThat(run.picked()).extracting(AgendaRun.Pick::kind).containsExactly("tasks", "mine");
         assertThat(run.dropped()).extracting(AgendaRun.Drop::reason).containsExactly("unknown ref");
+        assertThat(run.calendar()).isEqualTo("used");
+        assertThat(day.calendar()).hasValueSatisfying(calendar -> assertThat(calendar.busyHours()).isEqualTo(5.5));
     }
 
     @Test

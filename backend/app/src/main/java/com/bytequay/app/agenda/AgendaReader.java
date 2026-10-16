@@ -47,6 +47,7 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.PrMovement;
 import com.bytequay.app.team.TeamCircle;
 import com.bytequay.app.team.TeamService;
+import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaDay;
 import com.bytequay.core.domain.AgendaItem;
 import com.bytequay.core.domain.AgendaTarget;
@@ -183,8 +184,9 @@ class AgendaReader
     /**
      * @param since where "new" starts: the last ready agenda's making
      * @param earlier the agendas of earlier days, newest first
+     * @param calendar today's busy time, already read
      */
-    AgendaSnapshot read(LocalDate today, Instant since, boolean recapDay, List<AgendaDay> earlier)
+    AgendaSnapshot read(LocalDate today, Instant since, boolean recapDay, List<AgendaDay> earlier, AgendaCalendar calendar)
     {
         Map<String, RefInfo> refs = new LinkedHashMap<>();
         Optional<String> viewer = credentials.cachedLogin();
@@ -244,7 +246,8 @@ class AgendaReader
         List<String> newlyWatched = watched.stream().filter(workspace -> workspace.createdAt().isAfter(since))
                 .map(workspace -> workspace.monitoredRepository().fullName()).limit(NEWLY_WATCHED).collect(toImmutableList());
         AgendaSnapshot.Overview overview = new AgendaSnapshot.Overview(today.toString(), today.getDayOfWeek().name(), recapDay, since,
-                new AgendaSnapshot.Counts(changes.size(), mine.size(), taskEntries.size(), asks.size(), epicEntries.size()), newlyWatched);
+                new AgendaSnapshot.Counts(changes.size(), mine.size(), taskEntries.size(), asks.size(), epicEntries.size()), newlyWatched,
+                Optional.of(AgendaSnapshot.Calendar.of(calendar)));
         return new AgendaSnapshot(overview, changes, mine, taskEntries, asks, epicEntries, history, week, refs);
     }
 

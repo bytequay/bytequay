@@ -22,20 +22,26 @@ import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Objects.requireNonNull;
 
 /**
  * When the daily agenda is made: after {@code minute} past midnight on each of {@code days}, the last of which also carries the
  * week's recap.
+ *
+ * @param calendarAccountId the Google account whose busy times the agenda reads; empty keeps the calendar out. It is saved apart
+ *         from task agent access, which resets on every restart, because the agenda runs while nobody is there to approve.
  */
-public record AgendaSchedule(boolean enabled, int minute, List<DayOfWeek> days)
+public record AgendaSchedule(boolean enabled, int minute, List<DayOfWeek> days, Optional<String> calendarAccountId)
 {
     public static final AgendaSchedule DEFAULT = new AgendaSchedule(true, 9 * 60,
-            ImmutableList.of(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY));
+            ImmutableList.of(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY), Optional.empty());
 
     public AgendaSchedule
     {
         checkArgument(minute >= 0 && minute < 24 * 60, "The agenda time must be within the day");
         days = days == null ? ImmutableList.of() : days.stream().distinct().sorted().collect(toImmutableList());
+        requireNonNull(calendarAccountId, "calendarAccountId is null");
+        calendarAccountId.ifPresent(account -> checkArgument(!account.isBlank(), "Choose a Google account for the calendar"));
     }
 
     public boolean workingDay(DayOfWeek day)

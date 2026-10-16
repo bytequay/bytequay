@@ -36,7 +36,10 @@ class TestAgendaPages
         assertThat(tool.name()).isEqualTo("agenda_context");
         assertThat(tool.childCallable()).isTrue();
 
-        assertThat(keys(read(tool, "{\"kind\":\"overview\"}"))).isEqualTo(ImmutableSet.of("today", "weekday", "recapDay", "since", "counts", "nextPage"));
+        JsonNode overview = read(tool, "{\"kind\":\"overview\"}");
+        assertThat(keys(overview)).isEqualTo(ImmutableSet.of("today", "weekday", "recapDay", "since", "counts", "calendar", "nextPage"));
+        // A calendar that was not read says only so.
+        assertThat(keys(overview.path("calendar"))).isEqualTo(ImmutableSet.of("state"));
         assertThat(keys(entry(tool, "changes"))).isEqualTo(ImmutableSet.of("ref", "title", "facts", "at"));
         assertThat(keys(entry(tool, "mine"))).isEqualTo(ImmutableSet.of("ref", "title", "draft", "review", "ci", "mergeable", "quietSince"));
         assertThat(keys(entry(tool, "tasks"))).isEqualTo(ImmutableSet.of("ref", "kind", "title", "state", "waitingFor", "question", "idleSince", "pr", "work", "findings"));

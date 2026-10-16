@@ -66,6 +66,8 @@ const AGENDA: AgendaDto = {
       { ref: 'pr:trinodb/trino-gateway#605', target: target('PULL', { repo: 'trinodb/trino-gateway', number: 605 }) }],
     slipped: [{ ref: 'pr:trinodb/trino#31377', target: target('PULL', { repo: 'trinodb/trino', number: 31377 }) }],
   },
+  calendar: { state: 'used', busyHours: 5.5, allDay: false, busy: [{ from: '10:00', to: '12:30' }, { from: '15:00', to: '18:00' }],
+    free: [{ from: '09:00', to: '10:00' }, { from: '12:30', to: '15:00' }] },
   failure: null,
 };
 

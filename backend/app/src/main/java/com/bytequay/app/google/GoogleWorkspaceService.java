@@ -225,6 +225,54 @@ public class GoogleWorkspaceService
         });
     }
 
+    /**
+     * The busy times of the signed-in account's primary calendar between two moments, read without replacing the Calendar view's
+     * snapshot. Events marked free, cancelled or declined are left out, and only times are kept. It refuses, rather than waits, when
+     * another account is selected or a Google operation is running.
+     */
+    public List<GoogleBusyTime> busyTimes(String accountId, Instant from, Instant to)
+    {
+        requireNonNull(accountId, "accountId is null");
+        checkArgument(to.isAfter(from) && !to.isAfter(from.plus(2, ChronoUnit.DAYS)), "Choose a range of up to two days.");
+        String selected;
+        GoogleSnapshot expected;
+        synchronized (this) {
+            checkState(operation.isEmpty(), "A Google operation is already running.");
+            expected = connected();
+            checkState(expected.accountId().equals(accountId), "Another Google account is selected.");
+            selected = profile;
+        }
+        try (var session = connector.open(selected, false)) {
+            verifyAccount(session, expected);
+            JsonNode result = session.call("calendar_listEvents", ImmutableMap.of("calendarId", "primary", "timeMin", from.toString(), "timeMax", to.toString()));
+            checkState(result.isArray(), "Unexpected calendar response.");
+            ImmutableList.Builder<GoogleBusyTime> busy = ImmutableList.builder();
+            for (JsonNode event : result) {
+                if (free(event)) {
+                    continue;
+                }
+                JsonNode start = event.path("start");
+                boolean allDay = start.has("date");
+                busy.add(new GoogleBusyTime(required(start, allDay ? "date" : "dateTime"), required(event.path("end"), allDay ? "date" : "dateTime"), allDay));
+            }
+            return busy.build();
+        }
+    }
+
+    /** An event marked free, cancelled, or declined by the user, which does not take their time. */
+    private static boolean free(JsonNode event)
+    {
+        if ("transparent".equals(event.path("transparency").asText()) || "cancelled".equals(event.path("status").asText())) {
+            return true;
+        }
+        for (JsonNode attendee : event.path("attendees")) {
+            if (attendee.path("self").asBoolean(false) && "declined".equals(attendee.path("responseStatus").asText())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public synchronized GoogleSnapshot.Status agentAccess(boolean enabled)
     {
         save(connected().withAgentAccess(enabled));

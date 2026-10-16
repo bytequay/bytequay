@@ -122,7 +122,7 @@ class TestAgendaReply
         });
 
         AgendaSnapshot thursday = new AgendaSnapshot(new AgendaSnapshot.Overview("2026-10-15", "THURSDAY", false, AgendaFixtures.SINCE, snapshot.overview().counts(),
-                snapshot.overview().newlyWatched()), snapshot.changes(), snapshot.mine(), snapshot.tasks(), snapshot.asks(), snapshot.epics(), snapshot.history(),
+                snapshot.overview().newlyWatched(), snapshot.overview().calendar()), snapshot.changes(), snapshot.mine(), snapshot.tasks(), snapshot.asks(), snapshot.epics(), snapshot.history(),
                 snapshot.week(), snapshot.refs());
         assertThat(AgendaReply.parse("{\"summary\":\"\",\"items\":[],\"recap\":{\"text\":\"x\"}}", thursday, SERVED, MINE, mapper).recap()).isEmpty();
     }

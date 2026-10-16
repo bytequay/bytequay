@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { AgendaDto, AgendaItemDto, AgendaLinkDto, AgendaTargetDto } from '../types';
+import type { AgendaCalendarDto, AgendaDto, AgendaItemDto, AgendaLinkDto, AgendaTargetDto } from '../types';
 
 export type TodayScope = 'global' | 'workspace';
 
@@ -90,6 +90,17 @@ export function todayKeys(agenda: AgendaDto | null): ReadonlySet<string> {
 export function doneText(item: AgendaItemDto): string {
   const text = item.doneText ?? 'Done';
   return item.doneAt === null ? text : `${text} ${clockTime(item.doneAt)}`;
+}
+
+/** The header's calendar: hours booked with the free time on hover, a dimmed clock when it was not read, nothing when it is off. */
+export function calendarFact(calendar: AgendaCalendarDto | null): { text: string; title: string; dim: boolean } | null {
+  if (calendar === null) return null;
+  if (calendar.state === 'unavailable') return { text: '', title: 'Calendar not checked', dim: true };
+  if (calendar.state !== 'used') return null;
+  const free = calendar.free.map(block => `${block.from}–${block.to}`).join(', ');
+  const title = [calendar.allDay ? 'All-day event today' : null, free === '' ? 'No free time between 9:00 and 18:00' : `Free ${free}`]
+    .filter(part => part !== null).join(' · ');
+  return { text: `${calendar.busyHours} h`, title, dim: false };
 }
 
 /** A local 24-hour time, as the header and done rows show it. */

@@ -28,6 +28,7 @@ import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaDay;
 import com.bytequay.core.domain.AgendaItem;
 import com.bytequay.core.domain.AgendaRun;
@@ -81,7 +82,9 @@ public class AgendaService
             %s
             Suggest at most five things the user should do today, most important first: unblock others before starting new work, answer people
             waiting on the user, finish work that is close to done, then start the next ready Epic item. Do not repeat an earlier day's open item
-            unless something about it changed, and then say what changed. Use only refs agenda_context returned. Reply with one JSON object only.
+            unless something about it changed, and then say what changed. When overview has the calendar's busy times, fit the list to the free
+            time: fewer items on a full day, a short review or reply in a short free block, and only urgent asks on a day off. Use only refs
+            agenda_context returned. Reply with one JSON object only.
             """.formatted(AgendaPages.INSTRUCTION.strip());
     private static final String REPLY = """
             Plan today's agenda with agenda_context, then reply with only this JSON object:
@@ -102,6 +105,7 @@ public class AgendaService
 
     private final AgendaStore store;
     private final AgendaReader reader;
+    private final AgendaCalendarReader calendars;
     private final AgendaDone done;
     private final AgendaSettings settings;
     private final AppSettingsService appSettings;
@@ -114,11 +118,12 @@ public class AgendaService
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile Optional<Failure> lastFailure = Optional.empty();
 
-    public AgendaService(AgendaStore store, AgendaReader reader, AgendaDone done, AgendaSettings settings, AppSettingsService appSettings, ModelSettingsService models,
-            AgentDriverRegistry drivers, AgentResourceService resources, ObjectMapper mapper, Clock clock)
+    public AgendaService(AgendaStore store, AgendaReader reader, AgendaCalendarReader calendars, AgendaDone done, AgendaSettings settings,
+            AppSettingsService appSettings, ModelSettingsService models, AgentDriverRegistry drivers, AgentResourceService resources, ObjectMapper mapper, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.reader = requireNonNull(reader, "reader is null");
+        this.calendars = requireNonNull(calendars, "calendars is null");
         this.done = requireNonNull(done, "done is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
@@ -153,7 +158,8 @@ public class AgendaService
                 .or(() -> lastFailure.filter(value -> ready.filter(agenda -> value.at().isAfter(agenda.generatedAt())).isPresent()).map(Failure::reason));
         boolean global = workspaceId.isEmpty();
         return new AgendaView(today.toString(), state, schedule.enabled(), schedule.minute(), day.map(AgendaDay::generatedAt), day.map(AgendaDay::model),
-                ready.filter(ignored -> global).map(AgendaDay::summary), items, ready.filter(ignored -> global).flatMap(AgendaDay::recap), failure);
+                ready.filter(ignored -> global).map(AgendaDay::summary), items, ready.filter(ignored -> global).flatMap(AgendaDay::recap),
+                ready.flatMap(AgendaDay::calendar), failure);
     }
 
     /** Makes today's agenda again now, on any day; the agenda already shown stays until the new one is ready. */
@@ -222,16 +228,20 @@ public class AgendaService
         List<AgendaDay> earlier = store.recent(EARLIER_DAYS + 1);
         Instant since = earlier.stream().filter(day -> day.day().isBefore(today) && day.state() == AgendaDay.State.READY)
                 .map(AgendaDay::generatedAt).findFirst().orElse(startedAt.minus(FIRST_LOOK));
-        boolean recapDay = settings.schedule().recapDay().filter(today.getDayOfWeek()::equals).isPresent();
+        AgendaSchedule schedule = settings.schedule();
+        boolean recapDay = schedule.recapDay().filter(today.getDayOfWeek()::equals).isPresent();
         Optional<AgentModelSetting> selected = Optional.empty();
         Optional<AgendaPages> pages = Optional.empty();
+        Optional<AgendaCalendar> calendar = Optional.empty();
         try {
             AgentModelSetting model = models.agentModel(AgentModelType.DEVELOPMENT, Optional.empty());
             selected = Optional.of(model);
             AgentLaneId lane = new AgentLaneId(model.configId());
             drivers.checkWorkspaceAccess(lane, Optional.empty());
             WorkflowAgentTasks.requireReady(drivers, lane, AgentPermissionPolicy.AUTO, Optional.of(model.model()));
-            AgendaSnapshot snapshot = reader.read(today, since, recapDay, earlier);
+            AgendaCalendar busy = calendars.today(schedule, today);
+            calendar = Optional.of(busy);
+            AgendaSnapshot snapshot = reader.read(today, since, recapDay, earlier, busy);
             AgendaPages session = new AgendaPages(snapshot, mapper);
             pages = Optional.of(session);
             AgentTurnResult result = OneShotSession.run(resources, drivers.require(lane), (taskId, scratch) -> new AgentSessionContext(
@@ -246,9 +256,9 @@ public class AgendaService
             AgendaReply reply = AgendaReply.parse(result.finalResponse().orElse(""), snapshot, session.served(), mine, mapper);
             Map<String, AgendaDay.Mark> marks = store.find(today).map(day -> kept(day.marks(), reply.items())).orElse(ImmutableMap.of());
             store.save(new AgendaDay(today, AgendaDay.State.READY, clock.instant(), since, lane.value(), model.modelLabel(), reply.summary(), reply.items(), reply.recap(),
-                    marks, Optional.empty()));
+                    marks, calendar, Optional.empty()));
             lastFailure = Optional.empty();
-            record(today, startedAt, AgendaDay.State.READY, trigger, selected, session.calls(), reply.picked(), reply.dropped(), Optional.empty());
+            record(today, startedAt, AgendaDay.State.READY, trigger, selected, session.calls(), reply.picked(), reply.dropped(), calendar, Optional.empty());
         }
         catch (RuntimeException failure) {
             String reason = clip(Optional.ofNullable(failure.getMessage()).filter(message -> !message.isBlank()).orElse("The agenda could not be made"), REASON);
@@ -258,20 +268,21 @@ public class AgendaService
             }
             else {
                 store.save(new AgendaDay(today, AgendaDay.State.FAILED, clock.instant(), since, selected.map(AgentModelSetting::configId).orElse(""),
-                        selected.map(AgentModelSetting::modelLabel).orElse(""), "", ImmutableList.of(), Optional.empty(), ImmutableMap.of(), Optional.of(reason)));
+                        selected.map(AgentModelSetting::modelLabel).orElse(""), "", ImmutableList.of(), Optional.empty(), ImmutableMap.of(), calendar, Optional.of(reason)));
             }
             record(today, startedAt, AgendaDay.State.FAILED, trigger, selected, pages.map(AgendaPages::calls).orElse(ImmutableList.of()), ImmutableList.of(),
-                    ImmutableList.of(), Optional.of(reason));
+                    ImmutableList.of(), calendar, Optional.of(reason));
         }
         store.deleteBefore(today.minusDays(RETAINED_DAYS));
     }
 
     private void record(LocalDate today, Instant startedAt, AgendaDay.State state, AgendaRun.Trigger trigger, Optional<AgentModelSetting> model,
-            List<AgendaRun.Call> calls, List<AgendaRun.Pick> picked, List<AgendaRun.Drop> dropped, Optional<String> failure)
+            List<AgendaRun.Call> calls, List<AgendaRun.Pick> picked, List<AgendaRun.Drop> dropped, Optional<AgendaCalendar> calendar, Optional<String> failure)
     {
         try {
             store.record(new AgendaRun(UUID.randomUUID().toString(), today, startedAt, Duration.between(startedAt, clock.instant()).toMillis(), state, trigger,
-                    model.map(AgentModelSetting::configId).orElse(""), model.map(AgentModelSetting::model).orElse(""), calls, picked, dropped, failure));
+                    model.map(AgentModelSetting::configId).orElse(""), model.map(AgentModelSetting::model).orElse(""), calls, picked, dropped,
+                    calendar.map(AgendaCalendar::state).orElse("off"), failure));
         }
         catch (RuntimeException unrecorded) {
             log.warn("Could not record the agenda run for {}", today, unrecorded);

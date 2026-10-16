@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.agenda;
 
+import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaTarget;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.google.common.collect.ImmutableList;
@@ -71,7 +72,25 @@ record AgendaSnapshot(
     }
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    record Overview(String today, String weekday, boolean recapDay, Instant since, Counts counts, List<String> newlyWatched) {}
+    record Overview(String today, String weekday, boolean recapDay, Instant since, Counts counts, List<String> newlyWatched, Optional<Calendar> calendar) {}
+
+    /** The day's busy time as the agent reads it: only the state unless the calendar was read. */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    record Calendar(String state, Optional<Double> busyHours, Optional<Boolean> allDay, List<List<String>> busy, List<List<String>> free)
+    {
+        static Calendar of(AgendaCalendar calendar)
+        {
+            if (!calendar.used()) {
+                return new Calendar(calendar.state(), Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of());
+            }
+            return new Calendar(calendar.state(), Optional.of(calendar.busyHours()), Optional.of(calendar.allDay()), blocks(calendar.busy()), blocks(calendar.free()));
+        }
+
+        private static List<List<String>> blocks(List<AgendaCalendar.Block> blocks)
+        {
+            return blocks.stream().map(block -> (List<String>) ImmutableList.of(block.from(), block.to())).collect(ImmutableList.toImmutableList());
+        }
+    }
 
     record Counts(int changes, int mine, int tasks, int asks, int epics) {}
 

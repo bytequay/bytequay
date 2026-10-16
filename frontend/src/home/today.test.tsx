@@ -13,11 +13,11 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { AgendaDto, AgendaItemDto, AgendaTargetDto } from '../types';
+import type { AgendaCalendarDto, AgendaDto, AgendaItemDto, AgendaTargetDto } from '../types';
 import { AgentHomeView } from '../agents/AgentHome';
 import { inQuietHours } from '../settings/AgendaScheduleCard';
 import TodayList from './TodayList';
-import { allDone, attentionKey, doneRatio, doneText, hiddenCount, recapLabel, showsToday, todayKeys, todayRows, whereText } from './today';
+import { allDone, attentionKey, calendarFact, doneRatio, doneText, hiddenCount, recapLabel, showsToday, todayKeys, todayRows, whereText } from './today';
 import type { TodayAgenda } from './useTodayAgenda';
 
 const pull = (repo: string, number: number): AgendaTargetDto =>
@@ -33,7 +33,7 @@ function item(ref: string, status: AgendaItemDto['status'], extra: Partial<Agend
 function agenda(extra: Partial<AgendaDto> = {}): AgendaDto {
   return {
     day: '2026-10-16', state: 'READY', enabled: true, at: 540, generatedAt: '2026-10-16T09:02:00Z', model: 'Sonnet',
-    summary: 'Your conflict-retry fix merged last night.', items: [], recap: null, failure: null, ...extra,
+    summary: 'Your conflict-retry fix merged last night.', items: [], recap: null, calendar: null, failure: null, ...extra,
   };
 }
 
@@ -91,6 +91,15 @@ describe('the Today model', () => {
     expect(showsToday(agenda({ state: 'NONE' }), 'global')).toBe(true);
     expect(showsToday(agenda({ state: 'NONE' }), 'workspace')).toBe(false);
     expect(showsToday(agenda({ items }), 'workspace')).toBe(true);
+  });
+
+  it('shows booked hours with the free time on hover, a dimmed clock when unread, and nothing when off', () => {
+    const used: AgendaCalendarDto = { state: 'used', busyHours: 5.5, allDay: false, busy: [], free: [{ from: '12:30', to: '15:00' }] };
+    expect(calendarFact(used)).toEqual({ text: '5.5 h', title: 'Free 12:30–15:00', dim: false });
+    expect(calendarFact({ ...used, free: [], allDay: true })?.title).toBe('All-day event today · No free time between 9:00 and 18:00');
+    expect(calendarFact({ ...used, state: 'unavailable' })).toEqual({ text: '', title: 'Calendar not checked', dim: true });
+    expect(calendarFact({ ...used, state: 'off' })).toBeNull();
+    expect(calendarFact(null)).toBeNull();
   });
 
   it('knows when the set time falls inside quiet hours, also past midnight', () => {

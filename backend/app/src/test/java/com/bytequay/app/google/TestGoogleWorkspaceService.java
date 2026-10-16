@@ -22,6 +22,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -224,6 +226,28 @@ class TestGoogleWorkspaceService
         assertThat(data.timeMin()).isEqualTo("2026-10-09T00:00:00+08:00");
         assertThatThrownBy(() -> google.refreshCalendar("primary", "2026-10-09T00:00:00Z", "2027-10-09T00:00:00Z"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void readsTodaysBusyTimesWithoutTouchingTheCalendarView()
+            throws Exception
+    {
+        when(session.call(eq("calendar_listEvents"), anyMap())).thenReturn(json("""
+                [{"id":"e1","summary":"Design review","start":{"dateTime":"2026-10-16T10:00:00+08:00"},"end":{"dateTime":"2026-10-16T11:00:00+08:00"}},
+                 {"id":"e2","summary":"Focus","transparency":"transparent","start":{"dateTime":"2026-10-16T13:00:00+08:00"},"end":{"dateTime":"2026-10-16T15:00:00+08:00"}},
+                 {"id":"e3","summary":"Optional sync","attendees":[{"email":"one@example.com","self":true,"responseStatus":"declined"}],
+                  "start":{"dateTime":"2026-10-16T16:00:00+08:00"},"end":{"dateTime":"2026-10-16T17:00:00+08:00"}},
+                 {"id":"e4","summary":"Day off","start":{"date":"2026-10-16"},"end":{"date":"2026-10-17"}}]
+                """));
+        GoogleSnapshot before = google.snapshot().orElseThrow();
+
+        List<GoogleBusyTime> busy = google.busyTimes(before.accountId(), Instant.parse("2026-10-15T16:00:00Z"), Instant.parse("2026-10-16T16:00:00Z"));
+
+        assertThat(busy).containsExactly(new GoogleBusyTime("2026-10-16T10:00:00+08:00", "2026-10-16T11:00:00+08:00", false),
+                new GoogleBusyTime("2026-10-16", "2026-10-17", true));
+        assertThat(google.snapshot()).contains(before);
+        assertThatThrownBy(() -> google.busyTimes("people/someone-else", Instant.parse("2026-10-15T16:00:00Z"), Instant.parse("2026-10-16T16:00:00Z")))
+                .hasMessageContaining("Another Google account");
     }
 
     @Test

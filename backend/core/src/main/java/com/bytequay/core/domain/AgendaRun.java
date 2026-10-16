@@ -29,6 +29,7 @@ import static java.util.Objects.requireNonNull;
  * @param calls the tool calls in order
  * @param picked each kept item and the first kind of page that handed out its ref
  * @param dropped the items the app refused, and why
+ * @param calendar the calendar's state for the run: used, off, not_connected or unavailable
  */
 public record AgendaRun(
         String id,
@@ -42,6 +43,7 @@ public record AgendaRun(
         List<Call> calls,
         List<Pick> picked,
         List<Drop> dropped,
+        String calendar,
         Optional<String> failure)
 {
     public enum Trigger
@@ -61,6 +63,7 @@ public record AgendaRun(
         calls = ImmutableList.copyOf(calls);
         picked = ImmutableList.copyOf(picked);
         dropped = ImmutableList.copyOf(dropped);
+        requireNonNull(calendar, "calendar is null");
         requireNonNull(failure, "failure is null");
     }
 

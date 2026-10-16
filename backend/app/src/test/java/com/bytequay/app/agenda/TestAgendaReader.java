@@ -25,6 +25,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.team.TeamService;
+import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -85,7 +86,7 @@ class TestAgendaReader
                 new PrTimelineEvent(2L, "commented", "codecov[bot]", NOW.minusSeconds(3500), "SECRET-BOT-REPORT", Optional.empty()),
                 new PrTimelineEvent(3L, "committed", "me", NOW.minusSeconds(3400), "SECRET-COMMIT-MESSAGE", Optional.empty())))));
 
-        AgendaSnapshot snapshot = reader().read(LocalDate.parse("2026-10-16"), SINCE, false, ImmutableList.of());
+        AgendaSnapshot snapshot = reader().read(LocalDate.parse("2026-10-16"), SINCE, false, ImmutableList.of(), AgendaCalendar.of("off"));
         ReviewTool tool = new AgendaPages(snapshot, mapper).tool();
         StringBuilder everything = new StringBuilder();
         for (String kind : ImmutableList.of("overview", "changes", "mine", "tasks", "asks", "epics", "history")) {

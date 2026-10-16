@@ -137,6 +137,6 @@ class TestAgendaDone
     private static AgendaDay day(AgendaItem item, Map<String, AgendaDay.Mark> marks)
     {
         return new AgendaDay(LocalDate.parse("2026-10-16"), AgendaDay.State.READY, MADE, MADE.minusSeconds(86400), "claude", "Sonnet", "", ImmutableList.of(item),
-                Optional.empty(), marks, Optional.empty());
+                Optional.empty(), marks, Optional.empty(), Optional.empty());
     }
 }

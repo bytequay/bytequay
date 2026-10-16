@@ -30,6 +30,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @param since the moment the run read "new" from, the previous ready agenda's making
  * @param marks the user's own marks by ref; whether an item is done otherwise follows from stored facts when the agenda is read
+ * @param calendar how much of the day the user's calendar held when the agenda was made, as times only
  */
 public record AgendaDay(
         LocalDate day,
@@ -42,6 +43,7 @@ public record AgendaDay(
         List<AgendaItem> items,
         Optional<AgendaRecap> recap,
         Map<String, Mark> marks,
+        Optional<AgendaCalendar> calendar,
         Optional<String> failure)
 {
     public enum State
@@ -66,12 +68,13 @@ public record AgendaDay(
         items = ImmutableList.copyOf(items);
         requireNonNull(recap, "recap is null");
         marks = ImmutableMap.copyOf(marks);
+        requireNonNull(calendar, "calendar is null");
         requireNonNull(failure, "failure is null");
         checkArgument(state == State.READY || failure.isPresent(), "A failed agenda says why");
     }
 
     public AgendaDay withMarks(Map<String, Mark> next)
     {
-        return new AgendaDay(day, state, generatedAt, since, laneId, model, summary, items, recap, next, failure);
+        return new AgendaDay(day, state, generatedAt, since, laneId, model, summary, items, recap, next, calendar, failure);
     }
 }

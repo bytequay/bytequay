@@ -23,6 +23,7 @@ import RepoAvatar from '../RepoAvatar';
 import { INTERACTIVE_LANE_ID, developmentDefaults, displayModelName, isDeepSeekKeyLane, laneDefaults, laneLabel, providerAvailable } from '../settings/model';
 import { settingsRoute } from '../settings/routes';
 import { getCached, setCached } from '../dataCache';
+import { pollVisible } from '../ide/pollVisible';
 import Toast from '../Toast';
 import { GOALS_CHANGED } from '../goals/useGoals';
 import { recordAttentionAction } from '../home/useAttentionVisit';
@@ -671,18 +672,14 @@ export function useWorkspaceWork(workspaceId: string, bridge: () => AgentBridgeP
   const [work, setWork] = useState<WorkspaceWork>(() => getCached<WorkspaceWork>(seed) ?? NO_WORK);
   useEffect(() => {
     let active = true;
-    let reading = false;
-    const read = (): void => {
-      if (!active || document.hidden || reading) return;
+    const read = () => {
       const port = bridge();
-      reading = true;
       // ponytail: every list on every tick; per-source change events if these reads ever show up.
-      void Promise.allSettled([
+      return Promise.allSettled([
         port.listAgentReviews?.(workspaceId) ?? Promise.resolve([]),
         port.listCherryPickExecutions?.(200) ?? Promise.resolve([]),
         port.listCiAutofixRuns?.(100) ?? Promise.resolve([]),
       ]).then(([reviews, executions, runs]) => {
-        reading = false;
         if (!active) return;
         setWork((last) => ({
           reviews: reviews.status === 'fulfilled' ? reviews.value : last.reviews,
@@ -694,9 +691,8 @@ export function useWorkspaceWork(workspaceId: string, bridge: () => AgentBridgeP
         }));
       });
     };
-    read();
-    const timer = window.setInterval(read, WORK_POLL_MS);
-    return () => { active = false; window.clearInterval(timer); };
+    const stop = pollVisible(read, WORK_POLL_MS);
+    return () => { active = false; stop(); };
   }, [bridge, workspaceId]);
   useEffect(() => { setCached(seed, work); }, [seed, work]);
   return work;

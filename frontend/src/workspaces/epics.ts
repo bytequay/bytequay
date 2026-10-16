@@ -17,6 +17,7 @@ import type { CreateWorkItem, EpicJoinDto, EpicRecordDto, GoalItemDto, WorkItemD
 import { decideOnCurrent, GOALS_CHANGED } from '../goals/useGoals';
 import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
+import { pollVisible } from '../ide/pollVisible';
 import type { Bridge } from '../types';
 import { workspaceRoute } from './model';
 
@@ -154,15 +155,11 @@ export function useWorkItems(workspaceId: string | null, bridge: () => WorkBridg
   useEffect(() => {
     if (workspaceId === null) return;
     let active = true;
-    const read = (): void => {
-      if (document.hidden) return;
-      void Promise.resolve().then(() => bridge().listWorkItems(workspaceId)).then((found) => { if (active) setItems({ workspaceId, items: found }); }, () => {});
-    };
-    const onChange = (event: Event): void => { if ((event as CustomEvent<string>).detail === workspaceId) read(); };
-    read();
+    const read = () => Promise.resolve().then(() => bridge().listWorkItems(workspaceId)).then((found) => { if (active) setItems({ workspaceId, items: found }); }, () => {});
+    const onChange = (event: Event): void => { if ((event as CustomEvent<string>).detail === workspaceId) void read(); };
     window.addEventListener(GOALS_CHANGED, onChange);
-    const timer = window.setInterval(read, WORK_POLL_MS);
-    return () => { active = false; window.removeEventListener(GOALS_CHANGED, onChange); window.clearInterval(timer); };
+    const stop = pollVisible(read, WORK_POLL_MS);
+    return () => { active = false; window.removeEventListener(GOALS_CHANGED, onChange); stop(); };
   }, [bridge, workspaceId]);
   return items === null || items.workspaceId !== workspaceId ? NO_WORK : items.items;
 }

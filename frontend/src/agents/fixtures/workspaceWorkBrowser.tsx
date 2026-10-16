@@ -42,8 +42,8 @@ export async function run() {
     tick = () => handler();
     return 0;
   } });
-  const hidden = Object.getOwnPropertyDescriptor(document, 'hidden');
-  Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+  const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   const host = document.createElement('main');
   document.body.append(host);
   const content = () => host.textContent;
@@ -67,7 +67,7 @@ export async function run() {
     await settle();
     assert(content() === '{"ids":["updated-review"],"failed":[]}', 'Retries after failure and clears the error');
 
-    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
     const before = calls;
     tick();
     assert(calls === before, 'Hidden pages do not poll');
@@ -77,7 +77,7 @@ export async function run() {
     flushSync(() => root.unmount());
     host.remove();
     window.setInterval = interval;
-    if (hidden === undefined) Reflect.deleteProperty(document, 'hidden');
-    else Object.defineProperty(document, 'hidden', hidden);
+    if (visibility === undefined) Reflect.deleteProperty(document, 'visibilityState');
+    else Object.defineProperty(document, 'visibilityState', visibility);
   }
 }

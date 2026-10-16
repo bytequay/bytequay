@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCached, setCached } from '../dataCache';
+import { pollVisible } from '../ide/pollVisible';
 import type { ContextBuildViewDto } from '../repository-context/contracts';
 import { workItemRoute } from '../workitems/contracts';
 import type { ModelChoice } from '../settings/ModelsPage';
@@ -184,30 +185,26 @@ export function usePinnedGoals(workspaceIds: readonly string[], bridge: () => Go
     const ids = key === '' ? [] : key.split(',');
     if (ids.length === 0) return;
     let active = true;
-    const read = (): void => {
-      if (document.hidden) return;
-      // A read that throws on the spot fails like any other, so goals never take the page down.
-      void Promise.allSettled(ids.map((id) => Promise.resolve().then(() => bridge().listGoals(id)).then((goals) => ({ id, goals })))).then((results) => {
-        if (!active) return;
-        setPinned((last) => {
-          const next = new Map(last);
-          for (const result of results) {
-            if (result.status !== 'fulfilled') continue;
-            const goal = result.value.goals.find((candidate) => candidate.pinned);
-            if (goal === undefined) next.delete(result.value.id);
-            else next.set(result.value.id, goal);
-          }
-          return next;
-        });
+    // A read that throws on the spot fails like any other, so goals never take the page down.
+    const read = () => Promise.allSettled(ids.map((id) => Promise.resolve().then(() => bridge().listGoals(id)).then((goals) => ({ id, goals })))).then((results) => {
+      if (!active) return;
+      setPinned((last) => {
+        const next = new Map(last);
+        for (const result of results) {
+          if (result.status !== 'fulfilled') continue;
+          const goal = result.value.goals.find((candidate) => candidate.pinned);
+          if (goal === undefined) next.delete(result.value.id);
+          else next.set(result.value.id, goal);
+        }
+        return next;
       });
-    };
+    });
     const changed = (event: Event): void => {
-      if (ids.includes((event as CustomEvent<string>).detail)) read();
+      if (ids.includes((event as CustomEvent<string>).detail)) void read();
     };
-    read();
     window.addEventListener(GOALS_CHANGED, changed);
-    const timer = window.setInterval(read, GOALS_POLL_MS);
-    return () => { active = false; window.removeEventListener(GOALS_CHANGED, changed); window.clearInterval(timer); };
+    const stop = pollVisible(read, GOALS_POLL_MS);
+    return () => { active = false; window.removeEventListener(GOALS_CHANGED, changed); stop(); };
   }, [bridge, key]);
   return pinned;
 }
@@ -226,24 +223,20 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
 
   useEffect(() => {
     let active = true;
-    const read = (): void => {
-      if (document.hidden) return;
-      void Promise.all([process.env.NODE_ENV !== 'production' ? bridge().listGoals(workspaceId) : Promise.resolve([]), bridge().listWorkItems(workspaceId)]).then(([found, work]) => {
-        if (!active) return;
-        setGoals(found);
-        setWorkItems(work);
-        setError(null);
-      }, (failure: unknown) => {
-        if (active) setError(failure instanceof Error ? failure.message : 'Goals could not be loaded');
-      });
-    };
+    const read = () => Promise.all([process.env.NODE_ENV !== 'production' ? bridge().listGoals(workspaceId) : Promise.resolve([]), bridge().listWorkItems(workspaceId)]).then(([found, work]) => {
+      if (!active) return;
+      setGoals(found);
+      setWorkItems(work);
+      setError(null);
+    }, (failure: unknown) => {
+      if (active) setError(failure instanceof Error ? failure.message : 'Goals could not be loaded');
+    });
     const changed = (event: Event): void => {
-      if ((event as CustomEvent<string>).detail === workspaceId) read();
+      if ((event as CustomEvent<string>).detail === workspaceId) void read();
     };
-    read();
     window.addEventListener(GOALS_CHANGED, changed);
-    const timer = window.setInterval(read, GOALS_POLL_MS);
-    return () => { active = false; window.removeEventListener(GOALS_CHANGED, changed); window.clearInterval(timer); };
+    const stop = pollVisible(read, GOALS_POLL_MS);
+    return () => { active = false; window.removeEventListener(GOALS_CHANGED, changed); stop(); };
   }, [bridge, workspaceId]);
 
   // The next visit to any page of the workspace paints these before its own read answers.

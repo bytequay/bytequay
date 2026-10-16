@@ -16,6 +16,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { QUESTION_TOOL, type AttentionItem, type AttentionKind, type AttentionLink, type AttentionTone } from '../home/attention';
 import { isDeepSeekKeyLane, laneLabel } from '../settings/model';
 import type { AgentQueuedInputDto, AgentTaskActivityDto, AgentTaskDto, AgentTaskPullRequestDto, Bridge } from '../types';
+import { pollVisible } from '../ide/pollVisible';
 import { taskArchived, taskStatePill } from './AgentTasksView';
 
 /** How often a Home re-reads what its tasks wait on: a local read, frequent enough for an approval to show promptly. */
@@ -214,9 +215,8 @@ export function useTaskAttention(
       return;
     }
     let active = true;
-    const read = (): void => {
-      if (document.hidden) return;
-      void Promise.allSettled(listed.map((workspace) => Promise.all([
+    const read = () =>
+      Promise.allSettled(listed.map((workspace) => Promise.all([
         bridge().listAgentTasks(workspace.id),
         bridge().listAgentTaskActivity(workspace.id),
       ]).then(([tasks, activity]) => ({ workspace, tasks, activity })))).then((results) => {
@@ -229,10 +229,8 @@ export function useTaskAttention(
           activity: Object.assign({}, ...loaded.map(({ activity }) => activity)),
         });
       });
-    };
-    read();
-    const timer = window.setInterval(read, TASK_ATTENTION_POLL_MS);
-    return () => { active = false; window.clearInterval(timer); };
+    const stop = pollVisible(read, TASK_ATTENTION_POLL_MS);
+    return () => { active = false; stop(); };
   }, [bridge, key, laneNames, tick]);
   return { ...state, refresh };
 }
@@ -247,15 +245,10 @@ export function useTaskCardState(workspaceId: string | null, taskId: string | nu
     if (workspaceId === null || taskId === null) return;
     let active = true;
     // A failed read, even a synchronous one, keeps the last state; the next tick reads again.
-    const load = (): void => {
-      if (document.hidden) return;
-      void Promise.resolve().then(() => Promise.all([window.bridge.getAgentTask(taskId, workspaceId), window.bridge.listAgentTaskActivity(workspaceId)]))
-        .then(([task, activity]) => { if (active) setRead({ taskId, state: taskCardState(task, activity[taskId] ?? null) }); })
-        .catch(() => {});
-    };
-    load();
-    const timer = window.setInterval(load, TASK_ATTENTION_POLL_MS);
-    return () => { active = false; window.clearInterval(timer); };
+    const stop = pollVisible(() => Promise.resolve().then(() => Promise.all([window.bridge.getAgentTask(taskId, workspaceId), window.bridge.listAgentTaskActivity(workspaceId)]))
+      .then(([task, activity]) => { if (active) setRead({ taskId, state: taskCardState(task, activity[taskId] ?? null) }); })
+      .catch(() => {}), TASK_ATTENTION_POLL_MS);
+    return () => { active = false; stop(); };
   }, [workspaceId, taskId]);
   return read !== null && read.taskId === taskId ? read.state : null;
 }
@@ -266,15 +259,10 @@ export function useTasksWaiting(workspaceId: string | null): number {
   useEffect(() => {
     if (workspaceId === null) return;
     let active = true;
-    const load = (): void => {
-      if (document.hidden) return;
-      void Promise.resolve().then(() => window.bridge.listAgentTaskActivity(workspaceId))
-        .then(activity => { if (active) setRead({ workspaceId, count: Object.values(activity).filter(facts => facts.pendingApproval != null).length }); })
-        .catch(() => {});
-    };
-    load();
-    const timer = window.setInterval(load, TASK_ATTENTION_POLL_MS);
-    return () => { active = false; window.clearInterval(timer); };
+    const stop = pollVisible(() => Promise.resolve().then(() => window.bridge.listAgentTaskActivity(workspaceId))
+      .then(activity => { if (active) setRead({ workspaceId, count: Object.values(activity).filter(facts => facts.pendingApproval != null).length }); })
+      .catch(() => {}), TASK_ATTENTION_POLL_MS);
+    return () => { active = false; stop(); };
   }, [workspaceId]);
   return read !== null && read.workspaceId === workspaceId ? read.count : 0;
 }

@@ -259,7 +259,11 @@ async function runCommitMessages(): Promise<string> {
   try {
     flushSync(() => root.render(<Picker />));
     const picker = element<HTMLDetailsElement>('.pull-commit-picker');
-    picker.open = true;
+    const summary = element<HTMLElement>('.pull-commit-picker > summary');
+    const assertClosed = () => assert(!picker.open && document.activeElement === summary,
+      'Choosing commits must close the picker and return focus to its button');
+    assert(!picker.open, 'The commit picker must start collapsed');
+    summary.click();
     await settle();
     assert(host.querySelectorAll('.pull-commit-picker__disclosure').length === 2, 'Only commits with a body may offer their message');
     element<HTMLButtonElement>('[aria-label="Show message"]').click();
@@ -276,6 +280,7 @@ async function runCommitMessages(): Promise<string> {
     assert(scroll.scrollTop > 0, 'The fixture must start below the top of the diffs');
     element<HTMLInputElement>('[aria-label="Select one: Simplify collectors"]').click();
     await settle();
+    assertClosed();
     const message = element<HTMLElement>('.pull-commit-message');
     assert(message.querySelector('h3')?.textContent === 'Simplify collectors' && message.querySelector('pre')?.textContent === body,
       'Selecting one commit must show its title and full body above the diffs');
@@ -289,28 +294,36 @@ async function runCommitMessages(): Promise<string> {
       && footer.getBoundingClientRect().top >= element('.pull-commit-message__body').getBoundingClientRect().bottom
       && getComputedStyle(footer).backgroundColor === 'rgb(255, 255, 255)',
     'The author and timestamp must appear in a white footer beneath the shaded commit body');
-    element<HTMLButtonElement>('[aria-label="Hide message"]').click();
-    await settle();
-    assert(element<HTMLInputElement>('[aria-label="Deselect one: Simplify collectors"]').checked && bodies().join('|') === 'One place builds the map.',
-      'An expanded row must stay selectable, and hiding its message must keep the selection');
-    picker.open = false;
-    await settle();
-    picker.open = true;
+    summary.click();
     await settle();
     assert(bodies().length === 0 && host.querySelector('.pull-commit-picker__disclosure[aria-expanded="true"]') === null,
       'Closing the commit list must collapse every message');
+    element<HTMLButtonElement>('[aria-label="Show message"]').click();
+    await settle();
+    element<HTMLButtonElement>('[aria-label="Hide message"]').click();
+    await settle();
+    assert(picker.open && element<HTMLInputElement>('[aria-label="Deselect one: Simplify collectors"]').checked && bodies().length === 0,
+      'Hiding a message must keep the picker open and preserve the selection');
     element<HTMLInputElement>('[aria-label="Select two: Reuse the partition helper"]').click();
     await settle();
+    assertClosed();
+    assert(summary.getAttribute('aria-label') === 'Choose commits, 2 selected', 'Reopening the picker must allow extending the selected range');
     assert(host.querySelector('.pull-commit-message') === null, 'A range must not show one commit message');
     scroll.scrollTop = scroll.scrollHeight;
+    summary.click();
+    await settle();
     element<HTMLInputElement>('[aria-label="Deselect one: Simplify collectors"]').click();
     await settle();
+    assertClosed();
     assert(element('.pull-commit-message h3').textContent === 'Reuse the partition helper'
       && element('.pull-commit-message pre').textContent === 'One place builds the map.'
       && element('.pull-commit-message footer strong').textContent === 'bob' && scroll.scrollTop === 0,
     'Changing the single selection must replace the message and return to the top');
+    summary.click();
+    await settle();
     element<HTMLButtonElement>('.pull-commit-picker__all').click();
     await settle();
+    assertClosed();
     assert(host.querySelector('.pull-commit-message') === null, 'All commits must clear the selected commit message');
     return 'Show commit messages without changing the selection';
   }

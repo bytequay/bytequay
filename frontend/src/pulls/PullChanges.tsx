@@ -547,6 +547,10 @@ function CommitPicker({ commits, range, onChange }: {
                     onChange={() => {
                       const next = nextCommitRange(range, index, commits.length);
                       if (next !== range) onChange(next);
+                      if (pickerRef.current) {
+                        pickerRef.current.open = false;
+                        pickerRef.current.querySelector<HTMLElement>('summary')?.focus();
+                      }
                     }}
                   />
                   {/* A nested button is the click target, so the label never forwards its click to the checkbox. */}

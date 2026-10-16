@@ -140,6 +140,8 @@
 .google-mail-text { display: flex; flex-direction: column; gap: 12px; }
 .google-reader__body > .google-mail-text { margin-top: 20px; }
 .google-mail-text p { margin: 0; font-size: 13.5px; line-height: 22px; overflow-wrap: anywhere; text-wrap: pretty; white-space: pre-wrap; }
+.google-mail-text ul, .google-mail-text ol { margin: 0; padding-left: 24px; font-size: 13.5px; line-height: 22px; overflow-wrap: anywhere; }
+.google-mail-text li + li { margin-top: 4px; }
 .google-notice { margin-top: 20px; overflow: hidden; border: 1px solid var(--g-line); border-radius: 10px; }
 .google-notice__head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 9px 14px; border-bottom: 1px solid var(--g-line); background: var(--g-subtle); font-size: 13px; }
 .google-notice__head strong { color: var(--g-strong); font-weight: 600; }
@@ -149,11 +151,11 @@
 .google-notice__foot > span { flex: 1; }
 .google-notice__foot .google-link { flex: none; font-weight: 500; }
 .google-quote { overflow: hidden; border: 1px solid var(--g-line); border-radius: 7px; background: light-dark(#f6f8fa, #1a1c21); }
-.google-quote__file { padding: 5px 10px; border-bottom: 1px solid var(--g-line); color: var(--fg-dim); font-family: var(--font-mono); font-size: 11px; }
+.google-quote__file { padding: 5px 10px; border-bottom: 1px solid var(--g-line); color: var(--fg-dim); font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; }
 .google-quote__lines { overflow-x: auto; padding: 6px 0; }
 .google-quote__lines > div { display: grid; grid-template-columns: 26px 1fr; min-width: max-content; font-family: var(--font-mono); font-size: 12px; line-height: 20px; white-space: pre; }
 .google-quote__lines span:first-child { color: var(--g-faint); text-align: center; user-select: none; }
-.google-quote__lines span:last-child { padding-right: 12px; }
+.google-quote__lines code { padding-right: 12px; font: inherit; }
 .google-quote__lines .is-add { background: color-mix(in srgb, var(--bg-success) 70%, transparent); }
 .google-quote__lines .is-add span:first-child { color: var(--fg-success); }
 .google-quote__lines .is-del { background: color-mix(in srgb, var(--bg-danger) 70%, transparent); }

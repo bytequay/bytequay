@@ -51,12 +51,17 @@ function Labels({ mail, source = null }: { mail: Mail; source?: MailSource }) {
 function Block({ block, repository, open }: { block: MailBlock; repository: string; open: (url: string) => void }) {
   if ('lines' in block) return <div className="google-quote">
     {block.file && <div className="google-quote__file">{block.file}</div>}
-    <div className="google-quote__lines">{block.lines.map((line, index) => <div key={index} className={`is-${line.tone}`}><span>{line.sign}</span><span>{line.text}</span></div>)}</div>
+    <div className="google-quote__lines" tabIndex={0} role="region" aria-label="Quoted code changes">{block.lines.map((line, index) => <div key={index} className={`is-${line.tone}`}><span>{line.sign}</span><code>{line.text || ' '}</code></div>)}</div>
   </div>;
-  return <p>{block.text.split(/(#\d+\b)/).map((part, index) => {
+  const linked = (value: string) => value.split(/(#\d+\b)/).map((part, index) => {
     const link = repository && /^#\d+$/.test(part) ? githubLink(`https://github.com/${repository}/issues/${part.slice(1)}`) : null;
     return link ? <button type="button" key={index} className="google-link" onClick={() => open(link)}>{part}</button> : part;
-  })}</p>;
+  });
+  if ('items' in block) {
+    const List = block.ordered ? 'ol' : 'ul';
+    return <List start={block.start}>{block.items.map((item, index) => <li key={index}>{linked(item)}</li>)}</List>;
+  }
+  return <p>{linked(block.text)}</p>;
 }
 
 export default function GoogleMail({ status, data, busy, hidden, compose, onCompose, act, open, onAsk }: {

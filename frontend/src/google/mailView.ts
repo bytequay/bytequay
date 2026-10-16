@@ -18,7 +18,8 @@ export const MAIL_TONES = 6;
 export type MailSender = { name: string; email: string; initials: string; tone: number };
 export type MailSource = 'github' | 'calendar' | 'google' | null;
 export type MailSubject = { title: string; repository: string; number: string; kind: 'PR' | 'Issue' | null };
-export type MailBlock = { text: string } | { file: string; lines: { sign: string; text: string; tone: 'add' | 'del' | 'ctx' }[] };
+export type MailBlock = { text: string } | { items: string[]; ordered: boolean; start?: number }
+  | { file: string; lines: { sign: string; text: string; tone: 'add' | 'del' | 'ctx' }[] };
 export type GithubNotification = { actor: string; action: string; blocks: MailBlock[]; reason: string; link: string | null; messageId: string };
 
 /** `Name <address>` as Gmail reports it; a bare address names itself. */
@@ -88,20 +89,42 @@ function quoted(block: string, file: string): MailBlock {
   }) };
 }
 
-/**
- * GitHub's plain-text notification: who did what, the quoted diff or comment, then a signature with
- * the thread link. ponytail: a block is code when it opens with `>`, so a quoted reply reads as one too.
- */
+function commentBlocks(text: string): MailBlock[] {
+  const blocks: MailBlock[] = [];
+  for (const line of text.split('\n')) {
+    const item = line.match(/^\s*(?:(\d+)[.)]|[-*+])[ \t]+(.+)$/);
+    const previous = blocks.at(-1);
+    if (item) {
+      const ordered = item[1] !== undefined;
+      if (previous && 'items' in previous && previous.ordered === ordered) previous.items.push(item[2]);
+      else blocks.push({ items: [item[2]], ordered, ...(ordered ? { start: Number(item[1]) } : {}) });
+    }
+    else if (previous && 'items' in previous) previous.items[previous.items.length - 1] += `\n${line.trim()}`;
+    else if (previous && 'text' in previous) previous.text += `\n${line}`;
+    else blocks.push({ text: line });
+  }
+  return blocks;
+}
+
+/** GitHub's plain-text notification: actor, quoted diff, comment, then the thread-link signature. */
 export function githubNotification(mail: GoogleMail): GithubNotification {
   const [content, signature = ''] = (mail.body || mail.snippet).replace(/\r\n?/g, '\n').split(/\n-- ?\n/);
   const parts = paragraphs(content);
   const lead = parts[0]?.match(/^@(\S+) (.+?)\.?$/) ?? parts[0]?.match(/^(\S+) (left a comment)\b.*$/);
   const blocks: MailBlock[] = [];
   let file = '';
-  for (const part of lead ? parts.slice(1) : parts) {
+  const body = lead ? parts.slice(1) : parts;
+  for (let index = 0; index < body.length; index++) {
+    let part = body[index];
     const path = part.match(/^In (\S+):$/);
     if (path) { file = path[1]; continue; }
-    blocks.push(part.startsWith('>') ? quoted(part, file) : { text: part });
+    if (part.startsWith('>')) {
+      // GitHub prefixes only the first diff line with >; blank lines do not end the diff.
+      while (index + 1 < body.length && /^[+-][ \t]{2,}/m.test(body[index + 1])
+        && body[index + 1].split('\n').every(line => /^(?:[+-][ \t]|[ \t])/.test(line))) part += `\n\n${body[++index]}`;
+      blocks.push(quoted(part, file));
+    }
+    else blocks.push(...commentBlocks(part));
     file = '';
   }
   const subject = mailSubject(mail.subject);

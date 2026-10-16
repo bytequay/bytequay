@@ -63,4 +63,27 @@ describe('mail presentation', () => {
     expect(mergedNotice(merged)).toBe(true);
     expect(githubNotification(mail({ subject: 'Hello', body: 'Hi\n-- \nhttps://github.com.evil.test/x' })).link).toBeNull();
   });
+
+  it('keeps a diff together across blank lines and distinguishes comment lists from code', () => {
+    const notification = githubNotification(mail({ body: '@maya commented on this pull request.\r\n\r\nIn CalendarUtils.java:\r\n\r\n'
+      + '>     }\r\n\r\n-    public static long convert(long millis)\r\n+    // Compute once per caller\r\n+    public static long convert(long millis, long switchMillis)\r\n\r\n'
+      + 'Thanks for the fix.\r\n\r\n - Interface change: see #4958.\r\n   Every caller computes the switch.\r\n - Unchecked: the zone may differ.\r\n - State per coercer.\r\n\r\n'
+      + '#4958 keeps the signature.\r\n-Callers do not change.\r\n-The trade-off is a test.\r\n\r\n3. Run tests.\r\n4. Review results.' }));
+    expect(notification.blocks).toEqual([
+      { file: 'CalendarUtils.java', lines: [
+        { sign: '>', text: '    }', tone: 'ctx' }, { sign: '', text: '', tone: 'ctx' },
+        { sign: '-', text: '    public static long convert(long millis)', tone: 'del' },
+        { sign: '+', text: '    // Compute once per caller', tone: 'add' },
+        { sign: '+', text: '    public static long convert(long millis, long switchMillis)', tone: 'add' },
+      ] },
+      { text: 'Thanks for the fix.' },
+      { ordered: false, items: ['Interface change: see #4958.\nEvery caller computes the switch.', 'Unchecked: the zone may differ.', 'State per coercer.'] },
+      { text: '#4958 keeps the signature.\n-Callers do not change.\n-The trade-off is a test.' },
+      { ordered: true, start: 3, items: ['Run tests.', 'Review results.'] },
+    ]);
+    expect(githubNotification(mail({ body: '> quoted code\n\n- A real list\n+ Another item' })).blocks).toEqual([
+      { file: '', lines: [{ sign: '>', text: 'quoted code', tone: 'ctx' }] },
+      { ordered: false, items: ['A real list', 'Another item'] },
+    ]);
+  });
 });

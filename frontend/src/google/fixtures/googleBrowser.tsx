@@ -44,7 +44,7 @@ export async function mountPreview(settings = false) {
       { id: 'mail-one', threadId: 'thread-one', subject: 'Design review for next week', from: 'Maya <maya@example.com>', to: 'alex@example.com', date: 'Fri, 9 Oct 2026 09:15:00 +0800', snippet: 'Could we review the calendar integration on Monday?', body: 'Hi Alex,\n\nCould we review the calendar integration on Monday?\n\nThe agenda should show our saved events even when we’re offline. Please bring your notes on sign-in and permissions.\n\nThanks,\nMaya', unread: true },
       { id: 'mail-two', threadId: 'thread-two', subject: 'Release checklist', from: 'Sam <sam@example.com>', to: 'alex@example.com', date: 'Thu, 8 Oct 2026 16:20:00 +0800', snippet: 'The latest build is ready for review.', body: '<script>window.googleInjected = true</script><img src="https://example.test/tracker.png">Review notes', unread: false },
       { id: 'mail-three', threadId: 'thread-three', subject: 'Re: [bytequay/bytequay] Fix flaky sign-in test (PR #42)', from: 'Maya <notifications@github.com>', to: '"bytequay/bytequay" <bytequay@noreply.github.com>', date: 'Thu, 8 Oct 2026 11:05:00 +0800', snippet: '@maya commented on this pull request.',
-        body: '@maya commented on this pull request.\n\n\n\nIn src/signIn.ts:\n\n> +  await settle();\n-  await sleep(500);\n\nSame cause as #40.\n\n-- \nReply to this email directly or view it on GitHub:\nhttps://github.com/bytequay/bytequay/pull/42#discussion_r1\nYou are receiving this because you are subscribed to this thread.\n\nMessage ID: <bytequay/bytequay/pull/42/review/1@github.com>', unread: false },
+        body: '@maya commented on this pull request.\n\n\n\nIn src/signIn.ts:\n\n>     }\n\n+  await settle();\n-  await sleep(500);\n\nSame cause as #40.\n\n- Wait for sign-in to finish before checking the account.\n- Keep the same signature.\n\n-Callers do not change.\n\n-- \nReply to this email directly or view it on GitHub:\nhttps://github.com/bytequay/bytequay/pull/42#discussion_r1\nYou are receiving this because you are subscribed to this thread.\n\nMessage ID: <bytequay/bytequay/pull/42/review/1@github.com>', unread: false },
     ],
     calendars: [{ id: 'primary', summary: 'Personal' }], calendarId: 'primary', timeMin: at(0, 0), timeMax: at(7, 0), calendarSavedAt: '2026-10-09T02:00:00Z',
     events: [
@@ -173,6 +173,11 @@ export async function run() {
       assert(document.querySelector('.google-notice__head')?.textContent?.includes('@maya') === true, 'The card names who acted');
       assert(document.querySelector('.google-quote__file')?.textContent === 'src/signIn.ts', 'The quoted diff names its file');
       assert(document.querySelectorAll('.google-quote__lines .is-add').length === 1 && document.querySelectorAll('.google-quote__lines .is-del').length === 1, 'Added and removed lines are told apart');
+      assert(document.querySelectorAll('.google-quote').length === 1 && document.querySelectorAll('.google-quote code').length === 4, 'Blank lines stay inside the code block');
+      assert(document.querySelectorAll('.google-notice__body ul > li').length === 2, 'Markdown dash-space items render as bullets');
+      assert([...document.querySelectorAll('.google-notice__body p')].some(part => part.textContent === '-Callers do not change.'), 'A dash without a space stays literal');
+      const code = document.querySelector('.google-quote code');
+      assert(code !== null && getComputedStyle(code).whiteSpace === 'pre', 'Code keeps its indentation');
       button('#40').click(); button('View on GitHub').click(); await settle();
       assert(opened[0] === 'https://github.com/bytequay/bytequay/issues/40' && opened[1] === 'https://github.com/bytequay/bytequay/pull/42#discussion_r1', 'Links open on GitHub');
       button('to bytequay/bytequay').click(); await settle();

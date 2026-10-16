@@ -858,12 +858,9 @@ class TestAgentHttpApi
         assertThat(completion.getStatusCode()).as("completion: %s", completion.getBody()).isEqualTo(HttpStatus.OK);
         JsonNode completed = get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody();
         assertThat(completed.get("state").asText()).isEqualTo("COMPLETED");
-        // Removing the checkout would delete the build output, so the checkout stays and says why.
-        assertThat(completed.get("checkoutRemovedAt").isNull()).isTrue();
-        assertThat(buildOutput).hasContent("compiled\n");
-        ResponseEntity<JsonNode> cleanup = post("/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId, ImmutableMap.of(), null);
-        assertThat(cleanup.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(cleanup.getBody().get("message").asText()).contains("ignored files");
+        // Build output is no work of anyone's, so it goes with the checkout.
+        assertThat(completed.get("checkoutRemovedAt").isNull()).isFalse();
+        assertThat(worktree).doesNotExist();
     }
 
     @Test

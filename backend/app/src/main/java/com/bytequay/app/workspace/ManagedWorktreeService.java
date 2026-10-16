@@ -261,11 +261,9 @@ public final class ManagedWorktreeService
             Path checkout = verifyOwnedWorktree(workspace, repository, worktree);
             deleteClaudeStagingFiles(checkout);
             WorktreeSnapshot snapshot = inspectVerified(workspace, repository, worktree);
+            // Ignored files, such as build output, go with the worktree: git removes them and refuses the changes checked here.
             if (snapshot.uncommitted()) {
                 throw conflict("Task worktree has tracked, staged, or untracked changes");
-            }
-            if (snapshot.dirty() && holdsIgnoredFiles(checkout)) {
-                throw conflict("Task worktree has ignored files, such as build output, that removing it would delete");
             }
             if (snapshot.gitOperationInProgress()) {
                 throw conflict("Task worktree has an open Git operation");
@@ -391,12 +389,6 @@ public final class ManagedWorktreeService
     }
 
     /** Status also lists ignored folders that hold no file, such as emptied staging folders; removing those deletes nothing. */
-    private boolean holdsIgnoredFiles(Path checkout)
-    {
-        Result ignored = git.runStdout(checkout, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory", "--no-empty-directory");
-        return !ignored.successful() || ignored.truncated() || !ignored.output().isEmpty();
-    }
-
     private Path verifyManagedRepository(Workspace workspace)
     {
         Path repository = paths.repository(workspace);

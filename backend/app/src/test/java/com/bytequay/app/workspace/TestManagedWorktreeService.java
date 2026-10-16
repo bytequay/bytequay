@@ -251,25 +251,24 @@ class TestManagedWorktreeService
     }
 
     @Test
-    void ignoredFileAlsoBlocksCleanup()
+    void ignoredBuildOutputGoesWithTheWorktree()
             throws IOException
     {
         Path exclude = reportedPath(repository, "info/exclude");
-        Files.writeString(exclude, Files.readString(exclude) + "*.ignored\n");
+        Files.writeString(exclude, Files.readString(exclude) + "target/\n");
         TaskWorktree worktree = service.provision(command(TaskId.random()));
-        Path ignored = worktree.canonicalWorktree().resolve("local.ignored");
-        Files.writeString(ignored, "keep me\n");
+        Path output = worktree.canonicalWorktree().resolve("target/classes/Main.class");
+        Files.createDirectories(output.getParent());
+        Files.writeString(output, "compiled\n");
 
         assertThat(run(worktree.canonicalWorktree(), "status", "--porcelain=v1").output()).isBlank();
-        // Not uncommitted work, but removing the worktree would still delete it.
+        // Not uncommitted work, so it does not keep the worktree the way changes do.
         assertThat(service.inspect(worktree).dirty()).isTrue();
         assertThat(service.inspect(worktree).uncommitted()).isFalse();
-        assertThatThrownBy(() -> service.cleanup(worktree))
-                .isInstanceOf(AgentConflictException.class)
-                .hasMessageContaining("ignored files");
+        service.cleanup(worktree);
 
-        assertThat(ignored).hasContent("keep me\n");
-        assertThat(worktree.canonicalWorktree()).isDirectory();
+        assertThat(worktree.canonicalWorktree()).doesNotExist();
+        assertThat(run(repository, "show-ref", "--verify", "refs/heads/" + worktree.generatedBranch()).successful()).isTrue();
     }
 
     @Test

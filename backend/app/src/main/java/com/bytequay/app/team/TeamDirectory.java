@@ -17,14 +17,14 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 public record TeamDirectory(String accountLogin, List<TeamCircle> circles)
 {
     public TeamDirectory
     {
-        requireNotBlank(accountLogin, "Account login is required");
+        checkText(accountLogin, "Account login");
         circles = ImmutableList.copyOf(circles);
         checkArgument(circles.stream().map(TeamCircle::id).distinct().count() == circles.size(), "Directory contains duplicate circle IDs");
     }

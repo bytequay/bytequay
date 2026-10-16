@@ -18,7 +18,19 @@ import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PullRequestDetail.CiStatus;
 import com.bytequay.core.domain.PullRequestRef;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.cfg.CoercionAction;
+import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.type.LogicalType;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
@@ -35,7 +47,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -62,6 +73,16 @@ public class GitHubPullRequestSummaryClient
     // Thirty nested summaries approach GitHub's ten-second execution deadline.
     public static final int BATCH_SIZE = 5;
 
+    private static final ObjectMapper MAPPER = JsonMapper.builder().addModule(new Jdk8Module()).addModule(new JavaTimeModule())
+            .defaultSetterInfo(JsonSetter.Value.forContentNulls(Nulls.FAIL))
+            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, DeserializationFeature.ACCEPT_FLOAT_AS_INT)
+            .enable(DeserializationFeature.FAIL_ON_NULL_CREATOR_PROPERTIES, DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+            .withCoercionConfig(LogicalType.Boolean, config -> config.setCoercion(CoercionInputShape.String, CoercionAction.Fail)
+                    .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail))
+            .withCoercionConfig(LogicalType.Textual, config -> config.setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
+                    .setCoercion(CoercionInputShape.Float, CoercionAction.Fail).setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail))
+            .withCoercionConfig(Integer.TYPE, config -> config.setCoercion(CoercionInputShape.String, CoercionAction.Fail))
+            .build();
     private static final Logger log = LoggerFactory.getLogger(GitHubPullRequestSummaryClient.class);
     private static final String REPLY_FIELDS = """
             nodes { createdAt author { login } replyTo { id } }
@@ -188,21 +209,21 @@ public class GitHubPullRequestSummaryClient
         Set<String> cursors = new HashSet<>();
         while (true) {
             JsonNode data = strictGraphQl(pat, query, variables);
-            JsonNode threads = required(required(required(data, "repository"), "pullRequest"), "reviewThreads");
-            for (JsonNode thread : nodes(threads)) {
-                List<JsonNode> roots = nodes(required(thread, "root"));
-                if (roots.isEmpty() || !key.viewer().equalsIgnoreCase(optionalText(requiredNullable(roots.getFirst(), "author"), "login").orElse(null))) {
+            ThreadPage threads = read(required(required(required(data, "repository"), "pullRequest"), "reviewThreads"), ThreadPage.class);
+            for (ReviewThread thread : threads.nodes()) {
+                List<RootComment> roots = thread.root().nodes();
+                if (roots.isEmpty() || !key.viewer().equalsIgnoreCase(roots.getFirst().author().flatMap(User::login).orElse(null))) {
                     continue;
                 }
-                if (threadHasAuthorReply(pat, key, text(thread, "id"), required(thread, "comments"))) {
+                if (threadHasAuthorReply(pat, key, text(thread.id().orElse(null)), thread.comments().orElseThrow(() -> incomplete("Missing thread comments")))) {
                     return true;
                 }
             }
-            JsonNode page = required(threads, "pageInfo");
-            if (!bool(page, "hasNextPage")) {
+            NextPage page = threads.pageInfo();
+            if (!page.hasNextPage()) {
                 return false;
             }
-            String cursor = text(page, "endCursor");
+            String cursor = text(page.endCursor().orElse(null));
             if (!cursors.add(cursor)) {
                 throw incomplete("Review thread pagination did not advance");
             }
@@ -210,7 +231,7 @@ public class GitHubPullRequestSummaryClient
         }
     }
 
-    private boolean threadHasAuthorReply(String pat, ReplyKey key, String threadId, JsonNode initial)
+    private boolean threadHasAuthorReply(String pat, ReplyKey key, String threadId, CommentPage initial)
     {
         String query = """
                 query($id:ID!,$before:String!) {
@@ -218,25 +239,25 @@ public class GitHubPullRequestSummaryClient
                   node(id:$id) { ... on PullRequestReviewThread { comments(last:100,before:$before) { %s } } }
                 }
                 """.formatted(REPLY_FIELDS);
-        JsonNode comments = initial;
+        CommentPage comments = initial;
         Set<String> cursors = new HashSet<>();
         while (true) {
-            for (JsonNode comment : nodes(comments)) {
-                if (!requiredNullable(comment, "replyTo").isNull()
-                        && key.author().equalsIgnoreCase(optionalText(requiredNullable(comment, "author"), "login").orElse(null))
-                        && instant(comment, "createdAt").orElseThrow(() -> incomplete("Missing reply timestamp")).isAfter(key.since())) {
+            for (Reply comment : comments.nodes()) {
+                if (comment.replyTo().isPresent()
+                        && key.author().equalsIgnoreCase(comment.author().flatMap(User::login).orElse(null))
+                        && comment.createdAt().isAfter(key.since())) {
                     return true;
                 }
             }
-            JsonNode page = required(comments, "pageInfo");
-            if (!bool(page, "hasPreviousPage")) {
+            PreviousPage page = comments.pageInfo();
+            if (!page.hasPreviousPage()) {
                 return false;
             }
-            String cursor = text(page, "startCursor");
+            String cursor = text(page.startCursor().orElse(null));
             if (!cursors.add(cursor)) {
                 throw incomplete("Review comment pagination did not advance");
             }
-            comments = required(required(strictGraphQl(pat, query, ImmutableMap.of("id", threadId, "before", cursor)), "node"), "comments");
+            comments = read(required(required(strictGraphQl(pat, query, ImmutableMap.of("id", threadId, "before", cursor)), "node"), "comments"), CommentPage.class);
         }
     }
 
@@ -265,78 +286,77 @@ public class GitHubPullRequestSummaryClient
         return failed;
     }
 
-    private static GitHubPullRequestSummary summary(JsonNode row, PullRequestRef expected, String login)
+    private static GitHubPullRequestSummary summary(JsonNode value, PullRequestRef expected, String login)
     {
-        int number = count(row, "number");
-        String repository = text(required(row, "repository"), "nameWithOwner");
-        if (number != expected.number() || !repository.equalsIgnoreCase(expected.repoFullName())) {
+        Row row = read(value, Row.class);
+        String repository = text(row.repository().nameWithOwner());
+        if (row.number() != expected.number() || !repository.equalsIgnoreCase(expected.repoFullName())) {
             throw incomplete("Pull request identity differs from the requested reference");
         }
-        List<JsonNode> labels = completeNodes(row, "labels");
-        List<String> reviewers = completeNodes(row, "reviewRequests").stream()
-                .map(request -> required(request, "requestedReviewer"))
-                .filter(reviewer -> "User".equals(text(reviewer, "__typename")))
-                .map(reviewer -> text(reviewer, "login"))
+        List<Label> labels = completeNodes(row.labels(), "labels");
+        List<String> reviewers = completeNodes(row.reviewRequests(), "reviewRequests").stream()
+                .map(ReviewRequest::requestedReviewer)
+                .filter(reviewer -> "User".equals(text(reviewer.type())))
+                .map(reviewer -> text(reviewer.login().orElse(null)))
                 .collect(toImmutableList());
-        String state = text(row, "state");
+        String state = text(row.state());
         if (!ImmutableSet.of("OPEN", "CLOSED", "MERGED").contains(state)) {
             throw incomplete("Unknown pull request state");
         }
-        Boolean mergeable = switch (text(row, "mergeable")) {
+        Boolean mergeable = switch (text(row.mergeable())) {
             case "MERGEABLE" -> true;
             case "CONFLICTING" -> false;
             case "UNKNOWN" -> null;
             default -> throw incomplete("Unknown mergeability");
         };
         ImmutableMap.Builder<String, String> colors = ImmutableMap.builder();
-        labels.forEach(label -> colors.put(text(label, "name"), text(label, "color")));
+        labels.forEach(label -> colors.put(text(label.name()), text(label.color())));
         FetchedPullRequest pullRequest = new FetchedPullRequest(
-                databaseId(row), repository, number, text(row, "title"), optionalText(requiredNullable(row, "author"), "login").orElse(null),
-                text(row, "url"), instant(row, "createdAt").orElseThrow(() -> incomplete("Missing createdAt")),
-                instant(row, "updatedAt").orElseThrow(() -> incomplete("Missing updatedAt")), OTHER,
-                labels.stream().map(label -> text(label, "name")).collect(toImmutableList()), colors.buildOrThrow(), bool(row, "isDraft"),
-                state.toLowerCase(Locale.ROOT), instant(row, "closedAt").orElse(null), instant(row, "mergedAt").orElse(null), reviewers,
-                mergeable, text(row, "mergeStateStatus").toLowerCase(Locale.ROOT), text(row, "headRefName"))
+                databaseId(row.databaseId()), repository, count(row.number()), text(row.title()), row.author().map(author -> text(author.login().orElse(null))).orElse(null),
+                text(row.url()), row.createdAt(), row.updatedAt(), OTHER,
+                labels.stream().map(label -> text(label.name())).collect(toImmutableList()), colors.buildOrThrow(), row.isDraft(),
+                state.toLowerCase(Locale.ROOT), row.closedAt().orElse(null), row.mergedAt().orElse(null), reviewers,
+                mergeable, text(row.mergeStateStatus()).toLowerCase(Locale.ROOT), text(row.headRefName()))
                 .withViewerOrigin(login);
-        List<JsonNode> commits = nodes(required(row, "commits"));
-        Optional<Instant> headCommittedAt = commits.isEmpty() ? Optional.empty() : instant(required(commits.getLast(), "commit"), "committedDate");
-        List<JsonNode> reviews = nodes(required(row, "viewerReviews"));
+        List<CommitNode> commits = row.commits().nodes();
+        Optional<Instant> headCommittedAt = commits.isEmpty() ? Optional.empty() : commits.getLast().commit().committedDate();
+        List<Review> reviews = row.viewerReviews().nodes();
         Optional<PrReviewState> viewerReview = reviews.isEmpty() ? Optional.empty() : Optional.of(review(reviews.getLast(), login));
-        // ponytail: retain the latest 20 review-request events; paginate only if older request evidence becomes a product requirement.
-        Optional<Instant> requestedAt = nodes(required(row, "reviewRequested")).stream()
-                .filter(event -> login.equalsIgnoreCase(event.path("requestedReviewer").path("login").textValue()))
-                .map(event -> instant(event, "createdAt").orElseThrow(() -> incomplete("Missing review request timestamp")))
+        // Retain the latest 20 request events; older request evidence is outside the card summary.
+        Optional<Instant> requestedAt = row.reviewRequested().nodes().stream()
+                .filter(event -> login.equalsIgnoreCase(event.requestedReviewer().flatMap(User::login).orElse(null)))
+                .map(event -> event.createdAt().orElseThrow(() -> incomplete("Missing review request timestamp")))
                 .max(Instant::compareTo);
-        JsonNode rollup = requiredNullable(row, "statusCheckRollup");
-        JsonNode activity = required(row, "activity");
-        Optional<String> decision = optionalText(row, "reviewDecision");
+        Optional<Rollup> rollup = row.statusCheckRollup();
+        ActivityConnection activity = row.activity();
+        Optional<String> decision = row.reviewDecision();
         if (decision.isPresent() && !ImmutableSet.of("APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED").contains(decision.orElseThrow())) {
             throw incomplete("Unknown review decision");
         }
         // Full-detail review projection represents no active verdict as an absent decision.
-        decision = decision.filter(value -> !"REVIEW_REQUIRED".equals(value));
-        String headSha = text(row, "headRefOid");
-        // ponytail: state counts detect check progress, but not checks swapping states; fetch individual checks only when the PR is opened.
+        decision = decision.filter(valueDecision -> !"REVIEW_REQUIRED".equals(valueDecision));
+        String headSha = text(row.headRefOid());
+        // Counts detect check progress; individual checks are fetched when the PR is opened.
         String activityVersion = Hashing.sha256().hashString(
                 ImmutableList.of(pullRequest.updatedAt(), pullRequest.title(), pullRequest.state(), pullRequest.draft(),
-                        labels.stream().map(label -> text(label, "name")).sorted().collect(toImmutableList()),
+                        labels.stream().map(Label::name).sorted().collect(toImmutableList()),
                         headSha, headCommittedAt, decision, viewerReview, requestedAt,
                         Optional.ofNullable(mergeable), pullRequest.mergeableState(), reviewers.stream().sorted().collect(toImmutableList()),
-                        instant(activity, "updatedAt").orElseThrow(() -> incomplete("Missing activity timestamp")), count(activity, "totalCount"), checkVersion(rollup))
+                        activity.updatedAt(), count(activity.totalCount()), checkVersion(rollup))
                         .toString(), StandardCharsets.UTF_8).toString();
-        return new GitHubPullRequestSummary(pullRequest, ciStatus(rollup), count(row, "additions"), count(row, "deletions"),
-                count(required(row, "comments"), "totalCount"), headSha, headCommittedAt, decision, viewerReview, requestedAt, activityVersion,
-                instant(activity, "updatedAt").orElseThrow(), latestActivity(activity));
+        return new GitHubPullRequestSummary(pullRequest, ciStatus(rollup), count(row.additions()), count(row.deletions()),
+                count(row.comments().totalCount()), headSha, headCommittedAt, decision, viewerReview, requestedAt, activityVersion,
+                activity.updatedAt(), latestActivity(activity));
     }
 
-    private static Optional<PrActivitySummary> latestActivity(JsonNode connection)
+    private static Optional<PrActivitySummary> latestActivity(ActivityConnection connection)
     {
-        JsonNode nodes = connection.path("nodes");
-        if (!nodes.isArray() || nodes.isEmpty()) {
+        List<Activity> nodes = connection.nodes().orElse(ImmutableList.of());
+        if (nodes.isEmpty()) {
             return Optional.empty();
         }
-        JsonNode node = nodes.get(nodes.size() - 1);
-        String event = switch (node.path("__typename").asText()) {
+        Activity node = nodes.getLast();
+        String event = switch (node.type().orElse("")) {
             case "IssueComment" -> "commented";
             case "PullRequestReview" -> "reviewed";
             case "ReviewRequestedEvent" -> "review_requested";
@@ -349,163 +369,96 @@ public class GitHubPullRequestSummaryClient
         if (event == null) {
             return Optional.empty();
         }
-        return instant(node, "createdAt").map(at -> new PrActivitySummary(event,
-                activityText(node.path("author"), "login").or(() -> activityText(node.path("actor"), "login")), at,
-                activityText(node, "state"), Optional.empty(), activityText(node.path("requestedReviewer"), "login"),
-                PrActivitySummary.excerpt(node.path("body").asText(null)), Optional.empty(), OptionalInt.empty()));
+        return node.createdAt().map(at -> new PrActivitySummary(event,
+                node.author().flatMap(User::login).or(() -> node.actor().flatMap(User::login)), at,
+                node.state(), Optional.empty(), node.requestedReviewer().flatMap(User::login),
+                PrActivitySummary.excerpt(node.body().orElse(null)), Optional.empty(), OptionalInt.empty()));
     }
 
-    private static Optional<String> activityText(JsonNode node, String field)
+    private static PrReviewState review(Review review, String login)
     {
-        return Optional.ofNullable(node.path(field).textValue()).filter(value -> !value.isBlank());
-    }
-
-    private static PrReviewState review(JsonNode review, String login)
-    {
-        JsonNode author = required(review, "author");
-        if (!login.equalsIgnoreCase(text(author, "login"))) {
+        User author = review.author();
+        if (!login.equalsIgnoreCase(text(author.login().orElse(null)))) {
             throw incomplete("Review author differs from the viewer");
         }
-        String state = text(review, "state");
+        String state = text(review.state());
         if (!ImmutableSet.of("APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED").contains(state)) {
             throw incomplete("Unknown viewer review state");
         }
         // GitHub nulls the commit once a force-push lets it be garbage-collected.
-        JsonNode commit = requiredNullable(review, "commit");
-        return new PrReviewState(databaseId(review), login, text(author, "avatarUrl"), false, state,
-                instant(review, "submittedAt").orElseThrow(() -> incomplete("Missing review timestamp")), null, null,
-                commit.isNull() ? null : text(commit, "oid"));
+        return new PrReviewState(databaseId(review.databaseId()), login, text(author.avatarUrl().orElse(null)), false, state,
+                review.submittedAt(), null, null, review.commit().map(commit -> text(commit.oid())).orElse(null));
     }
 
-    private static CiStatus ciStatus(JsonNode rollup)
+    private static CiStatus ciStatus(Optional<Rollup> rollup)
     {
-        if (rollup.isNull()) {
-            return CiStatus.NONE;
-        }
-        return switch (text(rollup, "state")) {
+        return rollup.map(value -> switch (text(value.state())) {
             case "ERROR", "FAILURE" -> CiStatus.FAILING;
             case "EXPECTED", "PENDING" -> CiStatus.PENDING;
             case "SUCCESS" -> CiStatus.PASSING;
             default -> throw incomplete("Unknown check status");
-        };
+        }).orElse(CiStatus.NONE);
     }
 
-    private static String checkVersion(JsonNode rollup)
+    private static String checkVersion(Optional<Rollup> rollup)
     {
-        if (rollup.isNull()) {
+        if (rollup.isEmpty()) {
             return "none";
         }
-        JsonNode contexts = required(rollup, "contexts");
+        CheckCounts contexts = rollup.orElseThrow().contexts();
         List<String> states = new ArrayList<>();
-        for (String source : ImmutableList.of("checkRunCountsByState", "statusContextCountsByState")) {
-            JsonNode counts = required(contexts, source);
-            if (!counts.isArray()) {
-                throw incomplete("Invalid check counts");
-            }
-            counts.forEach(value -> states.add(source + ":" + text(value, "state") + ":" + count(value, "count")));
-        }
+        contexts.checkRunCountsByState().forEach(value -> states.add("checkRunCountsByState:" + text(value.state()) + ":" + count(value.count())));
+        contexts.statusContextCountsByState().forEach(value -> states.add("statusContextCountsByState:" + text(value.state()) + ":" + count(value.count())));
         states.sort(String::compareTo);
-        return text(rollup, "state") + states;
+        return text(rollup.orElseThrow().state()) + states;
     }
 
-    private static List<JsonNode> completeNodes(JsonNode row, String field)
+    private static <T> List<T> completeNodes(Connection<T> connection, String field)
     {
-        JsonNode connection = required(row, field);
-        if (bool(required(connection, "pageInfo"), "hasNextPage")) {
+        if (connection.pageInfo().hasNextPage()) {
             throw incomplete("Incomplete " + field);
         }
-        return nodes(connection);
+        return connection.nodes();
     }
 
-    private static List<JsonNode> nodes(JsonNode connection)
+    private static long databaseId(long id)
     {
-        JsonNode values = required(connection, "nodes");
-        if (!values.isArray()) {
-            throw incomplete("Invalid connection nodes");
-        }
-        ImmutableList.Builder<JsonNode> nodes = ImmutableList.builder();
-        values.forEach(value -> {
-            if (!value.isObject()) {
-                throw incomplete("Invalid connection node");
-            }
-            nodes.add(value);
-        });
-        return nodes.build();
-    }
-
-    private static long databaseId(JsonNode row)
-    {
-        JsonNode value = required(row, "databaseId");
-        try {
-            long id = Long.parseLong(value.asText());
-            if (id <= 0) {
-                throw incomplete("Invalid database id");
-            }
-            return id;
-        }
-        catch (NumberFormatException ignored) {
+        if (id <= 0) {
             throw incomplete("Invalid database id");
         }
+        return id;
     }
 
-    private static int count(JsonNode row, String field)
+    private static int count(int value)
     {
-        JsonNode value = required(row, field);
-        if (!value.isIntegralNumber() || !value.canConvertToInt() || value.intValue() < 0) {
-            throw incomplete("Invalid " + field);
-        }
-        return value.intValue();
-    }
-
-    private static boolean bool(JsonNode row, String field)
-    {
-        JsonNode value = required(row, field);
-        if (!value.isBoolean()) {
-            throw incomplete("Invalid " + field);
-        }
-        return value.booleanValue();
-    }
-
-    private static Optional<Instant> instant(JsonNode row, String field)
-    {
-        try {
-            return optionalText(row, field).map(Instant::parse);
-        }
-        catch (DateTimeParseException ignored) {
-            throw incomplete("Invalid " + field);
-        }
-    }
-
-    private static Optional<String> optionalText(JsonNode row, String field)
-    {
-        if (row.isNull()) {
-            return Optional.empty();
-        }
-        return requiredNullable(row, field).isNull() ? Optional.empty() : Optional.of(text(row, field));
-    }
-
-    private static String text(JsonNode row, String field)
-    {
-        JsonNode value = required(row, field);
-        if (!value.isTextual() || value.textValue().isBlank()) {
-            throw incomplete("Invalid " + field);
-        }
-        return value.textValue();
-    }
-
-    private static JsonNode required(JsonNode row, String field)
-    {
-        JsonNode value = requiredNullable(row, field);
-        if (value.isNull()) {
-            throw incomplete("Missing " + field);
+        if (value < 0) {
+            throw incomplete("Invalid count");
         }
         return value;
     }
 
-    private static JsonNode requiredNullable(JsonNode row, String field)
+    private static String text(String value)
+    {
+        if (value == null || value.isBlank()) {
+            throw incomplete("Missing text");
+        }
+        return value;
+    }
+
+    private static <T> T read(JsonNode value, Class<T> type)
+    {
+        try {
+            return MAPPER.treeToValue(value, type);
+        }
+        catch (JsonProcessingException failure) {
+            throw incomplete("Invalid " + type.getSimpleName() + ": " + failure.getOriginalMessage());
+        }
+    }
+
+    private static JsonNode required(JsonNode row, String field)
     {
         JsonNode value = row.path(field);
-        if (value.isMissingNode()) {
+        if (value.isMissingNode() || value.isNull()) {
             throw incomplete("Missing " + field);
         }
         return value;
@@ -515,6 +468,91 @@ public class GitHubPullRequestSummaryClient
     {
         return new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub pull request summary: " + reason);
     }
+
+    private record Row(
+            @JsonProperty(required = true) long databaseId, @JsonProperty(required = true) int number,
+            @JsonProperty(required = true) String title, @JsonProperty(required = true) String url,
+            @JsonProperty(required = true) Instant createdAt, @JsonProperty(required = true) Instant updatedAt,
+            @JsonProperty(required = true) Optional<Instant> closedAt, @JsonProperty(required = true) Optional<Instant> mergedAt,
+            @JsonProperty(required = true) String state, @JsonProperty(required = true) boolean isDraft,
+            @JsonProperty(required = true) Optional<User> author, @JsonProperty(required = true) Repository repository,
+            @JsonProperty(required = true) int additions, @JsonProperty(required = true) int deletions,
+            @JsonProperty(required = true) Count comments, @JsonProperty(required = true) String headRefName,
+            @JsonProperty(required = true) String headRefOid, @JsonProperty(required = true) String mergeable,
+            @JsonProperty(required = true) String mergeStateStatus, @JsonProperty(required = true) Optional<String> reviewDecision,
+            @JsonProperty(required = true) Connection<Label> labels, @JsonProperty(required = true) Connection<ReviewRequest> reviewRequests,
+            @JsonProperty(required = true) Nodes<Review> viewerReviews, @JsonProperty(required = true) Nodes<CommitNode> commits,
+            @JsonProperty(required = true) Optional<Rollup> statusCheckRollup, @JsonProperty(required = true) ActivityConnection activity,
+            @JsonProperty(required = true) Nodes<Activity> reviewRequested) {}
+
+    private record User(Optional<String> login, Optional<String> avatarUrl) {}
+
+    private record Repository(@JsonProperty(required = true) String nameWithOwner) {}
+
+    private record Count(@JsonProperty(required = true) int totalCount) {}
+
+    private record Label(@JsonProperty(required = true) String name, @JsonProperty(required = true) String color) {}
+
+    private record Reviewer(@JsonProperty(value = "__typename", required = true) String type, Optional<String> login) {}
+
+    private record ReviewRequest(@JsonProperty(required = true) Reviewer requestedReviewer) {}
+
+    private record Review(@JsonProperty(required = true) long databaseId, @JsonProperty(required = true) String state,
+            @JsonProperty(required = true) Instant submittedAt, @JsonProperty(required = true) User author,
+            @JsonProperty(required = true) Optional<Commit> commit) {}
+
+    private record Commit(@JsonProperty(required = true) String oid) {}
+
+    private record CommitDate(@JsonProperty(required = true) Optional<Instant> committedDate) {}
+
+    private record CommitNode(@JsonProperty(required = true) CommitDate commit) {}
+
+    private record Rollup(@JsonProperty(required = true) String state, @JsonProperty(required = true) CheckCounts contexts) {}
+
+    private record CheckCounts(@JsonProperty(required = true) List<StateCount> checkRunCountsByState,
+            @JsonProperty(required = true) List<StateCount> statusContextCountsByState) {}
+
+    private record StateCount(@JsonProperty(required = true) String state, @JsonProperty(required = true) int count) {}
+
+    private record ActivityConnection(@JsonProperty(required = true) Instant updatedAt, @JsonProperty(required = true) int totalCount,
+            Optional<List<Activity>> nodes) {}
+
+    private record Activity(@JsonProperty("__typename") Optional<String> type, Optional<Instant> createdAt,
+            Optional<User> author, Optional<User> actor, Optional<String> body, Optional<String> state, Optional<User> requestedReviewer) {}
+
+    private record Nodes<T>(@JsonProperty(required = true) List<T> nodes)
+    {
+        private Nodes
+        {
+            nodes = ImmutableList.copyOf(nodes);
+        }
+    }
+
+    private record Connection<T>(@JsonProperty(required = true) List<T> nodes, @JsonProperty(required = true) NextPage pageInfo)
+    {
+        private Connection
+        {
+            nodes = ImmutableList.copyOf(nodes);
+        }
+    }
+
+    private record NextPage(@JsonProperty(required = true) boolean hasNextPage, Optional<String> endCursor) {}
+
+    private record PreviousPage(@JsonProperty(required = true) boolean hasPreviousPage, Optional<String> startCursor) {}
+
+    private record ReviewThread(Optional<String> id, @JsonProperty(required = true) Nodes<RootComment> root,
+            Optional<CommentPage> comments) {}
+
+    private record ThreadPage(@JsonProperty(required = true) List<ReviewThread> nodes, @JsonProperty(required = true) NextPage pageInfo) {}
+
+    private record RootComment(@JsonProperty(required = true) Optional<User> author) {}
+
+    private record Reply(@JsonProperty(required = true) Instant createdAt, @JsonProperty(required = true) Optional<User> author,
+            @JsonProperty(required = true) Optional<ReplyTo> replyTo) {}
+
+    private record ReplyTo(@JsonProperty(required = true) String id) {}
+
+    private record CommentPage(@JsonProperty(required = true) List<Reply> nodes, @JsonProperty(required = true) PreviousPage pageInfo) {}
 
     private record ReplyKey(PullRequestRef ref, String viewer, String author, Instant since, String activityVersion)
     {

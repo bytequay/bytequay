@@ -73,17 +73,10 @@ public class GitHubTeamActivityClient
         checkArgument(LOGIN.matcher(login).matches(), "Invalid GitHub login");
         Collector collector = new Collector(identity);
         // GitHub limits this public stream to 300 events from the last 30 days, including unrelated event kinds.
-        for (int page = 1; page <= 3 && !collector.rateLimited; page++) {
-            int currentPage = page;
-            Optional<JsonNode> response = collector.read("public events for " + login, () -> array(token, "/users/" + login + "/events/public", currentPage, ""));
-            if (response.isEmpty()) {
-                break;
-            }
-            collector.each(response.get(), collector::publicEvent);
-            if (response.get().size() < 100) {
-                break;
-            }
-        }
+        GitHubPaginator.forEachPage(3, page -> collector.rateLimited ? ImmutableList.of()
+                : collector.read("public events for " + login, () -> array(token, "/users/" + login + "/events/public", page, ""))
+                        .map(ImmutableList::copyOf).orElse(ImmutableList.of()),
+                rows -> rows.forEach(row -> collector.accept(() -> collector.publicEvent(row))));
         return collector.result();
     }
 

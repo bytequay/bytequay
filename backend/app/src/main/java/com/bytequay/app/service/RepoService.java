@@ -34,7 +34,7 @@ import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.regex.Pattern;
 
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -62,7 +62,7 @@ public class RepoService
 
     public ContributionCalendar getContributionCalendar(String login)
     {
-        requireNotBlank(login, "login must not be blank");
+        checkText(login, "login");
         try {
             return accounts.fetchContributionCalendar(credentialService.resolveGitHubToken(), login);
         }
@@ -73,7 +73,7 @@ public class RepoService
 
     public List<UserCommitSummary> getUserCommitsOnDate(String login, String isoDate)
     {
-        requireNotBlank(login, "login must not be blank");
+        checkText(login, "login");
         if (isoDate == null || !ISO_DATE.matcher(isoDate).matches()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "date must be yyyy-MM-dd");
         }
@@ -87,14 +87,14 @@ public class RepoService
 
     public UserProfile getUserProfile(String login)
     {
-        requireNotBlank(login, "login must not be blank");
+        checkText(login, "login");
         return accounts.fetchUserProfile(credentialService.resolveGitHubToken(), login);
     }
 
     public GitHubIssuePreview getIssuePreview(String owner, String repo, int number)
     {
-        requireNotBlank(owner, "owner must not be blank");
-        requireNotBlank(repo, "repo must not be blank");
+        checkText(owner, "owner");
+        checkText(repo, "repo");
         if (!GITHUB_NAME.matcher(owner).matches() || !GITHUB_NAME.matcher(repo).matches() || number <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid GitHub issue reference");
         }
@@ -103,9 +103,9 @@ public class RepoService
 
     public List<String> getCodeSnippet(String owner, String repo, String commit, String path, int startLine, int endLine)
     {
-        requireNotBlank(owner, "owner must not be blank");
-        requireNotBlank(repo, "repo must not be blank");
-        requireNotBlank(path, "path must not be blank");
+        checkText(owner, "owner");
+        checkText(repo, "repo");
+        checkText(path, "path");
         if (!GITHUB_NAME.matcher(owner).matches() || !GITHUB_NAME.matcher(repo).matches()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid GitHub repository");
         }
@@ -129,7 +129,7 @@ public class RepoService
 
     public List<RecentEvent> getRecentEvents(String login)
     {
-        requireNotBlank(login, "login must not be blank");
+        checkText(login, "login");
         Instant monthStart = ZonedDateTime.now(ZoneOffset.UTC)
                 .toLocalDate().withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
         return accounts.fetchUserEvents(credentialService.resolveGitHubToken(), login, 100).stream()
@@ -139,7 +139,7 @@ public class RepoService
 
     public List<RecentEvent> getFollowingEvents(String login)
     {
-        requireNotBlank(login, "login must not be blank");
+        checkText(login, "login");
         List<RecentEvent> all = accounts.fetchReceivedEvents(credentialService.resolveGitHubToken(), login, 30);
         return ImmutableList.copyOf(all.size() <= 10 ? all : all.subList(0, 10));
     }

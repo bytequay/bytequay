@@ -53,7 +53,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.UnaryOperator;
 
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -152,7 +152,7 @@ public class PullRequestSnapshotService
 
     DiffFileContent getFileContent(long prId, String path, String baseSha, String headSha)
     {
-        requireNotBlank(path, "path");
+        checkText(path, "path");
         return Optional.ofNullable(storedDiff(prId, baseSha, headSha).fileContents().get(path))
                 .orElseThrow(() -> missing("Pull request file content"));
     }
@@ -281,7 +281,7 @@ public class PullRequestSnapshotService
 
     void refreshFileContent(String pat, PullRequestRef pullRequest, long prId, String path, String baseSha, String headSha)
     {
-        requireNotBlank(path, "path");
+        checkText(path, "path");
         validateRange(baseSha, headSha);
         StoredPrDiff stored = storedDiff(prId, baseSha, headSha);
         String contentBase = baseSha == null ? stored.baseSha().orElse(null) : baseSha;
@@ -361,8 +361,8 @@ public class PullRequestSnapshotService
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "base and head must be provided together");
         }
         if (baseSha != null) {
-            requireNotBlank(baseSha, "base");
-            requireNotBlank(headSha, "head");
+            checkText(baseSha, "base");
+            checkText(headSha, "head");
         }
     }
 

@@ -15,7 +15,7 @@ package com.bytequay.agent.spi;
 
 import java.util.function.Supplier;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Read-only local context for one development task: the issue or ticket durably bound to it, and the Epic its work belongs to. */
@@ -53,6 +53,6 @@ public record IssueContextBridge(Supplier<String> read, String instruction)
     public IssueContextBridge
     {
         requireNonNull(read, "read is null");
-        checkNotBlank(instruction, "instruction");
+        checkText(instruction, "instruction");
     }
 }

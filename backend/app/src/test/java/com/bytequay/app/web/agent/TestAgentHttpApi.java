@@ -1387,6 +1387,7 @@ class TestAgentHttpApi
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty());
         TaskResources existingResources = resources.require(taskId);
         long runtimeEntries = entryCount(existingResources.runtimeDirectory());

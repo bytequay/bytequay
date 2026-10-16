@@ -544,13 +544,13 @@ describe('one arrow', () => {
     const state = { task: task('t-1', 'OPEN', 'x'), events, connection: 'open' as const };
     const folded = body(state);
     // The activity fold and the turn head carry the arrow pointing right until opened.
-    expect(folded).toMatch(/class="agt-act__fold"[^>]*>\s*<svg class="chev"/);
+    expect(folded).toMatch(/class="agt-act__fold"[^>]*>\s*<svg[^>]*class="[^"]*chev"/);
     const opened = body(state, Object.fromEntries(projectTranscript(events).flatMap((turn) => turn.blocks)
       .filter((block) => block.kind === 'activity').map((block) => [block.id, true])));
-    expect(opened).toMatch(/class="agt-act__fold"[^>]*>\s*<svg class="chev is-open"/);
+    expect(opened).toMatch(/class="agt-act__fold"[^>]*>\s*<svg[^>]*class="[^"]*chev is-open"/);
     // Menu carets are the same arrow, already turned down; nothing draws a text glyph.
     expect(folded).toContain('<button type="button" class="agt-picker__chip"');
-    expect(folded).toMatch(/agt-picker__chip[^>]*>[^]*?<svg class="chev is-open"/);
+    expect(folded).toMatch(/agt-picker__chip[^>]*>[^]*?<svg[^>]*class="[^"]*chev is-open"/);
     expect(folded).not.toMatch(/[›⌄]/);
     expect(renderToStaticMarkup(<AgentTaskList {...listProps} tasks={[task('t-1', 'OPEN', 'x')]} loading={false} error={null} />))
       .not.toMatch(/[›⌄]/);
@@ -1552,7 +1552,7 @@ describe('agent task detail', () => {
     expect(markup).toContain('<details class="agt-out">');
     // The disclosure carries the app's one arrow, not the browser's marker.
     // The command row is the disclosure, its chevron on the row; the output box hangs under it.
-    expect(markup).toMatch(/<summary class="agt-act__row is-command">[^]*?<svg class="chev"/);
+    expect(markup).toMatch(/<summary class="agt-act__row is-command">[^]*?<svg[^>]*class="[^"]*chev"/);
     expect(markup).toMatch(/<summary class="agt-act__row is-command">[^]*?Ran command[^]*?<\/summary><pre class="agt-pre is-shell">[^]*?Shell[^]*?<span class="agt-out__cmd">\$ <code class="hljs">/);
     // The command is printed whole and read as shell; only its output is windowed.
     expect(markup.replace(/<[^>]*>/g, '')).toContain('$ npm test');

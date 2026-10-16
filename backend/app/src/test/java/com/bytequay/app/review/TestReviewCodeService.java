@@ -221,7 +221,7 @@ class TestReviewCodeService
         git(checkout, "mv", "Old.java", "renamed 測試.java");
         git(checkout, "commit", "-m", "Rename source");
         String renamed = git(checkout, "rev-parse", "HEAD");
-        CodeHistory.Change rename = service.historyCommit(REVIEW_ID, renamed, Optional.empty()).files().getFirst();
+        CodeHistory.Change rename = service.historyCommit(service.reviewHost(REVIEW_ID), renamed, Optional.empty()).files().getFirst();
         assertThat(rename.path()).isEqualTo("renamed 測試.java");
         assertThat(rename.originalPath()).contains("Old.java");
         assertThat(service.history(taskHost(), Optional.empty(), Optional.of(rename.path()), 0).commits())
@@ -248,7 +248,7 @@ class TestReviewCodeService
         CodeHistory.Comparison second = service.historyCommit(taskHost(), merge, Optional.of(other));
         assertThat(second.parent()).contains(other);
         assertThat(second.files()).extracting(CodeHistory.Change::path).containsExactly("Old.java");
-        assertThat(service.history(REVIEW_ID, Optional.of(initial), Optional.empty(), 0).commits()).hasSize(1);
+        assertThat(service.history(service.reviewHost(REVIEW_ID), Optional.of(initial), Optional.empty(), 0).commits()).hasSize(1);
         assertThatThrownBy(() -> service.historyCommit(taskHost(), merge, Optional.of(initial))).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.snapshot(taskHost(), initial, "../secret")).isInstanceOf(IllegalArgumentException.class);
         assertThat(git(checkout, "status", "--porcelain=v1")).isEqualTo(status);
@@ -281,9 +281,9 @@ class TestReviewCodeService
         String committed = git(checkout, "rev-parse", "HEAD");
         write(checkout, MAIN_PATH, "one\nlocal edit\nthree\n");
         String before = git(checkout, "status", "--porcelain=v1");
-        CodeBlame blame = service.blame(REVIEW_ID, MAIN_PATH);
+        CodeBlame blame = service.blame(service.reviewHost(REVIEW_ID), MAIN_PATH);
         assertThat(blame.revision()).isEqualTo(committed);
-        assertThat(blame.contentHash()).isEqualTo(service.file(REVIEW_ID, MAIN_PATH).contentHash().orElseThrow());
+        assertThat(blame.contentHash()).isEqualTo(service.file(service.reviewHost(REVIEW_ID), MAIN_PATH).contentHash().orElseThrow());
         assertThat(blame.spans()).extracting(CodeBlame.Span::line).containsExactly(1, 2, 3);
         assertThat(blame.spans()).extracting(CodeBlame.Span::uncommitted).containsExactly(false, true, false);
         assertThat(blame.spans().getFirst().author()).isEqualTo("ByteQuay Test");
@@ -318,49 +318,49 @@ class TestReviewCodeService
         write(checkout, "new.go", "new source\n");
         assertThat(service.blame(taskHost(), "new.go").unavailableReason()).isPresent();
         Files.createSymbolicLink(checkout.resolve("linked.java"), checkout.resolve(MAIN_PATH));
-        assertThat(service.blame(REVIEW_ID, "linked.java").unavailableReason()).contains("Blame is unavailable for symbolic links");
+        assertThat(service.blame(service.reviewHost(REVIEW_ID), "linked.java").unavailableReason()).contains("Blame is unavailable for symbolic links");
         assertThatThrownBy(() -> service.blame(taskHost(), "../outside")).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void caughtUpCodeUsesCurrentFileMarksWhileReviewedChangesStayFrozen()
     {
-        String listedRevision = service.files(REVIEW_ID).revision();
-        assertThat(service.file(REVIEW_ID, TEST_PATH, Optional.of(listedRevision)).content()).contains("test source\n");
+        String listedRevision = service.files(service.reviewHost(REVIEW_ID)).revision();
+        assertThat(service.file(service.reviewHost(REVIEW_ID), TEST_PATH, Optional.of(listedRevision)).content()).contains("test source\n");
         write(checkout, TEST_PATH, "caught up test\n");
         write(checkout, "src/test/java/TestLatest.java", "new remote test\n");
         git(checkout, "add", ".");
         git(checkout, "commit", "-m", "New remote head");
         String current = git(checkout, "rev-parse", "HEAD");
 
-        assertThatThrownBy(() -> service.file(REVIEW_ID, TEST_PATH, Optional.of(listedRevision)))
+        assertThatThrownBy(() -> service.file(service.reviewHost(REVIEW_ID), TEST_PATH, Optional.of(listedRevision)))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("revision changed");
         assertThatThrownBy(() -> service.file(taskHost(), TEST_PATH, Optional.of(listedRevision)))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("revision changed");
-        assertThat(service.file(REVIEW_ID, TEST_PATH, Optional.of(current)).content()).contains("caught up test\n");
+        assertThat(service.file(service.reviewHost(REVIEW_ID), TEST_PATH, Optional.of(current)).content()).contains("caught up test\n");
         assertThat(service.file(taskHost(), TEST_PATH, Optional.of(current)).content()).contains("caught up test\n");
 
-        CodeFiles files = service.files(REVIEW_ID);
+        CodeFiles files = service.files(service.reviewHost(REVIEW_ID));
         assertThat(files.revision()).isEqualTo(current);
         assertThat(files.files()).filteredOn(CodeFileEntry::changedInPr).extracting(CodeFileEntry::path)
                 .containsExactly(TEST_PATH, "src/test/java/TestLatest.java");
         assertThat(files.files()).filteredOn(CodeFileEntry::addedInPr).extracting(CodeFileEntry::path)
                 .containsExactly("src/test/java/TestLatest.java");
-        assertThat(service.file(REVIEW_ID, TEST_PATH).prPatch()).get().asString().contains("-test source", "+caught up test").doesNotContain("-old test");
-        assertThat(service.file(REVIEW_ID, "src/test/java/TestLatest.java").prPatch()).get().asString().contains("+new remote test");
+        assertThat(service.file(service.reviewHost(REVIEW_ID), TEST_PATH).prPatch()).get().asString().contains("-test source", "+caught up test").doesNotContain("-old test");
+        assertThat(service.file(service.reviewHost(REVIEW_ID), "src/test/java/TestLatest.java").prPatch()).get().asString().contains("+new remote test");
 
-        Changes reviewed = service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
+        Changes reviewed = service.changes(service.reviewHost(REVIEW_ID), ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
         assertThat(reviewed.headSha()).isEqualTo(head);
         assertThat(reviewed.files()).isEmpty();
         assertThat(store.listRuns(REVIEW_ID).getFirst().headSha()).isEqualTo(head);
 
         AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW.plusSeconds(60)));
-        assertThat(service.files(REVIEW_ID).revision()).isEqualTo(head);
-        assertThat(service.file(REVIEW_ID, TEST_PATH).content()).contains("test source\n");
-        assertThat(service.file(REVIEW_ID, TEST_PATH).prPatch()).contains(TEST_PATCH);
-        assertThat(service.file(REVIEW_ID, TEST_PATH, Optional.of(head)).prPatch()).contains(TEST_PATCH);
-        assertThatThrownBy(() -> service.file(REVIEW_ID, TEST_PATH, Optional.of(current)))
+        assertThat(service.files(service.reviewHost(REVIEW_ID)).revision()).isEqualTo(head);
+        assertThat(service.file(service.reviewHost(REVIEW_ID), TEST_PATH).content()).contains("test source\n");
+        assertThat(service.file(service.reviewHost(REVIEW_ID), TEST_PATH).prPatch()).contains(TEST_PATCH);
+        assertThat(service.file(service.reviewHost(REVIEW_ID), TEST_PATH, Optional.of(head)).prPatch()).contains(TEST_PATCH);
+        assertThatThrownBy(() -> service.file(service.reviewHost(REVIEW_ID), TEST_PATH, Optional.of(current)))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("revision changed");
     }
 
@@ -388,20 +388,20 @@ class TestReviewCodeService
         git(checkout, "commit", "-am", "Rebased remote head");
         String current = git(checkout, "rev-parse", "HEAD");
 
-        assertThat(service.files(REVIEW_ID).files()).filteredOn(CodeFileEntry::changedInPr).extracting(CodeFileEntry::path).containsExactly(TEST_PATH);
-        assertThat(service.file(REVIEW_ID, "Upstream.java").prPatch()).isEmpty();
-        Changes live = service.changes(REVIEW_ID, ChangeScope.ALL, Optional.empty(), Optional.empty(), Optional.empty());
+        assertThat(service.files(service.reviewHost(REVIEW_ID)).files()).filteredOn(CodeFileEntry::changedInPr).extracting(CodeFileEntry::path).containsExactly(TEST_PATH);
+        assertThat(service.file(service.reviewHost(REVIEW_ID), "Upstream.java").prPatch()).isEmpty();
+        Changes live = service.changes(service.reviewHost(REVIEW_ID), ChangeScope.ALL, Optional.empty(), Optional.empty(), Optional.empty());
         assertThat(live.baseSha()).isEqualTo(newBase);
         assertThat(live.headSha()).isEqualTo(current);
         assertThat(live.files()).extracting(DiffFile::filename).containsExactly(TEST_PATH);
-        assertThat(service.changes(REVIEW_ID, ChangeScope.COMMIT, Optional.of(current), Optional.empty(), Optional.empty()).baseSha()).isEqualTo(newBase);
-        assertThat(service.changes(REVIEW_ID, ChangeScope.UNCOMMITTED, Optional.empty(), Optional.empty(), Optional.empty()).files()).isEmpty();
+        assertThat(service.changes(service.reviewHost(REVIEW_ID), ChangeScope.COMMIT, Optional.of(current), Optional.empty(), Optional.empty()).baseSha()).isEqualTo(newBase);
+        assertThat(service.changes(service.reviewHost(REVIEW_ID), ChangeScope.UNCOMMITTED, Optional.empty(), Optional.empty(), Optional.empty()).files()).isEmpty();
 
-        Changes reviewed = service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
+        Changes reviewed = service.changes(service.reviewHost(REVIEW_ID), ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
         assertThat(reviewed.headSha()).isEqualTo(reviewedHead);
         assertThat(reviewed.baseSha()).isEqualTo(oldBase);
         assertThat(reviewed.files()).extracting(DiffFile::filename).containsExactly(TEST_PATH);
-        assertThat(service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.of(reviewedHead)).baseSha()).isEqualTo(oldBase);
+        assertThat(service.changes(service.reviewHost(REVIEW_ID), ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.of(reviewedHead)).baseSha()).isEqualTo(oldBase);
     }
 
     @Test
@@ -423,8 +423,8 @@ class TestReviewCodeService
         ReviewCodeService racing = new ReviewCodeService(store, reviews, worktrees, workspaces, runner,
                 new ReviewExperiments(runner, worktrees), tasks, turns, assignments, pullRequestRows, new WorktreeDiffReader(runner), pullRequests, agentProperties, claudeAccounts);
 
-        assertThatThrownBy(() -> racing.files(REVIEW_ID)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("changed while it was being read");
-        assertThatThrownBy(() -> racing.file(REVIEW_ID, TEST_PATH)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("changed while it was being read");
+        assertThatThrownBy(() -> racing.files(racing.reviewHost(REVIEW_ID))).isInstanceOf(ReviewConflictException.class).hasMessageContaining("changed while it was being read");
+        assertThatThrownBy(() -> racing.file(racing.reviewHost(REVIEW_ID), TEST_PATH)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("changed while it was being read");
         verify(turns, never()).synchronizeWorktree(any(), anyLong(), any());
     }
 
@@ -441,7 +441,7 @@ class TestReviewCodeService
         Files.delete(checkout.resolve("Gone.java"));
         write(checkout, "build/output", "ignored\n");
 
-        CodeFiles files = service.files(REVIEW_ID);
+        CodeFiles files = service.files(service.reviewHost(REVIEW_ID));
 
         assertThat(files.source()).isEqualTo(CodeSource.WORKING_COPY);
         assertThat(files.revision()).isEqualTo(head);
@@ -469,14 +469,14 @@ class TestReviewCodeService
         ReviewRun reviewed = run(head, head, head, reader.diff(checkout, head, Optional.of(tree)).files(), Optional.of(tree));
         when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(reviewed));
         write(checkout, "local.txt", "later developer edit\n");
-        assertThat(service.snapshot(REVIEW_ID, tree, "local.txt").content()).contains("reviewed local edit\n");
-        assertThat(service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty()).files())
+        assertThat(service.snapshot(service.reviewHost(REVIEW_ID), tree, "local.txt").content()).contains("reviewed local edit\n");
+        assertThat(service.changes(service.reviewHost(REVIEW_ID), ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty()).files())
                 .extracting(DiffFile::filename).containsExactly("local.txt");
         AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
-        assertThat(service.files(REVIEW_ID).revision()).isEqualTo(tree);
-        assertThat(service.file(REVIEW_ID, "local.txt").content()).contains("reviewed local edit\n");
-        assertThat(service.file(REVIEW_ID, "local.txt").editable()).isFalse();
+        assertThat(service.files(service.reviewHost(REVIEW_ID)).revision()).isEqualTo(tree);
+        assertThat(service.file(service.reviewHost(REVIEW_ID), "local.txt").content()).contains("reviewed local edit\n");
+        assertThat(service.file(service.reviewHost(REVIEW_ID), "local.txt").editable()).isFalse();
     }
 
     @Test
@@ -486,26 +486,26 @@ class TestReviewCodeService
         AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
 
-        CodeFiles files = service.files(REVIEW_ID);
+        CodeFiles files = service.files(service.reviewHost(REVIEW_ID));
         assertThat(files.source()).isEqualTo(CodeSource.REVISION);
         assertThat(files.revision()).isEqualTo(head);
         assertThat(files.files()).extracting(CodeFileEntry::path).containsExactly(".gitignore", "Gone.java", "Old.java", "README.md", MAIN_PATH, ADDED_PATH, TEST_PATH);
         assertThat(files.files()).noneMatch(file -> file.uncommitted() || file.onlyInWorkingCopy());
         assertThat(files.files()).filteredOn(CodeFileEntry::addedInPr).extracting(CodeFileEntry::path).containsExactly(ADDED_PATH);
 
-        CodeFile file = service.file(REVIEW_ID, TEST_PATH);
+        CodeFile file = service.file(service.reviewHost(REVIEW_ID), TEST_PATH);
         assertThat(file.content()).contains("test source\n");
         assertThat(file.contentHash()).contains(Hashing.sha256().hashString("test source\n", UTF_8).toString());
         assertThat(file.editable()).isFalse();
         assertThat(file.readOnlyReason()).contains("Read-only: the working copy is gone");
         assertThat(file.prPatch()).contains(TEST_PATCH);
-        assertThatThrownBy(() -> service.file(REVIEW_ID, "Missing.java")).isInstanceOf(ReviewNotFoundException.class);
-        assertThatThrownBy(() -> service.file(REVIEW_ID, "src")).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> service.file(service.reviewHost(REVIEW_ID), "Missing.java")).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> service.file(service.reviewHost(REVIEW_ID), "src")).isInstanceOf(ReviewNotFoundException.class);
 
         write(checkout, TEST_PATH, "test source\n");
         when(reviews.task(REVIEW_ID)).thenReturn(openTask());
         worktrees.cleanup(worktree);
-        assertThat(service.files(REVIEW_ID).source()).isEqualTo(CodeSource.REVISION);
+        assertThat(service.files(service.reviewHost(REVIEW_ID)).source()).isEqualTo(CodeSource.REVISION);
     }
 
     @Test
@@ -517,7 +517,7 @@ class TestReviewCodeService
         write(checkout, "src/test/java/TestVisible.java", "visible\n");
         Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("---------"));
         try {
-            assertThat(service.files(REVIEW_ID).files()).extracting(CodeFileEntry::path)
+            assertThat(service.files(service.reviewHost(REVIEW_ID)).files()).extracting(CodeFileEntry::path)
                     .containsExactly(".gitignore", "Gone.java", "Old.java", "README.md", MAIN_PATH, ADDED_PATH, TEST_PATH, "src/test/java/TestVisible.java");
         }
         finally {
@@ -541,19 +541,19 @@ class TestReviewCodeService
             throws IOException
     {
         for (String path : ImmutableList.of("", " ", "../secret.txt", "src/../README.md", "/etc/passwd", "a//b", "./README.md", "src\\main", "a\0b", ".git/config", "src/.GIT/x")) {
-            assertThatThrownBy(() -> service.file(REVIEW_ID, path)).as(path).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> service.file(service.reviewHost(REVIEW_ID), path)).as(path).isInstanceOf(IllegalArgumentException.class);
         }
         Files.writeString(directory.resolve("secret.txt"), "outside\n");
         Files.createSymbolicLink(checkout.resolve("src/test/java/Escape.java"), directory.resolve("secret.txt"));
-        assertThatThrownBy(() -> service.file(REVIEW_ID, "src/test/java/Escape.java")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.file(REVIEW_ID, "src/test/java/Missing.java")).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> service.file(service.reviewHost(REVIEW_ID), "src/test/java/Escape.java")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.file(service.reviewHost(REVIEW_ID), "src/test/java/Missing.java")).isInstanceOf(ReviewNotFoundException.class);
     }
 
     @Test
     void sourceAndTestsOfAnOpenReviewWithoutSymbolicLinksAreEditable()
             throws IOException
     {
-        CodeFile test = service.file(REVIEW_ID, TEST_PATH);
+        CodeFile test = service.file(service.reviewHost(REVIEW_ID), TEST_PATH);
         assertThat(test.editable()).isTrue();
         assertThat(test.readOnlyReason()).isEmpty();
         assertThat(test.content()).contains("test source\n");
@@ -561,21 +561,21 @@ class TestReviewCodeService
         assertThat(test.unavailableReason()).isEmpty();
         assertThat(test.prPatch()).contains(TEST_PATCH);
 
-        CodeFile production = service.file(REVIEW_ID, MAIN_PATH);
+        CodeFile production = service.file(service.reviewHost(REVIEW_ID), MAIN_PATH);
         assertThat(production.editable()).isTrue();
         assertThat(production.readOnlyReason()).isEmpty();
         assertThat(production.prPatch()).isEmpty();
 
         Files.createSymbolicLink(checkout.resolve("src/test/linked"), checkout.resolve("src/main/java"));
-        CodeFile linked = service.file(REVIEW_ID, "src/test/linked/Code.java");
+        CodeFile linked = service.file(service.reviewHost(REVIEW_ID), "src/test/linked/Code.java");
         assertThat(linked.content()).contains("production source\n");
         assertThat(linked.readOnlyReason()).contains("Symbolic links are read-only here");
         Files.createSymbolicLink(checkout.resolve("src/test/java/Link.java"), checkout.resolve(TEST_PATH));
-        assertThat(service.file(REVIEW_ID, "src/test/java/Link.java").readOnlyReason()).contains("Symbolic links are read-only here");
+        assertThat(service.file(service.reviewHost(REVIEW_ID), "src/test/java/Link.java").readOnlyReason()).contains("Symbolic links are read-only here");
 
         when(store.findReview(REVIEW_ID)).thenReturn(Optional.of(review(AgentReview.State.CLOSED)));
-        assertThat(service.file(REVIEW_ID, TEST_PATH).readOnlyReason()).contains("This review has ended — read-only");
-        assertThat(service.file(REVIEW_ID, MAIN_PATH).readOnlyReason()).contains("This review has ended — read-only");
+        assertThat(service.file(service.reviewHost(REVIEW_ID), TEST_PATH).readOnlyReason()).contains("This review has ended — read-only");
+        assertThat(service.file(service.reviewHost(REVIEW_ID), MAIN_PATH).readOnlyReason()).contains("This review has ended — read-only");
     }
 
     @Test
@@ -593,16 +593,16 @@ class TestReviewCodeService
         write(checkout, "src/test/java/TestUntracked.java", "untracked\n");
         when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(run(pullRequestHead, base)));
 
-        assertThat(service.file(REVIEW_ID, path).lineChanges()).containsExactly(
+        assertThat(service.file(service.reviewHost(REVIEW_ID), path).lineChanges()).containsExactly(
                 new LineChange(LineChange.Kind.MODIFIED, 2, 1),
                 new LineChange(LineChange.Kind.ADDED, 4, 2),
                 new LineChange(LineChange.Kind.DELETED, 6, 1),
                 new LineChange(LineChange.Kind.ADDED, 8, 1));
-        assertThat(service.file(REVIEW_ID, "src/test/java/TestUntracked.java").lineChanges()).isEmpty();
+        assertThat(service.file(service.reviewHost(REVIEW_ID), "src/test/java/TestUntracked.java").lineChanges()).isEmpty();
 
         AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
-        assertThat(service.file(REVIEW_ID, path).lineChanges()).containsExactly(
+        assertThat(service.file(service.reviewHost(REVIEW_ID), path).lineChanges()).containsExactly(
                 new LineChange(LineChange.Kind.MODIFIED, 2, 1),
                 new LineChange(LineChange.Kind.ADDED, 4, 2),
                 new LineChange(LineChange.Kind.DELETED, 6, 1));
@@ -653,11 +653,11 @@ class TestReviewCodeService
         git(checkout, "config", "diff.renames", "false");
         when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(run(pullRequestHead, base, ImmutableList.of(new DiffFile("src/test/java/TestAfter.java", "renamed", 1, 1, null)))));
 
-        assertThat(service.file(REVIEW_ID, "src/test/java/TestAfter.java").lineChanges()).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 3, 1));
+        assertThat(service.file(service.reviewHost(REVIEW_ID), "src/test/java/TestAfter.java").lineChanges()).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 3, 1));
 
         AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
-        assertThat(service.file(REVIEW_ID, "src/test/java/TestAfter.java").lineChanges()).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 3, 1));
+        assertThat(service.file(service.reviewHost(REVIEW_ID), "src/test/java/TestAfter.java").lineChanges()).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 3, 1));
     }
 
     @Test
@@ -670,8 +670,8 @@ class TestReviewCodeService
         git(checkout, "rm", "--cached", "--quiet", "README.md");
         FileTime unstaged = Files.getLastModifiedTime(index);
 
-        assertThat(service.file(REVIEW_ID, TEST_PATH).lineChanges()).isEmpty();
-        assertThat(service.file(REVIEW_ID, "README.md").lineChanges()).isEmpty();
+        assertThat(service.file(service.reviewHost(REVIEW_ID), TEST_PATH).lineChanges()).isEmpty();
+        assertThat(service.file(service.reviewHost(REVIEW_ID), "README.md").lineChanges()).isEmpty();
         assertThat(Files.getLastModifiedTime(index)).isEqualTo(unstaged).isNotEqualTo(written);
     }
 
@@ -685,16 +685,16 @@ class TestReviewCodeService
         Files.write(checkout.resolve("src/test/large.txt"), large);
         Files.write(checkout.resolve("src/test/limit.txt"), Arrays.copyOf(large, ReviewCodeService.MAXIMUM_FILE_BYTES));
 
-        assertUnavailable(service.file(REVIEW_ID, "src/test/image.png"), "Binary file");
-        assertUnavailable(service.file(REVIEW_ID, "src/test/large.txt"), "This file is larger than 2 MiB");
-        assertThat(service.file(REVIEW_ID, "src/test/limit.txt").content()).hasValueSatisfying(content -> assertThat(content).hasSize(ReviewCodeService.MAXIMUM_FILE_BYTES));
+        assertUnavailable(service.file(service.reviewHost(REVIEW_ID), "src/test/image.png"), "Binary file");
+        assertUnavailable(service.file(service.reviewHost(REVIEW_ID), "src/test/large.txt"), "This file is larger than 2 MiB");
+        assertThat(service.file(service.reviewHost(REVIEW_ID), "src/test/limit.txt").content()).hasValueSatisfying(content -> assertThat(content).hasSize(ReviewCodeService.MAXIMUM_FILE_BYTES));
 
         git(checkout, "add", "src/test");
         git(checkout, "commit", "-m", "Binary and large files");
         when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(run(head), run(git(checkout, "rev-parse", "HEAD"))));
         worktrees.cleanup(worktree);
-        assertUnavailable(service.file(REVIEW_ID, "src/test/image.png"), "Binary file");
-        assertUnavailable(service.file(REVIEW_ID, "src/test/large.txt"), "This file is larger than 2 MiB");
+        assertUnavailable(service.file(service.reviewHost(REVIEW_ID), "src/test/image.png"), "Binary file");
+        assertUnavailable(service.file(service.reviewHost(REVIEW_ID), "src/test/large.txt"), "This file is larger than 2 MiB");
     }
 
     @Test
@@ -702,21 +702,21 @@ class TestReviewCodeService
     {
         when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of());
         git(repository, "update-ref", "refs/remotes/origin/main", head);
-        assertThat(service.ideWorktree(REVIEW_ID)).isEqualTo(worktree);
-        assertThat(service.terminal(REVIEW_ID).workingDirectory()).isEqualTo(checkout);
-        assertThat(service.files(REVIEW_ID).revision()).isEqualTo(head);
-        CodeFile loaded = service.file(REVIEW_ID, TEST_PATH);
+        assertThat(service.ideWorktree(service.reviewHost(REVIEW_ID))).isEqualTo(worktree);
+        assertThat(service.terminal(service.reviewHost(REVIEW_ID)).workingDirectory()).isEqualTo(checkout);
+        assertThat(service.files(service.reviewHost(REVIEW_ID)).revision()).isEqualTo(head);
+        CodeFile loaded = service.file(service.reviewHost(REVIEW_ID), TEST_PATH);
         assertThat(loaded.content()).contains("test source\n");
         assertThat(loaded.editable()).isTrue();
         assertThat(save(REVIEW_ID, TEST_PATH, "exploration edit\n", loaded.contentHash().orElseThrow()).content()).contains("exploration edit\n");
-        assertThat(service.changes(REVIEW_ID, ChangeScope.UNCOMMITTED, Optional.empty(), Optional.empty(), Optional.empty()).files()).isNotEmpty();
-        assertThatThrownBy(() -> service.files("missing")).isInstanceOf(ReviewNotFoundException.class);
+        assertThat(service.changes(service.reviewHost(REVIEW_ID), ChangeScope.UNCOMMITTED, Optional.empty(), Optional.empty(), Optional.empty()).files()).isNotEmpty();
+        assertThatThrownBy(() -> service.files(service.reviewHost("missing"))).isInstanceOf(ReviewNotFoundException.class);
     }
 
     @Test
     void savesATestSourceOverTheLoadedVersion()
     {
-        CodeFile loaded = service.file(REVIEW_ID, TEST_PATH);
+        CodeFile loaded = service.file(service.reviewHost(REVIEW_ID), TEST_PATH);
 
         CodeFile saved = save(REVIEW_ID, TEST_PATH, "edited test\n", loaded.contentHash().orElseThrow());
 
@@ -725,7 +725,7 @@ class TestReviewCodeService
         assertThat(saved.contentHash()).contains(Hashing.sha256().hashString("edited test\n", UTF_8).toString());
         assertThat(saved.editable()).isTrue();
         assertThat(saved.prPatch()).contains(TEST_PATCH);
-        assertThat(service.files(REVIEW_ID).files()).contains(new CodeFileEntry(TEST_PATH, true, false, false, true));
+        assertThat(service.files(service.reviewHost(REVIEW_ID)).files()).contains(new CodeFileEntry(TEST_PATH, true, false, false, true));
     }
 
     @Test
@@ -733,7 +733,7 @@ class TestReviewCodeService
     {
         for (String path : ImmutableList.of(MAIN_PATH, "src/lib.rs", "main.go", "Cargo.toml")) {
             write(checkout, path, "original\n");
-            CodeFile loaded = service.file(REVIEW_ID, path);
+            CodeFile loaded = service.file(service.reviewHost(REVIEW_ID), path);
             CodeFile saved = save(REVIEW_ID, path, "experiment\n", loaded.contentHash().orElseThrow());
             assertThat(saved.editable()).isTrue();
             assertThat(saved.content()).contains("experiment\n");
@@ -754,13 +754,13 @@ class TestReviewCodeService
         byte[] edited = {(byte) 0xff, (byte) 0xfe, 'b', 0};
         Files.write(checkout.resolve(MAIN_PATH), original);
         String hash = Hashing.sha256().hashBytes(original).toString();
-        service.saveBytes(REVIEW_ID, MAIN_PATH, edited, hash);
+        service.saveBytes(service.reviewHost(REVIEW_ID), MAIN_PATH, edited, hash);
         assertThat(Files.readAllBytes(checkout.resolve(MAIN_PATH))).isEqualTo(edited);
-        assertThatThrownBy(() -> service.saveBytes(REVIEW_ID, MAIN_PATH, original, hash)).isInstanceOf(ReviewFileConflictException.class);
+        assertThatThrownBy(() -> service.saveBytes(service.reviewHost(REVIEW_ID), MAIN_PATH, original, hash)).isInstanceOf(ReviewFileConflictException.class);
         assertThat(Files.readAllBytes(checkout.resolve(MAIN_PATH))).isEqualTo(edited);
-        service.saveBytes(REVIEW_ID, "new/nested/main.go", "package main\n".getBytes(UTF_8), "-");
+        service.saveBytes(service.reviewHost(REVIEW_ID), "new/nested/main.go", "package main\n".getBytes(UTF_8), "-");
         assertThat(checkout.resolve("new/nested/main.go")).hasContent("package main\n");
-        assertThatThrownBy(() -> service.saveBytes(REVIEW_ID, "new/nested/main.go", edited, "-")).isInstanceOf(ReviewConflictException.class);
+        assertThatThrownBy(() -> service.saveBytes(service.reviewHost(REVIEW_ID), "new/nested/main.go", edited, "-")).isInstanceOf(ReviewConflictException.class);
         assertThat(checkout.resolve("new/nested/main.go")).hasContent("package main\n");
     }
 
@@ -768,7 +768,7 @@ class TestReviewCodeService
     void staleSaveReturnsTheVersionOnDiskWithoutWriting()
             throws IOException
     {
-        String loaded = service.file(REVIEW_ID, TEST_PATH).contentHash().orElseThrow();
+        String loaded = service.file(service.reviewHost(REVIEW_ID), TEST_PATH).contentHash().orElseThrow();
         write(checkout, TEST_PATH, "changed by the agent\n");
 
         assertThatThrownBy(() -> save(REVIEW_ID, TEST_PATH, "my draft\n", loaded))
@@ -818,15 +818,15 @@ class TestReviewCodeService
     @Test
     void terminalStartsInTheWorkingCopyOfAnOpenReviewOnly()
     {
-        assertThat(service.terminal(REVIEW_ID).workingDirectory()).isEqualTo(checkout);
+        assertThat(service.terminal(service.reviewHost(REVIEW_ID)).workingDirectory()).isEqualTo(checkout);
 
         AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW.plusSeconds(60)));
-        assertThatThrownBy(() -> service.terminal(REVIEW_ID)).isInstanceOf(ReviewConflictException.class).hasMessage("The working copy is gone");
+        assertThatThrownBy(() -> service.terminal(service.reviewHost(REVIEW_ID))).isInstanceOf(ReviewConflictException.class).hasMessage("The working copy is gone");
 
         when(store.findReview(REVIEW_ID)).thenReturn(Optional.of(review(AgentReview.State.CLOSED)));
-        assertThatThrownBy(() -> service.terminal(REVIEW_ID)).isInstanceOf(ReviewConflictException.class).hasMessage("The review has ended");
-        assertThatThrownBy(() -> service.terminal("missing")).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> service.terminal(service.reviewHost(REVIEW_ID))).isInstanceOf(ReviewConflictException.class).hasMessage("The review has ended");
+        assertThatThrownBy(() -> service.terminal(service.reviewHost("missing"))).isInstanceOf(ReviewNotFoundException.class);
     }
 
     @Test
@@ -902,7 +902,7 @@ class TestReviewCodeService
     @Test
     void terminalsUseTheOwningTasksClaudeProfileAndRejectAnUnavailableAccount()
     {
-        assertThat(service.terminal(REVIEW_ID).claudeConfigDirectory()).isEmpty();
+        assertThat(service.terminal(service.reviewHost(REVIEW_ID)).claudeConfigDirectory()).isEmpty();
         assertThat(service.terminal(taskHost()).claudeConfigDirectory()).isEmpty();
         Path claudeHome = directory.resolve("claude-home");
         ClaudeAccount account = new ClaudeAccount("11111111-1111-4111-8111-111111111111", "Work", Optional.of("work@example.com"), Optional.of(WORKSPACE_ID));
@@ -913,12 +913,12 @@ class TestReviewCodeService
             when(tasks.get(worktree.taskId())).thenReturn(AgentTask.created(worktree.taskId(), true, Optional.empty(), "Develop", TitleSource.USER, lane, worktree,
                     AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW));
             Path expected = lane.equals(AgentLaneId.CLAUDE_CLI) ? claudeHome : claudeHome.resolve("accounts").resolve(account.id());
-            assertThat(service.terminal(REVIEW_ID).claudeConfigDirectory()).contains(expected);
+            assertThat(service.terminal(service.reviewHost(REVIEW_ID)).claudeConfigDirectory()).contains(expected);
             assertThat(service.terminal(taskHost()).claudeConfigDirectory()).contains(expected);
         }
         doThrow(new AgentUnavailableException("Claude account unavailable in this repository"))
                 .when(claudeAccounts).checkWorkspaceAccess(account.laneId().value(), Optional.of(WORKSPACE_ID));
-        assertThatThrownBy(() -> service.terminal(REVIEW_ID)).isInstanceOf(AgentUnavailableException.class);
+        assertThatThrownBy(() -> service.terminal(service.reviewHost(REVIEW_ID))).isInstanceOf(AgentUnavailableException.class);
         assertThatThrownBy(() -> service.terminal(taskHost())).isInstanceOf(AgentUnavailableException.class);
     }
 
@@ -1054,7 +1054,7 @@ class TestReviewCodeService
                 .isInstanceOf(IllegalArgumentException.class);
 
         when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(run(first, head)));
-        Changes reviewed = service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
+        Changes reviewed = service.changes(service.reviewHost(REVIEW_ID), ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
         assertThat(reviewed.headSha()).isEqualTo(first);
         assertThat(reviewed.files()).extracting(DiffFile::filename).containsExactlyInAnyOrder(MAIN_PATH, quoted);
         assertThat(reviewed.sourceFingerprint()).isEmpty();
@@ -1077,16 +1077,16 @@ class TestReviewCodeService
         String currentHead = git(checkout, "rev-parse", "HEAD");
         when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(earlier, run(currentHead, upstream)));
 
-        Changes selected = service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.of(earlierHead));
+        Changes selected = service.changes(service.reviewHost(REVIEW_ID), ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.of(earlierHead));
         assertThat(selected.baseSha()).isEqualTo(head);
         assertThat(selected.headSha()).isEqualTo(earlierHead);
         assertThat(selected.files()).extracting(DiffFile::filename).containsExactly(MAIN_PATH);
         assertThat(selected.files().getFirst().patch()).contains("+earlier reviewed change").doesNotContain("rewritten reviewed change");
-        Changes current = service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
+        Changes current = service.changes(service.reviewHost(REVIEW_ID), ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
         assertThat(current.baseSha()).isEqualTo(upstream);
         assertThat(current.headSha()).isEqualTo(currentHead);
         assertThat(git(checkout, "rev-parse", "HEAD")).isEqualTo(currentHead);
-        assertThatThrownBy(() -> service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.of(upstream)))
+        assertThatThrownBy(() -> service.changes(service.reviewHost(REVIEW_ID), ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.of(upstream)))
                 .isInstanceOf(ReviewNotFoundException.class).hasMessage("No review run exists for this revision");
     }
 
@@ -1191,8 +1191,8 @@ class TestReviewCodeService
 
     private CodeFile save(String reviewId, String path, String content, String expectedHash)
     {
-        service.saveBytes(reviewId, path, content.getBytes(UTF_8), expectedHash);
-        return service.file(reviewId, path);
+        service.saveBytes(service.reviewHost(reviewId), path, content.getBytes(UTF_8), expectedHash);
+        return service.file(service.reviewHost(reviewId), path);
     }
 
     private CodeFile save(TaskCodeHost host, String path, String content, String expectedHash)

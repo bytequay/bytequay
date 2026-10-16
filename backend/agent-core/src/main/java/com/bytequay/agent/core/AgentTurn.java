@@ -25,8 +25,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -89,7 +89,7 @@ public record AgentTurn(
         checkArgument(developmentOrigin.stream().noneMatch(origin -> origin.parentUserTurnId().equals(id)), "generated turn cannot be its own parent");
         requireNonNull(id, "id is null");
         requireNonNull(taskId, "taskId is null");
-        checkNotBlank(idempotencyKey, "idempotencyKey");
+        checkText(idempotencyKey, "idempotencyKey");
         requireNonNull(state, "state is null");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(startedAt, "startedAt is null");
@@ -204,7 +204,7 @@ public record AgentTurn(
     /** Finishes an accepted request that provably failed before the provider call. */
     public AgentTurn finishKnownUnsent(AgentMetrics finalMetrics, String reason, Instant now)
     {
-        checkNotBlank(reason, "reason");
+        checkText(reason, "reason");
         return finish(TurnState.FAILED, finalMetrics, Optional.of(reason), Optional.empty(), now, true);
     }
 

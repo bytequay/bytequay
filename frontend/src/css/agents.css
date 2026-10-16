@@ -1675,12 +1675,7 @@
   margin-top: 10px;
 }
 
-/* A discussion footer sits between two blocks, so the pair above stops matching across it and the
-   following block would butt against the row. Two classes, because the resets that zero these
-   margins are more specific than a lone child selector. */
-.agt-md > .agt-disc-footer + * {
-  margin-top: 10px;
-}
+
 
 .agt-md ul,
 .agt-md ol {

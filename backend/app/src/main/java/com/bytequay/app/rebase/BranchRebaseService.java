@@ -51,6 +51,7 @@ import java.time.Clock;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static java.util.Objects.requireNonNull;
 
 /** Owns every durable transition of one local branch rebase. */
@@ -198,18 +199,14 @@ public class BranchRebaseService
             throw new BranchRebaseException("message must contain between 1 and " + MAX_MESSAGE_CHARACTERS + " characters");
         }
         Lock lock = advanceLocks.get(rebaseId.toString());
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             BranchRebase rebase = get(rebaseId);
             if (rebase.status() != Status.PAUSED) {
                 throw new BranchRebaseException("Branch rebase is not paused");
             }
             BranchRebase resumed = store.save(rebase.resume(clock.instant()));
             return act(resumed, Optional.of(message));
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     /** Requests turn cancellation, aborts the owned rebase, and verifies restoration. */
@@ -221,8 +218,7 @@ public class BranchRebaseService
     private BranchRebase cancelLocked(BranchRebaseId rebaseId)
     {
         Lock lock = advanceLocks.get(rebaseId.toString());
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             BranchRebase rebase = get(rebaseId);
             if (rebase.status() == Status.FINISHED) {
                 return rebase;
@@ -231,18 +227,14 @@ public class BranchRebaseService
             BranchRebase requested = store.save(rebase.requestAbort(abort, clock.instant()));
             requested.currentTurnId().ifPresent(turnId -> turns.cancel(TurnId.valueOf(turnId)));
             return requested.currentTurnId().isPresent() ? requested : recoverAbort(requested);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     /** Stops only program advancement after the owning CI provider has been verified stopped; does not abort Git. */
     public void stopForLostOwner(BranchRebaseId rebaseId)
     {
         Lock lock = advanceLocks.get(rebaseId.toString());
-        lock.lock();
-        try {
+        withLock(lock, () -> {
             BranchRebase rebase = get(rebaseId);
             if (!ownership.deliveryOwnedTask(rebase.agentTaskId())) {
                 throw new BranchRebaseException("Only delivery-owned rebases use lost-parent stopping");
@@ -251,10 +243,8 @@ public class BranchRebaseService
                 store.save(rebase.withoutTurn(clock.instant()).pause(PauseReason.UNSAFE_GIT_STATE,
                         "Development automation stopped; the local rebase was preserved without advancing or aborting it", clock.instant()));
             }
-        }
-        finally {
-            lock.unlock();
-        }
+            return null;
+        });
     }
 
     private BranchRebase act(BranchRebase rebase, Optional<String> userNote)

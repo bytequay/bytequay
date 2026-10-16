@@ -16,8 +16,8 @@ package com.bytequay.agent.core;
 import java.time.Instant;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -44,7 +44,7 @@ public record AgentInputDelivery(
         requireNonNull(id, "id is null");
         requireNonNull(taskId, "taskId is null");
         requireNonNull(turnId, "turnId is null");
-        checkNotBlank(idempotencyKey, "idempotencyKey");
+        checkText(idempotencyKey, "idempotencyKey");
         requireNonNull(state, "state is null");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
@@ -74,7 +74,7 @@ public record AgentInputDelivery(
     /** The provider definitely did not take the input. */
     public AgentInputDelivery failed(String reason, Instant now)
     {
-        checkNotBlank(reason, "reason");
+        checkText(reason, "reason");
         checkState(state == State.ACCEPTED || state == State.SENDING, "delivery is already settled: " + state);
         return copy(State.FAILED, Optional.of(reason), now);
     }
@@ -82,7 +82,7 @@ public record AgentInputDelivery(
     /** The input was sent and nothing says whether it arrived; it is never sent again. */
     public AgentInputDelivery unknown(String reason, Instant now)
     {
-        checkNotBlank(reason, "reason");
+        checkText(reason, "reason");
         requireState(State.SENDING);
         return copy(State.UNKNOWN, Optional.of(reason), now);
     }

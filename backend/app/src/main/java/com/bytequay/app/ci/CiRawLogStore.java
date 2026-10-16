@@ -29,6 +29,7 @@ import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -60,32 +61,30 @@ public class CiRawLogStore
     {
         String id = id(query);
         Lock lock = locks.get(query.taskId().toString() + id);
-        lock.lock();
-        try {
-            Path target = path(query.taskId(), id);
-            if (Files.exists(target, NOFOLLOW_LINKS)) {
-                checkState(Files.isRegularFile(target, NOFOLLOW_LINKS), "CI log cache entry is not a regular file");
-                return Optional.empty();
-            }
-            Files.createDirectories(target.getParent(), PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
-            Path temporary = Files.createTempFile(target.getParent(), ".download-", ".tmp", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+        return withLock(lock, () -> {
             try {
-                Optional<String> unavailable = download.apply(temporary);
-                if (unavailable.isEmpty()) {
-                    Files.move(temporary, target, ATOMIC_MOVE);
+                Path target = path(query.taskId(), id);
+                if (Files.exists(target, NOFOLLOW_LINKS)) {
+                    checkState(Files.isRegularFile(target, NOFOLLOW_LINKS), "CI log cache entry is not a regular file");
+                    return Optional.empty();
                 }
-                return unavailable;
+                Files.createDirectories(target.getParent(), PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+                Path temporary = Files.createTempFile(target.getParent(), ".download-", ".tmp", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+                try {
+                    Optional<String> unavailable = download.apply(temporary);
+                    if (unavailable.isEmpty()) {
+                        Files.move(temporary, target, ATOMIC_MOVE);
+                    }
+                    return unavailable;
+                }
+                finally {
+                    Files.deleteIfExists(temporary);
+                }
             }
-            finally {
-                Files.deleteIfExists(temporary);
+            catch (IOException failure) {
+                throw new AgentStorageException("Cannot cache CI log", failure);
             }
-        }
-        catch (IOException failure) {
-            throw new AgentStorageException("Cannot cache CI log", failure);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     public String read(TaskId taskId, String logId)

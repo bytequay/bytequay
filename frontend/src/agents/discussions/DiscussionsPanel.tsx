@@ -13,14 +13,14 @@
  */
 
 
-import Composer from '../../Composer';
 import React, { useEffect, useState } from 'react';
+import Composer from '../../Composer';
 
-import { discussionLabel, replyCount, retryTarget } from './DiscussionFooter';
 import { relativeTime } from '../../relativeTime';
 import { renderMarkdown } from '../markdown';
-import { ANSWERING_ELSEWHERE, type DiscussionMessageDto, type TaskDiscussionDto } from './contracts';
 import type { TranscriptTurn } from '../transcript';
+import { ANSWERING_ELSEWHERE, type DiscussionMessageDto, type TaskDiscussionDto } from './contracts';
+import { discussionLabel, replyCount, retryTarget } from './DiscussionFooter';
 import type { TaskDiscussions } from './useTaskDiscussions';
 
 const JUMP = (
@@ -246,8 +246,7 @@ export function DiscussionsPanel({ discussions, repository, turns, focus, onJump
   }
 
   const order = new Map((turns ?? []).map((turn, index) => [turn.turnId, index]));
-  const byTurn = new Map<string, TaskDiscussionDto[]>();
-  for (const discussion of rows) byTurn.set(discussion.turnId, [...byTurn.get(discussion.turnId) ?? [], discussion]);
+  const byTurn = Map.groupBy(rows, discussion => discussion.turnId);
   const groups = [...byTurn.entries()]
     .sort(([left], [right]) => (order.get(left) ?? Number.MAX_SAFE_INTEGER) - (order.get(right) ?? Number.MAX_SAFE_INTEGER));
 

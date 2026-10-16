@@ -41,6 +41,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static java.util.Objects.requireNonNull;
 
@@ -97,29 +98,28 @@ public class WorkspaceMetadataService
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Lock lock = locks.get(workspace.monitoredRepositoryId());
-        lock.lock();
-        try {
-            Instant now = clock.instant();
-            RepositoryMetadataSnapshot current = snapshot(workspace);
-            if (!expired(workspace.lastMetadataSyncAt(), now, CONTRIBUTOR_TTL)
-                    && !expired(current.overviewSyncedAt(), now, OVERVIEW_TTL)
-                    && !expired(current.contributorsSyncedAt(), now, CONTRIBUTOR_TTL)
-                    && !expired(current.pickerUsersSyncedAt(), now, PICKER_USER_TTL)
-                    && !expired(current.labelsTopicsSyncedAt(), now, LABEL_TOPIC_TTL)) {
-                return;
+        withLock(lock, () -> {
+            try {
+                Instant now = clock.instant();
+                RepositoryMetadataSnapshot current = snapshot(workspace);
+                if (!expired(workspace.lastMetadataSyncAt(), now, CONTRIBUTOR_TTL)
+                        && !expired(current.overviewSyncedAt(), now, OVERVIEW_TTL)
+                        && !expired(current.contributorsSyncedAt(), now, CONTRIBUTOR_TTL)
+                        && !expired(current.pickerUsersSyncedAt(), now, PICKER_USER_TTL)
+                        && !expired(current.labelsTopicsSyncedAt(), now, LABEL_TOPIC_TTL)) {
+                    return null;
+                }
+                refreshExpired(workspace);
+                now = clock.instant();
+                Workspace latest = requireWorkspace(workspaces, workspaceId);
+                workspaces.save(latest.withMetadataSyncAt(Optional.of(now), now));
             }
-            refreshExpired(workspace);
-            now = clock.instant();
-            Workspace latest = requireWorkspace(workspaces, workspaceId);
-            workspaces.save(latest.withMetadataSyncAt(Optional.of(now), now));
-        }
-        catch (RuntimeException failure) {
-            log.warn("Workspace {} metadata synchronization failed: {}",
-                    workspaceId, failure.getMessage());
-        }
-        finally {
-            lock.unlock();
-        }
+            catch (RuntimeException failure) {
+                log.warn("Workspace {} metadata synchronization failed: {}",
+                        workspaceId, failure.getMessage());
+            }
+            return null;
+        });
     }
 
     /**

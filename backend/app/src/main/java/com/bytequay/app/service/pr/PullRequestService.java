@@ -102,8 +102,8 @@ import java.util.function.Consumer;
 
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
-import static com.bytequay.app.utils.StringInputUtil.normalizeNames;
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
+import static com.bytequay.core.domain.Checks.normalizeNames;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
@@ -348,8 +348,8 @@ public class PullRequestService
     public void syncRepositoryBranch(RepoRef repository, String headOwner, String branch)
     {
         requireNonNull(repository, "repository is null");
-        requireNotBlank(headOwner, "headOwner");
-        requireNotBlank(branch, "branch");
+        checkText(headOwner, "headOwner");
+        checkText(branch, "branch");
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         List<FetchedPullRequest> fresh = gitHub.fetchPullRequestsByHead(credential.token(), repository, headOwner + ":" + branch).stream()
                 .map(pullRequest -> pullRequest.withViewerOrigin(credential.profile().login()))
@@ -390,7 +390,7 @@ public class PullRequestService
 
     public boolean hasMergeQueue(String repo, String baseRef)
     {
-        requireNotBlank(baseRef, "baseRef");
+        checkText(baseRef, "baseRef");
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, 1);
         return pullRequestWrites.hasMergeQueue(pat, RepoRef.of(ref.owner(), ref.repo()), baseRef);
@@ -993,7 +993,7 @@ public class PullRequestService
 
     public PullRequestDetail commentOnPullRequest(String repo, int number, String body)
     {
-        requireNotBlank(body, "comment body must not be blank");
+        checkText(body, "comment body");
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
         PrTimelineEvent created = pullRequestWrites.createIssueComment(pat, ref, body);
@@ -1004,8 +1004,8 @@ public class PullRequestService
 
     public boolean toggleReaction(String repo, int number, String target, Long commentId, String content, Boolean viewerHasReacted)
     {
-        requireNotBlank(target, "reaction target must not be blank");
-        requireNotBlank(content, "reaction content must not be blank");
+        checkText(target, "reaction target");
+        checkText(content, "reaction content");
         String normalizedTarget = target.trim().toLowerCase(Locale.ROOT);
         String normalizedContent = content.trim().toLowerCase(Locale.ROOT);
         if (!REACTION_CONTENTS.contains(normalizedContent)) {
@@ -1042,7 +1042,7 @@ public class PullRequestService
 
     public void updateTitle(String repo, int number, String title)
     {
-        requireNotBlank(title, "pull request title must not be blank");
+        checkText(title, "pull request title");
         String normalizedTitle = title.trim();
         pullRequestWrites.updatePullRequestTitle(credentialService.resolveGitHubToken(), parseRef(repo, number), normalizedTitle);
         store.findIdByRepoAndNumber(repo, number).ifPresent(prId -> {
@@ -1096,7 +1096,7 @@ public class PullRequestService
 
     public void updateReviewerRequest(String repo, int number, String login, boolean requested)
     {
-        requireNotBlank(login, "reviewer login must not be blank");
+        checkText(login, "reviewer login");
         pullRequestWrites.updateReviewerRequest(credentialService.resolveGitHubToken(), parseRef(repo, number), login.trim(), requested);
         recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
         invalidatePullRequestDetail(repo, number);
@@ -1104,7 +1104,7 @@ public class PullRequestService
 
     public void replyToReviewComment(String repo, int number, long commentId, String body)
     {
-        requireNotBlank(body, "reply body must not be blank");
+        checkText(body, "reply body");
         String pat = credentialService.resolveGitHubToken();
         pullRequestWrites.replyToReviewComment(pat, parseRef(repo, number), commentId, body);
         recent.pullRequestAction(repo, number, RecentReason.COMMENTED, 0);
@@ -1115,7 +1115,7 @@ public class PullRequestService
     /** Edits a posted comment or review body on GitHub, then patches the cached copies of that body. */
     public PullRequestDetail editComment(String repo, int number, String target, long commentId, String body)
     {
-        requireNotBlank(target, "comment target must not be blank");
+        checkText(target, "comment target");
         String normalizedTarget = target.trim().toLowerCase(Locale.ROOT);
         // The keys the create paths index, so an edit replaces the written text instead of adding a copy.
         String textKey = switch (normalizedTarget) {
@@ -1127,7 +1127,7 @@ public class PullRequestService
         if (commentId <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "comment edit requires a positive comment id");
         }
-        requireNotBlank(body, "comment body must not be blank");
+        checkText(body, "comment body");
 
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
@@ -1208,7 +1208,7 @@ public class PullRequestService
      */
     public PullRequestDetail submitReview(String repo, int number, long prId, String event, String body, List<InlineReviewComment> comments)
     {
-        requireNotBlank(event, "review event must not be blank");
+        checkText(event, "review event");
         String normalizedEvent = event.toUpperCase(Locale.ROOT);
         if (!ImmutableSet.of("COMMENT", "APPROVE", "REQUEST_CHANGES").contains(normalizedEvent)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported review event");
@@ -1348,15 +1348,15 @@ public class PullRequestService
         if (comment == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review comment must not be null");
         }
-        requireNotBlank(comment.body(), "review comment body must not be blank");
+        checkText(comment.body(), "review comment body");
         if (comment.replyToCommentId().isPresent()) {
             if (comment.replyToCommentId().getAsLong() <= 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "reply requires a positive comment id");
             }
             return;
         }
-        requireNotBlank(comment.path(), "review comment path must not be blank");
-        requireNotBlank(comment.side(), "review comment side must not be blank");
+        checkText(comment.path(), "review comment path");
+        checkText(comment.side(), "review comment side");
         String side = comment.side().toUpperCase(Locale.ROOT);
         if (!ImmutableSet.of("LEFT", "RIGHT").contains(side)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review comment side must be LEFT or RIGHT");
@@ -1368,7 +1368,7 @@ public class PullRequestService
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review comment range must stay on one side");
         }
         if (requireCommit) {
-            requireNotBlank(comment.commitId(), "review comment commit must not be blank");
+            checkText(comment.commitId(), "review comment commit");
         }
     }
     /** Merges directly, falling back to GitHub's merge queue when required. */

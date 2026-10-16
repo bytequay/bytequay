@@ -26,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.persistence.sqlite.store.StoreWrites.AGENT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -57,7 +57,7 @@ public class SqliteSteerDeliveryStore
     public Optional<AgentInputDelivery> findSteerByIdempotencyKey(TaskId taskId, String idempotencyKey)
     {
         requireNonNull(taskId, "taskId is null");
-        checkNotBlank(idempotencyKey, "idempotencyKey");
+        checkText(idempotencyKey, "idempotencyKey");
         return repository.findByTaskIdAndIdempotencyKey(taskId.toString(), idempotencyKey)
                 .map(AgentInputDeliveryEntity::toDomain);
     }

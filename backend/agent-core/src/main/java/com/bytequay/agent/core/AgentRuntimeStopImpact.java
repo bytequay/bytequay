@@ -15,7 +15,7 @@ package com.bytequay.agent.core;
 
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -32,7 +32,7 @@ public record AgentRuntimeStopImpact(TaskId taskId, String generation, Optional<
     public AgentRuntimeStopImpact
     {
         requireNonNull(taskId, "taskId is null");
-        checkNotBlank(generation, "generation");
+        checkText(generation, "generation");
         requireNonNull(activeTurnId, "activeTurnId is null");
     }
 }

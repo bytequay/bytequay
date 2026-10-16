@@ -18,7 +18,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static java.util.Objects.requireNonNull;
 
 public record TaskSummary(String finalResponse, Optional<WorktreeSnapshot> worktree, AgentMetrics metrics, Optional<String> notes, List<ChildSummary> children)

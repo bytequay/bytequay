@@ -26,7 +26,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.IntFunction;
+import java.util.function.ToIntFunction;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
@@ -61,12 +63,19 @@ final class GitHubPaginator
      */
     <T> ConditionalList<T> paginateConditional(String pat, String pathTemplate, ParameterizedTypeReference<List<T>> typeRef, Optional<String> etag, Object... uriVariables)
     {
+        return paginateConditional(MAX_PAGES, pat, pathTemplate, typeRef, etag, rows -> rows, rows -> Integer.MAX_VALUE, uriVariables);
+    }
+
+    <R, T> ConditionalList<T> paginateConditional(int maxPages, String pat, String pathTemplate, ParameterizedTypeReference<R> typeRef,
+            Optional<String> etag, Function<R, List<T>> items, ToIntFunction<R> totalCount, Object... uriVariables)
+    {
         requireNonNull(etag, "etag is null");
         // GitHub can return the same row on adjacent pages while rows are created during the walk;
         // the set keeps downstream saves at one row per identity.
         Set<T> seen = new LinkedHashSet<>();
         Optional<String> responseEtag = etag;
-        for (int page = 1; page <= MAX_PAGES; page++) {
+        int collected = 0;
+        for (int page = 1; page <= maxPages; page++) {
             int currentPage = page;
             RestClient.RequestHeadersSpec<?> request = get(gitHubRestClient, pat, u -> u.path(pathTemplate)
                     .queryParam("per_page", PAGE_SIZE)
@@ -75,7 +84,7 @@ final class GitHubPaginator
             if (currentPage == 1) {
                 etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
             }
-            ResponseEntity<List<T>> entity = translating(() -> request.retrieve().toEntity(typeRef));
+            ResponseEntity<R> entity = translating(() -> request.retrieve().toEntity(typeRef));
             if (currentPage == 1) {
                 responseEtag = Optional.ofNullable(entity.getHeaders().getETag()).or(() -> etag);
             }
@@ -85,13 +94,15 @@ final class GitHubPaginator
                 }
                 return new ConditionalList<>(Optional.empty(), responseEtag);
             }
-            List<T> rows = requireBody(entity.getBody(), "Empty response from GitHub list endpoint");
+            R response = requireBody(entity.getBody(), "Empty response from GitHub list endpoint");
+            List<T> rows = requireBody(items.apply(response), "Missing rows from GitHub list endpoint");
+            collected += rows.size();
             if (rows.isEmpty()) {
                 break;
             }
             int size = seen.size();
             seen.addAll(rows);
-            if (rows.size() < PAGE_SIZE || seen.size() == size) {
+            if (collected >= totalCount.applyAsInt(response) || rows.size() < PAGE_SIZE || seen.size() == size) {
                 break;
             }
         }
@@ -104,18 +115,24 @@ final class GitHubPaginator
     }
 
     /** Bounded list reads retain partial results; callers map each page before another request starts. */
-    static <T> void forEachPage(int maxPages, IntFunction<List<T>> fetch, Consumer<List<T>> accept)
+    static <T> boolean forEachPage(int maxPages, IntFunction<List<T>> fetch, Consumer<List<T>> accept)
+    {
+        return forEachPage(maxPages, PAGE_SIZE, fetch, accept);
+    }
+
+    static <T> boolean forEachPage(int maxPages, int pageSize, IntFunction<List<T>> fetch, Consumer<List<T>> accept)
     {
         for (int page = 1; page <= maxPages; page++) {
             List<T> rows = fetch.apply(page);
             if (rows == null || rows.isEmpty()) {
-                break;
+                return true;
             }
             accept.accept(rows);
-            if (rows.size() < PAGE_SIZE) {
-                break;
+            if (rows.size() < pageSize) {
+                return true;
             }
         }
+        return false;
     }
 
     <T> List<T> fetchPage(String pat, String pathTemplate, ParameterizedTypeReference<List<T>> typeRef, int page, Object... uriVariables)
@@ -129,5 +146,32 @@ final class GitHubPaginator
                     .body(typeRef);
             return requireBody(rows, "Empty response from GitHub list endpoint");
         });
+    }
+
+    static <T> void forEachCompletePage(int maxPages, IntFunction<? extends Page<T>> fetch, Consumer<T> accept, String kind)
+    {
+        int collected = 0;
+        for (int page = 1; page <= maxPages; page++) {
+            Page<T> response = fetch.apply(page);
+            if (response == null || response.totalCount() == null || response.totalCount() < 0 || response.rows() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned incomplete workflow-" + kind + " evidence");
+            }
+            response.rows().forEach(accept);
+            collected += response.rows().size();
+            if (collected == response.totalCount()) {
+                return;
+            }
+            if (response.rows().isEmpty() || collected > response.totalCount()) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned incomplete workflow-" + kind + " pages");
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub workflow " + kind + "s exceed the complete inspection limit");
+    }
+
+    interface Page<T>
+    {
+        Integer totalCount();
+
+        List<T> rows();
     }
 }

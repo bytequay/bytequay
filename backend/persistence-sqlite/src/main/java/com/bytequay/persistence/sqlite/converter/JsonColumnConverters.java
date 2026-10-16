@@ -26,6 +26,7 @@ import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryPickerUser;
@@ -204,6 +205,16 @@ public final class JsonColumnConverters
         public PrActivitySummaryConverter()
         {
             super(new TypeReference<>() {}, "pull request activity summary", null, null);
+        }
+    }
+
+    @Converter
+    public static class PrTimelinePayloadConverter
+            extends JsonColumnConverter<PrTimelinePayload>
+    {
+        public PrTimelinePayloadConverter()
+        {
+            super(new TypeReference<>() {}, "PR timeline payload", null, PrTimelinePayload.empty());
         }
     }
 

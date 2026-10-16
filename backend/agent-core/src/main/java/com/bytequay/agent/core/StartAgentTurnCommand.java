@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -47,9 +47,9 @@ public record StartAgentTurnCommand(
         requireNonNull(useRepositoryContext, "useRepositoryContext is null");
         requireNonNull(expectedTaskVersion, "expectedTaskVersion is null");
         expectedTaskVersion.ifPresent(version -> checkArgument(version >= 0, "expectedTaskVersion is negative"));
-        checkNotBlank(message, "message");
+        checkText(message, "message");
         attachments = ImmutableList.copyOf(attachments);
-        checkNotBlank(idempotencyKey, "idempotencyKey");
+        checkText(idempotencyKey, "idempotencyKey");
     }
 
     /**

@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.spi;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** A service tier advertised for a model; the id is passed unchanged to the provider. */
@@ -21,8 +21,8 @@ public record ProviderServiceTier(String id, String name, String description)
 {
     public ProviderServiceTier
     {
-        checkNotBlank(id, "id");
-        checkNotBlank(name, "name");
+        checkText(id, "id");
+        checkText(name, "name");
         requireNonNull(description, "description is null");
     }
 }

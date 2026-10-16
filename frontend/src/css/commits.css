@@ -1301,18 +1301,13 @@
 
 /* ── Dry run modal ───────────────────────────────────────── */
 
-.cmt-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 70;
-  background: rgba(27, 31, 36, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
+.cmt-modal::backdrop { background: rgba(0, 0, 0, 0.45); }
 
 .cmt-modal {
+  margin: auto;
+  padding: 0;
+  color: inherit;
+  font: inherit;
   width: 760px;
   max-width: 100%;
   max-height: 84vh;
@@ -1767,23 +1762,20 @@
 
 /* ── Select range dialog ─────────────────────────────────── */
 
-.cmt-rd-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 28px;
+.cmt-rd::backdrop {
   background: rgba(27, 31, 36, 0.45);
 }
 
 .cmt-rd {
+  margin: auto;
+  padding: 0;
+  color: var(--text-1);
+  font: inherit;
   display: flex;
   flex-direction: column;
   width: 100%;
   max-width: 860px;
-  max-height: 100%;
+  max-height: calc(100vh - 56px);
   box-sizing: border-box;
   border: 1px solid #d0d7de;
   border-radius: 12px;

@@ -15,7 +15,7 @@ package com.bytequay.agent.spi;
 
 import java.util.function.Function;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** A fixed semantic query in the owning worktree, shared with its IDE language providers. */
@@ -26,6 +26,6 @@ public record CodeQueryBridge(Function<CodeQuery, String> query, String instruct
     public CodeQueryBridge
     {
         requireNonNull(query, "query is null");
-        checkNotBlank(instruction, "instruction");
+        checkText(instruction, "instruction");
     }
 }

@@ -373,9 +373,6 @@
 .pull-detail__header--tabs { overflow: visible; border-bottom: 1px solid #e7e9ec; padding: 8px 10px; }
 .pull-detail__toolbar { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
 
-.pull-detail__title-row { display: flex; align-items: flex-start; gap: 16px; }
-.pull-detail__title-row h1 { min-width: 0; flex: 1; margin: 0; color: #17191c; font-size: 15px; font-weight: 500; line-height: 1.4; }
-.pull-detail__title-row h1 span { color: #8b949e; font-weight: 300; }
 .pull-detail__header-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .pull-detail__header-actions button {
   display: inline-flex;
@@ -499,27 +496,8 @@
   box-shadow: -12px 0 32px rgba(27, 31, 36, 0.18);
 }
 .pr-merge-sheet__header,
-.pr-review-sheet__header {
-  display: flex;
-  min-height: 56px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid #d8dee4;
-  padding: 0 22px;
-}
 .pr-merge-sheet__header h2,
-.pr-review-sheet__header h2 { margin: 0; font-size: 17px; font-weight: 600; }
-.pr-review-sheet__header h2 { font-size: var(--font-size-lg); }
 .pr-merge-sheet__header button,
-.pr-review-sheet__header button {
-  border: 0;
-  background: transparent;
-  color: #57606a;
-  padding: 4px 8px;
-  font-size: 25px;
-  line-height: 1;
-}
 .pr-review-sheet__content {
   display: flex;
   min-height: 0;

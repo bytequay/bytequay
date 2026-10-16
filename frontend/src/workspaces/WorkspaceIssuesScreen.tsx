@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { CircleCheck, CircleDot, ExternalLink, Flag, ListTodo, Play, User } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -20,14 +21,16 @@ import {
   type UIEvent as ReactUIEvent,
 } from 'react';
 import Avatar from '../Avatar';
-import StartDevelopmentDialog from '../agents/StartDevelopmentDialog';
-import type { TaskLaunch } from '../agents/AgentTasksView';
-import { CircleCheck, CircleDot, ExternalLink, Flag, ListTodo, Play, User } from 'lucide-react';
-import { epicIdentity, issueEpicId, useWorkItems } from './epics';
-import { issueDevelopmentAction, notifyIssueDevelopmentChanged } from './issueDevelopment';
-import { useUnmarkEpic } from './useUnmarkEpic';
-import type { NavigationMode } from '../navigationHistory';
 import CopyLinkButton from '../CopyLinkButton';
+import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
+import type { TaskLaunch } from '../agents/AgentTasksView';
+import StartDevelopmentDialog from '../agents/StartDevelopmentDialog';
+import '../css/issues.css';
+import PinButton from '../home/PinButton';
+import { issueAttentionItem, loadHandled } from '../home/attention';
+import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
+import type { NavigationMode } from '../navigationHistory';
+import { SkeletonTimeline } from '../pulls/DetailSkeleton';
 import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers } from '../pulls/MarkdownBody';
 import {
   CardHeader,
@@ -39,31 +42,30 @@ import {
   type MentionCandidate,
   type QuoteRequest,
 } from '../pulls/PullOverview';
-import { SkeletonTimeline } from '../pulls/DetailSkeleton';
 import { CommentIcon, PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
 import { parsePullSearch, pullRequestMatchesSearch } from '../pulls/model';
-import { relativeTime } from '../relativeTime';
-import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import { useRecentTouch } from '../recent/useRecentTouch';
-import { issueAttentionItem, loadHandled } from '../home/attention';
-import PinButton from '../home/PinButton';
-import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
+import { relativeTime } from '../relativeTime';
 import type {
   Bridge,
   IssueDevelopmentTaskDto,
   PullReactionDto,
   RepoLabelDto,
-  RepoUserDto,
-  WorkspaceIssueDetailDto,
   RepositoryIssueSnapshotDto,
   RepositoryMetadataDto,
+  RepoUserDto,
+  WorkspaceIssueDetailDto,
   WorkspaceIssueTimelineEventDto,
   WorkspaceIssueTypeDto,
 } from '../types';
+import { usePopoverDismiss } from '../usePopoverDismiss';
+import { useResizablePane } from '../useResizablePane';
+import { workItemRoute } from '../workitems/contracts';
 import { EpicTabs, workProgress } from './EpicTabs';
 import { EpicWork } from './EpicView';
-import { workItemRoute } from '../workitems/contracts';
-import '../css/issues.css';
+import { epicIdentity, issueEpicId, useWorkItems } from './epics';
+import { issueDevelopmentAction, notifyIssueDevelopmentChanged } from './issueDevelopment';
+import { useUnmarkEpic } from './useUnmarkEpic';
 
 type Issue = RepositoryIssueSnapshotDto['issues'][number];
 
@@ -117,7 +119,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const [timeline, setTimeline] = useState<WorkspaceIssueTimelineEventDto[]>([]);
   const [issueType, setIssueType] = useState<WorkspaceIssueTypeDto | null>(null);
   const [paneOpen, setPaneOpen] = useState(true);
-  const [detailWidth, setDetailWidth] = useState(DETAIL_DEFAULT);
+  const { width: detailWidth, startResize } = useResizablePane(DETAIL_DEFAULT, DETAIL_MIN, DETAIL_MAX, 'start');
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -427,37 +429,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
   }, [loadDetail, selectedNumber, selectedId, previewIssue?.id]);
 
-  const resizeDetail = (event: ReactMouseEvent) => {
-    event.preventDefault();
-    const pane = event.currentTarget.parentElement;
-    if (!pane) return;
-    const startX = event.clientX;
-    const startWidth = pane.getBoundingClientRect().width;
-    let nextWidth = startWidth;
-    let frame = 0;
-    const move = (next: globalThis.MouseEvent) => {
-      nextWidth = Math.max(DETAIL_MIN, Math.min(DETAIL_MAX, startWidth + startX - next.clientX));
-      if (frame === 0) {
-        frame = window.requestAnimationFrame(() => {
-          pane.style.width = `${nextWidth}px`;
-          frame = 0;
-        });
-      }
-    };
-    const stop = () => {
-      if (frame !== 0) window.cancelAnimationFrame(frame);
-      pane.style.width = `${nextWidth}px`;
-      setDetailWidth(nextWidth);
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', stop);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', stop);
-  };
+  const resizeDetail = (event: ReactMouseEvent) => startResize(event, event.currentTarget.parentElement?.getBoundingClientRect().width);
 
   // Reading an issue closely and doing nothing is exactly the case the other
   // surfaces miss, so the dwell timer records it.
@@ -731,7 +703,6 @@ export function IssueOverview({
   onComment: (body: string) => Promise<void>;
   actions?: React.ReactNode;
 }) {
-  const root = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<IssueMetadataPickerKind | null>(null);
   const [repoUsers, setRepoUsers] = useState<RepoUserDto[]>([]);
   const [repoLabels, setRepoLabels] = useState<RepoLabelDto[]>([]);
@@ -745,21 +716,7 @@ export function IssueOverview({
   const visibleTimeline = timeline.filter(event => !HIDDEN_EVENTS.has(event.event));
   const candidates: MentionCandidate[] = participants.map(({ login, avatarUrl }) => ({ login, avatarUrl }));
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(null);
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(null);
-    };
-    document.addEventListener('pointerdown', close);
-    document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('pointerdown', close);
-      document.removeEventListener('keydown', escape);
-    };
-  }, [open]);
+  const root = usePopoverDismiss(() => setOpen(null), false, open !== null);
 
   const togglePicker = (kind: IssueMetadataPickerKind) => {
     setQuery('');

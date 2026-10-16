@@ -78,9 +78,7 @@ export function languageFor(path: string): CodeLanguage {
   return LANGUAGE_BY_EXTENSION[extension] ?? 'text';
 }
 
-export function shortSha(sha: string) {
-  return sha.slice(0, 7);
-}
+
 
 /**
  * Whether an Agent review finding can sit on these lines: Changes shows it at its end line only while it is current,
@@ -119,3 +117,5 @@ export function githubCommentBlocker(facts: CommentAnchorFacts): string | null {
   });
   return inOneHunk ? null : "GitHub accepts line comments only on lines in this pull request's diff";
 }
+
+export { shortSha } from '../../displayText';

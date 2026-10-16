@@ -49,7 +49,7 @@ describe('select range dialog', () => {
   it('opens over the whole window as a labelled modal', () => {
     const html = render();
 
-    expect(html).toContain('class="cmt-rd-scrim"');
+    expect(html).toContain('<dialog class="cmt-rd"');
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-modal="true"');
     expect(html).toContain('Select a commit range');

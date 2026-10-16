@@ -214,7 +214,7 @@ class TestLocalRunService
         assertThat(interrupted.endedAt()).contains(NOW);
         // Startup recovery owns that launch now, through the task's recovery claim.
         assertThat(runs.find(unverified.id()).orElseThrow().treeUnverified()).isFalse();
-        assertThat(service.output(REVIEW_ID, unverified.id(), 2)).isEqualTo(new LocalRunService.OutputChunk("ne", 4, 0, true));
+        assertThat(service.output(code.reviewHost(REVIEW_ID), unverified.id(), 2)).isEqualTo(new LocalRunService.OutputChunk("ne", 4, 0, true));
 
         service.stop();
         assertThat(service.isRunning()).isFalse();
@@ -340,7 +340,7 @@ class TestLocalRunService
         when(executions.output(run, 0)).thenReturn(Optional.of(chunk));
         when(executions.stop(run)).thenReturn(run);
         assertThat(service.output(taskHost(), run.id(), 0)).isEqualTo(chunk);
-        assertThat(service.stop(REVIEW_ID, run.id())).isEqualTo(run);
+        assertThat(service.stop(code.reviewHost(REVIEW_ID), run.id())).isEqualTo(run);
         verify(executions).stop(run);
         assertThat(service.list(taskHost())).containsExactly(run);
         assertThatThrownBy(() -> service.output(taskHost(), run.id(), -1)).isInstanceOf(IllegalArgumentException.class);

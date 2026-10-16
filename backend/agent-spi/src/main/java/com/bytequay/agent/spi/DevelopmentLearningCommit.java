@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.spi;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 /** One actual commit explained by a development task's summary refinement. */
@@ -24,11 +24,11 @@ public record DevelopmentLearningCommit(String sha, String title, String summary
 
     public DevelopmentLearningCommit
     {
-        checkNotBlank(sha, "sha");
+        checkText(sha, "sha");
         checkArgument(sha.matches("(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})"), "sha must be a full commit identifier");
-        checkNotBlank(title, "title");
+        checkText(title, "title");
         checkArgument(title.length() <= MAXIMUM_TITLE_LENGTH, "title is too long");
-        checkNotBlank(summary, "summary");
+        checkText(summary, "summary");
         checkArgument(summary.length() <= MAXIMUM_SUMMARY_LENGTH, "summary is too long");
     }
 }

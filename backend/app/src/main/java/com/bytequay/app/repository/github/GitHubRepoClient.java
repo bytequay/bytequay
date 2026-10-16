@@ -88,22 +88,17 @@ public class GitHubRepoClient
         checkArgument(limit > 0, "limit is not positive");
         ImmutableList.Builder<CommitAvatar> avatars = ImmutableList.builder();
         int pageSize = Math.min(limit, 100);
-        int remaining = limit;
         try {
-            for (int page = 1; remaining > 0; page++) {
-                int currentPage = page;
+            GitHubPaginator.forEachPage(Math.ceilDiv(limit, pageSize), pageSize, page -> {
                 List<CommitResponse> commits = get(gitHubRestClient, pat, builder -> builder.path("/repos/{owner}/{repo}/commits")
                         .queryParam("sha", ref)
                         .queryParam("per_page", pageSize)
-                        .queryParam("page", currentPage)
+                        .queryParam("page", page)
                         .build(repo.owner(), repo.repo()))
                         .retrieve()
                         .body(new ParameterizedTypeReference<>() {});
-                if (commits == null || commits.isEmpty()) {
-                    break;
-                }
-                commits.stream()
-                        .limit(remaining)
+                return commits == null ? ImmutableList.<CommitResponse>of() : commits.subList(0, Math.min(commits.size(), limit - (page - 1) * pageSize));
+            }, commits -> commits.stream()
                         .filter(commit -> commit.sha() != null && !commit.sha().isBlank())
                         .filter(commit -> commit.author() != null || commit.committer() != null)
                         .map(commit -> new CommitAvatar(
@@ -112,12 +107,7 @@ public class GitHubRepoClient
                                 accountValue(commit.author(), GitHubUser::avatarUrl),
                                 accountValue(commit.committer(), GitHubUser::login),
                                 accountValue(commit.committer(), GitHubUser::avatarUrl)))
-                        .forEach(avatars::add);
-                remaining -= commits.size();
-                if (commits.size() < pageSize) {
-                    break;
-                }
-            }
+                        .forEach(avatars::add));
             return new CommitAvatarSnapshot(avatars.build(), true);
         }
         catch (RestClientException ignored) {

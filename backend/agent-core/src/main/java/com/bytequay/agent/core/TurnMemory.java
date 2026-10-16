@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.core;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 
 /**
  * A repository memory delivered with a turn, as the agent received it: its id and its line, so the turn's receipt shows what the agent
@@ -23,7 +23,7 @@ public record TurnMemory(String id, String line)
 {
     public TurnMemory
     {
-        checkNotBlank(id, "id");
-        checkNotBlank(line, "line");
+        checkText(id, "id");
+        checkText(line, "line");
     }
 }

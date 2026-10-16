@@ -180,7 +180,7 @@ class TestTeamService
     {
         TeamDirectory saved = service.create("Saved", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of());
         String id = saved.circles().getFirst().id();
-        assertThatThrownBy(() -> service.create(" ", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of())).isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> service.create(" ", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.update(id, "x".repeat(101), "", Avatar.DEFAULT, ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.update(id, "Name", "", Avatar.DEFAULT, ImmutableList.of("owner/repo/extra"))).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.update(id, "Name", "x".repeat(2001), Avatar.DEFAULT, ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
@@ -188,7 +188,7 @@ class TestTeamService
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.addMember(id, new TeamMemberInput(42, "https://github.com/person"))).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.addMember(id, new TeamMemberInput(0, "person"))).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.addMember(id, new TeamMemberInput(42, " "))).isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> service.addMember(id, new TeamMemberInput(42, " "))).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.addMember("missing", new TeamMemberInput(42, "person"))).isInstanceOf(ResponseStatusException.class);
         assertThat(service.directory()).isEqualTo(saved);
     }

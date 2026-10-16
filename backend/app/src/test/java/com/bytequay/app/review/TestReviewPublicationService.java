@@ -381,7 +381,6 @@ class TestReviewPublicationService
         reviews.put(revised.revised("Revised title", "Rewritten body", Optional.empty(), revised.anchor(), ImmutableList.of(), REVIEWED_HEAD, NOW));
         reviews.findings.remove(removed.id());
 
-        assertThat(service.ineligible(REPO, NUMBER)).isEmpty();
         assertThat(service.draft(REPO, NUMBER)).isEqualTo(draft);
         verifyNoInteractions(pullRequests);
 
@@ -520,7 +519,6 @@ class TestReviewPublicationService
         draft = service.addManual(REPO, NUMBER, draft.version(), manual("B.java", 4, "Head comment").withCommitId(CURRENT_HEAD));
         assertThat(draft.items().getFirst().replyToCommentId()).hasValue(61);
         assertThat(draft.items().getFirst().commitId()).isEmpty();
-        assertThat(service.ineligible(REPO, NUMBER)).isEmpty();
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
         when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(detail());
@@ -636,10 +634,6 @@ class TestReviewPublicationService
         assertThat(after.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
         assertThat(after.items().getFirst().published()).isFalse();
         assertThat(after.items().getFirst().body()).isEqualTo("Rename this");
-        assertThat(service.ineligible(REPO, NUMBER)).singleElement().satisfies(item -> {
-            assertThat(item.itemId()).isEqualTo(itemId);
-            assertThat(item.reason()).contains("unknown outcome");
-        });
         // A send whose outcome is unknown is never retried from here; the refusal is what keeps a duplicate comment off GitHub.
         assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, after.version(), itemId)).hasMessageContaining("unknown outcome");
         assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), "Review", "COMMENT")).hasMessageContaining("unknown outcome");
@@ -665,7 +659,6 @@ class TestReviewPublicationService
         assertThat(pending.body()).isEqualTo(saved.body());
         assertThat(pending.event()).isEqualTo(saved.event());
         assertThat(pending.version()).isEqualTo(saved.version() + 1);
-        assertThat(service.ineligible(REPO, NUMBER)).isEmpty();
         verifyNoInteractions(pullRequests);
 
         when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(detail());

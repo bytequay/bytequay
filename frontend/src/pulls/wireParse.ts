@@ -19,33 +19,40 @@
  * naming the service it came from.
  */
 
-export function object(value: unknown, what: string): Record<string, unknown> {
+export function object(value: unknown, what = 'object'): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`Malformed ${what}`);
   }
   return value as Record<string, unknown>;
 }
 
-export function text(value: unknown, what: string): string {
+export function text(value: unknown, what = 'text'): string {
   if (typeof value !== 'string') throw new Error(`Malformed ${what}`);
   return value;
 }
 
-export function optionalText(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
+export function optionalText(value: unknown, what?: string): string | null {
+  if (value == null) return null;
+  return what === undefined ? (typeof value === 'string' ? value : null) : text(value, what);
 }
 
-export function count(value: unknown, what: string): number {
+export function count(value: unknown, what = 'number'): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`Malformed ${what}`);
   return value;
 }
 
-export function optionalCount(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+export function optionalCount(value: unknown, what?: string): number | null {
+  if (value == null) return null;
+  return what === undefined ? (typeof value === 'number' && Number.isFinite(value) ? value : null) : count(value, what);
 }
 
 export function oneOf<T extends string>(value: unknown, allowed: readonly T[], what: string): T {
   const found = allowed.find(candidate => candidate === value);
   if (found === undefined) throw new Error(`Malformed ${what}`);
   return found;
+}
+
+export function flag(value: unknown, what = 'flag'): boolean {
+  if (typeof value !== 'boolean') throw new Error(`Malformed ${what}`);
+  return value;
 }

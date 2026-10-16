@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import RepoAvatar from './RepoAvatar';
 import type {
   RepoRefDto,
@@ -22,6 +22,7 @@ import type {
   WatchRepositoryTopology,
   WorkspaceDto,
 } from './types';
+import { useModalDialog } from './useModalDialog';
 
 type Props = {
   initialRepositoryId?: number;
@@ -209,21 +210,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
     return () => { cancelled = true; };
   }, [selectedRepositoryId, topology]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || adding) return;
-      if (selectedRepositoryId !== null) {
-        setSelectedRepositoryId(null);
-        setTopology(undefined);
-        setPreview(null);
-        setError(null);
-      } else {
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [adding, onClose, selectedRepositoryId]);
+  const dialog = useModalDialog(inputRef);
 
   const pick = (repo: RepositorySearchResultDto) => {
     setSelectedRepositoryId(repo.id);
@@ -263,8 +250,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
   };
 
   return (
-    <div className="modal-overlay">
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Watch a repository">
+    <dialog ref={dialog} className="modal" onCancel={event => { event.preventDefault(); if (!adding) { if (selectedRepositoryId !== null) back(); else onClose(); } }} role="dialog" aria-modal="true" aria-label="Watch a repository">
         {selectedRepositoryId === null && (
           <>
             <div className="modal__header">
@@ -360,7 +346,6 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
             )}
           </>
         )}
-      </div>
-    </div>
+    </dialog>
   );
 }

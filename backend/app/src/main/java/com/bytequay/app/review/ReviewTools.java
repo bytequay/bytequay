@@ -16,6 +16,7 @@ package com.bytequay.app.review;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
@@ -74,6 +75,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.cfg.JsonNodeFeature;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -84,6 +86,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -101,6 +104,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE;
 import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.SUPPORTED;
 import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.UNRESOLVED;
@@ -491,32 +495,30 @@ public class ReviewTools
             return error("arguments", "arguments must be a JSON object");
         }
         Lock lock = locks.lock(reviewId);
-        lock.lock();
-        try {
-            AgentReview review = store.findReview(reviewId).orElseThrow(() -> new ReviewNotFoundException("Review not found: " + reviewId));
-            if (review.state() != AgentReview.State.OPEN) {
-                return error("review", "this review has ended; nothing can be recorded");
+        return withLock(lock, () -> {
+            try {
+                AgentReview review = store.findReview(reviewId).orElseThrow(() -> new ReviewNotFoundException("Review not found: " + reviewId));
+                if (review.state() != AgentReview.State.OPEN) {
+                    return error("review", "this review has ended; nothing can be recorded");
+                }
+                ReviewToolAssignment.Binding bound = assignments.resolve(reviewId, turnId);
+                if (bound.run().explanationOnly() && !tool.equals("review_get_context") && !tool.equals("review_save_summary")
+                        && !(bound.step().isEmpty() && tool.equals("review_reply"))) {
+                    return error("assignment", "this explanation refresh can only read context and save its explanation; findings require a review assignment");
+                }
+                JsonNode result = handler.apply(new Call(review, bound.run(), bound.step(), bound.discussion(), turnId, (ObjectNode) parsed));
+                if (!(result instanceof ObjectNode object) || object.has("error")) {
+                    return result.toString();
+                }
+                // A copy, so a stored result an operation replays is never changed.
+                return object.deepCopy().put("activityLine", ReviewToolActivity.describe(tool, parsed, object)).toString();
             }
-            ReviewToolAssignment.Binding bound = assignments.resolve(reviewId, turnId);
-            if (bound.run().explanationOnly() && !tool.equals("review_get_context") && !tool.equals("review_save_summary")
-                    && !(bound.step().isEmpty() && tool.equals("review_reply"))) {
-                return error("assignment", "this explanation refresh can only read context and save its explanation; findings require a review assignment");
+            catch (ReviewInvalidRequestException | ReviewConflictException e) {
+                String message = Optional.ofNullable(e.getMessage()).orElse("invalid request");
+                int colon = message.indexOf(": ");
+                return colon > 0 && colon < 40 ? error(message.substring(0, colon), message.substring(colon + 2)) : error("request", message);
             }
-            JsonNode result = handler.apply(new Call(review, bound.run(), bound.step(), bound.discussion(), turnId, (ObjectNode) parsed));
-            if (!(result instanceof ObjectNode object) || object.has("error")) {
-                return result.toString();
-            }
-            // A copy, so a stored result an operation replays is never changed.
-            return object.deepCopy().put("activityLine", ReviewToolActivity.describe(tool, parsed, object)).toString();
-        }
-        catch (ReviewInvalidRequestException | ReviewConflictException e) {
-            String message = Optional.ofNullable(e.getMessage()).orElse("invalid request");
-            int colon = message.indexOf(": ");
-            return colon > 0 && colon < 40 ? error(message.substring(0, colon), message.substring(colon + 2)) : error("request", message);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     private String error(String field, String message)
@@ -1698,7 +1700,7 @@ public class ReviewTools
         if (call.run().scope() == ReviewRun.Scope.FULL || previous.isEmpty()) {
             return call.run().diff().stream().map(DiffFile::filename).collect(toImmutableList());
         }
-        return ReviewScopeFiles.required(git, workspaces.requireReadyRepository(call.review().workspaceId()).repository(), call.run(), previous);
+        return requiredScopeFiles(git, workspaces.requireReadyRepository(call.review().workspaceId()).repository(), call.run(), previous);
     }
 
     private JsonNode timeline(Call call, int number, int page)
@@ -1940,8 +1942,8 @@ public class ReviewTools
                 return cachedIssue(call, cached.orElseThrow(), page);
             }
         }
-        String[] parts = call.review().repo().split("/", 2);
-        GitHubIssuePreview preview = repositories.getIssuePreview(parts[0], parts[1], number);
+        RepositoryIdentity repository = RepositoryIdentity.valueOf(call.review().repo());
+        GitHubIssuePreview preview = repositories.getIssuePreview(repository.owner(), repository.name(), number);
         ObjectNode node = issueNode(call, number, preview, "github-selected-preview",
                 "GitHub " + (preview.pullRequest() ? "pull request" : "issue") + " selected preview read by ByteQuay at " + now());
         node.set("activity", objectMapper.createObjectNode().put("missing", true).put("completeness", "unavailable")
@@ -2458,7 +2460,7 @@ public class ReviewTools
 
     private static String bounded(String text, int maximum)
     {
-        return text.length() <= maximum ? text : text.substring(0, maximum) + "\n… (truncated)";
+        return Ascii.truncate(text, maximum + 14, "\n… (truncated)");
     }
 
     private Instant now()
@@ -2472,4 +2474,22 @@ public class ReviewTools
     private record OwnThreads(String login, int number, SelectedPullRequestReader.Read read, List<ReviewOwnThreads.Thread> listed, int omitted) {}
 
     private record Replay(String key, String digest, Optional<JsonNode> result) {}
+
+    static List<String> requiredScopeFiles(GitCommandRunner git, Path repository, ReviewRun run, Optional<ReviewRun> previous)
+    {
+        if (run.scope() == ReviewRun.Scope.FULL || previous.isEmpty()) {
+            return run.diff().stream().map(DiffFile::filename).collect(toImmutableList());
+        }
+        return scopeChanged(git, repository, previous.orElseThrow().headSha(), run.headSha());
+    }
+
+    private static List<String> scopeChanged(GitCommandRunner git, Path repository, String base, String head)
+    {
+        // Reverted paths and binary changes cannot be reconstructed from the publication patch.
+        GitCommandRunner.Result changed = git.run(repository, "diff", "--name-only", "--no-renames", "-z", base, head, "--");
+        if (!changed.successful() || changed.truncated()) {
+            throw new ReviewInvalidRequestException("coverage: the frozen changed file list is unavailable; report incomplete coverage");
+        }
+        return Arrays.stream(changed.output().split("\\x00")).filter(path -> !path.isEmpty()).collect(toImmutableList());
+    }
 }

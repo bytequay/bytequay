@@ -17,14 +17,14 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 
 /** Input added to a turn that is already running: text and task-owned attachments, nothing that changes its settings. */
 public record AgentTurnInput(String message, List<AgentAttachment> attachments)
 {
     public AgentTurnInput
     {
-        checkNotBlank(message, "message");
+        checkText(message, "message");
         attachments = ImmutableList.copyOf(attachments);
     }
 }

@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.core;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 public record RepositoryIdentity(String owner, String name)
@@ -26,7 +26,7 @@ public record RepositoryIdentity(String owner, String name)
 
     public static RepositoryIdentity valueOf(String value)
     {
-        checkNotBlank(value, "value");
+        checkText(value, "value");
         String[] parts = value.split("/", -1);
         checkArgument(parts.length == 2, "repository must use owner/name format");
         return new RepositoryIdentity(parts[0], parts[1]);
@@ -40,7 +40,7 @@ public record RepositoryIdentity(String owner, String name)
 
     private static void checkPart(String value, String name)
     {
-        checkNotBlank(value, name);
+        checkText(value, name);
         checkArgument(!value.contains("/"), name + " is invalid");
     }
 }

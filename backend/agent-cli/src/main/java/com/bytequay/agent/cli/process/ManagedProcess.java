@@ -47,10 +47,7 @@ public interface ManagedProcess
      *
      * @return immutable cumulative process identities, or empty when they cannot be verified
      */
-    default Optional<List<ProcessIdentity>> observedDescendants()
-    {
-        return Optional.empty();
-    }
+    Optional<List<ProcessIdentity>> observedDescendants();
 
     /**
      * Writes bytes to standard input in call order.
@@ -82,16 +79,11 @@ public interface ManagedProcess
      * Stops the process group and recorded descendants and returns a fresh verification result.
      *
      * <p>Unlike {@link #exit()}, this operation is retryable after an earlier exit result could not
-     * verify the tree. Implementations that can only report their original terminal result retain
-     * the conservative default.
+     * verify the tree.
      *
      * @return completion with current runtime-stop verification
      */
-    default CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
-    {
-        cancel();
-        return exit().thenApply(ProcessExit::treeTermination);
-    }
+    CompletionStage<ProcessExit.TreeTermination> stopAndVerify();
 
     /**
      * Records provider-confirmed completion of this launch's work, then stops its runtime.
@@ -103,10 +95,7 @@ public interface ManagedProcess
      *
      * @return completion with current runtime-stop verification
      */
-    default CompletionStage<ProcessExit.TreeTermination> stopAfterWorkFinished()
-    {
-        return stopAndVerify();
-    }
+    CompletionStage<ProcessExit.TreeTermination> stopAfterWorkFinished();
 
     /** Releases streams and cancels the process when it is still running. */
     @Override

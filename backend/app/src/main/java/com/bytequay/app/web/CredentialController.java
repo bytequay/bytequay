@@ -30,7 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.Map;
 import java.util.Optional;
 
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -58,7 +58,7 @@ public class CredentialController
     @PostMapping("/api/auth/github/token")
     public void saveToken(@RequestBody TokenRequest req)
     {
-        requireNotBlank(req.value(), "value must not be blank");
+        checkText(req.value(), "value");
         credentialService.saveGitHubToken(req.value());
     }
 

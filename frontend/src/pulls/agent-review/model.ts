@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 import type { ReviewRequest, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
+import { formatDuration } from '../../agents/transcript';
+import { shortSha } from '../../displayText';
 import type {
   AgentReviewDto,
   ReviewDraftDto,
@@ -20,7 +22,6 @@ import type {
   ReviewMessageDto,
   ReviewRunDto,
 } from './contracts';
-import { formatDuration } from '../../agents/transcript';
 
 /**
  * What the review is doing, derived from task, turn and result facts. There is no stored review
@@ -291,9 +292,7 @@ export function reviewElapsed(review: AgentReviewDto, now: number): string | nul
   return formatDuration(Math.max(0, now - started));
 }
 
-export function shortSha(sha: string): string {
-  return sha.slice(0, 7);
-}
+
 
 /** What a run covers, as "Full review · master → 6466c90". */
 export function reviewScope(run: ReviewRunDto): string {
@@ -507,3 +506,5 @@ export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
   });
   return [...questions, ...generated];
 }
+
+export { shortSha } from '../../displayText';

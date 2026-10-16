@@ -12,46 +12,15 @@
  * limitations under the License.
  */
 
-/** The spec check page's own glyphs; the lightning mark always means "starts an agent run". */
-const PATHS = {
-  doc: ['M7 3h7l4 4v14H7z', 'M14 3v4h4', 'M10 12h5M10 16h5'],
-  lesson: ['M7 3h10v18l-5-4-5 4z'],
-  link: ['M14 4h6v6', 'M20 4l-9 9', 'M18 14v5H5V6h5'],
-  merge: ['M6 21V7M6 7a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18 11a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM6 21a2.5 2.5 0 1 0 0-5M18 11c0 4-12 3-12 5'],
-  check: ['m5 12 5 5 9-10'],
-  pause: ['M9 6v12M15 6v12'],
-  alert: ['M12 8v5M12 16.5v.5'],
-  search: ['M20 20l-4.3-4.3'],
-  review: ['M9 6h12M9 12h12M9 18h12', 'm3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17'],
-  bolt: ['M13 2 4 14h7l-1 8 9-12h-7z'],
-  close: ['M6 6l12 12M18 6 6 18'],
-  down: ['m6 9 6 6 6-6'],
-  next: ['m9 6 6 6-6 6'],
-  spark: ['M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z'],
-  user: ['M5 20c1.4-3.4 3.9-5 7-5s5.6 1.6 7 5'],
-  code: ['m8 8-4 4 4 4', 'm16 8 4 4-4 4'],
-  flag: ['M6 21V4', 'M6 4h11l-2 4 2 4H6'],
-  off: ['M5.6 5.6l12.8 12.8'],
-} as const;
+import { Ban, Bookmark, Check, ChevronDown, ChevronRight, CircleAlert, Code, ExternalLink, FileText, Flag, GitMerge, ListChecks, Pause, Search, Sparkles, User, X, Zap } from 'lucide-react';
 
-const CIRCLES: Partial<Record<keyof typeof PATHS, { cx: number; cy: number; r: number }>> = {
-  alert: { cx: 12, cy: 12, r: 9 },
-  search: { cx: 11, cy: 11, r: 6.5 },
-  user: { cx: 12, cy: 8, r: 3.5 },
-  off: { cx: 12, cy: 12, r: 9 },
-};
-
-const WEIGHT: Partial<Record<keyof typeof PATHS, number>> = { check: 2.2, pause: 2.2, alert: 2, bolt: 2, close: 2, down: 2.2, next: 2 };
-
-export type IconName = keyof typeof PATHS;
+const ICONS = { doc: FileText, lesson: Bookmark, link: ExternalLink, merge: GitMerge, check: Check, pause: Pause, alert: CircleAlert,
+  search: Search, review: ListChecks, bolt: Zap, close: X, down: ChevronDown, next: ChevronRight, spark: Sparkles, user: User, code: Code, flag: Flag, off: Ban };
+export type IconName = keyof typeof ICONS;
 
 export function Icon({ name, size = 16, className }: { name: IconName; size?: number; className?: string }) {
-  const circle = CIRCLES[name];
-  return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={WEIGHT[name] ?? 1.8}
-    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {circle && <circle cx={circle.cx} cy={circle.cy} r={circle.r} />}
-    {PATHS[name].map(path => <path key={path} d={path} />)}
-  </svg>;
+  const Glyph = ICONS[name];
+  return <Glyph size={size} className={className} strokeWidth={1.8} aria-hidden="true" />;
 }
 
 /** The small disclosure chevron the design rotates 90° when a row opens. */

@@ -65,8 +65,8 @@ describe('agent skills bridge contract', () => {
 
   it('rejects malformed instructions or toggle state before they reach the renderer or backend', () => {
     expect(() => parseAgentSkills({ skills: [skill] })).toThrow('agentSkills is not an array');
-    expect(() => parseAgentSkills([{ ...skill, instructions: 42 }])).toThrow('agentSkills[0].instructions is not a string');
-    expect(() => parseAgentSkillInput({ ...skill, enabled: 'false' })).toThrow('agentSkill.enabled is not a boolean');
+    expect(() => parseAgentSkills([{ ...skill, instructions: 42 }])).toThrow('Malformed agentSkills[0].instructions');
+    expect(() => parseAgentSkillInput({ ...skill, enabled: 'false' })).toThrow('Malformed agentSkill.enabled');
   });
 });
 

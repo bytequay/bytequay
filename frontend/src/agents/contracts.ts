@@ -13,31 +13,29 @@
  */
 
 import type { JiraTaskSource } from '../jira/contracts';
+import { count, flag, object, optionalCount, optionalText, text } from '../pulls/wireParse';
 import type {
-  AgentIssueSourceDto,
-  AgentTaskActivityDto,
-  DevelopmentAutomationDto,
-  DevelopmentResultDto,
-  AgentModelSettingDto,
   AgentApprovalDto,
   AgentAttachmentDto,
   AgentCapabilitiesDto,
   AgentCompletionDto,
   AgentDevelopmentCiDto,
-  CiAutofixRunDto,
   AgentInputDeliveryDto,
+  AgentIssueSourceDto,
   AgentMetricsDto,
+  AgentModelSettingDto,
   AgentMutationClaimDto,
   AgentProviderReadiness,
   AgentProviderStatus,
   AgentProviderUnavailableDto,
-  AgentQueuedInputDto,
   AgentQueuedInputDraftDto,
+  AgentQueuedInputDto,
   AgentRuntimeStopImpactDto,
   AgentSkillDto,
   AgentSkillInput,
-  AgentTaskDefaultsDto,
+  AgentTaskActivityDto,
   AgentTaskChangesDto,
+  AgentTaskDefaultsDto,
   AgentTaskDto,
   AgentTaskPullRequestDto,
   AgentTaskStartupDto,
@@ -45,13 +43,16 @@ import type {
   AgentTaskSummaryDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
+  CiAutofixRunDto,
+  DevelopmentAutomationDto,
+  DevelopmentResultDto,
   ModelApiKeyDto,
   ModelOptionDto,
   ModelProviderDto,
   ModelSettingsDto,
   ProviderUsageDto,
-  UsageAccountDto,
   PullRequestTaskLink,
+  UsageAccountDto,
 } from '../types';
 
 const AGENT_PROVIDER_UNAVAILABLE_MARKER = 'AGENT_PROVIDER_UNAVAILABLE:';
@@ -63,31 +64,6 @@ const AGENT_PROVIDER_UNAVAILABLE_MARKER = 'AGENT_PROVIDER_UNAVAILABLE:';
  * detail added to one of them later would reach the renderer on its own. Reading only the fields
  * the contract names means a new one has to be added here on purpose before anything can see it.
  */
-
-function object(value: unknown, path: string): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`${path} is not an object`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function text(value: unknown, path: string): string {
-  if (typeof value !== 'string') {
-    throw new Error(`${path} is not a string`);
-  }
-  return value;
-}
-
-function optionalText(value: unknown, path: string): string | null {
-  return value === null || value === undefined ? null : text(value, path);
-}
-
-function flag(value: unknown, path: string): boolean {
-  if (typeof value !== 'boolean') {
-    throw new Error(`${path} is not a boolean`);
-  }
-  return value;
-}
 
 function enumText<const Values extends readonly string[]>(
   value: unknown,
@@ -147,17 +123,6 @@ export function agentProviderUnavailableFrom(failure: unknown): AgentProviderUna
   catch {
     return null;
   }
-}
-
-function count(value: unknown, path: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${path} is not a number`);
-  }
-  return value;
-}
-
-function optionalCount(value: unknown, path: string): number | null {
-  return value === null || value === undefined ? null : count(value, path);
 }
 
 function list(value: unknown, path: string): unknown[] {

@@ -39,6 +39,7 @@ import java.util.Set;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static java.util.Objects.requireNonNull;
 
 /** Coordinates scheduled and user-requested pull-request refreshes. */
@@ -190,13 +191,10 @@ public class PullRequestRefreshService
 
     private void refresh(Runnable action)
     {
-        refreshLock.lock();
-        try {
+        withLock(refreshLock, () -> {
             action.run();
-        }
-        finally {
-            refreshLock.unlock();
-        }
+            return null;
+        });
     }
 
     private boolean dashboardIsFresh(GitHubCredential credential)

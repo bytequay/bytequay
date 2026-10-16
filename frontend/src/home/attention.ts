@@ -11,11 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { plural } from '../displayText';
 import type { JiraIssue } from '../jira/contracts';
-import type { AgentTaskActivityDto, AgentTaskDto, PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import { pullRequestIsMine } from '../pulls/model';
 import { teamAttentionMatch, type TeamAttentionPreference } from '../teams/priority';
 import type { TeamCircle } from '../teams/types';
+import type { AgentTaskActivityDto, AgentTaskDto, PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 
 /** Why an item is on the "Needs attention" list. */
 export type AttentionKind = 'approval' | 'review' | 'assigned' | 'changes' | 'failed' | 'blocked' | 'ci' | 'commits' | 'merge' | 'finished' | 'updated';
@@ -245,9 +246,7 @@ function commitLines(pr: PullRequestDto): AttentionCommit[] {
   return (pr.commitsSinceReview ?? []).map(commit => ({ sha: commit.sha.slice(0, 7), message: commit.message }));
 }
 
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
-}
+
 
 const EVENT_VERBS: Record<string, string> = {
   commented: 'commented', review_thread: 'left a review comment', committed: 'pushed a commit',

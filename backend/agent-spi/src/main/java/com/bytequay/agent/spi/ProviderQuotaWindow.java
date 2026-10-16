@@ -17,7 +17,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -25,8 +25,8 @@ public record ProviderQuotaWindow(String id, String label, double usedPercent, O
 {
     public ProviderQuotaWindow
     {
-        checkNotBlank(id, "id");
-        checkNotBlank(label, "label");
+        checkText(id, "id");
+        checkText(label, "label");
         checkArgument(Double.isFinite(usedPercent) && usedPercent >= 0, "invalid usage percentage");
         requireNonNull(startsAt, "startsAt is null");
         requireNonNull(resetsAt, "resetsAt is null");
@@ -41,7 +41,7 @@ public record ProviderQuotaWindow(String id, String label, double usedPercent, O
         {
             requireNonNull(used, "used is null");
             requireNonNull(total, "total is null");
-            checkNotBlank(currency, "currency");
+            checkText(currency, "currency");
             checkArgument(used.signum() >= 0 && total.signum() > 0, "invalid quota amounts");
             checkArgument(currency.matches("[A-Z]{3}"), "invalid quota currency");
         }

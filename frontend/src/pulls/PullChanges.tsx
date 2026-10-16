@@ -11,13 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { findingInResults } from './agent-review/model';
-import { Fragment, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { Check, ChevronRight, FileDiff, Folder, GitCommitHorizontal, PanelLeft } from 'lucide-react';
+import { Fragment, useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import Avatar from '../Avatar';
-import { recordAttentionAction } from '../home/useAttentionVisit';
+import CopyLinkButton from '../CopyLinkButton';
 import { parseUnifiedDiff, type DiffRow } from '../diffParse';
+import { recordAttentionAction } from '../home/useAttentionVisit';
+import { relativeTime } from '../relativeTime';
 import type {
   Bridge,
   DiffCommitDto,
@@ -28,22 +29,22 @@ import type {
   PullRequestDto,
   UserProfileDto,
 } from '../types';
+import { usePopoverDismiss } from '../usePopoverDismiss';
 import { useResizablePane } from '../useResizablePane';
-import { buildFileTree, type FileTreeItem } from './fileTree';
-import BetterWordsButton from './BetterWordsButton';
-import MarkdownBody, { type SuggestionBase } from './MarkdownBody';
-import MarkdownEditor from './MarkdownEditor';
-import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
-import CopyLinkButton from '../CopyLinkButton';
-import { remoteErrorMessage, ReviewThread, threadCommentedLines, useViewer, type PullDetailUpdater } from './PullOverview';
 import type { ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import type { AgentReviewDto, ReviewSide } from './agent-review/contracts';
+import { findingInResults } from './agent-review/model';
 import ReviewFindingCard from './agent-review/ReviewFindingCard';
 import { useFindingActions } from './agent-review/useFindingActions';
-import { relativeTime } from '../relativeTime';
+import BetterWordsButton from './BetterWordsButton';
+import { buildFileTree, type FileTreeItem } from './fileTree';
+import { inlineReviewComment, NO_RANGE_SELECTION, rangeHeading, rangeSelectionReducer } from './lineRangeSelection';
 import LocalReviewThreadCard, { localReviewMatchesRevision } from './local-review/LocalReviewThreadCard';
 import type { LocalReviewThreadDto, LocalReviewThreads } from './local-review/types';
-import { inlineReviewComment, NO_RANGE_SELECTION, rangeHeading, rangeSelectionReducer } from './lineRangeSelection';
+import MarkdownBody, { type SuggestionBase } from './MarkdownBody';
+import MarkdownEditor from './MarkdownEditor';
+import { remoteErrorMessage, ReviewThread, threadCommentedLines, useViewer, type PullDetailUpdater } from './PullOverview';
+import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
 
 export type CommitRange = { start: number; end: number } | null;
 
@@ -475,35 +476,20 @@ function CommitPicker({ commits, range, onChange }: {
   range: CommitRange;
   onChange: (range: CommitRange) => void;
 }) {
-  const pickerRef = useRef<HTMLDetailsElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
 
-  useEffect(() => {
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      const picker = pickerRef.current;
-      if (picker?.open && !picker.contains(event.target as Node)) picker.open = false;
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      const picker = pickerRef.current;
-      if (event.key !== 'Escape' || !picker?.open) return;
-      event.preventDefault();
-      picker.open = false;
-      picker.querySelector<HTMLElement>('summary')?.focus();
-    };
-    document.addEventListener('pointerdown', closeOnOutsidePointer);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, []);
+  const pickerRef = usePopoverDismiss<HTMLDetailsElement>(event => {
+    if (pickerRef.current) pickerRef.current.open = false;
+    if (event.type === 'keydown') pickerRef.current?.querySelector<HTMLElement>('summary')?.focus();
+  }, false, pickerOpen);
 
   if (commits.length === 0) return null;
   const selectedCount = range === null ? commits.length : range.end - range.start + 1;
 
   return (
     <details className="pull-commit-picker" ref={pickerRef}
-      onToggle={event => { if (!event.currentTarget.open) setExpanded(new Set()); }}>
+      onToggle={event => { setPickerOpen(event.currentTarget.open); if (!event.currentTarget.open) setExpanded(new Set()); }}>
       <summary aria-label={`Choose commits, ${selectedCount} selected`}>
         <GitCommitHorizontal size={16} strokeWidth={1.5} aria-hidden="true" />
         <span>Commits</span>

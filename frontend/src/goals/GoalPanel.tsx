@@ -12,29 +12,43 @@
  * limitations under the License.
  */
 
-import Composer from '../Composer';
-import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Ban, ChevronDown, FileText, Maximize2, MessageCircle, Minimize2, Pause, Play, Plus, RefreshCw, Search, X } from 'lucide-react';
-import { ConfirmDialog } from '../ConfirmDialog';
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { GoalIcon, SourceIcon } from '../cards/Card';
+import Composer from '../Composer';
+import { ConfirmDialog } from '../ConfirmDialog';
 import MarkdownBody, { linkIssueNumbers } from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
-import type {
-  GoalCourseDraftDto, GoalCoverageDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, GoalRecommendationDto, GoalTopicDto, TopicLevel, WorkItemDto, WorkItemDecision,
-  CreateWorkItem, CompletionRule, WorkItemKind, WorkItemPriority,
-} from './contracts';
-import {
-  GOAL_SOURCES, STARTED_LABELS, WORK_VIEWS, addable, goalDirections, inOrder, isOpen, openCourse, openPlan, openProposal, progressWidths, goalHistory, outcomeOf, refKey, ringDash,
-  preparedRequest, situation, sourceOf, sourceUrl, summarize, itemNeedsYou, unblocks, waitingOn, workIn,
-  type WorkSource, type WorkView,
-} from './model';
-import { AgentModelControls, type ModelChoice } from '../settings/ModelsPage';
-import { startEpicWork } from '../workspaces/epics';
-import type { GoalConversation, GoalModel } from './useGoals';
 import type { ContextBuildViewDto } from '../repository-context/contracts';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
+import { AgentModelControls, type ModelChoice } from '../settings/ModelsPage';
+import { useNow } from '../useNow';
+import { startEpicWork } from '../workspaces/epics';
+import type {
+  CompletionRule,
+  CreateWorkItem,
+  GoalCourseDraftDto,GoalCoverageDto,GoalDto,GoalExchangeDto,GoalGapDto,GoalItemDto,GoalKnowledgeNoteDto,GoalLessonDto,GoalProposalDto,GoalRecommendationDto,GoalTopicDto,TopicLevel,
+  WorkItemDecision,
+  WorkItemDto,
+  WorkItemKind,WorkItemPriority,
+} from './contracts';
 import { TOPIC_LEVELS } from './contracts';
 import { BookContents, ChapterBody, CourseOverview, courseLessons } from './LessonBook';
+import {
+  GOAL_SOURCES,STARTED_LABELS,WORK_VIEWS,addable,goalDirections,
+  goalHistory,
+  inOrder,isOpen,
+  itemNeedsYou,
+  openCourse,openPlan,openProposal,
+  outcomeOf,
+  preparedRequest,
+  progressWidths,
+  refKey,ringDash,
+  situation,sourceOf,sourceUrl,summarize,
+  unblocks,waitingOn,workIn,
+  type WorkSource,type WorkView,
+} from './model';
+import type { GoalConversation, GoalModel } from './useGoals';
 
 const GoalRepository = createContext<string | null>(null);
 
@@ -576,17 +590,6 @@ function Pending({ exchange, now, onStop }: { exchange: GoalExchangeDto; now?: n
       }}>Stop</button>
     </div>
   );
-}
-
-/** The current time, read again every second while {@code ticking}. */
-export function useNow(ticking: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!ticking) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [ticking]);
-  return now;
 }
 
 /**

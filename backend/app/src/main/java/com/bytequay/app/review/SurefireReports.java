@@ -17,6 +17,7 @@ import com.bytequay.core.review.LocalRun;
 import com.bytequay.core.review.LocalRun.MethodStatus;
 import com.bytequay.core.review.LocalRun.TestClass;
 import com.bytequay.core.review.LocalRun.TestMethod;
+import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
@@ -59,7 +60,7 @@ final class SurefireReports
 
     private static String boundedMessage(String message)
     {
-        return message.length() <= MAXIMUM_MESSAGE_CHARACTERS ? message : message.substring(0, MAXIMUM_MESSAGE_CHARACTERS) + "…";
+        return Ascii.truncate(message, MAXIMUM_MESSAGE_CHARACTERS + 1, "…");
     }
 
     /**

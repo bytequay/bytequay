@@ -17,9 +17,10 @@ import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.PrViewState;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -39,17 +40,13 @@ public class PrViewStateEntity
     private Instant reviewedAt;
 
     @Column(name = "handled_action")
-    @Getter(AccessLevel.NONE)
-    @Setter(AccessLevel.NONE)
-    private String handledAction;
+    @Enumerated(EnumType.STRING)
+    private HandledAction handledAction;
 
     @Column(name = "reviewed_head_sha")
     private String reviewedHeadSha;
 
     public PrViewStateEntity() {}
-
-    public HandledAction getHandledAction() { return handledAction == null ? null : HandledAction.valueOf(handledAction); }
-    public void setHandledAction(HandledAction handledAction) { this.handledAction = handledAction == null ? null : handledAction.name(); }
 
     public PrViewState toDomain()
     {

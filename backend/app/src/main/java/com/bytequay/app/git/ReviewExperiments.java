@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
@@ -50,16 +51,13 @@ public class ReviewExperiments
     public void synchronizeClean(TaskWorktree worktree, String expectedHead, String targetHead, Runnable moveHead)
     {
         Lock lock = repositoryLock(worktree);
-        lock.lock();
-        try {
+        withLock(lock, () -> {
             requireCleanHead(worktree, expectedHead);
             checkState(ownedStashes(worktree).isEmpty(), "Saved private experiments are waiting; update the review explicitly");
             moveHead.run();
             requireCleanHead(worktree, targetHead);
-        }
-        finally {
-            lock.unlock();
-        }
+            return null;
+        });
     }
 
     /** Explicit sync may discard experiments that cannot be restored; returned information always describes the verified target revision. */
@@ -69,8 +67,7 @@ public class ReviewExperiments
         requireNonNull(targetHead, "targetHead is null");
         requireNonNull(moveHead, "moveHead is null");
         Lock lock = repositoryLock(worktree);
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             WorktreeSnapshot current = worktrees.inspect(worktree);
             checkState(current.head().equals(expectedHead) || current.head().equals(targetHead), "Review HEAD changed; experiments were preserved");
             requireNoOperation(current);
@@ -107,10 +104,7 @@ public class ReviewExperiments
                 }
             }
             return information;
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     /** Discards private experiments for explicit finalization or a disclosed restoration conflict during sync. */
@@ -118,8 +112,7 @@ public class ReviewExperiments
     {
         requireNonNull(expectedHead, "expectedHead is null");
         Lock lock = repositoryLock(worktree);
-        lock.lock();
-        try {
+        withLock(lock, () -> {
             requireHead(worktree, expectedHead);
             output(worktree, "reset", "--hard", expectedHead);
             requireHead(worktree, expectedHead);
@@ -129,10 +122,8 @@ public class ReviewExperiments
                 drop(worktree, stash);
             }
             requireCleanHead(worktree, expectedHead);
-        }
-        finally {
-            lock.unlock();
-        }
+            return null;
+        });
     }
 
     /** Whether a failed update left this review's experiments stashed. Listing the stash reflog takes no index lock, so a poll cannot fail an update. */

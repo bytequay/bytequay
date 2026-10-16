@@ -12,11 +12,12 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useId, useRef, useState } from 'react';
 import { Zap } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { displayModelName, effortLabel } from '../settings/model';
 import type { ModelOptionDto } from '../types';
+import { usePopoverDismiss } from '../usePopoverDismiss';
 
 type PickerView = 'menu' | 'models' | 'effort';
 
@@ -41,7 +42,10 @@ export function ModelPicker({ models, selectedModel, selectedEffort, selectedSer
   const fastTier = current?.serviceTiers?.find((tier) => tier.name.toLowerCase() === 'fast');
   const fast = fastTier !== undefined && selectedServiceTier === fastTier.id;
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const pickerRef = useRef<HTMLDivElement>(null);
+  const pickerRef = usePopoverDismiss(event => {
+    setOpen(false);
+    if (event.type === 'keydown') triggerRef.current?.focus();
+  }, false, open);
   const cardId = useId();
 
   useEffect(() => {
@@ -49,20 +53,7 @@ export function ModelPicker({ models, selectedModel, selectedEffort, selectedSer
     const first = pickerRef.current?.querySelector<HTMLButtonElement>('.agt-picker__card [aria-selected="true"]')
       ?? pickerRef.current?.querySelector<HTMLButtonElement>('.agt-picker__card button:not(:disabled)');
     first?.focus();
-    const close = (): void => setOpen(false);
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      setOpen(false);
-      triggerRef.current?.focus();
-    };
-    window.addEventListener('mousedown', close);
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('mousedown', close);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open, view]);
+  }, [open, view, pickerRef]);
 
   return (
     <div ref={pickerRef} className="agt-picker" onMouseDown={(event) => event.stopPropagation()}>

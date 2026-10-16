@@ -53,9 +53,10 @@ import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
 import static com.bytequay.app.agent.WorkflowAgentTasks.requireReady;
+import static com.bytequay.app.utils.Locks.withLock;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -115,21 +116,6 @@ public final class InteractiveAgentTaskCreator
             Optional<String> attachmentDigest,
             Optional<DevelopmentAutomation> initialAutomation,
             Optional<GitHubIssueSource> issueSource,
-            Optional<Consumer<AgentTask>> persistTask)
-    {
-        return create(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, issueSource, Optional.empty(), persistTask);
-    }
-
-    public AgentTask create(
-            TaskId taskId,
-            String workspaceId,
-            String message,
-            AgentLaneId laneId,
-            AgentTaskDefaults defaults,
-            String idempotencyKey,
-            Optional<String> attachmentDigest,
-            Optional<DevelopmentAutomation> initialAutomation,
-            Optional<GitHubIssueSource> issueSource,
             Optional<JiraIssueSource> jiraSource,
             Optional<Consumer<AgentTask>> persistTask)
     {
@@ -161,108 +147,84 @@ public final class InteractiveAgentTaskCreator
         requireNonNull(initialAutomation, "initialAutomation is null");
         requireNonNull(attachmentDigest, "attachmentDigest is null");
         Lock lock = creationLocks.get(taskId);
-        lock.lock();
-        try {
-            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation,
-                    issueSource, jiraSource, persistTask, startCommit);
-        }
-        finally {
-            lock.unlock();
-        }
-    }
-
-    private AgentTask createLocked(
-            TaskId taskId,
-            String workspaceId,
-            String message,
-            AgentLaneId laneId,
-            AgentTaskDefaults defaults,
-            String idempotencyKey,
-            Optional<String> attachmentDigest,
-            Optional<DevelopmentAutomation> initialAutomation,
-            Optional<GitHubIssueSource> issueSource,
-            Optional<JiraIssueSource> jiraSource,
-            Optional<Consumer<AgentTask>> persistTask,
-            Optional<String> startCommit)
-    {
-        checkNotBlank(workspaceId, "workspaceId");
-        drivers.checkWorkspaceAccess(laneId, Optional.of(workspaceId));
-        checkNotBlank(message, "message");
-        requireNonNull(laneId, "laneId is null");
-        requireNonNull(defaults, "defaults is null");
-        checkNotBlank(idempotencyKey, "idempotencyKey");
-        String baseFingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation,
-                issueSource.map(source -> source.host() + ":" + source.issueId()).or(() -> jiraSource.map(source -> "jira:" + source.identity())));
-        String fingerprint = startCommit
-                .map(commit -> Hashing.sha256().hashString(baseFingerprint + ":commit=" + commit, StandardCharsets.UTF_8).toString()).orElse(baseFingerprint);
-        Optional<AgentTask> replay = interactiveTask(workspaceId, taskId);
-        if (replay.isPresent()) {
-            AgentTask task = requireReplay(replay.orElseThrow(), fingerprint);
-            if (turns.findTurnByIdempotencyKey(taskId, idempotencyKey).isEmpty()) {
-                requireReady(drivers, laneId, defaults.permissionPolicy(), defaults.model());
+        return withLock(lock, () -> {
+            checkText(workspaceId, "workspaceId");
+            drivers.checkWorkspaceAccess(laneId, Optional.of(workspaceId));
+            checkText(message, "message");
+            requireNonNull(laneId, "laneId is null");
+            requireNonNull(defaults, "defaults is null");
+            checkText(idempotencyKey, "idempotencyKey");
+            String baseFingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation,
+                    issueSource.map(source -> source.host() + ":" + source.issueId()).or(() -> jiraSource.map(source -> "jira:" + source.identity())));
+            String fingerprint = startCommit
+                    .map(commit -> Hashing.sha256().hashString(baseFingerprint + ":commit=" + commit, StandardCharsets.UTF_8).toString()).orElse(baseFingerprint);
+            Optional<AgentTask> replay = interactiveTask(workspaceId, taskId);
+            if (replay.isPresent()) {
+                AgentTask task = requireReplay(replay.orElseThrow(), fingerprint);
+                if (turns.findTurnByIdempotencyKey(taskId, idempotencyKey).isEmpty()) {
+                    requireReady(drivers, laneId, defaults.permissionPolicy(), defaults.model());
+                }
+                return task;
             }
-            return task;
-        }
-        DevelopmentAutomation automation = defaults.developmentAutomation().orElseGet(settings::developmentAutomation);
-        settings.validateDevelopmentAutomation(automation);
-        initialAutomation.ifPresent(settings::validateDevelopmentAutomation);
-        progress.record(taskId, Phase.PROVIDER);
-        requireReady(drivers, laneId, defaults.permissionPolicy(), defaults.model());
-        models.validateSelection(
-                laneId.value(),
-                defaults.model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")),
-                defaults.effort(),
-                defaults.serviceTier());
-        progress.record(taskId, Phase.REPOSITORY);
-        if (!provisioning.synchronizeCode(workspaceId).successful()) {
-            throw new AgentUnavailableException("Cannot start task: workspace repository synchronization failed. Check repository access and connectivity, then retry.");
-        }
-        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
-        String startRef = startCommit.orElse("refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch()) + "^{commit}";
-        Result head = git.run(workspace.repository(), "rev-parse", "--verify", startRef);
-        if (!head.successful() || head.truncated() || head.output().isBlank() || startCommit.filter(commit -> !commit.equals(head.output().strip())).isPresent()) {
-            throw new AgentStorageException("Cannot resolve the workspace start commit");
-        }
-        progress.record(taskId, Phase.NAMING);
-        String context = issueSource.map(source -> "GitHub issue #" + source.number() + ": " + source.title() + "\n" + source.body()
-                + "\n\nUser request:\n" + message)
-                .or(() -> jiraSource.map(source -> "Jira " + source.key() + ": " + source.title() + "\n" + source.body() + "\n\nUser request:\n" + message)).orElse(message);
-        Optional<TaskNames> generated = names.generate(laneId, defaults, context);
-        String branch = TaskBranches.prefix(credentials.resolveGitHubCredential().profile().login())
-                + generated.map(TaskNames::branch).orElse("task-" + taskId.toString().substring(0, 8));
-        progress.record(taskId, Phase.WORKTREE);
-        Lock workspaceLock = WorkspaceOperationLocks.get(workspaceId);
-        workspaceLock.lock();
-        try {
-            Result existing = git.run(workspace.repository(), "for-each-ref", "--format=%(refname)",
-                    "refs/heads/" + branch, "refs/remotes/origin/" + branch, "refs/remotes/upstream/" + branch);
-            if (!existing.successful() || existing.truncated()) {
-                throw new AgentStorageException("Cannot check the generated task branch");
+            DevelopmentAutomation automation = defaults.developmentAutomation().orElseGet(settings::developmentAutomation);
+            settings.validateDevelopmentAutomation(automation);
+            initialAutomation.ifPresent(settings::validateDevelopmentAutomation);
+            progress.record(taskId, Phase.PROVIDER);
+            requireReady(drivers, laneId, defaults.permissionPolicy(), defaults.model());
+            models.validateSelection(
+                    laneId.value(),
+                    defaults.model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")),
+                    defaults.effort(),
+                    defaults.serviceTier());
+            progress.record(taskId, Phase.REPOSITORY);
+            if (!provisioning.synchronizeCode(workspaceId).successful()) {
+                throw new AgentUnavailableException("Cannot start task: workspace repository synchronization failed. Check repository access and connectivity, then retry.");
             }
-            if (!existing.output().isBlank() || !pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), branch).isEmpty()) {
-                branch += "-" + taskId.toString().substring(0, 8);
+            WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
+            String startRef = startCommit.orElse("refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch()) + "^{commit}";
+            Result head = git.run(workspace.repository(), "rev-parse", "--verify", startRef);
+            if (!head.successful() || head.truncated() || head.output().isBlank() || startCommit.filter(commit -> !commit.equals(head.output().strip())).isPresent()) {
+                throw new AgentStorageException("Cannot resolve the workspace start commit");
             }
-            CreateInteractiveAgentTaskCommand command = new CreateInteractiveAgentTaskCommand(
-                    taskId,
-                    workspace.workspaceId(),
-                    laneId,
-                    repositoryIdentity(workspace.selectedRepository()),
-                    head.output().strip(),
-                    branch,
-                    message,
-                    defaults.withDevelopmentAutomation(automation),
-                    fingerprint,
-                    generated);
-            return persistTask.map(writer -> tasks.createInteractive(command, writer)).orElseGet(() -> tasks.createInteractive(command));
-        }
-        catch (AgentConflictException conflict) {
-            return interactiveTask(workspaceId, taskId)
-                    .map(task -> requireReplay(task, fingerprint))
-                    .orElseThrow(() -> conflict);
-        }
-        finally {
-            workspaceLock.unlock();
-        }
+            progress.record(taskId, Phase.NAMING);
+            String context = issueSource.map(source -> "GitHub issue #" + source.number() + ": " + source.title() + "\n" + source.body()
+                    + "\n\nUser request:\n" + message)
+                    .or(() -> jiraSource.map(source -> "Jira " + source.key() + ": " + source.title() + "\n" + source.body() + "\n\nUser request:\n" + message)).orElse(message);
+            Optional<TaskNames> generated = names.generate(laneId, defaults, context);
+            progress.record(taskId, Phase.WORKTREE);
+            Lock workspaceLock = WorkspaceOperationLocks.get(workspaceId);
+            return withLock(workspaceLock, () -> {
+                String branch = TaskBranches.prefix(credentials.resolveGitHubCredential().profile().login())
+                        + generated.map(TaskNames::branch).orElse("task-" + taskId.toString().substring(0, 8));
+                try {
+                    Result existing = git.run(workspace.repository(), "for-each-ref", "--format=%(refname)",
+                            "refs/heads/" + branch, "refs/remotes/origin/" + branch, "refs/remotes/upstream/" + branch);
+                    if (!existing.successful() || existing.truncated()) {
+                        throw new AgentStorageException("Cannot check the generated task branch");
+                    }
+                    if (!existing.output().isBlank() || !pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), branch).isEmpty()) {
+                        branch += "-" + taskId.toString().substring(0, 8);
+                    }
+                    CreateInteractiveAgentTaskCommand command = new CreateInteractiveAgentTaskCommand(
+                            taskId,
+                            workspace.workspaceId(),
+                            laneId,
+                            repositoryIdentity(workspace.selectedRepository()),
+                            head.output().strip(),
+                            branch,
+                            message,
+                            defaults.withDevelopmentAutomation(automation),
+                            fingerprint,
+                            generated);
+                    return persistTask.map(writer -> tasks.createInteractive(command, writer)).orElseGet(() -> tasks.createInteractive(command));
+                }
+                catch (AgentConflictException conflict) {
+                    return interactiveTask(workspaceId, taskId)
+                            .map(task -> requireReplay(task, fingerprint))
+                            .orElseThrow(() -> conflict);
+                }
+            });
+        });
     }
 
     private Optional<AgentTask> interactiveTask(String workspaceId, TaskId taskId)

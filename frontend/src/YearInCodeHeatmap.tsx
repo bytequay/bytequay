@@ -11,10 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ContributionCalendarDto, ContributionDayDto, UserCommitDto } from './types';
 import { getCached, getCachedFresh, setCached } from './dataCache';
+import type { ContributionCalendarDto, ContributionDayDto, UserCommitDto } from './types';
+import { usePopoverDismiss } from './usePopoverDismiss';
 
 const CELL = 12;
 const GAP = 2;
@@ -119,7 +120,6 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
   // search-commits rate limit (30/min authenticated).
   const [selected, setSelected] = useState<{ day: ContributionDayDto; clientX: number; clientY: number } | null>(null);
   const [commitsByDate, setCommitsByDate] = useState<Record<string, UserCommitDto[] | 'loading' | 'error'>>({});
-  const popoverRef = useRef<HTMLDivElement | null>(null);
 
   const closePopover = useCallback(() => setSelected(null), []);
 
@@ -144,20 +144,7 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
   // Dismiss on outside click + Escape. The popover stops propagation
   // on its own click so a click *inside* (e.g. on a commit row) doesn't
   // immediately close it before the in-app browser opens.
-  useEffect(() => {
-    if (selected === null) return;
-    const onDown = (e: MouseEvent) => {
-      if (popoverRef.current && e.target instanceof Node && popoverRef.current.contains(e.target)) return;
-      closePopover();
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closePopover(); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [selected, closePopover]);
+  const popoverRef = usePopoverDismiss(closePopover, false, selected !== null);
 
   useEffect(() => {
     let cancelled = false;

@@ -72,7 +72,7 @@ class TestRebaseMonitoring
                 new DevelopmentCiOwnership(mock(CiAutofixStore.class), mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(AgentEventService.class),
                         new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}), Clock.systemUTC()));
 
-        monitor(store, service, readyAgentServingGate(), 20).monitorRebases();
+        monitor(store, service, readyAgentServingGate()).monitorRebases();
 
         assertThat(store.attempted()).containsExactly(first.id(), second.id());
     }
@@ -83,15 +83,16 @@ class TestRebaseMonitoring
         BranchRebaseStore store = mock(BranchRebaseStore.class);
         BranchRebaseService service = mock(BranchRebaseService.class);
 
-        monitor(store, service, new AgentServingGate(), 20).monitorRebases();
+        monitor(store, service, new AgentServingGate()).monitorRebases();
 
         verifyNoInteractions(store, service);
     }
 
-    private static WorkflowMonitorJob monitor(BranchRebaseStore store, BranchRebaseService service, AgentServingGate gate, int batchSize)
+    private static WorkflowMonitorJob monitor(BranchRebaseStore store, BranchRebaseService service, AgentServingGate gate)
     {
-        return new WorkflowMonitorJob(mock(CherryPickExecutionStore.class), mock(CherryPickExecutionService.class), mock(CiAutofixStore.class), mock(CiAutofixService.class),
-                store, service, mock(BackportChainStore.class), mock(BackportChainService.class), mock(AgentTaskStore.class), gate, Clock.systemUTC(), 20, 20, batchSize);
+        return new WorkflowMonitorJob(mock(CherryPickExecutionStore.class), mock(CherryPickExecutionService.class), mock(CiAutofixStore.class),
+                mock(CiAutofixService.class), store, service, mock(BackportChainStore.class), mock(BackportChainService.class),
+                mock(AgentTaskStore.class), gate, Clock.systemUTC());
     }
 
     private static BranchRebase rebase(String key)

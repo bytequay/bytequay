@@ -61,7 +61,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -107,7 +107,7 @@ public class ReviewController
     @GetMapping(params = {"!repo", "!number"})
     public List<ReviewHttpModels.ReviewResponse> list(@RequestParam String workspaceId)
     {
-        requireNotBlank(workspaceId, "workspaceId must not be blank");
+        checkText(workspaceId, "workspaceId");
         return reviews.list(workspaceId).stream().map(ReviewHttpModels::review).collect(toImmutableList());
     }
 
@@ -123,8 +123,8 @@ public class ReviewController
     @PostMapping
     public ReviewHttpModels.ReviewResponse start(@RequestBody ReviewHttpModels.StartRequest request)
     {
-        requireNotBlank(request.workspaceId(), "workspaceId must not be blank");
-        requireNotBlank(request.repo(), "repo must not be blank");
+        checkText(request.workspaceId(), "workspaceId");
+        checkText(request.repo(), "repo");
         int number = required(request.number(), "number");
         PullRequestRefUtil.parseRef(request.repo(), number);
         return ReviewHttpModels.review(reviews.start(request.workspaceId(), request.repo(), number));
@@ -133,8 +133,8 @@ public class ReviewController
     @PostMapping("/worktree")
     public ReviewHttpModels.ReviewResponse prepare(@RequestBody ReviewHttpModels.StartRequest request)
     {
-        requireNotBlank(request.workspaceId(), "workspaceId must not be blank");
-        requireNotBlank(request.repo(), "repo must not be blank");
+        checkText(request.workspaceId(), "workspaceId");
+        checkText(request.repo(), "repo");
         int number = required(request.number(), "number");
         PullRequestRefUtil.parseRef(request.repo(), number);
         return ReviewHttpModels.review(reviews.prepare(request.workspaceId(), request.repo(), number));
@@ -143,7 +143,7 @@ public class ReviewController
     @GetMapping("/tasks/{sourceTaskId}")
     public ResponseEntity<ReviewHttpModels.ReviewResponse> findForTask(@PathVariable String sourceTaskId, @RequestParam String workspaceId)
     {
-        requireNotBlank(workspaceId, "workspaceId must not be blank");
+        checkText(workspaceId, "workspaceId");
         return reviews.findForTask(workspaceId, sourceTaskId)
                 .map(projection -> ResponseEntity.ok(ReviewHttpModels.review(projection)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
@@ -152,7 +152,7 @@ public class ReviewController
     @PostMapping("/tasks/{sourceTaskId}")
     public ReviewHttpModels.ReviewResponse startForTask(@PathVariable String sourceTaskId, @RequestParam String workspaceId)
     {
-        requireNotBlank(workspaceId, "workspaceId must not be blank");
+        checkText(workspaceId, "workspaceId");
         return ReviewHttpModels.review(reviews.startForTask(workspaceId, sourceTaskId));
     }
 
@@ -178,7 +178,7 @@ public class ReviewController
     @PostMapping("/{reviewId}/runtime/stop")
     public ReviewHttpModels.ReviewResponse stopRuntime(@PathVariable String reviewId, @RequestBody ReviewHttpModels.StopRuntimeRequest request)
     {
-        requireNotBlank(request.generation(), "generation must not be blank");
+        checkText(request.generation(), "generation");
         AgentTask task = reviews.task(reviewId);
         if (task.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY).isPresent()) {
             startupRecovery.stopRecoveredRuntime(task.id(), request.generation());
@@ -198,8 +198,8 @@ public class ReviewController
     @PostMapping("/{reviewId}/settings")
     public ReviewHttpModels.ReviewResponse configure(@PathVariable String reviewId, @RequestBody ReviewHttpModels.ConfigureRequest request)
     {
-        requireNotBlank(request.laneId(), "laneId must not be blank");
-        requireNotBlank(request.model(), "model must not be blank");
+        checkText(request.laneId(), "laneId");
+        checkText(request.model(), "model");
         return ReviewHttpModels.review(reviews.configure(reviewId, required(request.expectedVersion(), "expectedVersion"),
                 new AgentLaneId(request.laneId()), request.model(), Optional.ofNullable(request.effort()), Optional.ofNullable(request.serviceTier())));
     }
@@ -213,7 +213,7 @@ public class ReviewController
     @PostMapping("/{reviewId}/explanation/refresh")
     public ReviewHttpModels.ReviewResponse refreshExplanation(@PathVariable String reviewId, @RequestBody ReviewHttpModels.RefreshExplanationRequest request)
     {
-        requireNotBlank(request.runId(), "runId must not be blank");
+        checkText(request.runId(), "runId");
         return ReviewHttpModels.review(reviews.refreshExplanation(reviewId, request.runId(), required(request.expectedRevision(), "expectedRevision")));
     }
 
@@ -226,7 +226,7 @@ public class ReviewController
     @PostMapping("/{reviewId}/questions")
     public ReviewHttpModels.ReviewResponse ask(@PathVariable String reviewId, @RequestBody ReviewHttpModels.AskRequest request)
     {
-        requireNotBlank(request.message(), "message must not be blank");
+        checkText(request.message(), "message");
         reviews.ask(
                 reviewId,
                 Optional.ofNullable(request.findingId()).filter(id -> !id.isBlank()),
@@ -246,8 +246,8 @@ public class ReviewController
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody ReviewHttpModels.MessageRequest request)
     {
-        requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
-        requireNotBlank(request.message(), "message must not be blank");
+        checkText(idempotencyKey, "Idempotency-Key");
+        checkText(request.message(), "message");
         AgentTask task = reviews.task(reviewId);
         String delivery = Optional.ofNullable(request.delivery()).orElse("TURN").toUpperCase(Locale.ROOT);
         switch (delivery) {
@@ -377,8 +377,8 @@ public class ReviewController
     public ReviewHttpModels.DraftResponse addManual(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.DraftItemRequest request)
     {
         PullRequestRefUtil.parseRef(repo, number);
-        requireNotBlank(request.path(), "path must not be blank");
-        requireNotBlank(request.body(), "body must not be blank");
+        checkText(request.path(), "path");
+        checkText(request.body(), "body");
         ReviewDraftItem item = new ReviewDraftItem(
                 "new",
                 ReviewDraftItem.Source.MANUAL,
@@ -399,8 +399,8 @@ public class ReviewController
     public ReviewHttpModels.DraftResponse addFinding(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.PromoteFindingRequest request)
     {
         PullRequestRefUtil.parseRef(repo, number);
-        requireNotBlank(request.reviewId(), "reviewId must not be blank");
-        requireNotBlank(request.findingId(), "findingId must not be blank");
+        checkText(request.reviewId(), "reviewId");
+        checkText(request.findingId(), "findingId");
         return ReviewHttpModels.draft(publications.addFinding(repo, number, required(request.expectedVersion(), "expectedVersion"), request.reviewId(), request.findingId()));
     }
 
@@ -412,7 +412,7 @@ public class ReviewController
             @RequestBody ReviewHttpModels.DraftItemRequest request)
     {
         PullRequestRefUtil.parseRef(repo, number);
-        requireNotBlank(request.body(), "body must not be blank");
+        checkText(request.body(), "body");
         return ReviewHttpModels.draft(publications.editItem(
                 repo,
                 number,
@@ -465,13 +465,6 @@ public class ReviewController
                 required(request.expectedVersion(), "expectedVersion"),
                 request.body(),
                 Optional.ofNullable(request.event()).orElse("COMMENT")));
-    }
-
-    @GetMapping("/drafts/ineligible")
-    public List<ReviewPublicationService.Ineligible> ineligible(@RequestParam String repo, @RequestParam int number)
-    {
-        PullRequestRefUtil.parseRef(repo, number);
-        return publications.ineligible(repo, number);
     }
 
     /** The turn the user saw running; core refuses it once it has ended rather than steering whatever runs next. */

@@ -19,8 +19,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -47,8 +47,8 @@ public record AgentTurnCommand(
 
     public AgentTurnCommand
     {
-        checkNotBlank(turnId, "turnId");
-        checkNotBlank(message, "message");
+        checkText(turnId, "turnId");
+        checkText(message, "message");
         requireNonNull(attachments, "attachments is null");
         attachments = ImmutableList.copyOf(attachments);
         requireNonNull(maximumRuntime, "maximumRuntime is null");

@@ -48,6 +48,7 @@ import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.review.AgentReviewProjection;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.review.ReviewPublicationService;
+import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentStreamRegistry;
 import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.review.AgentReview;
@@ -250,7 +251,7 @@ class TestReviewRuntimeRecovery
     void listingRequiresANonBlankWorkspace()
             throws Exception
     {
-        MockMvc mvc = standaloneSetup(controller).build();
+        MockMvc mvc = standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
         mvc.perform(get("/api/agent-review")).andExpect(status().isBadRequest());
         mvc.perform(get("/api/agent-review").param("workspaceId", " ")).andExpect(status().isBadRequest());
         verifyNoInteractions(reviews, turns, supervisor, taskStore, turnStore, launchStore);

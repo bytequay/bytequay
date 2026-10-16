@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 /**
@@ -73,7 +73,7 @@ public record ReviewBridge(List<ReviewTool> tools, String instruction)
     public ReviewBridge
     {
         tools = ImmutableList.copyOf(tools);
-        checkNotBlank(instruction, "instruction");
+        checkText(instruction, "instruction");
         checkArgument(tools.stream().map(ReviewTool::name).distinct().count() == tools.size(), "tool names are not unique");
     }
 

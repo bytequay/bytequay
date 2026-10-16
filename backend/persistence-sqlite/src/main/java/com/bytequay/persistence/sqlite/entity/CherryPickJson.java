@@ -14,27 +14,18 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.cherrypick.CherryPickExecution.ActionJournal;
-import com.bytequay.core.cherrypick.CherryPickExecution.ActionType;
 import com.bytequay.core.cherrypick.CherryPickItem;
-import com.bytequay.core.cherrypick.CherryPickItem.ConflictPath;
-import com.bytequay.core.cherrypick.CherryPickItem.ConflictType;
-import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
-import com.bytequay.core.cherrypick.CherryPickItem.IndexStage;
-import com.bytequay.core.cherrypick.CherryPickItem.PullRequestRefView;
-import com.bytequay.core.cherrypick.CherryPickItem.Result;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.ImmutableList;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.persistence.sqlite.entity.JsonGuard.CHERRY_PICK;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class CherryPickJson
 {
-    private static final TypeReference<List<ItemValue>> ITEM_VALUES = new TypeReference<>() {};
+    private static final TypeReference<List<CherryPickItem>> ITEMS = new TypeReference<>() {};
 
     private CherryPickJson() {}
 
@@ -45,76 +36,16 @@ final class CherryPickJson
 
     public static List<CherryPickItem> decodeItems(String json)
     {
-        if (json == null || json.isBlank()) {
-            return ImmutableList.of();
-        }
-        return CHERRY_PICK.guard("Cannot deserialize cherry-pick items", mapper -> mapper.readValue(json, ITEM_VALUES).stream()
-                .map(CherryPickJson::toItem)
-                .collect(toImmutableList()));
+        return json == null || json.isBlank() ? ImmutableList.of() : ImmutableList.copyOf(CHERRY_PICK.read(json, ITEMS, "cherry-pick items"));
     }
 
     public static String encodeJournal(Optional<ActionJournal> journal)
     {
-        return journal
-                .map(entry -> CHERRY_PICK.write(new JournalValue(
-                        entry.type().name(), entry.sourceSha().orElse(null), entry.expectedHead(), entry.attempt(), entry.idempotencyKey(),
-                        entry.startedAt().toString()), "cherry-pick action journal"))
-                .orElse(null);
+        return journal.map(entry -> CHERRY_PICK.write(entry, "cherry-pick action journal")).orElse(null);
     }
 
     public static Optional<ActionJournal> decodeJournal(String json)
     {
-        if (json == null || json.isBlank()) {
-            return Optional.empty();
-        }
-        return CHERRY_PICK.guard("Cannot deserialize cherry-pick action journal", mapper -> {
-            JournalValue value = mapper.readValue(json, JournalValue.class);
-            return Optional.of(new ActionJournal(
-                    ActionType.valueOf(value.type()), Optional.ofNullable(value.sourceSha()), value.expectedHead(), value.attempt(), value.idempotencyKey(),
-                    Instant.parse(value.startedAt())));
-        });
+        return json == null || json.isBlank() ? Optional.empty() : Optional.of(CHERRY_PICK.read(json, ActionJournal.class, "cherry-pick action journal"));
     }
-
-    private static CherryPickItem toItem(ItemValue value)
-    {
-        return new CherryPickItem(
-                value.position(),
-                value.sourceSha(),
-                value.sourceParentSha(),
-                value.title(),
-                Optional.ofNullable(value.pullRequest()),
-                Disposition.valueOf(value.disposition()),
-                Result.valueOf(value.result()),
-                Optional.ofNullable(value.targetSha()),
-                value.conflictPaths() == null
-                        ? ImmutableList.of()
-                        : value.conflictPaths().stream()
-                                .map(path -> new ConflictPath(
-                                        path.path(), ConflictType.valueOf(path.type()), Optional.ofNullable(path.module()),
-                                        path.stages() == null ? ImmutableList.of() : path.stages()))
-                                .collect(toImmutableList()),
-                value.agentTurnCount());
-    }
-
-    private record ItemValue(
-            int position,
-            String sourceSha,
-            String sourceParentSha,
-            String title,
-            PullRequestRefView pullRequest,
-            String disposition,
-            String result,
-            String targetSha,
-            List<ConflictValue> conflictPaths,
-            int agentTurnCount) {}
-
-    private record ConflictValue(String path, String type, String module, List<IndexStage> stages) {}
-
-    private record JournalValue(
-            String type,
-            String sourceSha,
-            String expectedHead,
-            int attempt,
-            String idempotencyKey,
-            String startedAt) {}
 }

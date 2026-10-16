@@ -3238,6 +3238,9 @@ class TestAgentReviewService
      */
     private static void pushRebasedHead(Fixture fixture, String addedLine)
     {
+        when(fixture.git.patchId(eq(REPOSITORY), anyString()))
+                .thenAnswer(invocation -> new GitCommandRunner().patchId(Path.of("."), invocation.getArgument(1)));
+
         pushHead(fixture, NEW_HEAD);
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));

@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.service.settings;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -22,9 +22,9 @@ public record AgentSkill(String id, String name, String instructions, AgentSkill
 {
     public AgentSkill
     {
-        checkNotBlank(id, "id");
-        checkNotBlank(name, "name");
-        checkNotBlank(instructions, "instructions");
+        checkText(id, "id");
+        checkText(name, "name");
+        checkText(instructions, "instructions");
         requireNonNull(scope, "scope is null");
         name = name.strip();
         checkArgument(name.length() <= 100, "Skill name must be at most 100 characters");

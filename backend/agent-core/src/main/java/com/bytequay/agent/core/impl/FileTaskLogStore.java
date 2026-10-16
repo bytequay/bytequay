@@ -56,7 +56,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Predicate;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.lang.Math.toIntExact;
 import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
@@ -287,7 +287,7 @@ public final class FileTaskLogStore
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(content, "content is null");
-        checkNotBlank(mediaType, "mediaType");
+        checkText(mediaType, "mediaType");
         ByteBuffer bytes = content.asReadOnlyBuffer();
         int size = bytes.remaining();
         if (size > maxBlobBytes) {

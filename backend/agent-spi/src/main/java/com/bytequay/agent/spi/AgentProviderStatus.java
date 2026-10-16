@@ -15,8 +15,8 @@ package com.bytequay.agent.spi;
 
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 public record AgentProviderStatus(
@@ -41,7 +41,7 @@ public record AgentProviderStatus(
         requireNonNull(laneId, "laneId is null");
         requireNonNull(readiness, "readiness is null");
         checkOptionalText(version, "version");
-        checkNotBlank(diagnostic, "diagnostic");
+        checkText(diagnostic, "diagnostic");
         requireNonNull(capabilities, "capabilities is null");
         checkOptionalText(signInCommand, "signInCommand");
     }

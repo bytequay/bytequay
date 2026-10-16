@@ -39,8 +39,8 @@ public class RecentRetentionJob
     }
 
     @Scheduled(
-            initialDelayString = "${bytequay.recent.sweep-initial-delay:PT30S}",
-            fixedDelayString = "${bytequay.recent.sweep-interval:PT6H}")
+            initialDelayString = "PT30S",
+            fixedDelayString = "PT6H")
     public void tick()
     {
         try {

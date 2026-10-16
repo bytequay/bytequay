@@ -31,6 +31,15 @@ public final class ContextText
         return prefix(text, maximumBytes - 3) + "…";
     }
 
+    /** Models may wrap an otherwise complete JSON response in a Markdown code fence. */
+    public static String unfence(String answer)
+    {
+        String text = answer.strip();
+        int newline = text.indexOf('\n');
+        return text.startsWith("```") && text.endsWith("```") && newline > 0 && newline < text.length() - 3
+                ? text.substring(newline + 1, text.length() - 3).strip() : text;
+    }
+
     /** Returns only source characters, without adding an excerpt marker to retained evidence. */
     static String prefix(String text, int maximumBytes)
     {

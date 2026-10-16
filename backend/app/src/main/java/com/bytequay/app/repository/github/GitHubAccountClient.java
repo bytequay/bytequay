@@ -36,6 +36,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
@@ -366,19 +367,23 @@ public class GitHubAccountClient
         requirePat(pat);
         requireNonNull(upstream, "upstream is null");
         requireNonNull(login, "login is null");
-        int perPage = 100;
+        int perPage = GitHubPaginator.PAGE_SIZE;
+        AtomicReference<UserRepo> found = new AtomicReference<>();
         // Forks may be renamed, so inspect every owned fork instead of guessing login/upstream.name.
-        for (int page = 1; ; page++) {
-            int currentPage = page;
-            List<GitHubUserRepoItem> items = requireBody(translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/user/repos")
+        GitHubPaginator.forEachPage(Integer.MAX_VALUE, page -> {
+            if (found.get() != null) {
+                return ImmutableList.<GitHubUserRepoItem>of();
+            }
+            return requireBody(translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/user/repos")
                     .queryParam("affiliation", "owner")
                     .queryParam("sort", "full_name")
                     .queryParam("direction", "asc")
                     .queryParam("per_page", perPage)
-                    .queryParam("page", currentPage)
+                    .queryParam("page", page)
                     .build())
                     .retrieve()
-                    .body(new ParameterizedTypeReference<>() {})), "Empty response while finding your GitHub fork");
+                    .body(new ParameterizedTypeReference<List<GitHubUserRepoItem>>() {})), "Empty response while finding your GitHub fork");
+        }, items -> {
             for (GitHubUserRepoItem item : items) {
                 if (!item.fork()) {
                     continue;
@@ -389,13 +394,12 @@ public class GitHubAccountClient
                     throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub did not identify the source of your fork " + candidate.fullName());
                 }
                 if (candidate.owner().equalsIgnoreCase(login) && isForkOf(candidate, upstream)) {
-                    return Optional.of(candidate);
+                    found.set(candidate);
+                    return;
                 }
             }
-            if (items.size() < perPage) {
-                return Optional.empty();
-            }
-        }
+        });
+        return Optional.ofNullable(found.get());
     }
 
     public UserRepo createFork(String pat, UserRepo upstream)

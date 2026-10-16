@@ -39,7 +39,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -61,9 +61,9 @@ public class CiAutofixController
     @PostMapping
     public ResponseEntity<CiAutofixHttpModels.RunResponse> start(@RequestHeader("Idempotency-Key") String idempotencyKey, @RequestBody StartRequest request)
     {
-        requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
-        requireNotBlank(request.workspaceId(), "workspaceId must not be blank");
-        requireNotBlank(request.laneId(), "laneId must not be blank");
+        checkText(idempotencyKey, "Idempotency-Key");
+        checkText(request.workspaceId(), "workspaceId");
+        checkText(request.laneId(), "laneId");
         CiAutofixRun run = service.start(new StartCiAutofixCommand(
                 request.workspaceId(),
                 request.pullRequestNumber(),
@@ -94,8 +94,8 @@ public class CiAutofixController
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody MessageRequest request)
     {
-        requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
-        requireNotBlank(request.message(), "message must not be blank");
+        checkText(idempotencyKey, "Idempotency-Key");
+        checkText(request.message(), "message");
         CiAutofixRun run = service.sendMessage(new SendCiAutofixMessageCommand(
                 CiAutofixRunId.valueOf(runId),
                 request.message(),

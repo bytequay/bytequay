@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.core;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -29,7 +29,7 @@ public record RenameAgentTaskCommand(TaskId taskId, long expectedVersion, String
     {
         requireNonNull(taskId, "taskId is null");
         checkArgument(expectedVersion >= 0, "expectedVersion is negative");
-        checkNotBlank(title, "title");
+        checkText(title, "title");
         checkArgument(title.strip().length() <= MAX_LENGTH, "title is longer than %s characters", MAX_LENGTH);
     }
 }

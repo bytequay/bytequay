@@ -15,15 +15,15 @@ package com.bytequay.agent.core;
 
 import java.nio.file.Path;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 public record BlobRef(String relativePath, String mediaType, long size)
 {
     public BlobRef
     {
-        checkNotBlank(relativePath, "relativePath");
-        checkNotBlank(mediaType, "mediaType");
+        checkText(relativePath, "relativePath");
+        checkText(mediaType, "mediaType");
         Path path = Path.of(relativePath);
         checkArgument(!path.isAbsolute() && !path.normalize().startsWith(".."), "relativePath is unsafe");
         checkArgument(size >= 0, "size is negative");

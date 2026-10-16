@@ -14,7 +14,6 @@
 package com.bytequay.app.agent;
 
 import com.bytequay.agent.core.impl.AgentMaintenance;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -28,16 +27,15 @@ import static java.util.Objects.requireNonNull;
 public final class AgentMaintenanceJob
 {
     private static final int CLEANUP_BATCH_SIZE = 100;
+    private static final Duration AUTO_ARCHIVE_WINDOW = Duration.ofDays(7);
 
     private final AgentMaintenance maintenance;
     private final AgentServingGate servingGate;
-    private final Duration autoArchiveWindow;
 
-    public AgentMaintenanceJob(AgentMaintenance maintenance, AgentServingGate servingGate, @Value("${bytequay.agent.auto-archive-days:7}") int autoArchiveDays)
+    public AgentMaintenanceJob(AgentMaintenance maintenance, AgentServingGate servingGate)
     {
         this.maintenance = requireNonNull(maintenance, "maintenance is null");
         this.servingGate = requireNonNull(servingGate, "servingGate is null");
-        this.autoArchiveWindow = Duration.ofDays(autoArchiveDays);
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -46,13 +44,13 @@ public final class AgentMaintenanceJob
         cleanupDue();
     }
 
-    @Scheduled(fixedDelayString = "${bytequay.agent.cleanup-interval:PT1H}")
+    @Scheduled(fixedDelayString = "PT1H")
     public void cleanupDue()
     {
         if (!servingGate.isReady()) {
             return;
         }
-        maintenance.archiveDue(autoArchiveWindow, CLEANUP_BATCH_SIZE);
+        maintenance.archiveDue(AUTO_ARCHIVE_WINDOW, CLEANUP_BATCH_SIZE);
         maintenance.cleanupDue(CLEANUP_BATCH_SIZE);
     }
 }

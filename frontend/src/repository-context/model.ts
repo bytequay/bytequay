@@ -11,12 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { plural } from '../displayText';
 import { displayModelName, effortLabel, providerAvailable, providerRemedy } from '../settings/model';
 import type { ModelSettingsDto } from '../types';
 import type { ContextSpecCheckDto } from './contracts';
 
-export const shortSha = (sha: string) => sha.slice(0, 7);
-export const plural = (count: number, one: string, many = one + 's') => `${count} ${count === 1 ? one : many}`;
 
 export function shortDate(value: string | null | undefined, now = Date.now()): string {
   if (!value) return '';
@@ -58,3 +57,5 @@ export function checkProgress(check: ContextSpecCheckDto): string {
   const waiting = check.candidates.filter(candidate => candidate.status === 'PENDING').length;
   return `Reproduction ${check.reproductions} of up to ${Math.min(check.maxReproductions, check.reproductions + waiting)}`;
 }
+
+export { plural,shortSha } from '../displayText';

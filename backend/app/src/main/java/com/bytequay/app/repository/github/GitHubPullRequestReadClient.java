@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
@@ -68,8 +69,8 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.bytequay.core.domain.Checks.checkSha;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
@@ -137,28 +138,26 @@ public class GitHubPullRequestReadClient
         requireNonNull(headRepository, "headRepository is null");
         requireNonNull(headBranch, "headBranch is null");
         ImmutableList.Builder<GitHubPullRequestIdentity> result = ImmutableList.builder();
-        for (int page = 1; page <= 50; page++) {
-            int currentPage = page;
-            List<PublicationPullRequest> rows = requireBody(translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/pulls")
+        boolean complete = GitHubPaginator.forEachPage(50, page -> requireBody(translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/pulls")
                     .queryParam("state", "all")
                     .queryParam("head", "{head}")
                     .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
-                    .queryParam("page", currentPage)
+                    .queryParam("page", page)
                     .build(baseRepository.owner(), baseRepository.repo(), headRepository.owner() + ":" + headBranch))
                     .retrieve()
-                    .body(new ParameterizedTypeReference<List<PublicationPullRequest>>() {})), "GitHub returned no pull-request identity response");
-            for (PublicationPullRequest row : rows) {
-                GitHubPullRequestIdentity identity = publicationIdentity(row, baseRepository);
-                if (!identity.headRepository().fullName().equalsIgnoreCase(headRepository.fullName()) || !identity.headBranch().equals(headBranch)) {
-                    throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned another pull-request head");
+                    .body(new ParameterizedTypeReference<List<PublicationPullRequest>>() {})), "GitHub returned no pull-request identity response"), rows -> {
+                for (PublicationPullRequest row : rows) {
+                    GitHubPullRequestIdentity identity = publicationIdentity(row, baseRepository);
+                    if (!identity.headRepository().fullName().equalsIgnoreCase(headRepository.fullName()) || !identity.headBranch().equals(headBranch)) {
+                        throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned another pull-request head");
+                    }
+                    result.add(identity);
                 }
-                result.add(identity);
-            }
-            if (rows.size() < GitHubPaginator.PAGE_SIZE) {
-                return result.build();
-            }
+            });
+        if (!complete) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Pull-request identity results exceeded the pagination limit");
         }
-        throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Pull-request identity results exceeded the pagination limit");
+        return result.build();
     }
 
     public GitHubPullRequestIdentity fetchPullRequestIdentity(String pat, PullRequestRef pullRequest)
@@ -369,9 +368,8 @@ public class GitHubPullRequestReadClient
 
     private static RepoRef deliveryRepository(JsonNode repository)
     {
-        String[] parts = deliveryText(repository, "nameWithOwner").split("/", -1);
-        checkState(parts.length == 2, "GitHub returned an invalid repository identity");
-        return RepoRef.of(parts[0], parts[1]);
+        RepositoryIdentity identity = RepositoryIdentity.valueOf(deliveryText(repository, "nameWithOwner"));
+        return RepoRef.of(identity.owner(), identity.name());
     }
 
     private static String deliveryText(JsonNode node, String field)
@@ -401,14 +399,15 @@ public class GitHubPullRequestReadClient
 
     private void readRulesetRequirements(String pat, GitHubPullRequestIdentity identity, List<RequiredDeliveryCheck> required, List<String> waiting)
     {
-        for (int page = 1; page <= 10; page++) {
-            int currentPage = page;
+        boolean complete = GitHubPaginator.forEachPage(10, page -> {
             JsonNode rows = translating(() -> get(gitHubRestClient, pat,
-                    uri -> uri.path("/repos/{owner}/{repo}/rules/branches/{branch}").queryParam("per_page", 100).queryParam("page", currentPage)
+                    uri -> uri.path("/repos/{owner}/{repo}/rules/branches/{branch}").queryParam("per_page", 100).queryParam("page", page)
                             .build(identity.baseRepository().owner(), identity.baseRepository().repo(), identity.baseBranch()))
                     .retrieve()
                     .body(JsonNode.class));
             checkState(rows != null && rows.isArray(), "GitHub omitted active branch rules");
+            return ImmutableList.copyOf(rows);
+        }, rows -> {
             for (JsonNode rule : rows) {
                 String type = deliveryText(rule, "type");
                 if ("required_status_checks".equals(type)) {
@@ -427,11 +426,8 @@ public class GitHubPullRequestReadClient
                     waiting.add("Unknown branch rule " + type + " prevents complete required-check verification");
                 }
             }
-            if (rows.size() < 100) {
-                return;
-            }
-        }
-        throw new IllegalStateException("GitHub active branch rules exceed the complete inspection limit");
+        });
+        checkState(complete, "GitHub active branch rules exceed the complete inspection limit");
     }
 
     private static long deliveryAppId(JsonNode value)
@@ -539,9 +535,8 @@ public class GitHubPullRequestReadClient
 
     private static RepoRef publicationRepository(PublicationRepository repository)
     {
-        String[] parts = repository.fullName().split("/", -1);
-        checkState(parts.length == 2 && !parts[0].isBlank() && !parts[1].isBlank(), "GitHub returned an invalid repository identity");
-        return RepoRef.of(parts[0], parts[1]);
+        RepositoryIdentity identity = RepositoryIdentity.valueOf(repository.fullName());
+        return RepoRef.of(identity.owner(), identity.name());
     }
 
     private record PublicationPullRequest(
@@ -967,7 +962,7 @@ public class GitHubPullRequestReadClient
     public DiffFileContent fetchPrDiffFileContent(String pat, PullRequestRef pr, String path, String baseSha, String headSha)
     {
         requirePat(pat);
-        requireNotBlank(path, "path must not be blank");
+        checkText(path, "path");
         return new DiffFileContent(fetchRepositoryFile(pat, pr, path, baseSha), fetchRepositoryFile(pat, pr, path, headSha));
     }
 
@@ -1005,8 +1000,8 @@ public class GitHubPullRequestReadClient
     {
         requirePat(pat);
         requireNonNull(repository, "repository is null");
-        requireNotBlank(path, "path must not be blank");
-        requireNotBlank(ref, "ref must not be blank");
+        checkText(path, "path");
+        checkText(ref, "ref");
         if (startLine <= 0 || endLine < startLine) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid code line range");
         }

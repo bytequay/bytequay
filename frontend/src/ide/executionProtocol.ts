@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { LocalRunClassDto } from '../pulls/code-tests/contracts';
+import { flag, object } from '../pulls/wireParse';
 import { workspacePath } from './codeQuery';
 
 export type ExecutionStart = { scope: 'TESTS' | 'DEBUG' | 'RUN'; label: string; path: string | null };
@@ -23,16 +24,8 @@ export type ExecutionRequest =
   | { operation: 'finish'; id: string; request: ExecutionResult }
   | { operation: 'stop'; id: string };
 
-function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid execution request');
-  return value as Record<string, unknown>;
-}
 function text(value: unknown, max: number): string {
   if (typeof value !== 'string' || value.length > max) throw new Error('Invalid execution text');
-  return value;
-}
-function flag(value: unknown): boolean {
-  if (typeof value !== 'boolean') throw new Error('Invalid execution flag');
   return value;
 }
 function integer(value: unknown): number {

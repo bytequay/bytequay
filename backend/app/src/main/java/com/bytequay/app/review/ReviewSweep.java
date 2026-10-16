@@ -32,6 +32,7 @@ import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewCandidate;
 import com.bytequay.core.review.ReviewPerspectiveAssessment.Perspective;
 import com.bytequay.core.review.ReviewRun;
+import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
@@ -176,7 +177,7 @@ public class ReviewSweep
         Perspective perspective = lead.kind() == ReviewLead.Kind.DEFECT ? Perspective.BEHAVIOR
                 : lead.lens() == ReviewLead.Lens.SIBLINGS ? Perspective.INTERACTIONS : Perspective.DESIGN;
         return new ReviewCandidate(number, perspective, "Second reader, " + lens + " lens",
-                hypothesis.length() <= MAX_HYPOTHESIS ? hypothesis : hypothesis.substring(0, MAX_HYPOTHESIS),
+                Ascii.truncate(hypothesis, MAX_HYPOTHESIS, ""),
                 ImmutableList.of(), "Read " + lead.location() + " at the frozen head, then confirm or refute this unverified lead.",
                 Optional.empty(), step, "second-reader", Optional.of("second reader"));
     }

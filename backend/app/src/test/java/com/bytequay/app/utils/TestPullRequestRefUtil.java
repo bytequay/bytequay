@@ -17,7 +17,6 @@ import com.bytequay.core.domain.PullRequestRef;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,6 +38,6 @@ class TestPullRequestRefUtil
     void testParseRefRejectsMalformedRepository(String repository)
     {
         assertThatThrownBy(() -> PullRequestRefUtil.parseRef(repository, 1))
-                .isInstanceOf(ResponseStatusException.class);
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

@@ -22,12 +22,14 @@ import com.bytequay.app.review.ReviewCodeService.CodeFiles;
 import com.bytequay.app.review.ReviewCodeService.CodeSource;
 import com.bytequay.app.review.ReviewCodeService.LineChange;
 import com.bytequay.app.review.ReviewCodeService.TerminalLaunch;
+import com.bytequay.app.review.TaskCodeHost;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.core.review.LocalRun;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
@@ -40,6 +42,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -78,16 +81,27 @@ class TestReviewCodeController
     private final ReviewCodeService code = mock(ReviewCodeService.class);
     private final LocalRunService localRuns = mock(LocalRunService.class);
     // Boot's date setting, so the runs assert the ISO instants the renderer parses.
-    private final MockMvc mvc = standaloneSetup(new ReviewCodeController(code, localRuns))
+    private final MockMvc mvc = standaloneSetup(new TaskCodeController(code, localRuns))
             .setMessageConverters(new MappingJackson2HttpMessageConverter(Jackson2ObjectMapperBuilder.json().featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS).build()))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
+
+    @BeforeEach
+    void resolveHosts()
+    {
+        when(code.reviewHost(anyString())).thenAnswer(call -> host(call.getArgument(0)));
+    }
+
+    private static TaskCodeHost host(String reviewId)
+    {
+        return new TaskCodeHost("workspace-1", "task-1", Optional.of(reviewId));
+    }
 
     @Test
     void listsFilesWithTheWireFieldNames()
             throws Exception
     {
-        when(code.files("review-1")).thenReturn(new CodeFiles(CodeSource.WORKING_COPY, HEAD, Optional.of("fingerprint"), true, true, ImmutableList.of(
+        when(code.files(host("review-1"))).thenReturn(new CodeFiles(CodeSource.WORKING_COPY, HEAD, Optional.of("fingerprint"), true, true, ImmutableList.of(
                 new CodeFileEntry("src/test/java/TestCode.java", true, true, false, true))));
 
         mvc.perform(get("/api/agent-review/review-1/code/files"))
@@ -102,10 +116,10 @@ class TestReviewCodeController
     void readsFilesWithNullsForAbsentValues()
             throws Exception
     {
-        when(code.file("review-1", "src/test/java/TestCode.java", Optional.empty())).thenReturn(new CodeFile(
+        when(code.file(host("review-1"), "src/test/java/TestCode.java", Optional.empty())).thenReturn(new CodeFile(
                 "src/test/java/TestCode.java", Optional.of("class TestCode {}\n"), Optional.of("hash"), Optional.empty(), Optional.empty(), Optional.of("@@ -1 +1 @@"),
                 ImmutableList.of(new LineChange(LineChange.Kind.MODIFIED, 1, 1), new LineChange(LineChange.Kind.DELETED, 0, 2))));
-        when(code.file("review-1", "image.png", Optional.empty())).thenReturn(new CodeFile(
+        when(code.file(host("review-1"), "image.png", Optional.empty())).thenReturn(new CodeFile(
                 "image.png", Optional.empty(), Optional.empty(), Optional.of("This review has ended — read-only"), Optional.of("Binary file"), Optional.empty(), ImmutableList.of()));
 
         mvc.perform(get("/api/agent-review/review-1/code/file").param("path", "src/test/java/TestCode.java"))
@@ -127,7 +141,7 @@ class TestReviewCodeController
     void refusesAFileReadFromAnEarlierListingRevision()
             throws Exception
     {
-        when(code.file("review-1", "TestCode.java", Optional.of(HEAD)))
+        when(code.file(host("review-1"), "TestCode.java", Optional.of(HEAD)))
                 .thenThrow(new ReviewConflictException("The working copy revision changed; refresh the file list before reading this file"));
 
         mvc.perform(get("/api/agent-review/review-1/code/file").param("path", "TestCode.java").param("expectedRevision", HEAD))
@@ -139,8 +153,8 @@ class TestReviewCodeController
     void terminalAnswersTheWorkingDirectoryOfAnOpenReview()
             throws Exception
     {
-        when(code.terminal("review-1")).thenReturn(new TerminalLaunch(Path.of("/managed/worktrees/task-1"), Optional.of(Path.of("/profiles/work"))));
-        when(code.terminal("ended")).thenThrow(new ReviewConflictException("The review has ended"));
+        when(code.terminal(host("review-1"))).thenReturn(new TerminalLaunch(Path.of("/managed/worktrees/task-1"), Optional.of(Path.of("/profiles/work"))));
+        when(code.terminal(host("ended"))).thenThrow(new ReviewConflictException("The review has ended"));
 
         mvc.perform(post("/api/agent-review/review-1/code/terminal"))
                 .andExpect(status().isOk())
@@ -156,10 +170,10 @@ class TestReviewCodeController
     void mapsFailuresToStatuses()
             throws Exception
     {
-        when(code.files("missing")).thenThrow(new ReviewNotFoundException("Review not found: missing"));
-        when(code.files("new")).thenThrow(new ReviewConflictException("This review has no run yet"));
-        when(code.file("review-1", "Missing.java", Optional.empty())).thenThrow(new ReviewNotFoundException("File not found: Missing.java"));
-        when(code.file("review-1", "../secret", Optional.empty())).thenThrow(new IllegalArgumentException("path must be a normalized repository-relative path"));
+        when(code.files(host("missing"))).thenThrow(new ReviewNotFoundException("Review not found: missing"));
+        when(code.files(host("new"))).thenThrow(new ReviewConflictException("This review has no run yet"));
+        when(code.file(host("review-1"), "Missing.java", Optional.empty())).thenThrow(new ReviewNotFoundException("File not found: Missing.java"));
+        when(code.file(host("review-1"), "../secret", Optional.empty())).thenThrow(new IllegalArgumentException("path must be a normalized repository-relative path"));
 
         mvc.perform(get("/api/agent-review/missing/code/files")).andExpect(status().isNotFound());
         mvc.perform(get("/api/agent-review/new/code/files"))
@@ -174,8 +188,8 @@ class TestReviewCodeController
     void listsRunsWithoutTheirStoredOutput()
             throws Exception
     {
-        when(localRuns.list("review-1")).thenReturn(ImmutableList.of(finishedRun(), runningRun()));
-        when(localRuns.output("review-1", "missing", 0)).thenThrow(new ReviewNotFoundException("Run not found: missing"));
+        when(localRuns.list(host("review-1"))).thenReturn(ImmutableList.of(finishedRun(), runningRun()));
+        when(localRuns.output(host("review-1"), "missing", 0)).thenThrow(new ReviewNotFoundException("Run not found: missing"));
 
         mvc.perform(get("/api/agent-review/review-1/code/runs"))
                 .andExpect(status().isOk())
@@ -187,11 +201,11 @@ class TestReviewCodeController
     void stopsARunAndStreamsItsOutput()
             throws Exception
     {
-        when(localRuns.stop("review-1", "run-2")).thenReturn(finishedRun());
-        when(localRuns.stop("review-1", "run-3")).thenThrow(new AgentUnavailableException("The run's processes could not be verified stopped"));
-        when(localRuns.output("review-1", "run-2", 0)).thenReturn(new LocalRunService.OutputChunk("[INFO] Scanning\n", 16, 0, false));
-        when(localRuns.output("review-1", "run-2", 70000)).thenReturn(new LocalRunService.OutputChunk("tail", 2000004, 1930000, true));
-        when(localRuns.output(anyString(), anyString(), eq(-1L))).thenThrow(new IllegalArgumentException("after must not be negative"));
+        when(localRuns.stop(host("review-1"), "run-2")).thenReturn(finishedRun());
+        when(localRuns.stop(host("review-1"), "run-3")).thenThrow(new AgentUnavailableException("The run's processes could not be verified stopped"));
+        when(localRuns.output(host("review-1"), "run-2", 0)).thenReturn(new LocalRunService.OutputChunk("[INFO] Scanning\n", 16, 0, false));
+        when(localRuns.output(host("review-1"), "run-2", 70000)).thenReturn(new LocalRunService.OutputChunk("tail", 2000004, 1930000, true));
+        when(localRuns.output(any(TaskCodeHost.class), anyString(), eq(-1L))).thenThrow(new IllegalArgumentException("after must not be negative"));
 
         mvc.perform(post("/api/agent-review/review-1/code/runs/run-2/stop"))
                 .andExpect(status().isOk())

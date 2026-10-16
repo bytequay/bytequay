@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.epic;
 
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraIssue;
@@ -226,7 +227,8 @@ public class EpicService
     {
         long issueId = EpicSources.issueId(epicId);
         IssueEpic marker = markers.findEpic(HOST, issueId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Epic not found"));
-        RepoRef repository = RepoRef.of(marker.repo().substring(0, marker.repo().indexOf('/')), marker.repo().substring(marker.repo().indexOf('/') + 1));
+        RepositoryIdentity identity = RepositoryIdentity.valueOf(marker.repo());
+        RepoRef repository = RepoRef.of(identity.owner(), identity.name());
         List<EpicChild> children = github.fetchSubIssues(credentials.resolveGitHubToken(), repository, marker.number()).stream()
                 .map(issue -> {
                     String repo = issue.repository().fullName();

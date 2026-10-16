@@ -15,8 +15,6 @@ package com.bytequay.app.git;
 
 import java.net.URI;
 
-import static com.bytequay.app.utils.StringInputUtil.isNotBlank;
-
 public final class RepositoryUrls
 {
     private RepositoryUrls() {}
@@ -24,7 +22,7 @@ public final class RepositoryUrls
     public static boolean isPlainHttps(URI uri)
     {
         return "https".equalsIgnoreCase(uri.getScheme())
-                && isNotBlank(uri.getHost())
+                && uri.getHost() != null && !uri.getHost().isBlank()
                 && uri.getUserInfo() == null
                 && uri.getQuery() == null
                 && uri.getFragment() == null;

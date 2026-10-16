@@ -19,25 +19,26 @@ import { useEffect, useRef } from 'react';
  *
  * @param withTrigger treat the popover's parent, which holds its toggle button, as inside, so the toggle can close it
  */
-export function usePopoverDismiss(onClose: () => void, withTrigger = false) {
-  const host = useRef<HTMLDivElement>(null);
+export function usePopoverDismiss<T extends HTMLElement = HTMLDivElement>(onClose: (event: PointerEvent | KeyboardEvent) => void, withTrigger = false, enabled = true) {
+  const host = useRef<T>(null);
   useEffect(() => {
+    if (!enabled) return;
     const close = (event: PointerEvent) => {
       const boundary = withTrigger ? host.current?.parentElement : host.current;
-      if (!boundary?.contains(event.target as Node)) onClose();
+      if (!boundary?.contains(event.target as Node)) onClose(event);
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       event.preventDefault();
-      onClose();
+      onClose(event);
     };
-    window.addEventListener('pointerdown', close);
+    window.addEventListener('pointerdown', close, true);
     document.addEventListener('keydown', escape);
     return () => {
-      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('pointerdown', close, true);
       document.removeEventListener('keydown', escape);
     };
-  }, [onClose, withTrigger]);
+  }, [onClose, withTrigger, enabled]);
   return host;
 }
 

@@ -74,7 +74,7 @@ describe('model picker', () => {
     const menu = renderToStaticMarkup(
       <ModelPickerCard view="menu" models={MODELS} selectedModel="gpt-5.6-sol" selectedEffort="medium" onSelect={() => {}} onView={() => {}} />);
     expect(menu).toContain('role="menu"');
-    expect(menu).toMatch(/<button type="button" role="menuitem" class="agt-picker__item"><span>Model<\/span><span class="agt-picker__value">5\.6 Sol<\/span><svg class="chev"/);
+    expect(menu).toMatch(/<button type="button" role="menuitem" class="agt-picker__item"><span>Model<\/span><span class="agt-picker__value">5\.6 Sol<\/span><svg[^>]*class="[^"]*chev"/);
     expect(menu).toMatch(/<span>Effort<\/span><span class="agt-picker__value">Medium<\/span>/);
     expect(menu).not.toContain('type="range"');
   });

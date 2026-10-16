@@ -135,31 +135,24 @@ public class ReviewCodeService
         this.claudeAccounts = requireNonNull(claudeAccounts, "claudeAccounts is null");
     }
 
-    public CodeFiles files(String reviewId)
-    {
-        return files(source(reviewId));
-    }
-
     public CodeFiles files(TaskCodeHost host)
     {
         return files(source(host));
     }
 
     /** Resolves a writable IDE workspace without claiming it or changing an agent's execution state. */
-    public TaskWorktree ideWorktree(String reviewId)
-    {
-        Source source = source(reviewId);
-        source.ended().ifPresent(reason -> {
-            throw new ReviewConflictException(reason);
-        });
-        if (source.checkout().isEmpty()) {
-            throw new ReviewConflictException("The working copy is gone");
-        }
-        return source.task().taskWorktree().orElseThrow();
-    }
-
     public TaskWorktree ideWorktree(TaskCodeHost host)
     {
+        if (host.reviewId().isPresent()) {
+            Source source = source(host);
+            source.ended().ifPresent(reason -> {
+                throw new ReviewConflictException(reason);
+            });
+            if (source.checkout().isEmpty()) {
+                throw new ReviewConflictException("The working copy is gone");
+            }
+            return source.task().taskWorktree().orElseThrow();
+        }
         AgentTask task = mutableTask(host);
         if (task.state() != TaskState.OPEN) {
             throw new ReviewConflictException("The task has ended");
@@ -264,17 +257,6 @@ public class ReviewCodeService
         }
     }
 
-    public CodeFile file(String reviewId, String path)
-    {
-        return file(reviewId, path, Optional.empty());
-    }
-
-    public CodeFile file(String reviewId, String path, Optional<String> expectedRevision)
-    {
-        checkPath(path);
-        return file(source(reviewId), path, expectedRevision);
-    }
-
     public CodeFile file(TaskCodeHost host, String path)
     {
         return file(host, path, Optional.empty());
@@ -320,11 +302,6 @@ public class ReviewCodeService
         return result;
     }
 
-    public CodeHistory history(String reviewId, Optional<String> revision, Optional<String> path, int offset)
-    {
-        return history(source(reviewId), revision, path, offset);
-    }
-
     public CodeHistory history(TaskCodeHost host, Optional<String> revision, Optional<String> path, int offset)
     {
         return history(source(host), revision, path, offset);
@@ -335,11 +312,6 @@ public class ReviewCodeService
         Path root = source.checkout().orElseGet(() -> repository(source.task()));
         String selected = historyRevision(source, root, revision.orElseGet(source.headSha()));
         return localDiff.historyPage(root, selected, path, offset);
-    }
-
-    public CodeHistory.Comparison historyCommit(String reviewId, String revision, Optional<String> parent)
-    {
-        return historyCommit(source(reviewId), revision, parent);
     }
 
     public CodeHistory.Comparison historyCommit(TaskCodeHost host, String revision, Optional<String> parent)
@@ -353,19 +325,14 @@ public class ReviewCodeService
         return localDiff.historyCommit(root, historyRevision(source, root, revision), parent);
     }
 
-    public CodeFile snapshot(String reviewId, String revision, String path)
+    public CodeFile snapshot(TaskCodeHost host, String revision, String path)
     {
-        Source source = source(reviewId);
-        if (store.listRuns(reviewId).stream().anyMatch(run -> run.worktreeTreeSha().equals(Optional.of(revision)))) {
+        Source source = source(host);
+        if (host.reviewId().stream().flatMap(id -> store.listRuns(id).stream()).anyMatch(run -> run.worktreeTreeSha().equals(Optional.of(revision)))) {
             checkPath(path);
             return snapshotFile(source, revision, path);
         }
         return snapshot(source, revision, path);
-    }
-
-    public CodeFile snapshot(TaskCodeHost host, String revision, String path)
-    {
-        return snapshot(source(host), revision, path);
     }
 
     private CodeFile snapshot(Source source, String revision, String path)
@@ -392,12 +359,6 @@ public class ReviewCodeService
         String selected = localDiff.commit(root, revision);
         checkArgument(localDiff.read(root, "merge-base", "--is-ancestor", selected, source.headSha().get()).successful(), "Commit is outside this task's history");
         return selected;
-    }
-
-    public CodeBlame blame(String reviewId, String path)
-    {
-        checkPath(path);
-        return blame(source(reviewId), path);
     }
 
     public CodeBlame blame(TaskCodeHost host, String path)
@@ -547,18 +508,16 @@ public class ReviewCodeService
     }
 
     /** IDE encoders supply bytes directly, so UTF-16 and BOMs retain the same conflict-safe save boundary. */
-    public void saveBytes(String reviewId, String path, byte[] content, String expectedHash)
-    {
-        checkSave(path, content, expectedHash);
-        reviews.mutateWorkingCopy(reviewId, task -> {
-            overwrite(source(reviewId), path, content, expectedHash);
-            return null;
-        });
-    }
-
     public void saveBytes(TaskCodeHost host, String path, byte[] content, String expectedHash)
     {
         checkSave(path, content, expectedHash);
+        if (host.reviewId().isPresent()) {
+            reviews.mutateWorkingCopy(host.reviewId().orElseThrow(), task -> {
+                overwrite(source(host), path, content, expectedHash);
+                return null;
+            });
+            return;
+        }
         mutableTask(host);
         Source source = source(host);
         LocalRunService.requireTaskIdle(turns, source.task());
@@ -607,19 +566,19 @@ public class ReviewCodeService
     }
 
     /** The canonical working copy a terminal shell starts in, while the review is open and its working copy exists. */
-    public TerminalLaunch terminal(String reviewId)
-    {
-        AgentReview review = store.findReview(reviewId).orElseThrow(() -> new ReviewNotFoundException("Review not found: " + reviewId));
-        if (review.state() != AgentReview.State.OPEN) {
-            throw new ReviewConflictException("The review has ended");
-        }
-        AgentTask task = reviews.task(reviewId);
-        return terminal(task, checkout(task).orElseThrow(() -> new ReviewConflictException("The working copy is gone")));
-    }
 
     /** The canonical working copy a terminal shell starts in, while the task is open and owns the pull request. */
     public TerminalLaunch terminal(TaskCodeHost host)
     {
+        if (host.reviewId().isPresent()) {
+            String reviewId = host.reviewId().orElseThrow();
+            AgentReview review = store.findReview(reviewId).orElseThrow(() -> new ReviewNotFoundException("Review not found: " + reviewId));
+            if (review.state() != AgentReview.State.OPEN) {
+                throw new ReviewConflictException("The review has ended");
+            }
+            AgentTask task = reviews.task(reviewId);
+            return terminal(task, checkout(task).orElseThrow(() -> new ReviewConflictException("The working copy is gone")));
+        }
         AgentTask task = mutableTask(host);
         if (task.state() != TaskState.OPEN) {
             throw new ReviewConflictException("The task has ended");
@@ -646,6 +605,12 @@ public class ReviewCodeService
     private static Optional<DiffFile> prFile(Source source, String path)
     {
         return source.diff().get().stream().filter(file -> file.filename().equals(path)).findFirst();
+    }
+
+    public TaskCodeHost reviewHost(String reviewId)
+    {
+        AgentReview review = store.findReview(reviewId).orElseThrow(() -> new ReviewNotFoundException("Review not found: " + reviewId));
+        return new TaskCodeHost(review.workspaceId(), review.taskId(), Optional.of(reviewId));
     }
 
     private Source source(String reviewId)
@@ -729,6 +694,9 @@ public class ReviewCodeService
 
     private Source source(TaskCodeHost host)
     {
+        if (host.reviewId().isPresent()) {
+            return source(host.reviewId().orElseThrow());
+        }
         AgentTask task = task(host);
         Path checkout = worktrees.ownedCheckout(task.taskWorktree().orElseThrow());
         Supplier<Base> base = Suppliers.memoize(() -> taskBase(task, checkout));
@@ -766,12 +734,15 @@ public class ReviewCodeService
 
     public Changes changes(TaskCodeHost host, ChangeScope scope, Optional<String> commit, Optional<String> base, Optional<String> head)
     {
+        if (host.reviewId().isPresent()) {
+            return reviewChanges(host.reviewId().orElseThrow(), scope, commit, base, head);
+        }
         Source source = source(host);
         Path checkout = source.checkout().orElseThrow();
         return changes(source, taskBase(source.task(), checkout), scope, commit, base, head, Optional.empty());
     }
 
-    public Changes changes(String reviewId, ChangeScope scope, Optional<String> commit, Optional<String> base, Optional<String> head)
+    private Changes reviewChanges(String reviewId, ChangeScope scope, Optional<String> commit, Optional<String> base, Optional<String> head)
     {
         boolean historical = scope == ChangeScope.COMMITTED || head.isPresent();
         Source source = source(reviewId, !historical);

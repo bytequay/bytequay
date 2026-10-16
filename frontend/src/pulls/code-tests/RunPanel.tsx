@@ -11,7 +11,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   Bot,
   ChevronDown,
@@ -27,6 +26,11 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useNow } from '../../useNow';
+import { usePopoverDismiss } from '../../usePopoverDismiss';
+import { useResizablePane } from '../../useResizablePane';
+import { shortSha } from './codeModel';
 import type { CodeHostRef, LocalRunDto, LocalRunMethodDto, LocalRunOutputDto, ReviewCodeFilesDto } from './contracts';
 import {
   failedRows,
@@ -41,8 +45,6 @@ import {
   statusLabel,
   statusTone,
 } from './runModel';
-import { shortSha } from './codeModel';
-import { usePopoverDismiss } from '../../usePopoverDismiss';
 import TerminalOutput from './TerminalOutput';
 
 type SubTab = 'tests' | 'details';
@@ -128,8 +130,9 @@ export default function RunPanel({
   const [failureDetail, setFailureDetail] = useState<LocalRunMethodDto | null>(null);
   const [height, setHeight] = useState(236);
   // Null keeps the stylesheet's share until the divider is first moved.
-  const [treeWidth, setTreeWidth] = useState<number | null>(null);
   const results = useRef<HTMLDivElement>(null);
+  const { width: treeWidth, setWidth: setTreeWidth, startResize: resizeTree } = useResizablePane(null, MIN_TREE_WIDTH,
+    () => (results.current?.getBoundingClientRect().width ?? 0) - MIN_LOG_WIDTH);
   const [subTab, setSubTab] = useState<SubTab>('tests');
   // The runs shown as tabs, in tab order; every other run is in history.
   const [tabIds, setTabIds] = useState<readonly string[]>(() => selectedRunId === null ? [] : [selectedRunId]);
@@ -137,7 +140,6 @@ export default function RunPanel({
   const [historyOpen, setHistoryOpen] = useState<'left' | 'right' | null>(null);
   const [failedOnly, setFailedOnly] = useState(false);
   const [outputs, setOutputs] = useState<ReadonlyMap<string, OutputState>>(new Map());
-  const [now, setNow] = useState(() => Date.now());
   const outputsRef = useRef(outputs);
   outputsRef.current = outputs;
   const log = useRef<HTMLDivElement>(null);
@@ -149,11 +151,7 @@ export default function RunPanel({
   const run = runs.find(item => item.id === selectedRunId) ?? null;
   const running = runs.some(item => item.status === 'RUNNING');
 
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
+  const now = useNow(running);
 
   // Output streams while the run is live and is read once more when it settles, so the tail is never lost.
   useEffect(() => {
@@ -221,22 +219,7 @@ export default function RunPanel({
     return Math.round(Math.max(MIN_TREE_WIDTH, Math.min(total - MIN_LOG_WIDTH, width)));
   };
   const currentTreeWidth = () => results.current?.querySelector<HTMLElement>('.ct-run__tree')?.getBoundingClientRect().width ?? MIN_TREE_WIDTH;
-  const startSplit = (event: ReactMouseEvent) => {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = currentTreeWidth();
-    const move = (next: MouseEvent) => setTreeWidth(clampTreeWidth(startWidth + next.clientX - startX));
-    const stop = () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', stop);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', stop);
-  };
+  const startSplit = (event: ReactMouseEvent) => resizeTree(event, currentTreeWidth());
   const nudgeSplit = (event: ReactKeyboardEvent) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     event.preventDefault();

@@ -17,7 +17,7 @@ import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Read-only CI evidence for the pull request associated with one development or CI Autofix task. */
@@ -56,6 +56,6 @@ public record PullRequestCiBridge(
         requireNonNull(requestRerun, "requestRerun is null");
         requireNonNull(read, "read is null");
         requireNonNull(readRaw, "readRaw is null");
-        checkNotBlank(instruction, "instruction");
+        checkText(instruction, "instruction");
     }
 }

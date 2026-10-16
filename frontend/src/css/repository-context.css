@@ -26,8 +26,7 @@
 .rcp-spacer { flex: 1; }
 .rcp-sep { color: #b6bcc4; }
 .rcp-spin { display: inline-block; flex: none; border: 2px solid #b6d4f7; border-top-color: #0969da; border-radius: 50%; box-sizing: border-box;
-  animation: rcp-spin 1s linear infinite; }
-@keyframes rcp-spin { to { transform: rotate(360deg); } }
+  animation: bq-spin 1s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .rcp-spin { animation-duration: 3s; } }
 
 .rcp-tone--gray { --tone-fg: #57606a; --tone-bg: #f0f1f3; }
@@ -191,7 +190,6 @@
 
 @container rcp (max-width: 600px) {
   .rcp-scroll { padding: 22px 20px 140px; }
-  .rcp-bar { padding: 12px 20px; }
   .rcp-limits { left: 20px; }
 }
 

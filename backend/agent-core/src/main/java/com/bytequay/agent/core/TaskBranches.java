@@ -18,7 +18,7 @@ import java.util.Arrays;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -38,7 +38,7 @@ public final class TaskBranches
     public static String generate(TaskId taskId, String githubLogin, String description)
     {
         requireNonNull(taskId, "taskId is null");
-        checkNotBlank(description, "description");
+        checkText(description, "description");
         String prefix = prefix(githubLogin);
         String descriptionLine = TaskTitles.firstLine(description).toLowerCase(Locale.ROOT);
         String slug = Normalizer.normalize(REQUEST_PREFIX.matcher(descriptionLine).replaceFirst(""), Normalizer.Form.NFKD)
@@ -60,7 +60,7 @@ public final class TaskBranches
 
     public static String prefix(String githubLogin)
     {
-        checkNotBlank(githubLogin, "githubLogin");
+        checkText(githubLogin, "githubLogin");
         String login = githubLogin.toLowerCase(Locale.ROOT);
         checkArgument(login.matches(LOGIN), "githubLogin is not a safe GitHub login");
         return login + "/bytequay/";

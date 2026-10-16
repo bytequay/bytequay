@@ -20,9 +20,9 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -122,7 +122,7 @@ public sealed interface ProviderAgentEvent
         public Tool
         {
             checkOptionalText(providerEventId, "providerEventId");
-            checkNotBlank(name, "name");
+            checkText(name, "name");
             requireNonNull(state, "state is null");
             requireNonNull(summary, "summary is null");
             requireNonNull(source, "source is null");
@@ -196,7 +196,7 @@ public sealed interface ProviderAgentEvent
         public FileChange
         {
             checkOptionalText(providerEventId, "providerEventId");
-            checkNotBlank(relativePath, "relativePath");
+            checkText(relativePath, "relativePath");
             requireNonNull(change, "change is null");
             requireNonNull(diff, "diff is null");
             Path path = Path.of(relativePath);
@@ -254,8 +254,8 @@ public sealed interface ProviderAgentEvent
         public Error
         {
             checkOptionalText(providerEventId, "providerEventId");
-            checkNotBlank(code, "code");
-            checkNotBlank(message, "message");
+            checkText(code, "code");
+            checkText(message, "message");
             requireNonNull(source, "source is null");
         }
     }
@@ -264,7 +264,7 @@ public sealed interface ProviderAgentEvent
     {
         public PlanItem
         {
-            checkNotBlank(text, "text");
+            checkText(text, "text");
             requireNonNull(state, "state is null");
         }
     }

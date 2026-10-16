@@ -64,6 +64,7 @@ import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.stream.IntStream;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -172,13 +173,9 @@ public class BackportChainService
     public BackportChain save(String taskId, TurnId turnId, Request request)
     {
         Lock requestLock = requests.get(taskId + ":" + request.operationKey());
-        requestLock.lock();
-        try {
+        return withLock(requestLock, () -> {
             return saveAccepted(taskId, turnId, request);
-        }
-        finally {
-            requestLock.unlock();
-        }
+        });
     }
 
     private BackportChain saveAccepted(String taskId, TurnId turnId, Request request)
@@ -190,8 +187,7 @@ public class BackportChainService
                         .allMatch(chain -> chain.id().equals(id)),
                 "This operationKey already belongs to another chain");
         Lock lock = locks.get(id);
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             requireTurn(taskId, turnId);
             Optional<BackportChain> previous = chains.find(id);
             int offset = previous.map(chain -> chain.hops().size()).orElse(0);
@@ -262,10 +258,7 @@ public class BackportChainService
                     .orElseThrow(() -> new IllegalArgumentException("Source has no managed branch")).generatedBranch());
             return chains.createOrGet(new BackportChain(id, owner.workspaceId().orElseThrow(), taskId, request.sourceTaskId(), branch,
                     sourceRoute, sourcePr, false, ImmutableList.of(authority), next.build(), State.ACTIVE, Optional.empty(), 0, clock.instant(), clock.instant()));
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     public List<BackportChain> list(String workspaceId)
@@ -319,8 +312,7 @@ public class BackportChainService
     public BackportChain selectSource(String workspaceId, String id, SelectSource selection)
     {
         Lock lock = locks.get(id);
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             var chain = owned(workspaceId, id);
             checkState(chain.version() == selection.version() && chain.state() == State.BLOCKED, "Chain changed; reload before selecting commits");
             validate(chain);
@@ -348,10 +340,7 @@ public class BackportChainService
                     preview.commits().stream().map(com.bytequay.app.cherrypick.CherryPickCommitPreview::sourceSha).collect(toImmutableList()), clock.instant());
             return chains.save(chain.withHop(index, hop.withSelection(selected), clock.instant()).withState(State.BLOCKED,
                     Optional.of("Selected " + selected.commits().size() + " landed commits. Resume to continue the saved route."), clock.instant()));
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     public BackportChain stop(String workspaceId, String id)
@@ -377,16 +366,12 @@ public class BackportChainService
     public BackportChain resume(String workspaceId, String id)
     {
         Lock lock = locks.get(id);
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             var chain = owned(workspaceId, id);
             checkArgument(chain.state() == State.BLOCKED || chain.state() == State.STOPPED, "This chain is not paused");
             validate(chain);
             return chains.save(chain.withState(State.ACTIVE, Optional.empty(), clock.instant()));
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     public void advance(String id)

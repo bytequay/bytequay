@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { count, flag, object, text } from '../../pulls/wireParse';
 
 
 /** One discussion as the backend projects it. The seed and provider session are not sent. */
@@ -99,22 +100,6 @@ export function parseDiscussionReplyDraft(value: unknown): string {
   return text(object(value).text);
 }
 
-function object(value: unknown): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Invalid discussion');
-  return value as Record<string, unknown>;
-}
-function text(value: unknown): string {
-  if (typeof value !== 'string') throw new Error('Invalid discussion text');
-  return value;
-}
-function count(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('Invalid discussion number');
-  return value;
-}
-function flag(value: unknown): boolean {
-  if (typeof value !== 'boolean') throw new Error('Invalid discussion flag');
-  return value;
-}
 function comment(value: unknown): DiscussionCommentDto | null {
   if (value == null) return null;
   const row = object(value);

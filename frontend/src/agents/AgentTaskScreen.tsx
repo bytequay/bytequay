@@ -12,147 +12,148 @@
  * limitations under the License.
  */
 
-import { PendingReviewComments } from '../pulls/ReviewDrafts';
-import { useNoticeSource } from '../notices/useNoticeSource';
-import { LinkedWorkRequest, LinkedWorkCard, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
-import { BackportChainCard, useBackportChains } from './BackportChains';
-import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import {
-Archive,
-ArchiveRestore,
-CircleCheck,
-ListChecks,
-PanelRight,
-TriangleAlert
+  Archive,
+  ArchiveRestore,
+  CircleCheck,
+  ListChecks,
+  PanelRight,
+  TriangleAlert
 } from 'lucide-react';
-import React,{ useCallback,useEffect,useReducer,useRef,useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { ConfirmDialog } from '../ConfirmDialog';
-import type { AttentionItem } from '../home/attention';
-import PinButton from '../home/PinButton';
-import { useAttentionVisit } from '../home/useAttentionVisit';
 import '../css/agents.css';
-import { relativeTime } from '../relativeTime';
-import { useRenameDraft } from '../renameDraft';
-import { remoteErrorMessage } from '../pulls/PullOverview';
-import ReviewCommentIndex from '../pulls/ReviewCommentIndex';
+import PinButton from '../home/PinButton';
+import type { AttentionItem } from '../home/attention';
+import { useAttentionVisit } from '../home/useAttentionVisit';
+import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
+import { useNoticeSource } from '../notices/useNoticeSource';
 import { privateThreadSource } from '../pulls/PrivateThread';
+import { pullReviewThreads, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
+import { remoteErrorMessage } from '../pulls/PullOverview';
+import { PullRequestStateIcon } from '../pulls/PullRequestStateIcon';
 import { carriedPanelTab, PullDetailHeader } from '../pulls/PullsScreen';
-import { findConversationReview } from './agentConversations';
-import { canSubmitReview } from '../pulls/model';
-import { usePreparedAgentInput } from './preparedInput';
+import ReviewCommentIndex from '../pulls/ReviewCommentIndex';
+import { PendingReviewComments } from '../pulls/ReviewDrafts';
+import AgentReviewTab, { type ReviewNavigationTarget } from '../pulls/agent-review/AgentReviewTab';
+import { FindingsHead, shownRound } from '../pulls/agent-review/SummaryTimeline';
+import type { TaskReviewOptions } from '../pulls/agent-review/TaskReviewSummary';
+import type { AgentReviewDto } from '../pulls/agent-review/contracts';
+import { mergeReviewFindings } from '../pulls/agent-review/model';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
 import WorktreeChanges from '../pulls/code-tests/WorktreeChanges';
 import type { CodeHostRef } from '../pulls/code-tests/contracts';
-import type { TaskReviewOptions } from '../pulls/agent-review/TaskReviewSummary';
-import { mergeReviewFindings } from '../pulls/agent-review/model';
+import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
+import type { LocalReviewThreadDto, LocalReviewThreads } from '../pulls/local-review/types';
+import { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
+import { canSubmitReview } from '../pulls/model';
+import { pullRequestDiffRevision, usePullRequestChanges } from '../pulls/usePullRequestChanges';
+import { gitHubRetryAt, usePullRequestDetail } from '../pulls/usePullRequestDetail';
+import { relativeTime } from '../relativeTime';
+import { useRenameDraft } from '../renameDraft';
 import {
-laneLabel,
-isDeepSeekKeyLane,
-providerAvailable,
-providerRemedy,
-remedyCommand
+  isDeepSeekKeyLane,
+  laneLabel,
+  providerAvailable,
+  providerRemedy,
+  remedyCommand
 } from '../settings/model';
 import { settingsRoute } from '../settings/routes';
 import type {
-AgentApprovalDecision,
-AgentCapabilitiesDto,
-AgentChildSummaryDto,
-AgentPendingApprovalDto,
-AgentProviderStatus,
-AgentProviderUnavailableDto,
-AgentQueuedInputDto,
-AgentRuntimeStopImpactDto,
-AgentTaskDto,
-DevelopmentAutomationDto,
-ModelProviderDto,
-AgentTurnDto,
-InlineReviewCommentDto,
-ModelOptionDto,
-PullRequestDto,
-WorkspaceDto
+  AgentApprovalDecision,
+  AgentCapabilitiesDto,
+  AgentChildSummaryDto,
+  AgentPendingApprovalDto,
+  AgentProviderStatus,
+  AgentProviderUnavailableDto,
+  AgentQueuedInputDto,
+  AgentRuntimeStopImpactDto,
+  AgentTaskDto,
+  AgentTurnDto,
+  DevelopmentAutomationDto,
+  InlineReviewCommentDto,
+  ModelOptionDto,
+  ModelProviderDto,
+  PullRequestDto,
+  WorkspaceDto
 } from '../types';
-import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
-import { AgentConversation,ConversationComposer,ConversationQueue,modelName,PlanSteps,serviceTierName,Spinner,stateClass,useConversationHistory,useOutputWheel,type ApprovalDecider,type AttachmentPreview } from './AgentConversation';
-import { pullReviewThreads, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
-import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
-import { revealPassage, type SelectedPassage } from './discussions/DiscussableAnswer';
-import ConversationUtilityTab from './ConversationUtilityTab';
-import { DiscussionsPanel, discussionTurnSummaries } from './discussions/DiscussionsPanel';
-import { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
-import type { LocalReviewThreadDto, LocalReviewThreads } from '../pulls/local-review/types';
-import AgentReviewTab, { type ReviewNavigationTarget } from '../pulls/agent-review/AgentReviewTab';
-import type { AgentReviewDto } from '../pulls/agent-review/contracts';
+import { useNow } from '../useNow';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
-import DevelopmentLearningPanel from './DevelopmentLearningPanel';
-import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
-import { FindingsHead, shownRound } from '../pulls/agent-review/SummaryTimeline';
-import { IssueAttachment } from './IssueAttachment';
-import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
-import { useReviewCardFocus } from './reviewCardNavigation';
-import { pullRequestDiffRevision, usePullRequestChanges } from '../pulls/usePullRequestChanges';
-import { gitHubRetryAt, usePullRequestDetail } from '../pulls/usePullRequestDetail';
-import { AutomationControl } from './AutomationControl';
-import { developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
-import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
-import SubagentsPanel from './SubagentsPanel';
+import { AgentConversation, ConversationComposer, ConversationQueue, modelName, PlanSteps, serviceTierName, Spinner, stateClass, useConversationHistory, useOutputWheel, type ApprovalDecider, type AttachmentPreview } from './AgentConversation';
 import { taskArchived } from './AgentTasksView';
+import { AutomationControl } from './AutomationControl';
+import { BackportChainCard, useBackportChains } from './BackportChains';
+import ConversationUtilityTab from './ConversationUtilityTab';
+import DevelopmentLearningPanel from './DevelopmentLearningPanel';
+import { IssueAttachment } from './IssueAttachment';
+import { LinkedWorkCard, LinkedWorkRequest, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
+import ProviderSignInDialog from './ProviderSignInDialog';
+import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
+import SubagentsPanel from './SubagentsPanel';
+import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
+import {
+  NO_PULL_REQUEST_CHANGES,
+  NO_PULL_REQUEST_DETAIL,
+  NoPullRequestView,
+  samePullRequest,
+  TaskChangesView,
+  taskPullRequest,
+  TaskPullRequestView,
+  type TaskPullRequestChanges,
+  type TaskPullRequestDetail
+} from './TaskPullRequestPanel';
+import { findConversationReview } from './agentConversations';
 import { taskAttentionAfterQueue, taskAttentionItem } from './attention';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
+import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
 import { pasteImage } from './clipboard';
 import { agentProviderUnavailableFrom } from './contracts';
+import { developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
+import { revealPassage, type SelectedPassage } from './discussions/DiscussableAnswer';
+import { DiscussionsPanel, discussionTurnSummaries } from './discussions/DiscussionsPanel';
+import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
 import { renderMarkdown } from './markdown';
-import ProviderSignInDialog from './ProviderSignInDialog';
 import {
-abandonsUncertainInput,
-acceptsImages,
-agentTaskReducer,
-canComplete,
-canQueue,
-canSend,
-canSteer,
-createDraftSubmissionTracker,
-historyAfter,
-historyBefore,
-initialAgentTaskState,
-readRecentAgentHistory,
-retryableInput,
-runtimeStatus,
-startAgentTaskSession,
-unloadedTurnIds,
-type AgentBridgePort,
-type AgentRuntimeStatus,
-type AgentTaskState,
-type DraftSubmissionTracker,
-type RetryableInput
+  abandonsUncertainInput,
+  acceptsImages,
+  agentTaskReducer,
+  canComplete,
+  canQueue,
+  canSend,
+  canSteer,
+  createDraftSubmissionTracker,
+  historyAfter,
+  historyBefore,
+  initialAgentTaskState,
+  readRecentAgentHistory,
+  retryableInput,
+  runtimeStatus,
+  startAgentTaskSession,
+  unloadedTurnIds,
+  type AgentBridgePort,
+  type AgentRuntimeStatus,
+  type AgentTaskState,
+  type DraftSubmissionTracker,
+  type RetryableInput
 } from './model';
+import { usePreparedAgentInput } from './preparedInput';
+import { useReviewCardFocus } from './reviewCardNavigation';
 import {
-activeAgents,
-agentDisplayName,
-currentPlan,
-formatDuration,
-planSummary,
-projectAgents,
-projectTranscript,
-settleFinalTurn,
-turnElapsedMs,
-withApprovalAuthority,
-type AgentNode,
-type PlanStep,
-type TranscriptTurn
+  activeAgents,
+  agentDisplayName,
+  currentPlan,
+  formatDuration,
+  planSummary,
+  projectAgents,
+  projectTranscript,
+  settleFinalTurn,
+  turnElapsedMs,
+  withApprovalAuthority,
+  type AgentNode,
+  type PlanStep,
+  type TranscriptTurn
 } from './transcript';
-import {
-NO_PULL_REQUEST_CHANGES,
-NO_PULL_REQUEST_DETAIL,
-NoPullRequestView,
-samePullRequest,
-TaskChangesView,
-TaskPullRequestView,
-taskPullRequest,
-type TaskPullRequestChanges,
-type TaskPullRequestDetail
-} from './TaskPullRequestPanel';
-import { PullRequestStateIcon } from '../pulls/PullRequestStateIcon';
 export { TurnView,type AttachmentPreview } from './AgentConversation';
 
 type PanelTab = 'pr' | 'files' | 'changes' | 'review' | 'code' | 'agents' | 'discussions';
@@ -1590,7 +1591,6 @@ export default function AgentTaskScreen({
   // Whether a lookup has ever finished, so a later one refreshes under what is on screen instead
   // of replacing it with "Checking for a pull request…" again.
   const pullRequestChecked = useRef(false);
-  const [now, setNow] = useState(() => Date.now());
   const [historyLoading, setHistoryLoading] = useState(false);
   const historyLoadingRef = useRef(false);
   const followingHistory = useRef(true);
@@ -1607,12 +1607,7 @@ export default function AgentTaskScreen({
   previewsRef.current = previews;
   const running = runtimeStatus(state) === 'running';
   // The clock only ticks while a turn runs; a finished turn's elapsed time is fixed by its events.
-  useEffect(() => {
-    if (!running) return;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [running]);
+  const now = useNow(running);
   // Resolved when used, not when rendered: the product route reaches Electron's bridge, and a
   // static render has no window to reach.
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);

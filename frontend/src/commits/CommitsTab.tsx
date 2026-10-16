@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, GitBranch, GitFork, ListChecks, RefreshCw, Search, X } from 'lucide-react';
-import SelectRangeDialog from './SelectRangeDialog';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import '../css/commits.css';
 import { relativeTime } from '../relativeTime';
 import type {
   CherryPickPreview,
@@ -26,14 +26,15 @@ import type {
   WorkspaceDto,
   WorkspaceSettingsDto,
 } from '../types';
+import { usePopoverDismiss } from '../usePopoverDismiss';
 import { githubSlug } from '../workspaces/model';
 import ChangesView from './ChangesView';
 import FlowView from './FlowView';
 import HistoryView from './HistoryView';
 import ProgressView from './ProgressView';
+import SelectRangeDialog from './SelectRangeDialog';
 import TasksView from './TasksView';
 import { remoteBranchCorrection, selectedSpan, shortSha } from './model';
-import '../css/commits.css';
 
 type Screen = 'commits' | 'flow' | 'tasks' | 'progress';
 type CommitsView = 'history' | 'changes';
@@ -251,12 +252,7 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
   }, [onSourceSelectionChange, source]);
 
   // Menus close on any outside press; the chip wrappers stop propagation.
-  useEffect(() => {
-    if (menu === null) return;
-    const close = () => setMenu(null);
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [menu]);
+  const menuRef = usePopoverDismiss(() => setMenu(null), false, menu !== null);
 
   useEffect(() => {
     if (isRemote || targetUpstream) return;
@@ -569,7 +565,7 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
     <div className="cmt-root">
       {showTabBar && (
         <div className="cmt-tab-bar">
-          <div className="cmt-switch" onMouseDown={event => event.stopPropagation()}>
+          <div ref={menuRef} className="cmt-switch" onMouseDown={event => event.stopPropagation()}>
             <button
               type="button"
               className={`cmt-switch__half${isRemote ? '' : ' is-active'}`}

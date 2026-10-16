@@ -20,6 +20,7 @@ import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
+import com.bytequay.agent.cli.process.ProcessIdentity;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
@@ -3345,7 +3346,7 @@ class TestCodexCliDriver
             JsonNode listed = broker.handle(token, objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
-            assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsAll(LocalReviewBridge.TOOL_NAMES);
+            assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsAll(ImmutableList.of(LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL));
             session.start(command("Explain this comment"));
             // The dispatcher survives a scope change, but only current capabilities can run.
             server.emit("""
@@ -3470,7 +3471,7 @@ class TestCodexCliDriver
                         PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
                                 .localReviews(taskId -> Optional.of(local)).build(),
                         LocalReviewBridge.INSTRUCTION,
-                        LocalReviewBridge.TOOL_NAMES);
+                        ImmutableList.of(LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL));
             }
         };
         PermissionBroker broker = bridged.broker();
@@ -3687,6 +3688,17 @@ class TestCodexCliDriver
     private static final class ScriptedProcessSupervisor
             implements ProcessSupervisor
     {
+    @Override
+        public OwnedProcessRecovery recoverOwnedProcess(String launchId)
+        {
+            return new OwnedProcessRecovery(
+                    launchId,
+                    Optional.empty(),
+                    Optional.empty(),
+                    OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                    "Targeted recovery is not supported by this supervisor");
+        }
+
         private final ObjectMapper objectMapper;
         private final boolean failThreadStart;
         private volatile String versionOutput;
@@ -3865,8 +3877,6 @@ class TestCodexCliDriver
                     + "\"agentThreadId\":\"unknown-v2-child\",\"agentPath\":\"/root/unknown\","
                     + "\"kind\":\"started\"}}],\"nextCursor\":null}");
         }
-
-
 
         private void reportOnlyPriorRootHistory()
         {
@@ -4126,6 +4136,19 @@ class TestCodexCliDriver
     private static final class AppServerProcess
             implements ManagedProcess
     {
+    @Override
+        public CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
+        {
+            cancel();
+            return exit().thenApply(ProcessExit::treeTermination);
+        }
+
+        @Override
+        public Optional<List<ProcessIdentity>> observedDescendants()
+        {
+            return Optional.empty();
+        }
+
         /** What thread-1 counted in the turns before a session resumes it. */
         private static final String EARLIER_USAGE = tokens(1000, 800, 300, 200);
 
@@ -4913,6 +4936,25 @@ class TestCodexCliDriver
     private record ImmediateProcess(CompletableFuture<ProcessExit> exit)
             implements ManagedProcess
     {
+        @Override
+        public Optional<List<ProcessIdentity>> observedDescendants()
+        {
+            return Optional.empty();
+        }
+
+        @Override
+        public CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
+        {
+            cancel();
+            return exit().thenApply(ProcessExit::treeTermination);
+        }
+
+        @Override
+        public CompletionStage<ProcessExit.TreeTermination> stopAfterWorkFinished()
+        {
+            return stopAndVerify();
+        }
+
         private static ImmediateProcess success()
         {
             return success(ProcessExit.TreeTermination.VERIFIED_STOPPED);

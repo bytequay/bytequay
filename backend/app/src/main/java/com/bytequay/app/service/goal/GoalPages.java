@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.google.common.base.Throwables;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -77,11 +78,6 @@ public class GoalPages
 
     private static boolean unresolved(Throwable failure)
     {
-        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-            if (cause instanceof UnknownHostException || cause instanceof UnresolvedAddressException) {
-                return true;
-            }
-        }
-        return false;
+        return Throwables.getCausalChain(failure).stream().anyMatch(cause -> cause instanceof UnknownHostException || cause instanceof UnresolvedAddressException);
     }
 }

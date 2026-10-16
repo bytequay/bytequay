@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.core;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -25,8 +25,8 @@ public record StoreAgentAttachmentCommand(TaskId taskId, String name, String med
     public StoreAgentAttachmentCommand
     {
         requireNonNull(taskId, "taskId is null");
-        checkNotBlank(name, "name");
-        checkNotBlank(mediaType, "mediaType");
+        checkText(name, "name");
+        checkText(mediaType, "mediaType");
         requireNonNull(bytes, "bytes is null");
     }
 }

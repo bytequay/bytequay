@@ -52,6 +52,7 @@ import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.function.UnaryOperator;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -331,18 +332,16 @@ public class ReviewReplayService
     private List<Replay> update(String workspaceId, UnaryOperator<List<Replay>> change)
     {
         Lock lock = locks.get(workspaceId);
-        lock.lock();
-        try {
-            List<Replay> updated = ImmutableList.copyOf(change.apply(replays(workspaceId)));
-            settings.put(STATE + workspaceId, mapper.writeValueAsString(new Replays(updated)));
-            return updated;
-        }
-        catch (JsonProcessingException failure) {
-            throw new IllegalStateException("Replays cannot be saved", failure);
-        }
-        finally {
-            lock.unlock();
-        }
+        return withLock(lock, () -> {
+            try {
+                List<Replay> updated = ImmutableList.copyOf(change.apply(replays(workspaceId)));
+                settings.put(STATE + workspaceId, mapper.writeValueAsString(new Replays(updated)));
+                return updated;
+            }
+            catch (JsonProcessingException failure) {
+                throw new IllegalStateException("Replays cannot be saved", failure);
+            }
+        });
     }
 
     private record Head(String sha, Optional<String> fallback) {}

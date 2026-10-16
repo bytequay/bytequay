@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { ChevronRight } from 'lucide-react';
 import React from 'react';
 
 /**
@@ -23,16 +24,5 @@ export function Chevron({ open = false, size = 12, className = '' }: {
   size?: number;
   className?: string;
 }): React.JSX.Element {
-  return (
-    <svg
-      className={`chev${open ? ' is-open' : ''}${className === '' ? '' : ` ${className}`}`}
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="none"
-      aria-hidden="true"
-    >
-      <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+  return <ChevronRight className={`chev${open ? ' is-open' : ''}${className === '' ? '' : ` ${className}`}`} size={size} strokeWidth={2.4} aria-hidden="true" />;
 }

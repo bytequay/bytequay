@@ -11,12 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { relativeTime } from '../relativeTime';
 import {
+  developmentDefaults,
   displayModelName,
   effortLabel,
-  developmentDefaults,
   laneDefaults,
   laneLabel,
   laneModels,
@@ -30,6 +31,8 @@ import type {
   CherryPickPreviewCommit,
   ModelProviderDto,
 } from '../types';
+import { useModalDialog } from '../useModalDialog';
+import { usePopoverDismiss } from '../usePopoverDismiss';
 import { shortSha } from './model';
 
 type FlowItem = {
@@ -96,12 +99,7 @@ export default function FlowView({
     return () => { active = false; };
   }, [workspaceId]);
 
-  useEffect(() => {
-    if (!prPanel) return;
-    const close = () => setPrPanel(false);
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [prPanel]);
+  const prPopover = usePopoverDismiss(() => setPrPanel(false), false, prPanel);
 
   const items: FlowItem[] = useMemo(() => preview.commits.map(commit => {
     const already = commit.alreadyOnTarget;
@@ -255,7 +253,7 @@ export default function FlowView({
             placeholder="⌕ Filter commits by title…"
             onChange={event => setFilter(event.target.value)}
           />
-          <div className="cmt-pr-skip" onMouseDown={event => event.stopPropagation()}>
+          <div ref={prPopover} className="cmt-pr-skip" onMouseDown={event => event.stopPropagation()}>
             <button type="button" onClick={() => setPrPanel(open => !open)}>
               Skip by pull request <span className="cmt-pr-skip-count">{skippedPrs.size}</span>
             </button>
@@ -438,8 +436,7 @@ export default function FlowView({
       </div>
 
       {dryRun && (
-        <div className="cmt-modal-overlay" onClick={() => setDryRun(false)}>
-          <div className="cmt-modal" onClick={event => event.stopPropagation()}>
+        <DryRunDialog onClose={() => setDryRun(false)}>
             <div className="cmt-modal-head">
               <span className="cmt-modal-title">Dry run — execution plan</span>
               <div className="cmt-tasks-spacer" />
@@ -491,9 +488,15 @@ export default function FlowView({
               <button type="button" className="cmt-btn-plain" onClick={() => setDryRun(false)}>Back</button>
               {startButton}
             </div>
-          </div>
-        </div>
+        </DryRunDialog>
       )}
     </div>
   );
+}
+
+function DryRunDialog({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  const dialog = useModalDialog();
+  return <dialog ref={dialog} className="cmt-modal" aria-label="Dry run — execution plan"
+    onCancel={event => { event.preventDefault(); onClose(); }}
+    onClick={event => { if (event.target === event.currentTarget) onClose(); }}>{children}</dialog>;
 }

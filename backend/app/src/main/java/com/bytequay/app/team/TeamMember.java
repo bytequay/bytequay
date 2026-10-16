@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.team;
 
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -22,7 +22,7 @@ public record TeamMember(long githubId, String login, String name, String avatar
     public TeamMember
     {
         checkArgument(githubId > 0, "GitHub user ID must be positive");
-        requireNotBlank(login, "GitHub login is required");
+        checkText(login, "GitHub login");
         requireNonNull(name, "name is null");
         requireNonNull(avatarUrl, "avatarUrl is null");
         checkArgument(login.length() <= 100 && name.length() <= 200 && avatarUrl.length() <= 2048, "GitHub profile fields are too long");

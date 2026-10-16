@@ -18,6 +18,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixRun;
+import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -200,7 +201,7 @@ final class CiMemoryFile
     private static String boundedQuery(Optional<String> query)
     {
         String value = query.orElse("").trim();
-        return value.length() <= MAX_QUERY_CHARACTERS ? value : value.substring(0, MAX_QUERY_CHARACTERS);
+        return Ascii.truncate(value, MAX_QUERY_CHARACTERS, "");
     }
 
     private static String inline(String value)

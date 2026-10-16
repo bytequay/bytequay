@@ -22,6 +22,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -471,7 +472,7 @@ final class CodexEventMapper
 
     private static String bounded(String text)
     {
-        return text.length() <= MAX_OUTPUT_CHARACTERS ? text : text.substring(0, MAX_OUTPUT_CHARACTERS);
+        return Ascii.truncate(text, MAX_OUTPUT_CHARACTERS, "");
     }
 
     private Optional<String> relativePath(CodexProtocol.FileUpdateChange change)

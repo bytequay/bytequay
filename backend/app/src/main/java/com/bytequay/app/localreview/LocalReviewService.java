@@ -58,8 +58,8 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
-import java.util.function.Supplier;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -256,7 +256,7 @@ public class LocalReviewService
     private LocalReviewView create(AgentTask task, String workspaceId, Create request, String operationKey, Optional<LocalReviewLearningAnchor> learningAnchor)
     {
         String taskId = task.id().toString();
-        LocalReviewThread thread = locked(taskId, () -> {
+        LocalReviewThread thread = withLock(locks.get(taskId), () -> {
             Optional<LocalReviewThread> existing = store.find(request.id());
             String signature = hash("create:" + request.identity() + learningAnchor.map(Object::toString).orElse(""));
             if (existing.isPresent()) {
@@ -296,7 +296,7 @@ public class LocalReviewService
     {
         checkArgument(expectedTaskVersion >= 0, "Invalid task version");
         AgentTask task = task(taskId, workspaceId, true);
-        LocalReviewThread thread = locked(taskId, () -> {
+        LocalReviewThread thread = withLock(locks.get(taskId), () -> {
             LocalReviewThread current = requireThread(taskId, id);
             String signature = hash("reply:" + messageId + ":" + body);
             if (replayed(current, operationKey, signature)) {
@@ -325,7 +325,7 @@ public class LocalReviewService
     public LocalReviewView replyFromAgent(String taskId, String commentId, String body, String operationKey)
     {
         requireAgentTask(taskId);
-        return locked(taskId, () -> {
+        return withLock(locks.get(taskId), () -> {
             LocalReviewThread thread = requireThread(taskId, commentId);
             String signature = hash("agent-reply:" + body);
             if (replayed(thread, operationKey, signature)) {
@@ -347,7 +347,7 @@ public class LocalReviewService
 
     private LocalReviewView resolve(String taskId, String id, boolean resolved, Optional<Long> expectedVersion, String operationKey)
     {
-        return locked(taskId, () -> {
+        return withLock(locks.get(taskId), () -> {
             LocalReviewThread thread = requireThread(taskId, id);
             String signature = hash("resolved:" + resolved);
             if (replayed(thread, operationKey, signature)) {
@@ -362,7 +362,7 @@ public class LocalReviewService
 
     private LocalReviewView dispatch(LocalReviewThread thread, String messageId, long expectedTaskVersion)
     {
-        return locked(thread.taskId(), () -> dispatchLocked(requireThread(thread.taskId(), thread.id()), messageId, expectedTaskVersion));
+        return withLock(locks.get(thread.taskId()), () -> dispatchLocked(requireThread(thread.taskId(), thread.id()), messageId, expectedTaskVersion));
     }
 
     private LocalReviewView dispatchLocked(LocalReviewThread thread, String messageId, long expectedTaskVersion)
@@ -509,18 +509,6 @@ public class LocalReviewService
     private static String hash(String input)
     {
         return Hashing.sha256().hashString(input, UTF_8).toString();
-    }
-
-    private <T> T locked(String taskId, Supplier<T> action)
-    {
-        Lock lock = locks.get(taskId);
-        lock.lock();
-        try {
-            return action.get();
-        }
-        finally {
-            lock.unlock();
-        }
     }
 
     private static String prompt(LocalReviewThread thread, LocalReviewMessage message)

@@ -16,7 +16,7 @@ package com.bytequay.agent.spi;
 import java.nio.file.Path;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -56,15 +56,15 @@ public record AgentSessionContext(
 
     public AgentSessionContext
     {
-        checkNotBlank(taskId, "taskId");
+        checkText(taskId, "taskId");
         requireNonNull(worktree, "worktree is null");
         requireNonNull(runtimeDirectory, "runtimeDirectory is null");
         requireNonNull(providerDirectory, "providerDirectory is null");
         requireNonNull(permissionPolicy, "permissionPolicy is null");
         requireNonNull(sessionReference, "sessionReference is null");
         requireNonNull(approvals, "approvals is null");
-        requireNonNull(model, "model is null").ifPresent(value -> checkNotBlank(value, "model"));
-        requireNonNull(effort, "effort is null").ifPresent(value -> checkNotBlank(value, "effort"));
+        requireNonNull(model, "model is null").ifPresent(value -> checkText(value, "model"));
+        requireNonNull(effort, "effort is null").ifPresent(value -> checkText(value, "effort"));
         requireNonNull(access, "access is null");
         requireNonNull(codeQueries, "codeQueries is null");
         requireNonNull(managedInstructions, "managedInstructions is null");

@@ -16,8 +16,8 @@ package com.bytequay.agent.core;
 import java.time.Instant;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -55,9 +55,9 @@ public record QueuedAgentInput(
         requireNonNull(taskId, "taskId is null");
         checkArgument(position > 0, "position must be positive");
         requireNonNull(state, "state is null");
-        checkNotBlank(idempotencyKey, "idempotencyKey");
+        checkText(idempotencyKey, "idempotencyKey");
         requireNonNull(textBlob, "textBlob is null");
-        checkNotBlank(preview, "preview");
+        checkText(preview, "preview");
         requireNonNull(settings, "settings is null");
         requireNonNull(messageEventId, "messageEventId is null");
         requireNonNull(turnId, "turnId is null");
@@ -81,7 +81,7 @@ public record QueuedAgentInput(
             AgentTurnSettings settings,
             Instant now)
     {
-        checkNotBlank(text, "text");
+        checkText(text, "text");
         return new QueuedAgentInput(
                 id,
                 taskId,
@@ -150,7 +150,7 @@ public record QueuedAgentInput(
 
     public QueuedAgentInput paused(String reason, Instant now)
     {
-        checkNotBlank(reason, "reason");
+        checkText(reason, "reason");
         checkState(state == State.QUEUED || state == State.STARTING, "cannot pause an input in state " + state);
         return copy(State.PAUSED, messageEventId, turnId, Optional.of(reason), now);
     }
@@ -158,7 +158,7 @@ public record QueuedAgentInput(
     /** The turn was sent and never acknowledged; whether the provider ran it is unknown. */
     public QueuedAgentInput uncertain(String reason, Instant now)
     {
-        checkNotBlank(reason, "reason");
+        checkText(reason, "reason");
         requireState(State.STARTING);
         return copy(State.UNCERTAIN, messageEventId, turnId, Optional.of(reason), now);
     }
@@ -172,7 +172,7 @@ public record QueuedAgentInput(
     /** The user declined to resend an uncertain input; this says nothing about whether it arrived. */
     public QueuedAgentInput abandoned(String reason, Instant now)
     {
-        checkNotBlank(reason, "reason");
+        checkText(reason, "reason");
         requireState(State.UNCERTAIN);
         return copy(State.ABANDONED, messageEventId, turnId, Optional.of(reason), now);
     }
@@ -186,7 +186,7 @@ public record QueuedAgentInput(
     /** Adds the display-only preview derived from the owner-only text blob. */
     public QueuedAgentInput withPreview(String text)
     {
-        checkNotBlank(text, "text");
+        checkText(text, "text");
         return new QueuedAgentInput(id, taskId, position, state, idempotencyKey, textBlob, preview(text), settings,
                 messageEventId, turnId, pauseReason, createdAt, updatedAt, version);
     }

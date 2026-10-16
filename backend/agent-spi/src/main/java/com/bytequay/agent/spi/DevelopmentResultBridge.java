@@ -16,7 +16,7 @@ package com.bytequay.agent.spi;
 import java.util.Optional;
 import java.util.function.Function;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Binds the fixed reporting and publication capability to an accepted ByteQuay turn. */
@@ -73,8 +73,8 @@ public record DevelopmentResultBridge(String turnId, String instruction, boolean
 
     public DevelopmentResultBridge
     {
-        checkNotBlank(turnId, "turnId");
-        checkNotBlank(instruction, "instruction");
+        checkText(turnId, "turnId");
+        checkText(instruction, "instruction");
         requireNonNull(branchRenamer, "branchRenamer is null");
     }
 }

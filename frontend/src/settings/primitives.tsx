@@ -11,8 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { Check, ChevronDown, Plus, X } from 'lucide-react';
+import { type ReactNode, useId, useState } from 'react';
+import { useModalDialog } from '../useModalDialog';
+import { usePopoverDismiss } from '../usePopoverDismiss';
 
 /** One concern. Rows inside are separated by hairlines; a footer holds the card's one add action. */
 export function SettingsCard({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
@@ -138,16 +140,8 @@ export function SelectPill({ value, label, options, ariaLabel, quiet, disabled, 
   onSelect: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const wrap = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      if (!wrap.current?.contains(event.target as Node)) setOpen(false);
-    };
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [open]);
+  const wrap = usePopoverDismiss(() => setOpen(false), false, open);
 
   let lastGroup: string | undefined;
   return (
@@ -225,15 +219,10 @@ export function Dialog({ title, children, confirmLabel, confirmDisabled, destruc
 }) {
   const titleId = useId();
 
-  useEffect(() => {
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onCancel(); };
-    window.addEventListener('keydown', escape);
-    return () => window.removeEventListener('keydown', escape);
-  }, [onCancel]);
+  const dialog = useModalDialog();
 
   return (
-    <div className="setw-dialog-backdrop">
-      <div className="setw-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+    <dialog ref={dialog} className="setw-dialog" onCancel={event => { event.preventDefault(); onCancel(); }} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="setw-dialog-head">
           <span id={titleId}>{title}</span>
           <button type="button" className="setw-dialog-close" aria-label="Close" onClick={onCancel}>
@@ -248,7 +237,6 @@ export function Dialog({ title, children, confirmLabel, confirmDisabled, destruc
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </dialog>
   );
 }

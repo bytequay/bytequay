@@ -16,7 +16,7 @@ package com.bytequay.app.agent;
 import java.time.Instant;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -28,11 +28,11 @@ public record JiraSourceInput(String connectionId, String cloudId, String issueI
 {
     public JiraSourceInput
     {
-        checkNotBlank(connectionId, "connectionId");
-        checkNotBlank(cloudId, "cloudId");
-        checkNotBlank(issueId, "issueId");
-        checkNotBlank(key, "key");
-        checkNotBlank(title, "title");
+        checkText(connectionId, "connectionId");
+        checkText(cloudId, "cloudId");
+        checkText(issueId, "issueId");
+        checkText(key, "key");
+        checkText(title, "title");
         requireNonNull(body, "body is null");
         requireNonNull(updatedAt, "updatedAt is null");
         requireNonNull(replaces, "replaces is null");

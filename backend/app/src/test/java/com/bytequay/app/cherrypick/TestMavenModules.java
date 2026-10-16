@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.utils;
+package com.bytequay.app.cherrypick;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -20,7 +20,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import static com.bytequay.app.utils.MavenModules.findModule;
+import static com.bytequay.app.cherrypick.CherryPickExecutionService.findModule;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestMavenModules

@@ -18,7 +18,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Input for the turn running now. The turn named is the one the user was looking at; any other is refused. */
@@ -27,8 +27,8 @@ public record SteerAgentTurnCommand(TurnId turnId, String message, List<AgentAtt
     public SteerAgentTurnCommand
     {
         requireNonNull(turnId, "turnId is null");
-        checkNotBlank(message, "message");
+        checkText(message, "message");
         attachments = ImmutableList.copyOf(attachments);
-        checkNotBlank(idempotencyKey, "idempotencyKey");
+        checkText(idempotencyKey, "idempotencyKey");
     }
 }

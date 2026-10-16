@@ -12,11 +12,12 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useId, useRef, useState } from 'react';
 import { CircleCheck, CircleX } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { isDeepSeekKeyLane, laneLabel, providerAvailable, providerRemedy, providerStatusLabel } from '../settings/model';
 import type { ModelProviderDto } from '../types';
+import { usePopoverDismiss } from '../usePopoverDismiss';
 
 /** The row that receives focus when the popover opens: current when usable, else first usable. */
 export function providerFocusTarget(providers: ModelProviderDto[], selectedId: string): string | null {
@@ -35,7 +36,10 @@ export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
+  const cardRef = usePopoverDismiss(event => {
+    setOpen(false);
+    if (event.type === 'keydown') triggerRef.current?.focus();
+  }, true, open);
   const cardId = useId();
   const selected = providers.find((provider) => provider.id === selectedId);
   const focusTarget = providerFocusTarget(providers, selectedId);
@@ -50,19 +54,7 @@ export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings
     const first = cardRef.current?.querySelector<HTMLButtonElement>('[data-provider-focus="lane"]')
       ?? cardRef.current?.querySelector<HTMLButtonElement>('[data-provider-focus="remedy"]');
     first?.focus();
-    const onMouseDown = (): void => close();
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      close(true);
-    };
-    window.addEventListener('mousedown', onMouseDown);
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('mousedown', onMouseDown);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
+  }, [open, cardRef]);
 
   return (
     <div className="agt-picker agt-provider-picker" onMouseDown={(event) => event.stopPropagation()}>

@@ -39,6 +39,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -62,16 +63,10 @@ public class IdeController
         this.executions = requireNonNull(executions, "executions is null");
     }
 
-    @PostMapping("/reviews/{reviewId}/executions")
-    public RunResponse runReview(@PathVariable String reviewId, @RequestBody IdeExecutions.Start request)
+    @PostMapping({"/tasks/{workspaceId}/{taskId}/executions", "/reviews/{reviewId}/executions"})
+    public RunResponse run(@PathVariable Map<String, String> target, @RequestBody IdeExecutions.Start request)
     {
-        return ReviewCodeHttpModels.run(executions.start(reviewId, request));
-    }
-
-    @PostMapping("/tasks/{workspaceId}/{taskId}/executions")
-    public RunResponse runTask(@PathVariable String workspaceId, @PathVariable String taskId, @RequestBody IdeExecutions.Start request)
-    {
-        return ReviewCodeHttpModels.run(executions.start(new TaskCodeHost(workspaceId, taskId), request));
+        return ReviewCodeHttpModels.run(executions.start(host(target), request));
     }
 
     @PostMapping("/{taskId}/{sessionId}/executions/{id}/output")
@@ -93,9 +88,9 @@ public class IdeController
     }
 
     @PostMapping("/tasks/{workspaceId}/{taskId}/query")
-    public IdeCodeQueries.Answer query(@PathVariable String workspaceId, @PathVariable String taskId, @RequestBody CodeQuery query)
+    public IdeCodeQueries.Answer query(@PathVariable Map<String, String> target, @RequestBody CodeQuery query)
     {
-        return queries.execute(code.ideQueryWorktree(new TaskCodeHost(workspaceId, taskId)), query);
+        return queries.execute(code.ideQueryWorktree(host(target)), query);
     }
 
     @GetMapping("/queries")
@@ -119,90 +114,47 @@ public class IdeController
 
     record QueryReply(String taskId, Optional<String> sessionId, CodeQueryResult result) {}
 
-    @GetMapping("/reviews/{reviewId}")
-    public Optional<IdeConnection> existingReview(@PathVariable String reviewId)
+    @GetMapping({"/tasks/{workspaceId}/{taskId}", "/reviews/{reviewId}"})
+    public Optional<IdeConnection> existing(@PathVariable Map<String, String> target)
     {
-        return runtime.existing(code.ideWorktree(reviewId));
+        return runtime.existing(code.ideWorktree(host(target)));
     }
 
-    @GetMapping("/tasks/{workspaceId}/{taskId}")
-    public Optional<IdeConnection> existingTask(@PathVariable String workspaceId, @PathVariable String taskId)
+    @PostMapping({"/tasks/{workspaceId}/{taskId}", "/reviews/{reviewId}"})
+    public IdeConnection open(@PathVariable Map<String, String> target)
     {
-        return runtime.existing(code.ideWorktree(new TaskCodeHost(workspaceId, taskId)));
+        return runtime.open(code.ideWorktree(host(target)));
     }
 
-    @PostMapping("/reviews/{reviewId}")
-    public IdeConnection openReview(@PathVariable String reviewId)
-    {
-        return runtime.open(code.ideWorktree(reviewId));
-    }
-
-    @PostMapping("/tasks/{workspaceId}/{taskId}")
-    public IdeConnection openTask(@PathVariable String workspaceId, @PathVariable String taskId)
-    {
-        return runtime.open(code.ideWorktree(new TaskCodeHost(workspaceId, taskId)));
-    }
-
-    @GetMapping("/reviews/{reviewId}/history")
-    public CodeHistory historyReview(@PathVariable String reviewId, @RequestParam Optional<String> revision, @RequestParam Optional<String> path,
-            @RequestParam(defaultValue = "0") int offset)
-    {
-        return code.history(reviewId, revision, path, offset);
-    }
-
-    @GetMapping("/tasks/{workspaceId}/{taskId}/history")
-    public CodeHistory historyTask(@PathVariable String workspaceId, @PathVariable String taskId, @RequestParam Optional<String> revision,
+    @GetMapping({"/tasks/{workspaceId}/{taskId}/history", "/reviews/{reviewId}/history"})
+    public CodeHistory history(@PathVariable Map<String, String> target, @RequestParam Optional<String> revision,
             @RequestParam Optional<String> path, @RequestParam(defaultValue = "0") int offset)
     {
-        return code.history(new TaskCodeHost(workspaceId, taskId), revision, path, offset);
+        return code.history(host(target), revision, path, offset);
     }
 
-    @GetMapping("/reviews/{reviewId}/commit")
-    public CodeHistory.Comparison commitReview(@PathVariable String reviewId, @RequestParam String revision, @RequestParam Optional<String> parent)
+    @GetMapping({"/tasks/{workspaceId}/{taskId}/commit", "/reviews/{reviewId}/commit"})
+    public CodeHistory.Comparison commit(@PathVariable Map<String, String> target, @RequestParam String revision, @RequestParam Optional<String> parent)
     {
-        return code.historyCommit(reviewId, revision, parent);
+        return code.historyCommit(host(target), revision, parent);
     }
 
-    @GetMapping("/tasks/{workspaceId}/{taskId}/commit")
-    public CodeHistory.Comparison commitTask(@PathVariable String workspaceId, @PathVariable String taskId, @RequestParam String revision, @RequestParam Optional<String> parent)
+    @GetMapping({"/tasks/{workspaceId}/{taskId}/snapshot", "/reviews/{reviewId}/snapshot"})
+    public CodeFile snapshot(@PathVariable Map<String, String> target, @RequestParam String revision, @RequestParam String path)
     {
-        return code.historyCommit(new TaskCodeHost(workspaceId, taskId), revision, parent);
+        return code.snapshot(host(target), revision, path);
     }
 
-    @GetMapping("/reviews/{reviewId}/snapshot")
-    public CodeFile snapshotReview(@PathVariable String reviewId, @RequestParam String revision, @RequestParam String path)
+    @GetMapping({"/tasks/{workspaceId}/{taskId}/blame", "/reviews/{reviewId}/blame"})
+    public CodeBlame blame(@PathVariable Map<String, String> target, @RequestParam String path)
     {
-        return code.snapshot(reviewId, revision, path);
+        return code.blame(host(target), path);
     }
 
-    @GetMapping("/tasks/{workspaceId}/{taskId}/snapshot")
-    public CodeFile snapshotTask(@PathVariable String workspaceId, @PathVariable String taskId, @RequestParam String revision, @RequestParam String path)
+    @PutMapping({"/tasks/{workspaceId}/{taskId}/file", "/reviews/{reviewId}/file"})
+    public void save(@PathVariable Map<String, String> target, @RequestBody SaveBytesRequest request)
     {
-        return code.snapshot(new TaskCodeHost(workspaceId, taskId), revision, path);
-    }
-
-    @GetMapping("/reviews/{reviewId}/blame")
-    public CodeBlame blameReview(@PathVariable String reviewId, @RequestParam String path)
-    {
-        return code.blame(reviewId, path);
-    }
-
-    @GetMapping("/tasks/{workspaceId}/{taskId}/blame")
-    public CodeBlame blameTask(@PathVariable String workspaceId, @PathVariable String taskId, @RequestParam String path)
-    {
-        return code.blame(new TaskCodeHost(workspaceId, taskId), path);
-    }
-
-    @PutMapping("/reviews/{reviewId}/file")
-    public void saveReview(@PathVariable String reviewId, @RequestBody SaveBytesRequest request)
-    {
-        code.saveBytes(reviewId, request.path(), request.content(), request.expectedHash());
-    }
-
-    @PutMapping("/tasks/{workspaceId}/{taskId}/file")
-    public void saveTask(@PathVariable String workspaceId, @PathVariable String taskId, @RequestBody SaveBytesRequest request)
-    {
-        code.saveBytes(new TaskCodeHost(workspaceId, taskId), request.path(), request.content(), request.expectedHash());
+        code.saveBytes(host(target), request.path(), request.content(), request.expectedHash());
     }
 
     @ExceptionHandler(ReviewFileConflictException.class)
@@ -226,5 +178,11 @@ public class IdeController
     public void stop(@PathVariable String taskId, @PathVariable String sessionId)
     {
         runtime.stop(taskId, sessionId);
+    }
+
+    private TaskCodeHost host(Map<String, String> target)
+    {
+        return Optional.ofNullable(target.get("reviewId")).map(code::reviewHost)
+                .orElseGet(() -> new TaskCodeHost(target.get("workspaceId"), target.get("taskId")));
     }
 }

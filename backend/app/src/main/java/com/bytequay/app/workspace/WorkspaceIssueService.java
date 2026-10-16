@@ -55,9 +55,10 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
-import static com.bytequay.app.utils.StringInputUtil.normalizeNames;
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
+import static com.bytequay.core.domain.Checks.checkText;
+import static com.bytequay.core.domain.Checks.normalizeNames;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -152,7 +153,7 @@ public class WorkspaceIssueService
     public PrTimelineEvent comment(String workspaceId, int issueNumber, String body)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            requireNotBlank(body, "comment body must not be blank");
+            checkText(body, "comment body");
             Workspace workspace = requireWorkspace(workspaces, workspaceId);
             Optional<RepositoryIssue> previous = issues.find(workspace.monitoredRepositoryId(), issueNumber);
             PrTimelineEvent created = issueWrites.createIssueComment(
@@ -190,7 +191,7 @@ public class WorkspaceIssueService
             Workspace workspace = requireWorkspace(workspaces, workspaceId);
             String normalized = type;
             if (normalized != null) {
-                requireNotBlank(normalized, "issue type must not be blank");
+                checkText(normalized, "issue type");
                 normalized = normalized.trim();
             }
             String current = issueWrites.updateIssueType(
@@ -243,8 +244,7 @@ public class WorkspaceIssueService
             WorkspaceOperationLocks.withLock(candidate.id(), () -> {
                 Workspace workspace = requireWorkspace(workspaces, candidate.id());
                 Lock lock = locks.get(workspace.monitoredRepositoryId());
-                lock.lock();
-                try {
+                withLock(lock, () -> {
                     GitHubCredential credential = credentials.resolveGitHubCredential();
                     Optional<RepositoryIssue> issue = issueReads.fetchIssue(credential.token(), workspace.monitoredRepository(), issueNumber);
                     requireSameAccount(credential);
@@ -254,10 +254,8 @@ public class WorkspaceIssueService
                     else {
                         issues.delete(workspace.monitoredRepositoryId(), issueNumber);
                     }
-                }
-                finally {
-                    lock.unlock();
-                }
+                    return null;
+                });
             });
         }
     }
@@ -286,8 +284,7 @@ public class WorkspaceIssueService
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Lock lock = locks.get(workspace.monitoredRepositoryId());
-        lock.lock();
-        try {
+        withLock(lock, () -> {
             GitHubCredential credential = credentials.resolveGitHubCredential();
             String checkpointKey = "github.issues.checkpoint." + credential.profile().login().toLowerCase(Locale.ROOT)
                     + "." + workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT);
@@ -295,7 +292,7 @@ public class WorkspaceIssueService
             Optional<Instant> checkpoint = settings.get(checkpointKey).flatMap(WorkspaceIssueService::parseInstant)
                     .filter(at -> !at.isAfter(startedAt));
             if (checkpoint.filter(at -> at.plus(Duration.ofMinutes(2)).isAfter(startedAt)).isPresent()) {
-                return;
+                return null;
             }
             Instant since = checkpoint.map(at -> at.minus(Duration.ofMinutes(5))).orElse(startedAt.minus(Duration.ofHours(1)));
             String marker = UUID.randomUUID().toString();
@@ -311,10 +308,8 @@ public class WorkspaceIssueService
             }
             requireSameAccount(credential);
             settings.put(checkpointKey, startedAt.toString());
-        }
-        finally {
-            lock.unlock();
-        }
+            return null;
+        });
     }
 
     private void requireSameAccount(GitHubCredential credential)
@@ -367,16 +362,14 @@ public class WorkspaceIssueService
     private <T> T refreshLocked(String workspaceId, Object key, Supplier<T> refresh)
     {
         Lock lock = locks.get(key);
-        lock.lock();
-        try {
-            return refresh.get();
-        }
-        catch (RuntimeException failure) {
-            throw refreshFailure(workspaceId, failure);
-        }
-        finally {
-            lock.unlock();
-        }
+        return withLock(lock, () -> {
+            try {
+                return refresh.get();
+            }
+            catch (RuntimeException failure) {
+                throw refreshFailure(workspaceId, failure);
+            }
+        });
     }
 
     private void refreshIssueRows(Workspace workspace)

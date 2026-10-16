@@ -12,17 +12,17 @@
  * limitations under the License.
  */
 
-import type { TaskDiscussionDto } from './agents/discussions/contracts';
 import { afterEach, expect, it, vi } from 'vitest';
+import { MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
+import type { TaskDiscussionDto } from './agents/discussions/contracts';
 import { CI_RUN } from './agents/fixtures/ciAutofix';
+import type { JiraIssuePage } from './jira/contracts';
 import { parseAgentReview, type ReviewDraftDto } from './pulls/agent-review/contracts';
 import { runningReviewFixture } from './pulls/agent-review/fixtures/review';
 import type { ReviewCodeFileDto } from './pulls/code-tests/contracts';
 import type { ContextBuildViewDto, ContextSpecCheckDto } from './repository-context/contracts';
-import type { AgentRuntimeStopImpactDto, ProviderUsageDto } from './types';
 import type { TeamActivitySnapshot, TeamDirectory } from './teams/types';
-import type { JiraIssuePage } from './jira/contracts';
-import { MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
+import type { AgentRuntimeStopImpactDto, ProviderUsageDto } from './types';
 
 const desktop = vi.hoisted(() => ({
   listeners: new Map<string, () => Promise<void>>(),
@@ -444,7 +444,7 @@ it('routes spec check runs, their baseline and their recovery through the authen
   await expect(desktop.handlers.get('repository-context:build:stop-impact')?.({}, 'workspace/one', 'task/one')).resolves.toEqual(impact);
   expect(fetch).toHaveBeenLastCalledWith(base + '/runtime/stop-impact?taskId=task%2Fone', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
   fetch.mockImplementation(async () => new Response(JSON.stringify({ ...view, notebookRevision: 7, build: { ...view.build, outcome: 'SUBMITTED' } })));
-  await expect(desktop.handlers.get('repository-context:build:get')?.({}, 'workspace/one')).rejects.toThrow('Malformed spec check: run outcome');
+  await expect(desktop.handlers.get('repository-context:build:get')?.({}, 'workspace/one')).rejects.toThrow('Malformed run outcome');
 });
 
 it('reads a directory’s spec sources and starts a check of it, refusing a forged request before sending it', async () => {

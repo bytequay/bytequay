@@ -11,12 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
-import type { RecentChangeDto, RecentRowDto, RecentWordHitDto } from '../types';
-import { relativeTime } from '../relativeTime';
-import { highlightParts, roleTone, rowMarkdown, TYPE_ICON } from './model';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '../css/recent.css';
+import { relativeTime } from '../relativeTime';
+import type { RecentChangeDto, RecentRowDto, RecentWordHitDto } from '../types';
+import { useModalDialog } from '../useModalDialog';
+import { highlightParts, roleTone, rowMarkdown, TYPE_ICON } from './model';
 
 type Mode = 'items' | 'words';
 
@@ -117,12 +118,8 @@ export default function RecentPalette({
     onClose();
   }, [onClose]);
 
+  const dialog = useModalDialog(inputRef);
   const handleKey = (event: React.KeyboardEvent) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      onClose();
-      return;
-    }
     if (event.key === 'Tab') {
       event.preventDefault();
       setMode(current => (current === 'items' ? 'words' : 'items'));
@@ -165,10 +162,9 @@ export default function RecentPalette({
   };
 
   return (
-    <div className="rc-scrim" role="presentation" onMouseDown={event => {
+    <dialog ref={dialog} className="rc-palette" onCancel={event => { event.preventDefault(); onClose(); }} onMouseDown={event => {
       if (event.target === event.currentTarget) onClose();
-    }}>
-      <div className="rc-palette" role="dialog" aria-label="Recent" aria-modal="true" onKeyDown={handleKey}>
+    }} role="dialog" aria-label="Recent" aria-modal="true" onKeyDown={handleKey}>
         <div className="rc-palette__head">
           <Search size={16} aria-hidden="true" />
           <input
@@ -218,8 +214,7 @@ export default function RecentPalette({
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </dialog>
   );
 }
 

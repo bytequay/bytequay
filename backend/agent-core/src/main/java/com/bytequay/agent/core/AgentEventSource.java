@@ -15,7 +15,7 @@ package com.bytequay.agent.core;
 
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
 
 /** Provider source identities preserved without interpreting their values. */
 public record AgentEventSource(

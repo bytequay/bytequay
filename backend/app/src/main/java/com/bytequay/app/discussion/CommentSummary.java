@@ -25,6 +25,8 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Set;
 
+import static com.bytequay.app.context.ContextText.unfence;
+
 /** The verdict a summary request asks for, and the only judge of whether an answer is one. */
 final class CommentSummary
 {
@@ -51,10 +53,7 @@ final class CommentSummary
      */
     static List<String> parse(String answer, int count)
     {
-        String text = answer.strip();
-        if (text.startsWith("```") && text.endsWith("```") && text.indexOf('\n') > 0 && text.indexOf('\n') < text.length() - 3) {
-            text = text.substring(text.indexOf('\n') + 1, text.length() - 3);
-        }
+        String text = unfence(answer);
         JsonNode root;
         try {
             root = MAPPER.readTree(text);

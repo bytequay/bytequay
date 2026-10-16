@@ -13,6 +13,9 @@
  */
 package com.bytequay.core.domain;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -27,17 +30,28 @@ public final class Checks
 
     public static String checkText(String value, String name)
     {
-        requireNonNull(value, name + " is null");
-        checkArgument(!value.isBlank(), name + " is blank");
+        checkArgument(value != null && !value.isBlank(), name + " is blank");
         return value;
     }
 
     public static String checkText(String value, String name, int maximumLength)
     {
-        requireNonNull(value, name + " is null");
-        checkArgument(!value.isBlank(), name + " is blank");
+        checkText(value, name);
         checkArgument(value.length() <= maximumLength, name + " exceeds " + maximumLength + " characters");
         return value;
+    }
+
+    public static Optional<String> checkOptionalText(Optional<String> value, String name)
+    {
+        requireNonNull(value, name + " is null");
+        value.ifPresent(text -> checkText(text, name));
+        return value;
+    }
+
+    public static List<String> normalizeNames(List<String> values, String name)
+    {
+        requireNonNull(values, name + " is null");
+        return values.stream().map(value -> checkText(value, name).trim()).distinct().collect(ImmutableList.toImmutableList());
     }
 
     public static Optional<String> checkOptionalText(Optional<String> value, String name, int maximumLength)

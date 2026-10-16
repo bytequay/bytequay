@@ -1119,3 +1119,6 @@ samp {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Class layout rules must not reveal a closed native dialog. */
+dialog:not([open]) { display: none; }

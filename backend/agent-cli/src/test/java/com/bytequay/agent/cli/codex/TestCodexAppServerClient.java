@@ -17,6 +17,7 @@ import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
+import com.bytequay.agent.cli.process.ProcessIdentity;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
@@ -83,6 +84,17 @@ class TestCodexAppServerClient
         ProcessSupervisor supervisor = new ProcessSupervisor()
         {
             @Override
+            public OwnedProcessRecovery recoverOwnedProcess(String launchId)
+            {
+                return new OwnedProcessRecovery(
+                        launchId,
+                        Optional.empty(),
+                        Optional.empty(),
+                        OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                        "Targeted recovery is not supported by this supervisor");
+            }
+
+            @Override
             public PreparedProcess prepare(ProcessSpec spec)
             {
                 return new PreparedProcess()
@@ -141,6 +153,18 @@ class TestCodexAppServerClient
     private static final class RetryingProcess
             implements ManagedProcess
     {
+        @Override
+        public CompletionStage<ProcessExit.TreeTermination> stopAfterWorkFinished()
+        {
+            return stopAndVerify();
+        }
+
+        @Override
+        public Optional<List<ProcessIdentity>> observedDescendants()
+        {
+            return Optional.empty();
+        }
+
         private final ObjectMapper objectMapper;
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
         private final AtomicInteger stopAttempts = new AtomicInteger();

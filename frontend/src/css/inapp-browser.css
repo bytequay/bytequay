@@ -189,8 +189,8 @@
 .browser-rail.is-expanded .browser-rail__page { justify-content: flex-start; padding-left: 12px; }
 .browser-rail__icon { position: relative; display: inline-flex; flex: 0 0 16px; width: 16px; height: 16px; align-items: center; justify-content: center; }
 .browser-rail__icon img { width: 16px; height: 16px; object-fit: contain; border-radius: 3px; }
-.browser-rail__loading { position: absolute; inset: -3px; border: 2px solid var(--accent-a40); border-top-color: var(--accent); border-radius: 50%; animation: browser-loading 1s linear infinite; }
-@keyframes browser-loading { to { transform: rotate(360deg); } }
+.browser-rail__loading { position: absolute; inset: -3px; border: 2px solid var(--accent-a40); border-top-color: var(--accent); border-radius: 50%; animation: bq-spin 1s linear infinite; }
+
 @media (prefers-reduced-motion: reduce) { .browser-rail__loading { animation: none; } }
 .browser-rail__label { text-overflow: ellipsis; overflow: hidden; white-space: nowrap; text-align: left; font-size: var(--font-size-sm); }
 .browser-rail__tool { display: flex; align-items: center; justify-content: center; width: 24px; height: 28px; flex: 0 0 24px; border-radius: 4px; opacity: 0; }

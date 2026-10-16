@@ -110,10 +110,10 @@ import static org.mockito.Mockito.when;
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = {
+                "bytequay.ci-autofix.monitor-initial-delay=PT1H",
                 "bytequay.agent.codex-enabled=false",
                 "bytequay.agent.claude-enabled=false",
                 "bytequay.agent.desktop-session-token=" + CiAutofixE2eHarness.SESSION,
-                "bytequay.ci-autofix.monitor-initial-delay=PT1H",
                 "logging.level.com.bytequay.app.ci.CiAutofixService=OFF"
         })
 @AutoConfigureMockMvc

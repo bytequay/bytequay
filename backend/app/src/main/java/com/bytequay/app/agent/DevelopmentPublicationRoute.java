@@ -15,7 +15,7 @@ package com.bytequay.app.agent;
 
 import com.bytequay.core.domain.RepoRef;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** The accepted destination; later workspace changes cannot silently reroute publication. */
@@ -25,11 +25,11 @@ public record DevelopmentPublicationRoute(RepoRef headRepository, RepoRef baseRe
     {
         requireNonNull(headRepository, "headRepository is null");
         requireNonNull(baseRepository, "baseRepository is null");
-        checkNotBlank(pushUrl, "pushUrl");
-        checkNotBlank(sourceRemote, "sourceRemote");
-        checkNotBlank(baseBranch, "baseBranch");
-        checkNotBlank(baseSha, "baseSha");
-        checkNotBlank(headBranch, "headBranch");
+        checkText(pushUrl, "pushUrl");
+        checkText(sourceRemote, "sourceRemote");
+        checkText(baseBranch, "baseBranch");
+        checkText(baseSha, "baseSha");
+        checkText(headBranch, "headBranch");
     }
 
     public DevelopmentPublicationRoute withHeadBranch(String branch)

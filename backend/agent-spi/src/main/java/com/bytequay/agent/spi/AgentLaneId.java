@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.spi;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 public record AgentLaneId(String value)
@@ -24,7 +24,7 @@ public record AgentLaneId(String value)
 
     public AgentLaneId
     {
-        checkNotBlank(value, "value");
+        checkText(value, "value");
         checkArgument(value.matches("[a-z0-9]+(?:-[a-z0-9]+)*"), "invalid agent lane ID: " + value);
     }
 

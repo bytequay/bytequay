@@ -269,16 +269,16 @@ class TestInteractiveAgentTaskCreator
                     Instant.parse("2026-09-01T00:00:00Z"));
         });
         TaskId taskId = TaskId.random();
-        AgentTask created = creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
-                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.empty(), Optional.empty());
+        AgentTask created = creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI, defaults(), "create-key", Optional.empty(),
+                Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.empty(), Optional.empty(), Optional.empty());
 
         assertThat(created.defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
         when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.LOCAL_ONLY);
         doReturn(created).when(tasks).getInteractive("workspace-1", taskId);
         when(names.generate(any(), any(), any())).thenThrow(new IllegalStateException("Naming no longer available"));
 
-        assertThat(creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
-                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.empty(), Optional.empty()))
+        assertThat(creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI, defaults(), "create-key", Optional.empty(),
+                Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.empty(), Optional.empty(), Optional.empty()))
                 .isSameAs(created);
         verify(names, times(1)).generate(any(), any(), any());
         verify(settings, times(1)).developmentAutomation();
@@ -288,11 +288,11 @@ class TestInteractiveAgentTaskCreator
         assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI, defaults(), "create-key", Optional.empty(),
                 Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.empty(), Optional.of(jira), Optional.empty()))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("creation request changed");
-        assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
-                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.of(issue()), Optional.empty()))
+        assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI, defaults(), "create-key", Optional.empty(),
+                Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.of(issue()), Optional.empty(), Optional.empty()))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("creation request changed");
-        assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
-                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.DEFAULT), Optional.empty(), Optional.empty()))
+        assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI, defaults(), "create-key", Optional.empty(),
+                Optional.of(DevelopmentAutomation.DEFAULT), Optional.empty(), Optional.empty(), Optional.empty()))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("creation request changed");
     }
@@ -316,16 +316,17 @@ class TestInteractiveAgentTaskCreator
         });
 
         AgentTask created = creator.create(TASK_ID, "workspace-1", "Task", lane, defaults().withDevelopmentAutomation(automation), "create-key",
-                Optional.empty(), Optional.of(automation), Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.of(automation), Optional.empty(), Optional.empty(), Optional.empty());
 
         ArgumentCaptor<CreateInteractiveAgentTaskCommand> command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
         verify(tasks).createInteractive(command.capture());
         assertThat(command.getValue().defaults().developmentAutomation()).contains(automation);
         doReturn(created).when(tasks).getInteractive("workspace-1", TASK_ID);
-        assertThat(creator.create(TASK_ID, "workspace-1", "Task", lane, defaults().withDevelopmentAutomation(automation), "create-key",
-                Optional.empty(), Optional.of(automation), Optional.empty(), Optional.empty())).isSameAs(created);
+        assertThat(creator.create(TASK_ID, "workspace-1", "Task", lane, defaults().withDevelopmentAutomation(automation), "create-key", Optional.empty(),
+                Optional.of(automation), Optional.empty(), Optional.empty(), Optional.empty())).isSameAs(created);
         assertThatThrownBy(() -> creator.create(TASK_ID, "workspace-1", "Task", lane, defaults().withDevelopmentAutomation(automation), "create-key",
-                Optional.empty(), Optional.of(new DevelopmentAutomation(true, false, false, Optional.empty())), Optional.empty(), Optional.empty()))
+                Optional.empty(), Optional.of(new DevelopmentAutomation(true, false, false, Optional.empty())), Optional.empty(), Optional.empty(),
+                Optional.empty()))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("creation request changed");
         verify(driver, times(2)).probe(Optional.of("model-a"));
         verify(settings, never()).developmentAutomation();
@@ -341,8 +342,8 @@ class TestInteractiveAgentTaskCreator
         doThrow(new IllegalArgumentException("Agent lane unsupported does not support CI Autofix"))
                 .when(settings).validateDevelopmentAutomation(invalid);
 
-        assertThatThrownBy(() -> creator.create(TASK_ID, "workspace-1", "Task", lane, defaults(), "create-key",
-                Optional.empty(), Optional.of(invalid), Optional.empty(), Optional.empty()))
+        assertThatThrownBy(() -> creator.create(TASK_ID, "workspace-1", "Task", lane, defaults(), "create-key", Optional.empty(), Optional.of(invalid),
+                Optional.empty(), Optional.empty(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not support CI Autofix");
 
@@ -408,8 +409,8 @@ class TestInteractiveAgentTaskCreator
                 .thenReturn(new GitCommandRunner.Result(0, START_COMMIT, false));
         TaskNames generated = new TaskNames("Fix duplicate table samples", "fix-duplicate-table-samples");
         when(names.generate(any(), any(), any())).thenReturn(Optional.of(generated));
-        creator.create(TASK_ID, "workspace-1", "Develop the following GitHub issue", AgentLaneId.CODEX_CLI, defaults(), "create-key",
-                Optional.empty(), Optional.empty(), Optional.of(issue()), Optional.empty());
+        creator.create(TASK_ID, "workspace-1", "Develop the following GitHub issue", AgentLaneId.CODEX_CLI, defaults(), "create-key", Optional.empty(),
+                Optional.empty(), Optional.of(issue()), Optional.empty(), Optional.empty());
 
         ArgumentCaptor<String> context = ArgumentCaptor.forClass(String.class);
         verify(names).generate(eq(AgentLaneId.CODEX_CLI), eq(defaults()), context.capture());
@@ -466,17 +467,8 @@ class TestInteractiveAgentTaskCreator
 
     private AgentTask create(AgentTaskDefaults defaults)
     {
-        return creator.create(
-                TASK_ID,
-                "workspace-1",
-                "Review",
-                AgentLaneId.CODEX_CLI,
-                defaults,
-                "create-key",
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty());
+        return creator.create(TASK_ID, "workspace-1", "Review", AgentLaneId.CODEX_CLI, defaults, "create-key", Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     private static AgentTaskDefaults defaults()

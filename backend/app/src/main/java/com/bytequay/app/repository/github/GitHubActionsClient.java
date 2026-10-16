@@ -15,6 +15,7 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.app.ci.BoundedCiLog;
@@ -27,17 +28,20 @@ import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
+import com.bytequay.app.repository.github.GitHubPaginator.Page;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.base.Ascii;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -71,8 +75,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
-import java.util.function.Consumer;
-import java.util.function.IntFunction;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
@@ -86,6 +88,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
+import static com.bytequay.app.repository.github.GitHubPaginator.forEachCompletePage;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -165,46 +168,12 @@ public class GitHubActionsClient
 
     private ConditionalList<PrCheckRunState> fetchCheckRuns(String pat, String owner, String repo, String sha, Optional<String> etag)
     {
-        List<PrCheckRunState> result = new ArrayList<>();
-        int collected = 0;
-        Optional<String> responseEtag = etag;
-        for (int page = 1; page <= MAX_PAGES; page++) {
-            int currentPage = page;
-            RestClient.RequestHeadersSpec<?> request = get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/commits/{sha}/check-runs")
-                    .queryParam("per_page", PAGE_SIZE)
-                    .queryParam("page", currentPage)
-                    .build(owner, repo, sha));
-            if (currentPage == 1) {
-                etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
-            }
-            ResponseEntity<GitHubCheckRunsResponse> entity = translating(() -> request.retrieve().toEntity(GitHubCheckRunsResponse.class));
-            if (currentPage == 1) {
-                responseEtag = Optional.ofNullable(entity.getHeaders().getETag()).or(() -> etag);
-                if (entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
-                    return new ConditionalList<>(Optional.empty(), responseEtag);
-                }
-            }
-            GitHubCheckRunsResponse response = entity.getBody();
-            if (response == null || response.checkRuns() == null) {
-                break;
-            }
-            for (GitHubCheckRunsResponse.CheckRun check : response.checkRuns()) {
-                result.add(new PrCheckRunState(
-                        check.id(),
-                        check.name(),
-                        check.status(),
-                        check.conclusion(),
-                        check.detailsUrl(),
-                        "check_run",
-                        check.startedAt(),
-                        check.completedAt()));
-            }
-            collected += response.checkRuns().size();
-            if (collected >= response.totalCount() || response.checkRuns().size() < PAGE_SIZE) {
-                break;
-            }
-        }
-        return new ConditionalList<>(Optional.of(ImmutableList.copyOf(result)), responseEtag);
+        ConditionalList<GitHubCheckRunsResponse.CheckRun> checks = new GitHubPaginator(gitHubRestClient).paginateConditional(MAX_PAGES, pat,
+                "/repos/{owner}/{repo}/commits/{sha}/check-runs", new ParameterizedTypeReference<GitHubCheckRunsResponse>() {}, etag,
+                GitHubCheckRunsResponse::checkRuns, GitHubCheckRunsResponse::totalCount, owner, repo, sha);
+        return new ConditionalList<>(checks.values().map(rows -> rows.stream().map(check -> new PrCheckRunState(
+                check.id(), check.name(), check.status(), check.conclusion(), check.detailsUrl(), "check_run", check.startedAt(), check.completedAt()))
+                .collect(toImmutableList())), checks.etag());
     }
 
     private ConditionalList<PrCheckRunState> fetchCommitStatuses(String pat, String owner, String repo, String sha, Optional<String> etag)
@@ -274,8 +243,11 @@ public class GitHubActionsClient
                 || response.head().repo() == null || response.head().repo().fullName() == null) {
             throw badGateway("GitHub returned incomplete pull-request head facts");
         }
-        String[] headRepository = response.head().repo().fullName().split("/", -1);
-        if (headRepository.length != 2 || headRepository[0].isBlank() || headRepository[1].isBlank()) {
+        RepositoryIdentity headRepository;
+        try {
+            headRepository = RepositoryIdentity.valueOf(response.head().repo().fullName());
+        }
+        catch (IllegalArgumentException invalid) {
             throw badGateway("GitHub returned an invalid pull-request head repository");
         }
         List<CiWorkflowRun> runs = fetchWorkflowRuns(pat, pullRequest, response.head().sha());
@@ -283,7 +255,7 @@ public class GitHubActionsClient
                 pullRequest,
                 "open".equalsIgnoreCase(response.state()),
                 response.user().login(),
-                RepoRef.of(headRepository[0], headRepository[1]),
+                RepoRef.of(headRepository.owner(), headRepository.name()),
                 response.head().ref(),
                 response.head().sha(),
                 response.base().ref(),
@@ -444,7 +416,7 @@ public class GitHubActionsClient
     {
         Map<Long, WorkflowRunResponse> latest = new LinkedHashMap<>();
         Set<String> observedAttempts = new HashSet<>();
-        forEachCompletePage(page -> fetchWorkflowRunPage(pat, pullRequest, headSha, page), row -> {
+        forEachCompletePage(MAX_PAGES, page -> fetchWorkflowRunPage(pat, pullRequest, headSha, page), row -> {
             if (row == null || row.id() <= 0 || row.workflowId() <= 0 || !headSha.equals(row.headSha())) {
                 throw badGateway("GitHub returned an invalid current-head workflow run");
             }
@@ -494,7 +466,7 @@ public class GitHubActionsClient
     {
         Map<String, JobResponse> latest = new LinkedHashMap<>();
         Set<Long> observedJobs = new HashSet<>();
-        forEachCompletePage(page -> fetchJobPage(pat, pullRequest, workflowRunId, page), row -> {
+        forEachCompletePage(MAX_PAGES, page -> fetchJobPage(pat, pullRequest, workflowRunId, page), row -> {
             if (row == null || row.id() <= 0 || row.name() == null) {
                 throw badGateway("GitHub returned an invalid workflow job");
             }
@@ -522,34 +494,6 @@ public class GitHubActionsClient
     }
 
     /** A CI result is usable only after all reported rows have been read and individually validated. */
-    private static <T> void forEachCompletePage(IntFunction<? extends Page<T>> fetch, Consumer<T> accept, String kind)
-    {
-        int collected = 0;
-        for (int page = 1; page <= MAX_PAGES; page++) {
-            Page<T> response = fetch.apply(page);
-            if (response == null || response.totalCount() == null || response.totalCount() < 0 || response.rows() == null) {
-                throw badGateway("GitHub returned incomplete workflow-" + kind + " evidence");
-            }
-            response.rows().forEach(accept);
-            collected += response.rows().size();
-            if (collected == response.totalCount()) {
-                return;
-            }
-            if (response.rows().isEmpty() || collected > response.totalCount()) {
-                throw badGateway("GitHub returned incomplete workflow-" + kind + " pages");
-            }
-        }
-        throw badGateway("GitHub workflow " + kind + "s exceed the complete inspection limit");
-    }
-
-    private sealed interface Page<T>
-            permits JobsResponse, WorkflowRunsResponse
-    {
-        Integer totalCount();
-
-        List<T> rows();
-    }
-
     private static CiJob toJob(long workflowRunId, int workflowAttempt, String workflowUrl, JobResponse job)
     {
         int attempt = job.runAttempt() <= 0 ? workflowAttempt : job.runAttempt();
@@ -692,7 +636,7 @@ public class GitHubActionsClient
         String normalized = ANSI_ESCAPE.matcher(value).replaceAll("");
         normalized = TIMESTAMP_PREFIX.matcher(normalized).replaceFirst("");
         normalized = normalized.strip().replaceAll("\\s+", " ");
-        return normalized.length() <= MAX_ERROR_LINE ? normalized : normalized.substring(0, MAX_ERROR_LINE);
+        return Ascii.truncate(normalized, MAX_ERROR_LINE, "");
     }
 
     private String token()
@@ -742,7 +686,7 @@ public class GitHubActionsClient
         String reason = Optional.ofNullable(extractGitHubErrorMessage(failure.getResponseBodyAsString()))
                 .filter(value -> !value.isBlank())
                 .orElse(fallback);
-        return reason.length() <= 500 ? reason : reason.substring(0, 500);
+        return Ascii.truncate(reason, 500, "");
     }
 
     private static String firstNonBlank(String... values)

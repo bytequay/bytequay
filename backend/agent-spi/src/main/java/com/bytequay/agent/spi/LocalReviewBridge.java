@@ -13,14 +13,11 @@
  */
 package com.bytequay.agent.spi;
 
-import com.google.common.collect.ImmutableList;
-
-import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -30,7 +27,6 @@ public record LocalReviewBridge(BiFunction<Optional<String>, Integer, String> li
     public static final String LIST_TOOL = "list_local_review_comments";
     public static final String REPLY_TOOL = "reply_local_review_comment";
     public static final String RESOLVE_TOOL = "resolve_local_review_comment";
-    public static final List<String> TOOL_NAMES = ImmutableList.of(LIST_TOOL, REPLY_TOOL, RESOLVE_TOOL);
     public static final int MAXIMUM_BODY_LENGTH = 16_000;
     public static final int MAXIMUM_ID_LENGTH = 100;
     public static final String INSTRUCTION = """
@@ -72,18 +68,18 @@ public record LocalReviewBridge(BiFunction<Optional<String>, Integer, String> li
         requireNonNull(list, "list is null");
         requireNonNull(reply, "reply is null");
         requireNonNull(resolve, "resolve is null");
-        checkNotBlank(instruction, "instruction");
+        checkText(instruction, "instruction");
     }
 
     public record Reply(String commentId, String body, String operationKey)
     {
         public Reply
         {
-            checkNotBlank(commentId, "commentId");
+            checkText(commentId, "commentId");
             checkArgument(commentId.length() <= MAXIMUM_ID_LENGTH, "commentId is too long");
-            checkNotBlank(body, "body");
+            checkText(body, "body");
             checkArgument(body.length() <= MAXIMUM_BODY_LENGTH, "body is too long");
-            checkNotBlank(operationKey, "operationKey");
+            checkText(operationKey, "operationKey");
             checkArgument(operationKey.length() <= MAXIMUM_ID_LENGTH, "operationKey is too long");
         }
     }
@@ -92,9 +88,9 @@ public record LocalReviewBridge(BiFunction<Optional<String>, Integer, String> li
     {
         public Resolution
         {
-            checkNotBlank(commentId, "commentId");
+            checkText(commentId, "commentId");
             checkArgument(commentId.length() <= MAXIMUM_ID_LENGTH, "commentId is too long");
-            checkNotBlank(operationKey, "operationKey");
+            checkText(operationKey, "operationKey");
             checkArgument(operationKey.length() <= MAXIMUM_ID_LENGTH, "operationKey is too long");
         }
     }

@@ -17,7 +17,7 @@ import com.bytequay.agent.spi.AgentAttachment;
 
 import java.nio.file.Path;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -26,9 +26,9 @@ public record StoredAgentAttachment(String id, String name, String mediaType, lo
 {
     public StoredAgentAttachment
     {
-        checkNotBlank(id, "id");
-        checkNotBlank(name, "name");
-        checkNotBlank(mediaType, "mediaType");
+        checkText(id, "id");
+        checkText(name, "name");
+        checkText(mediaType, "mediaType");
         checkArgument(byteSize > 0, "byteSize must be positive");
         checkArgument(width > 0 && height > 0, "dimensions must be positive");
         requireNonNull(path, "path is null");

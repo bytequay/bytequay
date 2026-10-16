@@ -106,7 +106,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
-import java.util.function.Supplier;
 
 import static com.bytequay.agent.spi.AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE;
 import static com.bytequay.app.review.AgentReviewService.CompletionAction.ACCEPT;
@@ -115,6 +114,7 @@ import static com.bytequay.app.review.AgentReviewService.CompletionAction.INCOMP
 import static com.bytequay.app.review.AgentReviewService.CompletionAction.INCOMPLETE_REPORT;
 import static com.bytequay.app.review.AgentReviewService.CompletionAction.REPAIR;
 import static com.bytequay.app.review.AgentReviewService.CompletionAction.VALIDATE;
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -237,8 +237,7 @@ public class AgentReviewService
     {
         AgentTask source = tasks.getInteractive(workspaceId, TaskId.valueOf(sourceTaskId));
         Lock lock = startLocks.get("task:" + sourceTaskId);
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             Optional<AgentReview> existing = store.listReviews(workspaceId).stream()
                     .filter(review -> review.sourceTaskId().equals(Optional.of(sourceTaskId)) && review.state() == AgentReview.State.OPEN).findFirst();
             if (existing.isPresent()) {
@@ -252,10 +251,7 @@ public class AgentReviewService
             WorkflowAgentTasks.requireReady(drivers, selection.laneId(), AgentPermissionPolicy.AUTO);
             Snapshot snapshot = localSnapshot(source, workspace, number);
             return createReview(workspace, selection, snapshot, "Review: " + source.title(), number, Optional.of(sourceTaskId), Optional.empty(), true);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     public AgentReviewProjection get(String reviewId)
@@ -285,8 +281,7 @@ public class AgentReviewService
     {
         String repository = normalize(repo);
         Lock lock = startLocks.get(workspaceId + "/" + repository + "#" + number);
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
             String monitored = (workspace.monitoredRepository().owner() + "/" + workspace.monitoredRepository().repo()).toLowerCase(Locale.ROOT);
             if (!monitored.equals(repository)) {
@@ -295,7 +290,7 @@ public class AgentReviewService
             Optional<AgentReview> existing = store.findOpenReview(workspaceId, repository, number);
             if (existing.isPresent()) {
                 String reviewId = existing.orElseThrow().id();
-                return locked(reviewId, () -> startReview && store.listRuns(reviewId).isEmpty() ? resume(reviewId) : projection(reviewId));
+                return withLock(locks.lock(reviewId), () -> startReview && store.listRuns(reviewId).isEmpty() ? resume(reviewId) : projection(reviewId));
             }
             ModelSelection selection = selectModel(workspaceId);
             if (startReview) {
@@ -304,10 +299,7 @@ public class AgentReviewService
             Snapshot snapshot = snapshot(workspace, repository, number);
             return createReview(workspace, selection, snapshot, "Review " + repository + "#" + number, OptionalInt.of(number),
                     Optional.empty(), Optional.empty(), startReview);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     private AgentReview insertReview(AgentReview review)
@@ -356,7 +348,7 @@ public class AgentReviewService
                 .orElseGet(() -> startReview ? tasks.create(command) : tasks.prepare(command)));
         Instant now = Instant.now(clock);
         String reviewId = UUID.randomUUID().toString();
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             AgentReview review = insertReview(new AgentReview(reviewId, workspace.workspaceId(), normalize(workspace.monitoredRepository().fullName()), number,
                     snapshot.pullRequestId(), task.id().toString(), sourceTaskId, AgentReview.State.OPEN, !startReview, Optional.empty(), Optional.of(snapshot.headSha()),
                     Optional.of(snapshot.headSha()), 0, now, now, Optional.empty(), replay));
@@ -379,7 +371,7 @@ public class AgentReviewService
     /** Saves the composer choice without altering an already accepted turn. */
     public AgentReviewProjection configure(String reviewId, long expectedVersion, AgentLaneId lane, String model, Optional<String> effort, Optional<String> serviceTier)
     {
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             AgentReview review = requireOpen(reviewId);
             AgentTask task = tasks.get(TaskId.valueOf(review.taskId()));
             models.validateWorkspaceAccess(lane.value(), Optional.of(review.workspaceId()));
@@ -395,7 +387,7 @@ public class AgentReviewService
     /** Cancels the active run and pauses follow-up; the review and its discussion stay open. */
     public AgentReviewProjection stop(String reviewId)
     {
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             AgentReview review = requireOpen(reviewId);
             store.updateReview(review.withFollowUpPaused(true, Instant.now(clock)));
             activeTurn(tasks.get(TaskId.valueOf(review.taskId()))).ifPresent(turn -> turns.cancel(turn.id()));
@@ -407,7 +399,7 @@ public class AgentReviewService
     /** Lifts the pause and starts a run for the newest observed head when nothing is running. */
     public AgentReviewProjection resume(String reviewId)
     {
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             AgentReview review = requireOpen(reviewId);
             requireNoLocalRun(tasks.get(TaskId.valueOf(review.taskId())));
             Optional<ReviewRun> active = latestRun(reviewId).filter(ReviewRun::active);
@@ -455,7 +447,7 @@ public class AgentReviewService
             head = pullRequests.findHeadSha(review.repo(), number.orElseThrow())
                     .orElseThrow(() -> new ReviewConflictException("The pull request head is unknown after refresh"));
         }
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             AgentReview current = requireOpen(reviewId);
             if (current.number().isEmpty() && number.isPresent()) {
                 current = current.withPullRequest(number.getAsInt(), pullRequestId, Instant.now(clock));
@@ -470,7 +462,7 @@ public class AgentReviewService
     {
         checkArgument(runId != null && !runId.isBlank(), "runId must not be blank");
         checkArgument(expectedRevision > 0, "expectedRevision must be positive");
-        AgentReview review = locked(reviewId, () -> requireExplanationRefresh(reviewId, runId, expectedRevision));
+        AgentReview review = withLock(locks.lock(reviewId), () -> requireExplanationRefresh(reviewId, runId, expectedRevision));
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
         OptionalInt number = review.number();
         Snapshot snapshot;
@@ -487,7 +479,7 @@ public class AgentReviewService
             snapshot = snapshot(workspace, review.repo(), number.orElseThrow());
         }
         OptionalInt refreshedNumber = number;
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             AgentReview current = requireExplanationRefresh(reviewId, runId, expectedRevision);
             if (!current.observedHeadSha().equals(review.observedHeadSha()) && !current.observedHeadSha().equals(Optional.of(snapshot.headSha()))) {
                 throw new ReviewConflictException("The change moved while refreshing its explanation; reload and try again");
@@ -527,7 +519,7 @@ public class AgentReviewService
     /** Completes the task, closes the review durably, then requests clean worktree cleanup. */
     public AgentReviewProjection end(String reviewId)
     {
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             AgentReview review = requireOpen(reviewId);
             TaskId taskId = TaskId.valueOf(review.taskId());
             AgentTask task = tasks.get(taskId);
@@ -583,7 +575,7 @@ public class AgentReviewService
         if (text.isEmpty()) {
             throw new ReviewInvalidRequestException("message must not be blank");
         }
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             AgentReview review = requireOpen(reviewId);
             ReviewRun run = cardId.map(id -> ReviewCards.requireRun(store, reviewId, id))
                     .orElseGet(() -> latestFindingsRun(store.listRuns(reviewId)).orElseThrow(() -> new ReviewConflictException("The review has no findings run yet")));
@@ -672,7 +664,7 @@ public class AgentReviewService
     /** Admits a discussion input under the same lock as review head updates and closure. */
     public void sendMessage(String reviewId, long expectedTaskVersion, String message, String idempotencyKey, boolean queued)
     {
-        locked(reviewId, () -> {
+        withLock(locks.lock(reviewId), () -> {
             TaskInput.send(turns, TaskId.valueOf(requireOpen(reviewId).taskId()), expectedTaskVersion, message, idempotencyKey, queued, Optional.empty());
             return null;
         });
@@ -693,7 +685,7 @@ public class AgentReviewService
         if (text.isEmpty()) {
             throw new ReviewInvalidRequestException("body must not be blank");
         }
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             ReviewFinding finding = requireFinding(requireReview(reviewId), findingId);
             Optional<ReviewMessage> saved = store.findMessage(messageId);
             if (saved.isPresent()) {
@@ -710,7 +702,7 @@ public class AgentReviewService
 
     public ReviewFinding resolveFinding(String reviewId, String findingId, long expectedVersion, String reason)
     {
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             ReviewFinding finding = requireFinding(requireReview(reviewId), findingId);
             if (finding.version() != expectedVersion) {
                 throw new ReviewConflictException("The finding changed; reload before resolving");
@@ -732,7 +724,7 @@ public class AgentReviewService
     public ReviewFinding resolveFromDeveloper(String reviewId, String findingId, String developerTaskId, boolean resolved)
     {
         requireNonNull(developerTaskId, "developerTaskId is null");
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             ReviewFinding finding = requireFinding(requireReview(reviewId), findingId);
             if (finding.state() == ReviewFinding.State.WITHDRAWN) {
                 throw new ReviewConflictException("The reviewer withdrew this finding");
@@ -752,7 +744,7 @@ public class AgentReviewService
 
     public ReviewFinding reopenFinding(String reviewId, String findingId, long expectedVersion)
     {
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             ReviewFinding finding = requireFinding(requireReview(reviewId), findingId);
             if (finding.version() != expectedVersion) {
                 throw new ReviewConflictException("The finding changed; reload before reopening");
@@ -781,7 +773,7 @@ public class AgentReviewService
     public <T> T mutateWorkingCopy(String reviewId, Function<AgentTask, T> mutation)
     {
         requireNonNull(mutation, "mutation is null");
-        return locked(reviewId, () -> {
+        return withLock(locks.lock(reviewId), () -> {
             AgentReview review = requireOpen(reviewId);
             AgentTask task = tasks.get(TaskId.valueOf(review.taskId()));
             if (task.taskWorktree().isEmpty() || task.worktreeRemovedAt().isPresent()) {
@@ -799,7 +791,7 @@ public class AgentReviewService
     /** Idempotent progression of the current run from durable task facts: acceptance, completion repair, and pause. */
     public void reconcile(String reviewId)
     {
-        locked(reviewId, () -> {
+        withLock(locks.lock(reviewId), () -> {
             Optional<AgentReview> stored = store.findReview(reviewId);
             if (stored.isEmpty() || stored.orElseThrow().state() == AgentReview.State.CLOSED) {
                 return null;
@@ -847,7 +839,7 @@ public class AgentReviewService
                 .filter(review -> review.repo().equals(repository) && review.number().stream().anyMatch(value -> value == number))
                 .forEach(review -> {
                     if (!review.observedHeadSha().equals(Optional.of(headSha))) {
-                        locked(review.id(), () -> {
+                        withLock(locks.lock(review.id()), () -> {
                             store.findReview(review.id()).filter(current -> current.state() == AgentReview.State.OPEN)
                                     .ifPresent(current -> store.updateReview(current.withObservedHead(headSha, Instant.now(clock))));
                             return null;
@@ -885,7 +877,7 @@ public class AgentReviewService
                 refresh.refreshAllDetail(review.repo(), review.number().orElseThrow());
                 return;
             }
-            locked(reviewId, () -> {
+            withLock(locks.lock(reviewId), () -> {
                 AgentReview current = requireReview(reviewId);
                 AgentTask currentTask = tasks.get(TaskId.valueOf(current.taskId()));
                 if (!remoteReview(current) || !current.observedHeadSha().equals(Optional.of(target)) || syncBusy(currentTask, store.listRuns(reviewId))) {
@@ -1379,7 +1371,7 @@ public class AgentReviewService
             carried.add(finding.carried(anchor, snapshot.headSha(), now));
         }
         // Asked last: the findings are already in memory, and the change needs Git.
-        return ReviewHeadCheck.sameChange(git, workspace.repository(), reviewed, snapshot.baseRef(), snapshot.mergeBaseSha(), snapshot.headSha())
+        return sameChange(git, workspace.repository(), reviewed, snapshot.baseRef(), snapshot.mergeBaseSha(), snapshot.headSha())
                 ? Optional.of(carried.build()) : Optional.empty();
     }
 
@@ -1789,18 +1781,6 @@ public class AgentReviewService
                 .orElseThrow(() -> new ReviewNotFoundException("Finding not found: " + findingId));
     }
 
-    private <T> T locked(String reviewId, Supplier<T> action)
-    {
-        Lock lock = locks.lock(reviewId);
-        lock.lock();
-        try {
-            return action.get();
-        }
-        finally {
-            lock.unlock();
-        }
-    }
-
     static String normalize(String repo)
     {
         return requireNonNull(repo, "repo is null").toLowerCase(Locale.ROOT);
@@ -1827,4 +1807,26 @@ public class AgentReviewService
      * @param mergeBaseSha where the pull request branched from its base branch, which is the replay's base
      */
     public record ReplayStart(AgentReview.Replay replay, String headSha, String baseRef, String mergeBaseSha) {}
+
+    static boolean sameChange(GitCommandRunner git, Path repository, ReviewRun reviewed, String baseRef, String mergeBaseSha, String headSha)
+    {
+        if (!reviewed.baseRef().equals(baseRef)) {
+            return false;
+        }
+        Optional<String> read = change(git, repository, reviewed.mergeBaseSha(), reviewed.headSha());
+        return read.isPresent() && read.equals(change(git, repository, mergeBaseSha, headSha));
+    }
+
+    private static Optional<String> change(GitCommandRunner git, Path repository, String mergeBaseSha, String headSha)
+    {
+        GitCommandRunner.Result messages = git.runLocalBoundedStdout(repository, Duration.ofSeconds(30), 32 * 1024 * 1024,
+                ImmutableList.of("log", "--no-merges", "--reverse", "--format=%B%x1e", mergeBaseSha + ".." + headSha));
+        GitCommandRunner.Result patch = git.runLocalBoundedStdout(repository, Duration.ofSeconds(30), 32 * 1024 * 1024,
+                ImmutableList.of("diff", "--binary", "--no-color", "--no-ext-diff", "--no-textconv", mergeBaseSha, headSha));
+        if (!messages.successful() || messages.truncated() || !patch.successful() || patch.truncated()) {
+            return Optional.empty();
+        }
+        GitCommandRunner.Result patchId = git.patchId(repository, patch.output());
+        return patchId.successful() && !patchId.truncated() ? Optional.of(messages.output() + patchId.output()) : Optional.empty();
+    }
 }

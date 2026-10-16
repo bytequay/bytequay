@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.agent;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 /** Delivery cleanliness excludes ignored build outputs; worktree cleanup keeps its stronger rule. */
@@ -32,10 +32,10 @@ public record DevelopmentLocalFacts(
 {
     public DevelopmentLocalFacts
     {
-        checkNotBlank(branch, "branch");
-        checkNotBlank(headSha, "headSha");
-        checkNotBlank(treeSha, "treeSha");
-        checkNotBlank(fingerprint, "fingerprint");
+        checkText(branch, "branch");
+        checkText(headSha, "headSha");
+        checkText(treeSha, "treeSha");
+        checkText(fingerprint, "fingerprint");
         checkArgument(stagedFiles >= 0 && unstagedFiles >= 0 && untrackedFiles >= 0 && uncommittedFileCount >= 0 && commitCount >= 0, "Git counts are negative");
     }
 }

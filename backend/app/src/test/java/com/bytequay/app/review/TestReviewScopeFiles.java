@@ -57,7 +57,7 @@ class TestReviewScopeFiles
         String head = commit("Move source");
         ReviewRun run = run(ReviewRun.Scope.FULL, base, head, ImmutableList.of(new DiffFile("新/Table.java", "renamed", 0, 0, null)));
 
-        assertThat(ReviewScopeFiles.required(GIT, repository, run, Optional.empty())).containsExactly("新/Table.java");
+        assertThat(ReviewTools.requiredScopeFiles(GIT, repository, run, Optional.empty())).containsExactly("新/Table.java");
     }
 
     @Test
@@ -75,7 +75,7 @@ class TestReviewScopeFiles
         ReviewRun previous = run(ReviewRun.Scope.FULL, base, priorHead, ImmutableList.of())
                 .ended(ReviewRun.State.ACCEPTED, Optional.empty(), Instant.EPOCH);
 
-        assertThat(ReviewScopeFiles.required(GIT, repository, run, Optional.of(previous))).containsExactly("metadata.bin");
+        assertThat(ReviewTools.requiredScopeFiles(GIT, repository, run, Optional.of(previous))).containsExactly("metadata.bin");
     }
 
     @Test
@@ -84,7 +84,7 @@ class TestReviewScopeFiles
         GitCommandRunner git = mock(GitCommandRunner.class);
         ReviewRun run = run(ReviewRun.Scope.INCREMENTAL, BASE, HEAD, ImmutableList.of(new DiffFile("current.txt", "modified", 1, 0, "patch")));
 
-        assertThat(ReviewScopeFiles.required(git, repository, run, Optional.empty())).containsExactly("current.txt");
+        assertThat(ReviewTools.requiredScopeFiles(git, repository, run, Optional.empty())).containsExactly("current.txt");
         verifyNoInteractions(git);
     }
 
@@ -97,7 +97,7 @@ class TestReviewScopeFiles
         for (GitCommandRunner.Result result : ImmutableList.of(new GitCommandRunner.Result(0, "partial.txt\u0000", true), GitCommandRunner.Result.failed("Missing commit"))) {
             when(git.run(repository, "diff", "--name-only", "--no-renames", "-z", BASE, HEAD, "--")).thenReturn(result);
 
-            assertThatThrownBy(() -> ReviewScopeFiles.required(git, repository, run, Optional.of(previous))).isInstanceOf(ReviewInvalidRequestException.class);
+            assertThatThrownBy(() -> ReviewTools.requiredScopeFiles(git, repository, run, Optional.of(previous))).isInstanceOf(ReviewInvalidRequestException.class);
         }
     }
 

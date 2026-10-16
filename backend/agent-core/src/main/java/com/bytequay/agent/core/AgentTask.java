@@ -23,8 +23,8 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -65,7 +65,7 @@ public record AgentTask(
         checkOptionalText(workspaceId, "workspaceId");
         checkArgument(!interactive || workspaceId.isPresent(), "interactive task has no workspaceId");
         checkOptionalText(creationFingerprint, "creationFingerprint");
-        checkNotBlank(title, "title");
+        checkText(title, "title");
         requireNonNull(titleSource, "titleSource is null");
         requireNonNull(laneId, "laneId is null");
         requireNonNull(repository, "repository is null");
@@ -285,7 +285,7 @@ public record AgentTask(
 
     private AgentTask failed(String reason, Instant failedAt, Instant deletionDeadline)
     {
-        checkNotBlank(reason, "reason");
+        checkText(reason, "reason");
         requireNonNull(failedAt, "failedAt is null");
         requireNonNull(deletionDeadline, "deletionDeadline is null");
         if (state.terminal()) {
@@ -325,7 +325,7 @@ public record AgentTask(
      */
     public AgentTask withTitle(String updatedTitle, TitleSource source, Instant now)
     {
-        checkNotBlank(updatedTitle, "updatedTitle");
+        checkText(updatedTitle, "updatedTitle");
         requireNonNull(source, "source is null");
         requireNonNull(now, "now is null");
         checkArgument(source != TitleSource.PROVISIONAL, "a title cannot become provisional again");

@@ -16,7 +16,7 @@ package com.bytequay.app.repository.github;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Fresh publication facts, including both repository identities for fork-safe matching. */
@@ -39,12 +39,12 @@ public record GitHubPullRequestIdentity(
         requireNonNull(headRepository, "headRepository is null");
         requireNonNull(baseRepository, "baseRepository is null");
         requireNonNull(state, "state is null");
-        checkNotBlank(url, "url");
-        checkNotBlank(headBranch, "headBranch");
-        checkNotBlank(headSha, "headSha");
-        checkNotBlank(baseBranch, "baseBranch");
-        checkNotBlank(baseSha, "baseSha");
-        checkNotBlank(author, "author");
+        checkText(url, "url");
+        checkText(headBranch, "headBranch");
+        checkText(headSha, "headSha");
+        checkText(baseBranch, "baseBranch");
+        checkText(baseSha, "baseSha");
+        checkText(author, "author");
     }
 
     public enum State

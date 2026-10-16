@@ -54,7 +54,8 @@ describe('provider picker accessibility', () => {
 
     const source = readFileSync(resolve(process.cwd(), 'src/agents/ProviderPicker.tsx'), 'utf8');
     expect(source).toContain("event.key === 'ArrowDown'");
-    expect(source).toContain("event.key !== 'Escape'");
+    expect(source).toContain("usePopoverDismiss");
+    expect(readFileSync(resolve(process.cwd(), 'src/usePopoverDismiss.ts'), 'utf8')).toContain("event.key !== 'Escape'");
     expect(source.indexOf('[data-provider-focus="lane"]'))
       .toBeLessThan(source.indexOf('[data-provider-focus="remedy"]'));
     expect(source).toContain('triggerRef.current?.focus()');

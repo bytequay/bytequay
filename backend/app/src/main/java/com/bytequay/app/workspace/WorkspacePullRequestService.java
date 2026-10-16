@@ -46,6 +46,7 @@ import java.time.Clock;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -150,8 +151,7 @@ public class WorkspacePullRequestService
         requireNonNull(command, "command is null");
         requireConfirmed(command.confirmed());
         Lock lock = locks.get(command.executionId());
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             Workspace workspace = requireWorkspace(command.workspaceId());
             CherryPickExecution execution = requireExecution(workspace, command.executionId());
             relationships.requireTransferAllowed(execution.workspace().sourceRepository(), execution.workspace().repository());
@@ -172,10 +172,7 @@ public class WorkspacePullRequestService
             }
             CherryPickExecution saved = executions.save(execution.recordPush("origin", branch, execution.currentTargetSha(), clock.instant()));
             return pushResult(saved.delivery().orElseThrow());
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     /**
@@ -198,8 +195,7 @@ public class WorkspacePullRequestService
         requireNonNull(command, "command is null");
         requireConfirmed(command.confirmed());
         Lock lock = locks.get(command.executionId());
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             Workspace workspace = requireWorkspace(command.workspaceId());
             CherryPickExecution execution = requireExecution(workspace, command.executionId());
             relationships.requireTransferAllowed(execution.workspace().sourceRepository(), execution.workspace().repository());
@@ -228,10 +224,7 @@ public class WorkspacePullRequestService
             requireAuthority.run();
             activatePullRequest(workspace, saved, savedDelivery);
             return pullRequestResult(workspace, saved, savedDelivery);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     /** Publishes only the execution named by an active, accepted chain; uncertain writes are inspected, never repeated. */
@@ -241,8 +234,7 @@ public class WorkspacePullRequestService
         var hop = chain.hops().get(index);
         var executionId = CherryPickExecutionId.valueOf(hop.executionId().orElseThrow());
         Lock lock = locks.get(executionId);
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             Workspace workspace = requireWorkspace(hop.route().workspaceId());
             CherryPickExecution execution = requireExecution(workspace, executionId);
             checkState(execution.startIdempotencyKey().equals(chain.executionKey(index)), "Execution is not owned by this chain");
@@ -294,10 +286,7 @@ public class WorkspacePullRequestService
             push(new PushCommand(workspace.id(), executionId, true));
             requireChain(chainId, index);
             return createPullRequest(new PullRequestCommand(workspace.id(), executionId, true), () -> requireChain(chainId, index));
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     private BackportChain requireChain(String id, int index)

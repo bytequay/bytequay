@@ -11,21 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useEffect, useId, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
-import { ArrowUpRight, CircleDot, GitPullRequest, Info, Lightbulb, MessageSquareWarning, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
+import { ArrowUpRight, CircleDot, GitPullRequest, Info, Lightbulb, MessageSquareWarning, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { Fragment, useEffect, useId, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
+import { once } from '../dataCache';
 import {
   openGitHubReference,
   openWebLink,
   parseGitHubReference,
   referenceHref,
+  resolveGitHubReference,
   type GitHubReference,
   type GitHubReferencePreview,
-  resolveGitHubReference,
 } from '../githubReference';
 import ReferenceCard, { previewMarkdown, stateChip, useHoverCard, type HoverCard, type ReferenceCardItem } from '../ReferenceCard';
 import type { GitHubCodeSnippetDto } from '../types';
-import { once } from '../dataCache';
 import MermaidDiagram from './MermaidDiagram';
 
 type GitHubCodePermalink = {
@@ -350,7 +350,7 @@ export function tableAlignments(line: string) {
 
 // Like GitHub, `_` emphasis cannot open or close inside a word, so ICEBERG_FILESYSTEM_ERROR stays literal.
 // Its content admits only intraword underscores, which keeps an unclosed `_` from scanning the rest of the text.
-const INLINE_TOKEN = /(\\[!-/:-@[-`{-~]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\*\*(?:\\.|[^*\\]|\*(?!\*))+?\*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:\\.|[^_\\]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n)[^])*?(?<!`)\2(?!`)|\[(?:\\.|[^\]\\])+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|<(strong|sub)>[^]*?<\/\3>)/gu;
+const INLINE_TOKEN = /(\\[!-/:-@[-`{-~]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\*\*(?:\\.|[^*\\]|\*(?!\*))+?\*\*|(?<!\w)__[^_]+__(?!\w)|\*[^*\s][^*]*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:\\.|[^_\\]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n)[^])*?(?<!`)\2(?!`)|\[(?:\\.|[^\]\\])+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|<(strong|sub)>[^]*?<\/\3>)/gu;
 
 export function parseGitHubCodePermalink(value: string, repository?: string): GitHubCodePermalink | null {
   if (!repository) return null;
@@ -506,7 +506,7 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
       blocks.push({ kind: 'task', checked: (task[2] ?? task[3]) !== ' ', text: task[4] });
       continue;
     }
-    const item = line.match(/^\s*(?:(\d+)\.|[-*+])\s+(.+)$/);
+    const item = line.match(/^\s*(?:(\d+)[.)]|[-*+])\s+(.+)$/);
     if (item) {
       flushParagraph();
       const ordered = item[1] !== undefined;
@@ -558,11 +558,12 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
 
 const EMPTY_LINK_DEFINITIONS = new Map<string, string>();
 
-function inline(
+export function inline(
   text: string,
   keyPrefix: string,
   definitions: ReadonlyMap<string, string> = EMPTY_LINK_DEFINITIONS,
   repository?: string,
+  agent = false,
 ): ReactNode[] {
   const parts: string[] = [];
   let cursor = 0;
@@ -577,7 +578,7 @@ function inline(
     const html = part.match(/^<(strong|sub)>([^]*)<\/\1>$/);
     if (html) {
       const Tag = html[1] as 'strong' | 'sub';
-      return <Tag key={key}>{inline(html[2], `${key}-html`, definitions, repository)}</Tag>;
+      return <Tag key={key}>{inline(html[2], `${key}-html`, definitions, repository, agent)}</Tag>;
     }
     const linkedImage = part.match(/^\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)$/);
     if (linkedImage) return (
@@ -590,8 +591,8 @@ function inline(
     );
     const image = part.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
     if (image) return <img className="md-image" key={key} src={image[2]} alt={image[1]} />;
-    if (part.startsWith('**') && part.endsWith('**')) return <strong key={key}>{inline(part.slice(2, -2), `${key}-strong`, definitions, repository)}</strong>;
-    if (part.startsWith('_') && part.endsWith('_')) return <em key={key}>{inline(part.slice(1, -1), `${key}-em`, definitions, repository)}</em>;
+    if ((part.startsWith('**') && part.endsWith('**')) || (part.startsWith('__') && part.endsWith('__'))) return <strong key={key}>{inline(part.slice(2, -2), `${key}-strong`, definitions, repository, agent)}</strong>;
+    if ((part.startsWith('_') && part.endsWith('_')) || (part.startsWith('*') && part.endsWith('*'))) return <em key={key}>{inline(part.slice(1, -1), `${key}-em`, definitions, repository, agent)}</em>;
     const codeFence = part.match(/^`+/)?.[0];
     if (codeFence && part.endsWith(codeFence)) {
       const code = part.slice(codeFence.length, -codeFence.length).replaceAll('\n', ' ');
@@ -604,19 +605,21 @@ function inline(
     const linkText = directLink?.[1] ?? (definition ? referenceLink?.[1] : undefined);
     const linkHref = directLink?.[2] ?? definition;
     if (linkText && linkHref) {
+      if (agent && !/^https?:\/\//i.test(linkHref)) return <code key={key} title={linkHref}>{linkText}</code>;
       const href = linkHref.startsWith('/') ? `https://github.com${linkHref}` : linkHref;
       const reference = linkText.match(/^(.*) (#\d+)$/);
       const githubReference = parseGitHubReference(href);
-      const showTitle = /^https?:\/\//i.test(linkText);
+      const showTitle = /^https?:\/\//i.test(linkText) || (agent && /#\d+$/.test(linkText));
       const mention = linkText.startsWith('@') && /^https:\/\/[a-z0-9-]+\.atlassian\.net\/jira\/people\/[^/?#]+$/i.test(href);
       // The label is already inside a link, so its own #numbers stay text.
       const label = mention || (showTitle && !githubReference)
         ? linkText.replace(/\\([!-/:-@[-`{-~])/g, '$1')
-        : showTitle && githubReference ? <>{githubReference.owner}/{githubReference.repo} <small>#{githubReference.number}</small></>
-          : reference ? <>{reference[1]} <small>{reference[2]}</small></> : inline(linkText, `${key}-link`, definitions);
+        : /^https?:\/\//i.test(linkText) && githubReference ? <>{githubReference.owner}/{githubReference.repo} <small>#{githubReference.number}</small></>
+          : !agent && reference ? <>{reference[1]} <small>{reference[2]}</small></> : inline(linkText, `${key}-link`, definitions, undefined, agent);
       if (githubReference) return (
         <ReferenceLink key={key} reference={githubReference} showTitle={showTitle}>{label}</ReferenceLink>
       );
+      if (agent) return <a key={key} href={href} target="_blank" rel="noreferrer">{label}</a>;
       return (
         <a key={key} className={mention ? 'md-mention' : undefined} href={href} onClick={event => {
           event.preventDefault();
@@ -628,8 +631,8 @@ function inline(
     }
     if (referenceLink) return (
       <Fragment key={key}>
-        [{inline(referenceLink[1], `${key}-reference-text`, definitions, repository)}]
-        {referenceLink[2] !== undefined && <>[{inline(referenceLink[2], `${key}-reference-label`, definitions, repository)}]</>}
+        [{inline(referenceLink[1], `${key}-reference-text`, definitions, repository, agent)}]
+        {referenceLink[2] !== undefined && <>[{inline(referenceLink[2], `${key}-reference-label`, definitions, repository, agent)}]</>}
       </Fragment>
     );
     const bareReference = parseGitHubReference(part);
@@ -638,6 +641,7 @@ function inline(
         {bareReference.owner}/{bareReference.repo} <small>#{bareReference.number}</small>
       </ReferenceLink>
     );
+    if (agent && /^https?:\/\//i.test(part)) return <a key={key} href={part} target="_blank" rel="noreferrer">{part}</a>;
     if (/^https?:\/\//i.test(part)) return (
       <a key={key} href={part} onClick={event => {
         event.preventDefault();
@@ -647,6 +651,7 @@ function inline(
       </a>
     );
     if (part.startsWith('@')) return <span className="md-link" key={key}>{part}</span>;
+    if (agent) return <Fragment key={key}>{linkIssueNumbers(part, repository)}</Fragment>;
     // Unlike Markdown files, GitHub descriptions and comments keep every source line break.
     return <Fragment key={key}>{part.split('\n').map((line, lineIndex) => (
       <Fragment key={lineIndex}>{lineIndex > 0 && <br />}{linkIssueNumbers(line, repository)}</Fragment>

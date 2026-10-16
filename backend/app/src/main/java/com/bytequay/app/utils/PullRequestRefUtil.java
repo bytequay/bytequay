@@ -13,9 +13,8 @@
  */
 package com.bytequay.app.utils;
 
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.core.domain.PullRequestRef;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.web.server.ResponseStatusException;
 
 public final class PullRequestRefUtil
 {
@@ -23,10 +22,7 @@ public final class PullRequestRefUtil
 
     public static PullRequestRef parseRef(String repo, int number)
     {
-        String[] parts = repo.split("/", 2);
-        if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "repo must be owner/name");
-        }
-        return PullRequestRef.of(parts[0], parts[1], number);
+        RepositoryIdentity identity = RepositoryIdentity.valueOf(repo);
+        return PullRequestRef.of(identity.owner(), identity.name(), number);
     }
 }

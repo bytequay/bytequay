@@ -23,6 +23,8 @@ import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.GoalDefini
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
@@ -56,7 +58,8 @@ public class GoalEntity
 
     // Plain text rather than an enum column: SQLite keeps an enum's CHECK from the day the table was created.
     @Column(name = "source_kind")
-    private String sourceKind;
+    @Enumerated(EnumType.STRING)
+    private GoalItemKind sourceKind;
 
     @Column(name = "source_key")
     private String sourceKey;
@@ -100,7 +103,7 @@ public class GoalEntity
         title = goal.title();
         description = goal.description();
         pinned = goal.pinned();
-        sourceKind = goal.source().map(source -> source.kind().name()).orElse(null);
+        sourceKind = goal.source().map(GoalSource::kind).orElse(null);
         sourceKey = goal.source().map(GoalSource::key).orElse(null);
         archived = goal.archived();
         definition = goal.definition().orElse(null);
@@ -112,7 +115,7 @@ public class GoalEntity
 
     public Goal toDomain()
     {
-        Optional<GoalSource> source = sourceKind == null ? Optional.empty() : Optional.of(new GoalSource(GoalItemKind.valueOf(sourceKind), sourceKey));
+        Optional<GoalSource> source = sourceKind == null ? Optional.empty() : Optional.of(new GoalSource(sourceKind, sourceKey));
         return new Goal(id, workspaceId, title, description, pinned, archived, source, Optional.ofNullable(definition),
                 revision == null ? 0 : revision, Optional.ofNullable(course), Boolean.TRUE.equals(paused), createdAt, updatedAt);
     }

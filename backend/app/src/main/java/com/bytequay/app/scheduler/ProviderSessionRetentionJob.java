@@ -55,8 +55,8 @@ public class ProviderSessionRetentionJob
     }
 
     @Scheduled(
-            initialDelayString = "${bytequay.agent.session-sweep-initial-delay:PT2M}",
-            fixedDelayString = "${bytequay.agent.session-sweep-interval:PT6H}")
+            initialDelayString = "PT2M",
+            fixedDelayString = "PT6H")
     public void tick()
     {
         // Every @Scheduled job here shares the single agent approval thread, and this one walks and

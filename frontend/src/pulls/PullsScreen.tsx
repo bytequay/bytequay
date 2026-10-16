@@ -11,51 +11,41 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { PendingReviewComments } from './ReviewDrafts';
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { Bell, Bot, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { ConfirmDialog } from '../ConfirmDialog';
-import { isFindShortcut } from '../FindBar';
-import type { NavigationMode } from '../navigationHistory';
-import Toast from '../Toast';
-import type { AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullRequestTaskLink, UserProfileDto } from '../types';
-import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
-import CodeTestsTab from './code-tests/CodeTestsTab';
-import DevelopmentLearningPanel from '../agents/DevelopmentLearningPanel';
-import DetailSkeleton from './DetailSkeleton';
-import PullRequestConflictFiles from './PullRequestConflictFiles';
-import PullRequestTaskActions from './PullRequestTaskActions';
+import { Bell, Bot, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { findConversationReview } from '../agents/agentConversations';
+import { useTaskCardState } from '../agents/attention';
+import DevelopmentLearningPanel from '../agents/DevelopmentLearningPanel';
 import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
-import type { AgentReviewDto, ReviewDraftItemDto, ReviewEvent } from './agent-review/contracts';
-import { draftCommentCommit, mergeReviewFindings, pendingDraftCount, reviewStatus } from './agent-review/model';
-import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
-import type { LocalReviewThreads } from './local-review/types';
-import PullChanges, { pullReviewThreads, updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
-import MarkdownBody from './MarkdownBody';
-import MarkdownEditor from './MarkdownEditor';
-import BetterWordsButton from './BetterWordsButton';
-import { usePrCommentCommand } from './usePrCommentCommand';
-import PullOverview, { commentedCodeLines, CommentedCodeLine, isQueued, mergePullRequestWriteDetail, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
-import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
-import { usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
-import { usePullCommentThreads } from './usePullCommentThreads';
-import UserAvatar from '../UserAvatar';
-import PullRowItem, { PullRequestIcon } from './PullRowItem';
-import { reviewCommentGroups } from './lineRangeSelection';
-import { mergePullRequestDetailStatus, usePullRequestDetail } from './usePullRequestDetail';
-import { pullRequestDiffRevision, usePullRequestChanges } from './usePullRequestChanges';
-import { useRecentTouch } from '../recent/useRecentTouch';
+import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
+import { ConfirmDialog } from '../ConfirmDialog';
+import '../css/pulls.css';
+import '../css/review-tasks.css';
+import { isFindShortcut } from '../FindBar';
 import { pullRequestItem } from '../home/attention';
 import PinButton from '../home/PinButton';
-import { PullRequestStateIcon } from './PullRequestStateIcon';
 import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
-import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
-import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
-import { useTaskCardState } from '../agents/attention';
+import type { NavigationMode } from '../navigationHistory';
+import { useRecentTouch } from '../recent/useRecentTouch';
+import Toast from '../Toast';
+import type { AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullRequestTaskLink, UserProfileDto } from '../types';
+import { usePopoverDismiss } from '../usePopoverDismiss';
+import UserAvatar from '../UserAvatar';
 import { useResizablePane } from '../useResizablePane';
-import '../css/review-tasks.css';
+import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
+import { useZoom, ZoomActions, ZoomScrim, type ZoomControls } from '../Zoom';
+import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
+import type { AgentReviewDto, ReviewDraftItemDto, ReviewEvent } from './agent-review/contracts';
+import { draftCommentCommit, mergeReviewFindings, pendingDraftCount, reviewStatus } from './agent-review/model';
+import BetterWordsButton from './BetterWordsButton';
+import CodeTestsTab from './code-tests/CodeTestsTab';
+import DetailSkeleton from './DetailSkeleton';
+import { reviewCommentGroups } from './lineRangeSelection';
+import type { LocalReviewThreads } from './local-review/types';
+import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
+import MarkdownBody from './MarkdownBody';
+import MarkdownEditor from './MarkdownEditor';
 import {
   canSubmitReview,
   exactPullNumber,
@@ -65,15 +55,26 @@ import {
   reconcilePostedComment,
   reconcilePullRequestDetail,
   reconcileSubmittedReview,
-  rowsForTab,
   rowsForPullSearch,
+  rowsForTab,
   tabForInitialPullRequest,
   visibleSelectedId,
   type PullRow,
   type PullTab,
 } from './model';
-import '../css/pulls.css';
-import { useZoom, ZoomActions, ZoomScrim, type ZoomControls } from '../Zoom';
+import { usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
+import PullChanges, { pullReviewThreads, updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
+import PullOverview, { CommentedCodeLine, commentedCodeLines, isQueued, mergePullRequestWriteDetail, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
+import PullRequestConflictFiles from './PullRequestConflictFiles';
+import { PullRequestStateIcon } from './PullRequestStateIcon';
+import PullRequestTaskActions from './PullRequestTaskActions';
+import PullRowItem, { PullRequestIcon } from './PullRowItem';
+import { PendingReviewComments } from './ReviewDrafts';
+import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
+import { usePrCommentCommand } from './usePrCommentCommand';
+import { usePullCommentThreads } from './usePullCommentThreads';
+import { pullRequestDiffRevision, usePullRequestChanges } from './usePullRequestChanges';
+import { mergePullRequestDetailStatus, usePullRequestDetail } from './usePullRequestDetail';
 
 /** The tabs PullDetailHeader draws itself; hosts add their own through its `agentTab` slot. */
 export type HeaderTab = 'overview' | 'files' | 'changes' | 'review' | 'code';
@@ -158,7 +159,7 @@ const DETAIL_MIN = 680;
 const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 1120;
 const PAGE_SIZE = 50;
-export { mergePullRequestDetailStatus, pullRequestDetailRefreshDelay } from './usePullRequestDetail';
+export { mergePullRequestDetailStatus,pullRequestDetailRefreshDelay } from './usePullRequestDetail';
 
 export function returnedFromInAppBrowser(wasOpen: boolean, isOpen: boolean) {
   return wasOpen && !isOpen;
@@ -242,28 +243,11 @@ export function PullFilterTabs({ tab, searching, counts, width, panelId, onSelec
   onSelect: (tab: PullTab) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const filters = useRef<HTMLDivElement | null>(null);
   const visible = visibleTabs(tab, width);
   const shown = PULL_TABS.filter(item => visible.includes(item.key));
   const hidden = PULL_TABS.filter(item => !visible.includes(item.key));
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenuOpen(false);
-    };
-    // Pointerdown, not click: the menu has to be gone before whatever was
-    // clicked underneath it reacts.
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      if (!filters.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    window.addEventListener('keydown', closeOnEscape);
-    window.addEventListener('pointerdown', closeOnOutsidePress);
-    return () => {
-      window.removeEventListener('keydown', closeOnEscape);
-      window.removeEventListener('pointerdown', closeOnOutsidePress);
-    };
-  }, [menuOpen]);
+  const filters = usePopoverDismiss(() => setMenuOpen(false), false, menuOpen);
 
   const moveSelection = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const target = tabKeyTarget(event.key, shown.findIndex(item => item.key === tab), shown.length);

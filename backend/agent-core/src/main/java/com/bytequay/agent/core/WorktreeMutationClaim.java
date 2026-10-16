@@ -15,7 +15,7 @@ package com.bytequay.agent.core;
 
 import java.time.Instant;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Identifies the one operation currently allowed to mutate a task worktree. */
@@ -24,7 +24,7 @@ public record WorktreeMutationClaim(Kind kind, String ownerId, Instant acquiredA
     public WorktreeMutationClaim
     {
         requireNonNull(kind, "kind is null");
-        checkNotBlank(ownerId, "ownerId");
+        checkText(ownerId, "ownerId");
         requireNonNull(acquiredAt, "acquiredAt is null");
     }
 
@@ -46,7 +46,7 @@ public record WorktreeMutationClaim(Kind kind, String ownerId, Instant acquiredA
      */
     public static WorktreeMutationClaim recovery(String launchId, Instant acquiredAt)
     {
-        checkNotBlank(launchId, "launchId");
+        checkText(launchId, "launchId");
         return new WorktreeMutationClaim(Kind.RECOVERY, launchId, acquiredAt);
     }
 

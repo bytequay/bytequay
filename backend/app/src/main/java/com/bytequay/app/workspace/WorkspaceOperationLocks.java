@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.utils.Locks;
 import com.google.common.util.concurrent.Striped;
 
 import java.util.concurrent.locks.Lock;
@@ -37,13 +38,7 @@ public final class WorkspaceOperationLocks
     {
         requireNonNull(action, "action is null");
         Lock lock = get(workspaceId);
-        lock.lock();
-        try {
-            return action.get();
-        }
-        finally {
-            lock.unlock();
-        }
+        return Locks.withLock(lock, action);
     }
 
     public static void withLock(String workspaceId, Runnable action)

@@ -16,8 +16,8 @@ package com.bytequay.agent.core;
 import java.time.Instant;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -37,9 +37,9 @@ public record ChildSummary(
 {
     public ChildSummary
     {
-        checkNotBlank(threadId, "threadId");
+        checkText(threadId, "threadId");
         checkOptionalText(parentThreadId, "parentThreadId");
-        checkNotBlank(label, "label");
+        checkText(label, "label");
         requireNonNull(purpose, "purpose is null");
         requireNonNull(outcome, "outcome is null");
         requireNonNull(result, "result is null");

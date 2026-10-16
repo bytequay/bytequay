@@ -40,8 +40,8 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.Lock;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -78,23 +78,17 @@ public class IdeExecutions
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    public LocalRun start(String reviewId, Start request)
-    {
-        Lock lock = locks.lock(reviewId);
-        lock.lock();
-        try {
-            TaskWorktree worktree = code.ideWorktree(reviewId);
-            AgentReview review = reviewStore.findReview(reviewId).orElseThrow(() -> new ReviewNotFoundException("Review not found"));
-            LocalRunService.requireIdle(turns, reviewStore.listRuns(reviewId), review, reviews.task(reviewId));
-            return start(worktree, request);
-        }
-        finally {
-            lock.unlock();
-        }
-    }
-
     public LocalRun start(TaskCodeHost host, Start request)
     {
+        if (host.reviewId().isPresent()) {
+            String reviewId = host.reviewId().orElseThrow();
+            return withLock(locks.lock(reviewId), () -> {
+                TaskWorktree worktree = code.ideWorktree(host);
+                AgentReview review = reviewStore.findReview(reviewId).orElseThrow(() -> new ReviewNotFoundException("Review not found"));
+                LocalRunService.requireIdle(turns, reviewStore.listRuns(reviewId), review, reviews.task(reviewId));
+                return start(worktree, request);
+            });
+        }
         AgentTask task = code.mutableTask(host);
         TaskWorktree worktree = code.ideWorktree(host);
         LocalRunService.requireTaskIdle(turns, task);

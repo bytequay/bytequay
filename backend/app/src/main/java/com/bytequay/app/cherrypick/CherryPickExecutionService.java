@@ -67,6 +67,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
@@ -79,7 +80,7 @@ import static com.bytequay.app.agent.WorkflowAgentTasks.createOrGet;
 import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
 import static com.bytequay.app.agent.WorkflowAgentTasks.requireReady;
 import static com.bytequay.app.agent.WorkflowAgentTasks.requireSelectedRepository;
-import static com.bytequay.app.utils.MavenModules.findModule;
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -237,8 +238,7 @@ public class CherryPickExecutionService
     public CherryPickExecution cancel(CherryPickExecutionId executionId, String workspaceId)
     {
         Lock lock = advanceLocks.get(executionId.toString());
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             CherryPickExecution execution = get(executionId);
             requireWorkspace(execution.workspace().workspaceId(), workspaceId);
             if (execution.status() == Status.FINISHED) {
@@ -257,10 +257,7 @@ public class CherryPickExecutionService
             CherryPickExecution finished = store.save(execution.finish(FinishReason.CANCELLED, "Cancelled", clock.instant()));
             finishAgentTask(finished);
             return finished;
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     /**
@@ -974,8 +971,7 @@ public class CherryPickExecutionService
             throw new CherryPickInvalidRequestException("message must contain between 1 and " + MAX_MESSAGE_CHARACTERS + " characters");
         }
         Lock lock = advanceLocks.get(executionId.toString());
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             CherryPickExecution execution = get(executionId);
             if (execution.status() != Status.PAUSED) {
                 throw new CherryPickConflictException("Execution is not paused");
@@ -1001,10 +997,7 @@ public class CherryPickExecutionService
             }
             // Nothing for an agent to resolve; let the monitor reconcile it.
             return resumed;
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     private record CreatedCommit(String targetSha, Optional<String> sourceSha)
@@ -1014,5 +1007,17 @@ public class CherryPickExecutionService
             requireNonNull(targetSha, "targetSha is null");
             requireNonNull(sourceSha, "sourceSha is null");
         }
+    }
+
+    static Optional<String> findModule(Path worktree, String path)
+    {
+        Path directory = worktree.resolve(path).getParent();
+        while (directory != null && directory.startsWith(worktree) && !directory.equals(worktree)) {
+            if (Files.isRegularFile(directory.resolve("pom.xml"))) {
+                return Optional.of(worktree.relativize(directory).toString());
+            }
+            directory = directory.getParent();
+        }
+        return Optional.empty();
     }
 }

@@ -227,10 +227,10 @@ export function foldNav<T>(items: T[], activeIndex: number, expanded: boolean): 
   return rows;
 }
 
-export function shortSha(sha: string): string {
-  return sha.slice(0, 7);
-}
+
 
 export function completedExecutionItems(items: CherryPickExecutionItem[]): number {
   return items.filter(item => item.result !== 'PENDING').length;
 }
+
+export { shortSha } from '../displayText';

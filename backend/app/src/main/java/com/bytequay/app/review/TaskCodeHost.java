@@ -13,14 +13,22 @@
  */
 package com.bytequay.app.review;
 
+import java.util.Optional;
+
 import static java.util.Objects.requireNonNull;
 
 /** A task-owned working copy, independent of pull-request or review creation. */
-public record TaskCodeHost(String workspaceId, String taskId)
+public record TaskCodeHost(String workspaceId, String taskId, Optional<String> reviewId)
 {
     public TaskCodeHost
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(taskId, "taskId is null");
+        requireNonNull(reviewId, "reviewId is null");
+    }
+
+    public TaskCodeHost(String workspaceId, String taskId)
+    {
+        this(workspaceId, taskId, Optional.empty());
     }
 }

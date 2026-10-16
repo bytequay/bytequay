@@ -49,8 +49,8 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
-import java.util.function.Supplier;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -84,7 +84,7 @@ public class ReviewPublicationService
 
     public ReviewDraft draft(String repo, int number)
     {
-        return locked(repo, number, () -> {
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = stored(repo, number);
             if (draft.items().stream().noneMatch(item -> item.commitId().isEmpty() && item.publication().isEmpty())) {
                 return draft;
@@ -113,7 +113,7 @@ public class ReviewPublicationService
         if (item.source() != ReviewDraftItem.Source.MANUAL) {
             throw new ReviewInvalidRequestException("A manual comment cannot claim a finding source");
         }
-        return locked(repo, number, () -> {
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             ReviewDraftItem manual = new ReviewDraftItem(
                     UUID.randomUUID().toString(),
@@ -138,7 +138,7 @@ public class ReviewPublicationService
      */
     public ReviewDraft addFinding(String repo, int number, long expectedVersion, String reviewId, String findingId)
     {
-        return locked(repo, number, () -> {
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             ReviewFinding finding = requireFinding(reviewId, findingId);
             requirePromotable(finding);
@@ -177,7 +177,7 @@ public class ReviewPublicationService
 
     public ReviewDraft editItem(String repo, int number, long expectedVersion, String itemId, String body, boolean included)
     {
-        return locked(repo, number, () -> {
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             ReviewDraftItem item = requireItem(draft, itemId);
             if (item.publication().filter(value -> value.state() == ReviewPublication.State.RESERVED).isPresent()) {
@@ -194,7 +194,7 @@ public class ReviewPublicationService
 
     public ReviewDraft removeItem(String repo, int number, long expectedVersion, String itemId)
     {
-        return locked(repo, number, () -> {
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             ReviewDraftItem item = requireItem(draft, itemId);
             if (item.publication().filter(value -> value.state() == ReviewPublication.State.RESERVED).isPresent()) {
@@ -211,7 +211,7 @@ public class ReviewPublicationService
     /** The user checked GitHub and confirmed this uncertain comment is absent; preparing it again never sends it. */
     public ReviewDraft confirmNotPosted(String repo, int number, long expectedVersion, String itemId)
     {
-        return locked(repo, number, () -> {
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             ReviewDraftItem item = requireItem(draft, itemId);
             if (item.publication().filter(value -> value.state() == ReviewPublication.State.UNCERTAIN).isEmpty()) {
@@ -225,13 +225,14 @@ public class ReviewPublicationService
     public ReviewDraft saveReview(String repo, int number, long expectedVersion, String body, String event)
     {
         String chosen = requireEvent(event);
-        return locked(repo, number, () -> drafts.save(expect(repo, number, expectedVersion).withReview(body == null ? "" : body.strip(), chosen, now())));
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> drafts.save(expect(repo, number,
+                expectedVersion).withReview(body == null ? "" : body.strip(), chosen, now())));
     }
 
     /** Publishes exactly one previewed item, reserving it first so no other route can send it twice. */
     public Publication publishItem(String repo, int number, long expectedVersion, String itemId)
     {
-        Reservation reservation = locked(repo, number, () -> {
+        Reservation reservation = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             ReviewDraftItem item = requireItem(draft, itemId);
             requireSendable(ImmutableList.of(item));
@@ -246,7 +247,7 @@ public class ReviewPublicationService
         catch (RuntimeException failure) {
             return releaseAfterFailure(repo, number, reservation, failure);
         }
-        return locked(repo, number, () -> settle(repo, number, reservation, OptionalLong.empty(), detail));
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, reservation, OptionalLong.empty(), detail));
     }
 
     /** Publishes the included, eligible items with the user's chosen review text and event. */
@@ -254,7 +255,7 @@ public class ReviewPublicationService
     {
         String chosen = requireEvent(event);
         String text = body == null ? "" : body.strip();
-        Reservation reservation = locked(repo, number, () -> {
+        Reservation reservation = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             if (draft.items().stream().anyMatch(item -> item.publication().filter(value -> value.state() != ReviewPublication.State.PUBLISHED).isPresent())) {
                 throw new ReviewConflictException("An earlier send is in flight or has an unknown outcome; check it on GitHub before submitting again");
@@ -303,11 +304,11 @@ public class ReviewPublicationService
                 releaseUnsent(repo, number, reservation, batches.subList(index + 1, batches.size()).stream().flatMap(List::stream).collect(toImmutableList()));
                 return releaseAfterFailure(repo, number, group, failure);
             }
-            Publication result = locked(repo, number, () -> settle(repo, number, group, remoteReviewId(detail), detail));
+            Publication result = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, group, remoteReviewId(detail), detail));
             published.addAll(result.publishedItemIds());
             result.uncertainReason().ifPresent(notices::add);
         }
-        return locked(repo, number, () -> {
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft current = stored(repo, number);
             if (current.body().equals(text) && current.event().equals(chosen)) {
                 current = drafts.save(current.withReview("", ReviewDraft.DEFAULT_EVENT, now()));
@@ -321,7 +322,7 @@ public class ReviewPublicationService
         if (unsent.isEmpty()) {
             return;
         }
-        locked(repo, number, () -> {
+        withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = stored(repo, number);
             List<ReviewDraftItem> items = new ArrayList<>(draft.items());
             for (ReviewDraftItem item : unsent) {
@@ -335,23 +336,6 @@ public class ReviewPublicationService
     }
 
     /** Why each draft item cannot be sent right now, by item id; an eligible item is absent. */
-    public List<Ineligible> ineligible(String repo, int number)
-    {
-        ReviewDraft draft = stored(repo, number);
-        List<Ineligible> blocked = new ArrayList<>();
-        for (ReviewDraftItem item : draft.items()) {
-            if (item.publication().filter(value -> value.state() == ReviewPublication.State.RESERVED).isPresent()) {
-                blocked.add(new Ineligible(item.id(), "This comment is being sent; wait for the result"));
-                continue;
-            }
-            if (item.published()) {
-                continue;
-            }
-            reason(item).ifPresent(reason -> blocked.add(new Ineligible(item.id(), reason)));
-        }
-        return ImmutableList.copyOf(blocked);
-    }
-
     /**
      * Records what the send established. A returned remote identity is stored; a send that
      * succeeded without an unambiguous per-comment mapping stays published without one rather than
@@ -398,7 +382,7 @@ public class ReviewPublicationService
     private Publication releaseAfterFailure(String repo, int number, Reservation reservation, RuntimeException failure)
     {
         log.warn("Review publication {} for {}#{} failed: {}", reservation.attemptId(), repo, number, failure.toString());
-        return locked(repo, number, () -> {
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = stored(repo, number);
             List<ReviewDraftItem> items = new ArrayList<>(draft.items());
             for (ReviewDraftItem sent : reservation.items()) {
@@ -616,18 +600,6 @@ public class ReviewPublicationService
         return draft;
     }
 
-    private <T> T locked(String repo, int number, Supplier<T> action)
-    {
-        Lock lock = locks.get(AgentReviewService.normalize(repo) + "#" + number);
-        lock.lock();
-        try {
-            return action.get();
-        }
-        finally {
-            lock.unlock();
-        }
-    }
-
     private Instant now()
     {
         return Instant.now(clock);
@@ -638,6 +610,4 @@ public class ReviewPublicationService
     private record Remote(long commentId, Optional<String> url) {}
 
     public record Publication(ReviewDraft draft, List<String> publishedItemIds, Optional<String> uncertainReason) {}
-
-    public record Ineligible(String itemId, String reason) {}
 }

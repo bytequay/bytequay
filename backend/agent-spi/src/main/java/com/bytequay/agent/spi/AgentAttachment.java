@@ -16,7 +16,7 @@ package com.bytequay.agent.spi;
 import java.nio.file.Path;
 import java.util.UUID;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -30,9 +30,9 @@ public record AgentAttachment(String id, String name, String mediaType, Path pat
 
     public AgentAttachment
     {
-        checkNotBlank(id, "id");
-        checkNotBlank(name, "name");
-        checkNotBlank(mediaType, "mediaType");
+        checkText(id, "id");
+        checkText(name, "name");
+        checkText(mediaType, "mediaType");
         requireNonNull(path, "path is null");
         checkArgument(path.isAbsolute(), "path is not absolute");
     }

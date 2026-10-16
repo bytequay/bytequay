@@ -54,7 +54,7 @@ class TestDiscussionContextTool
                 Optional.empty(), SessionAccess.READ_ONLY, Optional.of(new DiscussionContextBridge(query -> "first known-secret"))).orElseThrow();
                 McpRegistration claude = broker.register("same-task", directory, directory, directory.resolve("provider"), AgentPermissionPolicy.AUTO,
                         SessionAccess.READ_ONLY, approvals, redactor, Optional.empty(), ImmutableMap.of(),
-                        Optional.of(new DiscussionContextBridge(query -> "second")))) {
+                        Optional.of(new DiscussionContextBridge(query -> "second")), Optional.empty())) {
             closed = codex.token();
             assertThat(codex.toolNames()).containsExactly(DiscussionContextBridge.TOOL_NAME, "bytequay_list_tools", "bytequay_get_tool", "bytequay_call_tool");
             assertThat(claude.toolNames()).isEqualTo(codex.toolNames());

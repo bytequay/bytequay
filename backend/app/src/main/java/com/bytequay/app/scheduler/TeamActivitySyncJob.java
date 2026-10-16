@@ -39,7 +39,7 @@ public class TeamActivitySyncJob
         this.settings = requireNonNull(settings, "settings is null");
     }
 
-    @Scheduled(initialDelayString = "${bytequay.teams.sync-initial-delay:PT2M}", fixedDelayString = "${bytequay.teams.sync-interval:PT15M}")
+    @Scheduled(initialDelayString = "PT2M", fixedDelayString = "PT15M")
     public void tick()
     {
         if (!credentials.isGitHubAccountConfigured() || settings.inQuietHours()) {

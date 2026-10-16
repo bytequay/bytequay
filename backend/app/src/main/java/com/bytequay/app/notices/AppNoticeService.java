@@ -27,6 +27,7 @@ import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
+import com.bytequay.app.context.ContextText;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.review.AgentReview;
@@ -202,11 +203,6 @@ public class AppNoticeService
 
     private static String clip(String text, int limit)
     {
-        String flat = text.strip().replaceAll("\\s+", " ");
-        if (flat.length() <= limit) {
-            return flat;
-        }
-        int end = Character.isHighSurrogate(flat.charAt(limit - 1)) ? limit - 1 : limit;
-        return flat.substring(0, end) + "…";
+        return ContextText.excerpt(text.strip().replaceAll("\\s+", " "), limit);
     }
 }

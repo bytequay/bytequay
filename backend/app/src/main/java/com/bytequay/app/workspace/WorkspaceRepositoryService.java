@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
@@ -118,8 +119,9 @@ public class WorkspaceRepositoryService
             repositories = gitHub.fetchUserRepos(pat);
         }
         else if (slash > 0 && slash == trimmed.lastIndexOf('/') && slash < trimmed.length() - 1) {
-            String owner = trimmed.substring(0, slash).trim();
-            String name = trimmed.substring(slash + 1).trim();
+            RepositoryIdentity identity = RepositoryIdentity.valueOf(trimmed);
+            String owner = identity.owner().trim();
+            String name = identity.name().trim();
             Optional<UserRepo> exact = gitHub.fetchRepository(pat, owner, name);
             repositories = exact.isPresent()
                     ? ImmutableList.of(exact.orElseThrow())

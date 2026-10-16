@@ -40,6 +40,7 @@ import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 import java.util.regex.Pattern;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
@@ -102,17 +103,13 @@ public class AvatarCache
             return find(key);
         }
         Lock lock = refreshLocks.get(key);
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             Optional<CachedAvatar> cached = find(key);
             if (cached.isEmpty() || expired(cached.orElseThrow())) {
                 download(source, key);
             }
             return find(key);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     private static boolean expired(CachedAvatar avatar)

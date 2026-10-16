@@ -203,17 +203,6 @@ public class PullRequestController
         return refreshService.refreshDiffFiles(repo, number, baseSha, headSha);
     }
 
-    @GetMapping("/prs/diffContent")
-    public DiffFileContent diffContent(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number,
-            @RequestParam("path") String path,
-            @RequestParam(value = "base", required = false) String baseSha,
-            @RequestParam(value = "head", required = false) String headSha)
-    {
-        return pullRequests.getPullRequestDiffFileContent(repo, number, path, baseSha, headSha);
-    }
-
     @PostMapping("/prs/diffContent/refresh")
     public DiffFileContent refreshDiffContent(
             @RequestParam("repo") String repo,

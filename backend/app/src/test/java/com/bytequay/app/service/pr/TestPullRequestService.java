@@ -975,7 +975,7 @@ class TestPullRequestService
     void rejectsMalformedRepositoryNames()
     {
         assertThatThrownBy(() -> service.getPullRequestDetail("repo", 1))
-                .isInstanceOf(ResponseStatusException.class);
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -1644,7 +1644,7 @@ class TestPullRequestService
     @ValueSource(strings = {"", "  "})
     void rejectsEmptyTitlesBeforeWriting(String title)
     {
-        assertThatThrownBy(() -> service.updateTitle("owner/repo", 7, title)).isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> service.updateTitle("owner/repo", 7, title)).isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(writes, store, detailStore, recent);
     }
 
@@ -1736,11 +1736,14 @@ class TestPullRequestService
     {
         for (ThrowingCallable edit : ImmutableList.<ThrowingCallable>of(
                 () -> service.editComment("owner/repo", 7, null, 41L, "edited"),
-                () -> service.editComment("owner/repo", 7, "pull_request", 41L, "edited"),
-                () -> service.editComment("owner/repo", 7, "issue_comment", 0L, "edited"),
-                () -> service.editComment("owner/repo", 7, "review", -1L, "edited"),
                 () -> service.editComment("owner/repo", 7, "review_comment", 41L, " "),
                 () -> service.editComment("owner/repo", 7, "review_comment", 41L, null))) {
+            assertThatThrownBy(edit).isInstanceOf(IllegalArgumentException.class);
+        }
+        for (ThrowingCallable edit : ImmutableList.<ThrowingCallable>of(
+                () -> service.editComment("owner/repo", 7, "pull_request", 41L, "edited"),
+                () -> service.editComment("owner/repo", 7, "issue_comment", 0L, "edited"),
+                () -> service.editComment("owner/repo", 7, "review", -1L, "edited"))) {
             assertThatThrownBy(edit).isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
         }
         verifyNoInteractions(credentialService, writes, store, detailStore, recent);

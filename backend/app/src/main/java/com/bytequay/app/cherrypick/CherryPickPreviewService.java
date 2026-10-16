@@ -26,6 +26,7 @@ import com.bytequay.core.cherrypick.MergedPullRequestRange;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.CommitHistoryStore;
+import com.google.common.base.Ascii;
 import com.google.common.base.Ticker;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -575,7 +576,7 @@ public class CherryPickPreviewService
 
     private static String shortSha(String sha)
     {
-        return sha.length() <= 12 ? sha : sha.substring(0, 12);
+        return Ascii.truncate(sha, 12, "");
     }
 
     private record RangeCommit(String sha, String parentSha, String title, String author, Instant committedAt, List<String> changedPaths)

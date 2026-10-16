@@ -1,17 +1,15 @@
 /* ── Watch a repository modal ───────────────────────────── */
 
-.modal-overlay {
-  position: fixed;
-  inset: 0;
+.modal::backdrop {
   background: rgba(27, 31, 36, 0.45);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 9vh;
-  z-index: 200;
 }
 
 .modal {
+  margin: 9vh auto auto;
+  padding: 0;
+  color: var(--text-1);
+  font: inherit;
+  border: none;
   background: #ffffff;
   border-radius: 12px;
   width: 620px;
@@ -103,8 +101,8 @@
 }
 
 .modal-preview > .modal__progress { margin-top: 14px; }
-.modal__spinner { flex: none; animation: modal-spin 1s linear infinite; }
-@keyframes modal-spin { to { transform: rotate(360deg); } }
+.modal__spinner { flex: none; animation: bq-spin 1s linear infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .modal__spinner { animation: none; }
 }

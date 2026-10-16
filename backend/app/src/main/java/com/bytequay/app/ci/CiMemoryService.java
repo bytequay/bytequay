@@ -18,6 +18,7 @@ import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRun.Warning;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.google.common.base.Ascii;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -117,6 +118,6 @@ public class CiMemoryService
     {
         String message = Optional.ofNullable(failure.getMessage()).filter(value -> !value.isBlank())
                 .orElse(failure.getClass().getSimpleName());
-        return message.length() <= MAX_WARNING_CHARACTERS ? message : message.substring(0, MAX_WARNING_CHARACTERS);
+        return Ascii.truncate(message, MAX_WARNING_CHARACTERS, "");
     }
 }

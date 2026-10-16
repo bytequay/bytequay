@@ -11,29 +11,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { BookOpen, Bot, ChevronRight, FileText, GitPullRequest, Globe, Quote, SquareTerminal, TriangleAlert, User } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Bot, BookOpen, ChevronRight, FileText, GitPullRequest, Globe, Quote, SquareTerminal, TriangleAlert, User } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import RepoAvatar from '../RepoAvatar';
 import Toast from '../Toast';
+import '../css/memory.css';
+import '../css/repository-context.css';
 import { remoteErrorMessage } from '../pulls/PullOverview';
-import type { AgentRuntimeStopImpactDto, ModelSettingsDto, WorkspaceDto } from '../types';
-import type { ContextBuildViewDto, ContextSpecCheckDto } from '../repository-context/contracts';
 import { RunLine, SpecCheckDrawer, SpecFinding, type SpecCheckActions, type SpecCheckData } from '../repository-context/ContextSpecCheck';
+import type { ContextBuildViewDto, ContextSpecCheckDto } from '../repository-context/contracts';
 import { Icon, Spinner } from '../repository-context/icons';
 import { activeCheck, checkActive, checkProgress, modelLine, plural, shortDate, shortSha } from '../repository-context/model';
 import { CHECK_STATE, checkSummary, openFindings, type SpecCheckRequest } from '../repository-context/specChecks';
-import type { MemoryDto, MemoryKind, MemoryPageDto, MemoryPullDto } from './contracts';
-import { MemoryDrawer } from './MemoryDrawer';
-import { ReplayDrawer, ReplaysSection } from './ReplaysSection';
-import { replayRunning, type ReplayDto } from './replays';
+import type { AgentRuntimeStopImpactDto, ModelSettingsDto, WorkspaceDto } from '../types';
+import { useNow } from '../useNow';
 import { workItemRoute } from '../workitems/contracts';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
+import { MemoryDrawer } from './MemoryDrawer';
+import { ReplayDrawer, ReplaysSection } from './ReplaysSection';
+import type { MemoryDto, MemoryKind, MemoryPageDto, MemoryPullDto } from './contracts';
 import {
-  age, flagged, fromTask, KIND_LABEL, kilobytes, matches, MEMORY_CHANGED, memoryFlags, sourceChip, titleRepeated, type MemoryKindFilter, type MemorySourceFilter,
+  age,flagged,fromTask,
+  kilobytes,
+  KIND_LABEL,
+  matches,MEMORY_CHANGED,memoryFlags,sourceChip,titleRepeated,type MemoryKindFilter,type MemorySourceFilter,
 } from './model';
-import '../css/repository-context.css';
-import '../css/memory.css';
+import { replayRunning, type ReplayDto } from './replays';
 
 const KINDS: MemoryKind[] = ['RULE', 'RECIPE', 'SPEC'];
 const TABS = [
@@ -81,7 +85,6 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
   const [kind, setKind] = useState<MemoryKindFilter>('ALL');
   const [source, setSource] = useState<MemorySourceFilter>('ANY');
   const [query, setQuery] = useState('');
-  const [now, setNow] = useState(() => Date.now());
   const mounted = useRef(true);
   const inFlight = useRef(false);
   const opener = useRef<HTMLElement | null>(null);
@@ -115,9 +118,9 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => void load().catch(() => {}), 2000);
-    const clock = setInterval(() => setNow(Date.now()), 1000);
-    return () => { clearInterval(timer); clearInterval(clock); };
+    return () => { clearInterval(timer); };
   }, [load, running]);
+  const now = useNow(running);
 
   const drawerOpen = drawer !== null;
   useEffect(() => {

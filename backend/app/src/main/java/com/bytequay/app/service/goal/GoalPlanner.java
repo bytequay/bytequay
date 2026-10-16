@@ -33,6 +33,7 @@ import com.bytequay.core.store.GoalTopicStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Ascii;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
@@ -48,6 +49,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.app.context.ContextText.unfence;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -588,13 +590,7 @@ public class GoalPlanner
 
     static <T> T parse(String answer, Class<T> type)
     {
-        String json = answer.strip();
-        // Models often fence JSON despite being asked not to; the fence carries nothing.
-        if (json.startsWith("```")) {
-            int start = json.indexOf('\n');
-            int end = json.lastIndexOf("```");
-            json = start < 0 || end <= start ? "" : json.substring(start + 1, end).strip();
-        }
+        String json = unfence(answer);
         if (json.isEmpty() || json.length() > MAX_ANSWER) {
             throw new AgentUnavailableException("The agent's answer was empty or too long. Retry to ask again.");
         }
@@ -619,6 +615,6 @@ public class GoalPlanner
 
     private static String excerpt(String text, int limit)
     {
-        return text.length() <= limit ? text : text.substring(0, limit) + "…";
+        return Ascii.truncate(text, limit + 1, "…");
     }
 }

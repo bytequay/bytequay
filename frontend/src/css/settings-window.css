@@ -521,17 +521,16 @@
 
 /* ── Dialog ───────────────────────────────────────────────────────────────── */
 
-.setw-dialog-backdrop {
-  position: absolute;
-  inset: 0;
+.setw-dialog::backdrop {
   background: rgba(20, 20, 22, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 90;
 }
 
 .setw-dialog {
+  margin: auto;
+  padding: 0;
+  color: var(--text-1);
+  font: inherit;
+  border: none;
   width: 480px;
   max-width: calc(100% - 48px);
   background: #fff;

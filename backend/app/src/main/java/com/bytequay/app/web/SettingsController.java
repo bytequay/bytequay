@@ -33,7 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Optional;
 
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -90,15 +90,15 @@ public class SettingsController
     @PostMapping("/api-keys")
     public ModelSettings addApiKey(@RequestBody ApiKeyRequest request)
     {
-        requireNotBlank(request.key(), "key must not be blank");
+        checkText(request.key(), "key");
         return models.addApiKey(request.provider(), request.alias(), request.key());
     }
 
     @PostMapping("/claude-accounts")
     public ModelSettings addClaudeAccount(@RequestBody ClaudeAccountRequest request)
     {
-        requireNotBlank(request.label(), "account name must not be blank");
-        requireNotBlank(request.email(), "account email must not be blank");
+        checkText(request.label(), "account name");
+        checkText(request.email(), "account email");
         Optional<String> workspaceId = Optional.ofNullable(request.workspaceId());
         workspaceId.ifPresent(this::requireWorkspace);
         models.addClaudeAccount(request.label(), request.email(), workspaceId);
@@ -116,7 +116,7 @@ public class SettingsController
 
     private void requireWorkspace(String workspaceId)
     {
-        requireNotBlank(workspaceId, "workspaceId must not be blank");
+        checkText(workspaceId, "workspaceId");
         checkArgument(workspaces.findById(workspaceId).isPresent(), "Unknown workspace");
     }
 

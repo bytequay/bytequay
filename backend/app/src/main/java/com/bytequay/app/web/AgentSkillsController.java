@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -69,8 +69,8 @@ public class AgentSkillsController
     {
         public SkillRequest
         {
-            requireNotBlank(name, "Skill name must not be blank");
-            requireNotBlank(instructions, "Skill instructions must not be blank");
+            checkText(name, "Skill name");
+            checkText(instructions, "Skill instructions");
             requireNonNull(scope, "Skill scope is required");
         }
     }

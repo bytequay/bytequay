@@ -16,6 +16,7 @@ package com.bytequay.app.review;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -145,6 +146,6 @@ record ReviewLead(String path, OptionalInt line, Lens lens, Kind kind, String cl
 
     private static String bounded(String text)
     {
-        return text.length() <= MAX_TEXT ? text : text.substring(0, MAX_TEXT) + "…";
+        return Ascii.truncate(text, MAX_TEXT + 1, "…");
     }
 }

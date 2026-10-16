@@ -11,19 +11,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { PendingReviewComments, useReviewDraft } from './ReviewDrafts';
-import LocalReviewThreadCard from './local-review/LocalReviewThreadCard';
-import type { LocalReviewThreads, LocalReviewThreadDto } from './local-review/types';
-import { useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, ExternalLink, Eye, FileText, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, RotateCw, SmilePlus, Tag, User } from 'lucide-react';
+import { useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { TaskDiscussionDto } from '../agents/discussions/contracts';
 import Avatar from '../Avatar';
 import CopyLinkButton from '../CopyLinkButton';
 import { parseUnifiedDiff } from '../diffParse';
 import { openWebLink } from '../githubReference';
-import RepoAvatar from '../RepoAvatar';
-import { relativeTime } from '../relativeTime';
-import UserAvatar from '../UserAvatar';
 import { recordAttentionAction } from '../home/useAttentionVisit';
+import LearnFromPullButton from '../memory/LearnFromPullButton';
+import ReplayReviewButton from '../memory/ReplayReviewButton';
+import { relativeTime } from '../relativeTime';
+import RepoAvatar from '../RepoAvatar';
 import type {
   Bridge,
   PullCommentTarget,
@@ -32,24 +31,26 @@ import type {
   PullReactionTarget,
   PullRequestDetailDto,
   PullRequestDto,
+  PullTimelineCommentDto,
   PullTimelinePayloadDto,
   RepoLabelDto,
-  PullTimelineCommentDto,
   RepoUserDto,
   UserProfileDto,
 } from '../types';
-import LearnFromPullButton from '../memory/LearnFromPullButton';
-import ReplayReviewButton from '../memory/ReplayReviewButton';
+import { usePopoverDismiss } from '../usePopoverDismiss';
+import UserAvatar from '../UserAvatar';
 import BetterWordsButton from './BetterWordsButton';
-import { usePrCommentCommand } from './usePrCommentCommand';
+import LocalReviewThreadCard from './local-review/LocalReviewThreadCard';
+import type { LocalReviewThreadDto, LocalReviewThreads } from './local-review/types';
 import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers, toggleMarkdownTask, type SuggestionBase } from './MarkdownBody';
-import { EMPTY_TIMELINE_PAYLOAD } from './model';
-import { PullRequestIcon } from './PullRowItem';
-import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
-import ReviewCommentIndex, { commentIndexTarget } from './ReviewCommentIndex';
 import MarkdownEditor from './MarkdownEditor';
-import { PrivateThreadControls, PrivateThreadForward, PrivateThreadsToggle, PrivateThreadTab, privateThreadKey, withMention, type PrivateThreads } from './PrivateThread';
-import type { TaskDiscussionDto } from '../agents/discussions/contracts';
+import { EMPTY_TIMELINE_PAYLOAD } from './model';
+import { PrivateThreadControls, PrivateThreadForward, privateThreadKey, PrivateThreadsToggle, PrivateThreadTab, withMention, type PrivateThreads } from './PrivateThread';
+import { PullRequestIcon } from './PullRowItem';
+import ReviewCommentIndex, { commentIndexTarget } from './ReviewCommentIndex';
+import { PendingReviewComments, useReviewDraft } from './ReviewDrafts';
+import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
+import { usePrCommentCommand } from './usePrCommentCommand';
 
 type Activity = PullRequestDetailDto['recentActivity'][number];
 const LABEL_EVENT_TYPES = new Set(['labeled', 'unlabeled']);
@@ -287,7 +288,6 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate, privateThre
   onDetailUpdate: PullDetailUpdater;
   privateThreads?: PrivateThreads;
 }) {
-  const root = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<MetadataPickerKind | null>(null);
   const [repoUsers, setRepoUsers] = useState<RepoUserDto[]>([]);
   const [repoLabels, setRepoLabels] = useState<RepoLabelDto[]>([]);
@@ -306,21 +306,7 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate, privateThre
   const visibleDetail = optimisticDetail?.key === key ? optimisticDetail.value : detail;
   optionsKey.current = key;
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(null);
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(null);
-    };
-    document.addEventListener('pointerdown', close);
-    document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('pointerdown', close);
-      document.removeEventListener('keydown', escape);
-    };
-  }, [open]);
+  const root = usePopoverDismiss(() => setOpen(null), false, open !== null);
 
   useEffect(() => {
     optionsRequest.current += 1;
@@ -1504,23 +1490,8 @@ export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, re
 
 function CardActionsMenu({ actions }: { actions: CardActions }) {
   const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('pointerdown', close);
-    document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('pointerdown', close);
-      document.removeEventListener('keydown', escape);
-    };
-  }, [open]);
+  const root = usePopoverDismiss(() => setOpen(false), false, open);
 
   const copy = async (value: string) => {
     await navigator.clipboard.writeText(value);
@@ -1554,9 +1525,8 @@ function ChecksCard({ pr, detail, onRefresh }: {
   const [rerunError, setRerunError] = useState<string | null>(null);
   const rerunLabel = rerunning ? 'Requesting…' : rerunRequested ? 'Rerun requested' : 'Rerun failed tests';
   const groups = useMemo(() => {
-    const out = new Map<string, PullRequestDetailDto['checkRuns']>();
-    detail.checkRuns.forEach(check => out.set(check.category, [...(out.get(check.category) ?? []), check]));
-    return ['failing', 'pending', 'successful', 'neutral', 'skipped', 'cancelled']
+    const out = Map.groupBy(detail.checkRuns, check => check.category);
+    return (['failing', 'pending', 'successful', 'neutral', 'skipped', 'cancelled'] as const)
       .map(category => [category, out.get(category) ?? []] as const)
       .filter(([, checks]) => checks.length > 0);
   }, [detail.checkRuns]);
@@ -2263,24 +2233,9 @@ function ReactionButton({ value, action }: { value: PullReactionDto; action: Rea
 
 function ReactionPicker({ action, compact = false }: { action: ReactionAction; compact?: boolean }) {
   const [open, setOpen] = useState(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
-  useEffect(() => {
-    if (!open) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!action.saving && !pickerRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (!action.saving && event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('pointerdown', closeOnOutsidePointer);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [action.saving, open]);
+  const pickerRef = usePopoverDismiss(() => setOpen(false), false, open && !action.saving);
 
   const choose = async (content: PullReactionContent) => {
     const optimistic = action.intent(content) !== null;

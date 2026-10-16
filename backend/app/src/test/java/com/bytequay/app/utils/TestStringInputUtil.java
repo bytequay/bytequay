@@ -18,13 +18,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.bytequay.app.utils.StringInputUtil.normalizeNames;
+import static com.bytequay.core.domain.Checks.normalizeNames;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -60,9 +58,7 @@ class TestStringInputUtil
         values.add(value);
 
         assertThatThrownBy(() -> normalizeNames(values, "assignees"))
-                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> {
-                    assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-                    assertThat(failure.getReason()).isEqualTo("assignees must not contain blanks");
-                });
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("assignees is blank");
     }
 }

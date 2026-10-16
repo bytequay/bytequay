@@ -11,17 +11,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Activity, BookOpen, Check, CircleAlert } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { ActivityIcon, memberLabel } from '../../agents/AgentConversation';
 import type { AgentEventEnvelope } from '../../agents/events';
 import { readRecentAgentHistory } from '../../agents/model';
 import { formatDuration, projectTranscript, turnElapsedMs, type ActivityMember, type TranscriptTurn } from '../../agents/transcript';
 import { Chevron } from '../../Chevron';
+import { plural } from '../../displayText';
 import { relativeTime } from '../../relativeTime';
 import type { AgentReviewDto, ReviewRunDto } from './contracts';
-import { evidenceTarget } from './ReviewEvidenceLinks';
 import { completeCoverage, evidenceGroups, provenanceFacts, reviewElapsed, reviewPasses, reviewProgress, reviewRunning, reviewScope, reviewStatus, shortPath, shortSha } from './model';
+import { evidenceTarget } from './ReviewEvidenceLinks';
 
 const PASSES = [
   ['Investigation', 'Map the change, record candidates'],
@@ -31,9 +32,7 @@ const PASSES = [
 
 const VISIBLE_ACTIONS = 5;
 
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
-}
+
 
 function ProgressCard({ review, run, now }: { review: AgentReviewDto; run: ReviewRunDto; now: number }) {
   const running = reviewRunning(review);

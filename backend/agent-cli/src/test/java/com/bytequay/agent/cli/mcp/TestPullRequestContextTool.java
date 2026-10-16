@@ -51,7 +51,8 @@ class TestPullRequestContextTool
                 .pullRequestContexts(task -> task.equals("assigned") ? available.get() : Optional.empty()).build();
         String closed;
         try (McpRegistration codex = broker.registerTools("assigned", directory, AgentPermissionPolicy.AUTO, approvals, redactor, Optional.empty()).orElseThrow();
-                McpRegistration claude = broker.register("assigned", directory, directory, directory.resolve("provider"), AgentPermissionPolicy.AUTO, approvals, redactor)) {
+                McpRegistration claude = broker.register("assigned", directory, directory, directory.resolve("provider"), AgentPermissionPolicy.AUTO,
+                        SessionAccess.FULL, approvals, redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), Optional.empty())) {
             closed = codex.token();
             for (McpRegistration registration : ImmutableList.of(codex, claude)) {
                 assertThat(registration.toolNames()).contains(PullRequestContextBridge.TOOL_NAME);

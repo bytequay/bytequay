@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -54,8 +54,8 @@ public record ReviewTool(String name, String description, Map<String, Object> in
      */
     public ReviewTool
     {
-        checkNotBlank(name, "name");
-        checkNotBlank(description, "description");
+        checkText(name, "name");
+        checkText(description, "description");
         inputSchema = ImmutableMap.copyOf(inputSchema);
         requireNonNull(call, "call is null");
         if (!name.startsWith(NAME_PREFIX) && !CONTEXT_TOOLS.contains(name)) {

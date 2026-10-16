@@ -51,6 +51,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -104,8 +105,7 @@ public class IssueDevelopmentService
         Workspace workspace = workspace(workspaceId);
         RepositoryIssue issue = issue(workspace, number);
         Lock lock = sourceLocks.get(issue.id());
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             return unitOfWork.execute(() -> {
                 sources.saveEpic(new IssueEpic(HOST, issue.id(), workspace.monitoredRepository().fullName(), number, epic, clock.instant()));
                 if (!epic) {
@@ -113,10 +113,7 @@ public class IssueDevelopmentService
                 }
                 return metadata(issue.id());
             });
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     public RepositoryIssuePage attention(String workspaceId)
@@ -156,8 +153,7 @@ public class IssueDevelopmentService
     {
         Workspace workspace = workspace(workspaceId);
         Lock lock = sourceLocks.get(input.issueId());
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             Optional<IssueTask> linked = sources.findTask(HOST, input.issueId());
             if (linked.isPresent()) {
                 IssueTask link = linked.orElseThrow();
@@ -189,10 +185,7 @@ public class IssueDevelopmentService
                 throw new AgentConflictException("Task already exists without this issue source: " + taskId);
             }
             return create.apply(fresh);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     /** Called only after worktree preparation; these two durable facts commit together. */

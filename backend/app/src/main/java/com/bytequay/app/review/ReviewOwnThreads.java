@@ -16,6 +16,7 @@ package com.bytequay.app.review;
 import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.google.common.base.Ascii;
 
 import java.time.Instant;
 import java.util.Comparator;
@@ -87,7 +88,7 @@ final class ReviewOwnThreads
                 payload.resolved(),
                 payload.outdated(),
                 payload.comments().size(),
-                opening.length() <= MAX_OPENING ? opening : opening.substring(0, MAX_OPENING) + "…",
+                Ascii.truncate(opening, MAX_OPENING + 1, "…"),
                 lastActor,
                 Optional.ofNullable(last.timestamp()),
                 !payload.resolved() && !last.actorBot() && !lastActor.isEmpty() && !lastActor.equalsIgnoreCase(login));

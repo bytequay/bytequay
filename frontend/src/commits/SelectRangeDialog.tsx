@@ -11,9 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
 import { ArrowRight, Flag, GitCommitHorizontal, Hash, RotateCcw, X } from 'lucide-react';
+import { useState } from 'react';
 import type { GitCommitDto } from '../types';
+import { useModalDialog } from '../useModalDialog';
 import CommitCard from './CommitCard';
 import { matchesCommitQuery, pastedRangePair, shortSha } from './model';
 
@@ -43,11 +44,7 @@ export default function SelectRangeDialog({
   const [slot, setSlot] = useState<Slot>('from');
   const [query, setQuery] = useState('');
 
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') onCancel(); };
-    window.addEventListener('keydown', close);
-    return () => window.removeEventListener('keydown', close);
-  }, [onCancel]);
+  const dialog = useModalDialog();
 
   const fromCommit = commits.find(commit => commit.sha === from) ?? null;
   const toCommit = commits.find(commit => commit.sha === to) ?? null;
@@ -98,8 +95,7 @@ export default function SelectRangeDialog({
   );
 
   return (
-    <div className="cmt-rd-scrim">
-      <div className="cmt-rd" role="dialog" aria-modal="true" aria-label="Select a commit range">
+    <dialog ref={dialog} className="cmt-rd" onCancel={event => { event.preventDefault(); onCancel(); }} role="dialog" aria-modal="true" aria-label="Select a commit range">
         <div className="cmt-rd-head">
           <Hash size={15} strokeWidth={2} aria-hidden="true" />
           <div className="cmt-rd-head-text">
@@ -176,7 +172,6 @@ export default function SelectRangeDialog({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </dialog>
   );
 }

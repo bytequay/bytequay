@@ -68,7 +68,7 @@ class TestCherryPickMonitoring
         AgentTaskStore taskStore = mock(AgentTaskStore.class);
         CherryPickExecutionService service = mock(CherryPickExecutionService.class);
 
-        monitor(store, taskStore, service, new AgentServingGate(), CLOCK, 20).monitorCherryPicks();
+        monitor(store, taskStore, service, new AgentServingGate(), CLOCK).monitorCherryPicks();
 
         verifyNoInteractions(store, taskStore, service);
     }
@@ -110,7 +110,7 @@ class TestCherryPickMonitoring
         when(store.findByAgentTaskId(orphanedTaskId.toString())).thenReturn(Optional.empty());
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(execution));
 
-        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitorCherryPicks();
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK).monitorCherryPicks();
 
         verify(service).advance(executionId);
     }
@@ -137,18 +137,17 @@ class TestCherryPickMonitoring
         when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finishedExecution(executionId, taskId)));
 
-        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitorCherryPicks();
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK).monitorCherryPicks();
 
         verify(service, times(expectedAdvances)).advance(executionId);
         verifyNoMoreInteractions(service);
     }
 
     private static WorkflowMonitorJob monitor(
-            CherryPickExecutionStore store, AgentTaskStore taskStore, CherryPickExecutionService service, AgentServingGate gate, Clock clock, int batchSize)
+            CherryPickExecutionStore store, AgentTaskStore taskStore, CherryPickExecutionService service, AgentServingGate gate, Clock clock)
     {
-        return new WorkflowMonitorJob(store, service, mock(CiAutofixStore.class), mock(CiAutofixService.class),
-                mock(BranchRebaseStore.class), mock(BranchRebaseService.class), mock(BackportChainStore.class), mock(BackportChainService.class),
-                taskStore, gate, clock, batchSize, 20, 20);
+        return new WorkflowMonitorJob(store, service, mock(CiAutofixStore.class), mock(CiAutofixService.class), mock(BranchRebaseStore.class),
+                mock(BranchRebaseService.class), mock(BackportChainStore.class), mock(BackportChainService.class), taskStore, gate, clock);
     }
 
     private static CherryPickExecution finishedExecution(CherryPickExecutionId executionId, TaskId taskId)

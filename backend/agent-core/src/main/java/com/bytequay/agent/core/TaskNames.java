@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.core;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 /** A semantic task title and its independently worded, Git-safe branch. */
@@ -21,8 +21,8 @@ public record TaskNames(String title, String branch)
 {
     public TaskNames
     {
-        checkNotBlank(title, "title");
-        checkNotBlank(branch, "branch");
+        checkText(title, "title");
+        checkText(branch, "branch");
         checkArgument(title.equals(TaskTitles.generated(title)), "title must be compact plain text");
         checkArgument(branch.length() <= 64 && TaskBranches.isCleanName(branch), "branch must be a short hyphenated name");
     }

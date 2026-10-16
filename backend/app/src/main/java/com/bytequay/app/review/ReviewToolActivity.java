@@ -14,6 +14,7 @@
 package com.bytequay.app.review;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.base.Ascii;
 
 import java.util.Locale;
 
@@ -38,7 +39,7 @@ final class ReviewToolActivity
             default -> tool;
         };
         String single = line.replaceAll("\\s+", " ").strip();
-        return single.length() <= MAX_LENGTH ? single : single.substring(0, MAX_LENGTH - 1) + "…";
+        return Ascii.truncate(single, MAX_LENGTH, "…");
     }
 
     /** How the user's own threads were judged, in the order a reader acts on them. */

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.google.common.base.Throwables;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -28,12 +29,7 @@ public final class GitHubRateLimitException
 
     public static boolean isRateLimit(Throwable failure)
     {
-        for (Throwable current = failure; current != null; current = current.getCause()) {
-            // GitHubRateLimitException is itself a 429.
-            if (current instanceof ResponseStatusException response && response.getStatusCode().value() == 429) {
-                return true;
-            }
-        }
-        return false;
+        return Throwables.getCausalChain(failure).stream()
+                .anyMatch(cause -> cause instanceof ResponseStatusException response && response.getStatusCode().value() == 429);
     }
 }

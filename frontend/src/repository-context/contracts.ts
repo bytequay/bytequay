@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { flag, object, oneOf, optionalText, text } from '../pulls/wireParse';
 export type ContextActivityDto = { at: string; text: string; tone: 'DONE' | 'FAILED' };
 /** How the current check turn ended; SAVED means the turn saved its candidates or its reproduction result. */
 export type ContextRunOutcome = 'RUNNING' | 'SAVED' | 'STOPPED' | 'FAILED';
@@ -26,21 +27,8 @@ export type ContextBuildViewDto = {
 };
 
 function malformed(field: string): never { throw new Error(`Malformed spec check: ${field}`); }
-function object(value: unknown, field: string): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) malformed(field);
-  return value as Record<string, unknown>;
-}
-function text(value: unknown, field: string): string {
-  if (typeof value !== 'string') malformed(field);
-  return value;
-}
-function optionalText(value: unknown, field: string): string | null { return value == null ? null : text(value, field); }
 function count(value: unknown, field: string, minimum = 0): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum) malformed(field);
-  return value;
-}
-function flag(value: unknown, field: string): boolean {
-  if (typeof value !== 'boolean') malformed(field);
   return value;
 }
 function array<T>(value: unknown, field: string, parse: (item: unknown) => T): T[] {
@@ -48,11 +36,6 @@ function array<T>(value: unknown, field: string, parse: (item: unknown) => T): T
   return value.map(parse);
 }
 function strings(value: unknown, field: string): string[] { return array(value, field, item => text(item, field)); }
-function oneOf<T extends string>(value: unknown, allowed: readonly T[], field: string): T {
-  const found = allowed.find(item => item === value);
-  if (found === undefined) malformed(field);
-  return found;
-}
 function request(value: unknown, fields: string[]): Record<string, unknown> {
   const item = object(value, 'request');
   for (const key of Object.keys(item)) if (!fields.includes(key)) malformed(`unsupported request field ${key}`);

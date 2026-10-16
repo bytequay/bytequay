@@ -17,7 +17,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** A removed queue message returned intact for editing in the composer. */
@@ -25,7 +25,7 @@ public record AgentQueuedInputDraft(String message, AgentTurnSettings settings, 
 {
     public AgentQueuedInputDraft
     {
-        checkNotBlank(message, "message");
+        checkText(message, "message");
         requireNonNull(settings, "settings is null");
         attachments = ImmutableList.copyOf(attachments);
     }

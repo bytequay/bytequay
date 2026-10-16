@@ -15,7 +15,7 @@ package com.bytequay.agent.core;
 
 import java.nio.file.Path;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -25,7 +25,7 @@ public record TaskWorktree(TaskId taskId, String workspaceId, RepositoryIdentity
     public TaskWorktree
     {
         requireNonNull(taskId, "taskId is null");
-        checkNotBlank(workspaceId, "workspaceId");
+        checkText(workspaceId, "workspaceId");
         requireNonNull(physicalRepository, "physicalRepository is null");
         requireNonNull(canonicalWorktree, "canonicalWorktree is null");
         ProvisionWorktreeCommand.checkObjectId(startCommit, "startCommit");
@@ -41,7 +41,7 @@ public record TaskWorktree(TaskId taskId, String workspaceId, RepositoryIdentity
     static void checkGeneratedBranch(TaskId taskId, String branch)
     {
         requireNonNull(taskId, "taskId is null");
-        checkNotBlank(branch, "branch");
+        checkText(branch, "branch");
         checkArgument(branch.equals("bytequay/task/" + taskId) || TaskBranches.matches(branch), "branch is not a safe generated name");
     }
 }

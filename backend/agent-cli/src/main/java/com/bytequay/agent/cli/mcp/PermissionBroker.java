@@ -52,6 +52,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -211,56 +212,6 @@ public final class PermissionBroker
         this.pullRequestChecks = requireNonNull(pullRequestChecks, "pullRequestChecks is null");
         this.issueContexts = requireNonNull(issueContexts, "issueContexts is null");
         this.memories = requireNonNull(memories, "memories is null");
-    }
-
-    McpRegistration register(
-            String taskId,
-            Path worktree,
-            Path runtimeDirectory,
-            Path providerDirectory,
-            AgentPermissionPolicy permissionPolicy,
-            AgentApprovalHandler approvals,
-            SecretRedactor redactor)
-    {
-        return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, SessionAccess.FULL, approvals, redactor, Optional.empty());
-    }
-
-    McpRegistration register(
-            String taskId,
-            Path worktree,
-            Path runtimeDirectory,
-            Path providerDirectory,
-            AgentPermissionPolicy permissionPolicy,
-            SessionAccess access,
-            AgentApprovalHandler approvals,
-            SecretRedactor redactor,
-            Optional<CodeQueryBridge> codeQueries)
-    {
-        return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, access, approvals, redactor, codeQueries, ImmutableMap.of());
-    }
-
-    public McpRegistration register(
-            String taskId,
-            Path worktree,
-            Path runtimeDirectory,
-            Path providerDirectory,
-            AgentPermissionPolicy permissionPolicy,
-            SessionAccess access,
-            AgentApprovalHandler approvals,
-            SecretRedactor redactor,
-            Optional<CodeQueryBridge> codeQueries,
-            Map<String, String> environment)
-    {
-        return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, access, approvals, redactor, codeQueries, environment, Optional.empty());
-    }
-
-    public McpRegistration register(
-            String taskId, Path worktree, Path runtimeDirectory, Path providerDirectory, AgentPermissionPolicy permissionPolicy,
-            SessionAccess access, AgentApprovalHandler approvals, SecretRedactor redactor, Optional<CodeQueryBridge> codeQueries,
-            Map<String, String> environment, Optional<DiscussionContextBridge> discussionContext)
-    {
-        return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, access, approvals, redactor, codeQueries, environment,
-                discussionContext, Optional.empty());
     }
 
     public McpRegistration register(
@@ -1041,7 +992,7 @@ public final class PermissionBroker
                 .filter(node -> !node.isNull())
                 .map(JsonNode::asText)
                 .map(String::trim)
-                .map(value -> value.length() <= 200 ? value : value.substring(0, 200))
+                .map(value -> Ascii.truncate(value, 200, ""))
                 .filter(value -> !value.isEmpty());
         String markdown = ciMemoryReader.read(context.taskId(), query);
         return response(id, new ToolResult(ImmutableList.of(new TextContent("text", markdown)), false));

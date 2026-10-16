@@ -15,7 +15,7 @@ package com.bytequay.agent.core;
 
 import java.util.regex.Pattern;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -27,7 +27,7 @@ public record ProvisionWorktreeCommand(TaskId taskId, String workspaceId, Reposi
     public ProvisionWorktreeCommand
     {
         requireNonNull(taskId, "taskId is null");
-        checkNotBlank(workspaceId, "workspaceId");
+        checkText(workspaceId, "workspaceId");
         requireNonNull(physicalRepository, "physicalRepository is null");
         checkObjectId(startCommit, "startCommit");
         TaskWorktree.checkGeneratedBranch(taskId, generatedBranch);
@@ -35,7 +35,7 @@ public record ProvisionWorktreeCommand(TaskId taskId, String workspaceId, Reposi
 
     static void checkObjectId(String value, String name)
     {
-        checkNotBlank(value, name);
+        checkText(value, name);
         checkArgument(GIT_OBJECT_ID.matcher(value).matches(), "%s is not an exact Git object ID", name);
     }
 }

@@ -33,7 +33,6 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
-import static com.bytequay.app.utils.StringInputUtil.isNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -59,7 +58,7 @@ public class CredentialService
     public synchronized void saveGitHubToken(String token)
     {
         String trimmed = requireNonNull(token, "token is null").trim();
-        if (!isNotBlank(trimmed)) {
+        if ((trimmed == null || trimmed.isBlank())) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(422), "Token must not be blank.");
         }
         UserProfile profile = gitHubAccount.fetchUserProfile(trimmed);
@@ -122,7 +121,7 @@ public class CredentialService
     {
         requireNonNull(workspaceId, "workspaceId is null");
         return workspaceCredentials.getSecret(workspaceId)
-                .filter(value -> isNotBlank(value))
+                .filter(value -> !value.isBlank())
                 .orElseGet(this::resolveGitHubToken);
     }
 
@@ -182,7 +181,7 @@ public class CredentialService
     public String saveWorkspaceGitHubToken(String workspaceId, String token)
     {
         requireNonNull(workspaceId, "workspaceId is null");
-        if (!isNotBlank(token)) {
+        if ((token == null || token.isBlank())) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(422), "Token must not be blank.");
         }
         String login = gitHubAccount.fetchUserProfile(token.trim()).login();
@@ -227,13 +226,13 @@ public class CredentialService
         return credentialStore.source()
                 .filter(GITHUB_CLI_SOURCE::equals)
                 .flatMap(marker -> ghCli.currentToken())
-                .filter(value -> isNotBlank(value));
+                .filter(value -> !value.isBlank());
     }
 
     private Optional<String> storedGitHubToken()
     {
         return credentialStore.getSecret()
-                .filter(value -> isNotBlank(value));
+                .filter(value -> !value.isBlank());
     }
 
     public record GitHubCredential(String token, UserProfile profile)

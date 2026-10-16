@@ -60,6 +60,7 @@ ownership boundaries; they are not independently deployed services.
 ```text
 app -> core, persistence-sqlite, agent-core, agent-cli
 persistence-sqlite -> core, agent-core
+agent-spi -> core
 agent-core -> agent-spi
 agent-cli -> agent-spi
 ```

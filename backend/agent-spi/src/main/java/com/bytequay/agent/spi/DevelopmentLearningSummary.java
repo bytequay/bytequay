@@ -18,8 +18,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -36,7 +36,7 @@ public record DevelopmentLearningSummary(String purpose, List<DevelopmentLearnin
 
     public DevelopmentLearningSummary
     {
-        checkNotBlank(purpose, "purpose");
+        checkText(purpose, "purpose");
         checkArgument(purpose.length() <= MAXIMUM_PURPOSE_LENGTH, "purpose is too long");
         commits = ImmutableList.copyOf(commits);
         checkArgument(commits.size() <= MAXIMUM_COMMITS, "too many commits");
@@ -48,7 +48,7 @@ public record DevelopmentLearningSummary(String purpose, List<DevelopmentLearnin
         limitations = ImmutableList.copyOf(limitations);
         checkArgument(limitations.size() <= MAXIMUM_LIMITATIONS, "too many limitations");
         limitations.forEach(value -> {
-            checkNotBlank(value, "limitation");
+            checkText(value, "limitation");
             checkArgument(value.length() <= MAXIMUM_LIMITATION_LENGTH, "limitation is too long");
         });
         long textLength = purpose.length() + combinedResult.map(String::length).orElse(0) + evidence.length()

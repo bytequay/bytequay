@@ -67,6 +67,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
@@ -167,8 +168,7 @@ public class ContextBuildService
     {
         checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid run baseline");
         Lock lock = locks.get(workspaceId);
-        lock.lock();
-        try {
+        return withLock(lock, () -> {
             String digest = digest(ImmutableList.of(request, baselineSha, check.<Object>map(value -> value)
                     .or(() -> harvest.map(ContextBuild.Harvest::harvestId)).orElseGet(() -> research.orElseThrow())));
             Optional<ContextBuild> previous = builds.find(workspaceId);
@@ -212,10 +212,7 @@ public class ContextBuildService
                 reconcile(workspaceId, build.taskId());
             }
             return view(workspaceId);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     public AgentTask task(String workspaceId, String taskId)
@@ -270,73 +267,72 @@ public class ContextBuildService
     public void reconcile(String workspaceId, String taskId)
     {
         Lock lock = locks.get(workspaceId);
-        lock.lock();
-        try {
-            Optional<ContextBuild> found = builds.find(workspaceId).filter(build -> build.taskId().equals(taskId));
-            Optional<AgentTask> task = taskStore.find(TaskId.valueOf(taskId));
-            if (found.isEmpty()) {
-                return;
-            }
-            if (task.isEmpty()) {
-                WorkspaceOperationLocks.withLock(workspaceId, () -> {
-                    ContextBuild build = builds.find(workspaceId).filter(value -> value.taskId().equals(taskId)).orElseThrow();
-                    builds.save(Optional.of(build), build.withCapture(build.capture()
-                            .withAttempts(ImmutableMap.of(ALLOCATION_FAILED, "No agent task was retained; retry requires an explicit new request"))
-                            .withGap("The task allocation did not finish. No model run was retained.")));
+        withLock(lock, () -> {
+            try {
+                Optional<ContextBuild> found = builds.find(workspaceId).filter(build -> build.taskId().equals(taskId));
+                Optional<AgentTask> task = taskStore.find(TaskId.valueOf(taskId));
+                if (found.isEmpty()) {
                     return null;
-                });
-                return;
-            }
-            if (task.orElseThrow().worktreeMutationClaim().isPresent()) {
-                return;
-            }
-            ContextBuild build = found.orElseThrow();
-            Optional<AgentTurn> turn = turns.findTurnByIdempotencyKey(task.orElseThrow().id(), build.turnKey());
-            if (turn.filter(value -> !value.state().terminal()).isPresent() || continuesCheck(workspaceId, build, task.orElseThrow(), turn)) {
-                return;
-            }
-            // Mark-failed can discard an unverified recovery claim. A later read must not turn that choice into automatic worktree removal.
-            if (task.orElseThrow().state() == TaskState.FAILED) {
+                }
+                if (task.isEmpty()) {
+                    WorkspaceOperationLocks.withLock(workspaceId, () -> {
+                        ContextBuild build = builds.find(workspaceId).filter(value -> value.taskId().equals(taskId)).orElseThrow();
+                        builds.save(Optional.of(build), build.withCapture(build.capture()
+                                .withAttempts(ImmutableMap.of(ALLOCATION_FAILED, "No agent task was retained; retry requires an explicit new request"))
+                                .withGap("The task allocation did not finish. No model run was retained.")));
+                        return null;
+                    });
+                    return null;
+                }
+                if (task.orElseThrow().worktreeMutationClaim().isPresent()) {
+                    return null;
+                }
+                ContextBuild build = found.orElseThrow();
+                Optional<AgentTurn> turn = turns.findTurnByIdempotencyKey(task.orElseThrow().id(), build.turnKey());
+                if (turn.filter(value -> !value.state().terminal()).isPresent() || continuesCheck(workspaceId, build, task.orElseThrow(), turn)) {
+                    return null;
+                }
+                // Mark-failed can discard an unverified recovery claim. A later read must not turn that choice into automatic worktree removal.
+                if (task.orElseThrow().state() == TaskState.FAILED) {
+                    coordinator.getObject().unwatch(taskId);
+                    return null;
+                }
+                Optional<String> kept = Optional.empty();
+                if (task.orElseThrow().worktreeRemovedAt().isEmpty()) {
+                    try {
+                        discardCheckWork(task.orElseThrow(), build.baselineSha(), true);
+                    }
+                    catch (RuntimeException failure) {
+                        kept = Optional.of(Optional.ofNullable(failure.getMessage()).orElse("The check's worktree could not be returned to its baseline"));
+                    }
+                }
+                if (task.orElseThrow().state() == TaskState.OPEN) {
+                    boolean completed = turn.filter(value -> value.state() == TurnState.COMPLETED && value.cancellationRequestedAt().isEmpty()).isPresent();
+                    if (kept.isEmpty() && completed && (build.check().isEmpty() || build.capture().attempts().containsKey(CHECKED))) {
+                        completions.complete(new CompleteAgentTaskCommand(task.orElseThrow().id(), Optional.of(build.harvest().isPresent()
+                                ? "The harvest finished; Memory keeps what it saved."
+                                : build.research().isPresent() ? "The research finished; the goal keeps its notes." : "The spec check finished; its report keeps the results.")));
+                        build.harvest().ifPresent(ignored -> harvests.getObject().finish(build, true));
+                        build.research().ifPresent(ignored -> goalResearch.getObject().finish(build, true));
+                    }
+                    else {
+                        String reason = kept.orElseGet(() -> (build.check().isEmpty() ? "The " + (build.harvest().isPresent() ? "harvest" : "research") + " turn did not finish."
+                                : "The check turn ended without saving its result.") + turn.map(value -> " Turn outcome: " + value.state()).orElse(" No turn was accepted."));
+                        recordGap(workspaceId, taskId, reason);
+                        completions.abandon(task.orElseThrow().id(), reason);
+                        build.harvest().ifPresent(ignored -> harvests.getObject().finish(build, false));
+                        build.research().ifPresent(ignored -> goalResearch.getObject().finish(build, false));
+                    }
+                }
+                completions.cleanupWorktree(task.orElseThrow().id());
                 coordinator.getObject().unwatch(taskId);
-                return;
             }
-            Optional<String> kept = Optional.empty();
-            if (task.orElseThrow().worktreeRemovedAt().isEmpty()) {
-                try {
-                    discardCheckWork(task.orElseThrow(), build.baselineSha(), true);
-                }
-                catch (RuntimeException failure) {
-                    kept = Optional.of(Optional.ofNullable(failure.getMessage()).orElse("The check's worktree could not be returned to its baseline"));
-                }
+            catch (RuntimeException failure) {
+                recordGap(workspaceId, taskId, "The check task or its worktree cleanup needs attention: " + failure.getClass().getSimpleName());
+                log.debug("Spec check task {} remains available for recovery: {}", taskId, failure.toString());
             }
-            if (task.orElseThrow().state() == TaskState.OPEN) {
-                boolean completed = turn.filter(value -> value.state() == TurnState.COMPLETED && value.cancellationRequestedAt().isEmpty()).isPresent();
-                if (kept.isEmpty() && completed && (build.check().isEmpty() || build.capture().attempts().containsKey(CHECKED))) {
-                    completions.complete(new CompleteAgentTaskCommand(task.orElseThrow().id(), Optional.of(build.harvest().isPresent()
-                            ? "The harvest finished; Memory keeps what it saved."
-                            : build.research().isPresent() ? "The research finished; the goal keeps its notes." : "The spec check finished; its report keeps the results.")));
-                    build.harvest().ifPresent(ignored -> harvests.getObject().finish(build, true));
-                    build.research().ifPresent(ignored -> goalResearch.getObject().finish(build, true));
-                }
-                else {
-                    String reason = kept.orElseGet(() -> (build.check().isEmpty() ? "The " + (build.harvest().isPresent() ? "harvest" : "research") + " turn did not finish."
-                            : "The check turn ended without saving its result.") + turn.map(value -> " Turn outcome: " + value.state()).orElse(" No turn was accepted."));
-                    recordGap(workspaceId, taskId, reason);
-                    completions.abandon(task.orElseThrow().id(), reason);
-                    build.harvest().ifPresent(ignored -> harvests.getObject().finish(build, false));
-                    build.research().ifPresent(ignored -> goalResearch.getObject().finish(build, false));
-                }
-            }
-            completions.cleanupWorktree(task.orElseThrow().id());
-            coordinator.getObject().unwatch(taskId);
-        }
-        catch (RuntimeException failure) {
-            recordGap(workspaceId, taskId, "The check task or its worktree cleanup needs attention: " + failure.getClass().getSimpleName());
-            log.debug("Spec check task {} remains available for recovery: {}", taskId, failure.toString());
-        }
-        finally {
-            lock.unlock();
-        }
+            return null;
+        });
     }
 
     /** A spec check reproduces its next candidate as a new turn of this task. */

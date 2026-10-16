@@ -11,16 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { useState } from 'react';
 import AddRepoModal from '../AddRepoModal';
+import '../css/agent-review.css';
+import '../css/base.css';
+import '../css/modals.css';
 import AgentReviewTab from '../pulls/agent-review/AgentReviewTab';
 import type { PullRequestDetailDto, RepositorySearchResultDto, WatchRepositoryCommand, WatchRepositoryPreviewDto, WatchRepositoryTopology, WorkspaceDto } from '../types';
 import { assert, settle } from './harness';
-import '../css/base.css';
-import '../css/modals.css';
-import '../css/agent-review.css';
 
 const repository = { owner: 'octocat', repo: 'project' };
 const result: RepositorySearchResultDto = {
@@ -70,25 +70,25 @@ export async function run(): Promise<string[]> {
     await settle();
   };
   const escape = async () => {
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    host.querySelector('dialog')?.dispatchEvent(new Event('cancel', { bubbles: false, cancelable: true }));
     await settle();
   };
   try {
     render();
-    await click('.modal-overlay');
+    await click('dialog.modal');
     assert(closes === 0 && host.textContent?.includes('Searching…'), 'Background clicks must preserve a pending search');
     search.resolve([result]);
     for (let i = 0; i < 30 && !host.querySelector('.modal-repo-row'); i++) await settle();
     await click('.modal-repo-row');
-    await click('.modal-overlay');
+    await click('dialog.modal');
     assert(closes === 0 && previews === 1, 'Background clicks must not close or restart the selected preview');
     assert(host.querySelector('[role="status"]')?.textContent?.includes('octocat/project'), 'Pending preview must name the selected repository');
     pendingPreview.resolve(preview);
     await settle();
-    await click('.modal-overlay');
+    await click('dialog.modal');
     assert(host.querySelector('.modal-preview__confirm') !== null && commands.length === 0, 'Background clicks must preserve confirmation without starting Watch');
     await click('.modal-preview__confirm');
-    await click('.modal-overlay');
+    await click('dialog.modal');
     await click('.modal__close');
     await escape();
     assert(closes === 0 && Number(commands.length) === 1, 'An active Watch must stay open without duplicate commands');

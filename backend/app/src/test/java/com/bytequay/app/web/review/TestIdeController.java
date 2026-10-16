@@ -25,6 +25,7 @@ import com.bytequay.app.review.TaskCodeHost;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.core.review.ReviewConflictException;
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
@@ -34,6 +35,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -54,6 +56,17 @@ class TestIdeController
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
 
+    @BeforeEach
+    void resolveHosts()
+    {
+        when(code.reviewHost(anyString())).thenAnswer(call -> host(call.getArgument(0)));
+    }
+
+    private static TaskCodeHost host(String reviewId)
+    {
+        return new TaskCodeHost("workspace-1", "task-1", Optional.of(reviewId));
+    }
+
     @Test
     void checksBothHostsWithoutStartingTheServer()
             throws Exception
@@ -61,7 +74,7 @@ class TestIdeController
         TaskId taskId = TaskId.random();
         TaskWorktree worktree = new TaskWorktree(taskId, "workspace", RepositoryIdentity.valueOf("acme/project"), Path.of("/worktree", taskId.toString()),
                 "bytequay/task/" + taskId, "a".repeat(40));
-        when(code.ideWorktree("review")).thenReturn(worktree);
+        when(code.ideWorktree(host("review"))).thenReturn(worktree);
         when(code.ideWorktree(new TaskCodeHost("workspace", "task"))).thenReturn(worktree);
         IdeConnection connection = new IdeConnection("task", "session", "127.0.0.1:54321", "secret", "/worktree", "/bundle", "/cache", "a".repeat(40));
         for (String route : ImmutableList.of("/agent/ide/reviews/review", "/agent/ide/tasks/workspace/task")) {

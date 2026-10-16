@@ -99,7 +99,7 @@ class TestReviewHeadCheck
             throws IOException
     {
         assertThat(sameChange("main", movedBase, "0".repeat(40))).isFalse();
-        assertThat(ReviewHeadCheck.sameChange(GIT, repository, run(reviewedBase, "0".repeat(40)), "main", reviewedBase, reviewedHead)).isFalse();
+        assertThat(AgentReviewService.sameChange(GIT, repository, run(reviewedBase, "0".repeat(40)), "main", reviewedBase, reviewedHead)).isFalse();
 
         // The reviewed branch edits one line of README.md, and the base then changes a line inside that hunk's context.
         git("checkout", "--quiet", "-b", "nearby", reviewedBase);
@@ -111,12 +111,12 @@ class TestReviewHeadCheck
         git("checkout", "--quiet", "nearby");
         git("rebase", "--quiet", "main");
 
-        assertThat(ReviewHeadCheck.sameChange(GIT, repository, run(reviewedBase, read), "main", base, git("rev-parse", "HEAD").strip())).isFalse();
+        assertThat(AgentReviewService.sameChange(GIT, repository, run(reviewedBase, read), "main", base, git("rev-parse", "HEAD").strip())).isFalse();
     }
 
     private boolean sameChange(String baseRef, String mergeBaseSha, String headSha)
     {
-        return ReviewHeadCheck.sameChange(GIT, repository, run(reviewedBase, reviewedHead), baseRef, mergeBaseSha, headSha);
+        return AgentReviewService.sameChange(GIT, repository, run(reviewedBase, reviewedHead), baseRef, mergeBaseSha, headSha);
     }
 
     private static ReviewRun run(String mergeBaseSha, String headSha)

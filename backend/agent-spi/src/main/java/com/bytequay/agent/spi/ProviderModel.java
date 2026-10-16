@@ -18,7 +18,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -39,8 +39,8 @@ public record ProviderModel(
     {
         serviceTiers = ImmutableList.copyOf(serviceTiers);
         inputModalities = ImmutableList.copyOf(requireNonNull(inputModalities, "inputModalities is null"));
-        checkNotBlank(id, "id");
-        checkNotBlank(label, "label");
+        checkText(id, "id");
+        checkText(label, "label");
         requireNonNull(description, "description is null");
         efforts = ImmutableList.copyOf(requireNonNull(efforts, "efforts is null"));
         requireNonNull(defaultEffort, "defaultEffort is null");

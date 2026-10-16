@@ -109,7 +109,7 @@ import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.function.Consumer;
 
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -501,7 +501,7 @@ public class AgentController
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
-        requireNotBlank(name, "X-Attachment-Name must not be blank");
+        checkText(name, "X-Attachment-Name");
         StoredAgentAttachment stored = resourceService.storeAttachment(new StoreAgentAttachmentCommand(id, name, mediaType, bytes));
         return ResponseEntity.status(HttpStatus.CREATED).body(AgentHttpModels.attachment(stored));
     }
@@ -550,7 +550,7 @@ public class AgentController
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody InteractiveAgentHttpContract.InputRequest request)
     {
-        requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
+        checkText(idempotencyKey, "Idempotency-Key");
         checkArgument(request.expectedVersion() != null, "expectedVersion is null");
         checkArgument(request.expectedVersion() >= 0, "expectedVersion is negative");
         TaskId id = TaskId.valueOf(taskId);
@@ -618,7 +618,7 @@ public class AgentController
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody InteractiveAgentHttpContract.InputRequest request)
     {
-        requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
+        checkText(idempotencyKey, "Idempotency-Key");
         checkArgument(request.developmentAutomation().isEmpty(), "Steering cannot change accepted automation settings");
         TurnId id = TurnId.valueOf(turnId);
         checkArgument(taskService.get(turnService.get(id).taskId()).interactive(), "Workflow-owned tasks cannot accept interactive input");
@@ -639,7 +639,7 @@ public class AgentController
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody InteractiveAgentHttpContract.InputRequest request)
     {
-        requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
+        checkText(idempotencyKey, "Idempotency-Key");
         checkArgument(request.expectedVersion() != null, "expectedVersion is null");
         checkArgument(request.expectedVersion() >= 0, "expectedVersion is negative");
         TaskId id = TaskId.valueOf(taskId);
@@ -817,7 +817,7 @@ public class AgentController
     @PostMapping("/tasks/{taskId}/mark-failed")
     public InteractiveAgentHttpContract.TaskResponse markTaskFailed(@PathVariable String taskId, @RequestParam String workspaceId, @RequestBody MarkTaskFailedRequest request)
     {
-        requireNotBlank(request.reason(), "reason must not be blank");
+        checkText(request.reason(), "reason");
         TaskId id = TaskId.valueOf(taskId);
         AgentTask task = taskService.getInteractive(workspaceId, id);
         if (task.developmentContinuationUnfinished()) {
@@ -859,7 +859,7 @@ public class AgentController
     @PostMapping("/tasks/{taskId}/runtime/stop")
     public InteractiveAgentHttpContract.TaskResponse stopRuntime(@PathVariable String taskId, @RequestParam String workspaceId, @RequestBody StopRuntimeRequest request)
     {
-        requireNotBlank(request.generation(), "generation must not be blank");
+        checkText(request.generation(), "generation");
         TaskId id = TaskId.valueOf(taskId);
         AgentTask task = taskService.getInteractive(workspaceId, id);
         return taskResponse(stopTaskRuntime(task, request.generation()));

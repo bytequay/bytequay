@@ -22,8 +22,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-import static com.bytequay.app.utils.StringInputUtil.normalizeNames;
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
+import static com.bytequay.core.domain.Checks.normalizeNames;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
@@ -34,8 +34,8 @@ public record TeamCircle(String id, String name, String description, Avatar avat
 
     public TeamCircle
     {
-        requireNotBlank(id, "Circle ID is required");
-        requireNotBlank(name, "Circle name is required");
+        checkText(id, "Circle ID");
+        checkText(name, "Circle name");
         name = name.strip();
         description = Optional.ofNullable(description).orElse("").strip();
         avatar = Optional.ofNullable(avatar).orElse(Avatar.DEFAULT);

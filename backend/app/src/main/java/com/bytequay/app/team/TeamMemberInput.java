@@ -16,7 +16,7 @@ package com.bytequay.app.team;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 /** Selected identity from the locally cached repository contributor picker. */
@@ -27,7 +27,7 @@ public record TeamMemberInput(long githubId, String login)
     public TeamMemberInput
     {
         checkArgument(githubId > 0, "GitHub user ID must be positive");
-        requireNotBlank(login, "GitHub login is required");
+        checkText(login, "GitHub login");
         login = login.strip().toLowerCase(Locale.ROOT);
         checkArgument(LOGIN.matcher(login).matches(), "Enter a GitHub login, not a profile URL");
     }

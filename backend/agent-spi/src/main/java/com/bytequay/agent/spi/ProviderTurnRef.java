@@ -13,13 +13,13 @@
  */
 package com.bytequay.agent.spi;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 
 public record ProviderTurnRef(String value)
 {
     public ProviderTurnRef
     {
-        checkNotBlank(value, "value");
+        checkText(value, "value");
     }
 
     @Override

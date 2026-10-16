@@ -56,7 +56,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.app.utils.Locks.withLock;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -113,9 +114,9 @@ public class RelatedWorkspaceWork
     {
         public Request
         {
-            checkNotBlank(operationKey, "operationKey");
-            checkNotBlank(workspaceId, "workspaceId");
-            checkNotBlank(question, "question");
+            checkText(operationKey, "operationKey");
+            checkText(workspaceId, "workspaceId");
+            checkText(question, "question");
             checkArgument(operationKey.length() <= 100 && workspaceId.length() <= 100 && question.length() <= 16_000, "Request is too long");
             requireNonNull(purpose, "purpose is null");
             requireNonNull(commit, "commit is null");
@@ -152,8 +153,7 @@ public class RelatedWorkspaceWork
         AgentTask source = requireTurn(sourceTaskId, acceptedTurn, true);
         String workspaceId = source.workspaceId().orElseThrow();
         Lock requestLock = requests.get(sourceTaskId + ":" + request.operationKey());
-        requestLock.lock();
-        try {
+        return withLock(requestLock, () -> {
             Link link = WorkspaceOperationLocks.withLock(workspaceId, () -> {
                 Optional<Link> saved = find(workspaceId, sourceTaskId, request.operationKey());
                 if (saved.isPresent()) {
@@ -203,10 +203,7 @@ public class RelatedWorkspaceWork
                 save(workspaceId, link.withFailure(Optional.of(Optional.ofNullable(failure.getMessage()).orElse("Could not start related work"))));
             }
             return view(workspaceId, find(workspaceId, sourceTaskId, request.operationKey()).orElseThrow());
-        }
-        finally {
-            requestLock.unlock();
-        }
+        });
     }
 
     public View read(String sourceTaskId, TurnId acceptedTurn, String operationKey)

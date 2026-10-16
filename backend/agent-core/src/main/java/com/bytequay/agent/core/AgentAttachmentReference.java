@@ -13,15 +13,15 @@
  */
 package com.bytequay.agent.core;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 
 /** Opaque task-owned attachment identity safe to expose outside the backend. */
 public record AgentAttachmentReference(String id, String name, String mediaType)
 {
     public AgentAttachmentReference
     {
-        checkNotBlank(id, "id");
-        checkNotBlank(name, "name");
-        checkNotBlank(mediaType, "mediaType");
+        checkText(id, "id");
+        checkText(name, "name");
+        checkText(mediaType, "mediaType");
     }
 }

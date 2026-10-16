@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Holdout replays of merged pull requests' reviews. Under the agent review routes, so only the desktop session can start one. */
@@ -47,15 +47,15 @@ public class ReviewReplayController
     @GetMapping
     public ReplaysResponse list(@RequestParam String workspaceId)
     {
-        requireNotBlank(workspaceId, "workspaceId must not be blank");
+        checkText(workspaceId, "workspaceId");
         return new ReplaysResponse(replays.list(workspaceId));
     }
 
     @PostMapping
     public ReviewReplayService.ReplayView start(@RequestBody StartRequest request)
     {
-        requireNotBlank(request.workspaceId(), "workspaceId must not be blank");
-        requireNotBlank(request.repo(), "repo must not be blank");
+        checkText(request.workspaceId(), "workspaceId");
+        checkText(request.repo(), "repo");
         if (request.number() == null) {
             throw new ReviewInvalidRequestException("number is required");
         }
@@ -66,8 +66,8 @@ public class ReviewReplayController
     @PutMapping("/{replayId}/marks")
     public ReviewReplayService.ReplayView mark(@PathVariable String replayId, @RequestBody MarkRequest request)
     {
-        requireNotBlank(request.workspaceId(), "workspaceId must not be blank");
-        requireNotBlank(request.commentId(), "commentId must not be blank");
+        checkText(request.workspaceId(), "workspaceId");
+        checkText(request.commentId(), "commentId");
         if (request.memory() == null || request.raised() == null) {
             throw new ReviewInvalidRequestException("memory and raised are required");
         }
@@ -77,7 +77,7 @@ public class ReviewReplayController
     @DeleteMapping("/{replayId}")
     public ResponseEntity<Void> delete(@PathVariable String replayId, @RequestParam String workspaceId)
     {
-        requireNotBlank(workspaceId, "workspaceId must not be blank");
+        checkText(workspaceId, "workspaceId");
         replays.delete(workspaceId, replayId);
         return ResponseEntity.noContent().build();
     }

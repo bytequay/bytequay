@@ -15,7 +15,7 @@ package com.bytequay.agent.spi;
 
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 

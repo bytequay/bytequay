@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { count, object, oneOf, optionalCount, optionalText, text } from '../pulls/wireParse';
-import { flag, list } from './contracts';
+import { count, flag, object, oneOf, optionalCount, optionalText, text } from '../pulls/wireParse';
+import { list } from './contracts';
 
 /** A finding of one side of a replay; a finding about the whole change has no path. */
 export type ReplayFindingDto = { id: string; label: string; title: string; severity: string | null; path: string | null; side: string | null;

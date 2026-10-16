@@ -122,7 +122,7 @@ import static com.bytequay.agent.core.impl.AgentEventOutboxDrainer.drainPending;
 import static com.bytequay.agent.core.impl.AgentFailures.failureMessage;
 import static com.bytequay.agent.core.impl.AgentFailures.message;
 import static com.bytequay.agent.core.impl.AgentFailures.suppressFailure;
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -332,7 +332,7 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(origin, "origin is null");
-        checkNotBlank(message, "message");
+        checkText(message, "message");
         TurnAcceptance acceptance;
         CompletableFuture<DevelopmentTurnCompletion> completion;
         synchronized (runtimeRegistry.taskLock(taskId)) {
@@ -422,7 +422,7 @@ public final class DefaultAgentTurnService
     public AgentTask failDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason)
     {
         requireNonNull(sourceTurnId, "sourceTurnId is null");
-        checkNotBlank(reason, "reason");
+        checkText(reason, "reason");
         synchronized (runtimeRegistry.stopLock(taskId)) {
             List<CompletableFuture<DevelopmentTurnCompletion>> pending;
             synchronized (runtimeRegistry.taskLock(taskId)) {
@@ -585,7 +585,7 @@ public final class DefaultAgentTurnService
     @Override
     public void reportDevelopmentProgress(TaskId taskId, TurnId sourceTurnId, String message)
     {
-        checkNotBlank(message, "message");
+        checkText(message, "message");
         checkArgument(message.length() <= 8 * 1024, "Development progress message is too long");
         synchronized (runtimeRegistry.taskLock(taskId)) {
             requireDevelopmentOwner(taskId, sourceTurnId);
@@ -632,7 +632,7 @@ public final class DefaultAgentTurnService
     public Optional<AgentTurn> findTurnByIdempotencyKey(TaskId taskId, String idempotencyKey)
     {
         requireNonNull(taskId, "taskId is null");
-        checkNotBlank(idempotencyKey, "idempotencyKey");
+        checkText(idempotencyKey, "idempotencyKey");
         synchronized (runtimeRegistry.taskLock(taskId)) {
             taskStore.require(taskId);
             return turnStore.findByIdempotencyKey(taskId, idempotencyKey);
@@ -656,7 +656,7 @@ public final class DefaultAgentTurnService
             }
             ReviewTurnInputResolver.Reference reference = reviewTurnInput.reference(task, turn);
             String message = reviewTurnInput.prepare(task, turn, reference.append(acceptance.message()));
-            checkNotBlank(message, "prepared review input");
+            checkText(message, "prepared review input");
             if (turn.developmentOrigin().isEmpty() && developmentTurnEligible(task, turn)) {
                 developmentAccepted.accept(task, turn);
             }
@@ -917,7 +917,7 @@ public final class DefaultAgentTurnService
     public Optional<AgentInputDelivery> findSteerByIdempotencyKey(TurnId turnId, String idempotencyKey)
     {
         requireNonNull(turnId, "turnId is null");
-        checkNotBlank(idempotencyKey, "idempotencyKey");
+        checkText(idempotencyKey, "idempotencyKey");
         AgentTurn requestedTurn = turnStore.require(turnId);
         TaskId taskId = requestedTurn.taskId();
         synchronized (runtimeRegistry.taskLock(taskId)) {
@@ -1067,7 +1067,7 @@ public final class DefaultAgentTurnService
     public Optional<QueuedAgentInput> findQueuedByIdempotencyKey(TaskId taskId, String idempotencyKey)
     {
         requireNonNull(taskId, "taskId is null");
-        checkNotBlank(idempotencyKey, "idempotencyKey");
+        checkText(idempotencyKey, "idempotencyKey");
         synchronized (runtimeRegistry.taskLock(taskId)) {
             taskStore.require(taskId);
             return queueStore.findQueuedByIdempotencyKey(taskId, idempotencyKey).map(this::displayInput);

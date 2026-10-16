@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.agent;
 
+import com.bytequay.app.utils.Locks;
 import com.google.common.util.concurrent.Striped;
 
 import java.util.concurrent.locks.Lock;
@@ -28,12 +29,6 @@ public final class JiraIssueLocks
     public static <T> T withLock(String cloudId, String issueId, Supplier<T> action)
     {
         Lock lock = LOCKS.get(cloudId.length() + ":" + cloudId + ":" + issueId);
-        lock.lock();
-        try {
-            return action.get();
-        }
-        finally {
-            lock.unlock();
-        }
+        return Locks.withLock(lock, action);
     }
 }

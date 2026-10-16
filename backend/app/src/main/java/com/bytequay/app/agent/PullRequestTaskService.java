@@ -43,6 +43,7 @@ import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Service;
 
@@ -235,6 +236,6 @@ public class PullRequestTaskService
         if (value == null) {
             return "(unavailable)";
         }
-        return value.length() <= maximum ? value : value.substring(0, maximum) + "\n[truncated]";
+        return Ascii.truncate(value, maximum + 12, "\n[truncated]");
     }
 }

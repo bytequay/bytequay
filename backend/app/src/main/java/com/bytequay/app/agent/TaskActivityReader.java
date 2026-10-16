@@ -27,6 +27,7 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
+import com.bytequay.app.context.ContextText;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimaps;
@@ -118,11 +119,6 @@ public class TaskActivityReader
 
     private static String clip(String text)
     {
-        String stripped = text.strip();
-        if (stripped.length() <= MAX_TEXT_LENGTH) {
-            return stripped;
-        }
-        int end = Character.isHighSurrogate(stripped.charAt(MAX_TEXT_LENGTH - 1)) ? MAX_TEXT_LENGTH - 1 : MAX_TEXT_LENGTH;
-        return stripped.substring(0, end) + "…";
+        return ContextText.excerpt(text.strip(), MAX_TEXT_LENGTH);
     }
 }

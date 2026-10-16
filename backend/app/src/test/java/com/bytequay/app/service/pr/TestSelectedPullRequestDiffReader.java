@@ -313,7 +313,7 @@ class TestSelectedPullRequestDiffReader
     @Test
     void invalidRepositoryFailsBeforeStoredLookup()
     {
-        assertThatThrownBy(() -> reader.read("not-a-repository", NUMBER, Optional.empty(), false)).isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> reader.read("not-a-repository", NUMBER, Optional.empty(), false)).isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(pullRequests, diffs, details, selected, refresh);
     }
 

@@ -15,7 +15,7 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
-import com.bytequay.persistence.sqlite.converter.PrTimelinePayloadConverter;
+import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.PrTimelinePayloadConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;

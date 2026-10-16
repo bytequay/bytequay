@@ -17,7 +17,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Path-free input for one workspace-owned interactive task. */
@@ -36,14 +36,14 @@ public record CreateInteractiveAgentTaskCommand(
     public CreateInteractiveAgentTaskCommand
     {
         requireNonNull(taskId, "taskId is null");
-        checkNotBlank(workspaceId, "workspaceId");
+        checkText(workspaceId, "workspaceId");
         requireNonNull(laneId, "laneId is null");
         requireNonNull(physicalRepository, "physicalRepository is null");
         ProvisionWorktreeCommand.checkObjectId(startCommit, "startCommit");
         TaskWorktree.checkGeneratedBranch(taskId, generatedBranch);
-        checkNotBlank(message, "message");
+        checkText(message, "message");
         requireNonNull(defaults, "defaults is null");
-        checkNotBlank(creationFingerprint, "creationFingerprint");
+        checkText(creationFingerprint, "creationFingerprint");
         requireNonNull(names, "names is null");
     }
 }

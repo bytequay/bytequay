@@ -14,6 +14,7 @@
 package com.bytequay.app.review;
 
 import com.bytequay.core.domain.DiffFile;
+import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -309,7 +310,7 @@ final class ReviewFacts
     private static String quote(String text)
     {
         String flat = text.replace('"', '\'').replaceAll("\\s+", " ").strip();
-        return flat.length() <= MAX_QUOTE ? flat : flat.substring(0, MAX_QUOTE) + "…";
+        return Ascii.truncate(flat, MAX_QUOTE + 1, "…");
     }
 
     private record Added(String path, int line, String text) {}

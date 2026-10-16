@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.locks.Lock;
 
+import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
@@ -91,41 +92,39 @@ public class WorkspaceDeletionService
         List<AgentTask> ownedTasks = tasks.listByWorkspace(workspaceId);
         requireIdle(workspaceId, ownedTasks);
         Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
-            verifyDirectory(workspace, ownedTasks);
-        }
-        catch (IOException failure) {
-            throw deletionFailed();
-        }
-        finally {
-            lock.unlock();
-        }
+        withLock(lock, () -> {
+            try {
+                verifyDirectory(workspace, ownedTasks);
+            }
+            catch (IOException failure) {
+                throw deletionFailed();
+            }
+            return null;
+        });
 
         // Task deletion acquires its task lock before the workspace lock; never invert that order here.
         for (AgentTask task : ownedTasks) {
             completion.delete(task.id());
         }
 
-        lock.lock();
-        try {
-            Workspace current = requireWorkspace(workspaces, workspaceId);
-            if (!current.selectedRepository().equals(workspace.selectedRepository()) || !tasks.listByWorkspace(workspaceId).isEmpty()) {
-                throw WorkspaceException.busy();
+        withLock(lock, () -> {
+            try {
+                Workspace current = requireWorkspace(workspaces, workspaceId);
+                if (!current.selectedRepository().equals(workspace.selectedRepository()) || !tasks.listByWorkspace(workspaceId).isEmpty()) {
+                    throw WorkspaceException.busy();
+                }
+                requireIdle(workspaceId, ImmutableList.of());
+                verifyDirectory(current, ImmutableList.of());
+                deleteDirectory(current);
+                models.clearWorkspaceOverrides(workspaceId);
+                specChecks.deleteWorkspaceData(workspaceId);
+                workspaces.delete(workspaceId);
             }
-            requireIdle(workspaceId, ImmutableList.of());
-            verifyDirectory(current, ImmutableList.of());
-            deleteDirectory(current);
-            models.clearWorkspaceOverrides(workspaceId);
-            specChecks.deleteWorkspaceData(workspaceId);
-            workspaces.delete(workspaceId);
-        }
-        catch (IOException failure) {
-            throw deletionFailed();
-        }
-        finally {
-            lock.unlock();
-        }
+            catch (IOException failure) {
+                throw deletionFailed();
+            }
+            return null;
+        });
     }
 
     private void requireIdle(String workspaceId, List<AgentTask> ownedTasks)

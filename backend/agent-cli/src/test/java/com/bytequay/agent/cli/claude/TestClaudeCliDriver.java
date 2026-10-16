@@ -20,6 +20,7 @@ import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
+import com.bytequay.agent.cli.process.ProcessIdentity;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
@@ -240,6 +241,17 @@ class TestClaudeCliDriver
         Map<String, JsonNode> acknowledgedReceipts = new ConcurrentHashMap<>();
         ProcessSupervisor supervisor = new ProcessSupervisor()
         {
+    @Override
+        public OwnedProcessRecovery recoverOwnedProcess(String launchId)
+        {
+            return new OwnedProcessRecovery(
+                    launchId,
+                    Optional.empty(),
+                    Optional.empty(),
+                    OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                    "Targeted recovery is not supported by this supervisor");
+        }
+
             @Override
             public PreparedProcess prepare(ProcessSpec spec)
             {
@@ -2052,6 +2064,17 @@ class TestClaudeCliDriver
     private static final class ScriptedProcessSupervisor
             implements ProcessSupervisor
     {
+    @Override
+        public OwnedProcessRecovery recoverOwnedProcess(String launchId)
+        {
+            return new OwnedProcessRecovery(
+                    launchId,
+                    Optional.empty(),
+                    Optional.empty(),
+                    OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                    "Targeted recovery is not supported by this supervisor");
+        }
+
         private final List<ScriptedTurn> turns = new CopyOnWriteArrayList<>();
         private final List<ProcessSpec> specs = new CopyOnWriteArrayList<>();
         private final List<String> sandboxSettings = new CopyOnWriteArrayList<>();
@@ -2276,6 +2299,12 @@ class TestClaudeCliDriver
     private static final class ScriptedTurn
             implements ManagedProcess
     {
+    @Override
+        public Optional<List<ProcessIdentity>> observedDescendants()
+        {
+            return Optional.empty();
+        }
+
         private final ProcessSpec spec;
         private final ProcessOutputSink output;
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
@@ -2545,6 +2574,25 @@ class TestClaudeCliDriver
     private static final class ImmediateProcess
             implements ManagedProcess
     {
+    @Override
+        public CompletionStage<ProcessExit.TreeTermination> stopAfterWorkFinished()
+        {
+            return stopAndVerify();
+        }
+
+        @Override
+        public CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
+        {
+            cancel();
+            return exit().thenApply(ProcessExit::treeTermination);
+        }
+
+        @Override
+        public Optional<List<ProcessIdentity>> observedDescendants()
+        {
+            return Optional.empty();
+        }
+
         private final CompletableFuture<ProcessExit> exit;
 
         private ImmediateProcess(CompletableFuture<ProcessExit> exit)

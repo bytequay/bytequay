@@ -49,6 +49,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
+import static com.bytequay.app.context.ContextText.unfence;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -287,13 +288,7 @@ public class EpicBreakdowns
 
     static List<Proposed> parse(String answer)
     {
-        String json = answer.strip();
-        // Models often fence JSON despite being asked not to; the fence carries nothing.
-        if (json.startsWith("```")) {
-            int start = json.indexOf('\n');
-            int end = json.lastIndexOf("```");
-            json = start < 0 || end <= start ? "" : json.substring(start + 1, end).strip();
-        }
+        String json = unfence(answer);
         if (json.isEmpty() || json.length() > MAX_ANSWER) {
             throw new AgentUnavailableException("The model's answer was empty or too long. Ask again.");
         }

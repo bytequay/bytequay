@@ -25,7 +25,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Names the intended work before provisioning, outside the task conversation. */
@@ -82,7 +82,7 @@ public final class TaskNamingService
     {
         requireNonNull(laneId, "laneId is null");
         requireNonNull(defaults, "defaults is null");
-        checkNotBlank(context, "context");
+        checkText(context, "context");
         try {
             String prompt = INSTRUCTIONS + MAPPER.writeValueAsString(context);
             String answer = helper.answer(laneId, defaults.model(), defaults.effort(), prompt, skills.instructions(), FAILURE);

@@ -17,6 +17,7 @@ import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
+import com.bytequay.agent.cli.process.ProcessIdentity;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
@@ -38,6 +39,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -158,6 +160,36 @@ class TestClaudeQuota
     private final class ProbeProcess
             implements ProcessSupervisor, PreparedProcess, ManagedProcess
     {
+    @Override
+        public CompletionStage<ProcessExit.TreeTermination> stopAfterWorkFinished()
+        {
+            return stopAndVerify();
+        }
+
+        @Override
+        public CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
+        {
+            cancel();
+            return exit().thenApply(ProcessExit::treeTermination);
+        }
+
+        @Override
+        public Optional<List<ProcessIdentity>> observedDescendants()
+        {
+            return Optional.empty();
+        }
+
+        @Override
+        public OwnedProcessRecovery recoverOwnedProcess(String launchId)
+        {
+            return new OwnedProcessRecovery(
+                    launchId,
+                    Optional.empty(),
+                    Optional.empty(),
+                    OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                    "Targeted recovery is not supported by this supervisor");
+        }
+
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
         private final List<String> requests = new ArrayList<>();
         private ProcessOutputSink sink;

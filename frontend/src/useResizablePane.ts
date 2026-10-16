@@ -14,23 +14,23 @@
 import { useCallback, useState, type MouseEvent as ReactMouseEvent } from 'react';
 
 export function useResizablePane(
-  initialWidth: number,
+  initialWidth: number | null,
   minimumWidth: number,
-  maximumWidth: number,
+  maximumWidth: number | (() => number),
   resizeEdge: 'start' | 'end' = 'end',
   axis: 'x' | 'y' = 'x',
 ) {
   const [width, setWidth] = useState(initialWidth);
   const [resizing, setResizing] = useState(false);
 
-  const startResize = useCallback((event: ReactMouseEvent, renderedWidth = width) => {
+  const startResize = useCallback((event: ReactMouseEvent, renderedWidth = width ?? minimumWidth) => {
     event.preventDefault();
     const startPosition = axis === 'x' ? event.clientX : event.clientY;
     const startWidth = renderedWidth;
     const move = (next: globalThis.MouseEvent) => {
       const position = axis === 'x' ? next.clientX : next.clientY;
       const distance = resizeEdge === 'start' ? startPosition - position : position - startPosition;
-      setWidth(Math.max(minimumWidth, Math.min(maximumWidth, startWidth + distance)));
+      setWidth(Math.max(minimumWidth, Math.min(typeof maximumWidth === 'function' ? maximumWidth() : maximumWidth, Math.round(startWidth + distance))));
     };
     const stop = () => {
       window.removeEventListener('mousemove', move);

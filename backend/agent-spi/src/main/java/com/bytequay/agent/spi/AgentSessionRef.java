@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.spi;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -22,7 +22,7 @@ public record AgentSessionRef(AgentLaneId laneId, int contractVersion, String pr
     public AgentSessionRef
     {
         requireNonNull(laneId, "laneId is null");
-        checkNotBlank(providerValue, "providerValue");
+        checkText(providerValue, "providerValue");
         checkArgument(contractVersion > 0, "contractVersion must be positive");
     }
 }

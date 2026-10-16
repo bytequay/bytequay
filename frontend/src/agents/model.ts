@@ -13,27 +13,27 @@
  */
 
 import type { JiraSourceRequest } from '../jira/contracts';
-import type { AgentEventEnvelope } from './events';
-import { compactHistoryPages } from './history';
-import type { ApprovalBlock } from './transcript';
 import type {
-  AgentCapabilitiesDto,
-  AgentHistoryPageDto,
-  AgentAttachmentReferenceDto,
   AgentApprovalDecision,
   AgentAttachmentDto,
+  AgentAttachmentReferenceDto,
+  AgentCapabilitiesDto,
+  AgentHistoryPageDto,
   AgentQueuedInputDto,
   AgentStreamConnectionState,
   AgentTaskDefaultsDto,
-  DevelopmentAutomationDto,
   AgentTaskDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
   Bridge,
   CreateAgentTaskRequest,
+  DevelopmentAutomationDto,
   IssueTaskSourceRequest,
   ModelOptionDto,
 } from '../types';
+import type { AgentEventEnvelope } from './events';
+import { compactHistoryPages } from './history';
+import type { ApprovalBlock } from './transcript';
 
 /** The slice of the bridge an agent screen uses, so a screen can be driven by a test double. */
 export type AgentBridgePort = Pick<Bridge,
@@ -812,13 +812,7 @@ export function retryableInput(state: AgentTaskState): RetryableInput | null {
     || deliveryUncertain(state.turn)) {
     return null;
   }
-  for (let index = state.events.length - 1; index >= 0; index--) {
-    const event = state.events[index];
-    if (event.type === 'user_message'
-      && event.turnId === state.turn.id
-      && event.payload.deliveryKind !== 'STEER') {
-      return { text: event.payload.text, attachments: event.payload.attachments };
-    }
-  }
-  return null;
+  const event = state.events.findLast(event => event.type === 'user_message'
+    && event.turnId === state.turn?.id && event.payload.deliveryKind !== 'STEER');
+  return event?.type === 'user_message' ? { text: event.payload.text, attachments: event.payload.attachments } : null;
 }

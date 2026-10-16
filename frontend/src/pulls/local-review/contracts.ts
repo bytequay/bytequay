@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { flag, object, text } from '../../pulls/wireParse';
 import type { LocalReviewMessageDto, LocalReviewThreadDto } from './types';
 
 export type LocalReviewQuery = { taskId: string; workspaceId: string } | { repo: string; number: number; workspaceId?: string };
@@ -46,21 +47,9 @@ export type ResolveLocalReviewRequest = LocalReviewTarget & {
 };
 export type RetryLocalReviewRequest = LocalReviewTarget & { messageId: string; expectedTaskVersion: number };
 
-function object(value: unknown): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Invalid local review object');
-  return value as Record<string, unknown>;
-}
-function text(value: unknown): string {
-  if (typeof value !== 'string') throw new Error('Invalid local review text');
-  return value;
-}
 function optionalText(value: unknown): string | null { return value == null ? null : text(value); }
 function count(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error('Invalid local review number');
-  return value;
-}
-function flag(value: unknown): boolean {
-  if (typeof value !== 'boolean') throw new Error('Invalid local review flag');
   return value;
 }
 function list<T>(value: unknown, parse: (entry: unknown) => T): T[] {

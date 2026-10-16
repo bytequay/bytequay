@@ -51,6 +51,6 @@
 .usage-footer { margin-top: 13px; padding-top: 9px; border-top: 1px solid var(--border); font-size: 10px; color: var(--text-3); }
 .usage-empty { margin: 0; color: var(--text-2); }
 .usage-empty button { color: inherit; font: inherit; }
-.usage-refreshing { animation: usage-spin 1.5s linear infinite; }
-@keyframes usage-spin { to { transform: rotate(360deg); } }
+.usage-refreshing { animation: bq-spin 1.5s linear infinite; }
+
 @media (prefers-reduced-motion: reduce) { .usage-refreshing { animation: none; } }

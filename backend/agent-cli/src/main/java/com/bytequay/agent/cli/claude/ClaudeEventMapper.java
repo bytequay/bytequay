@@ -22,6 +22,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Duration;
@@ -696,7 +697,7 @@ final class ClaudeEventMapper
     private String bounded(String text)
     {
         String redacted = redactor.redact(text);
-        return redacted.length() <= MAX_OUTPUT_CHARACTERS ? redacted : redacted.substring(0, MAX_OUTPUT_CHARACTERS);
+        return Ascii.truncate(redacted, MAX_OUTPUT_CHARACTERS, "");
     }
 
     private static Optional<String> eventId(Optional<String> uuid, String suffix, int index)

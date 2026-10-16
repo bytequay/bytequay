@@ -89,35 +89,25 @@ public class LocalRunService
     }
 
     /** A review's runs, newest first. */
-    public List<LocalRun> list(String reviewId)
-    {
-        return runs.listByTask(requireReview(reviewId).taskId(), LIST_LIMIT);
-    }
-
     /** A development task's runs, newest first. */
     public List<LocalRun> list(TaskCodeHost host)
     {
-        return runs.listByTask(code.task(host).id().toString(), LIST_LIMIT);
-    }
-
-    private LocalRun get(String reviewId, String runId)
-    {
-        return run(requireReview(reviewId).taskId(), runId);
+        return runs.listByTask(taskId(host), LIST_LIMIT);
     }
 
     private LocalRun get(TaskCodeHost host, String runId)
     {
-        return run(code.task(host).id().toString(), runId);
+        return run(taskId(host), runId);
+    }
+
+    private String taskId(TaskCodeHost host)
+    {
+        return host.reviewId().map(id -> requireReview(id).taskId()).orElseGet(() -> code.task(host).id().toString());
     }
 
     private LocalRun run(String taskId, String runId)
     {
         return runs.find(runId).filter(run -> run.taskId().equals(taskId)).orElseThrow(() -> new ReviewNotFoundException("Run not found: " + runId));
-    }
-
-    public LocalRun stop(String reviewId, String runId)
-    {
-        return executions.stop(get(reviewId, runId));
     }
 
     public LocalRun stop(TaskCodeHost host, String runId)
@@ -131,12 +121,6 @@ public class LocalRunService
      * <p>A live or finished run of this backend reads its in-memory buffer, whose dropped middle is reported as skipped.
      * Any other run reads its stored, already bounded output.
      */
-    public OutputChunk output(String reviewId, String runId, long after)
-    {
-        checkArgument(after >= 0, "after must not be negative");
-        return output(get(reviewId, runId), after);
-    }
-
     public OutputChunk output(TaskCodeHost host, String runId, long after)
     {
         checkArgument(after >= 0, "after must not be negative");

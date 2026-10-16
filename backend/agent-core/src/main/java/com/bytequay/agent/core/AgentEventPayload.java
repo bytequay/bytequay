@@ -28,8 +28,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -65,7 +65,7 @@ public sealed interface AgentEventPayload
     {
         public UserMessage
         {
-            checkNotBlank(text, "text");
+            checkText(text, "text");
             attachments = ImmutableList.copyOf(attachments);
             requireNonNull(deliveryKind, "deliveryKind is null");
         }
@@ -141,7 +141,7 @@ public sealed interface AgentEventPayload
         public FileActivity
         {
             requireNonNull(state, "state is null");
-            checkNotBlank(relativePath, "relativePath");
+            checkText(relativePath, "relativePath");
             requireNonNull(change, "change is null");
             requireNonNull(diff, "diff is null");
             Path path = Path.of(relativePath);
@@ -160,7 +160,7 @@ public sealed interface AgentEventPayload
 
         public ToolActivity
         {
-            checkNotBlank(name, "name");
+            checkText(name, "name");
             requireNonNull(state, "state is null");
             requireNonNull(summary, "summary is null");
             requireNonNull(durationMs, "durationMs is null");
@@ -182,9 +182,9 @@ public sealed interface AgentEventPayload
     {
         public ApprovalRequested
         {
-            checkNotBlank(approvalId, "approvalId");
+            checkText(approvalId, "approvalId");
             requireNonNull(approvalKind, "approvalKind is null");
-            checkNotBlank(title, "title");
+            checkText(title, "title");
             requireNonNull(detail, "detail is null");
             scope = ImmutableList.copyOf(scope);
             availableDecisions = ImmutableList.copyOf(availableDecisions);
@@ -198,7 +198,7 @@ public sealed interface AgentEventPayload
     {
         public ApprovalResolved
         {
-            checkNotBlank(approvalId, "approvalId");
+            checkText(approvalId, "approvalId");
             requireNonNull(outcome, "outcome is null");
             checkArgument(!forTask || outcome == ApprovalOutcome.ALLOWED, "only an allowed approval can cover the task");
         }
@@ -231,8 +231,8 @@ public sealed interface AgentEventPayload
     {
         public Error
         {
-            checkNotBlank(code, "code");
-            checkNotBlank(message, "message");
+            checkText(code, "code");
+            checkText(message, "message");
         }
     }
 

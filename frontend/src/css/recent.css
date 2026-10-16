@@ -350,17 +350,16 @@
 
 /* ── The ⌘K palette ───────────────────────────────────────────────── */
 
-.rc-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  justify-content: center;
-  padding-top: 12vh;
+.rc-palette::backdrop {
   background: radial-gradient(120% 90% at 50% 0%, rgba(32, 40, 50, 0.4), rgba(14, 18, 24, 0.64));
 }
 
 .rc-palette {
+  margin: 12vh auto auto;
+  padding: 0;
+  color: var(--text-1);
+  font: inherit;
+  border: none;
   width: 560px;
   max-width: calc(100vw - 48px);
   max-height: 70vh;

@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -35,7 +36,7 @@ import static java.util.Objects.requireNonNull;
  * Task-owned Code and Tests reads, and the existing development-only edits, local runs and terminal, without Discard.
  */
 @RestController
-@RequestMapping("/agent/tasks/{taskId}/code")
+@RequestMapping({"/agent/tasks/{taskId}/code", "/api/agent-review/{reviewId}/code"})
 public class TaskCodeController
 {
     private final ReviewCodeService code;
@@ -49,60 +50,66 @@ public class TaskCodeController
 
     @GetMapping("/changes")
     public ReviewCodeService.Changes changes(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId,
+            @PathVariable Map<String, String> target,
+            @RequestParam Optional<String> workspaceId,
             @RequestParam(defaultValue = "ALL") ReviewCodeService.ChangeScope scope,
             @RequestParam Optional<String> commit,
             @RequestParam Optional<String> base,
             @RequestParam Optional<String> head)
     {
-        return code.changes(new TaskCodeHost(workspaceId, taskId), scope, commit, base, head);
+        return code.changes(host(target, workspaceId), scope, commit, base, head);
     }
 
     @GetMapping("/files")
-    public CodeFiles files(@PathVariable String taskId, @RequestParam String workspaceId)
+    public CodeFiles files(@PathVariable Map<String, String> target, @RequestParam Optional<String> workspaceId)
     {
-        return code.files(new TaskCodeHost(workspaceId, taskId));
+        return code.files(host(target, workspaceId));
     }
 
     @GetMapping("/file")
     public ReviewCodeHttpModels.FileResponse file(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId,
+            @PathVariable Map<String, String> target,
+            @RequestParam Optional<String> workspaceId,
             @RequestParam String path,
             @RequestParam Optional<String> expectedRevision)
     {
-        return ReviewCodeHttpModels.file(code.file(new TaskCodeHost(workspaceId, taskId), path, expectedRevision));
+        return ReviewCodeHttpModels.file(code.file(host(target, workspaceId), path, expectedRevision));
     }
 
     @PostMapping("/terminal")
-    public ReviewCodeHttpModels.TerminalResponse terminal(@PathVariable String taskId, @RequestParam String workspaceId)
+    public ReviewCodeHttpModels.TerminalResponse terminal(@PathVariable Map<String, String> target, @RequestParam Optional<String> workspaceId)
     {
-        var launch = code.terminal(new TaskCodeHost(workspaceId, taskId));
+        var launch = code.terminal(host(target, workspaceId));
         return new ReviewCodeHttpModels.TerminalResponse(launch.workingDirectory().toString(), launch.claudeConfigDirectory().map(Path::toString));
     }
 
     @GetMapping("/runs")
-    public ReviewCodeHttpModels.RunsResponse runs(@PathVariable String taskId, @RequestParam String workspaceId)
+    public ReviewCodeHttpModels.RunsResponse runs(@PathVariable Map<String, String> target, @RequestParam Optional<String> workspaceId)
     {
-        return new ReviewCodeHttpModels.RunsResponse(localRuns.list(new TaskCodeHost(workspaceId, taskId)).stream()
+        return new ReviewCodeHttpModels.RunsResponse(localRuns.list(host(target, workspaceId)).stream()
                 .map(ReviewCodeHttpModels::run)
                 .collect(toImmutableList()));
     }
 
     @PostMapping("/runs/{runId}/stop")
-    public ReviewCodeHttpModels.RunResponse stopRun(@PathVariable String taskId, @PathVariable String runId, @RequestParam String workspaceId)
+    public ReviewCodeHttpModels.RunResponse stopRun(@PathVariable Map<String, String> target, @PathVariable String runId, @RequestParam Optional<String> workspaceId)
     {
-        return ReviewCodeHttpModels.run(localRuns.stop(new TaskCodeHost(workspaceId, taskId), runId));
+        return ReviewCodeHttpModels.run(localRuns.stop(host(target, workspaceId), runId));
     }
 
     @GetMapping("/runs/{runId}/output")
     public OutputChunk runOutput(
-            @PathVariable String taskId,
+            @PathVariable Map<String, String> target,
             @PathVariable String runId,
-            @RequestParam String workspaceId,
+            @RequestParam Optional<String> workspaceId,
             @RequestParam(defaultValue = "0") long after)
     {
-        return localRuns.output(new TaskCodeHost(workspaceId, taskId), runId, after);
+        return localRuns.output(host(target, workspaceId), runId, after);
+    }
+
+    private TaskCodeHost host(Map<String, String> target, Optional<String> workspaceId)
+    {
+        return Optional.ofNullable(target.get("reviewId")).map(code::reviewHost)
+                .orElseGet(() -> new TaskCodeHost(workspaceId.orElseThrow(() -> new IllegalArgumentException("workspaceId is required")), target.get("taskId")));
     }
 }

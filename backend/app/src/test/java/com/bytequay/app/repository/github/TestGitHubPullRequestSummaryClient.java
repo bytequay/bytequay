@@ -181,6 +181,25 @@ class TestGitHubPullRequestSummaryClient
     }
 
     @Test
+    void rejectsMalformedScalarAndCollectionFacts()
+            throws Exception
+    {
+        Fixture fixture = fixture();
+        ObjectNode nullCheck = row(1);
+        nullCheck.withArray("/statusCheckRollup/contexts/checkRunCountsByState").addNull();
+        ObjectNode missingAuthor = row(1);
+        missingAuthor.withObject("/author").remove("login");
+        List<ObjectNode> malformed = ImmutableList.of(row(1).put("isDraft", "false"), row(1).put("additions", "15"), nullCheck, missingAuthor);
+        for (ObjectNode row : malformed) {
+            fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+        }
+        for (int index = 0; index < malformed.size(); index++) {
+            assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer")).isEmpty();
+        }
+        fixture.server().verify();
+    }
+
+    @Test
     void mapsAllCheckStatesAndDistinguishesNoChecks()
             throws Exception
     {

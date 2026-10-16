@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { count, object, oneOf, optionalText, text } from '../pulls/wireParse';
+import { count, flag, object, oneOf, optionalText, text } from '../pulls/wireParse';
 import { parseContextBuildView, type ContextBuildViewDto } from '../repository-context/contracts';
 
 export type MemoryKind = 'RULE' | 'RECIPE' | 'SPEC';
@@ -51,10 +51,6 @@ export type MemoryHarvestStartedDto = { started: boolean; pulls: number; threads
 /** A closed pull request of the monitored repository that a typed number or title words named, to learn from. */
 export type MemoryPullDto = { number: number; title: string; closedAt: string; merged: boolean };
 
-export function flag(value: unknown, what: string): boolean {
-  if (typeof value !== 'boolean') throw new Error(`Malformed ${what}`);
-  return value;
-}
 export function list<T>(value: unknown, what: string, parse: (item: unknown) => T): T[] {
   if (!Array.isArray(value)) throw new Error(`Malformed ${what}`);
   return value.map(parse);

@@ -66,7 +66,7 @@ class TestSettingsController
 
     private MockMvc mvc()
     {
-        return standaloneSetup(controller)
+        return standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(appMapper()))
                 .build();
     }
@@ -185,7 +185,7 @@ class TestSettingsController
     void anOutOfRangePreferenceIsRejectedBeforeItReachesTheStore()
             throws Exception
     {
-        MockMvc mvc = standaloneSetup(controller)
+        MockMvc mvc = standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(appMapper()))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

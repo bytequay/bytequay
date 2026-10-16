@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.core;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Normalizes the immediate fallback and the separately generated task title. */
@@ -33,7 +33,7 @@ public final class TaskTitles
      */
     public static String provisional(String message)
     {
-        checkNotBlank(message, "message");
+        checkText(message, "message");
         String line = firstLine(message);
         return cut(line.isEmpty() ? message.strip() : line, MAX_LENGTH, true);
     }

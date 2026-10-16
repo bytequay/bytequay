@@ -69,10 +69,10 @@ class TestCiAutofixMonitoring
         CiAutofixService service = mock(CiAutofixService.class);
         CiAutofixRun first = run();
         CiAutofixRun second = run();
-        when(store.listStandaloneNonFinished(2)).thenReturn(ImmutableList.of(first, second));
+        when(store.listStandaloneNonFinished(20)).thenReturn(ImmutableList.of(first, second));
         doThrow(new IllegalStateException("provider unavailable")).when(service).advance(first.id());
 
-        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 2).monitorCiAutofix();
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK).monitorCiAutofix();
 
         verify(service).advance(first.id());
         verify(service).advance(second.id());
@@ -102,7 +102,7 @@ class TestCiAutofixMonitoring
         when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finished));
 
-        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitorCiAutofix();
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK).monitorCiAutofix();
 
         verify(service, times(expectedAdvances)).advance(finished.id());
         verifyNoMoreInteractions(service);
@@ -149,7 +149,7 @@ class TestCiAutofixMonitoring
         when(store.findByAgentTaskId(unfinishedTaskId.toString())).thenReturn(Optional.of(unfinished));
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finished));
 
-        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitorCiAutofix();
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK).monitorCiAutofix();
 
         verify(service).advance(finished.id());
     }
@@ -161,7 +161,7 @@ class TestCiAutofixMonitoring
         AgentTaskStore taskStore = mock(AgentTaskStore.class);
         CiAutofixService service = mock(CiAutofixService.class);
 
-        monitor(store, taskStore, service, new AgentServingGate(), CLOCK, 1).monitorCiAutofix();
+        monitor(store, taskStore, service, new AgentServingGate(), CLOCK).monitorCiAutofix();
 
         verifyNoInteractions(store, taskStore, service);
     }
@@ -180,7 +180,7 @@ class TestCiAutofixMonitoring
         when(taskStore.listPendingWorktreeCleanup(AgentPermissionPolicy.CI_AUTOFIX, MONITOR_NOW.minusSeconds(60))).thenReturn(ImmutableList.of(task));
         when(store.findByAgentTaskId(task.id().toString())).thenReturn(Optional.of(finished));
 
-        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitorCiAutofix();
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK).monitorCiAutofix();
 
         verify(store, times(2)).findByAgentTaskId(task.id().toString());
         verifyNoInteractions(service);
@@ -196,13 +196,13 @@ class TestCiAutofixMonitoring
         AgentTask task = liveTask();
         CiAutofixRun finished = run().assignAgentTask(task.id().toString(), MONITOR_NOW.minusSeconds(90))
                 .finish(CiAutofixRun.FinishReason.GREEN, "green", MONITOR_NOW.minusSeconds(80));
-        when(store.listStandaloneNonFinished(1)).thenReturn(ImmutableList.of(running));
+        when(store.listStandaloneNonFinished(20)).thenReturn(ImmutableList.of(running));
         when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
         when(taskStore.listPendingWorktreeCleanup(AgentPermissionPolicy.CI_AUTOFIX, MONITOR_NOW.minusSeconds(60))).thenReturn(ImmutableList.of(task));
         when(store.findByAgentTaskId(task.id().toString())).thenReturn(Optional.of(finished));
         doThrow(new IllegalStateException("cleanup still pending")).when(service).advance(finished.id());
 
-        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitorCiAutofix();
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK).monitorCiAutofix();
 
         var order = inOrder(service, taskStore);
         order.verify(service).advance(running.id());
@@ -218,11 +218,10 @@ class TestCiAutofixMonitoring
                 new RepositoryIdentity("bytequay", "sample"), Path.of("/tmp/bytequay-ci-monitor"), AgentPermissionPolicy.CI_AUTOFIX, MONITOR_NOW.minusSeconds(120));
     }
 
-    private static WorkflowMonitorJob monitor(CiAutofixStore store, AgentTaskStore taskStore, CiAutofixService service, AgentServingGate gate, Clock clock, int batchSize)
+    private static WorkflowMonitorJob monitor(CiAutofixStore store, AgentTaskStore taskStore, CiAutofixService service, AgentServingGate gate, Clock clock)
     {
         return new WorkflowMonitorJob(mock(CherryPickExecutionStore.class), mock(CherryPickExecutionService.class), store, service,
-                mock(BranchRebaseStore.class), mock(BranchRebaseService.class), mock(BackportChainStore.class), mock(BackportChainService.class),
-                taskStore, gate, clock, 20, batchSize, 20);
+                mock(BranchRebaseStore.class), mock(BranchRebaseService.class), mock(BackportChainStore.class), mock(BackportChainService.class), taskStore, gate, clock);
     }
 
     private static CiAutofixRun run()

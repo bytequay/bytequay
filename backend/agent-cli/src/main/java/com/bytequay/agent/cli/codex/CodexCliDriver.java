@@ -67,6 +67,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.lang.module.ModuleDescriptor.Version;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -76,7 +77,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -159,7 +159,7 @@ public final class CodexCliDriver
     private static final String INSTRUCTIONS_UPDATE = "ByteQuay's current instructions for this conversation follow. "
             + "They replace any earlier ByteQuay instructions and turn settings in it.\n\n";
     private static final Pattern VERSION = Pattern.compile("([0-9]+\\.[0-9]+\\.[0-9]+)(-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?");
-    private static final int[] REVIEW_CHILD_GATE_MINIMUM_RELEASE = {0, 156, 1};
+    private static final Version REVIEW_CHILD_GATE_MINIMUM_RELEASE = Version.parse("0.156.1");
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
@@ -212,7 +212,7 @@ public final class CodexCliDriver
     private final Optional<Path> deepSeekCatalog;
     private final String executable;
     private final String minimumVersion;
-    private final int[] minimumRelease;
+    private final Version minimumRelease;
     private final ProcessSupervisor supervisor;
     private final Path codexHome;
     private final Map<String, String> environment;
@@ -285,7 +285,7 @@ public final class CodexCliDriver
         this.executable = requireNonNull(executable, "executable is null");
         this.minimumVersion = requireNonNull(minimumVersion, "minimumVersion is null");
         checkArgument(minimumVersion.matches("[0-9]+\\.[0-9]+\\.[0-9]+"), "Codex minimum version must be a stable x.y.z release: %s", minimumVersion);
-        this.minimumRelease = Arrays.stream(minimumVersion.split("\\.")).mapToInt(Integer::parseInt).toArray();
+        this.minimumRelease = Version.parse(minimumVersion);
         this.permissions = requireNonNull(permissions, "permissions is null");
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
         this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath();
@@ -699,18 +699,20 @@ public final class CodexCliDriver
         return compareVersion(reported, minimumRelease);
     }
 
-    private static OptionalInt compareVersion(String reported, int[] requiredRelease)
+    private static OptionalInt compareVersion(String reported, Version requiredRelease)
     {
         Matcher version = VERSION.matcher(reported);
         if (!version.matches()) {
             return OptionalInt.empty();
         }
         try {
-            int[] release = Arrays.stream(version.group(1).split("\\.")).mapToInt(Integer::parseInt).toArray();
-            int comparison = Arrays.compare(release, requiredRelease);
-            return OptionalInt.of(comparison == 0 && version.group(2) != null ? -1 : comparison);
+            // Reject numeric components that overflow the version implementation's integer comparison.
+            for (String component : version.group(1).split("\\.")) {
+                Integer.parseInt(component);
+            }
+            return OptionalInt.of(Version.parse(version.group(1) + Optional.ofNullable(version.group(2)).orElse("")).compareTo(requiredRelease));
         }
-        catch (NumberFormatException invalid) {
+        catch (IllegalArgumentException invalid) {
             return OptionalInt.empty();
         }
     }

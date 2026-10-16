@@ -11,10 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useId, useRef } from 'react';
-import type { DevelopmentAutomationDto, ModelProviderDto } from '../types';
-import { AUTOMATION_OPTIONS, automationForSubmission, automationSummary } from './developmentAutomation';
+import { useId, useState } from 'react';
 import '../css/development-automation.css';
+import type { DevelopmentAutomationDto, ModelProviderDto } from '../types';
+import { usePopoverDismiss } from '../usePopoverDismiss';
+import { AUTOMATION_OPTIONS, automationForSubmission, automationSummary } from './developmentAutomation';
 
 export function CiProviderSelect({ value, providers, disabled, onChange }: {
   value: string | null;
@@ -48,16 +49,12 @@ export function AutomationControl({ value, providers, disabled, localOnly = fals
   onChange?: (value: DevelopmentAutomationDto) => void;
   onLocalOnlyChange?: (value: boolean) => void;
 }) {
-  const ref = useRef<HTMLDetailsElement>(null);
-  useEffect(() => {
-    // Capture phase, because the model picker stops mousedown from bubbling past its own trigger.
-    const close = (event: MouseEvent): void => {
-      if (ref.current?.open && !ref.current.contains(event.target as Node)) ref.current.open = false;
-    };
-    window.addEventListener('mousedown', close, true);
-    return () => window.removeEventListener('mousedown', close, true);
-  }, []);
-  return <details ref={ref} className="agt-automation" onKeyDown={event => { if (event.key === 'Escape') event.currentTarget.open = false; }}>
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const ref = usePopoverDismiss<HTMLDetailsElement>(event => {
+    if (ref.current) ref.current.open = false;
+    if (event.type === 'keydown') ref.current?.querySelector<HTMLElement>('summary')?.focus();
+  }, false, pickerOpen);
+  return <details onToggle={event => setPickerOpen(event.currentTarget.open)} ref={ref} className="agt-automation">
     <summary className="agt-compose__chip" aria-label="Automation settings">
       Automation <span className="agt-picker__effort">{automationSummary(automationForSubmission(value, localOnly))}</span>
     </summary>

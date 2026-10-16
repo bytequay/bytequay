@@ -11,16 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { usePreparedAgentInput } from '../../agents/preparedInput';
-import { useNoticeSource } from '../../notices/useNoticeSource';
+import { CircleAlert, File, GitCommitHorizontal, PanelsTopLeft } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { CircleAlert, File, GitCommitHorizontal, PanelsTopLeft } from 'lucide-react';
-import type { ReviewCardFocus, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
-import { useReviewCardFocus } from '../../agents/reviewCardNavigation';
-import { ConfirmDialog } from '../../ConfirmDialog';
 import AddRepoModal from '../../AddRepoModal';
-import { workspaceRoute } from '../../workspaces/model';
+import { ConfirmDialog } from '../../ConfirmDialog';
+import type { ReviewCardFocus, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
 import {
   agentTaskReducer,
   historyAfter,
@@ -30,6 +26,9 @@ import {
   startAgentConversationSession,
   type AgentTaskAction,
 } from '../../agents/model';
+import { usePreparedAgentInput } from '../../agents/preparedInput';
+import { useReviewCardFocus } from '../../agents/reviewCardNavigation';
+import { useNoticeSource } from '../../notices/useNoticeSource';
 import type {
   AgentApprovalDecision,
   AgentPendingApprovalDto,
@@ -39,21 +38,23 @@ import type {
   PullRequestDetailDto,
   UserProfileDto,
 } from '../../types';
-import { remoteErrorMessage } from '../PullOverview';
+import { useNow } from '../../useNow';
+import { workspaceRoute } from '../../workspaces/model';
 import MarkdownBody from '../MarkdownBody';
+import { remoteErrorMessage } from '../PullOverview';
 import ReviewCommentIndex from '../ReviewCommentIndex';
 import LocalReviewThreadCard from '../local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../local-review/types';
 import ReviewActivity, { type ReviewConversationPanel } from './ReviewActivity';
-import ReviewFindingCard from './ReviewFindingCard';
 import ReviewDetails from './ReviewDetails';
+import ReviewFindingCard from './ReviewFindingCard';
 import ReviewRunCards from './ReviewRunCards';
-import { recordReviewAttentionAction, useFindingActions } from './useFindingActions';
 import ReviewSummaryCard from './ReviewSummaryCard';
 import { FindingsHead, shownRound } from './SummaryTimeline';
-import { findingLines } from './contracts';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
+import { findingLines } from './contracts';
 import { explanationRun, findingInResults, isExplanationRun, latestRun, newCommits, openFindings, provisional, reviewElapsed, reviewProgress, reviewRecoveryRequired, reviewRunning, reviewStatus, reviewWorktreeNotice, shortSha } from './model';
+import { recordReviewAttentionAction, useFindingActions } from './useFindingActions';
 
 export type ReviewNavigationTarget = {
   path: string;
@@ -154,7 +155,6 @@ export default function AgentReviewTab({
   usePreparedAgentInput(mode === 'conversation' ? review?.task.id ?? null : null, text => setComposer(current => [current, text].filter(Boolean).join('\n\n')));
   const [providers, setProviders] = useState<ModelProviderDto[]>([]);
   const models = useMemo(() => providers.flatMap(provider => provider.models), [providers]);
-  const [now, setNow] = useState(() => Date.now());
   const navigationToken = useRef(0);
   const cardsRef = useRef<HTMLDivElement>(null);
   const [reportRunId, setReportRunId] = useState<string | null>(null);
@@ -192,11 +192,7 @@ export default function AgentReviewTab({
   const roundRun = shownRound(rounds, round);
   const inRound = (finding: ReviewFindingDto) => roundRun === null || finding.runId === roundRun.id;
 
-  useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [running]);
+  const now = useNow(running);
 
   // The catalog names the model each turn ran with; the transcript shows a name, never a raw slug.
   const laneId = review?.task.laneId ?? null;

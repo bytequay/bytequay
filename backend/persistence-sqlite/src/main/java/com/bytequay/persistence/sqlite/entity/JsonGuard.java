@@ -17,11 +17,14 @@ import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.store.StorageException;
 import com.bytequay.persistence.sqlite.converter.JsonColumns;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.List;
 import java.util.function.BiFunction;
 
 import static com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS;
@@ -39,6 +42,10 @@ final class JsonGuard<E extends RuntimeException>
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES));
     static final JsonGuard<StorageException> CHERRY_PICK = new JsonGuard<>(StorageException.class, StorageException::new, JsonColumns.mapper());
     static final JsonGuard<StorageException> CI_AUTOFIX = new JsonGuard<>(StorageException.class, StorageException::new, JsonColumns.mapper().disable(WRITE_DATES_AS_TIMESTAMPS));
+
+    static {
+        CHERRY_PICK.mapper.configOverride(List.class).setSetterInfo(JsonSetter.Value.forValueNulls(Nulls.AS_EMPTY));
+    }
 
     private final Class<E> failureType;
     private final BiFunction<String, Throwable, E> newFailure;

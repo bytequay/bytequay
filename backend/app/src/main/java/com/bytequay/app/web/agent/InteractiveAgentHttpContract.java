@@ -43,8 +43,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -285,12 +285,12 @@ final class InteractiveAgentHttpContract
             // Work with an issue or ticket becomes that source's attempt through its own admission.
             checkArgument(workItemId.isEmpty() || issueSource.isEmpty() && jiraSource.isEmpty(), "Start work with an issue or ticket from its source");
             requireNonNull(developmentAutomation, "developmentAutomation is null");
-            checkNotBlank(taskId, "taskId");
-            checkNotBlank(workspaceId, "workspaceId");
-            checkNotBlank(message, "message");
-            checkNotBlank(laneId, "laneId");
+            checkText(taskId, "taskId");
+            checkText(workspaceId, "workspaceId");
+            checkText(message, "message");
+            checkText(laneId, "laneId");
             requireNonNull(defaults, "defaults is null");
-            checkNotBlank(idempotencyKey, "idempotencyKey");
+            checkText(idempotencyKey, "idempotencyKey");
             new AgentLaneId(laneId);
             checkArgument(defaults.model().isPresent(), "model must not be blank");
             checkArgument(AgentPermissionPolicy.AUTO.name().equals(defaults.permissionPolicy()), "Interactive tasks currently support only AUTO permission");
@@ -337,7 +337,7 @@ final class InteractiveAgentHttpContract
             checkOptionalText(model, "model");
             checkOptionalText(effort, "effort");
             checkOptionalText(serviceTier, "serviceTier");
-            checkNotBlank(permissionPolicy, "permissionPolicy");
+            checkText(permissionPolicy, "permissionPolicy");
         }
     }
 
@@ -434,7 +434,7 @@ final class InteractiveAgentHttpContract
         InputRequest
         {
             requireNonNull(developmentAutomation, "developmentAutomation is null");
-            checkNotBlank(message, "message");
+            checkText(message, "message");
             attachments = attachments == null ? ImmutableList.of() : ImmutableList.copyOf(attachments);
         }
     }

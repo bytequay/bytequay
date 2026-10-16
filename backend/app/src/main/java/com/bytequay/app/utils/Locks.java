@@ -13,23 +13,21 @@
  */
 package com.bytequay.app.utils;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Optional;
+import java.util.concurrent.locks.Lock;
+import java.util.function.Supplier;
 
-public final class MavenModules
+public final class Locks
 {
-    private MavenModules() {}
+    private Locks() {}
 
-    public static Optional<String> findModule(Path worktree, String path)
+    public static <T> T withLock(Lock lock, Supplier<T> action)
     {
-        Path directory = worktree.resolve(path).getParent();
-        while (directory != null && directory.startsWith(worktree) && !directory.equals(worktree)) {
-            if (Files.isRegularFile(directory.resolve("pom.xml"))) {
-                return Optional.of(worktree.relativize(directory).toString());
-            }
-            directory = directory.getParent();
+        lock.lock();
+        try {
+            return action.get();
         }
-        return Optional.empty();
+        finally {
+            lock.unlock();
+        }
     }
 }

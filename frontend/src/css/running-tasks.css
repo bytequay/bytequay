@@ -23,8 +23,8 @@
 .app-sidebar__running-item.is-failed .app-sidebar__running-status { color: var(--fg-danger); }
 .app-sidebar__running-item.is-waiting > span:first-child,
 .app-sidebar__running-item.is-blocked > span:first-child { color: var(--fg-warning); }
-.app-sidebar__running-item.is-running > span:first-child svg { animation: running-task-spin 1.2s linear infinite; }
-@keyframes running-task-spin { to { transform: rotate(360deg); } }
+.app-sidebar__running-item.is-running > span:first-child svg { animation: bq-spin 1.2s linear infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .app-sidebar__running-item.is-running > span:first-child svg { animation: none; }
 }

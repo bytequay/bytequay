@@ -1,17 +1,17 @@
 /* ── Epic view ──
    One Epic's work, the Work tab beside its issue or ticket (workspaces/EpicView.tsx, EpicTabs.tsx). Rows are cards.css
-   item rows; this sheet adds only the view's layout, its state icons and its controls. Nothing in a row is bold. */
+   item rows; this sheet adds only the view's layout, its state icons and its controls. Only the Epic's title is bold. */
 
 /* Sized like the issue overview beside it; the Jira dialog's main column already pads it. */
 .epic-view {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   width: 100%;
   max-width: 1120px;
   margin: 0 auto;
-  padding: 24px 28px 40px;
+  padding: 24px 28px 56px;
   color: var(--text-1);
 }
 
@@ -21,15 +21,24 @@
   padding: 0;
 }
 
-.epic-view__title-row {
+.epic-view__head {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.epic-view__title-row > .epic-drawer__glyph {
-  width: 16px;
-  height: 16px;
+.epic-view__kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.epic-view__kicker .epic-drawer__glyph {
+  width: 11px;
+  height: 11px;
 }
 
 .epic-tabs__progress {
@@ -40,18 +49,18 @@
 }
 
 .epic-view__title {
-  flex: 1;
-  min-width: 0;
   margin: 0;
-  overflow: hidden;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  text-wrap: pretty;
 }
 
 .epic-view__link,
 .epic-view__sync,
+.epic-view__tool,
+.epic-view__quiet,
+.epic-view__add,
 .epic-row__accept {
   display: inline-flex;
   flex: none;
@@ -78,13 +87,48 @@
   background: light-dark(#0969da, #2867b8);
 }
 
-.epic-view__counts {
+.epic-view__stats,
+.epic-view__counts,
+.epic-view__mix {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px 14px;
-  margin-top: 6px;
   color: var(--fg-muted);
   font-size: 12px;
+}
+
+.epic-view__counts {
+  flex: 1;
+}
+
+.epic-view__counts > :is(.is-working, .is-planned)::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: light-dark(#0969da, #2867b8);
+  content: '';
+}
+
+.epic-view__counts > .is-planned::before {
+  background: light-dark(#afb8c1, var(--dark-border-strong));
+}
+
+/* Where the Epic's work comes from, each in its source's colour. */
+.epic-view__mix {
+  gap: 4px 12px;
+}
+
+.epic-view__mix > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.epic-view__mix > .is-local {
+  color: light-dark(#7d4e00, var(--dark-orange));
 }
 
 .epic-view__counts > .is-strong {
@@ -130,6 +174,134 @@
   background: light-dark(#f3f4f6, var(--dark-subtle));
 }
 
+.epic-view__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.epic-view__filters {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: auto;
+}
+
+.epic-view__filters > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.epic-view__filters > button:is(:hover, .is-active) {
+  background: light-dark(#f1f2f3, var(--dark-subtle));
+}
+
+.epic-view__filters > button.is-active {
+  color: var(--text-1);
+}
+
+.epic-view__filters > button > span {
+  color: var(--fg-dim);
+  font-size: 11.5px;
+}
+
+.epic-view__tool {
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line-default);
+  border-radius: 7px;
+  background: var(--surface-canvas);
+  color: var(--text-1);
+  font-size: 12.5px;
+}
+
+.epic-view__tool:hover:not(:disabled) {
+  background: light-dark(#f3f4f6, var(--dark-hover));
+}
+
+.epic-view__tool.is-active {
+  border-color: var(--fg-link);
+  background: var(--bg-info);
+}
+
+.epic-view__tool.is-suggest {
+  border-color: light-dark(#e6dcfb, #4d3f68);
+  background: var(--bg-purple);
+  color: var(--fg-purple);
+}
+
+.epic-view__tool.is-suggest:hover:not(:disabled) {
+  background: light-dark(#f3e5ff, #3d3352);
+}
+
+:is(.epic-view__tool, .epic-view__add, .epic-view__quiet):disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Add existing: the goal search box, with the kinds to find under its field. */
+.goal-search.epic-view__search {
+  margin-top: 0;
+  background: var(--surface-canvas);
+}
+
+.epic-view__search > .goal-search__field,
+.epic-view__kinds {
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+.epic-view__kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+.epic-view__kinds > button {
+  padding: 2px 9px;
+  border: 1px solid var(--line-default);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.epic-view__kinds > button.is-active {
+  border-color: var(--fg-link);
+  background: var(--bg-info);
+  color: var(--fg-link);
+}
+
+.epic-view__results {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+
+.epic-view__none {
+  padding: 14px;
+  color: var(--fg-dim);
+  font-size: 12.5px;
+}
+
+.epic-view > .item-list {
+  margin-top: 0;
+}
+
 .epic-view__counts > .epic-view__conclude {
   margin-left: auto;
 }
@@ -164,11 +336,11 @@
   white-space: pre-wrap;
 }
 
-/* Work the Development model proposed; nothing in it is work until accepted. */
+/* Work the Development model suggests; nothing in it is work until accepted. */
 .epic-view__proposals {
   display: flex;
   flex-direction: column;
-  padding: 8px 12px;
+  overflow: hidden;
   border: 1px solid light-dark(#e6dcfb, #4d3f68);
   border-radius: 10px;
   background: light-dark(#fbf8ff, var(--dark-subtle));
@@ -176,41 +348,243 @@
 
 .epic-view__proposals-head {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 9px 12px;
+}
+
+.epic-view__proposals-title {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding-bottom: 4px;
   color: var(--fg-purple);
-  font-size: 12.5px;
-}
-
-.epic-proposal {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 0;
-  border-top: 1px solid light-dark(#efe7fd, var(--dark-purple-soft));
-}
-
-.epic-proposal__text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.epic-proposal__title {
   font-size: 13px;
 }
 
-.epic-proposal__done {
+.epic-view__proposals-sub {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.epic-view__quiet {
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
   color: var(--fg-muted);
   font-size: 12px;
+}
+
+.epic-view__quiet:hover:not(:disabled) {
+  background: light-dark(#eceff2, var(--dark-hover));
+}
+
+.epic-view__add {
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--fg-success);
+  border-radius: 7px;
+  background: light-dark(#1f883d, #287a43);
+  color: var(--on-solid);
+  font-size: 12.5px;
+}
+
+.epic-view__add:hover:not(:disabled) {
+  background: light-dark(#1a7f37, #32894f);
+}
+
+.epic-proposal,
+.epic-proposal__skeleton {
+  border-top: 1px solid light-dark(#efe7fd, var(--dark-purple-soft));
+}
+
+.epic-proposal {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 0 12px;
+  align-items: start;
+  padding: 10px 12px;
+}
+
+.epic-proposal.is-picked {
+  background: light-dark(rgb(130 80 223 / 6%), rgb(195 161 247 / 6%));
+}
+
+.epic-proposal > input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--fg-purple);
+  cursor: pointer;
+}
+
+.epic-proposal__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.epic-proposal__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  line-height: 19px;
+}
+
+.epic-proposal__title > svg {
+  flex: none;
+  color: var(--fg-dim);
+  transition: transform 0.15s;
+}
+
+.epic-proposal__text[aria-expanded="true"] .epic-proposal__title > svg,
+.epic-view__dropped[open] > summary > svg {
+  transform: rotate(90deg);
+}
+
+.epic-proposal__done {
+  padding-left: 19px;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.epic-proposal__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.epic-proposal__actions > .epic-row__accept {
+  gap: 5px;
+  height: 24px;
+  white-space: nowrap;
+}
+
+.epic-proposal__local {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: light-dark(#7d4e00, var(--dark-orange));
+}
+
+/* What accepting makes: the Local work item's context. */
+.epic-proposal__detail {
+  grid-column: 2 / -1;
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line-subtle);
+  border-radius: 9px;
+  background: var(--surface-canvas);
+}
+
+.epic-proposal__detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-subtle);
+  background: light-dark(#f6f8fa, var(--dark-subtle));
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.epic-proposal__parts {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 14px 14px;
+}
+
+.epic-proposal__section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.epic-proposal__section > h4 {
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.epic-proposal__section > .markdown-body {
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.epic-proposal__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 12px 12px 40px;
+}
+
+.epic-proposal__skeleton > span {
+  display: block;
+  width: 46%;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--bg-purple);
+  animation: epic-pulse 1.4s ease-in-out infinite;
+}
+
+.epic-proposal__skeleton > span + span {
+  width: 82%;
+  height: 8px;
+  background: light-dark(#eceff2, var(--dark-hover));
+  animation-delay: 0.2s;
+}
+
+@keyframes epic-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.8; }
 }
 
 .epic-view__notice {
   color: var(--fg-muted);
   font-size: 12px;
+}
+
+/* The last ask found nothing worth suggesting, and says so where its suggestions would be. */
+.epic-view__nothing {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 9px 12px;
+  border: 1px solid light-dark(#e6dcfb, #4d3f68);
+  border-radius: 10px;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.epic-view__nothing > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--fg-purple);
 }
 
 .epic-view__error {
@@ -237,6 +611,23 @@
 
 .epic-row.is-dropped .item-row__title > span:first-child {
   color: var(--fg-muted);
+}
+
+/* Dropped work only reopens, so its row neither opens nor answers the pointer. */
+.epic-row.is-dropped,
+.epic-row.is-dropped:hover {
+  align-items: center;
+  background: var(--surface-canvas);
+  cursor: default;
+}
+
+.epic-row__reason {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-dim);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .epic-row__state {
@@ -281,14 +672,33 @@
   background: light-dark(rgba(31, 35, 40, 0.08), rgb(210 220 235 / 8%));
 }
 
+.epic-view__composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .epic-view__new {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 8px 7px 12px;
+  min-height: 40px;
+  padding: 6px 8px 6px 12px;
   border: 1px dashed var(--line-default);
   border-radius: 10px;
   color: var(--fg-muted);
+}
+
+.epic-view__enter {
+  color: var(--fg-dim);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.epic-view__hint {
+  padding-left: 12px;
+  color: var(--fg-dim);
+  font-size: 11.5px;
 }
 
 .epic-view__new:focus-within {
@@ -321,16 +731,25 @@
 }
 
 .epic-view__dropped > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: var(--fg-muted);
   font-size: 12px;
+  list-style: none;
   cursor: pointer;
+}
+
+.epic-view__dropped > summary::-webkit-details-marker {
+  display: none;
 }
 
 .epic-view__dropped > .item-list {
   margin-top: 8px;
 }
 
-:is(.epic-view__link, .epic-view__sync, .epic-row__accept, .epic-row__wait, .epic-view__dropped > summary):focus-visible {
+:is(.epic-view__link, .epic-view__sync, .epic-view__tool, .epic-view__quiet, .epic-view__add, .epic-view__filters > button, .epic-view__kinds > button, .epic-proposal__text,
+  .epic-proposal > input, .epic-row__accept, .epic-row__wait, .epic-view__dropped > summary):focus-visible {
   outline: 2px solid var(--control-strong);
   outline-offset: 1px;
 }

@@ -992,14 +992,21 @@ export function useCandidates(goal: Pick<GoalDto, 'items'>, search: GoalPanelPro
   return { query, setQuery, results: addable(found, goal) };
 }
 
-export function Candidate({ item, onAdd, board }: { item: GoalItemDto; onAdd: (item: GoalItemDto) => Promise<unknown>; board?: boolean }): React.JSX.Element {
+export function Candidate({ item, onAdd, board, sub = board ? item.status : undefined, action = 'Add' }: {
+  item: GoalItemDto;
+  onAdd: (item: GoalItemDto) => Promise<unknown>;
+  board?: boolean;
+  /** Where the item stands, beside its title; a board shows its status. */
+  sub?: string;
+  action?: string;
+}): React.JSX.Element {
   return (
     <div className="goal-result">
       <SourceIcon source={GOAL_SOURCES[item.kind]} tinted />
       <span className="card-key">{item.label}</span>
       <span className="goal-result__title">{item.title}</span>
-      {board && <span className="goal-result__sub">{item.status}</span>}
-      <button type="button" className="goal-link" onClick={() => { void onAdd(item).catch(() => {}); }}>Add</button>
+      {sub !== undefined && <span className="goal-result__sub">{sub}</span>}
+      <button type="button" className="goal-link" onClick={() => { void onAdd(item).catch(() => {}); }}>{action}</button>
     </div>
   );
 }

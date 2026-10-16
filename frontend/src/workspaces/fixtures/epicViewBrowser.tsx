@@ -148,8 +148,25 @@ export async function run(): Promise<boolean> {
     assert(row('Invalidate on DDL').querySelector('.pill')?.textContent === 'running' && row('Invalidate on DDL').querySelector('.epic-state.agt-spin') !== null, 'A running task spins');
     assert(row('Invalidate on DDL').querySelector('.card-key')?.textContent === '#24931', 'Work from an issue names it');
     assert(row('Benchmark warm cache').querySelector('.card-key') === null, 'Work without a source shows no reference');
+    assert(row('Benchmark warm cache').querySelector('.card-local') !== null && row('Invalidate on DDL').querySelector('.card-local') === null,
+      'Work without an issue or ticket is Local');
+    assert(element('.epic-view__mix').textContent === '3 Local1 GitHub', `The mix counts where open work comes from: ${element('.epic-view__mix').textContent}`);
     assert(row('Benchmark warm cache').textContent?.includes('after Invalidate on DDL') === true, 'Blocked work says what it waits on');
     assert(row('Cache table metadata').querySelector('.epic-row__accept') === null && row('Cache table metadata').textContent?.includes('#24950 merged') === true, 'Done work keeps its merge');
+
+    const showing = (label: string): HTMLButtonElement => {
+      const found = [...document.querySelectorAll<HTMLButtonElement>('.epic-view__filters > button')].find(value => value.textContent?.startsWith(label));
+      assert(found !== undefined, `Missing filter ${label}`);
+      return found;
+    };
+    assert(showing('Planned').textContent === 'Planned1' && showing('All').textContent === 'All4', 'Each filter counts its work, dropped work apart');
+    showing('Planned').click(); await settle();
+    assert(rows().length === 1 && rows()[0].textContent?.includes('Benchmark warm cache') === true && document.querySelector('[aria-label^="Move "]') === null,
+      'A filter lists one state, and work does not move while some of it is hidden');
+    showing('Done').click(); await settle();
+    showing('Working').click(); await settle();
+    assert(rows().length === 2, 'Working work lists alone');
+    showing('All').click(); await settle();
 
     // Run starts work where it starts; an attempt under way opens instead, and concluded work does not run.
     assert(row('Invalidate on DDL').querySelector('[aria-label="Run Invalidate on DDL"]') === null, 'Work with a task under way offers no Run');
@@ -268,8 +285,13 @@ export async function run(): Promise<boolean> {
       },
       getEpic: async (): Promise<EpicRecordDto> => {
         polled++;
-        record = { ...record, breakingDown: false, proposals: [{ id: 'proposal-1', title: 'Expose cache metrics', doneWhen: 'Hits and misses are reported' },
-          { id: 'proposal-2', title: 'Tune the cache', doneWhen: 'Reads are faster' }] };
+        const proposal = (id: string, title: string, doneWhen: string, parts: Partial<EpicRecordDto['proposals'][number]> = {}): EpicRecordDto['proposals'][number] => ({
+          id, title, doneWhen, description: `What ${title} changes.`, background: null, evidence: null, reproduceSteps: null, ...parts });
+        record = { ...record, breakingDown: false, proposals: [
+          proposal('proposal-1', 'Expose cache metrics', 'Hits and misses are reported', { description: 'Report cache hits and misses per catalog.\n\n- Count them in the cache',
+            evidence: 'The Epic asks for cache visibility.' }),
+          proposal('proposal-2', 'Tune the cache', 'Reads are faster'), proposal('proposal-3', 'Document the metrics', 'The guide lists them'),
+          proposal('proposal-4', 'Alert on cold caches', 'A cold cache raises an alert')] };
         return record;
       },
       acceptEpicProposal: async (_workspaceId: string, _epicId: string, proposalId: string) => {
@@ -284,11 +306,27 @@ export async function run(): Promise<boolean> {
       },
     } as unknown as Bridge;
     button('Suggest work').click(); await settle();
-    assert(calls.at(-1) === `propose ${EPIC_ID} null` && element('.epic-view__proposals').textContent?.includes('Proposing work…') === true,
-      `Suggest work starts the Epic's breakdown: ${calls.at(-1)}`);
+    assert(calls.at(-1) === `propose ${EPIC_ID} null` && element('.epic-view__proposals').textContent?.includes('Suggesting work…') === true
+      && document.querySelectorAll('.epic-proposal__skeleton').length === 3, `Suggest work starts the Epic's breakdown: ${calls.at(-1)}`);
     await wait(1_150);
-    assert(polled > 0 && element('.epic-view__proposals-head').textContent === 'Proposed · 2', 'The proposals arrive while the view is open');
+    assert(polled > 0 && element('.epic-view__proposals-title').textContent === 'Suggested · 4', 'The proposals arrive while the view is open');
     assert(rows().length === 5, 'Nothing becomes work before it is accepted');
+    // Several proposals are accepted at once, one after another, each as Local work.
+    button('Accept all 4 as Local');
+    element<HTMLInputElement>('[aria-label="Select Document the metrics"]').click(); await settle();
+    element<HTMLInputElement>('[aria-label="Select Alert on cold caches"]').click(); await settle();
+    button('Accept 2 as Local').click(); await wait(20);
+    assert(calls.slice(-2).join() === 'accept proposal proposal-3,accept proposal proposal-4', `Picked proposals are accepted in order: ${calls.slice(-2).join()}`);
+    assert(element('.epic-view__notice').textContent === 'Added 2 Local work items to this Epic.' && element('.epic-view__proposals-title').textContent === 'Suggested · 2',
+      'Accepting says what joined and leaves the rest suggested');
+    const folded = element<HTMLButtonElement>('.epic-proposal__text');
+    assert(document.querySelector('.epic-proposal__detail') === null && element('.epic-proposal__done').textContent === 'Hits and misses are reported',
+      'A proposal starts folded to its title and what it is done when');
+    folded.click(); await settle();
+    const parts = [...document.querySelectorAll('.epic-proposal__section > h4')].map(value => value.textContent).join('|');
+    assert(parts === 'Description|Done when|Evidence', `An open proposal shows each part it has, in the work item's order: ${parts}`);
+    assert(element('.epic-proposal__detail').textContent?.includes('Report cache hits and misses per catalog.') === true
+      && element('.epic-proposal__section li').textContent === 'Count them in the cache', 'The description is the context the agent reads, rendered as Markdown');
     const proposed = (title: string): HTMLElement => {
       const found = [...document.querySelectorAll<HTMLElement>('.epic-proposal')].find(value => value.textContent?.includes(title));
       assert(found !== undefined, `Missing proposal ${title}`);
@@ -298,6 +336,19 @@ export async function run(): Promise<boolean> {
     assert(calls.at(-1) === 'accept proposal proposal-1', `Accept makes the proposal work: ${calls.at(-1)}`);
     button('Dismiss Tune the cache').click(); await settle();
     assert(calls.at(-1) === 'dismiss proposal proposal-2' && document.querySelector('.epic-view__proposals') === null, 'Dismissing the last proposal folds the list away');
+    // An ask that finds no more work worth suggesting says so instead of showing nothing.
+    assert(document.querySelector('.epic-view__nothing') === null, 'Nothing is said before an ask comes back empty');
+    window.bridge = {
+      ...window.bridge,
+      proposeEpicWork: async () => {
+        record = { ...record, proposals: [], breakingDown: false, breakdownNote: 'No more valuable work to suggest. Every cache the Epic names already has work.' };
+        return record;
+      },
+    } as unknown as Bridge;
+    button('Suggest work').click(); await settle();
+    assert(element('.epic-view__nothing').textContent === 'No more valuable work to suggest. Every cache the Epic names already has work.'
+      && document.querySelector('.epic-view__proposals') === null && rows().length === 5, 'An empty answer is reported, and adds no work');
+    record = { ...record, breakdownNote: null };
 
     // With all its work done the Epic concludes, recording what it delivered, and offers closing its issue.
     assert(document.querySelector('.epic-view__conclude') === null, 'Unfinished work offers no Conclude');

@@ -527,7 +527,17 @@ export type EpicJoinDto = { item: WorkItemDto; movedFrom: string | null };
 /** A GitHub sub-issue or Jira child ticket an Epic's source reports, as ByteQuay last read it. */
 export type EpicChildDto = { identity: string; kind: 'ISSUE' | 'JIRA'; key: string; label: string; title: string; status: string; closed: boolean; url: string | null };
 /** Work the Development model proposed for an Epic, waiting until the user accepts or dismisses it. */
-export type EpicProposalDto = { id: string; title: string; doneWhen: string };
+export type EpicProposalDto = {
+  id: string;
+  title: string;
+  /** The one check that tells the work is done. */
+  doneWhen: string;
+  /** What the work is and the context its agent starts from; empty on a proposal saved before proposals carried one. */
+  description: string;
+  background: string | null;
+  evidence: string | null;
+  reproduceSteps: string | null;
+};
 /** An Epic's children: which were synced into work, which the source dropped since, and whether to offer syncing. */
 export type EpicRecordDto = {
   id: string;
@@ -548,6 +558,8 @@ export type EpicRecordDto = {
   breakingDown: boolean;
   /** Why the last breakdown failed, until the next one starts. */
   breakdownError: string | null;
+  /** What the last ask said when it found no more work worth suggesting, until the next one starts. */
+  breakdownNote?: string | null;
 };
 export type WorkItemDecision = {
   operationId: string;
@@ -621,10 +633,15 @@ export function parseEpicRecord(value: unknown): EpicRecordDto {
     outcome: typeof record.outcome === 'string' ? record.outcome : '',
     proposals: parseList(record.proposals, (value) => {
       const proposal = object(value, 'Epic proposal');
-      return { id: text(proposal.id, 'Epic proposal id'), title: text(proposal.title, 'Epic proposal title'), doneWhen: text(proposal.doneWhen, 'Epic proposal done-when') };
+      return {
+        id: text(proposal.id, 'Epic proposal id'), title: text(proposal.title, 'Epic proposal title'), doneWhen: text(proposal.doneWhen, 'Epic proposal done-when'),
+        description: typeof proposal.description === 'string' ? proposal.description : '', background: optionalText(proposal.background),
+        evidence: optionalText(proposal.evidence), reproduceSteps: optionalText(proposal.reproduceSteps),
+      };
     }, 'Epic proposals'),
     breakingDown: record.breakingDown === true,
     breakdownError: optionalText(record.breakdownError),
+    breakdownNote: optionalText(record.breakdownNote),
   };
 }
 

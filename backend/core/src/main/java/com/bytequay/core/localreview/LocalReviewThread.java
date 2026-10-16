@@ -24,11 +24,15 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Task-owned discussion and immutable code evidence, independent of disposable agent history. */
+/**
+ * Task-owned discussion and immutable code evidence, independent of disposable agent history.
+ *
+ * @param resolvedByAgent whether the task's agent made the current resolution; an agent reopens only such a thread
+ */
 public record LocalReviewThread(String id, String taskId, String workspaceId, String repo, int number,
         String path, String side, int startLine, int line, Optional<String> baseSha, Optional<String> headSha, String code,
         boolean resolved, long version, Instant createdAt, Instant updatedAt, List<LocalReviewMessage> messages, Map<String, String> operations,
-        Optional<LocalReviewLearningAnchor> learningAnchor)
+        Optional<LocalReviewLearningAnchor> learningAnchor, boolean resolvedByAgent)
 {
     public LocalReviewThread
     {
@@ -70,12 +74,20 @@ public record LocalReviewThread(String id, String taskId, String workspaceId, St
     public LocalReviewThread withVersion(long value)
     {
         return new LocalReviewThread(id, taskId, workspaceId, repo, number, path, side, startLine, line, baseSha, headSha, code,
-                resolved, value, createdAt, updatedAt, messages, operations, learningAnchor);
+                resolved, value, createdAt, updatedAt, messages, operations, learningAnchor, resolvedByAgent);
     }
 
+    /** A change of resolution made here is the user's own. */
     public LocalReviewThread update(boolean nextResolved, List<LocalReviewMessage> nextMessages, Map<String, String> nextOperations, Instant now)
     {
         return new LocalReviewThread(id, taskId, workspaceId, repo, number, path, side, startLine, line, baseSha, headSha, code,
-                nextResolved, version, createdAt, now, nextMessages, nextOperations, learningAnchor);
+                nextResolved, version, createdAt, now, nextMessages, nextOperations, learningAnchor, nextResolved == resolved && resolvedByAgent);
+    }
+
+    /** The task's agent resolved or reopened the thread. */
+    public LocalReviewThread updateByAgent(boolean nextResolved, Map<String, String> nextOperations, Instant now)
+    {
+        return new LocalReviewThread(id, taskId, workspaceId, repo, number, path, side, startLine, line, baseSha, headSha, code,
+                nextResolved, version, createdAt, now, messages, nextOperations, learningAnchor, nextResolved);
     }
 }

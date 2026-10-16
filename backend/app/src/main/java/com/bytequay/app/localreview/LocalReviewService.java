@@ -287,7 +287,7 @@ public class LocalReviewService
             LocalReviewMessage message = userMessage(task, request.id(), request.messageId(), request.body(), now);
             return store.insert(new LocalReviewThread(request.id(), taskId, workspaceId, request.repo().toLowerCase(Locale.ROOT), request.number(),
                     request.path(), request.side(), request.startLine(), request.line(), request.baseSha(), request.headSha(), request.code(), false, 0, now, now,
-                    ImmutableList.of(message), operation(ImmutableMap.of(), operationKey, signature), learningAnchor));
+                    ImmutableList.of(message), operation(ImmutableMap.of(), operationKey, signature), learningAnchor, false));
         });
         return dispatch(thread, request.messageId(), request.expectedTaskVersion());
     }
@@ -319,7 +319,7 @@ public class LocalReviewService
     public LocalReviewView resolve(String taskId, String workspaceId, String id, boolean resolved, long expectedVersion, String operationKey)
     {
         task(taskId, workspaceId, false);
-        return resolve(taskId, id, resolved, Optional.of(expectedVersion), operationKey);
+        return resolve(taskId, id, resolved, Optional.of(expectedVersion), operationKey, false);
     }
 
     public LocalReviewView replyFromAgent(String taskId, String commentId, String body, String operationKey)
@@ -342,10 +342,10 @@ public class LocalReviewService
     public LocalReviewView resolveFromAgent(String taskId, String commentId, boolean resolved, String operationKey)
     {
         requireAgentTask(taskId);
-        return resolve(taskId, commentId, resolved, Optional.empty(), operationKey);
+        return resolve(taskId, commentId, resolved, Optional.empty(), operationKey, true);
     }
 
-    private LocalReviewView resolve(String taskId, String id, boolean resolved, Optional<Long> expectedVersion, String operationKey)
+    private LocalReviewView resolve(String taskId, String id, boolean resolved, Optional<Long> expectedVersion, String operationKey, boolean byAgent)
     {
         return withLock(locks.get(taskId), () -> {
             LocalReviewThread thread = requireThread(taskId, id);
@@ -356,7 +356,14 @@ public class LocalReviewService
             if (expectedVersion.filter(value -> value != thread.version()).isPresent()) {
                 throw new AgentConflictException("Local review changed; reload before resolving");
             }
-            return view(store.update(thread.update(resolved, thread.messages(), operation(thread.operations(), operationKey, signature), Instant.now(clock))));
+            Map<String, String> operations = operation(thread.operations(), operationKey, signature);
+            if (!byAgent || resolved == thread.resolved()) {
+                return view(store.update(thread.update(resolved, thread.messages(), operations, Instant.now(clock))));
+            }
+            if (!resolved && !thread.resolvedByAgent()) {
+                throw new AgentConflictException("The user resolved this thread, and only the user reopens it");
+            }
+            return view(store.update(thread.updateByAgent(resolved, operations, Instant.now(clock))));
         });
     }
 

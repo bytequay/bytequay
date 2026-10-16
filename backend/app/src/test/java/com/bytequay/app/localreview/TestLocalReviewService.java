@@ -321,6 +321,22 @@ class TestLocalReviewService
     }
 
     @Test
+    void theAgentReopensOnlyAThreadAnAgentResolved()
+    {
+        create(0);
+        service.resolve(taskId.toString(), "workspace", "thread", true, stored.get("thread").version(), "user-resolve");
+        assertThatThrownBy(() -> service.resolveFromAgent(taskId.toString(), "thread", false, "agent-reopen"))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("only the user reopens it");
+        // Resolving what the user already resolved does not make it the agent's.
+        service.resolveFromAgent(taskId.toString(), "thread", true, "agent-resolve");
+        assertThatThrownBy(() -> service.resolveFromAgent(taskId.toString(), "thread", false, "agent-reopen-2")).isInstanceOf(AgentConflictException.class);
+
+        service.resolve(taskId.toString(), "workspace", "thread", false, stored.get("thread").version(), "user-reopen");
+        service.resolveFromAgent(taskId.toString(), "thread", true, "agent-resolve-2");
+        assertThat(service.resolveFromAgent(taskId.toString(), "thread", false, "agent-reopen-3").resolved()).isFalse();
+    }
+
+    @Test
     void agentRepliesArePrivateIdempotentAndCannotCrossTasks()
     {
         create(0);

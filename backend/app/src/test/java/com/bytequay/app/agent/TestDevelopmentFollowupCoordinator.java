@@ -691,6 +691,21 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Remote result may have changed"));
     }
 
+    @Test
+    void acceptingATurnReadsTheRemoteBesideItInsteadOfInsideSend()
+    {
+        source = running(FULL);
+        history.add(source);
+        when(git.capture(task)).thenReturn(new DevelopmentBaseline(worktree, route, local(BASE, false)));
+
+        coordinator.accepted(task, source);
+
+        verify(git, never()).inspectPublication(any(), any());
+        assertThat(pending).hasSize(1);
+        finishRemoteRead();
+        verify(git).inspectPublication(worktree, route);
+    }
+
     /** Accepts the turn, then completes that same turn without a report, leaving the checkout at {@code after}. */
     private void unreported(DevelopmentLocalFacts after)
     {
@@ -698,6 +713,7 @@ class TestDevelopmentFollowupCoordinator
         history.add(source);
         when(git.capture(task)).thenReturn(new DevelopmentBaseline(worktree, route, local(BASE, false)));
         coordinator.accepted(task, source);
+        finishRemoteRead();
         source = source.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
         history.set(history.size() - 1, source);
         outcome = new DevelopmentTurnCompletion(task, source, true, Optional.empty());
@@ -825,11 +841,8 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void stopDuringBaselineCaptureDoesNotRetainTheAcceptedSnapshot()
     {
-        when(git.inspectPublication(worktree, route)).thenAnswer(ignored -> {
-            history.replaceAll(turn -> turn.finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("Stopped"), NOW));
-            return publication(Optional.empty(), Optional.empty());
-        });
-        prepare(local(BASE, false), local(HEAD, false), FULL, true);
+        prepare(local(BASE, false), local(HEAD, false), FULL, true,
+                () -> history.replaceAll(turn -> turn.finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("Stopped"), NOW)));
         advance();
         noFollowup();
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("baseline is unavailable"));
@@ -1453,10 +1466,20 @@ class TestDevelopmentFollowupCoordinator
 
     private void prepare(DevelopmentLocalFacts before, DevelopmentLocalFacts after, DevelopmentAutomation automation, boolean ready)
     {
+        prepare(before, after, automation, ready, () -> {});
+    }
+
+    /** Accepts and completes a turn, with {@code duringCapture} standing in for what happens while its baseline is captured. */
+    private void prepare(DevelopmentLocalFacts before, DevelopmentLocalFacts after, DevelopmentAutomation automation, boolean ready, Runnable duringCapture)
+    {
         source = running(automation);
         history.add(source);
-        when(git.capture(task)).thenReturn(new DevelopmentBaseline(worktree, route, before));
+        when(git.capture(task)).thenAnswer(ignored -> {
+            duringCapture.run();
+            return new DevelopmentBaseline(worktree, route, before);
+        });
         coordinator.accepted(task, source);
+        finishRemoteRead();
         source = source.withDevelopmentResult(report(ready)).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
         history.set(history.size() - 1, source);
         outcome = new DevelopmentTurnCompletion(task, source, true, Optional.empty());
@@ -1497,6 +1520,14 @@ class TestDevelopmentFollowupCoordinator
     {
         coordinator.completed(outcome);
         pending.remove().run();
+    }
+
+    /** Runs the remote read that accepting a turn starts beside it, as it finishes while the turn runs. */
+    private void finishRemoteRead()
+    {
+        while (!pending.isEmpty()) {
+            pending.remove().run();
+        }
     }
 
     private void noFollowup()

@@ -46,6 +46,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -98,31 +99,34 @@ public class DevelopmentFollowupCoordinator
     {
         DevelopmentBaseline baseline = git.capture(task);
         Optional<Accepted> previous = Optional.ofNullable(accepted.get(task.id()));
-        boolean pending = priorQuestion(task.id(), turn.id()) || previous.filter(prior -> prior.pendingDelivery()
+        boolean pending = priorQuestion(task.id(), turn.id()) || previous.filter(prior -> prior.localPending()
                 || changed(prior.baseline().local(), baseline.local())).isPresent();
-        Optional<DevelopmentPublicationFacts> publication = Optional.empty();
-        Optional<String> remoteFailure = Optional.empty();
         DevelopmentAutomation automation = turn.settings().orElseThrow().developmentAutomation().orElse(DevelopmentAutomation.LOCAL_ONLY);
-        if (automation.autoDraftPr() || automation.autoCiFix()) {
-            try {
-                DevelopmentPublicationFacts current = git.inspectPublication(baseline.worktree(), baseline.route());
-                publication = Optional.of(current);
-                if (!pending) {
-                    // A queued turn captures its baseline after the previous turn's CLI publication.
-                    pending = previous.filter(prior -> prior.remoteFailure().isEmpty() && prior.baseline().route().equals(baseline.route()))
-                            .flatMap(Accepted::publication).filter(original -> newlyPublished(baseline, original, current)).isPresent();
-                }
-            }
-            catch (RuntimeException failure) {
-                // Remote prerequisites must not prevent the initial local development work.
-                remoteFailure = Optional.of(message(failure));
-            }
-        }
-        Accepted captured = new Accepted(turn.id(), baseline, previous.map(Accepted::summaryBaseline).orElse(baseline.local()), pending, publication, remoteFailure);
+        CompletableFuture<RemoteBaseline> priorRemote = previous.map(Accepted::remote).orElseGet(() -> CompletableFuture.completedFuture(RemoteBaseline.NONE));
+        // The remote read reaches the network, so it runs beside the turn instead of inside Send; only the turn's end uses it.
+        CompletableFuture<RemoteBaseline> remote = automation.autoDraftPr() || automation.autoCiFix()
+                ? priorRemote.thenApplyAsync(prior -> readRemote(baseline, previous.map(Accepted::baseline), prior), executor)
+                : priorRemote.thenApply(RemoteBaseline::carried);
+        Accepted captured = new Accepted(turn.id(), baseline, previous.map(Accepted::summaryBaseline).orElse(baseline.local()), pending, remote);
         accepted.put(task.id(), captured);
-        // Stop can settle the turn while the read above is still in flight.
+        // Stop can settle the turn while the capture above is still in flight.
         if (turnStore.findActive(task.id()).filter(active -> active.id().equals(turn.id())).isEmpty()) {
             accepted.remove(task.id(), captured);
+        }
+    }
+
+    private RemoteBaseline readRemote(DevelopmentBaseline baseline, Optional<DevelopmentBaseline> priorBaseline, RemoteBaseline prior)
+    {
+        try {
+            DevelopmentPublicationFacts current = git.inspectPublication(baseline.worktree(), baseline.route());
+            // A queued turn captures its baseline after the previous turn's CLI publication.
+            boolean published = prior.failure().isEmpty() && priorBaseline.filter(value -> value.route().equals(baseline.route())).isPresent()
+                    && prior.publication().filter(original -> newlyPublished(baseline, original, current)).isPresent();
+            return new RemoteBaseline(Optional.of(current), Optional.empty(), prior.pending() || published);
+        }
+        catch (RuntimeException failure) {
+            // Remote prerequisites must not prevent the initial local development work.
+            return new RemoteBaseline(Optional.empty(), Optional.of(message(failure)), prior.pending());
         }
     }
 
@@ -146,7 +150,8 @@ public class DevelopmentFollowupCoordinator
             checkState(source.turnId().equals(turnId) && source.baseline().worktree().equals(previous), "The accepted development branch changed");
             DevelopmentBaseline baseline = source.baseline();
             return new Accepted(turnId, new DevelopmentBaseline(renamed, baseline.route().withHeadBranch(renamed.generatedBranch()), baseline.local()),
-                    source.summaryBaseline(), source.pendingDelivery(), Optional.of(new DevelopmentPublicationFacts(Optional.empty(), ImmutableList.of())), Optional.empty());
+                    source.summaryBaseline(), source.localPending(), source.remote().thenApply(remote ->
+                            new RemoteBaseline(Optional.of(new DevelopmentPublicationFacts(Optional.empty(), ImmutableList.of())), Optional.empty(), remote.pending())));
         });
     }
 
@@ -211,8 +216,9 @@ public class DevelopmentFollowupCoordinator
                 return;
             }
             action = "Check publication";
-            checkState(source.remoteFailure().isEmpty(), "Remote baseline unavailable: %s", source.remoteFailure().orElse(""));
-            DevelopmentPublicationFacts original = source.publication().orElseThrow(() -> new IllegalStateException("The accepted remote baseline is unavailable"));
+            RemoteBaseline remote = source.remote().join();
+            checkState(remote.failure().isEmpty(), "Remote baseline unavailable: %s", remote.failure().orElse(""));
+            DevelopmentPublicationFacts original = remote.publication().orElseThrow(() -> new IllegalStateException("The accepted remote baseline is unavailable"));
             DevelopmentPublicationFacts publication = git.inspectPublication(baseline.worktree(), baseline.route());
             Optional<GitHubPullRequestIdentity> originalPr = matchingPr(baseline.route(), original);
             Optional<GitHubPullRequestIdentity> currentPr = matchingPr(baseline.route(), publication);
@@ -549,7 +555,7 @@ public class DevelopmentFollowupCoordinator
                 checkState(!changed(current, inspectLocal(source.baseline())), "Summary refinement changed the task's code or commits");
                 checkState(owns(completion), "Summary refinement was stopped");
                 accepted.replace(completion.task().id(), source,
-                        new Accepted(source.turnId(), source.baseline(), current, source.pendingDelivery(), source.publication(), source.remoteFailure()));
+                        new Accepted(source.turnId(), source.baseline(), current, source.localPending(), source.remote()));
             }
             catch (RuntimeException failure) {
                 turnStore.list(completion.task().id()).stream()
@@ -761,6 +767,24 @@ public class DevelopmentFollowupCoordinator
         return Optional.ofNullable(cause.getMessage()).filter(value -> !value.isBlank()).orElse(cause.getClass().getSimpleName());
     }
 
-    private record Accepted(TurnId turnId, DevelopmentBaseline baseline, DevelopmentLocalFacts summaryBaseline, boolean pendingDelivery,
-            Optional<DevelopmentPublicationFacts> publication, Optional<String> remoteFailure) {}
+    private record Accepted(TurnId turnId, DevelopmentBaseline baseline, DevelopmentLocalFacts summaryBaseline, boolean localPending,
+            CompletableFuture<RemoteBaseline> remote)
+    {
+        /** Waits for the remote read when the accepted turn needed one; only a turn's completion asks. */
+        private boolean pendingDelivery()
+        {
+            return localPending || remote.join().pending();
+        }
+    }
+
+    /** The remote branch and pull request as a turn was accepted, and whether earlier publication still awaits delivery. */
+    private record RemoteBaseline(Optional<DevelopmentPublicationFacts> publication, Optional<String> failure, boolean pending)
+    {
+        private static final RemoteBaseline NONE = new RemoteBaseline(Optional.empty(), Optional.empty(), false);
+
+        private RemoteBaseline carried()
+        {
+            return new RemoteBaseline(Optional.empty(), Optional.empty(), pending);
+        }
+    }
 }

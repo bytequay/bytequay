@@ -285,7 +285,7 @@ class Page(unittest.TestCase):
         self.assertIn("On 2 comments: before did better on 0, today on 1, and on 1 they did the same. Chance alone gives a split this uneven about 100% of the time, "
                       "so this does not show that one is better.", captions(page))
         for expected in ["Resolved: you or a development agent marked the finding done. Withdrawn: the reviewer took it back. Open: not decided yet. Held up is the resolved share of the first two.",
-                         "before: not scored, and not counted as zero: pr1_rep2 (timed_out)",
+                         "before: not scored, and not counted as zero: pr1_rep2 (timed_out)", "How far to trust the judge: label pairs by hand on the Judge page.",
                          "today: mixed rules files, models or efforts in this setting, so its runs are not one comparison: aaaaaaaa reviewer-model high, bbbbbbbb reviewer-model high"]:
             self.assertIn(expected, captions(page))
         self.assertEqual((len(page.get("plotly_chart")), [note.value for note in page.info]), (27, []))  # five more charts, and nothing left to say how to save

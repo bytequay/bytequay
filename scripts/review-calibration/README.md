@@ -198,6 +198,17 @@ uv run judge.py agree --judgement RUN/judgement.json --labels LABELS.json
 agreement to reach before reading the judge's answers, and after changing the
 judge prompt measure it again on calls nobody has read.
 
+The dashboard's Judge page takes the labels by hand. For an experiment, every
+comment the judge answered in one of its runs is a pair, shown word for word as
+the judge was asked (the run's leads shuffled and numbered, then the comment
+and the code under it), without the judge's answer or the setting that ran,
+in one fixed order that mixes settings and pull requests. Found, Partly and
+Missed keep a label in the experiment's `labels.json` in the order given, and
+the last can be taken back. Once a pair is labelled, the page shows how many
+the judge answered the same and, for each of your answers, how the judge
+answered; 30 labels give a first number. The scores on the Reviews tab say how
+far the two agree.
+
 ## Experiments
 
 An experiment is a comparison that is kept: a folder with a plan and every run

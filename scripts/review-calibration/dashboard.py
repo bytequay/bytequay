@@ -19,6 +19,7 @@ import approvals
 import batch
 import charts
 import digest
+import labels
 import ranges
 import record
 import saved
@@ -386,6 +387,18 @@ def experiment_runs(plan):
             st.code("\n".join(log.read_text().splitlines()[-5:]), language=None)
 
 
+def trusted(experiment):
+    """How far the judge that scored an experiment agrees with the hand labels of the Judge page."""
+    try:
+        given = labels.read(experiment)
+        made = labels.agreement(labels.pairs(experiment), given) if given else None
+    except (OSError, KeyError, TypeError, ValueError):
+        st.caption("The hand labels of this experiment could not be read.")
+        return
+    st.caption("How far to trust the judge: label pairs by hand on the Judge page." if made is None else
+               f"You and the judge agree on {made['agree']:,} of the {made['compared']:,} pairs you labelled on the Judge page.")
+
+
 def scored_reviews(folder, mode):
     st.subheader("Scored against a human reviewer")
     # Every experiment keeps its plan, its runs and its scores. The one worked on last comes first.
@@ -419,6 +432,7 @@ def scored_reviews(folder, mode):
         st.info(f"The saved scores of {name} hold no setting.")
         return
     st.caption(f"What each setting found of the comments a human reviewer left on the same pull requests. Saved {when(scores['savedAt'])}")
+    trusted(folder / "experiments" / name)
     if figure is not None:
         draw("scores", figure)
     for note in notes:

@@ -60,8 +60,11 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -673,11 +676,10 @@ class TestReviewPublicationService
     }
 
     @Test
-    void confirmedMissingCannotResetPendingInFlightOrSuccessfulComments()
+    void confirmedMissingCannotResetPendingOrSuccessfulComments()
     {
         ReviewDraft saved = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Comment"));
         for (Optional<ReviewPublication> publication : ImmutableList.of(Optional.<ReviewPublication>empty(),
-                Optional.of(new ReviewPublication("sending", ReviewPublication.State.RESERVED, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW)),
                 Optional.of(new ReviewPublication("posted", ReviewPublication.State.PUBLISHED, OptionalLong.of(1), OptionalLong.of(2), Optional.empty(), NOW)))) {
             ReviewDraft current = drafts.save(saved.withItems(ImmutableList.of(saved.items().getFirst().withPublication(publication)), NOW));
             assertThatThrownBy(() -> service.confirmNotPosted(REPO, NUMBER, current.version(), lastItemId(current)))
@@ -686,6 +688,42 @@ class TestReviewPublicationService
             saved = current;
         }
         verifyNoInteractions(pullRequests);
+    }
+
+    @Test
+    void aReservationNoSendOwnsReadsAsUncertainAfterARestart()
+    {
+        ReviewPublication reserved = new ReviewPublication(
+                "before-restart", ReviewPublication.State.RESERVED, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), Instant.EPOCH);
+        ReviewDraftItem item = manual("src/A.java", 10, "Was it sent?").withPublication(Optional.of(reserved));
+        drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withItems(ImmutableList.of(item), NOW));
+
+        ReviewDraft restarted = new ReviewPublicationService(drafts, reviews, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC)).draft(REPO, NUMBER);
+
+        assertThat(restarted.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
+        assertThat(restarted.items().getFirst().publication().orElseThrow().attemptId()).isEqualTo("before-restart");
+        assertThatThrownBy(() -> service.submit(REPO, NUMBER, restarted.version(), "Review", "COMMENT")).hasMessageContaining("unknown outcome");
+        ReviewDraft pending = service.confirmNotPosted(REPO, NUMBER, restarted.version(), item.id());
+        assertThat(pending.items().getFirst().publication()).isEmpty();
+        verify(pullRequests, never()).submitReview(any(), anyInt(), anyLong(), any(), any(), any());
+    }
+
+    @Test
+    void aSendWhoseResultCannotBeSavedReadsAsUncertainInsteadOfSending()
+    {
+        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
+        IllegalStateException locked = new IllegalStateException("database is locked");
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenAnswer(invocation -> {
+            drafts.failNextSave(locked);
+            return posted();
+        });
+
+        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft))).isSameAs(locked);
+
+        ReviewDraft after = service.draft(REPO, NUMBER);
+        assertThat(after.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
+        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, after.version(), lastItemId(after))).hasMessageContaining("unknown outcome");
+        verify(pullRequests, times(1)).createReviewComment(eq(REPO), eq(NUMBER), any());
     }
 
     @Test
@@ -791,6 +829,7 @@ class TestReviewPublicationService
             String itemId = lastItemId(sending);
             assertThatThrownBy(() -> service.editItem(REPO, NUMBER, sending.version(), itemId, "Changed", true)).hasMessageContaining("being sent");
             assertThatThrownBy(() -> service.removeItem(REPO, NUMBER, sending.version(), itemId)).hasMessageContaining("being sent");
+            assertThatThrownBy(() -> service.confirmNotPosted(REPO, NUMBER, sending.version(), itemId)).hasMessageContaining("Only a comment with unconfirmed delivery");
             service.saveReview(REPO, NUMBER, sending.version(), "Next review notes", "REQUEST_CHANGES");
             return posted();
         });
@@ -955,6 +994,13 @@ class TestReviewPublicationService
             implements ReviewDraftStore
     {
         private final Map<String, ReviewDraft> stored = new HashMap<>();
+        private Optional<RuntimeException> failNext = Optional.empty();
+
+        void failNextSave(RuntimeException failure)
+        {
+            failNext = Optional.of(failure);
+        }
+
         @Override
         public Optional<ReviewDraft> find(String repo, int number)
         {
@@ -964,6 +1010,11 @@ class TestReviewPublicationService
         @Override
         public ReviewDraft save(ReviewDraft draft)
         {
+            Optional<RuntimeException> failure = failNext;
+            failNext = Optional.empty();
+            failure.ifPresent(value -> {
+                throw value;
+            });
             long current = Optional.ofNullable(stored.get(draft.id())).map(ReviewDraft::version).orElse(0L);
             if (current != draft.version()) {
                 throw new ReviewConflictException("Review draft version changed: " + draft.id());

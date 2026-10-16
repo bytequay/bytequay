@@ -46,7 +46,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.app.utils.Locks.withLock;
@@ -72,6 +74,9 @@ public class ReviewPublicationService
     private final PullRequestService pullRequests;
     private final Clock clock;
     private final Striped<Lock> locks = Striped.lock(32);
+    // Attempts a send in this process still owns. A RESERVED item outside it lost its sender to a
+    // restart or a failed save, so nobody knows whether it landed: it reads as UNCERTAIN.
+    private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
 
     public ReviewPublicationService(ReviewDraftStore drafts, AgentReviewStore reviews, PullRequestService pullRequests, Clock clock)
     {
@@ -237,16 +242,22 @@ public class ReviewPublicationService
             requireSendable(ImmutableList.of(item));
             String attemptId = UUID.randomUUID().toString();
             ReviewDraft reserved = drafts.save(draft.withItems(replace(draft.items(), reserve(item, attemptId)), now()));
+            inFlight.add(attemptId);
             return new Reservation(attemptId, reserved, ImmutableList.of(item));
         });
-        PullRequestService.Posted posted;
         try {
-            posted = pullRequests.createReviewComment(repo, number, comment(reservation.items().getFirst()));
+            PullRequestService.Posted posted;
+            try {
+                posted = pullRequests.createReviewComment(repo, number, comment(reservation.items().getFirst()));
+            }
+            catch (RuntimeException failure) {
+                return releaseAfterFailure(repo, number, reservation, failure);
+            }
+            return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, reservation, posted, false));
         }
-        catch (RuntimeException failure) {
-            return releaseAfterFailure(repo, number, reservation, failure);
+        finally {
+            inFlight.remove(reservation.attemptId());
         }
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, reservation, posted));
     }
 
     /** Publishes the included, eligible items with the user's chosen review text and event. */
@@ -268,52 +279,54 @@ public class ReviewPublicationService
             List<ReviewDraftItem> items = new ArrayList<>(draft.items());
             sending.forEach(item -> items.set(indexOf(items, item.id()), reserve(item, attemptId)));
             ReviewDraft reserved = drafts.save(draft.withReview(text, chosen, now()).withItems(items, now()));
+            inFlight.add(attemptId);
             return new Reservation(attemptId, reserved, sending);
         });
-        Map<String, List<ReviewDraftItem>> groups = new LinkedHashMap<>();
-        for (ReviewDraftItem item : reservation.items()) {
-            if (item.replyToCommentId().isPresent()) {
-                continue;
+        try {
+            Map<String, List<ReviewDraftItem>> groups = new LinkedHashMap<>();
+            for (ReviewDraftItem item : reservation.items()) {
+                if (item.replyToCommentId().isPresent()) {
+                    continue;
+                }
+                groups.computeIfAbsent(item.commitId().orElseThrow(), ignored -> new ArrayList<>()).add(item);
             }
-            groups.computeIfAbsent(item.commitId().orElseThrow(), ignored -> new ArrayList<>()).add(item);
+            pullRequests.findHeadSha(repo, number).filter(groups::containsKey).ifPresent(head -> {
+                List<ReviewDraftItem> current = groups.remove(head);
+                groups.put(head, current);
+            });
+            List<List<ReviewDraftItem>> batches = new ArrayList<>(groups.values());
+            if (batches.isEmpty()) {
+                batches.add(ImmutableList.of());
+            }
+            List<ReviewDraftItem> lastBatch = new ArrayList<>(batches.getLast());
+            reservation.items().stream().filter(item -> item.replyToCommentId().isPresent()).forEach(lastBatch::add);
+            batches.set(batches.size() - 1, lastBatch);
+            List<String> published = new ArrayList<>();
+            List<String> notices = new ArrayList<>();
+            ReviewDraft settled = reservation.draft();
+            for (int index = 0; index < batches.size(); index++) {
+                List<ReviewDraftItem> batch = batches.get(index);
+                boolean last = index == batches.size() - 1;
+                Reservation group = new Reservation(reservation.attemptId(), reservation.draft(), batch);
+                PullRequestService.Posted posted;
+                try {
+                    posted = pullRequests.submitReview(repo, number, prId(repo, number), last ? chosen : "COMMENT", last ? text : "",
+                            batch.stream().map(this::comment).collect(toImmutableList()));
+                }
+                catch (RuntimeException failure) {
+                    releaseUnsent(repo, number, reservation, batches.subList(index + 1, batches.size()).stream().flatMap(List::stream).collect(toImmutableList()));
+                    return releaseAfterFailure(repo, number, group, failure);
+                }
+                Publication result = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, group, posted, last));
+                published.addAll(result.publishedItemIds());
+                result.uncertainReason().ifPresent(notices::add);
+                settled = result.draft();
+            }
+            return new Publication(settled, ImmutableList.copyOf(published), notices.isEmpty() ? Optional.empty() : Optional.of(String.join("\n", notices)));
         }
-        pullRequests.findHeadSha(repo, number).filter(groups::containsKey).ifPresent(head -> {
-            List<ReviewDraftItem> current = groups.remove(head);
-            groups.put(head, current);
-        });
-        List<List<ReviewDraftItem>> batches = new ArrayList<>(groups.values());
-        if (batches.isEmpty()) {
-            batches.add(ImmutableList.of());
+        finally {
+            inFlight.remove(reservation.attemptId());
         }
-        List<ReviewDraftItem> lastBatch = new ArrayList<>(batches.getLast());
-        reservation.items().stream().filter(item -> item.replyToCommentId().isPresent()).forEach(lastBatch::add);
-        batches.set(batches.size() - 1, lastBatch);
-        List<String> published = new ArrayList<>();
-        List<String> notices = new ArrayList<>();
-        for (int index = 0; index < batches.size(); index++) {
-            List<ReviewDraftItem> batch = batches.get(index);
-            boolean last = index == batches.size() - 1;
-            Reservation group = new Reservation(reservation.attemptId(), reservation.draft(), batch);
-            PullRequestService.Posted posted;
-            try {
-                posted = pullRequests.submitReview(repo, number, prId(repo, number), last ? chosen : "COMMENT", last ? text : "",
-                        batch.stream().map(this::comment).collect(toImmutableList()));
-            }
-            catch (RuntimeException failure) {
-                releaseUnsent(repo, number, reservation, batches.subList(index + 1, batches.size()).stream().flatMap(List::stream).collect(toImmutableList()));
-                return releaseAfterFailure(repo, number, group, failure);
-            }
-            Publication result = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, group, posted));
-            published.addAll(result.publishedItemIds());
-            result.uncertainReason().ifPresent(notices::add);
-        }
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft current = stored(repo, number);
-            if (current.body().equals(text) && current.event().equals(chosen)) {
-                current = drafts.save(current.withReview("", ReviewDraft.DEFAULT_EVENT, now()));
-            }
-            return new Publication(current, ImmutableList.copyOf(published), notices.isEmpty() ? Optional.empty() : Optional.of(String.join("\n", notices)));
-        });
     }
 
     private void releaseUnsent(String repo, int number, Reservation reservation, List<ReviewDraftItem> unsent)
@@ -337,9 +350,10 @@ public class ReviewPublicationService
     /**
      * Records what the send established. A returned remote identity is stored; a send that
      * succeeded without an unambiguous per-comment mapping stays published without one rather than
-     * being sent again.
+     * being sent again. When the batch carried the review text, the same save clears it, so no
+     * restart in between can leave it to be submitted twice.
      */
-    private Publication settle(String repo, int number, Reservation reservation, PullRequestService.Posted posted)
+    private Publication settle(String repo, int number, Reservation reservation, PullRequestService.Posted posted, boolean carriedReview)
     {
         ReviewDraft draft = stored(repo, number);
         List<ReviewDraftItem> items = new ArrayList<>(draft.items());
@@ -370,7 +384,11 @@ public class ReviewPublicationService
                         ambiguous.size()
                                 + (ambiguous.size() == 1 ? " comment was" : " comments were")
                                 + " sent, but GitHub's reply did not identify them; they are not sent again");
-        return new Publication(drafts.save(draft.withItems(items, now())), ImmutableList.copyOf(published), uncertain);
+        ReviewDraft settled = draft.withItems(items, now());
+        if (carriedReview && draft.body().equals(reservation.draft().body()) && draft.event().equals(reservation.draft().event())) {
+            settled = settled.withReview("", ReviewDraft.DEFAULT_EVENT, now());
+        }
+        return new Publication(drafts.save(settled), ImmutableList.copyOf(published), uncertain);
     }
 
     /**
@@ -386,8 +404,7 @@ public class ReviewPublicationService
             for (ReviewDraftItem sent : reservation.items()) {
                 int index = indexOf(items, sent.id());
                 if (index >= 0) {
-                    items.set(index, items.get(index).withPublication(Optional.of(new ReviewPublication(
-                            reservation.attemptId(), ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), now()))));
+                    items.set(index, items.get(index).withPublication(Optional.of(uncertain(reservation.attemptId(), now()))));
                 }
             }
             drafts.save(draft.withItems(items, now()));
@@ -529,6 +546,11 @@ public class ReviewPublicationService
                 Optional.of(new ReviewPublication(attemptId, ReviewPublication.State.RESERVED, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), Instant.EPOCH)));
     }
 
+    private static ReviewPublication uncertain(String attemptId, Instant at)
+    {
+        return new ReviewPublication(attemptId, ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), at);
+    }
+
     private static List<ReviewDraftItem> append(List<ReviewDraftItem> items, ReviewDraftItem item)
     {
         return ImmutableList.<ReviewDraftItem>builder().addAll(items).add(item).build();
@@ -573,7 +595,13 @@ public class ReviewPublicationService
     private ReviewDraft stored(String repo, int number)
     {
         String repository = AgentReviewService.normalize(repo);
-        return drafts.find(repository, number).orElseGet(() -> ReviewDraft.empty(repository, number, now()));
+        ReviewDraft draft = drafts.find(repository, number).orElseGet(() -> ReviewDraft.empty(repository, number, now()));
+        return draft.withItems(draft.items().stream()
+                .map(item -> item.publication()
+                        .filter(value -> value.state() == ReviewPublication.State.RESERVED && !inFlight.contains(value.attemptId()))
+                        .map(value -> item.withPublication(Optional.of(uncertain(value.attemptId(), draft.updatedAt()))))
+                        .orElse(item))
+                .collect(toImmutableList()), draft.updatedAt());
     }
 
     private ReviewDraft expect(String repo, int number, long expectedVersion)

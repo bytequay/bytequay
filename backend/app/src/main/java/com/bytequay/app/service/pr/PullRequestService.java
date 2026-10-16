@@ -101,6 +101,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
@@ -1004,14 +1005,18 @@ public class PullRequestService
         validateReviewComment(comment, true);
         String pat = credentialService.resolveGitHubToken();
         Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
+        PullRequestDetail before = getPullRequestDetail(repo, number);
         if (comment.replyToCommentId().isPresent()) {
             replyToReviewComment(repo, number, comment.replyToCommentId().getAsLong(), comment.body());
-            return getPullRequestDetail(repo, number);
+            return afterWrite(repo, number, () -> getPullRequestDetail(repo, number), before);
         }
         PrTimelineEvent created = pullRequestWrites.createReviewComment(pat, parseRef(repo, number), comment);
-        PullRequestDetail detail = patchCachedTimeline(repo, number, prId, created);
-        prId.ifPresent(id -> markReviewed(id, "COMMENT"));
-        recordComment(repo, number, "review-comment", created, comment.body());
+        PullRequestDetail detail = afterWrite(repo, number, () -> {
+            PullRequestDetail patched = patchCachedTimeline(repo, number, prId, created);
+            prId.ifPresent(id -> markReviewed(id, "COMMENT"));
+            recordComment(repo, number, "review-comment", created, comment.body());
+            return patched;
+        }, before);
         return detail;
     }
 
@@ -1020,10 +1025,38 @@ public class PullRequestService
         checkText(body, "comment body");
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
+        PullRequestDetail before = getPullRequestDetail(repo, number);
         PrTimelineEvent created = pullRequestWrites.createIssueComment(pat, ref, body);
-        PullRequestDetail detail = patchCachedTimeline(repo, number, store.findIdByRepoAndNumber(repo, number), created);
-        recordComment(repo, number, "comment", created, body);
-        return detail;
+        return afterWrite(repo, number, () -> {
+            PullRequestDetail detail = patchCachedTimeline(repo, number, store.findIdByRepoAndNumber(repo, number), created);
+            recordComment(repo, number, "comment", created, body);
+            return detail;
+        }, before);
+    }
+
+    /**
+     * Runs a step after a GitHub write landed. Its failure must not fail the request: the caller would
+     * take the write for failed and send it again. The next refresh repairs the local copy.
+     *
+     * <p>Writers read the detail they fall back to before writing, so a failed read sends nothing.
+     */
+    private static <T> T afterWrite(String repo, int number, Supplier<T> step, T fallback)
+    {
+        try {
+            return step.get();
+        }
+        catch (RuntimeException failure) {
+            log.warn("Wrote to {}#{} on GitHub but could not update the local copy: {}", repo, number, failure.toString());
+            return fallback;
+        }
+    }
+
+    private static void afterWrite(String repo, int number, Runnable step)
+    {
+        afterWrite(repo, number, () -> {
+            step.run();
+            return true;
+        }, false);
     }
 
     public boolean toggleReaction(String repo, int number, String target, Long commentId, String content, Boolean viewerHasReacted)
@@ -1131,9 +1164,11 @@ public class PullRequestService
         checkText(body, "reply body");
         String pat = credentialService.resolveGitHubToken();
         pullRequestWrites.replyToReviewComment(pat, parseRef(repo, number), commentId, body);
-        recent.pullRequestAction(repo, number, RecentReason.COMMENTED, 0);
-        recent.wroteOnPullRequest(repo, number, RecentTextKind.COMMENT, "reply:" + commentId, body);
-        invalidatePullRequestCaches(repo, number);
+        afterWrite(repo, number, () -> {
+            invalidatePullRequestCaches(repo, number);
+            recent.pullRequestAction(repo, number, RecentReason.COMMENTED, 0);
+            recent.wroteOnPullRequest(repo, number, RecentTextKind.COMMENT, "reply:" + commentId, body);
+        });
     }
 
     /** Edits a posted comment or review body on GitHub, then patches the cached copies of that body. */
@@ -1255,6 +1290,7 @@ public class PullRequestService
         Map<Long, String> replyThreads = new LinkedHashMap<>();
         reviewComments.stream().map(InlineReviewComment::replyToCommentId).filter(OptionalLong::isPresent).mapToLong(OptionalLong::getAsLong).distinct()
                 .forEach(commentId -> replyThreads.put(commentId, gitHub.findReviewThreadId(pat, ref, commentId)));
+        PullRequestDetail before = getPullRequestDetail(repo, number);
         PrReviewState created = replyThreads.isEmpty()
                 ? pullRequestWrites.submitReview(pat, ref, normalizedEvent, reviewBody, reviewComments)
                 : pullRequestWrites.submitReviewWithReplies(pat, ref, normalizedEvent, reviewBody, reviewComments, replyThreads);
@@ -1263,16 +1299,20 @@ public class PullRequestService
         // until the next poll.
         List<PrTimelineEvent> threads = reviewComments.isEmpty() || created.githubId() == null
                 ? ImmutableList.of()
-                : replyThreads.isEmpty() ? gitHub.fetchReviewComments(pat, ref, created.githubId()) : gitHub.fetchPrReviewThreads(pat, ref);
-        PullRequestDetail detail = patchCachedReview(repo, number, prId, created, threads);
-        markReviewed(prId, normalizedEvent);
-        recordReview(repo, number, normalizedEvent, reviewBody, created);
-        reviewComments.forEach(inline -> recent.wroteOnPullRequest(
-                repo,
-                number,
-                RecentTextKind.COMMENT,
-                "review-comment:" + created.githubId() + ":" + inline.path() + ":" + inline.line(),
-                inline.body()));
+                : afterWrite(repo, number, () -> replyThreads.isEmpty() ? gitHub.fetchReviewComments(pat, ref, created.githubId()) : gitHub.fetchPrReviewThreads(pat, ref),
+                        ImmutableList.of());
+        PullRequestDetail detail = afterWrite(repo, number, () -> {
+            PullRequestDetail patched = patchCachedReview(repo, number, prId, created, threads);
+            markReviewed(prId, normalizedEvent);
+            recordReview(repo, number, normalizedEvent, reviewBody, created);
+            reviewComments.forEach(inline -> recent.wroteOnPullRequest(
+                    repo,
+                    number,
+                    RecentTextKind.COMMENT,
+                    "review-comment:" + created.githubId() + ":" + inline.path() + ":" + inline.line(),
+                    inline.body()));
+            return patched;
+        }, before);
         return detail;
     }
 

@@ -1893,6 +1893,7 @@ class TestPullRequestService
     @Test
     void submitsReviewVerdictsAndPatchesTheCachedDetail()
     {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(writes.submitReview("pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this", ImmutableList.of()))
                 .thenReturn(review(501L, "REQUEST_CHANGES", "Please fix this"));
@@ -1928,6 +1929,7 @@ class TestPullRequestService
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         InlineReviewComment comment = new InlineReviewComment("a.txt", "note", 4, "RIGHT", null, null, "head", OptionalLong.empty());
         PrTimelineEvent thread = new PrTimelineEvent(901L, "review_thread", "me", REVIEWED_AT, null, Optional.empty());
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(writes.submitReview("pat", ref, "COMMENT", "", ImmutableList.of(comment)))
                 .thenReturn(review(502L, "COMMENTED", ""));
@@ -1947,6 +1949,7 @@ class TestPullRequestService
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         InlineReviewComment reply = new InlineReviewComment("a.txt", "Reply", 1, "RIGHT", null, null, null, OptionalLong.of(61));
         PrTimelineEvent thread = new PrTimelineEvent(61L, "review_thread", "me", REVIEWED_AT, null, Optional.empty());
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(gitHub.findReviewThreadId("pat", ref, 61)).thenReturn("PRRT_61");
         when(writes.submitReviewWithReplies("pat", ref, "COMMENT", "", ImmutableList.of(reply), ImmutableMap.of(61L, "PRRT_61")))
@@ -1965,6 +1968,7 @@ class TestPullRequestService
     @Test
     void marksACommentReviewAsHandled()
     {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(writes.submitReview("pat", PullRequestRef.of("owner", "repo", 7), "COMMENT", "Looks good with one note", ImmutableList.of()))
                 .thenReturn(review(503L, "COMMENTED", "Looks good with one note"));
@@ -1972,6 +1976,67 @@ class TestPullRequestService
         service.submitReview("owner/repo", 7, 12L, "comment", "Looks good with one note", ImmutableList.of());
 
         verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.COMMENTED), eq("head"), any(Instant.class));
+    }
+
+    @Test
+    void keepsASubmittedReviewWhenItsCommentsCannotBeReadBack()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        InlineReviewComment comment = new InlineReviewComment("a.txt", "note", 4, "RIGHT", null, null, "head", OptionalLong.empty());
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+        when(writes.submitReview("pat", ref, "COMMENT", "", ImmutableList.of(comment))).thenReturn(review(502L, "COMMENTED", ""));
+        when(gitHub.fetchReviewComments("pat", ref, 502L)).thenThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS));
+
+        service.submitReview("owner/repo", 7, 12L, "comment", "", ImmutableList.of(comment));
+
+        ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).saveCached(eq(12L), saved.capture());
+        assertThat(saved.getValue().reviews()).extracting(PrReviewState::githubId).contains(502L);
+        verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.COMMENTED), eq("head"), any(Instant.class));
+    }
+
+    @Test
+    void keepsAPostedCommentWhenTheLocalCopyCannotBeUpdated()
+    {
+        InlineReviewComment comment = new InlineReviewComment("src/Main.java", "Please simplify this", 18, "RIGHT", null, null, "head", OptionalLong.empty());
+        PrTimelineEvent posted = new PrTimelineEvent(99L, "review_thread", "me", Instant.now(), null, Optional.empty());
+        when(writes.createReviewComment("pat", PullRequestRef.of("owner", "repo", 7), comment)).thenReturn(posted);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+        doThrow(new IllegalStateException("database is locked")).when(detailStore).saveCached(eq(12L), any());
+
+        PullRequestDetail detail = service.createReviewComment("owner/repo", 7, comment);
+
+        assertThat(detail.recentActivity()).isEmpty();
+    }
+
+    @Test
+    void keepsAPostedReplyWhenTheReloadFails()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        InlineReviewComment reply = new InlineReviewComment("a.txt", "Reply", 1, "RIGHT", null, null, "head", OptionalLong.of(61));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        // The reply drops the cached detail, so the reload goes to GitHub.
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()), Optional.empty());
+        when(gitHub.getPullRequest("pat", ref, Optional.empty())).thenThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS));
+
+        PullRequestDetail detail = service.createReviewComment("owner/repo", 7, reply);
+
+        verify(writes).replyToReviewComment("pat", ref, 61L, "Reply");
+        assertThat(detail.body()).isEqualTo("body");
+    }
+
+    @Test
+    void readsTheFallbackDetailBeforeWritingSoAFailedReadSendsNothing()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        ResponseStatusException limited = new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS);
+        when(gitHub.getPullRequest("pat", ref, Optional.empty())).thenThrow(limited);
+
+        assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "comment", "Looks good", ImmutableList.of())).isSameAs(limited);
+
+        verifyNoInteractions(writes);
     }
 
     private static PrReviewState review(long githubId, String state, String body)

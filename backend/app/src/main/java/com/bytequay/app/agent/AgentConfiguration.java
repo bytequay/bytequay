@@ -84,7 +84,9 @@ import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.store.ModelApiKeyStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -229,9 +231,13 @@ public class AgentConfiguration
     }
 
     @Bean(destroyMethod = "close")
-    public AgentRuntimeRegistry agentRuntimeRegistry(AgentTaskStore taskStore, ObjectProvider<DevelopmentCiOwnership> ciOwnership)
+    public AgentRuntimeRegistry agentRuntimeRegistry(AgentTaskStore taskStore, ObjectProvider<DevelopmentCiOwnership> ciOwnership, AgentReviewStore reviews)
     {
-        return new AgentRuntimeRegistry(taskStore, task -> ciOwnership.getObject().requireSourceAdmission(task));
+        // A review run moves through several turns; a developer turn started between two of them would fail the next one.
+        return new AgentRuntimeRegistry(taskStore, task -> ciOwnership.getObject().requireSourceAdmission(task), task -> reviews.findReviewByTask(task.id().toString())
+                .filter(review -> review.state() == AgentReview.State.OPEN && !review.followUpPaused())
+                .filter(review -> reviews.listRuns(review.id()).stream().anyMatch(ReviewRun::active))
+                .isPresent());
     }
 
     @Bean

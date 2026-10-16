@@ -226,6 +226,26 @@ class TestDefaultAgentTurnService
         assertThat(driver.openedContexts().getLast().access()).isEqualTo(SessionAccess.REVIEW_READ_ONLY);
     }
 
+    @Test
+    void aReviewBetweenItsTurnsKeepsTheSharedCheckoutFromTheDeveloper()
+    {
+        TaskId reviewerId = TaskId.random();
+        stores.insert(AgentTask.created(reviewerId, false, "Reviewer", TitleSource.USER, task.laneId(), task.taskWorktree().orElseThrow(), task.defaults(), NOW));
+        resources.allocate(reviewerId);
+        AtomicBoolean reviewing = new AtomicBoolean(true);
+        runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, other -> other.id().equals(reviewerId) && reviewing.get());
+        service = service(driver, runtimeRegistry);
+
+        assertThatThrownBy(() -> service.start(command("Fix the finding", "fix-1")))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("shared working copy is in use by Reviewer");
+        // The review's own next step still starts.
+        service.start(new StartAgentTurnCommand(reviewerId, "Validate", ImmutableList.of(), "review-step"));
+        driver.complete("validated");
+        reviewing.set(false);
+
+        assertThat(service.start(command("Fix the finding", "fix-1")).state()).isEqualTo(TurnState.RUNNING);
+    }
+
     @AfterEach
     void tearDown()
     {

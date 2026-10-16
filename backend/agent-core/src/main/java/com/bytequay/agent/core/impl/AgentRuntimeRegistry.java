@@ -35,6 +35,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -61,20 +62,31 @@ public final class AgentRuntimeRegistry
     private final ConcurrentMap<TaskId, DevelopmentOwner> developmentOwners = new ConcurrentHashMap<>();
     private final Set<TaskId> stoppedDevelopmentTasks = ConcurrentHashMap.newKeySet();
     private final Consumer<AgentTask> branchAdmission;
+    private final Predicate<AgentTask> heldBetweenTurns;
     private final AgentTaskStore taskStore;
     private volatile boolean closing;
 
     public AgentRuntimeRegistry(AgentTaskStore taskStore, Consumer<AgentTask> branchAdmission)
     {
+        this(taskStore, branchAdmission, ignored -> false);
+    }
+
+    /**
+     * @param heldBetweenTurns whether a task keeps its shared working copy between its own turns, as a review does while its
+     *     run moves from one step to the next; another task sharing that copy must not start in the gap
+     */
+    public AgentRuntimeRegistry(AgentTaskStore taskStore, Consumer<AgentTask> branchAdmission, Predicate<AgentTask> heldBetweenTurns)
+    {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.branchAdmission = requireNonNull(branchAdmission, "branchAdmission is null");
+        this.heldBetweenTurns = requireNonNull(heldBetweenTurns, "heldBetweenTurns is null");
     }
 
     void checkBranchAdmission(AgentTask task)
     {
         for (AgentTask other : sharedTasks(task)) {
             if (other.worktreeMutationClaim().isPresent() || other.developmentContinuationUnfinished() || hasDevelopmentOwner(other.id())
-                    || unverifiedClose(other.id()).isPresent()) {
+                    || unverifiedClose(other.id()).isPresent() || heldBetweenTurns.test(other)) {
                 throw new AgentConflictException("The shared working copy is in use by " + other.title() + "; wait for it to finish or stop it first");
             }
         }

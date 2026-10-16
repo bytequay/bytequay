@@ -429,8 +429,10 @@ titles and previews; hover over clipped text to read it. **Notices** or **Needs 
 opens navigation through the remaining items, one at a time. At least
 one card stays visible until you open its task or close it with **×**. Closed cards
 are removed from the counter and stay dismissed after restarting ByteQuay;
-new notices still pop up. Opening a task or letting an extra popup time out keeps
-its notice available in the counter.
+new notices still pop up. **View response** removes the completion notice and its
+count after successfully opening the conversation, including after restarting
+ByteQuay. Opening a task another way, opening a notice that needs your attention,
+or letting an extra popup time out keeps its notice available in the counter.
 Choose **→** beside the counter to fold the stack into a narrow tab on the right
 edge while you type. The tab keeps the count, including new arrivals, without
 reopening the cards. Choose **←** to show them again. Folding clears when all

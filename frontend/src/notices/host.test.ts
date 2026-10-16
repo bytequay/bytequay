@@ -56,7 +56,7 @@ beforeEach(() => {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bytequay-notice-host-'));
   desktop.handlers.clear(); desktop.views.length = 0; vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', 'http://localhost:5173');
 });
-afterEach(() => { vi.unstubAllGlobals(); fs.rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); fs.rmSync(directory, { recursive: true, force: true }); });
 
 it('authenticates IPC, layers only the card rectangle, and rechecks requests before navigation', async () => {
   const { host, read, open, window } = setup();
@@ -145,6 +145,49 @@ it.each(['TURN_FINISHED', 'APPROVAL'] as const)('removes %s notices without rest
   const newView = desktop.views.at(-1) as { webContents: { mainFrame: object } };
   expect(desktop.handlers.get('notices:read')?.({ sender: newView.webContents, senderFrame: newView.webContents.mainFrame })).toMatchObject({ notices: [], popupIds: [] });
   restarted.host.stop();
+});
+
+it.each([null, 'review'])('removes an opened completion across refreshes and restarts (review: %s)', async reviewId => {
+  const { host, read, open, window } = setup();
+  const current: AppNotice = { ...notice, id: 'finished:turn', kind: 'TURN_FINISHED', reviewId, occurredAt: new Date().toISOString() };
+  await host.refresh(); read.mockResolvedValue([current]); await host.refresh();
+  const view = desktop.views[0] as { webContents: { mainFrame: object; send: ReturnType<typeof vi.fn> }; setVisible: ReturnType<typeof vi.fn> };
+  const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
+  desktop.handlers.get('notices:resize')?.(child, 260, 340, false);
+  await desktop.handlers.get('notices:open')?.(child, current.id);
+  expect(open).toHaveBeenCalledWith(current);
+  expect(view.webContents.send).toHaveBeenLastCalledWith('notices:changed', expect.objectContaining({ notices: [], popupIds: [], viewedIds: [] }));
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  expect(window.webContents.send).toHaveBeenLastCalledWith('notices:bounds', null);
+  await host.refresh();
+  expect(desktop.handlers.get('notices:read')?.(child)).toMatchObject({ notices: [] });
+  host.stop();
+  const restarted = setup();
+  restarted.read.mockResolvedValue([current]); await restarted.host.refresh();
+  const newView = desktop.views.at(-1) as { webContents: { mainFrame: object } };
+  const newChild = { sender: newView.webContents, senderFrame: newView.webContents.mainFrame };
+  expect(desktop.handlers.get('notices:read')?.(newChild)).toMatchObject({ notices: [], popupIds: [] });
+  const next = { ...current, id: 'finished:next', turnId: 'next' };
+  restarted.read.mockResolvedValue([next]); await restarted.host.refresh();
+  expect(desktop.handlers.get('notices:read')?.(newChild)).toMatchObject({ notices: [next], popupIds: [next.id] });
+  restarted.host.stop();
+});
+
+it.each(['navigation', 'persistence'])('keeps a completion available to retry when %s fails', async failure => {
+  const { host, read, open } = setup();
+  const current: AppNotice = { ...notice, id: 'finished:turn', kind: 'TURN_FINISHED', occurredAt: new Date().toISOString() };
+  await host.refresh(); read.mockResolvedValue([current]); await host.refresh();
+  const view = desktop.views[0] as { webContents: { mainFrame: object } };
+  const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
+  if (failure === 'navigation') open.mockRejectedValueOnce(new Error('Open failed'));
+  else vi.spyOn(fs, 'writeFileSync').mockImplementationOnce(() => { throw new Error('Save failed'); });
+  await expect(desktop.handlers.get('notices:open')?.(child, current.id)).rejects.toThrow();
+  await host.refresh();
+  expect(desktop.handlers.get('notices:read')?.(child)).toMatchObject({ notices: [current], popupIds: [current.id] });
+  expect(fs.existsSync(path.join(directory, 'dismissed-notices.json'))).toBe(false);
+  await desktop.handlers.get('notices:open')?.(child, current.id);
+  expect(desktop.handlers.get('notices:read')?.(child)).toMatchObject({ notices: [], popupIds: [] });
+  host.stop();
 });
 
 it('suppresses a visible source, preserves failed reads, and dismisses without handling the task', async () => {

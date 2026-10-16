@@ -43,7 +43,12 @@ export async function run() {
       state = { ...state, notices: state.notices.filter(notice => notice.id !== id),
         popupIds: state.popupIds.filter(key => key !== id), viewedIds: state.viewedIds.filter(key => key !== id) }; listener(state);
     },
-    open: async id => { if (rejectOpen) throw new Error('Open failed'); opened.push(id); await bridge.dismiss(id); },
+    open: async id => {
+      if (rejectOpen) throw new Error('Open failed');
+      opened.push(id);
+      if (state.notices.find(notice => notice.id === id)?.kind === 'TURN_FINISHED') await bridge.remove(id);
+      else await bridge.dismiss(id);
+    },
     resize: (height, width, folded) => sizes.push({ height, width, folded }),
   };
   const make = (id: string, kind: AppNotice['kind']): AppNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn', reviewId: null,
@@ -157,11 +162,25 @@ export async function run() {
     assert(host.querySelector('.is-turn_finished') && Number(timers.size) === 0, 'New notices appear after older cards were closed and the final completion does not expire');
     state = { ...state, popupIds: [] }; listener(state); await wait();
     assert(host.querySelector('.is-turn_finished'), 'Recent completions remain visible even without popup IDs');
+    rejectOpen = true;
     host.querySelector<HTMLButtonElement>('.is-turn_finished .app-notice__actions button')?.click(); await wait();
-    assert(opened.includes('last') && !host.querySelector('.app-notice'), 'Opening the final completion closes its card');
+    assert(host.querySelector('.is-turn_finished') && host.querySelector('[role="alert"]')
+      && host.querySelector('.app-notices__launcher')?.textContent?.includes('1 recent'), 'Failed navigation preserves the completion card and its count');
+    rejectOpen = false;
+    host.querySelector<HTMLButtonElement>('.is-turn_finished .app-notice__actions button')?.click(); await wait();
+    assert(opened.includes('last') && !host.querySelector('.app-notices') && sizes.at(-1)?.height === 0,
+      'Opening the final completion removes its card and counter and releases the native hit area');
+    listener({ ...state }); await wait();
+    assert(!host.querySelector('.app-notices'), 'Opened completions stay absent across refreshes');
+    state = { ...state, notices: [make('first', 'TURN_FINISHED'), make('second', 'TURN_FINISHED')], popupIds: ['first', 'second'] }; listener(state); await wait();
     host.querySelector<HTMLButtonElement>('.app-notices__launcher')?.click(); await wait();
-    host.querySelector<HTMLButtonElement>('.app-notice__close')?.click(); await wait();
-    assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'Removing the last completion hides the expanded list and its counter');
+    host.querySelector<HTMLButtonElement>('.app-notice:not(.is-preview) .app-notice__actions button')?.click(); await wait();
+    assert(opened.includes('first') && host.querySelector('.app-notices__launcher')?.textContent?.includes('1 recent'),
+      'Opening a completion decreases the count without removing other notices');
+    host.querySelector<HTMLButtonElement>('.app-notices__launcher')?.click(); await wait();
+    assert(host.querySelectorAll('.app-notice').length === 1 && !host.querySelector('.app-notices__pages'), 'Reopening the list excludes the opened completion');
+    host.querySelector<HTMLButtonElement>('.app-notice__actions button')?.click(); await wait();
+    assert(!host.querySelector('.app-notices'), 'Opening the remaining completion clears the counter');
     state = { ...state, notices: Array.from({ length: 10 }, (_, i) => make(`recent-${i}`, 'TURN_FINISHED')), popupIds: [] }; listener(state); await wait();
     for (let remaining = 10; remaining > 0; remaining--) {
       const counter = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(counter, 'Recent notices have a counter');

@@ -66,7 +66,9 @@ export class NoticeHost {
       const notice = this.snapshot().notices.find(item => item.id === id);
       if (!notice) return;
       await this.openNotice(notice);
-      this.store.dismiss(id); this.publish();
+      if (notice.kind === 'TURN_FINISHED') this.store.remove(id);
+      else this.store.dismiss(id);
+      this.publish();
     });
     ipcMain.on('notices:resize', (event, height: unknown, width: unknown, folded: unknown) => {
       child(event);

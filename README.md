@@ -1,13 +1,23 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-dark.svg">
-    <img alt="ByteQuay" src="assets/wordmark.svg" width="420">
-  </picture>
+  <a href="https://bytequay.github.io/bytequay/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-dark.svg">
+      <img alt="ByteQuay — visit the website" src="assets/wordmark.svg" width="420">
+    </picture>
+  </a>
 </p>
 
 <p align="center">
   <strong>Review is all you need.</strong><br>
-  A local-first macOS app for GitHub pull-request work.
+  Let agents build. Understand the change. Merge with confidence.
+</p>
+
+<p align="center">
+  <a href="https://bytequay.github.io/bytequay/">Website</a> ·
+  <a href="https://bytequay.github.io/bytequay/documentation.html">Docs</a> ·
+  <a href="https://bytequay.github.io/bytequay/lab.html">ByteQuay Lab</a> ·
+  <a href="https://bytequay.github.io/bytequay/design.html">Design</a> ·
+  <a href="https://github.com/bytequay/bytequay/releases">Download</a>
 </p>
 
 <p align="center">
@@ -15,33 +25,85 @@
   <a href="https://github.com/bytequay/bytequay/actions/workflows/ci.yml"><img src="https://github.com/bytequay/bytequay/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
 
-ByteQuay brings GitHub pull requests and local agent work into one desktop
-app. Review diffs, checks, and conversation, then work with Codex or Claude in
-separate managed worktrees. Application state stays on your Mac; GitHub and
-model-provider requests use their external services. GitHub writes require a
-direct user action or explicitly accepted automation.
+ByteQuay is a macOS app that brings GitHub reviews and local coding agents
+together. Let agents build and guide you, choose how much detail to explore,
+and discuss any part of the work before you merge.
 
-ByteQuay is pre-1.0, under active redesign, and currently supports macOS only.
+App data stays on your Mac. GitHub and model requests use the services you
+connect; publishing requires your action or explicitly accepted automation.
 
-## Current scope
+ByteQuay is open source and pre-1.0. The guides cover the development version;
+check your release notes for feature availability.
 
-- A Home page with watched repositories, contribution history, and recent activity.
-- Pull-request lists for authored PRs and review requests.
-- PR descriptions, changed files, patches, checks, and activity.
-- Direct comment, approve, and merge actions.
-- GitHub CLI token import or personal access token onboarding.
-- An embedded GitHub view using Electron `WebContentsView`.
-- Worktree-scoped Codex and Claude tasks with transcripts, approvals, steering,
-  queued requests, attachments, and child-agent inspection.
-- WorkBench review, private discussions, and repository context alongside
-  development work.
+## What you can do
 
-Start with the [user guide](website/documentation.md) for ByteQuay's goals,
-setup, and instructions for its main features. See the
-[product design](docs/design.md) for intent and principles, and
-[architecture](docs/architecture.md) for system and trust boundaries.
-The [website source](website/README.md) contains the landing
-page, documentation, and design overview.
+Click a preview or title to open its guide, or
+[take the full app tour →](https://bytequay.github.io/bytequay/#the-app)
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://bytequay.github.io/bytequay/guide-agents.html#agent-tasks">
+        <img src="website/dist/assets/app-development.jpg" alt="Agent conversation and worktree changes in ByteQuay" width="440"><br>
+        <strong>Build with agents →</strong>
+      </a><br>
+      Work with Codex or Claude. Steer the conversation and inspect the result.
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://bytequay.github.io/bytequay/guide-reviews.html#private-review">
+        <img src="website/dist/assets/app-review.jpg" alt="Private review summary and a code finding" width="440"><br>
+        <strong>Review with context →</strong>
+      </a><br>
+      Read the reasoning and findings before deciding what to publish.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://bytequay.github.io/bytequay/guide-reviews.html#ask-from-review">
+        <img src="website/dist/assets/app-ask-agent.jpg" alt="Private agent discussion opened from a review card" width="440"><br>
+        <strong>Ask from a review card →</strong>
+      </a><br>
+      Discuss a comment and draft a reply privately before posting.
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://bytequay.github.io/bytequay/guide-reviews.html#link-previews">
+        <img src="website/dist/assets/app-link-preview.jpg" alt="Pull request hover card with its status and description" width="440"><br>
+        <strong>Preview PR and issue links →</strong>
+      </a><br>
+      Follow the context without losing your place.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://bytequay.github.io/bytequay/guide-agents.html#commits-and-backports">
+        <img src="website/dist/assets/app-cherry-pick.jpg" alt="Cherry-pick plan with selected commits and predicted conflicts" width="440"><br>
+        <strong>Carry changes across branches →</strong>
+      </a><br>
+      Plan cherry-picks, inspect conflicts, and review before delivery.
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://bytequay.github.io/bytequay/guide-planning.html#epics">
+        <img src="website/dist/assets/app-epic-zoom.jpg" alt="Epic zoom window showing related work and progress" width="440"><br>
+        <strong>Keep larger work connected →</strong>
+      </a><br>
+      Follow work items, tasks, dependencies, and outcomes in an Epic.
+    </td>
+  </tr>
+</table>
+
+[Goals](https://bytequay.github.io/bytequay/guide-planning.html#goals) are a
+development-only experiment and are hidden in packaged releases.
+
+## ByteQuay Lab
+
+ByteQuay Lab is a separate Python toolkit for measuring resource use, testing
+skills and review guidance, and examining context and memory use. Compare
+results before and after a change to understand which features help.
+
+[![ByteQuay Lab resource dashboard illustration with sample memory and agent activity data](website/dist/assets/lab-resources.svg)](https://bytequay.github.io/bytequay/lab.html)
+
+[Explore the Lab →](https://bytequay.github.io/bytequay/lab.html) ·
+[Run the Lab →](https://bytequay.github.io/bytequay/lab-guide.html)
 
 ## Install
 
@@ -50,6 +112,10 @@ Download the latest `.dmg` from
 drag **ByteQuay.app** to **Applications**.
 
 Current builds require macOS 14+ and JDK 25 LTS.
+
+Follow the [quickstart](https://bytequay.github.io/bytequay/guide-get-started.html#getting-started)
+to connect GitHub, watch a repository, and open your first PR.
+For common problems, see [Get help](https://bytequay.github.io/bytequay/guide-help.html).
 
 Current releases are not notarized. If macOS reports that ByteQuay is damaged
 after downloading it from the official Releases page, run:
@@ -60,22 +126,19 @@ xattr -dr com.apple.quarantine /Applications/ByteQuay.app
 
 ## Develop
 
-Requirements: macOS 14+, JDK 25 LTS (25.0.4.1+), Maven 3.9+, Node 24.21.0 LTS,
-and npm 11.19+. Run `nvm install` from the repository root to select the
-checked-in Node version.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for prerequisites, setup, and verification.
 
 ```sh
 git clone https://github.com/bytequay/bytequay.git
 cd bytequay
+nvm install
 ./dev.sh
 ```
 
-`dev.sh` starts the Spring Boot sidecar on `127.0.0.1`, preferring port `9527`
-and falling back to an OS-assigned port when needed. It passes the selected
-port to the Electron frontend. The backend uses SQLite with Hibernate managing
-the current schema directly; there is no migration framework.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for build and test commands.
+Read the [design overview](https://bytequay.github.io/bytequay/design.html),
+[product design](docs/design.md), and [architecture](docs/architecture.md)
+for product intent and system boundaries. The [website source](website/README.md)
+and [Markdown user guide](website/documentation.md) live in this repository.
 
 ## License
 

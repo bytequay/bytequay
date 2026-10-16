@@ -508,6 +508,26 @@ calls or more, a straight fit of a call's seconds into a fixed part, a part for
 every 100,000 tokens sent and one for every 1,000 written, with the share of
 the spread it explains and the share of the time each part takes.
 
+## Memory
+
+```sh
+uv run memory.py
+uv run memory.py --save
+```
+
+`memory.py` asks whether repository memory helps. ByteQuay gives a turn the
+memories of its repository, and counts for each memory the turns it was given
+to and the review findings that cite it. `memory.py` reads those records
+read-only from the database: how often each memory was given and cited, the
+characters a turn is given (sent again at every model call of the turn), and
+how the review findings that cite a memory ended against those that cite
+none. `--save` keeps `memory.json` with ids, kinds, counts, sizes and times,
+never a memory's title or text; the dashboard's Memory page reads the titles
+from the database only to show them. A memory given many times and never cited
+costs every turn and helps none, so it is the one to rewrite or remove; the
+page says when too few findings are decided to tell whether citing a memory
+helps a finding hold up.
+
 ## Delivery
 
 The dashboard's Delivery page shows what development tasks delivered for the

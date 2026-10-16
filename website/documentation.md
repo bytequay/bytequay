@@ -60,6 +60,21 @@ tasks, PRs, work items, commits, and memory.
 - **Unwatch** retires a workspace while keeping local history. **Watch again**
   restores it. **Delete local data** is a separate, confirmed removal.
 
+### Plan the day with Today
+
+On working days, after the time you set, Home opens with **Today**: up to five
+things worth doing first, each with a reason. An agent picks them from
+ByteQuay's records; it never writes to GitHub or starts a task. If ByteQuay was
+closed at that time, Today is made when you return.
+
+- Click a row to open its PR, task, issue, ticket, or work item. Hover it for
+  **Done** or **Not today**; a row also closes when its work happens.
+- The circular arrow makes the list again. A workspace Home shows only its
+  repository's rows; **Needs attention** marks Today rows with a sun.
+- On the last working day, **This week** looks back at what merged and slipped.
+- **Settings → General → Daily agenda** sets the time and working days, and can
+  plan around your calendar's busy times (never event titles).
+
 <a id="pull-requests"></a>
 
 ## Review a pull request

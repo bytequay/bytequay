@@ -109,7 +109,10 @@ is durable, but each account's mail page and calendar selection live only in
 memory. Manual refresh verifies identity before replacing a cache; failures
 preserve existing data. Task tools, when explicitly enabled, can read only the
 selected account's cache and bind consent to that account. Their ordinary task
-conversation retention still applies to shared content.
+conversation retention still applies to shared content. The daily agenda, when the
+user turns its calendar on, reads that account's busy times for today directly,
+without replacing the cached view, and keeps start and end times only. Its consent
+is saved apart from task access because it runs while nobody is there to approve.
 
 The extension owns OAuth and token refresh. ByteQuay isolates its credential
 namespace and encrypted-file fallback per account without changing the shared
@@ -215,6 +218,17 @@ It cannot read the main review's hypotheses or write findings or evidence. Its
 access ends when the pass completes, stops or is replaced; closing the provider
 session also revokes its token. Replay cutoff restrictions still apply. Generated
 review cards show a short summary and disclose the exact sent prompt separately.
+
+The daily agenda runs one disposable read-only session in an empty scratch folder,
+after the user's set time on a working day or when the user asks for it again. Its
+only tool, `agenda_context`, pages a snapshot of stored data gathered before the
+session starts: what moved, the user's own pull requests, tasks waiting on them,
+what others ask of them, Epic work ready to start, and earlier agendas. Each kind
+names its fields; bodies, diffs, commit messages, logs and transcripts stay out.
+The reply keeps only references a page handed out, and stored facts decide whether
+an item is done. Each run records its tool calls and refused items, so the pages
+can be judged against real mornings. Nothing in the session writes to GitHub,
+starts a task or changes work.
 
 ## Trust and external services
 

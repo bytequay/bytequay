@@ -1,0 +1,303 @@
+/* ── Today ───────────────────────────────────────────────────────
+   The daily agenda above Needs attention (home/TodayList.tsx): the same compact header and box of rows (cards.css), nothing bold. */
+
+.today {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.today--workspace {
+  margin-top: 22px;
+}
+
+.today-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+
+.today-head__label,
+.today-head__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+  color: var(--text-4);
+}
+
+.today-head__toggle {
+  padding: 0 4px 0 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.today-head__toggle:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
+
+.today-head__title {
+  font-size: 11.5px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: light-dark(#656d76, var(--dark-muted));
+  white-space: nowrap;
+}
+
+.today-head__date {
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.today-head__spacer {
+  flex: 1;
+}
+
+.today-head__facts {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.today-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.today-fact--button {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.today-fact--button:hover {
+  background: light-dark(#f0f1f3, var(--dark-border-muted));
+  color: var(--text-1);
+}
+
+.today-fact--button:focus-visible,
+.today-link:focus-visible,
+.today-chip:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
+
+.today-fact--icon {
+  justify-content: center;
+  width: 22px;
+  padding: 0;
+}
+
+.today-spin {
+  width: 13px;
+  height: 13px;
+  animation: bq-spin 0.9s linear infinite;
+}
+
+.today-summary {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--fg-muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  text-wrap: pretty;
+}
+
+.today-line {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-3);
+}
+
+.today-failed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-2);
+}
+
+.today-failed > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.today-link {
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-link);
+  font: inherit;
+  cursor: pointer;
+}
+
+.today-link:hover {
+  text-decoration: underline;
+}
+
+.today-list {
+  margin-top: 0;
+}
+
+.today-row__icon {
+  color: var(--text-2);
+}
+
+.today-row .item-row__meta {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.today-row__where {
+  flex: none;
+  white-space: nowrap;
+}
+
+.today-row__why {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-row__done {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.today-row.is-done .item-row__title > span:first-child {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+.today-row.is-done .today-row__icon {
+  color: var(--text-4);
+}
+
+.today-row__reopen {
+  flex: none;
+  color: var(--text-2);
+}
+
+/* "This week": a last row that unfolds the recap. */
+.today-recap {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px 10px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-canvas);
+  cursor: pointer;
+}
+
+.today-recap:hover {
+  background: light-dark(#f6f8fa, var(--dark-subtle));
+}
+
+.today-recap:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: -2px;
+}
+
+.today-recap__title {
+  font-size: 13.5px;
+  line-height: 19px;
+}
+
+.today-recap > svg:last-child {
+  color: var(--text-3);
+}
+
+.today-recap__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px 44px;
+}
+
+.today-recap__text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+
+.today-recap__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.today-recap__name {
+  width: 56px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.today-chip {
+  padding: 0 8px;
+  border: 1px solid light-dark(#e3e3e6, var(--dark-border));
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.today-chip:hover {
+  background: light-dark(#f6f8fa, var(--dark-subtle));
+}
+
+/* The sun beside a Needs attention row that is also on Today. */
+.today-mark {
+  display: inline-flex;
+  flex: none;
+  color: var(--text-3);
+}
+
+/* Today's items for this repository, first among the composer's starting points (agents/AgentHome.tsx). */
+.today-start-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 4px 0 2px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.today-start-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: light-dark(#e3e3e6, var(--dark-border));
+}

@@ -1389,6 +1389,60 @@ export type RecentChangeDto = {
   summary: string | null;
 };
 
+/** Where an agenda item opens: the page that already shows its pull request, issue, ticket, task, review or work item. */
+export type AgendaTargetDto = {
+  kind: 'PULL' | 'ISSUE' | 'JIRA' | 'TASK' | 'REVIEW' | 'WORK';
+  workspaceId: string | null;
+  repo: string | null;
+  number: number | null;
+  /** The task, review or work item id, or the Jira ticket's issue id. */
+  id: string | null;
+  connectionId: string | null;
+  cloudId: string | null;
+};
+
+export type AgendaAction = 'start' | 'reply' | 'review' | 'fix' | 'merge' | 'answer' | 'decide' | 'follow_up';
+
+export type AgendaItemDto = {
+  ref: string;
+  action: AgendaAction;
+  title: string;
+  /** A short name for a composer chip, without the verb its icon already says. */
+  label: string;
+  why: string;
+  /** Since when the item has waited. */
+  at: string | null;
+  workspaceId: string | null;
+  target: AgendaTargetDto;
+  /** What the row names beside the reason when the target alone cannot: an Epic and its progress, a task's pull request. */
+  where: string | null;
+  status: 'open' | 'done' | 'dismissed';
+  /** Whether the user marked it, rather than a stored fact closing it. */
+  byYou: boolean;
+  doneText: string | null;
+  doneAt: string | null;
+};
+
+export type AgendaLinkDto = { ref: string; target: AgendaTargetDto };
+
+export type AgendaDto = {
+  day: string;
+  state: 'NONE' | 'RUNNING' | 'READY' | 'FAILED';
+  enabled: boolean;
+  /** When the schedule makes it, in minutes past midnight. */
+  at: number;
+  generatedAt: string | null;
+  model: string | null;
+  summary: string | null;
+  items: AgendaItemDto[];
+  recap: { text: string; merged: AgendaLinkDto[]; slipped: AgendaLinkDto[] } | null;
+  failure: string | null;
+};
+
+export type AgendaDay = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY';
+
+export type AgendaScheduleDto = { enabled: boolean; minute: number; days: AgendaDay[] };
+
 export type RecentFilterQuery = {
   from?: string;
   to?: string;
@@ -1809,6 +1863,14 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   recordRecentTouch: (touch: RecentTouchRequest) => Promise<void>;
   saveRecentDraft: (draft: RecentDraftRequest) => Promise<void>;
   clearRecent: () => Promise<void>;
+
+  /** Today's agenda; with a workspace, only its items, without the summary and recap. */
+  getAgendaToday: (workspaceId?: string) => Promise<AgendaDto>;
+  makeAgendaAgain: () => Promise<AgendaDto>;
+  /** An empty mark lets stored facts decide again. */
+  markAgendaItem: (ref: string, mark: 'DONE' | 'DISMISSED' | null) => Promise<AgendaDto>;
+  getAgendaSchedule: () => Promise<AgendaScheduleDto>;
+  saveAgendaSchedule: (schedule: AgendaScheduleDto) => Promise<AgendaScheduleDto>;
 
   listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
   listRunningTasks: () => Promise<RunningTask[]>;

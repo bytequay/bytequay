@@ -33,6 +33,9 @@ import {
   type Handled,
 } from './attention';
 import ContributionCard from './ContributionCard';
+import TodayList from './TodayList';
+import { todayKeys } from './today';
+import { useTodayAgenda } from './useTodayAgenda';
 import { getCached, getCachedFresh, setCached } from '../dataCache';
 import WatchedReposGrid from './WatchedReposGrid';
 import CirclesGrid from './CirclesGrid';
@@ -103,6 +106,8 @@ function HomePage({
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [handled, setHandled] = useState<Handled>(loadHandled);
+  const today = useTodayAgenda();
+  const onToday = useMemo(() => todayKeys(today.agenda), [today.agenda]);
   const [issueItems, setIssueItems] = useState<AttentionItem[]>(() => getCached<AttentionItem[]>(SEED.issues) ?? []);
 
   useEffect(() => {
@@ -301,12 +306,14 @@ function HomePage({
       <main className="home-main">
       {/* ── Contribution card: graph + bio ── */}
       <ContributionCard profile={profile} />
+      <TodayList today={today} scope="global" />
 
       {attentionError && <div className="ws-error" role="alert">Unable to load PR attention: {attentionError}</div>}
       {jira.error && <div className="ws-error" role="alert">{jira.error}</div>}
       {issueAttentionError && <div className="ws-error" role="alert">{issueAttentionError}</div>}
       <AttentionList
         candidates={candidates}
+        todayKeys={onToday}
         goal={goalToggle}
         handled={handled}
         viewerLogin={login ?? null}

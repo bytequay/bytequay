@@ -65,6 +65,7 @@ class TestAgendaReply
         assertThat(start.target()).isEqualTo(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"));
         assertThat(start.workspaceId()).contains("ws1");
         assertThat(start.at()).contains(AgendaFixtures.NOW.minusSeconds(32400));
+        assertThat(start.where()).contains("Iceberg write path · 3/6");
         // Without a label, the chip shows the title cut to its length.
         assertThat(reply.items().get(1).label()).isEqualTo("Review #31377 Add Iceberg metad…").hasSize(32);
         assertThat(reply.picked()).extracting(AgendaRun.Pick::kind).containsExactly("epics", "asks");

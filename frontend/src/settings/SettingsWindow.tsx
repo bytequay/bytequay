@@ -285,6 +285,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
                 setError(null);
                 window.bridge.saveQuietHours(next).then(setQuietHours).catch(report).finally(() => { quietHoursSaving.current = false; setQuietHoursBusy(false); });
               }}
+              onAgendaError={report}
               onClearRecent={() => {
                 setClearing(true);
                 window.bridge.clearRecent()

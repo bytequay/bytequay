@@ -57,8 +57,18 @@ record AgendaSnapshot(
         refs = ImmutableMap.copyOf(refs);
     }
 
-    /** Where a ref opens, and since when its thing has waited: the row's age when the reply picks it. */
-    record RefInfo(Optional<Instant> at, Optional<String> workspaceId, AgendaTarget target) {}
+    /**
+     * Where a ref opens, and since when its thing has waited: the row's age when the reply picks it.
+     *
+     * @param where what a row names beside the reason when the target alone cannot: an Epic's progress, a task's pull request
+     */
+    record RefInfo(Optional<Instant> at, Optional<String> workspaceId, AgendaTarget target, Optional<String> where)
+    {
+        RefInfo(Optional<Instant> at, Optional<String> workspaceId, AgendaTarget target)
+        {
+            this(at, workspaceId, target, Optional.empty());
+        }
+    }
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record Overview(String today, String weekday, boolean recapDay, Instant since, Counts counts, List<String> newlyWatched) {}

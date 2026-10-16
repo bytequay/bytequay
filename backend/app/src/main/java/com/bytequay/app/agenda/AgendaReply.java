@@ -94,7 +94,7 @@ record AgendaReply(String summary, List<AgendaItem> items, Optional<AgendaRecap>
             RefInfo info = snapshot.refs().get(ref);
             String title = clip(node.path("title").asText(), TITLE);
             String label = clip(text(node, "label").orElse(title), LABEL);
-            items.add(new AgendaItem(ref, action, title, label, clip(node.path("why").asText(""), WHY), info.at(), info.workspaceId(), info.target()));
+            items.add(new AgendaItem(ref, action, title, label, clip(node.path("why").asText(""), WHY), info.at(), info.workspaceId(), info.target(), info.where()));
             picked.add(new AgendaRun.Pick(ref, action.name().toLowerCase(Locale.ROOT), served.get(ref)));
         }
         Optional<AgendaRecap> recap = snapshot.overview().recapDay() && root.path("recap").isObject()

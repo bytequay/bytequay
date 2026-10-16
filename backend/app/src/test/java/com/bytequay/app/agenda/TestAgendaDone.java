@@ -96,7 +96,7 @@ class TestAgendaDone
                 WorkItem.State.WORKING, 2, ImmutableList.of(), ImmutableList.of(), MADE, later, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.of("epic"), 0);
         when(workItems.find("w22")).thenReturn(Optional.of(started));
         AgendaItem start = new AgendaItem("work:w22", AgendaItem.Action.START, "Start “Expose snapshot id”", "Expose snapshot id", "", Optional.empty(), Optional.of("ws1"),
-                AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"));
+                AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"), Optional.of("Iceberg write path · 3/6"));
         assertThat(status(day(start, ImmutableMap.of()), start).text()).contains("Started");
     }
 
@@ -131,7 +131,7 @@ class TestAgendaDone
     private static AgendaItem pull(int number, AgendaItem.Action action)
     {
         return new AgendaItem("pr:trinodb/trino#" + number, action, "PR " + number, "PR " + number, "", Optional.empty(), Optional.of("ws1"),
-                AgendaTarget.pull("trinodb/trino", number, Optional.of("ws1")));
+                AgendaTarget.pull("trinodb/trino", number, Optional.of("ws1")), Optional.empty());
     }
 
     private static AgendaDay day(AgendaItem item, Map<String, AgendaDay.Mark> marks)

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowRight, ArrowUpRight, Check, CircleX, Clock3, MessageSquare, Play } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Check, CircleX, Clock3, MessageSquare, Play, Sun } from 'lucide-react';
 import Avatar from '../Avatar';
 import { CardActions, CardAge, GoalIcon, IconButton, InGoalBadge, ItemRow, LinkKey, Pill, SourceIcon } from '../cards/Card';
 import { jiraIssueLocation } from '../jira/contracts';
@@ -73,6 +73,8 @@ type Props = {
   onStart?: () => void;
   /** Whether the item is in the pinned goal, shown as a badge beside the title. */
   inGoal?: boolean;
+  /** Whether the item is on today's agenda, shown as a sun beside the title. */
+  onToday?: boolean;
   /** Adds the item to the pinned goal, or takes it out; absent where no goal can hold it. */
   onToggleGoal?: () => void;
 };
@@ -110,7 +112,7 @@ function latestAt(item: AttentionItem, summary: AttentionSummary): string | null
  * row opens the item's hover card; its actions take the age's place while the pointer or focus is inside.
  */
 export default function AttentionRow({
-  item, viewerLogin, showRepo, showState = true, circle = null, age, onOpen, onAcknowledge, onSnooze, onStart, inGoal = false, onToggleGoal,
+  item, viewerLogin, showRepo, showState = true, circle = null, age, onOpen, onAcknowledge, onSnooze, onStart, inGoal = false, onToday = false, onToggleGoal,
 }: Props) {
   const hover = useHoverCard(PREVIEW_OPEN_MS, PREVIEW_CLOSE_MS);
   const status = useAttentionStatus(item.key);
@@ -167,6 +169,7 @@ export default function AttentionRow({
           {item.task === undefined && <span className="card-key">{reference}</span>}
           {showState && <Pill outline>{status ?? summary.tag.label}</Pill>}
           {inGoal && <InGoalBadge />}
+          {onToday && <span className="today-mark" title="On Today"><Sun size={12} aria-hidden="true" /></span>}
         </>}
         meta={meta}
         actions={

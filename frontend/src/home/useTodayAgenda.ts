@@ -1,0 +1,97 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { AgendaDto } from '../types';
+
+/** How often a Home looks again while today's agenda is being made. */
+const MAKING_POLL_MS = 10_000;
+/** Pull request refreshes arrive every few seconds; done states only need a look now and then. */
+const ATTENTION_REFRESH_MS = 30_000;
+
+export type TodayAgenda = {
+  agenda: AgendaDto | null;
+  /** Why the last thing the user asked for failed; background reads stay quiet. */
+  error: string | null;
+  makeAgain: () => void;
+  mark: (ref: string, mark: 'DONE' | 'DISMISSED' | null) => void;
+  /** Brings back every item set aside for today. */
+  showHidden: () => void;
+};
+
+/** Today's agenda for one Home: read on open and focus, after pull request refreshes, and every few seconds while it is being made. */
+export function useTodayAgenda(workspaceId?: string): TodayAgenda {
+  const [agenda, setAgenda] = useState<AgendaDto | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const request = useRef(0);
+  const loadedAt = useRef(0);
+
+  const apply = useCallback((value: AgendaDto, ticket: number) => {
+    if (ticket !== request.current) return;
+    loadedAt.current = Date.now();
+    setAgenda(value);
+  }, []);
+
+  const load = useCallback(() => {
+    const ticket = ++request.current;
+    try {
+      // A failed background read keeps what is on screen; the next read retries.
+      window.bridge.getAgendaToday(workspaceId).then(value => apply(value, ticket)).catch((): void => undefined);
+    }
+    catch {
+      // A bridge without the agenda, such as a test fixture's, draws no Today section.
+    }
+  }, [apply, workspaceId]);
+
+  useEffect(() => {
+    load();
+    const focused = () => load();
+    const refreshed = () => { if (Date.now() - loadedAt.current >= ATTENTION_REFRESH_MS) load(); };
+    window.addEventListener('focus', focused);
+    window.addEventListener('bytequay:pr-attention-updated', refreshed);
+    return () => {
+      request.current += 1;
+      window.removeEventListener('focus', focused);
+      window.removeEventListener('bytequay:pr-attention-updated', refreshed);
+    };
+  }, [load]);
+
+  const making = agenda?.state === 'RUNNING';
+  useEffect(() => {
+    if (!making) return;
+    const timer = window.setInterval(load, MAKING_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [making, load]);
+
+  const act = useCallback((action: () => Promise<AgendaDto>) => {
+    setError(null);
+    const ticket = ++request.current;
+    action().then(() => load()).catch((failure: unknown) => {
+      if (ticket !== request.current) return;
+      setError(failure instanceof Error ? failure.message : String(failure));
+    });
+  }, [load]);
+
+  const makeAgain = useCallback(() => act(() => window.bridge.makeAgendaAgain()), [act]);
+  const mark = useCallback((ref: string, value: 'DONE' | 'DISMISSED' | null) => act(() => window.bridge.markAgendaItem(ref, value)), [act]);
+  const showHidden = useCallback(() => {
+    const hidden = agenda?.items.filter(item => item.status === 'dismissed').map(item => item.ref) ?? [];
+    act(async () => {
+      let latest: AgendaDto | null = null;
+      for (const ref of hidden) latest = await window.bridge.markAgendaItem(ref, null);
+      return latest ?? window.bridge.getAgendaToday(workspaceId);
+    });
+  }, [act, agenda, workspaceId]);
+
+  return { agenda, error, makeAgain, mark, showHidden };
+}

@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import { readBrowserDisplayMode, saveBrowserDisplayMode, type BrowserDisplayMode } from '../browserPreferences';
 import type { AppPreferencesDto, AppThemeDto, QuietHoursDto } from '../types';
+import AgendaScheduleCard from './AgendaScheduleCard';
 import { formatMinuteOfDay, MINUTE_OPTIONS } from './model';
 import { Segmented, SelectPill, SettingsCard, SettingsRow, Toggle } from './primitives';
 
@@ -37,7 +38,7 @@ function daysPill(value: number, choices: number[], ariaLabel: string, onSelect:
   );
 }
 
-export function GeneralPage({ preferences, quietHours, quietHoursBusy, version, clearing, error, onChange, onQuietHours, onClearRecent }: {
+export function GeneralPage({ preferences, quietHours, quietHoursBusy, version, clearing, error, onChange, onQuietHours, onClearRecent, onAgendaError }: {
   preferences: AppPreferencesDto;
   quietHours: QuietHoursDto | null;
   quietHoursBusy: boolean;
@@ -47,6 +48,7 @@ export function GeneralPage({ preferences, quietHours, quietHoursBusy, version, 
   onChange: (next: AppPreferencesDto) => void;
   onQuietHours: (next: QuietHoursDto) => void;
   onClearRecent: () => void;
+  onAgendaError: (error: unknown) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
 
@@ -69,6 +71,7 @@ export function GeneralPage({ preferences, quietHours, quietHoursBusy, version, 
         </div>}
         <div className="setw-foot-row"><span>Manual refresh and desktop notifications remain available during quiet hours.</span></div>
       </SettingsCard>
+      <AgendaScheduleCard quietHours={quietHours} onError={onAgendaError} />
 
       <div className="setw-section"><span className="setw-section-title">Tasks</span></div>
       <SettingsCard>

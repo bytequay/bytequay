@@ -13,9 +13,12 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CircleDot, Eye, EyeOff, ListChecks, Pencil, SquareCheck, type LucideIcon } from 'lucide-react';
+import { CircleDot, Eye, EyeOff, ListChecks, Pencil, SquareCheck, Sun, type LucideIcon } from 'lucide-react';
 import RepoAvatar from '../RepoAvatar';
 import AttentionList, { type GoalToggle } from '../home/AttentionList';
+import TodayList, { ACTION_ICONS, openTarget } from '../home/TodayList';
+import { todayKeys } from '../home/today';
+import { useTodayAgenda, type TodayAgenda } from '../home/useTodayAgenda';
 import { Card, CardActions, IconButton, InGoalBadge, Pill } from '../cards/Card';
 import type { AttentionItem, Handled } from '../home/attention';
 import type { WorkspaceAttention } from '../workspaces/workspaceAttention';
@@ -140,6 +143,7 @@ export default function AgentHome({
   const rename = useCallback((task: AgentTaskDto, title: string) => {
     void live().renameAgentTask(task.id, task.workspaceId, task.version, title).then(refresh).catch(() => {});
   }, [live, refresh]);
+  const today = useTodayAgenda(workspaceId);
   const openAttention = useCallback((item: AttentionItem) => {
     if (item.task) onOpenTask(item.task.dto.id);
     else if (item.jira) zoomReference({ kind: 'jira', ...jiraIssueLocation(item.jira) });
@@ -178,6 +182,7 @@ export default function AgentHome({
       onOpenReview={onOpenReview}
       onOpenSettings={onOpenSettings}
       onShowAll={onShowAll}
+      today={today}
     />
   );
 }
@@ -188,7 +193,7 @@ export function AgentHomeView({
   activity = {}, changes = {}, hiddenTasks, onHideTask, onRenameTask, now = Date.now(),
   attention = [], handled = {}, viewerLogin = null, onHandledChange = () => {}, onOpenAttention = () => {},
   onStartIssue, attentionError, goal, inGoal, jiraConnected = false,
-  images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation,
+  images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation, today,
 }: {
   repository: string;
   workspaceId?: string;
@@ -242,9 +247,14 @@ export function AgentHomeView({
   onAttach?: () => void;
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
+  /** Today's agenda for this workspace; without it the page draws no Today section or chips. */
+  today?: TodayAgenda;
 }): React.JSX.Element {
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction }} />;
   const [owner, repo = ''] = repository.split('/');
+  const onToday = todayKeys(today?.agenda ?? null);
+  // Open items only: a chip opens the work, and a done or set-aside one has nothing left to start.
+  const startHere = today?.agenda?.items.filter(item => item.status === 'open') ?? [];
   const items = [
     ...tasks.map(task => developmentItem(task, activity[task.id] ?? null, changes[task.id] ?? null, providers)),
     ...reviews.map(reviewItem).filter(item => item.state.label === 'Running' || item.state.label === 'Needs you'),
@@ -258,10 +268,12 @@ export function AgentHomeView({
           <span className="agt-spacer" />
           {headerAction}
         </div>
+        {today !== undefined && <TodayList today={today} scope="workspace" />}
         {attentionError && <div className="ws-error" role="alert">{attentionError}</div>}
         <AttentionList
           variant="workspace"
           scope={{ workspaceId, repository }}
+          todayKeys={onToday}
           candidates={attention}
           handled={handled}
           viewerLogin={viewerLogin}
@@ -275,6 +287,7 @@ export function AgentHomeView({
           variant="workspace"
           section="my-prs"
           scope={{ workspaceId, repository }}
+          todayKeys={onToday}
           candidates={attention}
           handled={handled}
           viewerLogin={viewerLogin}
@@ -309,6 +322,19 @@ export function AgentHomeView({
           </div>
         </section>
         <ComposerDock repository={repository} chips={<>
+          {startHere.length > 0 && <>
+            <span className="today-start-label"><Sun size={13} aria-hidden="true" />Today</span>
+            {startHere.map(item => {
+              const Icon = ACTION_ICONS[item.action];
+              return (
+                <button type="button" className="agt-start" key={item.ref} title={item.why} onClick={() => openTarget(item.target)}>
+                  <Icon size={13} strokeWidth={1.9} aria-hidden="true" />
+                  {item.label}
+                </button>
+              );
+            })}
+            <span className="today-start-divider" aria-hidden="true" />
+          </>}
           <BackportButton draft={draft} onDraftChange={onDraftChange} disabled={busy} />
           {SUGGESTIONS.map((suggestion) => {
             const Icon = suggestion.icon;

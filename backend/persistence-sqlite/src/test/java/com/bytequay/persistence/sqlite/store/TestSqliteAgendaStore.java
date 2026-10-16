@@ -61,7 +61,7 @@ class TestSqliteAgendaStore
     {
         AgendaTarget pull = AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"));
         AgendaItem item = new AgendaItem("pr:trinodb/trino#31402", AgendaItem.Action.REPLY, "Answer elric-t's review on #31402", "elric-t on #31402",
-                "Changes requested yesterday.", Optional.of(MADE.minusSeconds(3600)), Optional.of("ws1"), pull);
+                "Changes requested yesterday.", Optional.of(MADE.minusSeconds(3600)), Optional.of("ws1"), pull, Optional.of("trinodb/trino #31402"));
         AgendaDay day = new AgendaDay(LocalDate.parse("2026-10-16"), AgendaDay.State.READY, MADE, MADE.minusSeconds(86400), "claude", "Sonnet", "Two people wait on you.",
                 ImmutableList.of(item), Optional.of(new AgendaRecap("Merged 3 PRs.", ImmutableList.of(new AgendaRecap.Link("pr:trinodb/trino#31390",
                 AgendaTarget.pull("trinodb/trino", 31390, Optional.empty()))), ImmutableList.of())), ImmutableMap.of(), Optional.empty());

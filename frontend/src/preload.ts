@@ -428,6 +428,12 @@ const bridge: Bridge = {
   saveRecentDraft: draft => ipcRenderer.invoke('recent:draft', draft),
   clearRecent: () => ipcRenderer.invoke('recent:clear'),
 
+  getAgendaToday: workspaceId => ipcRenderer.invoke('agenda:today', workspaceId),
+  makeAgendaAgain: () => ipcRenderer.invoke('agenda:again'),
+  markAgendaItem: (ref, mark) => ipcRenderer.invoke('agenda:mark', ref, mark),
+  getAgendaSchedule: () => ipcRenderer.invoke('settings:agenda'),
+  saveAgendaSchedule: schedule => ipcRenderer.invoke('settings:agenda:save', schedule),
+
   listAgentTasks: (workspaceId, limit) => ipcRenderer.invoke('agent:tasks:list', workspaceId, limit),
   listRunningTasks: () => ipcRenderer.invoke('agent:tasks:running'),
   createAgentTask: request => ipcRenderer.invoke('agent:tasks:create', request),

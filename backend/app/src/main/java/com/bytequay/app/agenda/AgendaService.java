@@ -288,6 +288,6 @@ public class AgendaService
     private static AgendaView.Item item(AgendaItem item, AgendaDone.Status status)
     {
         return new AgendaView.Item(item.ref(), item.action().name().toLowerCase(Locale.ROOT), item.title(), item.label(), item.why(), item.at(), item.workspaceId(),
-                item.target(), status.state().name().toLowerCase(Locale.ROOT), status.byYou(), status.text(), status.at());
+                item.target(), item.where(), status.state().name().toLowerCase(Locale.ROOT), status.byYou(), status.text(), status.at());
     }
 }

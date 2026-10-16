@@ -26,6 +26,7 @@ import static java.util.Objects.requireNonNull;
  * @param label a short name for a chip, without the verb its action icon already says
  * @param at since when the item has waited, which the row shows as its age
  * @param workspaceId the workspace the item belongs to; a workspace Home shows only its own
+ * @param where what the row names beside the reason when its target alone cannot, such as an Epic and its progress
  */
 public record AgendaItem(
         String ref,
@@ -35,7 +36,8 @@ public record AgendaItem(
         String why,
         Optional<Instant> at,
         Optional<String> workspaceId,
-        AgendaTarget target)
+        AgendaTarget target,
+        Optional<String> where)
 {
     public enum Action
     {
@@ -52,5 +54,6 @@ public record AgendaItem(
         requireNonNull(at, "at is null");
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(target, "target is null");
+        requireNonNull(where, "where is null");
     }
 }

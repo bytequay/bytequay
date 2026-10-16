@@ -692,3 +692,20 @@
 .jira-account__notice .setw-badge { margin-right: 6px; }
 .jira-account__error { color: var(--fg-danger); }
 @media (max-width: 800px) { .jira-account .setw-row { flex-wrap: wrap; } .jira-account .setw-row-controls { margin-left: 38px; } }
+
+/* The daily agenda's working days: one round toggle per weekday. */
+.setw-days { display: inline-flex; gap: 4px; }
+.setw-day {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #dcdce1;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 11.5px;
+  color: #6e6e73;
+  cursor: pointer;
+}
+.setw-day.is-on { border-color: #1d1d1f; background: #1d1d1f; color: #fff; }
+.setw-day:disabled { opacity: 0.5; cursor: default; }
+.setw-day:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 2px; }

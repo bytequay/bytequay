@@ -55,7 +55,8 @@ final class AgendaFixtures
         refs.put("pr:trinodb/trino-gateway#612", new RefInfo(Optional.of(NOW), Optional.empty(), AgendaTarget.pull("trinodb/trino-gateway", 612, Optional.empty())));
         refs.put("task:t1", new RefInfo(Optional.of(NOW.minusSeconds(3600)), Optional.of("ws1"), AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t1")));
         refs.put("work:w19", new RefInfo(Optional.of(NOW), Optional.of("ws1"), AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w19")));
-        refs.put("work:w22", new RefInfo(Optional.of(NOW.minusSeconds(32400)), Optional.of("ws1"), AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22")));
+        refs.put("work:w22", new RefInfo(Optional.of(NOW.minusSeconds(32400)), Optional.of("ws1"), AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"),
+                Optional.of("Iceberg write path · 3/6")));
         refs.put("epic:E1", new RefInfo(Optional.of(NOW), Optional.of("ws1"), AgendaTarget.issue("trinodb/trino", 30001, "ws1")));
         refs.put("pr:trinodb/trino#31390", pull(31390));
         refs.put("pr:unserved/repo#1", pull(1));

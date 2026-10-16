@@ -382,12 +382,14 @@ class AgendaReader
         for (AppNotice notice : notices.current()) {
             boolean review = notice.reviewId().isPresent();
             String ref = review ? AgendaRefs.review(notice.reviewId().orElseThrow()) : AgendaRefs.task(notice.taskId());
+            Optional<AgendaRefs.Numbered> linked = review
+                    ? notice.pullRequest().flatMap(AgendaReader::numbered)
+                    : tasks.find(TaskId.valueOf(notice.taskId())).flatMap(ownership::linkedPullRequest).map(pull -> new AgendaRefs.Numbered(pull.repo(), pull.number()));
+            Optional<String> pr = linked.map(value -> AgendaRefs.pull(value.repo(), value.number()));
             refs.putIfAbsent(ref, new RefInfo(Optional.of(notice.occurredAt()), Optional.of(notice.workspaceId()),
                     review ? AgendaTarget.of(AgendaTarget.Kind.REVIEW, notice.workspaceId(), notice.reviewId().orElseThrow())
-                            : AgendaTarget.of(AgendaTarget.Kind.TASK, notice.workspaceId(), notice.taskId())));
-            Optional<String> pr = review
-                    ? notice.pullRequest().map(AgendaReader::numbered).flatMap(numbered -> numbered.map(value -> AgendaRefs.pull(value.repo(), value.number())))
-                    : tasks.find(TaskId.valueOf(notice.taskId())).flatMap(ownership::linkedPullRequest).map(linked -> AgendaRefs.pull(linked.repo(), linked.number()));
+                            : AgendaTarget.of(AgendaTarget.Kind.TASK, notice.workspaceId(), notice.taskId()),
+                    linked.map(value -> value.repo() + " #" + value.number())));
             Optional<String> work = review ? Optional.empty()
                     : workItemStore.findByIdentity(WorkItemLink.taskIdentity(notice.taskId())).map(item -> AgendaRefs.work(item.id()));
             work.ifPresent(workRef -> workItemStore.findByIdentity(WorkItemLink.taskIdentity(notice.taskId()))
@@ -501,7 +503,7 @@ class AgendaReader
     {
         String ref = AgendaRefs.jira(ticket.cloudId(), ticket.id());
         refs.putIfAbsent(ref, new RefInfo(Optional.of(ticket.updatedAt()), ticket.workspace().map(workspace -> workspace.id()),
-                AgendaTarget.jira(ticket.connectionId(), ticket.cloudId(), ticket.id(), ticket.workspace().map(workspace -> workspace.id()))));
+                AgendaTarget.jira(ticket.connectionId(), ticket.cloudId(), ticket.id(), ticket.workspace().map(workspace -> workspace.id())), Optional.of(ticket.key())));
         return ref;
     }
 
@@ -527,11 +529,15 @@ class AgendaReader
                 return;
             }
             String ref = AgendaRefs.epic(epicId);
+            int doneCount = (int) items.stream().filter(item -> item.state() == WorkItem.State.DONE).count();
+            int total = (int) items.stream().filter(item -> item.state() != WorkItem.State.DROPPED).count();
+            String title = clip(source.orElseThrow().title(), TITLE);
             Optional<Instant> touched = items.stream().map(WorkItemView::updatedAt).max(Comparator.naturalOrder());
-            refs.putIfAbsent(ref, new RefInfo(touched, Optional.of(workspace.id()), source.orElseThrow().target()));
+            refs.putIfAbsent(ref, new RefInfo(touched, Optional.of(workspace.id()), source.orElseThrow().target(), Optional.of("Epic · " + doneCount + "/" + total)));
             for (WorkItemView item : items) {
-                refs.putIfAbsent(AgendaRefs.work(item.id()), new RefInfo(Optional.of(item.updatedAt()), Optional.of(workspace.id()),
-                        AgendaTarget.of(AgendaTarget.Kind.WORK, workspace.id(), item.id())));
+                // Work a task or receipt named first is still best named by its Epic.
+                refs.put(AgendaRefs.work(item.id()), new RefInfo(Optional.of(item.updatedAt()), Optional.of(workspace.id()),
+                        AgendaTarget.of(AgendaTarget.Kind.WORK, workspace.id(), item.id()), Optional.of(title + " · " + doneCount + "/" + total)));
             }
             List<Working> working = items.stream().filter(item -> item.state() == WorkItem.State.WORKING)
                     .map(item -> new Working(AgendaRefs.work(item.id()), clip(item.title(), TITLE), pullLink(item), ReadyWork.unblocks(item, items)))
@@ -539,10 +545,8 @@ class AgendaReader
             List<Ready> ready = ReadyWork.ready(items).stream().limit(READY)
                     .map(item -> new Ready(AgendaRefs.work(item.id()), clip(item.title(), TITLE), item.priority().name(), ReadyWork.unblocks(item, items)))
                     .collect(toImmutableList());
-            int doneCount = (int) items.stream().filter(item -> item.state() == WorkItem.State.DONE).count();
-            int total = (int) items.stream().filter(item -> item.state() != WorkItem.State.DROPPED).count();
             int blocked = (int) items.stream().filter(item -> ReadyWork.open(item) && ReadyWork.waiting(item, items)).count();
-            entries.add(new EpicEntry(ref, clip(source.orElseThrow().title(), TITLE), doneCount, total, blocked, proposals, newChildren, working, ready));
+            entries.add(new EpicEntry(ref, title, doneCount, total, blocked, proposals, newChildren, working, ready));
         });
         return entries.build();
     }
@@ -579,7 +583,7 @@ class AgendaReader
             Map<String, AgendaDone.Status> statuses = done.statuses(day);
             ImmutableList.Builder<HistoryItem> items = ImmutableList.builder();
             for (AgendaItem item : day.items()) {
-                refs.putIfAbsent(item.ref(), new RefInfo(item.at(), item.workspaceId(), item.target()));
+                refs.putIfAbsent(item.ref(), new RefInfo(item.at(), item.workspaceId(), item.target(), item.where()));
                 AgendaDone.Status status = statuses.getOrDefault(item.ref(), AgendaDone.Status.OPEN);
                 items.add(new HistoryItem(item.ref(), lower(item.action().name()), lower(status.state().name())));
             }

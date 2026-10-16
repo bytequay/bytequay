@@ -66,6 +66,8 @@ type Props = {
   goal?: (item: AttentionItem) => GoalToggle | null;
   /** Whether Jira is connected; without it there is no Jira tab unless a Jira card is listed anyway. */
   jiraConnected?: boolean;
+  /** The lower-case keys of today's open agenda items, which a row marks with a sun. */
+  todayKeys?: ReadonlySet<string>;
 };
 
 /**
@@ -82,7 +84,7 @@ type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
 
 export default function AttentionList({
-  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', section = 'attention', scope, goal, jiraConnected = false,
+  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', section = 'attention', scope, goal, jiraConnected = false, todayKeys,
 }: Props) {
   const myPrs = section === 'my-prs';
   const title = myPrs ? 'My PRs' : 'Needs attention';
@@ -192,6 +194,7 @@ export default function AttentionList({
                 circle={match === null ? null : { match, circles: [match.circle] }}
                 viewerLogin={viewerLogin}
                 showRepo={variant === 'home'}
+                onToday={todayKeys?.has(item.key.toLowerCase()) ?? false}
                 onOpen={() => onOpen(item)}
                 onAcknowledge={myPrs ? undefined : () => acknowledge(item)}
                 onSnooze={anchor => setSnooze({ item, anchor })}

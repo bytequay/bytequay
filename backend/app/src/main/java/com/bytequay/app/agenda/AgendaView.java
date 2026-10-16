@@ -68,6 +68,7 @@ public record AgendaView(
             Optional<Instant> at,
             Optional<String> workspaceId,
             AgendaTarget target,
+            Optional<String> where,
             String status,
             boolean byYou,
             Optional<String> doneText,

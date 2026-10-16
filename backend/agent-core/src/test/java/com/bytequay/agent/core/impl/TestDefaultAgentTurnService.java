@@ -122,6 +122,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
@@ -138,6 +139,7 @@ import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.util.concurrent.Uninterruptibles.awaitUninterruptibly;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
@@ -334,6 +336,48 @@ class TestDefaultAgentTurnService
 
         assertThat(driver.probeCount()).isEqualTo(probesBeforeStart);
         assertThat(stores.list(task.id())).isEmpty();
+    }
+
+    @Test
+    void reusesAPassedReadinessCheckForASendButNeverAFailedOne()
+    {
+        AdvancingClock clock = new AdvancingClock(NOW.plusMillis(1));
+        metrics = new DefaultAgentMetricsService(stores, stores, logs, clock);
+        service = service(driver, runtimeRegistry, events, approvals, clock);
+        int probesBefore = driver.probeCount();
+
+        service.start(command("first", "key-1"));
+        driver.complete("first done");
+        service.start(command("second", "key-2"));
+        driver.complete("second done");
+        assertThat(driver.probeCount()).isEqualTo(probesBefore + 1);
+
+        clock.advance(Duration.ofMinutes(10));
+        driver.readiness(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+        assertThatThrownBy(() -> service.start(command("third", "key-3"))).isInstanceOf(AgentProviderUnavailableException.class);
+        driver.readiness(AgentProviderStatus.Readiness.READY);
+        assertThat(service.start(command("third", "key-3")).state()).isEqualTo(TurnState.RUNNING);
+        assertThat(driver.probeCount()).isEqualTo(probesBefore + 3);
+    }
+
+    @Test
+    void checksReadinessBeforeTakingTheTaskLock()
+            throws Exception
+    {
+        CountDownLatch checking = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        driver.beforeProbe(() -> {
+            checking.countDown();
+            awaitUninterruptibly(release);
+        });
+        CompletableFuture<AgentTurn> started = CompletableFuture.supplyAsync(() -> service.start(command("first", "key-1")));
+        assertThat(checking.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // A retry looks its key up under the task lock first; a slow provider check must not hold that lock.
+        assertThat(CompletableFuture.supplyAsync(() -> service.findTurnByIdempotencyKey(task.id(), "key-1")).get(5, TimeUnit.SECONDS)).isEmpty();
+
+        release.countDown();
+        assertThat(started.get(5, TimeUnit.SECONDS).state()).isEqualTo(TurnState.RUNNING);
     }
 
     @Test
@@ -4135,6 +4179,11 @@ class TestDefaultAgentTurnService
             Instant current = instant;
             instant = instant.plusMillis(1);
             return current;
+        }
+
+        private synchronized void advance(Duration duration)
+        {
+            instant = instant.plus(duration);
         }
     }
 }

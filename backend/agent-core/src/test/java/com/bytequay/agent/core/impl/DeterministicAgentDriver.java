@@ -68,6 +68,7 @@ final class DeterministicAgentDriver
     private AgentProviderStatus.Readiness readiness = AgentProviderStatus.Readiness.READY;
     private Optional<String> unsupportedModel = Optional.empty();
     private int probeCount;
+    private volatile Runnable beforeProbe = () -> {};
     private RuntimeException probeFailure;
     private RuntimeException nextSessionReferenceAndCloseFailure;
     private RuntimeException nextTurnReferenceAndCancelFailure;
@@ -122,6 +123,7 @@ final class DeterministicAgentDriver
     @Override
     public synchronized AgentProviderStatus probe(Optional<String> model)
     {
+        beforeProbe.run();
         AgentProviderStatus status = probe();
         if (model.isPresent() && model.equals(unsupportedModel)) {
             return new AgentProviderStatus(laneId, AgentProviderStatus.Readiness.UNSUPPORTED, status.version(), "model unavailable", CAPABILITIES);
@@ -132,6 +134,12 @@ final class DeterministicAgentDriver
     synchronized void unsupportedModel(Optional<String> model)
     {
         unsupportedModel = model;
+    }
+
+    /** Runs at the start of every model check, such as a latch that holds the check while a test looks at the task. */
+    void beforeProbe(Runnable action)
+    {
+        beforeProbe = action;
     }
 
     @Override

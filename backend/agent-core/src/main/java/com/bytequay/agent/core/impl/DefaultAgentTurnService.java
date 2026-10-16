@@ -167,6 +167,15 @@ public final class DefaultAgentTurnService
     /** How long a closed process may take to report its turn interrupted before the stop is a failure. */
     private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
 
+    /** How long a passed readiness check spares the next Send on that task from launching the provider CLI again. */
+    private static final Duration READINESS_REUSE = Duration.ofMinutes(10);
+
+    /**
+     * Until when each task's lane and model count as ready for a Send. A failed check is never kept, so a fixed sign-in
+     * applies to the next Send; a sign-out inside the window surfaces as that turn's own provider failure.
+     */
+    private final ConcurrentMap<String, Instant> readyUntil = new ConcurrentHashMap<>();
+
     public DefaultAgentTurnService(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
@@ -224,6 +233,11 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(command, "command is null");
         retryCompletedTurn(command.taskId());
+        if (!command.useTrustedTaskCreationReadiness() && turnStore.findByIdempotencyKey(command.taskId(), command.idempotencyKey()).isEmpty()) {
+            // A cold check launches the provider CLI several times. Nothing else on this task, such as a retry looking up
+            // its key, may wait behind it, so it runs before the task lock; the check under the lock then reuses it.
+            requireRecentlyReady(taskStore.require(command.taskId()));
+        }
         TurnAcceptance acceptance;
         synchronized (runtimeRegistry.taskLock(command.taskId())) {
             drainPending(outboxStore, eventService, command.taskId());
@@ -1326,7 +1340,7 @@ public final class DefaultAgentTurnService
             }
             return task;
         }
-        return requireReady(task);
+        return requireRecentlyReady(task);
     }
 
     private void requireNoDevelopmentContinuation(AgentTask task)
@@ -1380,13 +1394,32 @@ public final class DefaultAgentTurnService
 
     private AgentTask requireReady(AgentTask task, AgentTurnSettings settings)
     {
+        return requireReady(task, settings, false);
+    }
+
+    /** Readiness for a person's Send, which reuses a check passed in the last few minutes instead of launching the CLI again. */
+    private AgentTask requireRecentlyReady(AgentTask task)
+    {
+        return requireReady(task, turnSettings(task, ImmutableList.of()), true);
+    }
+
+    private AgentTask requireReady(AgentTask task, AgentTurnSettings settings, boolean reuseRecentCheck)
+    {
         var lane = settings.laneId().orElse(task.laneId());
         driverRegistry.checkWorkspaceAccess(lane, task.workspaceId());
         var driver = driverRegistry.require(lane);
+        String check = task.id() + ":" + lane.value() + ":" + settings.model().orElse("");
+        Instant now = Instant.now(clock);
+        if (reuseRecentCheck && readyUntil.getOrDefault(check, Instant.MIN).isAfter(now)) {
+            return task;
+        }
         AgentProviderStatus status = driver.probe(settings.model());
         if (!status.available()) {
+            readyUntil.remove(check);
             throw new AgentProviderUnavailableException(status);
         }
+        readyUntil.values().removeIf(until -> !until.isAfter(now));
+        readyUntil.put(check, now.plus(READINESS_REUSE));
         return task;
     }
 

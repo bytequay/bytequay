@@ -128,7 +128,7 @@ export default function RunPanel({
   const [open, setOpen] = useState(true);
   const [selection, setSelection] = useState('');
   const [failureDetail, setFailureDetail] = useState<LocalRunMethodDto | null>(null);
-  const [height, setHeight] = useState(236);
+  const panel = useResizablePane(236, MIN_HEIGHT, MAX_HEIGHT, 'start', 'y');
   // Null keeps the stylesheet's share until the divider is first moved.
   const results = useRef<HTMLDivElement>(null);
   const { width: treeWidth, setWidth: setTreeWidth, startResize: resizeTree } = useResizablePane(null, MIN_TREE_WIDTH,
@@ -197,21 +197,8 @@ export default function RunPanel({
   }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startResize = (event: ReactMouseEvent) => {
-    event.preventDefault();
-    const startY = event.clientY;
-    const startHeight = open ? height : MIN_HEIGHT;
+    panel.startResize(event, open ? panel.width ?? 236 : MIN_HEIGHT);
     setOpen(true);
-    const move = (next: MouseEvent) => setHeight(Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, startHeight + startY - next.clientY)));
-    const stop = () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', stop);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', stop);
   };
 
   const clampTreeWidth = (width: number) => {
@@ -300,7 +287,7 @@ export default function RunPanel({
         <span className="ct-run__count">{runs.length === 0 ? 'nothing has run yet' : `${runs.length} ${runs.length === 1 ? 'run' : 'runs'} · newest first`}</span>
       </header>
       {open && (
-        <div className="ct-run__body" style={{ height: embedded ? undefined : height }}>
+        <div className="ct-run__body" style={{ height: embedded ? undefined : panel.width ?? 236 }}>
           {run === null ? (
             <div className="ct-run__empty">
               <div>{runs.length === 0 ? 'No runs yet' : 'Pick a run tab to see its result'}</div>

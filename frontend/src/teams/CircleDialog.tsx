@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Check, CircleAlert, LoaderCircle, TriangleAlert, X } from 'lucide-react';
 import Avatar from '../Avatar';
+import { useModalDialog } from '../useModalDialog';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import type { RepositoryMetadataDto } from '../types';
 import { people } from './activity';
@@ -54,8 +55,8 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
   onDelete?: () => void;
   onManagePeople?: () => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
+  const dialog = useModalDialog(nameInput);
   const [name, setName] = useState(circle?.name ?? initialName);
   const [nameError, setNameError] = useState(false);
   const [description, setDescription] = useState(circle?.description ?? '');
@@ -72,16 +73,6 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
   const cancel = useRef(onCancel);
   cancel.current = onCancel;
 
-  useEffect(() => {
-    const previous = document.activeElement;
-    const element = dialog.current;
-    element?.showModal();
-    nameInput.current?.focus();
-    return () => {
-      element?.close();
-      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
-    };
-  }, []);
   useEffect(() => {
     let current = true;
     if (circle === null) {

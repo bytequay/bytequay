@@ -470,10 +470,15 @@ async function homeNavigation() {
 
 async function homeCreation() {
   const f = await mount({ accountLogin: 'viewer', circles: [] }, { home: true });
+  const trigger = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === '+ Add circle');
+  assert(trigger !== undefined, 'Home must offer circle creation');
+  trigger.focus();
   await click('+ Add circle');
   assert(document.querySelector('dialog[open]') !== null && window.location.hash === '#/home', 'Home must open the creation dialog in place');
+  assert(document.activeElement?.getAttribute('aria-label') === 'Circle name', 'Opening the dialog must focus its name field');
   await click('Cancel');
   assert(document.querySelector('dialog') === null && f.created.length === 0, 'Cancel must close without creating a circle');
+  assert(document.activeElement === trigger, 'Closing the dialog must restore focus to its trigger');
   await click('+ Add circle');
   await input('Circle name', 'Home reviewers');
   await input('Filter cached contributors', 'alice');

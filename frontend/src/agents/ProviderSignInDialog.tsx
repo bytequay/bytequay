@@ -13,6 +13,7 @@
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { attachTerminal, type TerminalStatus } from '../terminalSession';
+import { useModalDialog } from '../useModalDialog';
 import type { Bridge } from '../types';
 import './css/provider-signin.css';
 
@@ -33,21 +34,11 @@ export default function ProviderSignInDialog({ laneId, providerName, bridge, onC
   bridge: SignInBridge;
   onClose: (signedIn: boolean) => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = useModalDialog();
   const screen = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<TerminalStatus>({ kind: 'opening' });
   const id = useId();
   const signedIn = status.kind === 'exited' && status.exitCode === 0;
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    const previousFocus = document.activeElement;
-    dialog?.showModal();
-    return () => {
-      dialog?.close();
-      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
-    };
-  }, []);
 
   useEffect(() => {
     const element = screen.current;

@@ -23,14 +23,6 @@ export function Icon({ name, size = 16, className }: { name: IconName; size?: nu
   return <Glyph size={size} className={className} strokeWidth={1.8} aria-hidden="true" />;
 }
 
-/** The small disclosure chevron the design rotates 90° when a row opens. */
-export function Chevron({ open, size = 12, className }: { open: boolean; size?: number; className?: string }) {
-  return <svg className={className} width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true"
-    style={{ transform: `rotate(${open ? 90 : 0}deg)`, transition: 'transform .15s' }}>
-    <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>;
-}
-
 export function Spinner({ size = 14 }: { size?: number }) {
   return <span className="rcp-spin" aria-hidden="true" style={{ width: size, height: size }} />;
 }

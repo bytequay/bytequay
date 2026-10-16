@@ -12,8 +12,9 @@
  * limitations under the License.
  */
 
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useId, useRef, type ReactNode } from 'react';
 import { LoaderCircle } from 'lucide-react';
+import { useModalDialog } from './useModalDialog';
 import './css/confirm-dialog.css';
 
 interface ConfirmDialogProps {
@@ -29,20 +30,9 @@ interface ConfirmDialogProps {
 }
 
 export function ConfirmDialog({ title, children, confirmLabel, cancelLabel = 'Cancel', busy = false, confirmDisabled = false, destructive = false, onConfirm, onCancel }: ConfirmDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useModalDialog(cancelRef);
   const id = useId();
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    const previousFocus = document.activeElement;
-    dialog?.showModal();
-    cancelRef.current?.focus();
-    return () => {
-      dialog?.close();
-      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
-    };
-  }, []);
 
   return (
     <dialog

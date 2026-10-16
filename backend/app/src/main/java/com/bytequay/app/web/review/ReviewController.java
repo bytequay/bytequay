@@ -225,15 +225,20 @@ public class ReviewController
     }
 
     @PostMapping("/{reviewId}/questions")
-    public ReviewHttpModels.ReviewResponse ask(@PathVariable String reviewId, @RequestBody ReviewHttpModels.AskRequest request)
+    public ReviewHttpModels.ReviewResponse ask(
+            @PathVariable String reviewId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestBody ReviewHttpModels.AskRequest request)
     {
+        checkText(idempotencyKey, "Idempotency-Key");
         checkText(request.message(), "message");
         reviews.ask(
                 reviewId,
                 Optional.ofNullable(request.findingId()).filter(id -> !id.isBlank()),
                 Optional.ofNullable(request.cardId()).filter(id -> !id.isBlank()),
                 required(request.targetRevision(), "targetRevision"),
-                request.message());
+                request.message(),
+                idempotencyKey);
         return ReviewHttpModels.review(reviews.get(reviewId));
     }
 

@@ -117,7 +117,7 @@ export async function run() {
     const submit = [...commit.querySelectorAll<HTMLButtonElement>('.agr-composer button')].find(button => button.textContent?.trim() === 'Ask reviewer');
     assert(submit !== undefined, 'The refreshed discussion is ready to send');
     submit.click(); await settle();
-    assert(questions[0]?.[4] === `${accepted.id}:commit:${accepted.commits[0].sha}` && questions[0]?.[2] === accepted.summary?.revision,
+    assert(questions[0]?.[5] === `${accepted.id}:commit:${accepted.commits[0].sha}` && questions[0]?.[2] === accepted.summary?.revision,
       'Questions bind to the new explanation owner and summary revision');
 
     focusCard({ target: { kind: 'card', runId: original.runs[0].id, cardId: `${original.runs[0].id}:purpose` }, token: 1 }); await settle();

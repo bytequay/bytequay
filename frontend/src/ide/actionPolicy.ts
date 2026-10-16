@@ -144,7 +144,7 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
     const finding = review.findings.find(item => item.id === args[1] && findingInResults(review, item));
     if (!finding) throw new Error('Unknown finding');
     integer(args[2]);
-    if (method === 'askAgentReview') { count(args, 4); if (args[2] !== finding.revision) throw new Error('Finding changed'); text(args[3]); }
+    if (method === 'askAgentReview') { count(args, 5); if (args[2] !== finding.revision) throw new Error('Finding changed'); text(args[3]); id(args[4]); }
     else if (method === 'resolveAgentReviewFinding') { count(args, 4, 5); if (args[2] !== finding.version) throw new Error('Finding changed'); text(args[3]); if (args[4] !== undefined && typeof args[4] !== 'boolean') throw new Error('Invalid remember choice'); }
     else { count(args, 3); if (args[2] !== finding.version) throw new Error('Finding changed'); }
     return;

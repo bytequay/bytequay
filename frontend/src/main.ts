@@ -1029,8 +1029,8 @@ function registerIpc(): void {
   ipcMain.handle('code:runs:output', (_event, host: unknown, runId: string, after: number) =>
     backendJson(codeUrl(host, `/runs/${encodeURIComponent(runId)}/output`, { after: String(Math.max(0, Math.floor(after))) }))
       .then(parseLocalRunOutput));
-  ipcMain.handle('review:ask', (_event, reviewId: string, findingId: string | null, targetRevision: number, message: string, cardId?: string) =>
-    review(`/${encodeURIComponent(reviewId)}/questions`, {}, jsonInit('POST', { findingId, targetRevision, message, cardId })));
+  ipcMain.handle('review:ask', (_event, reviewId: string, findingId: string | null, targetRevision: number, message: string, idempotencyKey: string, cardId?: string) =>
+    review(`/${encodeURIComponent(reviewId)}/questions`, {}, jsonInit('POST', { findingId, targetRevision, message, cardId }, { 'Idempotency-Key': idempotencyKey })));
   ipcMain.handle('review:message', (_event, reviewId: string, message: string, delivery: string, idempotencyKey: string, turnId?: string) =>
     backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/messages`),
       jsonInit('POST', { message, delivery, turnId }, { 'Idempotency-Key': idempotencyKey })).then(parseAgentReview));

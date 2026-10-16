@@ -544,8 +544,8 @@ const bridge: Bridge = {
       ipcRenderer.removeListener('terminal:exit', exit);
     };
   },
-  askAgentReview: (reviewId, findingId, targetRevision, message, cardId) =>
-    ipcRenderer.invoke('review:ask', reviewId, findingId, targetRevision, message, cardId),
+  askAgentReview: (reviewId, findingId, targetRevision, message, idempotencyKey, cardId) =>
+    ipcRenderer.invoke('review:ask', reviewId, findingId, targetRevision, message, idempotencyKey, cardId),
   messageAgentReview: (reviewId, message, delivery, idempotencyKey, turnId) =>
     ipcRenderer.invoke('review:message', reviewId, message, delivery, idempotencyKey, turnId),
   resumeAgentReviewQueue: reviewId => ipcRenderer.invoke('review:queue:resume', reviewId),

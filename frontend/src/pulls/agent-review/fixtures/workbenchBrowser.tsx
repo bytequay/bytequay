@@ -189,8 +189,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask the reviewer about this finding"]');
         assert(input !== null, 'The private question composer must open');
         changeInput(input, message); await settle(); button('Ask reviewer').click(); await settle();
-        assert(JSON.stringify(questions.at(-1)) === JSON.stringify([published.id, finding.id, finding.revision, message]),
-          'Each question must keep the original private finding identity and revision');
+        assert(JSON.stringify(questions.at(-1)?.slice(0, 4)) === JSON.stringify([published.id, finding.id, finding.revision, message])
+          && questions.at(-1)?.[4]?.startsWith('review-ask:') === true, 'Each question must keep the original private finding identity and revision');
         assert(host.querySelector('textarea') === null, 'Sending must close the composer and allow another question');
       }
       assert(questions.length === 2 && host.querySelectorAll('.agr-thread .lrc-message').length === published.messages.length,

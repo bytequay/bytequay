@@ -863,7 +863,7 @@ class TestAgentReviewService
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         String runId = fixture.store.listRuns(reviewId).getLast().id();
 
-        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "  Why is the parser reset here?  ");
+        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "  Why is the parser reset here?  ", "ask-864");
 
         assertThat(message.body()).isEqualTo("Why is the parser reset here?");
         assertThat(message.author()).isEqualTo(ReviewMessage.Author.USER);
@@ -911,15 +911,15 @@ class TestAgentReviewService
             fixture.acceptedTurns.put(command.idempotencyKey(), accepted);
             return accepted;
         }).when(fixture.turns).start(any(StartAgentTurnCommand.class));
-        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.of(cardId), 1, "Why this approach?");
+        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.of(cardId), 1, "Why this approach?", "ask-912");
         assertThat(message.cardId()).contains(cardId);
         assertThat(message.runId()).isEqualTo(original.id());
         ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(fixture.turns, times(2)).start(started.capture());
         assertThat(started.getValue().message()).contains("review_reply targeting " + cardId, "Selected card:\nFix the parser reset");
-        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.of(original.id() + ":commit:unknown"), 1, "Explain"))
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.of(original.id() + ":commit:unknown"), 1, "Explain", "ask-918"))
                 .hasMessageContaining("unknown commit");
-        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.of("another-run:purpose"), 1, "Explain"))
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.of("another-run:purpose"), 1, "Explain", "ask-920"))
                 .hasMessageContaining("does not belong");
     }
 
@@ -960,7 +960,7 @@ class TestAgentReviewService
                 return AgentTurn.accepted(TURN_TWO, TASK_ID, command.idempotencyKey(), SETTINGS, NOW);
             });
         }
-        fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Check the upstream behavior");
+        fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Check the upstream behavior", "ask-961");
     }
 
     @Test
@@ -978,7 +978,7 @@ class TestAgentReviewService
             return queuedInput();
         });
 
-        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Does this handle an empty patch?");
+        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Does this handle an empty patch?", "ask-979");
 
         assertThat(message.queuedInputId()).contains(QUEUED_INPUT.toString());
         assertThat(message.turnId()).isEmpty();
@@ -1009,7 +1009,7 @@ class TestAgentReviewService
             doThrow(failure).when(fixture.turns).start(any(StartAgentTurnCommand.class));
         }
 
-        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.of(cardId), 1, "Explain the parser reset"))
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.of(cardId), 1, "Explain the parser reset", "ask-1010"))
                 .isSameAs(failure);
 
         // No answer can come, so the question does not stay looking sent; the caller shows the error and keeps the text to ask again.
@@ -1046,7 +1046,7 @@ class TestAgentReviewService
             }).when(fixture.turns).start(any(StartAgentTurnCommand.class));
         }
 
-        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Explain the parser reset"))
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Explain the parser reset", "ask-1047"))
                 .isSameAs(failure);
 
         ReviewMessage saved = fixture.store.listMessages(reviewId).getFirst();
@@ -1064,7 +1064,7 @@ class TestAgentReviewService
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
         when(fixture.turns.enqueue(any(QueueAgentInputCommand.class))).thenReturn(queuedInput());
-        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Explain this limitation");
+        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Explain this limitation", "ask-1065");
         QueuedAgentInput queued = queuedInput();
         when(fixture.queueStore.find(QUEUED_INPUT)).thenReturn(Optional.of(queued));
         AgentReviewProjection.MessageView waiting = fixture.service.get(reviewId).messages().getFirst();
@@ -1106,10 +1106,10 @@ class TestAgentReviewService
                 original.revised("Reset the parser again", "Body", Optional.of("major"), original.anchor(), ImmutableList.of(), HEAD, NOW));
 
         assertThat(revised.revision()).isEqualTo(2);
-        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.of(revised.id()), Optional.empty(), 1, "Still true?"))
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.of(revised.id()), Optional.empty(), 1, "Still true?", "ask-1107"))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("revised to revision 2");
-        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 4, "Still true?"))
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 4, "Still true?", "ask-1110"))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("The summary was revised to revision 1");
 
@@ -1130,8 +1130,8 @@ class TestAgentReviewService
             when(fixture.turns.enqueue(any(QueueAgentInputCommand.class))).thenReturn(queuedInput());
         }
 
-        ReviewMessage first = fixture.service.ask(reviewId, Optional.of(withdrawn.id()), Optional.empty(), withdrawn.revision(), "Why was this withdrawn?");
-        ReviewMessage second = fixture.service.ask(reviewId, Optional.of(withdrawn.id()), Optional.empty(), withdrawn.revision(), "Which check confirmed the fix?");
+        ReviewMessage first = fixture.service.ask(reviewId, Optional.of(withdrawn.id()), Optional.empty(), withdrawn.revision(), "Why was this withdrawn?", "ask-1131");
+        ReviewMessage second = fixture.service.ask(reviewId, Optional.of(withdrawn.id()), Optional.empty(), withdrawn.revision(), "Which check confirmed the fix?", "ask-1132");
 
         assertThat(fixture.store.listMessages(reviewId)).containsExactly(first, second);
         assertThat(second.findingId()).contains(withdrawn.id());
@@ -1144,7 +1144,7 @@ class TestAgentReviewService
         verify(fixture.turns, times(queued ? 2 : 0)).enqueue(any(QueueAgentInputCommand.class));
 
         fixture.store.updateReview(fixture.store.findReview(reviewId).orElseThrow().closed(NOW));
-        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.of(withdrawn.id()), Optional.empty(), withdrawn.revision(), "One more question"))
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.of(withdrawn.id()), Optional.empty(), withdrawn.revision(), "One more question", "ask-1145"))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("The review has ended");
         assertThat(fixture.store.listMessages(reviewId)).containsExactly(first, second);
@@ -1510,7 +1510,7 @@ class TestAgentReviewService
         settleCurrentTurn(fixture, explaining);
         fixture.service.reconcile(reviewId);
 
-        ReviewMessage question = fixture.service.ask(reviewId, Optional.of(finding.id()), Optional.empty(), finding.revision(), "Is this still an issue?");
+        ReviewMessage question = fixture.service.ask(reviewId, Optional.of(finding.id()), Optional.empty(), finding.revision(), "Is this still an issue?", "ask-1511");
 
         assertThat(question.runId()).isEqualTo(initial.id());
         assertThat(question.findingId()).contains(finding.id());
@@ -2309,7 +2309,7 @@ class TestAgentReviewService
         assertThat(pending.outdated()).isTrue();
         assertThat(pending.validatedHeadSha()).isEqualTo(HEAD);
 
-        ReviewMessage question = fixture.service.ask(reviewId, Optional.of(finding.id()), Optional.empty(), pending.revision(), "Still valid?");
+        ReviewMessage question = fixture.service.ask(reviewId, Optional.of(finding.id()), Optional.empty(), pending.revision(), "Still valid?", "ask-2310");
         assertThat(question.runId()).isEqualTo(updated.id());
         assertThat(question.runId()).isNotEqualTo(first.id());
         ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
@@ -2651,6 +2651,23 @@ class TestAgentReviewService
         order.verify(fixture.completions).complete(new CompleteAgentTaskCommand(TASK_ID, Optional.of("Agent review ended by the user")));
         order.verify(fixture.store).updateReview(argThat(review -> review.state() == AgentReview.State.CLOSED));
         order.verify(fixture.completions).cleanupWorktree(TASK_ID);
+    }
+
+    @Test
+    void askingAgainWithTheSameKeyReturnsTheSameQuestion()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+
+        ReviewMessage first = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Why is the parser reset here?", "question-1");
+        ReviewMessage retried = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Why is the parser reset here?", "question-1");
+
+        assertThat(retried.id()).isEqualTo(first.id());
+        assertThat(fixture.store.listMessages(reviewId)).hasSize(1);
+        // One turn for the review itself and one for the question, not a second one for the retry.
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Something else", "question-1"))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("reused");
     }
 
     @Test

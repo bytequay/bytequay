@@ -156,6 +156,7 @@ export default function AgentReviewTab({
   const [providers, setProviders] = useState<ModelProviderDto[]>([]);
   const models = useMemo(() => providers.flatMap(provider => provider.models), [providers]);
   const navigationToken = useRef(0);
+  const askKeys = useRef(new Map<string, string>());
   const cardsRef = useRef<HTMLDivElement>(null);
   const [reportRunId, setReportRunId] = useState<string | null>(null);
   // Findings by review round: 'last' follows the newest round, 'all' shows every round, otherwise a run id.
@@ -736,7 +737,12 @@ export default function AgentReviewTab({
             refreshDisabledReason={review.state === 'CLOSED' ? 'This review has ended' : recovery ? 'Recover the agent runtime first'
               : localRunReason ?? (running ? 'Wait for the current agent work to finish' : undefined)}
             onAsk={(text, revision, cardId) => run_(async () => {
-              onReviewChange(await window.bridge.askAgentReview(review.id, null, revision, text, cardId));
+              // A retry keeps the question's key, so an answer lost on the way back cannot ask the reviewer twice.
+              const identity = `${cardId}:${revision}:${text}`;
+              const idempotencyKey = askKeys.current.get(identity) ?? `review-ask:${crypto.randomUUID()}`;
+              askKeys.current.set(identity, idempotencyKey);
+              onReviewChange(await window.bridge.askAgentReview(review.id, null, revision, text, idempotencyKey, cardId));
+              askKeys.current.delete(identity);
               recordReviewAttentionAction(review, 'prompt');
             }, 'other', true)}
             focus={focusReviewCard}

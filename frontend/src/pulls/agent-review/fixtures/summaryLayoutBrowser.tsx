@@ -43,7 +43,7 @@ export function preview(host: HTMLElement) {
   const previous = window.bridge;
   const calls: string[] = [];
   const bridge = { subscribeAgentReview: async () => () => {}, getAgentReview: async () => value,
-    askAgentReview: async (_id, _finding, revision, body, cardId) => { calls.push(`${cardId}:rev${revision}:${body}`); return value; },
+    askAgentReview: async (_id, _finding, revision, body, _key, cardId) => { calls.push(`${cardId}:rev${revision}:${body}`); return value; },
     stopAgentReview: async () => { calls.push('stop'); return value; },
   } satisfies Pick<Bridge, 'subscribeAgentReview' | 'getAgentReview' | 'askAgentReview' | 'stopAgentReview'>;
   Object.defineProperty(window, 'bridge', { configurable: true, writable: true, value: bridge });

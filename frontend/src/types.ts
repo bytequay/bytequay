@@ -1943,12 +1943,13 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   writeReviewTerminal: (terminalId: string, data: string) => void;
   resizeReviewTerminal: (terminalId: string, cols: number, rows: number) => void;
   onReviewTerminalEvent: (listener: (event: { terminalId: string; data: string } | { terminalId: string; exitCode: number }) => void) => () => void;
-  /** A private question on the summary or one finding; it queues visibly while the agent is busy. */
+  /** A private question on the summary or one finding; it queues visibly while the agent is busy. The key makes a retry the same question. */
   askAgentReview: (
     reviewId: string,
     findingId: string | null,
     targetRevision: number,
     message: string,
+    idempotencyKey: string,
     cardId?: string,
   ) => Promise<AgentReviewDto>;
   /** A free-form message to the review agent: a turn, a steer into the running turn it names, or the queue. */

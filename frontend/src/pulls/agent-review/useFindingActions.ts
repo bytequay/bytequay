@@ -44,6 +44,7 @@ export function useFindingActions({
   onNavigate: (finding: ReviewFindingDto) => void;
 }): { actions: FindingActions; busy: boolean; error: string | null; clearError: () => void } {
   const fixKeys = useRef(new Map<string, string>());
+  const askKeys = useRef(new Map<string, string>());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,7 +109,12 @@ export function useFindingActions({
       recordReviewAttentionAction(review, 'prompt');
     }, true),
     onAsk: (finding, message) => guard(async () => {
-      onReviewChange(await window.bridge.askAgentReview(review.id, finding.id, finding.revision, message));
+      // A retry keeps the question's key, so an answer lost on the way back cannot ask the reviewer twice.
+      const identity = `${finding.id}:${finding.revision}:${message}`;
+      const idempotencyKey = askKeys.current.get(identity) ?? `review-ask:${crypto.randomUUID()}`;
+      askKeys.current.set(identity, idempotencyKey);
+      onReviewChange(await window.bridge.askAgentReview(review.id, finding.id, finding.revision, message, idempotencyKey));
+      askKeys.current.delete(identity);
       recordReviewAttentionAction(review, 'prompt');
     }, true),
     onResolve: (finding, reason, remember = false) => guard(async () => {

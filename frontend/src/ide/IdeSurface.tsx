@@ -86,7 +86,7 @@ async function handleRequest(props: IdeSurfaceProps, request: IdeRequest, findin
     case 'stopCodeRun': return window.bridge.stopCodeRun(host, args[1] as string);
     case 'getAgentReview': return window.bridge.getAgentReview(review.id);
     case 'getAgentTask': return window.bridge.getAgentTask(args[0] as string, args[1] as string | undefined);
-    case 'askAgentReview': return window.bridge.askAgentReview(review.id, args[1] as string, args[2] as number, args[3] as string);
+    case 'askAgentReview': return window.bridge.askAgentReview(review.id, args[1] as string, args[2] as number, args[3] as string, args[4] as string);
     case 'resolveAgentReviewFinding': return window.bridge.resolveAgentReviewFinding(review.id, args[1] as string, args[2] as number, args[3] as string, args[4] as boolean | undefined);
     case 'reopenAgentReviewFinding': return window.bridge.reopenAgentReviewFinding(review.id, args[1] as string, args[2] as number);
     case 'betterWords': return window.bridge.betterWords(args[0] as string, comments?.repo, comments?.workspaceId);

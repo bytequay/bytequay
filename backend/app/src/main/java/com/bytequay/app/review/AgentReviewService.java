@@ -120,6 +120,7 @@ import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -605,8 +606,11 @@ public class AgentReviewService
         });
     }
 
-    /** A private question on the summary or a finding: a turn when idle, a visible queue entry when busy. */
-    public ReviewMessage ask(String reviewId, Optional<String> findingId, Optional<String> cardId, int targetRevision, String message)
+    /**
+     * A private question on the summary or a finding: a turn when idle, a visible queue entry when busy. The key names the
+     * question, so a retry whose answer was lost returns it instead of asking again.
+     */
+    public ReviewMessage ask(String reviewId, Optional<String> findingId, Optional<String> cardId, int targetRevision, String message, String idempotencyKey)
     {
         requireNonNull(findingId, "findingId is null");
         requireNonNull(cardId, "cardId is null");
@@ -617,7 +621,19 @@ public class AgentReviewService
         if (text.isEmpty()) {
             throw new ReviewInvalidRequestException("message must not be blank");
         }
+        if (requireNonNull(idempotencyKey, "idempotencyKey is null").isBlank()) {
+            throw new ReviewInvalidRequestException("idempotencyKey must not be blank");
+        }
+        String messageId = UUID.nameUUIDFromBytes(("review-ask:" + reviewId + ":" + idempotencyKey).getBytes(UTF_8)).toString();
         return withLock(locks.lock(reviewId), () -> {
+            Optional<ReviewMessage> asked = store.findMessage(messageId);
+            if (asked.isPresent()) {
+                ReviewMessage existing = asked.orElseThrow();
+                if (!existing.reviewId().equals(reviewId) || !existing.findingId().equals(findingId) || !existing.cardId().equals(cardId) || !existing.body().equals(text)) {
+                    throw new ReviewConflictException("The question key was reused for a different question");
+                }
+                return existing;
+            }
             AgentReview review = requireOpen(reviewId);
             ReviewRun run = cardId.map(id -> ReviewCards.requireRun(store, reviewId, id))
                     .orElseGet(() -> latestFindingsRun(store.listRuns(reviewId)).orElseThrow(() -> new ReviewConflictException("The review has no findings run yet")));
@@ -644,7 +660,6 @@ public class AgentReviewService
             String prompt = ReviewPrompts.question(label, targetRevision, run, text)
                     + reassessmentNote
                     + cardId.map(id -> "\n\nSelected card:\n" + ReviewCards.content(run, id)).orElse("");
-            String messageId = UUID.randomUUID().toString();
             TaskId taskId = TaskId.valueOf(review.taskId());
             AgentTask task = tasks.get(taskId);
             // A synchronous launch can resolve this discussion before start returns its turn ID.

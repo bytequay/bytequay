@@ -21,7 +21,6 @@ import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote.Role;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
 import com.bytequay.core.store.CommitHistoryStore;
@@ -156,7 +155,7 @@ class TestCherryPickPreviewService
                 "origin/main",
                 "fork",
                 "main")))
-                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not match persisted workspace routing");
         verifyNoInteractions(credentials);
     }
@@ -319,7 +318,7 @@ class TestCherryPickPreviewService
         String merge = head(upstream);
 
         assertThatThrownBy(() -> service.preview(command(base, "main")))
-                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("merge commit")
                 .hasMessageContaining(merge.substring(0, 12));
     }
@@ -332,7 +331,7 @@ class TestCherryPickPreviewService
         commit(upstream, "Upstream change");
 
         assertThatThrownBy(() -> service.preview(command("refs/heads/missing", "main")))
-                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Cannot resolve ref");
 
         git(upstream, "checkout", "--quiet", "-b", "unrelated", base);
@@ -342,7 +341,7 @@ class TestCherryPickPreviewService
         git(upstream, "checkout", "--quiet", "main");
 
         assertThatThrownBy(() -> service.preview(command(unrelated, "main")))
-                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("is not an ancestor of tip");
     }
 
@@ -406,15 +405,15 @@ class TestCherryPickPreviewService
     void rejectsControlCharactersAndOptionLikeRefs()
     {
         assertThatThrownBy(() -> new PreviewCherryPickRangeCommand(clone, "workspace-id", OptionalLong.empty(), "origin", "main\nrm -rf /", "main", "fork", "main"))
-                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("control character");
 
         assertThatThrownBy(() -> new PreviewCherryPickRangeCommand(clone, "workspace-id", OptionalLong.empty(), "origin", "--upload-pack=evil", "main", "fork", "main"))
-                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("command-line option");
 
         assertThatThrownBy(() -> new PreviewCherryPickRangeCommand(Path.of("relative"), "workspace-id", OptionalLong.empty(), "origin", "main", "main", "fork", "main"))
-                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("not absolute");
     }
 

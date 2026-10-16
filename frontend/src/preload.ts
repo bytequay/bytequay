@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { subscribe } from './ipcSubscribe';
 import type { IdeDesktopBridge } from './ide/contracts';
 import { contextBridge, ipcRenderer } from 'electron';
 import { createAgentStreamReceiver } from './agents/sse';
@@ -19,11 +20,6 @@ import { observeNoticeOcclusion } from './notices/occlusion';
 
 ipcRenderer.on('github:account-changed', () => window.dispatchEvent(new Event('bytequay:github-account-changed')));
 
-function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
-  const receive = (_event: unknown, payload: T) => callback(payload);
-  ipcRenderer.on(channel, receive);
-  return () => { ipcRenderer.removeListener(channel, receive); };
-}
 
 /**
  * One stream subscription over a channel family.

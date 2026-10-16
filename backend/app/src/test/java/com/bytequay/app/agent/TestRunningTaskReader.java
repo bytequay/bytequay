@@ -180,8 +180,24 @@ class TestRunningTaskReader
     {
         AgentTask task = task(false);
         AgentTurn finished = turn(task, NOW.minusSeconds(60)).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.minusSeconds(10));
-        AgentReview review = new AgentReview("review", "workspace", "owner/repo", OptionalInt.of(42), OptionalLong.empty(), task.id().toString(),
-                Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+        AgentReview review = new AgentReview(
+                "review",
+                "workspace",
+                "owner/repo",
+                OptionalInt.of(42),
+                OptionalLong.empty(),
+                task.id().toString(),
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                NOW,
+                NOW,
+                Optional.empty(),
+                Optional.empty());
         when(reviews.findReviewByTask(task.id().toString())).thenReturn(Optional.of(review));
         ReviewRun run = new ReviewRun("run", review.id(), 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(), Optional.empty(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(finished.id().toString()), ReviewRun.State.RUNNING,
@@ -231,7 +247,7 @@ class TestRunningTaskReader
         RepoRef repo = new RepoRef("owner", "repo");
         CiAutofixRun run = CiAutofixRun.create(CiAutofixRunId.random(), "ci", new CiAutofixRun.Scope(new PullRequestRef("owner", "repo", 42), repo,
                 "workspace", repo, "user", "feature", "main", "codex", Optional.empty()), sha, sha, sha,
-                new CiAutofixRun.Authorization(false, false, false, 1, NOW, NOW.plusSeconds(3600)), NOW);
+                new CiAutofixRun.Authorization(NOW, NOW.plusSeconds(3600)), NOW);
         show(task, turn(task, NOW));
         when(ciFixes.findByAgentTaskId(task.id().toString())).thenReturn(Optional.of(run));
         assertThat(reader.current()).singleElement().satisfies(item -> {

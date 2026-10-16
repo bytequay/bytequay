@@ -235,9 +235,6 @@ class TestDevelopmentGitInspector
 
         DevelopmentLocalFacts facts = inspector.inspectLocal(worktree, baseline.route());
 
-        assertThat(facts.stagedFiles()).isEqualTo(1);
-        assertThat(facts.unstagedFiles()).isEqualTo(1);
-        assertThat(facts.untrackedFiles()).isEqualTo(1);
         assertThat(facts.uncommittedFileCount()).isEqualTo(2);
         assertThat(facts.fingerprint()).isNotEqualTo(baseline.local().fingerprint());
         run(worktree.canonicalWorktree(), "reset", "--hard", baseSha);
@@ -290,7 +287,6 @@ class TestDevelopmentGitInspector
 
         DevelopmentLocalFacts facts = inspector.inspectLocal(worktree, route);
 
-        assertThat(facts.stagedFiles()).isEqualTo(1);
         assertThat(facts.uncommittedFileCount()).isEqualTo(1);
     }
 

@@ -23,6 +23,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 import lombok.Getter;
 
@@ -30,7 +31,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 @Entity
-@Table(name = "agent_input_delivery")
+@Table(name = "agent_input_delivery", uniqueConstraints = @UniqueConstraint(columnNames = {"task_id", "idempotency_key"}))
 public class AgentInputDeliveryEntity
         extends AssignedIdEntity<String>
 {
@@ -46,9 +47,6 @@ public class AgentInputDeliveryEntity
 
     @Column(name = "idempotency_key", nullable = false)
     private String idempotencyKey;
-
-    @Column(nullable = false, unique = true)
-    private String idempotencySlot;
 
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
@@ -82,7 +80,6 @@ public class AgentInputDeliveryEntity
         taskId = delivery.taskId().toString();
         turnId = delivery.turnId().toString();
         idempotencyKey = delivery.idempotencyKey();
-        idempotencySlot = delivery.taskId() + ":" + delivery.idempotencyKey();
         state = delivery.state();
         createdAt = delivery.createdAt();
         updatedAt = delivery.updatedAt();

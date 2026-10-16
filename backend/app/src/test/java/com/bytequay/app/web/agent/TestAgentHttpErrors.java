@@ -55,6 +55,7 @@ import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
+import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -93,6 +94,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -108,6 +110,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 class TestAgentHttpErrors
 {
     private MockMvc mvc;
+    private final ContextBuildService contextBuilds = mock(ContextBuildService.class);
     private AgentTaskService taskService;
     private AgentTurnService turnService;
     private AgentStartupRecovery startupRecovery;
@@ -137,6 +140,7 @@ class TestAgentHttpErrors
         AgentTaskStartupProgress startupProgress = new AgentTaskStartupProgress();
         AgentController controller = new AgentController(
                 taskService,
+                contextBuilds,
                 new InteractiveAgentTaskCreator(
                         taskService,
                         turnService,
@@ -302,7 +306,7 @@ class TestAgentHttpErrors
         CiAutofixRun run = CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
                 new CiAutofixRun.Scope(new PullRequestRef("bytequay", "sample", 42), RepoRef.of("bytequay", "sample"), "workspace-1", RepoRef.of("bytequay", "sample"), "author",
                         task.taskWorktree().orElseThrow().generatedBranch(), "main", "claude-cli", Optional.of(task.id().toString())),
-                head, head, head, new CiAutofixRun.Authorization(true, true, true, 3, now, now.plusSeconds(28_800)), now);
+                head, head, head, new CiAutofixRun.Authorization(now, now.plusSeconds(28_800)), now);
         when(taskService.getInteractive("workspace-1", task.id())).thenReturn(task);
         when(ciRuns.listByParentTaskId(task.id().toString())).thenReturn(ImmutableList.of(run));
         when(ci.canMessage(run)).thenReturn(false);
@@ -370,12 +374,45 @@ class TestAgentHttpErrors
             throws Exception
     {
         AgentTask task = deliveryTask();
+        when(taskService.get(task.id())).thenReturn(task);
         when(taskService.getInteractive("workspace-1", task.id())).thenReturn(task);
 
         mvc.perform(post("/agent/tasks/{taskId}/mark-failed", task.id()).queryParam("workspaceId", "workspace-1")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Start over\"}"))
                 .andExpect(status().isConflict());
         verifyNoInteractions(completionService);
+    }
+
+    @Test
+    void contextLifecycleRequiresTheCurrentBuildInItsWorkspace()
+            throws Exception
+    {
+        AgentTask task = AgentTask.created(TaskId.random(), Optional.of("workspace-1"), false, "Check", AgentLaneId.CODEX_CLI,
+                new RepositoryIdentity("bytequay", "sample"), Path.of("/tmp/context-check"),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
+        when(taskService.get(task.id())).thenReturn(task);
+        when(contextBuilds.task("workspace-1", task.id().toString())).thenReturn(task);
+        when(contextBuilds.task("other", task.id().toString())).thenThrow(new AgentTaskNotFoundException(task.id()));
+        when(turnService.stopImpact(task.id())).thenReturn(new AgentRuntimeStopImpact(task.id(), "generation", Optional.empty(), false));
+        when(turnService.stopRuntime(task.id(), "generation")).thenReturn(task);
+
+        mvc.perform(get("/agent/tasks/{taskId}/runtime/stop-impact", task.id()).queryParam("workspaceId", "workspace-1"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/agent/tasks/{taskId}/runtime/stop-impact", task.id()).queryParam("workspaceId", "other"))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/agent/tasks/{taskId}/runtime/stop", task.id()).queryParam("workspaceId", "workspace-1")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"generation\":\"generation\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.interactive").value(false));
+        mvc.perform(post("/agent/tasks/{taskId}/mark-failed", task.id()).queryParam("workspaceId", "workspace-1")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Start over\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/agent/tasks/{taskId}/cleanup", task.id()).queryParam("workspaceId", "workspace-1"))
+                .andExpect(status().isOk());
+        verify(turnService).stopImpact(task.id());
+        verify(turnService).stopRuntime(task.id(), "generation");
+        verify(completionService).abandon(task.id(), "Start over");
+        verify(completionService, times(2)).cleanupWorktree(task.id());
+        verify(taskService, never()).getInteractive(any(), any());
     }
 
     private static AgentTask deliveryTask()

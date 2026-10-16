@@ -134,8 +134,24 @@ final class TestRepositoryGuidelineReader
         write("CONTRIBUTING.md", "The pull request rewrote the rules.\n");
         write("plugin/delta/src/Writer.java", "class Writer {}\n");
         String head = commit();
-        AgentReview review = new AgentReview("review", "workspace", "example/project", OptionalInt.of(7), OptionalLong.of(1), taskId.toString(), Optional.empty(),
-                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        AgentReview review = new AgentReview(
+                "review",
+                "workspace",
+                "example/project",
+                OptionalInt.of(7),
+                OptionalLong.of(1),
+                taskId.toString(),
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                Instant.EPOCH,
+                Instant.EPOCH,
+                Optional.empty(),
+                Optional.empty());
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run(1, base, head, "CONTRIBUTING.md"), run(2, base, head, "plugin/delta/src/Writer.java")));
 
@@ -176,8 +192,24 @@ final class TestRepositoryGuidelineReader
         AgentTask resumed = fresh.withSessionReference(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "conversation"), Instant.EPOCH);
         AgentTurn first = turn("review-step:first");
         AgentTurn next = turn("review-step:next");
-        AgentReview review = new AgentReview("review", "workspace", "example/project", OptionalInt.of(7), OptionalLong.of(1), taskId.toString(), Optional.empty(),
-                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        AgentReview review = new AgentReview(
+                "review",
+                "workspace",
+                "example/project",
+                OptionalInt.of(7),
+                OptionalLong.of(1),
+                taskId.toString(),
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                Instant.EPOCH,
+                Instant.EPOCH,
+                Optional.empty(),
+                Optional.empty());
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         ReviewRun firstRun = run(1, base, base, "README.md").withTurn(first.id().toString(), Instant.EPOCH);
         when(reviews.listRuns("review")).thenReturn(ImmutableList.of(firstRun));

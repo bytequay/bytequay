@@ -49,7 +49,6 @@ import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.cherrypick.CherryPickExecution.Status;
 import com.bytequay.core.cherrypick.CherryPickExecution.Step;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
 import com.bytequay.core.domain.RepoRef;
@@ -502,13 +501,13 @@ class TestCherryPickExecutionService
         CherryPickPreview preview = preview(base);
 
         assertThatThrownBy(() -> service.start(command(preview, ImmutableList.of(), "wrong-workspace"), "another-workspace", clone, PHYSICAL_REPOSITORY))
-                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not belong");
         assertThat(Files.list(worktreeParent)).isEmpty();
 
         CherryPickExecution started = service.start(command(preview, ImmutableList.of(), "right-workspace"), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY);
         assertThatThrownBy(() -> service.cancel(started.id(), "another-workspace"))
-                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not belong");
         assertThat(Files.exists(started.workspace().worktree())).isTrue();
     }
@@ -536,11 +535,11 @@ class TestCherryPickExecutionService
                 WORKSPACE_ID,
                 clone,
                 PHYSICAL_REPOSITORY))
-                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("stale");
 
         assertThatThrownBy(() -> service.start(command(preview, ImmutableList.of("0".repeat(40)), "ineligible-key"), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY))
-                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("not an eligible commit");
     }
 
@@ -557,7 +556,7 @@ class TestCherryPickExecutionService
         commit(fork, "Target moved");
 
         assertThatThrownBy(() -> service.start(command(preview, ImmutableList.of(), "moved-target"), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY))
-                .isInstanceOf(CherryPickInvalidRequestException.class)
+                .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("stale");
         assertThat(store.listRecent(10)).isEmpty();
         assertThat(Files.list(worktreeParent)).isEmpty();
@@ -1173,7 +1172,7 @@ class TestCherryPickExecutionService
         assertThat(paused.status()).isEqualTo(Status.PAUSED);
 
         assertThatThrownBy(() -> service.sendMessage(paused.id(), "   "))
-                .isInstanceOf(CherryPickInvalidRequestException.class);
+                .isInstanceOf(IllegalArgumentException.class);
 
         Path worktree = paused.workspace().worktree();
         agent.then(() -> resolveAndFixup(worktree, "seed.txt", "resolved\n"), TurnState.COMPLETED);

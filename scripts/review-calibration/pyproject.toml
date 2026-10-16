@@ -5,7 +5,6 @@ description = "Offline review calibration: frozen review runs, a model judge, a 
 # Streamlit needs pyarrow, which has no build for Python 3.15 yet.
 requires-python = ">=3.12,<3.15"
 dependencies = [
-    "openai",
     "pandas",
     "plotly",
     "psutil>=7.2.2",

@@ -11,13 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { backendJson } from './backendJson';
 import { ipcMain, net, protocol, WebContentsView, BrowserWindow, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { browserBounds } from './browserTabs';
-import { backendBase, sessionToken } from './backendProcess';
+import { backendBase } from './backendProcess';
 import { repositoryAvatar } from './repositoryAvatars';
 import { parseCodeHost, codeHostKey, parseReviewCodeFiles, parseReviewCodeFile, parseLocalRuns, parseLocalRunOutput, parseWorktreeChanges, type CodeHostRef } from './pulls/code-tests/contracts';
 import { parseCodeQuery, parseCodeQueryReply, queryFailure, type CodeQueryRequest, type CodeQueryReply } from './ide/codeQuery';
@@ -49,21 +50,11 @@ type Editor = {
   pending: Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>;
 };
 
-async function backendRequest(route: string, method: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
-  const response = await fetch(`${backendBase()}${route}`, {
-    method, body: body === undefined ? undefined : JSON.stringify(body), headers: { 'X-ByteQuay-Session': sessionToken(), 'Content-Type': 'application/json' }, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(65_000)]) : AbortSignal.timeout(65_000),
-  });
-  if (!response.ok) {
-    const body: unknown = await response.json().catch((): unknown => null);
-    const message = body && typeof body === 'object' && 'message' in body && typeof body.message === 'string' ? body.message : `IDE request failed (${response.status})`;
-    throw new Error(body && typeof body === 'object' && 'code' in body && body.code === 'IDE_FILE_CHANGED' ? `IDE_FILE_CHANGED: ${message}` : message);
-  }
-  const text = await response.text();
-  return text ? JSON.parse(text) : undefined;
-}
-
 function runtimeRequest(route: string, method: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
-  return backendRequest(`/agent/ide${route}`, method, body, signal);
+  return backendJson(`${backendBase()}/agent/ide${route}`, {
+    method, body: body === undefined ? undefined : JSON.stringify(body), headers: { 'Content-Type': 'application/json' },
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(65_000)]) : AbortSignal.timeout(65_000),
+  });
 }
 
 function connectionFrom(value: unknown): IdeConnection {
@@ -233,7 +224,7 @@ export class IdeViews {
             for (const key of ['scope', 'commit', 'base', 'head']) if (query[key] != null) params.set(key, String(query[key]));
           }
         }
-        return backendRequest(`${route}${endpoint}${params.size ? `?${params}` : ''}`, 'GET').then(parse);
+        return backendJson(`${backendBase()}${route}${endpoint}${params.size ? `?${params}` : ''}`).then(parse);
       }
       if (method === 'readCodeBlame') {
         const host = editor.host;

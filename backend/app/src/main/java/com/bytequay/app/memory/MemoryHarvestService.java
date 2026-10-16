@@ -159,7 +159,7 @@ public class MemoryHarvestService
      */
     public void finish(ContextBuild build, boolean completed)
     {
-        ContextBuild.Harvest harvest = build.harvest().orElseThrow();
+        ContextBuild.Harvest harvest = ((ContextBuild.Harvest) build.work());
         HarvestState state = state(build.workspaceId());
         List<String> saved = build.capture().attempts().keySet().stream().filter(key -> key.startsWith(MemoryHarvestTools.SAVED))
                 .map(key -> key.substring(MemoryHarvestTools.SAVED.length())).collect(toImmutableList());
@@ -227,7 +227,7 @@ public class MemoryHarvestService
 
     public static String prompt(ContextBuild build)
     {
-        ContextBuild.Harvest harvest = build.harvest().orElseThrow();
+        ContextBuild.Harvest harvest = ((ContextBuild.Harvest) build.work());
         return "Learn repository memory for " + build.repository().fullName() + " from maintainers' review discussion on "
                 + harvest.pulls().size() + (harvest.pulls().size() == 1 ? " closed pull request" : " closed pull requests")
                 + " (" + harvest.label() + ").\n"

@@ -72,7 +72,6 @@ final class InteractiveAgentHttpContract
     {
         requireNonNull(task, "task is null");
         requireNonNull(metrics, "metrics is null");
-        checkArgument(task.interactive(), "task is not interactive");
         return new TaskResponse(
                 task.id().toString(),
                 task.workspaceId().orElseThrow(),

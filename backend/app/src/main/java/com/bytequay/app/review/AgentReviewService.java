@@ -16,7 +16,6 @@ package com.bytequay.app.review;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
-import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -142,7 +141,6 @@ public class AgentReviewService
     private final ReviewDraftStore drafts;
     private final ReviewPublicationService publications;
     private final AgentTaskService tasks;
-    private final AgentEventService events;
     private final AgentTurnService turns;
     private final AgentTurnStore turnStore;
     private final QueuedInputStore queueStore;
@@ -171,7 +169,6 @@ public class AgentReviewService
             ReviewDraftStore drafts,
             ReviewPublicationService publications,
             AgentTaskService tasks,
-            AgentEventService events,
             AgentTurnService turns,
             AgentTurnStore turnStore,
             QueuedInputStore queueStore,
@@ -198,7 +195,6 @@ public class AgentReviewService
         this.drafts = requireNonNull(drafts, "drafts is null");
         this.publications = requireNonNull(publications, "publications is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
-        this.events = requireNonNull(events, "events is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.queueStore = requireNonNull(queueStore, "queueStore is null");

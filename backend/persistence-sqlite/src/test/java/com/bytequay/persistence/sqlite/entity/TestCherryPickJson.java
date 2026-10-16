@@ -21,10 +21,12 @@ import com.bytequay.core.cherrypick.CherryPickItem.IndexStage;
 import com.bytequay.core.cherrypick.CherryPickItem.PullRequestRefView;
 import com.bytequay.core.store.StorageException;
 import com.bytequay.persistence.sqlite.converter.JsonColumns;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,6 +34,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestCherryPickJson
 {
+    private static final TypeReference<List<CherryPickItem>> ITEMS = new TypeReference<>() {};
+
     @Test
     void preservesStoredShapeAndReadsMissingConflictDetails()
             throws Exception
@@ -48,12 +52,12 @@ class TestCherryPickJson
                   "conflictPaths":[{"path":"file","type":"CONTENT","module":null,"stages":[{"stage":1,"mode":"100644","blobSha":"%s"}]}]}]
                 """.formatted(sha, parent, parent);
         ObjectMapper mapper = JsonColumns.mapper();
-        assertThat(mapper.readTree(CherryPickJson.encodeItems(ImmutableList.of(item)))).isEqualTo(mapper.readTree(stored));
-        assertThat(CherryPickJson.decodeItems(stored)).containsExactly(item);
+        assertThat(mapper.readTree(JsonGuard.CHERRY_PICK.write(ImmutableList.of(item), "cherry-pick items"))).isEqualTo(mapper.readTree(stored));
+        assertThat(JsonGuard.CHERRY_PICK.read(stored, ITEMS, "cherry-pick items")).containsExactly(item);
         String noStages = stored.replace("[{\"stage\":1,\"mode\":\"100644\",\"blobSha\":\"" + parent + "\"}]", "null");
-        assertThat(CherryPickJson.decodeItems(noStages).getFirst().conflictPaths().getFirst().stages()).isEmpty();
+        assertThat(JsonGuard.CHERRY_PICK.read(noStages, ITEMS, "cherry-pick items").getFirst().conflictPaths().getFirst().stages()).isEmpty();
         String noConflicts = stored.substring(0, stored.indexOf("\"conflictPaths\"")) + "\"conflictPaths\":null}]";
-        assertThat(CherryPickJson.decodeItems(noConflicts).getFirst().conflictPaths()).isEmpty();
-        assertThatThrownBy(() -> CherryPickJson.decodeItems(stored.replace("\"stage\":1", "\"stage\":0"))).isInstanceOf(StorageException.class);
+        assertThat(JsonGuard.CHERRY_PICK.read(noConflicts, ITEMS, "cherry-pick items").getFirst().conflictPaths()).isEmpty();
+        assertThatThrownBy(() -> JsonGuard.CHERRY_PICK.read(stored.replace("\"stage\":1", "\"stage\":0"), ITEMS, "cherry-pick items")).isInstanceOf(StorageException.class);
     }
 }

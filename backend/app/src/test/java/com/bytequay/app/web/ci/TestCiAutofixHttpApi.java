@@ -22,7 +22,6 @@ import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.SendCiAutofixMessageCommand;
-import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentController;
 import com.bytequay.app.web.agent.AgentRequestFilter;
@@ -121,32 +120,16 @@ class TestCiAutofixHttpApi
     }
 
     @Test
-    void startsListsGetsMessagesAndCancelsWithoutExposingInternalPathsOrLogs()
+    void listsGetsAndMessagesWithoutExposingInternalPathsOrLogs()
             throws Exception
     {
-        when(service.start(any())).thenReturn(run);
         when(service.list(10)).thenReturn(ImmutableList.of(run));
         when(service.get(run.id())).thenReturn(run);
         when(service.sendMessage(any())).thenReturn(run);
-        when(service.cancel(run.id())).thenReturn(run);
 
-        String startBody = """
-                {
-                  "workspaceId":"workspace-1",
-                  "pullRequestNumber":42,
-                  "laneId":"codex",
-                  "maxAttempts":3,
-                  "allowFailedJobReruns":true,
-                  "allowHistoryRewrites":true,
-                  "allowExactLeasePush":true
-                }
-                """;
-        mvc.perform(post("/api/ci-autofix/runs")
-                        .header(AgentController.SESSION_HEADER, SESSION)
-                        .header("Idempotency-Key", "start-key")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(startBody))
-                .andExpect(status().isCreated())
+        mvc.perform(get("/api/ci-autofix/runs/{runId}", run.id())
+                        .header(AgentController.SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.workspaceId").value("workspace-1"))
                 .andExpect(jsonPath("$.repository").value("bytequay/sample"))
                 .andExpect(jsonPath("$.activity").value("PREPARING_AGENT"))
@@ -174,15 +157,6 @@ class TestCiAutofixHttpApi
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"Docker is ready\",\"expectedTurnId\":\"" + target + "\"}"))
                 .andExpect(status().isAccepted());
-        mvc.perform(post("/api/ci-autofix/runs/{runId}/cancel", run.id())
-                        .header(AgentController.SESSION_HEADER, SESSION))
-                .andExpect(status().isOk());
-
-        ArgumentCaptor<StartCiAutofixCommand> start = ArgumentCaptor.forClass(StartCiAutofixCommand.class);
-        verify(service).start(start.capture());
-        assertThat(start.getValue().idempotencyKey()).isEqualTo("start-key");
-        assertThat(start.getValue().workspaceId()).isEqualTo("workspace-1");
-        assertThat(start.getValue().pullRequestNumber()).isEqualTo(42);
         ArgumentCaptor<SendCiAutofixMessageCommand> message = ArgumentCaptor.forClass(SendCiAutofixMessageCommand.class);
         verify(service, times(2)).sendMessage(message.capture());
         assertThat(message.getAllValues().getFirst().idempotencyKey()).isEqualTo("message-key");
@@ -195,7 +169,7 @@ class TestCiAutofixHttpApi
     void validatesHeadersAndMapsCiDomainFailures()
             throws Exception
     {
-        mvc.perform(post("/api/ci-autofix/runs")
+        mvc.perform(post("/api/ci-autofix/runs/{runId}/messages", run.id())
                         .header(AgentController.SESSION_HEADER, SESSION)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
@@ -211,9 +185,12 @@ class TestCiAutofixHttpApi
                         .header(AgentController.SESSION_HEADER, SESSION))
                 .andExpect(status().isNotFound());
 
-        when(service.cancel(run.id())).thenThrow(new CiAutofixConflictException("version changed"));
-        mvc.perform(post("/api/ci-autofix/runs/{runId}/cancel", run.id())
-                        .header(AgentController.SESSION_HEADER, SESSION))
+        when(service.sendMessage(any())).thenThrow(new CiAutofixConflictException("version changed"));
+        mvc.perform(post("/api/ci-autofix/runs/{runId}/messages", run.id())
+                        .header(AgentController.SESSION_HEADER, SESSION)
+                        .header("Idempotency-Key", "message-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"try again\"}"))
                 .andExpect(status().isConflict());
     }
 
@@ -328,7 +305,7 @@ class TestCiAutofixHttpApi
                 "a".repeat(40),
                 "a".repeat(40),
                 "b".repeat(40),
-                new Authorization(true, true, true, 3, NOW, NOW.plus(Duration.ofHours(8))),
+                new Authorization(NOW, NOW.plus(Duration.ofHours(8))),
                 NOW);
     }
 }

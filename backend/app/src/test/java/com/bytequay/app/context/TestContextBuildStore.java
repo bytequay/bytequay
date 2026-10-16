@@ -26,6 +26,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
@@ -66,17 +67,34 @@ class TestContextBuildStore
     }
 
     @Test
-    void aCheckSavedBeforeHarvestsExistedStillReads()
+    void requiresTheWorkDiscriminatorAndTaskIdentity()
             throws Exception
     {
         ContextBuild saved = store.save(Optional.empty(), build());
         ObjectNode json = (ObjectNode) mapper.readTree(settings.get(ContextBuildStore.PREFIX + WORKSPACE).orElseThrow());
-        json.remove("harvest");
+        assertThat(json.path("work").path("kind").asText()).isEqualTo("CHECK");
+        json.remove("work");
         settings.put(ContextBuildStore.PREFIX + WORKSPACE, json.toString());
-        assertThat(store.find(WORKSPACE)).contains(saved);
+        assertThatThrownBy(() -> store.find(WORKSPACE)).isInstanceOf(ContextStorageException.class);
+        json = (ObjectNode) mapper.valueToTree(saved);
         json.remove("taskId");
         settings.put(ContextBuildStore.PREFIX + WORKSPACE, json.toString());
         assertThatThrownBy(() -> store.find(WORKSPACE)).isInstanceOf(ContextStorageException.class);
+    }
+
+    @Test
+    void storesEveryWorkKindWithoutOptionalCombinations()
+            throws Exception
+    {
+        ContextBuild.Work check = build().work();
+        ContextBuild.Work research = new ContextBuild.Research("research", "goal", "Goal", "Objective", "Scope", ImmutableList.of(), ImmutableList.of());
+        ContextBuild.Work harvest = new ContextBuild.Harvest("harvest", "Pull request", false,
+                ImmutableList.of(new ContextBuild.HarvestPull(1, "Title", "https://example.com/pull/1", true, Instant.EPOCH)),
+                ImmutableList.of(new ContextBuild.HarvestThread("thread", 1, com.bytequay.core.memory.MemorySource.Part.REVIEW_COMMENT,
+                        Optional.empty(), false, false, ImmutableList.of(new ContextBuild.HarvestNote("n1", "note", "author", true, "Body", "https://example.com/note", Instant.EPOCH)))));
+        for (ContextBuild.Work work : ImmutableList.of(check, research, harvest)) {
+            assertThat(mapper.readValue(mapper.writeValueAsString(work), ContextBuild.Work.class)).isEqualTo(work);
+        }
     }
 
     @Test
@@ -109,8 +127,27 @@ class TestContextBuildStore
 
     private static ContextBuild build()
     {
-        return new ContextBuild(1, "request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(), new RepositoryIdentity("owner", "repository"),
-                1, REPOSITORY, SHA, "bytequay/task", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH,
-                ContextBuild.Capture.empty(), Optional.of(new ContextBuild.Check("check", "plugin/iceberg/", Optional.empty(), "Brief")), Optional.empty(), Optional.empty());
+        return new ContextBuild(
+                1,
+                "request",
+                "sha256:" + "b".repeat(64),
+                WORKSPACE,
+                TASK.toString(),
+                new RepositoryIdentity(
+                        "owner",
+                        "repository"),
+                1,
+                REPOSITORY,
+                SHA,
+                "bytequay/task",
+                "codex",
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                Instant.EPOCH,
+                ContextBuild.Capture.empty(),
+                new ContextBuild.Check(
+                        "check",
+                        "plugin/iceberg/",
+                        Optional.empty(),
+                        "Brief"));
     }
 }

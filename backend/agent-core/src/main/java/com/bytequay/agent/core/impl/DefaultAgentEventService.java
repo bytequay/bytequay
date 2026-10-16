@@ -30,6 +30,7 @@ import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.math.LongMath;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -410,7 +411,7 @@ public final class DefaultAgentEventService
                 return;
             }
             synchronized (this) {
-                demand = addCap(demand, requested);
+                demand = LongMath.saturatedAdd(demand, requested);
             }
             drain();
         }
@@ -522,12 +523,6 @@ public final class DefaultAgentEventService
                 }
                 return;
             }
-        }
-
-        private static long addCap(long current, long additional)
-        {
-            long sum = current + additional;
-            return sum < 0 ? Long.MAX_VALUE : sum;
         }
     }
 }

@@ -22,6 +22,8 @@ import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.io.MoreFiles;
+import com.google.common.io.RecursiveDeleteOption;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
@@ -29,12 +31,9 @@ import javax.imageio.stream.ImageInputStream;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Iterator;
@@ -329,27 +328,7 @@ public final class FileAgentResourceService
             if (!Files.exists(tree, NOFOLLOW_LINKS)) {
                 return;
             }
-            Files.walkFileTree(tree, new SimpleFileVisitor<>()
-            {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attributes)
-                        throws IOException
-                {
-                    Files.delete(file);
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult postVisitDirectory(Path directory, IOException failure)
-                        throws IOException
-                {
-                    if (failure != null) {
-                        throw failure;
-                    }
-                    Files.delete(directory);
-                    return FileVisitResult.CONTINUE;
-                }
-            });
+            MoreFiles.deleteRecursively(tree, RecursiveDeleteOption.ALLOW_INSECURE);
         }
         catch (IOException | RuntimeException e) {
             if (e instanceof AgentStorageException storageException) {

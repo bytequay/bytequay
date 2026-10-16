@@ -146,10 +146,6 @@ public class CiGitService
         requireNonNull(command, "command is null");
         Authorization authorization = command.authorization();
         PushJournal journal = command.journal();
-        if (!authorization.allowExactLeasePush()) {
-            return CiPushResult.failed(REJECTED, "Exact-lease push is not authorized");
-        }
-
         try {
             Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
             validateRemote(worktree, command.remote(), command.remoteRepository());
@@ -178,11 +174,7 @@ public class CiGitService
                 return CiPushResult.failed(REJECTED, "Local Git fingerprint changed after inspection");
             }
 
-            boolean descendant = isAncestor(worktree, journal.expectedRemoteSha(), head);
-            if (!descendant && !authorization.allowHistoryRewrites()) {
-                return CiPushResult.failed(REJECTED, "Local history rewrite is not authorized");
-            }
-            if (!authorization.allowExactLeasePush() || !Instant.now(clock).isBefore(authorization.expiresAt())) {
+            if (!Instant.now(clock).isBefore(authorization.expiresAt())) {
                 return CiPushResult.failed(REJECTED, "CI Autofix push authorization is no longer valid");
             }
             worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
@@ -193,6 +185,7 @@ public class CiGitService
                 return CiPushResult.failed(REJECTED, "Local Git history changed immediately before push");
             }
             validateRemote(worktree, command.remote(), command.remoteRepository());
+            boolean descendant = isAncestor(worktree, journal.expectedRemoteSha(), head);
             Result push = runner.run(worktree, pushArguments(command.remote(), command.remoteHeadRef(), journal.expectedRemoteSha(), descendant));
             return reconcilePush(worktree, command.remote(), command.remoteHeadRef(), journal, push);
         }
@@ -431,14 +424,7 @@ public class CiGitService
 
     private String requiredRawOutput(Path worktree, String... arguments)
     {
-        Result result = runner.run(worktree, arguments);
-        if (!result.successful()) {
-            throw problem("Git command failed: " + result.output());
-        }
-        if (result.truncated()) {
-            throw problem("Git output exceeded " + GitCommandRunner.MAXIMUM_OUTPUT_BYTES + " bytes");
-        }
-        return result.output();
+        return runner.run(worktree, arguments).requireOutput(CiGitService::problem);
     }
 
     static List<String> pushArguments(String remote, String headRef, String expectedRemoteSha, boolean descendant)

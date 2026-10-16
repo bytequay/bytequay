@@ -95,7 +95,7 @@ class TestDevelopmentBranchService
         RepoRef repo = new RepoRef("owner", "repo");
         when(git.capture(task)).thenReturn(new DevelopmentBaseline(worktree,
                 new DevelopmentPublicationRoute(repo, repo, "https://github.com/owner/repo.git", "origin", "main", base, worktree.generatedBranch()),
-                new DevelopmentLocalFacts(worktree.generatedBranch(), base, base, "clean", 0, 0, 0, 0, 0, false, false)));
+                new DevelopmentLocalFacts(worktree.generatedBranch(), base, "clean", 0, 0, false, false)));
         when(turns.findActive(id)).thenReturn(Optional.of(turn));
         when(turns.list(id)).thenReturn(ImmutableList.of(turn));
     }

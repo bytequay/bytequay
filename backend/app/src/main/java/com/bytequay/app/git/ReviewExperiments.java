@@ -238,9 +238,7 @@ public class ReviewExperiments
 
     private String output(TaskWorktree worktree, String... arguments)
     {
-        Result result = git.run(worktree.canonicalWorktree(), arguments);
-        checkState(result.successful() && !result.truncated(), "Review Git operation failed: %s", result.output().strip());
-        return result.output();
+        return git.run(worktree.canonicalWorktree(), arguments).requireOutput(message -> new IllegalStateException("Review Git operation failed: " + message));
     }
 
     private record Stash(String oid, String reference, String subject) {}

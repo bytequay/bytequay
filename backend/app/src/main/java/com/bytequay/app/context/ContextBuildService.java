@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
@@ -148,37 +149,38 @@ public class ContextBuildService
      */
     public View check(String workspaceId, Request request, String baselineSha, ContextBuild.Check check)
     {
-        return run(workspaceId, request, baselineSha, Optional.of(check), Optional.empty(), Optional.empty());
+        return run(workspaceId, request, baselineSha, check);
     }
 
     /** One harvest turn over the maintainer threads it carries, at the monitored head. It never continues an earlier task. */
     public View harvest(String workspaceId, Request request, String baselineSha, ContextBuild.Harvest harvest)
     {
-        return run(workspaceId, request, baselineSha, Optional.empty(), Optional.of(harvest), Optional.empty());
+        return run(workspaceId, request, baselineSha, harvest);
     }
 
     /** One research turn for a goal at the monitored head. It never continues an earlier task. */
     public View research(String workspaceId, Request request, String baselineSha, ContextBuild.Research research)
     {
-        return run(workspaceId, request, baselineSha, Optional.empty(), Optional.empty(), Optional.of(research));
+        return run(workspaceId, request, baselineSha, research);
     }
 
-    private View run(String workspaceId, Request request, String baselineSha, Optional<ContextBuild.Check> check, Optional<ContextBuild.Harvest> harvest,
-            Optional<ContextBuild.Research> research)
+    private View run(String workspaceId, Request request, String baselineSha, ContextBuild.Work work)
     {
         checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid run baseline");
         Lock lock = locks.get(workspaceId);
         return withLock(lock, () -> {
-            String digest = digest(ImmutableList.of(request, baselineSha, check.<Object>map(value -> value)
-                    .or(() -> harvest.map(ContextBuild.Harvest::harvestId)).orElseGet(() -> research.orElseThrow())));
+            String digest = digest(ImmutableList.of(request, baselineSha, switch (work) {
+                case ContextBuild.Harvest harvest -> harvest.harvestId();
+                default -> work;
+            }));
             Optional<ContextBuild> previous = builds.find(workspaceId);
             if (previous.filter(build -> build.requestKey().equals(request.requestKey())).isPresent()) {
                 checkArgument(previous.orElseThrow().requestDigest().equals(digest), "Request key was reused with different run inputs");
                 return view(workspaceId);
             }
             checkArgument(previous.map(ContextBuild::sequence).orElse(0L) == request.expectedBuildSequence(), "Build request sequence changed; inspect the latest build");
-            Optional<ContextBuild> continued = previous.filter(build -> check.isPresent() && build.check().map(ContextBuild.Check::checkId)
-                    .filter(check.orElseThrow().checkId()::equals).isPresent()
+            Optional<ContextBuild> continued = previous.filter(build -> work instanceof ContextBuild.Check check && build.work() instanceof ContextBuild.Check previousCheck
+                    && previousCheck.checkId().equals(check.checkId())
                     && taskStore.find(TaskId.valueOf(build.taskId()))
                             .filter(task -> reusable(build, task, turns.findTurnByIdempotencyKey(task.id(), build.turnKey()))).isPresent());
             checkArgument(continued.isPresent() || previous.map(this::canStartAfter).orElse(true),
@@ -191,11 +193,28 @@ public class ContextBuildService
             GitCommandRunner.Result resolved = git.run(workspace.repository(), "rev-parse", "--verify", baselineSha + "^{commit}");
             checkArgument(resolved.successful() && !resolved.truncated() && resolved.output().strip().matches("[0-9a-f]{40}|[0-9a-f]{64}"), "The check's baseline is unavailable");
             TaskId id = continued.map(build -> TaskId.valueOf(build.taskId())).orElseGet(TaskId::random);
-            String title = (check.isPresent() ? "Check " : harvest.isPresent() ? "Learn from " : "Research for ") + workspace.monitoredRepository().fullName();
+            String title = (switch (work) {
+                case ContextBuild.Check ignored -> "Check ";
+                case ContextBuild.Harvest ignored -> "Learn from ";
+                case ContextBuild.Research ignored -> "Research for ";
+            }) + workspace.monitoredRepository().fullName();
             String branch = continued.map(ContextBuild::branch).orElseGet(() -> TaskBranches.generate(id, credentials.resolveGitHubCredential().profile().login(), title));
-            ContextBuild build = new ContextBuild(Math.addExact(request.expectedBuildSequence(), 1), request.requestKey(), digest, workspaceId, id.toString(),
-                    WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), workspace.monitoredRepositoryId(), workspace.monitoredRepository(),
-                    resolved.output().strip(), branch, lane.value(), defaults(model), Instant.now(clock), ContextBuild.Capture.empty(), check, harvest, research);
+            ContextBuild build = new ContextBuild(
+                    Math.addExact(request.expectedBuildSequence(), 1),
+                    request.requestKey(),
+                    digest,
+                    workspaceId,
+                    id.toString(),
+                    WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()),
+                    workspace.monitoredRepositoryId(),
+                    workspace.monitoredRepository(),
+                    resolved.output().strip(),
+                    branch,
+                    lane.value(),
+                    defaults(model),
+                    Instant.now(clock),
+                    ContextBuild.Capture.empty(),
+                    work);
             builds.save(previous, build);
             try {
                 if (continued.isEmpty()) {
@@ -218,7 +237,7 @@ public class ContextBuildService
     public AgentTask task(String workspaceId, String taskId)
     {
         ContextBuild build = builds.find(workspaceId).filter(value -> value.taskId().equals(taskId))
-                .orElseThrow(() -> new IllegalArgumentException("This task is not the workspace's current spec check"));
+                .orElseThrow(() -> new AgentTaskNotFoundException(TaskId.valueOf(taskId)));
         AgentTask task = tasks.get(TaskId.valueOf(taskId));
         checkArgument(!task.interactive() && task.workspaceId().filter(workspaceId::equals).isPresent()
                 && task.permissionPolicy() == AgentPermissionPolicy.AUTO && task.repository().equals(build.physicalRepository())
@@ -235,13 +254,16 @@ public class ContextBuildService
     {
         AgentTask task = task(workspaceId, taskId);
         ContextBuild build = builds.find(workspaceId).orElseThrow();
-        Optional<ContextSpecCheck> stopped = WorkspaceOperationLocks.withLock(workspaceId, () -> build.check()
-                .flatMap(bound -> checks.find(workspaceId, bound.checkId())).filter(check -> check.state().active())
-                .map(check -> {
-                    ContextSpecCheck ended = check.ended(ContextSpecCheck.State.STOPPED, Optional.of("Stopped"), Instant.now(clock));
-                    checks.save(workspaceId, Optional.of(check), ended);
-                    return ended;
-                }));
+        Optional<ContextSpecCheck> stopped = WorkspaceOperationLocks.withLock(workspaceId, () -> {
+            if (!(build.work() instanceof ContextBuild.Check bound)) {
+                return Optional.empty();
+            }
+            return checks.find(workspaceId, bound.checkId()).filter(check -> check.state().active()).map(check -> {
+                ContextSpecCheck ended = check.ended(ContextSpecCheck.State.STOPPED, Optional.of("Stopped"), Instant.now(clock));
+                checks.save(workspaceId, Optional.of(check), ended);
+                return ended;
+            });
+        });
         // A check a goal recommended settles its card and tells the goal's agent.
         stopped.ifPresent(check -> goalChecks.ifAvailable(goal -> goal.ended(workspaceId, check)));
         activeTurn(task).ifPresent(turn -> turns.cancel(turn.id()));
@@ -308,20 +330,34 @@ public class ContextBuildService
                 }
                 if (task.orElseThrow().state() == TaskState.OPEN) {
                     boolean completed = turn.filter(value -> value.state() == TurnState.COMPLETED && value.cancellationRequestedAt().isEmpty()).isPresent();
-                    if (kept.isEmpty() && completed && (build.check().isEmpty() || build.capture().attempts().containsKey(CHECKED))) {
-                        completions.complete(new CompleteAgentTaskCommand(task.orElseThrow().id(), Optional.of(build.harvest().isPresent()
-                                ? "The harvest finished; Memory keeps what it saved."
-                                : build.research().isPresent() ? "The research finished; the goal keeps its notes." : "The spec check finished; its report keeps the results.")));
-                        build.harvest().ifPresent(ignored -> harvests.getObject().finish(build, true));
-                        build.research().ifPresent(ignored -> goalResearch.getObject().finish(build, true));
+                    if (kept.isEmpty() && completed && (!(build.work() instanceof ContextBuild.Check) || build.capture().attempts().containsKey(CHECKED))) {
+                        String reason = switch (build.work()) {
+                            case ContextBuild.Harvest ignored -> "The harvest finished; Memory keeps what it saved.";
+                            case ContextBuild.Research ignored -> "The research finished; the goal keeps its notes.";
+                            case ContextBuild.Check ignored -> "The spec check finished; its report keeps the results.";
+                        };
+                        completions.complete(new CompleteAgentTaskCommand(task.orElseThrow().id(), Optional.of(reason)));
+                        if (build.work() instanceof ContextBuild.Harvest) {
+                            harvests.getObject().finish(build, true);
+                        }
+                        if (build.work() instanceof ContextBuild.Research) {
+                            goalResearch.getObject().finish(build, true);
+                        }
                     }
                     else {
-                        String reason = kept.orElseGet(() -> (build.check().isEmpty() ? "The " + (build.harvest().isPresent() ? "harvest" : "research") + " turn did not finish."
-                                : "The check turn ended without saving its result.") + turn.map(value -> " Turn outcome: " + value.state()).orElse(" No turn was accepted."));
+                        String reason = kept.orElseGet(() -> (switch (build.work()) {
+                            case ContextBuild.Harvest ignored -> "The harvest turn did not finish.";
+                            case ContextBuild.Research ignored -> "The research turn did not finish.";
+                            case ContextBuild.Check ignored -> "The check turn ended without saving its result.";
+                        }) + turn.map(value -> " Turn outcome: " + value.state()).orElse(" No turn was accepted."));
                         recordGap(workspaceId, taskId, reason);
                         completions.abandon(task.orElseThrow().id(), reason);
-                        build.harvest().ifPresent(ignored -> harvests.getObject().finish(build, false));
-                        build.research().ifPresent(ignored -> goalResearch.getObject().finish(build, false));
+                        if (build.work() instanceof ContextBuild.Harvest) {
+                            harvests.getObject().finish(build, false);
+                        }
+                        if (build.work() instanceof ContextBuild.Research) {
+                            goalResearch.getObject().finish(build, false);
+                        }
                     }
                 }
                 completions.cleanupWorktree(task.orElseThrow().id());
@@ -338,8 +374,8 @@ public class ContextBuildService
     /** A spec check reproduces its next candidate as a new turn of this task. */
     private boolean continuesCheck(String workspaceId, ContextBuild build, AgentTask task, Optional<AgentTurn> turn)
     {
-        return reusable(build, task, turn) && build.check().flatMap(bound -> checks.find(workspaceId, bound.checkId()))
-                .filter(check -> check.state().active()).flatMap(ContextSpecCheck::nextToReproduce).isPresent();
+        return build.work() instanceof ContextBuild.Check bound && reusable(build, task, turn)
+                && checks.find(workspaceId, bound.checkId()).filter(check -> check.state().active()).flatMap(ContextSpecCheck::nextToReproduce).isPresent();
     }
 
     /**
@@ -413,7 +449,11 @@ public class ContextBuildService
             Outcome outcome = outcome(value, task, task.flatMap(owner -> turns.findTurnByIdempotencyKey(owner.id(), value.turnKey())));
             Optional<String> detail = task.flatMap(AgentTask::terminalReason).or(() -> value.capture().gaps().stream().findFirst())
                     .filter(ignored -> outcome == Outcome.FAILED).map(text -> ContextText.excerpt(text, 1000));
-            String kind = value.check().isPresent() ? "CHECK" : value.harvest().isPresent() ? "HARVEST" : "RESEARCH";
+            String kind = switch (value.work()) {
+                case ContextBuild.Check ignored -> "CHECK";
+                case ContextBuild.Harvest ignored -> "HARVEST";
+                case ContextBuild.Research ignored -> "RESEARCH";
+            };
             return new BuildView(kind, value.requestKey(), value.taskId(), value.workId(), task.map(TaskView::of), active.map(TurnView::of),
                     active.map(turn -> approvals.listPending(turn.id()).size()).orElse(0), outcome, detail, value.capture().activity());
         });
@@ -432,7 +472,7 @@ public class ContextBuildService
         if (turn.flatMap(AgentTurn::cancellationRequestedAt).isPresent()) {
             return Outcome.STOPPED;
         }
-        if (build.check().isEmpty()) {
+        if (!(build.work() instanceof ContextBuild.Check)) {
             return turn.filter(value -> value.state() == TurnState.COMPLETED).isPresent() ? Outcome.SAVED : Outcome.FAILED;
         }
         return build.capture().attempts().containsKey(CHECKED) ? Outcome.SAVED : Outcome.FAILED;
@@ -464,13 +504,15 @@ public class ContextBuildService
     /** A planning turn saves candidate gaps without writing files; a reproduction turn writes and runs one test. */
     private static String prompt(ContextBuild build)
     {
-        if (build.harvest().isPresent()) {
-            return MemoryHarvestService.prompt(build);
-        }
-        if (build.research().isPresent()) {
-            return GoalResearchService.prompt(build);
-        }
-        ContextBuild.Check check = build.check().orElseThrow();
+        return switch (build.work()) {
+            case ContextBuild.Harvest ignored -> MemoryHarvestService.prompt(build);
+            case ContextBuild.Research ignored -> GoalResearchService.prompt(build);
+            case ContextBuild.Check check -> checkPrompt(build, check);
+        };
+    }
+
+    private static String checkPrompt(ContextBuild build, ContextBuild.Check check)
+    {
         String where = " in directory " + check.directory() + " of " + build.repository().fullName() + " at " + build.baselineSha();
         if (check.reproduction().isEmpty()) {
             return "Check the code" + where + " against its specifications and save candidate gaps.\n\n" + """

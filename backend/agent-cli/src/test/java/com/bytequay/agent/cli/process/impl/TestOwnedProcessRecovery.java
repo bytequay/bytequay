@@ -315,7 +315,7 @@ class TestOwnedProcessRecovery
                 Optional.of(Instant.EPOCH),
                 Optional.of(ABSENT_PROCESS_GROUP),
                 "/bin/sleep")
-                .withIncompleteDescendantTracking();
+                .toBuilder().descendantTrackingIncomplete(true).build();
         for (LaunchMarker recorded : ImmutableList.of(incomplete, incomplete.terminal(exit(ProcessExit.TreeTermination.UNVERIFIABLE)))) {
             write(recorded);
 
@@ -323,7 +323,7 @@ class TestOwnedProcessRecovery
             assertThat(new DefaultProcessSupervisor(launches, intents).recoverOwnedProcess(recorded.launchId()).outcome())
                     .isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
 
-            write(recorded.withWorkFinished());
+            write(recorded.toBuilder().workFinished(true).build());
 
             assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
         }
@@ -335,9 +335,9 @@ class TestOwnedProcessRecovery
     {
         Process descendant = spawn("exec sleep 60");
         LaunchMarker finished = marker(LaunchPhase.RUNNING, Optional.of(ProcessHandle.current().pid()), Optional.of(Instant.EPOCH), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep")
-                .withIncompleteDescendantTracking()
+                .toBuilder().descendantTrackingIncomplete(true).build()
                 .withDescendant(new ProcessIdentity(descendant.pid(), descendant.info().startInstant().orElseThrow()))
-                .withWorkFinished();
+                .toBuilder().workFinished(true).build();
         write(finished);
 
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
@@ -489,7 +489,7 @@ class TestOwnedProcessRecovery
     private static LaunchMarker blockedMarker()
     {
         return marker(LaunchPhase.RUNNING, Optional.of(ProcessHandle.current().pid()), Optional.of(Instant.EPOCH), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep")
-                .withIncompleteDescendantTracking()
+                .toBuilder().descendantTrackingIncomplete(true).build()
                 .terminal(exit(ProcessExit.TreeTermination.UNVERIFIABLE));
     }
 

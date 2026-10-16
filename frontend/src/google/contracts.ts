@@ -11,6 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { clock } from '../displayText';
+
 export type GoogleMail = {
   id: string; threadId: string; subject: string; from: string; to: string;
   date: string; snippet: string; body: string; unread: boolean;
@@ -88,7 +90,6 @@ export function localDate(): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-const clock = (value: Date) => value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(':00', '');
 const day = (value: Date) => value.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 
 export function eventTime(event: GoogleEvent): string {

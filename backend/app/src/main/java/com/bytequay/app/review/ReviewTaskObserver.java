@@ -17,7 +17,6 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.app.agent.TaskEventWatcher;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
@@ -63,7 +62,6 @@ public class ReviewTaskObserver
 
     private final TaskEventWatcher watcher;
     private final AgentReviewStore store;
-    private final AgentTurnStore turns;
     private final ObjectProvider<AgentReviewService> reviews;
     private final ObjectProvider<PullRequestRefreshService> refresh;
     private final ObjectProvider<LocalRunService> localRuns;
@@ -72,14 +70,12 @@ public class ReviewTaskObserver
     public ReviewTaskObserver(
             AgentEventService events,
             AgentReviewStore store,
-            AgentTurnStore turns,
             ObjectProvider<AgentReviewService> reviews,
             ObjectProvider<PullRequestRefreshService> refresh,
             ObjectProvider<LocalRunService> localRuns)
     {
         this.watcher = new TaskEventWatcher(requireNonNull(events, "events is null"), "Review");
         this.store = requireNonNull(store, "store is null");
-        this.turns = requireNonNull(turns, "turns is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.refresh = requireNonNull(refresh, "refresh is null");
         this.localRuns = requireNonNull(localRuns, "localRuns is null");

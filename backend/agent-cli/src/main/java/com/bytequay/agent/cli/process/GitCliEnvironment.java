@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.process;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -44,12 +45,6 @@ public final class GitCliEnvironment
     public static Map<String, String> withoutCredentials(Map<String, String> environment)
     {
         requireNonNull(environment, "environment is null");
-        ImmutableMap.Builder<String, String> selected = ImmutableMap.builder();
-        environment.forEach((name, value) -> {
-            if (!VARIABLES.contains(name)) {
-                selected.put(name, value);
-            }
-        });
-        return selected.buildOrThrow();
+        return ImmutableMap.copyOf(Maps.filterKeys(environment, name -> !VARIABLES.contains(name)));
     }
 }

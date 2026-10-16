@@ -114,17 +114,17 @@ class TestCodexEventMapper
     @Test
     void rejectsMissingRequiredFieldsDuringDeserialization()
     {
-        assertThatThrownBy(() -> codec.decodeNotification("""
+        assertThatThrownBy(() -> codec.decode("""
                 {"method":"item/commandExecution/outputDelta","params":{
                 "turnId":"turn-1","itemId":"exec-1","delta":"output"}}
-                """))
+                """, CodexProtocol.Notification.class))
                 .hasRootCauseMessage("threadId is null");
 
-        assertThatThrownBy(() -> codec.decodeNotification("""
+        assertThatThrownBy(() -> codec.decode("""
                 {"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1",
                 "turnId":"turn-1","tokenUsage":{"total":{"totalTokens":10,
                 "inputTokens":8,"cachedInputTokens":2}}}}
-                """))
+                """, CodexProtocol.Notification.class))
                 .hasRootCauseMessage("outputTokens is null");
     }
 
@@ -166,17 +166,17 @@ class TestCodexEventMapper
     @Test
     void ignoresUnknownNotificationsItemsAndFields()
     {
-        CodexProtocol.Notification notification = codec.decodeNotification("""
+        CodexProtocol.Notification notification = codec.decode("""
                 {"method":"future/event","params":{"threadId":"thread-1","future":true},
                 "emittedAtMs":1786884871461,"extra":"ignored"}
-                """);
+                """, CodexProtocol.Notification.class);
         assertThat(notification).isInstanceOf(CodexProtocol.UnknownNotification.class);
         assertThat(mapper.map(notification, true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
 
-        CodexProtocol.Notification item = codec.decodeNotification("""
+        CodexProtocol.Notification item = codec.decode("""
                 {"method":"item/completed","params":{"item":{"type":"futureItem",
                 "id":"item-1","future":true},"threadId":"thread-1","turnId":"turn-1"}}
-                """);
+                """, CodexProtocol.Notification.class);
         assertThat(mapper.map(item, true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
     }
 
@@ -186,11 +186,11 @@ class TestCodexEventMapper
         CodexEventMapper redacting = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of("API_TOKEN", "known-secret")));
         for (String status : ImmutableList.of("inProgress", "approved", "denied", "timedOut", "aborted", "futureStatus")) {
             String method = status.equals("inProgress") ? "started" : "completed";
-            CodexProtocol.Notification notification = codec.decodeNotification("""
+            CodexProtocol.Notification notification = codec.decode("""
                     {"method":"item/autoApprovalReview/%s","params":{"threadId":"thread-1",
                     "turnId":"turn-1","reviewId":"review-1","targetItemId":"exec-1",
                     "review":{"status":"%s","riskLevel":"low","rationale":"Inspect known-secret"}}}
-                    """.formatted(method, status));
+                    """.formatted(method, status), CodexProtocol.Notification.class);
             ProviderAgentEvent.Tool tool = (ProviderAgentEvent.Tool) redacting.map(notification, true, CodexEventMapper.ThreadLineage.NONE).getFirst();
             assertThat(tool.name()).isEqualTo("Automatic approval");
             assertThat(tool.source().providerItemId()).contains("approval-review:review-1");
@@ -207,7 +207,7 @@ class TestCodexEventMapper
     @Test
     void deserializesFullCommandApprovalRequestAndBothKinds()
     {
-        CodexProtocol.ServerRequest request = codec.decodeServerRequest("""
+        CodexProtocol.ServerRequest request = codec.decode("""
                 {"id":7,"method":"item/commandExecution/requestApproval","params":{
                 "additionalPermissions":{"network":{"enabled":true}},
                 "approvalId":"approval-1","availableDecisions":["accept","decline"],
@@ -218,7 +218,7 @@ class TestCodexEventMapper
                 "proposedNetworkPolicyAmendments":[{"host":"example.com","action":"allow"}],
                 "reason":"needs network","startedAtMs":1786884871461,
                 "threadId":"thread-1","turnId":"turn-1"}}
-                """);
+                """, CodexProtocol.ServerRequest.class);
 
         assertThat(request).isInstanceOf(CodexProtocol.CommandApprovalRequest.class);
         CodexProtocol.CommandApprovalRequest approval = (CodexProtocol.CommandApprovalRequest) request;
@@ -239,33 +239,33 @@ class TestCodexEventMapper
         assertThat(approval.params().reason()).contains("needs network");
         assertThat(approval.turnId()).contains("turn-1");
 
-        CodexProtocol.CommandApprovalRequest command = (CodexProtocol.CommandApprovalRequest) codec.decodeServerRequest("""
+        CodexProtocol.CommandApprovalRequest command = (CodexProtocol.CommandApprovalRequest) codec.decode("""
                 {"id":8,"method":"item/commandExecution/requestApproval","params":{
                 "threadId":"thread-1","turnId":"turn-1","itemId":"exec-2",
                 "kind":"command","startedAtMs":1786884871462}}
-                """);
+                """, CodexProtocol.ServerRequest.class);
         assertThat(command.params().kind()).contains("command");
     }
 
     @Test
     void deserializesFileAndPermissionsApprovalRequests()
     {
-        CodexProtocol.FileChangeApprovalRequest file = (CodexProtocol.FileChangeApprovalRequest) codec.decodeServerRequest("""
+        CodexProtocol.FileChangeApprovalRequest file = (CodexProtocol.FileChangeApprovalRequest) codec.decode("""
                 {"id":9,"method":"item/fileChange/requestApproval","params":{
                 "grantRoot":"/worktree/src","itemId":"patch-1","reason":"write files",
                 "startedAtMs":1786884871463,"threadId":"thread-1","turnId":"turn-1"}}
-                """);
+                """, CodexProtocol.ServerRequest.class);
         assertThat(file.params().grantRoot()).contains("/worktree/src");
         assertThat(file.params().reason()).contains("write files");
         assertThat(file.turnId()).contains("turn-1");
 
-        CodexProtocol.ServerRequest request = codec.decodeServerRequest("""
+        CodexProtocol.ServerRequest request = codec.decode("""
                 {"id":10,"method":"item/permissions/requestApproval","params":{
                 "cwd":"/worktree","environmentId":"environment-1","itemId":"permission-1",
                 "permissions":{"fileSystem":{"write":["/worktree/generated"]},"network":{"enabled":true}},
                 "reason":"generate files","startedAtMs":1786884871464,
                 "threadId":"thread-1","turnId":"turn-1"}}
-                """);
+                """, CodexProtocol.ServerRequest.class);
         assertThat(request).isInstanceOf(CodexProtocol.PermissionsApprovalRequest.class);
         CodexProtocol.PermissionsApprovalRequest permissions = (CodexProtocol.PermissionsApprovalRequest) request;
         assertThat(permissions.params().cwd()).isEqualTo("/worktree");
@@ -315,10 +315,10 @@ class TestCodexEventMapper
                 """, ProviderAgentEvent.Message.class);
         assertThat(last.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.PARTIAL);
 
-        List<ProviderAgentEvent> completed = mapper.map(codec.decodeNotification("""
+        List<ProviderAgentEvent> completed = mapper.map(codec.decode("""
                 {"method":"turn/completed","params":{"threadId":"thread-1","turn":{
                 "id":"turn-1","status":"completed","error":null,"durationMs":5,"items":[]}}}
-                """), true, CodexEventMapper.ThreadLineage.NONE);
+                """, CodexProtocol.Notification.class), true, CodexEventMapper.ThreadLineage.NONE);
 
         // A model that labels no phases answers with its last message, in that message's place.
         assertThat(completed).hasSize(2);
@@ -369,14 +369,14 @@ class TestCodexEventMapper
         assertThat(summary.text()).doesNotContain("hidden");
 
         // Reasoning that starts, or completes with nothing readable, is not a transcript row.
-        assertThat(mapper.map(codec.decodeNotification("""
+        assertThat(mapper.map(codec.decode("""
                 {"method":"item/started","params":{"item":{"type":"reasoning","id":"reasoning-2",
                 "summary":[],"content":["hidden"]},"threadId":"thread-1","turnId":"turn-1"}}
-                """), true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
-        assertThat(mapper.map(codec.decodeNotification("""
+                """, CodexProtocol.Notification.class), true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
+        assertThat(mapper.map(codec.decode("""
                 {"method":"item/completed","params":{"item":{"type":"reasoning","id":"reasoning-2",
                 "content":["hidden"]},"threadId":"thread-1","turnId":"turn-1"}}
-                """), true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
+                """, CodexProtocol.Notification.class), true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
 
         ProviderAgentEvent.Message planDelta = only("""
                 {"method":"item/plan/delta","params":{"threadId":"thread-1","turnId":"turn-1",
@@ -399,10 +399,10 @@ class TestCodexEventMapper
     void deepSeekNeverPublishesReasoningItems()
     {
         CodexEventMapper deepSeek = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of()), false);
-        assertThat(deepSeek.map(codec.decodeNotification("""
+        assertThat(deepSeek.map(codec.decode("""
                 {"method":"item/completed","params":{"item":{"type":"reasoning","id":"reasoning-1",
                 "summary":["provider reasoning"],"content":["hidden reasoning"]},"threadId":"thread-1","turnId":"turn-1"}}
-                """), true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
+                """, CodexProtocol.Notification.class), true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
     }
 
     @Test
@@ -429,10 +429,10 @@ class TestCodexEventMapper
                 {"method":"turn/plan/updated","params":{"threadId":"thread-1","turnId":"turn-1","plan":[]}}
                 """, ProviderAgentEvent.Plan.class);
         assertThat(cleared.items()).isEmpty();
-        assertThat(mapper.map(codec.decodeNotification("""
+        assertThat(mapper.map(codec.decode("""
                 {"method":"turn/plan/updated","params":{"threadId":"thread-1","turnId":"turn-1","plan":[
                 {"step":" ","status":"pending"}]}}
-                """), true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
+                """, CodexProtocol.Notification.class), true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
     }
 
     @Test
@@ -441,7 +441,7 @@ class TestCodexEventMapper
         CodexEventMapper worktreeMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of()));
         String cwd = worktree.resolve("backend").toString();
         String file = worktree.resolve("backend/App.java").toString();
-        List<ProviderAgentEvent> events = worktreeMapper.map(codec.decodeNotification("""
+        List<ProviderAgentEvent> events = worktreeMapper.map(codec.decode("""
                 {"method":"item/completed","params":{"item":{"type":"commandExecution","id":"exec-2",
                 "command":"sed -n 1,40p App.java && rg TODO","status":"completed",
                 "aggregatedOutput":"ok","exitCode":0,"cwd":"%s","durationMs":1450,
@@ -452,7 +452,7 @@ class TestCodexEventMapper
                   {"type":"somethingNew","command":"x"},
                   {"type":"read","command":"cat SKILL.md","name":"OpenAI Docs skill","path":"/elsewhere/skills/openai-docs/SKILL.md"}]},
                 "threadId":"thread-1","turnId":"turn-1"}}
-                """.formatted(cwd, file)), true, CodexEventMapper.ThreadLineage.NONE);
+                """.formatted(cwd, file), CodexProtocol.Notification.class), true, CodexEventMapper.ThreadLineage.NONE);
         assertThat(events).hasSize(1);
         ProviderAgentEvent.Command command = (ProviderAgentEvent.Command) events.getFirst();
         assertThat(command.cwd()).contains("backend");
@@ -495,10 +495,10 @@ class TestCodexEventMapper
                 "action":{"type":"search","query":"delta protocol","queries":["delta protocol"]}},"threadId":"thread-1","turnId":"turn-1"}}
                 """, ProviderAgentEvent.Tool.class).summary()).isEqualTo("delta protocol");
 
-        ProviderAgentEvent.Tool view = (ProviderAgentEvent.Tool) worktreeMapper.map(codec.decodeNotification("""
+        ProviderAgentEvent.Tool view = (ProviderAgentEvent.Tool) worktreeMapper.map(codec.decode("""
                 {"method":"item/started","params":{"item":{"type":"imageView","id":"view-1",
                 "path":"%s"},"threadId":"thread-1","turnId":"turn-1"}}
-                """.formatted(worktree.resolve("docs/shot.png"))), true, CodexEventMapper.ThreadLineage.NONE).getFirst();
+                """.formatted(worktree.resolve("docs/shot.png")), CodexProtocol.Notification.class), true, CodexEventMapper.ThreadLineage.NONE).getFirst();
         assertThat(view.name()).isEqualTo("Image view");
         assertThat(view.summary()).isEqualTo("docs/shot.png");
         assertThat(view.state()).isEqualTo(ProviderAgentEvent.ActivityState.STARTED);
@@ -522,14 +522,14 @@ class TestCodexEventMapper
     {
         CodexEventMapper worktreeMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of()));
         String file = worktree.resolve("src/App.java").toString();
-        List<ProviderAgentEvent> events = worktreeMapper.map(codec.decodeNotification("""
+        List<ProviderAgentEvent> events = worktreeMapper.map(codec.decode("""
                 {"method":"item/completed","params":{"item":{"type":"fileChange",
                 "id":"patch-1","status":"completed","changes":[
                 {"path":"%s","kind":{"type":"add"},"diff":"+class App {}"},
                 {"path":"%s","kind":{"type":"add"},"diff":"+class Other {}"},
                 {"path":"/outside/secret","kind":{"type":"delete"},"diff":"-secret"}]},
                 "threadId":"thread-1","turnId":"turn-1"}}
-                """.formatted(file, worktree.resolve("src/Other.java"))), true, CodexEventMapper.ThreadLineage.NONE);
+                """.formatted(file, worktree.resolve("src/Other.java")), CodexProtocol.Notification.class), true, CodexEventMapper.ThreadLineage.NONE);
 
         assertThat(events).hasSize(2);
         assertThat(events)
@@ -548,12 +548,12 @@ class TestCodexEventMapper
     void redactsKnownEnvironmentCredentialsFromMappedEvents()
     {
         CodexEventMapper redactingMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")));
-        List<ProviderAgentEvent> events = redactingMapper.map(codec.decodeNotification("""
+        List<ProviderAgentEvent> events = redactingMapper.map(codec.decode("""
                 {"method":"item/completed","params":{"item":{"type":"commandExecution","cwd":"/tmp/wt","commandActions":[],
                 "id":"exec-1","command":"echo known-secret","status":"completed",
                 "aggregatedOutput":"known-secret","exitCode":0},
                 "threadId":"thread-1","turnId":"turn-1"}}
-                """), true, CodexEventMapper.ThreadLineage.NONE);
+                """, CodexProtocol.Notification.class), true, CodexEventMapper.ThreadLineage.NONE);
 
         ProviderAgentEvent.Command command = (ProviderAgentEvent.Command) events.getFirst();
         assertThat(command.argv()).containsExactly("echo [REDACTED]");
@@ -567,10 +567,10 @@ class TestCodexEventMapper
         CodexEventMapper redactingMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of("GH_TOKEN", "ghp_secret-value")));
         StringBuilder shown = new StringBuilder();
         for (String delta : List.of("Using ghp_sec", "ret-va", "lue to push.", " Done")) {
-            ProviderAgentEvent.Command output = (ProviderAgentEvent.Command) redactingMapper.map(codec.decodeNotification("""
+            ProviderAgentEvent.Command output = (ProviderAgentEvent.Command) redactingMapper.map(codec.decode("""
                     {"method":"item/commandExecution/outputDelta","params":{"threadId":"thread-1","turnId":"turn-1",
                     "itemId":"exec-1","delta":"%s"}}
-                    """.formatted(delta)), true, CodexEventMapper.ThreadLineage.NONE).getFirst();
+                    """.formatted(delta), CodexProtocol.Notification.class), true, CodexEventMapper.ThreadLineage.NONE).getFirst();
             output.output().ifPresent(shown::append);
         }
 
@@ -579,7 +579,7 @@ class TestCodexEventMapper
 
     private <T extends ProviderAgentEvent> T only(String json, Class<T> type)
     {
-        List<ProviderAgentEvent> events = mapper.map(codec.decodeNotification(json), true, CodexEventMapper.ThreadLineage.NONE);
+        List<ProviderAgentEvent> events = mapper.map(codec.decode(json, CodexProtocol.Notification.class), true, CodexEventMapper.ThreadLineage.NONE);
         assertThat(events).hasSize(1);
         return type.cast(events.getFirst());
     }
@@ -596,9 +596,9 @@ class TestCodexEventMapper
     /** A report for thread-1 whose {@code total} and {@code last} are each given as input, cached input and output tokens. */
     private CodexProtocol.TokenUsageUpdatedNotification usageNotification(String turnId, String total, String last)
     {
-        return (CodexProtocol.TokenUsageUpdatedNotification) codec.decodeNotification("""
+        return (CodexProtocol.TokenUsageUpdatedNotification) codec.decode("""
                 {"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"%s","tokenUsage":{"total":%s,"last":%s}}}
-                """.formatted(turnId, breakdown(total), breakdown(last)));
+                """.formatted(turnId, breakdown(total), breakdown(last)), CodexProtocol.Notification.class);
     }
 
     private static String breakdown(String counts)

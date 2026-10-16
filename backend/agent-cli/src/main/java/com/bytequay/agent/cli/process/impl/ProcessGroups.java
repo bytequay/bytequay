@@ -14,15 +14,20 @@
 package com.bytequay.agent.cli.process.impl;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.primitives.Longs;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Reads operating-system process-group membership.
@@ -71,27 +76,35 @@ final class ProcessGroups
 
     private static Optional<List<long[]>> snapshot()
     {
+        return runShort(SNAPSHOT_COMMAND, Duration.ofMillis(SNAPSHOT_TIMEOUT_MILLIS))
+                .map(output -> output.lines().map(ProcessGroups::parse).flatMap(Optional::stream).collect(ImmutableList.toImmutableList()));
+    }
+
+    static Optional<String> runShort(List<String> command, Duration timeout)
+    {
+        long deadline = System.nanoTime() + timeout.toNanos();
         Process process = null;
         try {
-            process = new ProcessBuilder(SNAPSHOT_COMMAND).redirectErrorStream(false).start();
+            process = new ProcessBuilder(command).redirectError(ProcessBuilder.Redirect.DISCARD).start();
             process.getOutputStream().close();
-            ImmutableList.Builder<long[]> rows = ImmutableList.builder();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    parse(line).ifPresent(rows::add);
+            InputStream stream = process.getInputStream();
+            CompletableFuture<String> output = CompletableFuture.supplyAsync(() -> {
+                try (stream) {
+                    return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
                 }
-            }
-            if (!process.waitFor(SNAPSHOT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS) || process.exitValue() != 0) {
+                catch (IOException failure) {
+                    throw new UncheckedIOException(failure);
+                }
+            }, task -> Thread.ofVirtual().start(task));
+            if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS) || process.exitValue() != 0) {
                 return Optional.empty();
             }
-            return Optional.of(rows.build());
+            return Optional.of(output.get(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS));
         }
-        catch (IOException e) {
+        catch (IOException | ExecutionException | TimeoutException failure) {
             return Optional.empty();
         }
-        catch (InterruptedException e) {
+        catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             return Optional.empty();
         }
@@ -108,11 +121,7 @@ final class ProcessGroups
         if (columns.length != 2) {
             return Optional.empty();
         }
-        try {
-            return Optional.of(new long[] {Long.parseLong(columns[0]), Long.parseLong(columns[1])});
-        }
-        catch (NumberFormatException e) {
-            return Optional.empty();
-        }
+        return Optional.ofNullable(Longs.tryParse(columns[0]))
+                .flatMap(pid -> Optional.ofNullable(Longs.tryParse(columns[1])).map(group -> new long[] {pid, group}));
     }
 }

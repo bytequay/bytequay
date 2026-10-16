@@ -358,7 +358,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void noCommittedDiffDoesNotCreatePullRequest()
     {
-        DevelopmentLocalFacts emptyDiff = new DevelopmentLocalFacts(route.headBranch(), HEAD, HEAD, "different", 0, 0, 0, 0, 1, false, false);
+        DevelopmentLocalFacts emptyDiff = new DevelopmentLocalFacts(route.headBranch(), HEAD, "different", 0, 1, false, false);
         prepare(local(BASE, false), emptyDiff, FULL, true);
         advance();
         noFollowup();
@@ -580,7 +580,7 @@ class TestDevelopmentFollowupCoordinator
         GitHubPullRequestIdentity existing = pr(NEXT, true);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(existing)));
         when(git.isAncestor(worktree, NEXT, startingHead)).thenReturn(true);
-        DevelopmentLocalFacts rewritten = new DevelopmentLocalFacts(route.headBranch(), HEAD, startingHead, HEAD + ":false", 0, 0, 0, 0, 1, true, false);
+        DevelopmentLocalFacts rewritten = new DevelopmentLocalFacts(route.headBranch(), HEAD, HEAD + ":false", 0, 1, true, false);
         prepare(local(startingHead, false), rewritten, FULL, true);
         AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.of(NEXT), Optional.of(existing));
         generated(CREATE_DRAFT_PR, true, () -> coordinator.publishDraftPullRequest(taskId.toString(), "Remove commit trailers", "Body"));
@@ -1078,8 +1078,11 @@ class TestDevelopmentFollowupCoordinator
         when(ci.advance(run.id())).thenReturn(run, run.finish(CiAutofixRun.FinishReason.GREEN, "Checks passed", NOW));
         advance();
         var order = inOrder(ci, waitForCi, turns);
-        order.verify(ci).startDevelopment(eq(new StartCiAutofixCommand("workspace", 7, lane,
-                3, true, true, true, "development-ci:" + taskId + ":" + source.id())), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
+        order.verify(ci).startDevelopment(eq(new StartCiAutofixCommand(
+                "workspace",
+                7,
+                lane,
+                "development-ci:" + taskId + ":" + source.id())), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
         order.verify(ci).advance(run.id());
         order.verify(waitForCi).run();
         order.verify(ci).advance(run.id());
@@ -1461,7 +1464,7 @@ class TestDevelopmentFollowupCoordinator
         return CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
                 new CiAutofixRun.Scope(pr(HEAD, true).pullRequest(), route.headRepository(), "workspace", route.headRepository(), "owner", route.headBranch(), "main",
                         source.settings().orElseThrow().developmentAutomation().orElseThrow().ciLaneId().orElse(task.laneId()).value(), Optional.of(taskId.toString())),
-                deliveredHead, deliveredHead, BASE, new CiAutofixRun.Authorization(true, true, true, 3, NOW, NOW.plus(Duration.ofHours(8))), NOW);
+                deliveredHead, deliveredHead, BASE, new CiAutofixRun.Authorization(NOW, NOW.plus(Duration.ofHours(8))), NOW);
     }
 
     private void prepare(DevelopmentLocalFacts before, DevelopmentLocalFacts after, DevelopmentAutomation automation, boolean ready)
@@ -1550,8 +1553,7 @@ class TestDevelopmentFollowupCoordinator
 
     private DevelopmentLocalFacts local(String head, boolean dirty)
     {
-        return new DevelopmentLocalFacts(route.headBranch(), head, head, head + ":" + dirty, dirty ? 1 : 0, 0, 0, dirty ? 1 : 0, head.equals(BASE) ? 0 : 1,
-                !head.equals(BASE), false);
+        return new DevelopmentLocalFacts(route.headBranch(), head, head + ":" + dirty, dirty ? 1 : 0, head.equals(BASE) ? 0 : 1, !head.equals(BASE), false);
     }
 
     private static DevelopmentResultReport report(boolean ready)
@@ -1561,7 +1563,10 @@ class TestDevelopmentFollowupCoordinator
 
     private GitHubPullRequestIdentity pr(String head, boolean draft)
     {
-        return new GitHubPullRequestIdentity(new PullRequestRef(route.baseRepository().owner(), route.baseRepository().repo(), 7), "https://github.com/" + route.baseRepository().fullName() + "/pull/7", route.headRepository(), route.headBranch(), head,
+        return new GitHubPullRequestIdentity(new PullRequestRef(
+                route.baseRepository().owner(),
+                route.baseRepository().repo(),
+                7), "https://github.com/" + route.baseRepository().fullName() + "/pull/7", route.headRepository(), route.headBranch(), head,
                 route.baseRepository(), route.baseBranch(), BASE, GitHubPullRequestIdentity.State.OPEN, draft, "owner");
     }
 

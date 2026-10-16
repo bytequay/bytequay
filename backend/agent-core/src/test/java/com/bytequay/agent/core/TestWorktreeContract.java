@@ -56,7 +56,7 @@ class TestWorktreeContract
                 "main",
                 TaskBranches.generate(taskId, "user", "Test task")))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("exact Git object ID");
+                .hasMessageContaining("full Git SHA");
     }
 
     @Test
@@ -93,7 +93,7 @@ class TestWorktreeContract
         assertThat(new WorktreeSnapshot(worktree, RESULT_HEAD, false, false, false).head()).isEqualTo(RESULT_HEAD);
         assertThatThrownBy(() -> new WorktreeSnapshot(worktree, "HEAD", false, false, false))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("exact Git object ID");
+                .hasMessageContaining("full Git SHA");
     }
 
     private static TaskWorktree worktree(TaskId taskId)

@@ -1,6 +1,7 @@
 """The lab's Memory page: whether the memories ByteQuay gives a turn are used, from the table `uv run memory.py --save`
 keeps."""
 
+import monitor
 import argparse
 from pathlib import Path
 import sqlite3
@@ -16,14 +17,10 @@ import saved
 SAVE = "uv run memory.py --save"
 DECIDED = 20  # decided findings on each side before their shares say anything
 
-st.set_page_config(page_title="ByteQuay Lab", layout="wide")
-# Started any other way, Streamlit would serve the page to the whole network.
-if st.get_option("server.address") != dashboard.HOST:
-    st.error("This page is only shown to this machine. Start it with `uv run dashboard.py`")
-    st.stop()
+dashboard.start_page()
 arguments = argparse.ArgumentParser(add_help=False)
 arguments.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER)
-arguments.add_argument("--database", type=Path, default=activity.RUNTIME.parent / "bytequay-1.0.db")
+arguments.add_argument("--database", type=Path, default=monitor.DATABASE)
 CHOSEN = arguments.parse_known_args()[0]
 FOLDER = CHOSEN.folder
 st.title("Memory")

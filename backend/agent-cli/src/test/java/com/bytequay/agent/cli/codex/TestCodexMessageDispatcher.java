@@ -362,24 +362,24 @@ class TestCodexMessageDispatcher
 
     private static CodexProtocol.Notification notification(String threadId, String turnId)
     {
-        return CODEC.decodeNotification("{\"method\":\"item/agentMessage/delta\",\"params\":{"
+        return CODEC.decode("{\"method\":\"item/agentMessage/delta\",\"params\":{"
                 + "\"threadId\":\"" + threadId + "\",\"turnId\":\"" + turnId + "\","
-                + "\"itemId\":\"message-1\",\"delta\":\"hello\"}}");
+                + "\"itemId\":\"message-1\",\"delta\":\"hello\"}}", CodexProtocol.Notification.class);
     }
 
     private static CodexProtocol.Notification turnCompleted(String threadId)
     {
-        return CODEC.decodeNotification("{\"method\":\"turn/completed\",\"params\":{"
+        return CODEC.decode("{\"method\":\"turn/completed\",\"params\":{"
                 + "\"threadId\":\"" + threadId + "\",\"turn\":{\"id\":\"turn-1\","
-                + "\"status\":\"completed\",\"error\":null,\"durationMs\":1,\"items\":[]}}}");
+                + "\"status\":\"completed\",\"error\":null,\"durationMs\":1,\"items\":[]}}}", CodexProtocol.Notification.class);
     }
 
     private static CodexProtocol.ServerRequest approval(String threadId)
     {
-        return CODEC.decodeServerRequest("{\"id\":1,\"method\":\"item/commandExecution/requestApproval\","
+        return CODEC.decode("{\"id\":1,\"method\":\"item/commandExecution/requestApproval\","
                 + "\"params\":{\"threadId\":\"" + threadId + "\",\"turnId\":\"turn-1\","
                 + "\"itemId\":\"exec-1\",\"command\":\"echo hi\","
                 + "\"availableDecisions\":[\"accept\",\"decline\"],\"reason\":null,"
-                + "\"startedAtMs\":1}}");
+                + "\"startedAtMs\":1}}", CodexProtocol.ServerRequest.class);
     }
 }

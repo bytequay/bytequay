@@ -33,7 +33,6 @@ import com.bytequay.core.cherrypick.CherryPickExecution.Status;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
-import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
@@ -427,15 +426,7 @@ public class WorkspacePullRequestService
     {
         int number = delivery.pullRequestNumber().orElseThrow();
         pullRequestCatalog.observeWorkspacePullRequest(workspace.monitoredRepository(), number);
-        ciAutofix.start(new StartCiAutofixCommand(
-                workspace.id(),
-                number,
-                new AgentLaneId(execution.workspace().laneId()),
-                CiAutofixRun.MAX_FIX_ATTEMPTS,
-                true,
-                true,
-                true,
-                ciAutofixKey(execution)));
+        ciAutofix.start(new StartCiAutofixCommand(workspace.id(), number, new AgentLaneId(execution.workspace().laneId()), ciAutofixKey(execution)));
     }
 
     private Optional<CiAutofixStatus> ciAutofixStatus(Workspace workspace, CherryPickExecution execution)

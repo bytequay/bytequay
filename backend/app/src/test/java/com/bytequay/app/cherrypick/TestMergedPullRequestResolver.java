@@ -36,7 +36,6 @@ import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote.R
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.cherrypick.CherryPickExecution;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.MergedPullRequestRange;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RemoteSource;
@@ -208,7 +207,7 @@ class TestMergedPullRequestResolver
         assertThat(git(clone, "status", "--porcelain")).isEmpty();
         assertThat(git(clone, "for-each-ref", "--format=%(refname)", "refs/bytequay/merged-pr")).isEmpty();
         assertThatThrownBy(() -> previews.preview(command(range.commits().getFirst(), range.mergeSha()), range))
-                .isInstanceOf(CherryPickInvalidRequestException.class).hasMessageContaining("saved merged pull request");
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("saved merged pull request");
         server.verify();
         executeLandedRange(previews, preview, conflictSnapshot && shape != Shape.SQUASH);
     }
@@ -413,7 +412,7 @@ class TestMergedPullRequestResolver
         MergedPullRequestRange incomplete = new MergedPullRequestRange(resolved.pullRequest(), resolved.repositoryId(), resolved.baseBranch(),
                 resolved.mergedAt(), resolved.mergeSha(), resolved.originalCommits(), resolved.sourceBaseSha(), ImmutableList.of(resolved.mergeSha()));
         assertThatThrownBy(() -> previews().preview(command(incomplete.sourceBaseSha(), incomplete.mergeSha()), incomplete))
-                .isInstanceOf(CherryPickInvalidRequestException.class).hasMessageContaining("does not match the saved landed commits");
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("does not match the saved landed commits");
         server.verify();
     }
 
@@ -438,7 +437,7 @@ class TestMergedPullRequestResolver
 
     private void assertHold(MergedPullRequestResolver service, String message)
     {
-        assertThatThrownBy(() -> service.resolve(WORKSPACE, "source", PR)).isInstanceOf(CherryPickInvalidRequestException.class)
+        assertThatThrownBy(() -> service.resolve(WORKSPACE, "source", PR)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(message).hasMessageContaining("select an explicit range");
         server.verify();
     }

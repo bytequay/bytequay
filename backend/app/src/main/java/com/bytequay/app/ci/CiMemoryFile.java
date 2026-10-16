@@ -15,12 +15,13 @@ package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.app.context.ContextText;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.google.common.base.Ascii;
+import com.google.common.base.Utf8;
 import com.google.common.collect.ImmutableList;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -60,18 +61,10 @@ final class CiMemoryFile
     private static final Pattern SECTION_BOUNDARY = Pattern.compile("(?m)(?=^## Failure )");
 
     private final AgentResourceService resources;
-    private final MemoryFileWriter fileWriter;
 
-    @Autowired
     CiMemoryFile(AgentResourceService resources)
     {
-        this(resources, CiMemoryFile::replaceAtomically);
-    }
-
-    CiMemoryFile(AgentResourceService resources, MemoryFileWriter fileWriter)
-    {
         this.resources = requireNonNull(resources, "resources is null");
-        this.fileWriter = requireNonNull(fileWriter, "fileWriter is null");
     }
 
     void write(TaskId taskId, CiAutofixRun run)
@@ -80,7 +73,7 @@ final class CiMemoryFile
         requireNonNull(taskId, "taskId is null");
         requireNonNull(run, "run is null");
         Path target = resources.require(taskId).runtimeDirectory().resolve(FILE_NAME);
-        fileWriter.replace(target, render(run));
+        replaceAtomically(target, render(run));
     }
 
     CiMemoryView read(TaskId taskId, Optional<String> requestedQuery)
@@ -102,8 +95,8 @@ final class CiMemoryFile
         List<String> selected = matches.stream().limit(MAX_READ_SECTIONS).collect(toImmutableList());
         String markdown = String.join("\n\n", selected);
         boolean truncated = file.truncated() || matches.size() > selected.size()
-                || utf8Length(markdown) > MAX_RESULT_BYTES;
-        return new CiMemoryView(boundedUtf8(markdown, MAX_RESULT_BYTES), selected.size(), truncated);
+                || Utf8.encodedLength(markdown) > MAX_RESULT_BYTES;
+        return new CiMemoryView(ContextText.prefix(markdown, MAX_RESULT_BYTES), selected.size(), truncated);
     }
 
     static CiMemoryView unavailable()
@@ -127,7 +120,7 @@ final class CiMemoryFile
                     .forEach(value -> appendAttempt(memory, value));
             memory.append('\n');
         });
-        return boundedUtf8(memory.toString(), MAX_FILE_BYTES);
+        return ContextText.prefix(memory.toString(), MAX_FILE_BYTES);
     }
 
     private static void appendAttempt(StringBuilder memory, MemoryAttempt value)
@@ -186,7 +179,7 @@ final class CiMemoryFile
             byte[] bytes = input.readNBytes(MAX_FILE_BYTES + 1);
             boolean truncated = bytes.length > MAX_FILE_BYTES;
             int length = Math.min(bytes.length, MAX_FILE_BYTES);
-            return new ReadFile(boundedUtf8(new String(bytes, 0, length, StandardCharsets.UTF_8), MAX_FILE_BYTES), truncated);
+            return new ReadFile(ContextText.prefix(new String(bytes, 0, length, StandardCharsets.UTF_8), MAX_FILE_BYTES), truncated);
         }
     }
 
@@ -216,32 +209,7 @@ final class CiMemoryFile
                 .collect(joining("\n"));
     }
 
-    private static int utf8Length(String value)
-    {
-        return value.getBytes(StandardCharsets.UTF_8).length;
-    }
-
-    private static String boundedUtf8(String value, int maximumBytes)
-    {
-        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-        if (bytes.length <= maximumBytes) {
-            return value;
-        }
-        int end = maximumBytes;
-        while (end > 0 && (bytes[end] & 0xC0) == 0x80) {
-            end--;
-        }
-        return new String(bytes, 0, end, StandardCharsets.UTF_8);
-    }
-
     private record MemoryAttempt(CiAutofixAttempt attempt, FailureEvidence failure) {}
 
     private record ReadFile(String markdown, boolean truncated) {}
-
-    @FunctionalInterface
-    interface MemoryFileWriter
-    {
-        void replace(Path target, String markdown)
-                throws IOException;
-    }
 }

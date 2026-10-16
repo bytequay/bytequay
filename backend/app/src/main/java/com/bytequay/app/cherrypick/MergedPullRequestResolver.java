@@ -22,7 +22,6 @@ import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.MergedPullRequestRange;
 import com.bytequay.core.domain.PullRequestRef;
 import com.google.common.collect.ImmutableList;
@@ -202,9 +201,9 @@ public class MergedPullRequestResolver
         }
     }
 
-    private static CherryPickInvalidRequestException hold(String reason)
+    private static IllegalArgumentException hold(String reason)
     {
-        return new CherryPickInvalidRequestException(reason + ". Automatic backport is paused; review the source in Commits and select an explicit range.");
+        return new IllegalArgumentException(reason + ". Automatic backport is paused; review the source in Commits and select an explicit range.");
     }
 
     private record Candidate(String base, List<String> commits) {}

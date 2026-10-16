@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.core;
 
+import static com.bytequay.core.domain.Checks.checkSha;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -26,6 +27,6 @@ public record WorktreeSnapshot(TaskWorktree worktree, String head, boolean dirty
     public WorktreeSnapshot
     {
         requireNonNull(worktree, "worktree is null");
-        ProvisionWorktreeCommand.checkObjectId(head, "head");
+        checkSha(head, "head");
     }
 }

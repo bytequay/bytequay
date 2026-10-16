@@ -17,6 +17,7 @@ import com.bytequay.core.backport.BackportChain;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalExchange;
@@ -295,6 +296,16 @@ public final class JsonColumnConverters
         WorkItemConverter()
         {
             super(new TypeReference<>() {}, "work item", null, null);
+        }
+    }
+
+    @Converter
+    public static class EpicConverter
+            extends JsonColumnConverter<Epic>
+    {
+        EpicConverter()
+        {
+            super(new TypeReference<>() {}, "Epic", null, null);
         }
     }
 }

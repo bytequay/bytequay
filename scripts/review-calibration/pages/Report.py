@@ -11,28 +11,23 @@ import digest
 import explain
 import saved
 
-SAVE = "uv run activity.py --save"
 KINDS = {"Week": "week", "Day": "day"}
 
-st.set_page_config(page_title="ByteQuay Lab", layout="wide")
-# Started any other way, Streamlit would serve the page to the whole network.
-if st.get_option("server.address") != dashboard.HOST:
-    st.error("This page is only shown to this machine. Start it with `uv run dashboard.py`")
-    st.stop()
+dashboard.start_page()
 arguments = argparse.ArgumentParser(add_help=False)
 arguments.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER)
 FOLDER = arguments.parse_known_args()[0].folder
 st.title("Report")
 st.caption("The report `uv run digest.py` writes, for the days picked here: what got worse, what changed against the days before and why, what changed "
            "in ByteQuay, where the turn time went, and what moved after the changes you noted.")
-UNREADABLE = f"The saved turn table could not be read. Save it again with `{SAVE}`"
+UNREADABLE = f"The saved turn table could not be read. Save it again with `{dashboard.SAVE}`"
 try:
     TABLE = saved.read(FOLDER, "turns.json")
 except (OSError, ValueError):
     st.warning(UNREADABLE)
     st.stop()
 if TABLE is None:
-    st.info(f"Nothing saved yet. Save the turn table with `{SAVE}`")
+    st.info(f"Nothing saved yet. Save the turn table with `{dashboard.SAVE}`")
     st.stop()
 try:
     REVIEWS = saved.read(FOLDER, "reviews.json")

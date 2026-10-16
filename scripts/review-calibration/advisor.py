@@ -7,6 +7,7 @@ suggestions. What it reads goes to DeepSeek's API. Every look that finishes is k
 
 from __future__ import annotations
 
+import dashboard
 import argparse
 from dataclasses import dataclass
 from datetime import datetime
@@ -155,7 +156,7 @@ def seen(folder, now, data=monitor.APP_DATA, database=monitor.DATABASE):
 
 
 def local(at):
-    return resources.moments(pandas.Series([at])).iloc[0].strftime("%Y-%m-%d %H:%M")
+    return dashboard.when(resources.moments(pandas.Series([at])).iloc[0].to_pydatetime())
 
 
 def limits(sight):

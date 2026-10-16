@@ -22,6 +22,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.MemoryBridge;
+import com.bytequay.app.review.ReviewToolAssignment;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.core.domain.RepoRef;
@@ -60,7 +61,8 @@ class TestMemoryBridgeResolverImpl
     private final MemoryService memories = new MemoryService(store, new InMemoryAppSettingsStore(), mapper, Clock.fixed(NOW, ZoneOffset.UTC));
     private final WorkspaceRelationships relationships = mock(WorkspaceRelationships.class);
     private final MemorySources sources = mock(MemorySources.class);
-    private final MemoryBridgeResolverImpl resolver = new MemoryBridgeResolverImpl(tasks, reviews, memories, sources, mapper, relationships);
+    private final ReviewToolAssignment assignments = mock(ReviewToolAssignment.class);
+    private final MemoryBridgeResolverImpl resolver = new MemoryBridgeResolverImpl(tasks, reviews, memories, sources, mapper, relationships, assignments);
 
     @Test
     void offersTheToolToDevelopmentTasksAndReviewsWithMemoryOnEvenBeforeAnythingIsRemembered()
@@ -75,9 +77,24 @@ class TestMemoryBridgeResolverImpl
         assertThat(resolver.resolve(specCheck.id().toString())).isEmpty();
 
         AgentTask review = task(false, "workspace");
-        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(new AgentReview("review", "workspace", "trinodb/trino", OptionalInt.of(1),
-                OptionalLong.empty(), review.id().toString(), Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0,
-                NOW, NOW, Optional.empty())));
+        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(new AgentReview(
+                "review",
+                "workspace",
+                "trinodb/trino",
+                OptionalInt.of(1),
+                OptionalLong.empty(),
+                review.id().toString(),
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                NOW,
+                NOW,
+                Optional.empty(),
+                Optional.empty())));
         assertThat(resolver.resolve(review.id().toString())).isPresent();
 
         AgentTask elsewhere = task(true, "other");
@@ -95,9 +112,24 @@ class TestMemoryBridgeResolverImpl
         store.save(rule("m1", "workspace", "Keep refactors and behavior changes in separate commits.", ImmutableList.of()));
         AgentTask development = task(true, "workspace");
         AgentTask review = task(false, "workspace");
-        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(new AgentReview("review", "workspace", "trinodb/trino", OptionalInt.of(1),
-                OptionalLong.empty(), review.id().toString(), Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0,
-                NOW, NOW, Optional.empty())));
+        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(new AgentReview(
+                "review",
+                "workspace",
+                "trinodb/trino",
+                OptionalInt.of(1),
+                OptionalLong.empty(),
+                review.id().toString(),
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                NOW,
+                NOW,
+                Optional.empty(),
+                Optional.empty())));
 
         memories.saveSwitches("workspace", new MemorySwitches(true, false));
         assertThat(resolver.resolve(development.id().toString())).isEmpty();
@@ -186,7 +218,7 @@ class TestMemoryBridgeResolverImpl
     {
         AgentTask task = task(true, "workspace");
         TurnId turn = TurnId.random();
-        when(sources.capture(task.id().toString())).thenReturn(Optional.of(turn));
+        when(assignments.capture(task.id().toString())).thenReturn(Optional.of(turn));
         MemorySource words = MemorySource.user("Keep refactors in their own commits.", NOW,
                 new MemorySource.UserPart(MemorySource.Where.TASK_MESSAGE, task.id().toString(), "event-1"));
         when(sources.userWords(task, turn, Optional.of("Keep refactors in their own commits."))).thenReturn(words);

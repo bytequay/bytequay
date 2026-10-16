@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.cherrypick.CherryPickExecution;
+import com.bytequay.core.cherrypick.CherryPickExecution.ActionJournal;
 import com.bytequay.core.cherrypick.CherryPickExecution.Delivery;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.PauseReason;
@@ -23,7 +24,10 @@ import com.bytequay.core.cherrypick.CherryPickExecution.Status;
 import com.bytequay.core.cherrypick.CherryPickExecution.Step;
 import com.bytequay.core.cherrypick.CherryPickExecution.Workspace;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
+import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.domain.RepoRef;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -35,8 +39,10 @@ import lombok.Getter;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.CHERRY_PICK;
 import static com.google.common.base.Preconditions.checkArgument;
 
 @Entity
@@ -44,6 +50,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 public class CherryPickExecutionEntity
         extends AssignedIdEntity<String>
 {
+    private static final TypeReference<List<CherryPickItem>> ITEMS = new TypeReference<>() {};
+
     @Id
     @Getter(onMethod_ = @Override)
     private String id;
@@ -215,8 +223,8 @@ public class CherryPickExecutionEntity
         pauseReason = execution.pauseReason().orElse(null);
         finishReason = execution.finishReason().orElse(null);
         summary = execution.summary().orElse(null);
-        journalJson = CherryPickJson.encodeJournal(execution.journal());
-        itemsJson = CherryPickJson.encodeItems(execution.items());
+        journalJson = execution.journal().map(entry -> CHERRY_PICK.write(entry, "cherry-pick action journal")).orElse(null);
+        itemsJson = CHERRY_PICK.write(execution.items(), "cherry-pick items");
         createdAt = execution.createdAt();
         updatedAt = execution.updatedAt();
         terminalAt = execution.terminalAt().orElse(null);
@@ -259,11 +267,21 @@ public class CherryPickExecutionEntity
                 Optional.ofNullable(pauseReason),
                 Optional.ofNullable(finishReason),
                 Optional.ofNullable(summary),
-                CherryPickJson.decodeJournal(journalJson),
-                CherryPickJson.decodeItems(itemsJson),
+                decodeJournal(journalJson),
+                decodeItems(itemsJson),
                 version,
                 createdAt,
                 updatedAt,
                 Optional.ofNullable(terminalAt));
+    }
+
+    private static List<CherryPickItem> decodeItems(String json)
+    {
+        return json == null || json.isBlank() ? ImmutableList.of() : ImmutableList.copyOf(CHERRY_PICK.read(json, ITEMS, "cherry-pick items"));
+    }
+
+    private static Optional<ActionJournal> decodeJournal(String json)
+    {
+        return json == null || json.isBlank() ? Optional.empty() : Optional.of(CHERRY_PICK.read(json, ActionJournal.class, "cherry-pick action journal"));
     }
 }

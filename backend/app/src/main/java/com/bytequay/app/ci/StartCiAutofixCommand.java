@@ -22,10 +22,6 @@ public record StartCiAutofixCommand(
         String workspaceId,
         int pullRequestNumber,
         AgentLaneId laneId,
-        int maxAttempts,
-        boolean allowFailedJobReruns,
-        boolean allowHistoryRewrites,
-        boolean allowExactLeasePush,
         String idempotencyKey)
 {
     public StartCiAutofixCommand

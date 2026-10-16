@@ -39,6 +39,7 @@ export interface TerminalProcess {
 }
 
 interface TerminalSender {
+  readonly id: number;
   isDestroyed(): boolean;
   send(channel: string, message: unknown): void;
   on(event: 'did-navigate', listener: () => void): unknown;
@@ -79,7 +80,6 @@ export function terminalEnvironment(base: NodeJS.ProcessEnv, claudeConfigDirecto
 export class CodeTerminals {
   private readonly terminals = new Map<string, Terminal>();
   private readonly opening = new Map<string, Promise<Terminal>>();
-  private readonly senderKeys = new WeakMap<TerminalSender, string>();
   private readonly watched = new WeakSet<TerminalSender>();
 
   constructor(private readonly spawn: (launch: TerminalLaunch, cols: number, rows: number, command?: string) => TerminalProcess) {}
@@ -91,7 +91,7 @@ export class CodeTerminals {
    * command's own result. Without one the shell is interactive and outlives any single command.
    */
   async open(sender: TerminalSender, hostKey: string, cols: number, rows: number, launch: () => Promise<TerminalLaunch>, command?: string) {
-    const key = `${this.senderKey(sender)}:${hostKey}`;
+    const key = `${sender.id}:${hostKey}`;
     let terminal = this.terminals.get(key);
     if (terminal === undefined) {
       // Two attaches racing through the backend check must share one shell.
@@ -161,15 +161,6 @@ export class CodeTerminals {
       if (terminal.id === terminalId && terminal.sender === sender) return terminal;
     }
     return undefined;
-  }
-
-  private senderKey(sender: TerminalSender): string {
-    let key = this.senderKeys.get(sender);
-    if (key === undefined) {
-      key = randomUUID();
-      this.senderKeys.set(sender, key);
-    }
-    return key;
   }
 
   private watch(sender: TerminalSender): void {

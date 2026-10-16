@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubRateLimitInterceptor;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
@@ -37,13 +36,11 @@ import static java.util.Objects.requireNonNull;
 public class CredentialController
 {
     private final CredentialService credentialService;
-    private final GitHubNotificationClient notifications;
     private final GitHubRateLimitInterceptor rateLimit;
 
-    public CredentialController(CredentialService credentialService, GitHubNotificationClient notifications, GitHubRateLimitInterceptor rateLimit)
+    public CredentialController(CredentialService credentialService, GitHubRateLimitInterceptor rateLimit)
     {
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
-        this.notifications = requireNonNull(notifications, "notifications is null");
         this.rateLimit = requireNonNull(rateLimit, "rateLimit is null");
     }
 
@@ -74,13 +71,12 @@ public class CredentialController
         Optional<GitHubCredential> credential = credentialService.cachedCredential();
         Optional<String> login = credential.map(value -> value.profile().login());
         return new SyncStatus(credentialService.isGitHubAccountConfigured(), login,
-                login.flatMap(notifications::failure), credential.map(value -> rateLimit.snapshot(value.token())));
+                credential.map(value -> rateLimit.snapshot(value.token())));
     }
 
     public record SyncStatus(
             boolean configured,
             Optional<String> login,
-            Optional<String> notificationDegradedReason,
             Optional<GitHubRateLimitInterceptor.Snapshot> usage) {}
 
     /** Full stored token for main-process clipboard copy; the renderer never displays it. */

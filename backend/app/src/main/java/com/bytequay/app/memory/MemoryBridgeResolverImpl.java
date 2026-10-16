@@ -20,6 +20,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.MemoryBridge;
+import com.bytequay.app.review.ReviewToolAssignment;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemorySource;
@@ -57,16 +58,18 @@ public class MemoryBridgeResolverImpl
     private final AgentReviewStore reviews;
     private final MemoryService memories;
     private final MemorySources sources;
+    private final ReviewToolAssignment assignments;
     private final ObjectMapper mapper;
     private final WorkspaceRelationships relationships;
 
     public MemoryBridgeResolverImpl(AgentTaskStore tasks, AgentReviewStore reviews, MemoryService memories, MemorySources sources,
-            ObjectMapper mapper, WorkspaceRelationships relationships)
+            ObjectMapper mapper, WorkspaceRelationships relationships, ReviewToolAssignment assignments)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.memories = requireNonNull(memories, "memories is null");
         this.sources = requireNonNull(sources, "sources is null");
+        this.assignments = requireNonNull(assignments, "assignments is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.relationships = requireNonNull(relationships, "relationships is null");
     }
@@ -79,7 +82,7 @@ public class MemoryBridgeResolverImpl
         Predicate<Memory> visible = MemoryService.visibleTo(replay);
         Optional<AgentTask> open = tasks.find(TaskId.valueOf(taskId)).filter(task -> task.state() == TaskState.OPEN);
         // A session serves one turn; what it remembers rests on that turn's words and commands.
-        Optional<TurnId> turn = sources.capture(taskId);
+        Optional<TurnId> turn = assignments.capture(taskId);
         return open.flatMap(task -> task.workspaceId().filter(workspaceId -> switchedOn(task, review, workspaceId))
                 // Remembering needs no memory to exist yet; a replay can only read, so it needs one it could have known.
                 .filter(workspaceId -> replay.isEmpty() || memories.list(workspaceId).stream().anyMatch(visible))

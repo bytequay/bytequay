@@ -13,29 +13,19 @@
  */
 package com.bytequay.agent.core;
 
-import java.util.regex.Pattern;
-
+import static com.bytequay.core.domain.Checks.checkSha;
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Validated internal service command used to derive a task's path and generated branch. */
 public record ProvisionWorktreeCommand(TaskId taskId, String workspaceId, RepositoryIdentity physicalRepository, String startCommit, String generatedBranch)
 {
-    private static final Pattern GIT_OBJECT_ID = Pattern.compile("(?:[0-9a-f]{40}|[0-9a-f]{64})");
-
     public ProvisionWorktreeCommand
     {
         requireNonNull(taskId, "taskId is null");
         checkText(workspaceId, "workspaceId");
         requireNonNull(physicalRepository, "physicalRepository is null");
-        checkObjectId(startCommit, "startCommit");
+        checkSha(startCommit, "startCommit");
         TaskWorktree.checkGeneratedBranch(taskId, generatedBranch);
-    }
-
-    static void checkObjectId(String value, String name)
-    {
-        checkText(value, name);
-        checkArgument(GIT_OBJECT_ID.matcher(value).matches(), "%s is not an exact Git object ID", name);
     }
 }

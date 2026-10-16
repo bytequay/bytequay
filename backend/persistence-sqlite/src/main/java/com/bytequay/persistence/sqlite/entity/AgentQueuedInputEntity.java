@@ -27,6 +27,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 import lombok.Getter;
 
@@ -34,7 +35,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 @Entity
-@Table(name = "agent_queued_input")
+@Table(name = "agent_queued_input", uniqueConstraints = @UniqueConstraint(columnNames = {"task_id", "idempotency_key"}))
 public class AgentQueuedInputEntity
         extends AssignedIdEntity<String>
 {
@@ -54,9 +55,6 @@ public class AgentQueuedInputEntity
 
     @Column(name = "idempotency_key", nullable = false)
     private String idempotencyKey;
-
-    @Column(nullable = false, unique = true)
-    private String idempotencySlot;
 
     @Column(nullable = false)
     private String textBlobPath;
@@ -106,7 +104,6 @@ public class AgentQueuedInputEntity
         position = input.position();
         state = input.state();
         idempotencyKey = input.idempotencyKey();
-        idempotencySlot = input.taskId() + ":" + input.idempotencyKey();
         textBlobPath = input.textBlob().relativePath();
         textBlobMediaType = input.textBlob().mediaType();
         textBlobSize = input.textBlob().size();

@@ -16,7 +16,7 @@ import { remoteErrorMessage } from '../pulls/PullOverview';
 import { settingsRoute } from '../settings/routes';
 import { specCheckDirectory, type ContextBuildViewDto, type ContextSpecCandidateDto, type ContextSpecCheckDto, type ContextSpecModuleDto,
   type ContextSpecSourceDto } from './contracts';
-import { Chevron, Icon } from './icons';
+import { Icon } from './icons';
 import { activeCheck, checkActive, checkProgress, plural, REPRODUCTION_LIMITS, shortDate, shortSha } from './model';
 import {
   CHECK_STATE, checkSummary, codeLink, defaultPicks, DISMISS_REASONS, findingFile, MAX_SPECS, moduleRows, pageLabel, specAddress, TYPE_LABEL, TYPE_TONE,
@@ -123,7 +123,6 @@ function StartCheck({ data, actions, busy, directory, previous, prefill }: {
   const [error, setError] = useState<string | null>(null);
   const [added, setAdded] = useState<string[]>([]);
   const [draft, setDraft] = useState('');
-  const [showOthers, setShowOthers] = useState(false);
   // A card's count rounds up to the nearest limit the form offers.
   const [limit, setLimit] = useState(prefill === undefined ? REPRODUCTION_LIMITS[0]
     : REPRODUCTION_LIMITS.find(value => value >= prefill.reproductions) ?? REPRODUCTION_LIMITS[REPRODUCTION_LIMITS.length - 1]);
@@ -170,11 +169,10 @@ function StartCheck({ data, actions, busy, directory, previous, prefill }: {
     {previous !== null && previous.checkedAgainst.length > 0 && <div className="rcp-note-caption">The last check used {previous.checkedAgainst.join(', ')} as
       {previous.checkedAgainst.length === 1 ? ' its specification' : ' specifications'}.</div>}
     {featured.map(row)}
-    {others.length > 0 && <>
-      <button type="button" className="rcp-how" aria-expanded={showOthers} onClick={() => setShowOthers(value => !value)}>
-        <Chevron open={showOthers} size={11} />Other links in the directory’s code · {others.length}</button>
-      {showOthers && others.map(row)}
-    </>}
+    {others.length > 0 && <details>
+      <summary className="rcp-how">Other links in the directory’s code · {others.length}</summary>
+      {others.map(row)}
+    </details>}
     {added.map(url => <div className="rcp-spec-page" key={url}><span className="rcp-src__target">{url}</span>
       <span className="rcp-src__sub">Added by you · <button type="button" className="rcp-link" aria-label={`Remove ${url}`}
         onClick={() => setAdded(value => value.filter(item => item !== url))}>Remove</button></span></div>)}
@@ -302,21 +300,18 @@ export function SpecFinding({ data, actions, busy, check, candidate }: {
 }
 
 function Disclosure({ label, children }: { label: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return <div className="rcp-finding__more">
-    <button type="button" className="rcp-how" aria-expanded={open} onClick={() => setOpen(value => !value)}><Chevron open={open} size={11} />{label}</button>
-    {open && <div className="rcp-finding__body">{children}</div>}
-  </div>;
+  return <details className="rcp-finding__more">
+    <summary className="rcp-how">{label}</summary>
+    <div className="rcp-finding__body">{children}</div>
+  </details>;
 }
 
 function Others({ title, candidates, line, open }: { title: string; candidates: ContextSpecCandidateDto[]; line: (candidate: ContextSpecCandidateDto) => string;
   open: (candidate: ContextSpecCandidateDto) => string | null }) {
-  const [expanded, setExpanded] = useState(false);
   if (candidates.length === 0) return null;
-  return <>
-    <button type="button" className="rcp-drawer-label rcp-spec-toggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
-      <Chevron open={expanded} size={10} />{title} · {candidates.length}</button>
-    {expanded && candidates.map(candidate => {
+  return <details>
+    <summary className="rcp-drawer-label rcp-spec-toggle">{title} · {candidates.length}</summary>
+    {candidates.map(candidate => {
       const url = open(candidate);
       return <div className="rcp-spec-row" key={candidate.id}>
         <span className={`rcp-chip rcp-tone--${TYPE_TONE[candidate.type]}`}>{TYPE_LABEL[candidate.type]}</span>
@@ -325,5 +320,5 @@ function Others({ title, candidates, line, open }: { title: string; candidates: 
         {url !== null && <button type="button" className="rcp-link" onClick={() => void window.bridge.openInAppBrowser(url)}>Open</button>}
       </div>;
     })}
-  </>;
+  </details>;
 }

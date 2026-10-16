@@ -328,7 +328,17 @@ class TestLocalRunService
     {
         AgentEventSource source = new AgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(itemId), Optional.empty());
         return new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, worktree.taskId(), Optional.empty(), source, occurredAt,
-                new AgentEventPayload.CommandActivity(state, ImmutableList.of(argv), output, exitCode, truncated, Optional.empty(), durationMs, ImmutableList.of(), background, Optional.empty()));
+                new AgentEventPayload.CommandActivity(
+                        state,
+                        ImmutableList.of(argv),
+                        output,
+                        exitCode,
+                        truncated,
+                        Optional.empty(),
+                        durationMs,
+                        ImmutableList.of(),
+                        background,
+                        Optional.empty()));
     }
 
     @Test
@@ -392,9 +402,24 @@ class TestLocalRunService
 
     private AgentReview review(boolean followUpPaused)
     {
-        return new AgentReview(REVIEW_ID, WORKSPACE_ID, REPOSITORY.fullName(), OptionalInt.of(7), OptionalLong.empty(), worktree.taskId().toString(), Optional.empty(),
-                AgentReview.State.OPEN, followUpPaused,
-                Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+        return new AgentReview(
+                REVIEW_ID,
+                WORKSPACE_ID,
+                REPOSITORY.fullName(),
+                OptionalInt.of(7),
+                OptionalLong.empty(),
+                worktree.taskId().toString(),
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                followUpPaused,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                NOW,
+                NOW,
+                Optional.empty(),
+                Optional.empty());
     }
 
     private ReviewRun reviewRun()
@@ -475,5 +500,4 @@ class TestLocalRunService
             return ImmutableList.copyOf(rows.values());
         }
     }
-
 }

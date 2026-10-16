@@ -27,6 +27,8 @@ import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.io.Resources;
+import com.google.common.primitives.Longs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,6 +62,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -271,32 +274,8 @@ public final class DefaultProcessSupervisor
 
     private static Optional<String> readBootSessionId()
     {
-        if (!System.getProperty("os.name", "").startsWith("Mac")) {
-            return Optional.empty();
-        }
-        try {
-            Process process = new ProcessBuilder("/usr/sbin/sysctl", "-n", "kern.bootsessionuuid")
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .start();
-            try {
-                if (!process.waitFor(2, TimeUnit.SECONDS) || process.exitValue() != 0) {
-                    return Optional.empty();
-                }
-                try (InputStream output = process.getInputStream()) {
-                    return validBootSessionId(new String(output.readNBytes(128), StandardCharsets.UTF_8).trim());
-                }
-            }
-            finally {
-                process.destroyForcibly();
-            }
-        }
-        catch (IOException failure) {
-            return Optional.empty();
-        }
-        catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            return Optional.empty();
-        }
+        return ProcessGroups.runShort(ImmutableList.of("/usr/sbin/sysctl", "-n", "kern.bootsessionuuid"), Duration.ofSeconds(2))
+                .map(String::strip).flatMap(DefaultProcessSupervisor::validBootSessionId);
     }
 
     private static Optional<String> validBootSessionId(String value)
@@ -327,7 +306,7 @@ public final class DefaultProcessSupervisor
             }
             case MATCHES -> ProcessHandle.of(gated.pid()).ifPresent(ProcessHandle::destroy);
         }
-        if (awaitDead(gated, LAUNCHER_EXIT_TIMEOUT)) {
+        if (await(() -> gated.liveness() == ProcessIdentity.Liveness.GONE, LAUNCHER_EXIT_TIMEOUT, 20)) {
             return result(marker, OwnedProcessRecovery.Outcome.KNOWN_UNLAUNCHED, "Gated launcher was stopped");
         }
         return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Gated launcher did not stop");
@@ -398,13 +377,16 @@ public final class DefaultProcessSupervisor
             return ProcessExit.TreeTermination.UNVERIFIABLE;
         }
         initial.orElseThrow().forEach(pid -> ProcessHandle.of(pid).ifPresent(ProcessHandle::destroy));
-        if (!awaitGroupEmpty(processGroup, grace)) {
+        if (!await(() -> ProcessGroups.members(processGroup).filter(List::isEmpty).isPresent(), grace, 50)) {
             // A member spawned during the grace period is still owned work, so the forced pass
             // uses current membership rather than the first snapshot.
             ProcessGroups.members(processGroup)
                     .ifPresent(current -> current.forEach(pid -> ProcessHandle.of(pid).ifPresent(ProcessHandle::destroyForcibly)));
         }
-        return awaitGroupEmpty(processGroup, TREE_VERIFICATION_TIMEOUT) ? ProcessExit.TreeTermination.VERIFIED_STOPPED : ProcessExit.TreeTermination.UNVERIFIABLE;
+        return await(
+                () -> ProcessGroups.members(processGroup).filter(List::isEmpty).isPresent(),
+                TREE_VERIFICATION_TIMEOUT,
+                50) ? ProcessExit.TreeTermination.VERIFIED_STOPPED : ProcessExit.TreeTermination.UNVERIFIABLE;
     }
 
     private static ProcessExit.TreeTermination verifyGroupEmpty(long processGroup)
@@ -420,7 +402,7 @@ public final class DefaultProcessSupervisor
                 .map(ProcessHandle::of)
                 .flatMap(Optional::stream)
                 .forEach(ProcessHandle::destroy);
-        if (!awaitIdentitiesDead(identities, grace)) {
+        if (!await(() -> identities.stream().allMatch(identity -> identity.liveness() == ProcessIdentity.Liveness.GONE), grace, 50)) {
             identities.stream()
                     .filter(identity -> identity.liveness() == ProcessIdentity.Liveness.MATCHES)
                     .map(ProcessIdentity::pid)
@@ -428,45 +410,17 @@ public final class DefaultProcessSupervisor
                     .flatMap(Optional::stream)
                     .forEach(ProcessHandle::destroyForcibly);
         }
-        return awaitIdentitiesDead(identities, TREE_VERIFICATION_TIMEOUT) ? ProcessExit.TreeTermination.VERIFIED_STOPPED : ProcessExit.TreeTermination.UNVERIFIABLE;
+        return await(
+                () -> identities.stream().allMatch(identity -> identity.liveness() == ProcessIdentity.Liveness.GONE),
+                TREE_VERIFICATION_TIMEOUT,
+                50) ? ProcessExit.TreeTermination.VERIFIED_STOPPED : ProcessExit.TreeTermination.UNVERIFIABLE;
     }
 
-    private static boolean awaitIdentitiesDead(List<ProcessIdentity> identities, Duration timeout)
+    private static boolean await(BooleanSupplier condition, Duration timeout, long pollMillis)
     {
         long deadline = System.nanoTime() + timeout.toNanos();
-        while (true) {
-            if (identities.stream().allMatch(identity -> identity.liveness() == ProcessIdentity.Liveness.GONE)) {
-                return true;
-            }
-            if (System.nanoTime() >= deadline || !sleep(50)) {
-                return false;
-            }
-        }
-    }
-
-    private static boolean awaitGroupEmpty(long processGroup, Duration timeout)
-    {
-        long deadline = System.nanoTime() + timeout.toNanos();
-        while (true) {
-            Optional<List<Long>> members = ProcessGroups.members(processGroup);
-            if (members.isEmpty()) {
-                return false;
-            }
-            if (members.orElseThrow().isEmpty()) {
-                return true;
-            }
-            if (System.nanoTime() >= deadline || !sleep(50)) {
-                return false;
-            }
-        }
-    }
-
-    /** Waits for a recorded identity to be observably gone; an uninspectable process is never dead. */
-    private static boolean awaitDead(ProcessIdentity identity, Duration timeout)
-    {
-        long deadline = System.nanoTime() + timeout.toNanos();
-        while (identity.liveness() != ProcessIdentity.Liveness.GONE) {
-            if (System.nanoTime() >= deadline || !sleep(20)) {
+        while (!condition.getAsBoolean()) {
+            if (System.nanoTime() >= deadline || !sleep(pollMillis)) {
                 return false;
             }
         }
@@ -487,9 +441,8 @@ public final class DefaultProcessSupervisor
 
     private static String readLauncherScript()
     {
-        try (InputStream script = DefaultProcessSupervisor.class.getResourceAsStream("launcher.sh")) {
-            requireNonNull(script, "launcher.sh is missing from the agent-cli resources");
-            return new String(script.readAllBytes(), StandardCharsets.UTF_8);
+        try {
+            return Resources.toString(Resources.getResource(DefaultProcessSupervisor.class, "launcher.sh"), StandardCharsets.UTF_8);
         }
         catch (IOException e) {
             throw new IllegalStateException("Unable to read the process launcher script", e);
@@ -534,9 +487,9 @@ public final class DefaultProcessSupervisor
     private static Optional<Long> readIdentity(Path identity)
     {
         try {
-            return Optional.of(Long.parseLong(Files.readString(identity, StandardCharsets.UTF_8).trim()));
+            return Optional.ofNullable(Longs.tryParse(Files.readString(identity, StandardCharsets.UTF_8).trim()));
         }
-        catch (IOException | NumberFormatException e) {
+        catch (IOException e) {
             return Optional.empty();
         }
     }
@@ -581,13 +534,13 @@ public final class DefaultProcessSupervisor
                 checkState(group == identity.pid(), "Gated launcher is not its own process-group leader");
                 recorded = prepared.gated(identity, info.command().orElse(LAUNCHER_SHELL), group);
                 store.write(recorded);
-                recorded = recorded.withPhase(LaunchPhase.RELEASE_PENDING);
+                recorded = recorded.toBuilder().phase(LaunchPhase.RELEASE_PENDING).build();
                 store.write(recorded);
                 released = true;
                 store.writeGate(launchId(), LaunchMarkerStore.RELEASE);
                 launcher.getOutputStream().write((LaunchMarkerStore.RELEASE + "\n").getBytes(StandardCharsets.UTF_8));
                 launcher.getOutputStream().flush();
-                recorded = recorded.withPhase(LaunchPhase.RUNNING);
+                recorded = recorded.toBuilder().phase(LaunchPhase.RUNNING).build();
                 store.write(recorded);
                 return new DefaultManagedProcess(recorded, launcher, identity.pid(), group, spec, output);
             }
@@ -859,7 +812,7 @@ public final class DefaultProcessSupervisor
             synchronized (inputLock) {
                 synchronized (markerLock) {
                     if (!marker.workFinished()) {
-                        LaunchMarker finished = marker.withWorkFinished();
+                        LaunchMarker finished = marker.toBuilder().workFinished(true).build();
                         store.write(finished);
                         marker = finished;
                     }
@@ -1032,7 +985,7 @@ public final class DefaultProcessSupervisor
                     return;
                 }
                 log.warn("Process launch {} for {}/{} has incomplete descendant tracking: {}", marker.launchId(), spec.owner().kind(), spec.owner().id(), detail);
-                marker = marker.withIncompleteDescendantTracking();
+                marker = marker.toBuilder().descendantTrackingIncomplete(true).build();
                 store.write(marker);
             }
         }
@@ -1096,13 +1049,13 @@ public final class DefaultProcessSupervisor
             if (verifiedStopped.get()) {
                 return ProcessExit.TreeTermination.VERIFIED_STOPPED;
             }
-            if (!awaitGroupEmpty(processGroup, TREE_VERIFICATION_TIMEOUT)) {
+            if (!await(() -> ProcessGroups.members(processGroup).filter(List::isEmpty).isPresent(), TREE_VERIFICATION_TIMEOUT, 50)) {
                 return ProcessExit.TreeTermination.UNVERIFIABLE;
             }
             Optional<List<ProcessIdentity>> descendants = marker.descendants();
             if ((!marker.workFinished() && marker.descendantTrackingIncomplete())
                     || descendants.isEmpty()
-                    || !awaitIdentitiesDead(descendants.orElseThrow(), TREE_VERIFICATION_TIMEOUT)) {
+                    || !await(() -> descendants.orElseThrow().stream().allMatch(identity -> identity.liveness() == ProcessIdentity.Liveness.GONE), TREE_VERIFICATION_TIMEOUT, 50)) {
                 return ProcessExit.TreeTermination.UNVERIFIABLE;
             }
             verifiedStopped.set(true);

@@ -32,14 +32,14 @@ class TestTemporaryWriteRoots
     void includesHostAndConfiguredTemporaryDirectoriesWithoutGrantingInvalidPaths()
             throws Exception
     {
-        var baseline = TemporaryWriteRoots.writableRoots(ImmutableMap.of());
+        var baseline = BuildCacheRoots.temporary(ImmutableMap.of());
         assertThat(baseline).contains(Path.of("/tmp").toRealPath(), Path.of(System.getProperty("java.io.tmpdir")).toRealPath()).doesNotHaveDuplicates();
         Path custom = Files.createDirectory(temporary.resolve("custom"));
         Path link = Files.createSymbolicLink(temporary.resolve("tmp-link"), custom);
-        assertThat(TemporaryWriteRoots.writableRoots(ImmutableMap.of("TMPDIR", link.toString())))
+        assertThat(BuildCacheRoots.temporary(ImmutableMap.of("TMPDIR", link.toString())))
                 .contains(custom.toRealPath()).doesNotContain(link);
         for (String invalid : ImmutableList.of("relative/path", "invalid\0path", temporary.resolve("missing").toString(), Files.createFile(temporary.resolve("file")).toString())) {
-            assertThat(TemporaryWriteRoots.writableRoots(ImmutableMap.of("TMPDIR", invalid))).isEqualTo(baseline);
+            assertThat(BuildCacheRoots.temporary(ImmutableMap.of("TMPDIR", invalid))).isEqualTo(baseline);
         }
     }
 }

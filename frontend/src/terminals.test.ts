@@ -27,7 +27,9 @@ class FakeProcess implements TerminalProcess {
   kill() { this.killed = true; }
 }
 
+let nextSenderId = 0;
 class FakeSender {
+  readonly id = ++nextSenderId;
   sent: Array<[string, unknown]> = [];
   navigate: () => void = () => {};
   destroyed: () => void = () => {};

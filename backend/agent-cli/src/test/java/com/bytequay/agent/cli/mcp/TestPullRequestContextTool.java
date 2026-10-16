@@ -50,7 +50,16 @@ class TestPullRequestContextTool
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/mcp"), mapper, (task, query) -> "")
                 .pullRequestContexts(task -> task.equals("assigned") ? available.get() : Optional.empty()).build();
         String closed;
-        try (McpRegistration codex = broker.registerTools("assigned", directory, AgentPermissionPolicy.AUTO, approvals, redactor, Optional.empty()).orElseThrow();
+        try (McpRegistration codex = broker.registerTools(
+                "assigned",
+                directory,
+                AgentPermissionPolicy.AUTO,
+                approvals,
+                redactor,
+                Optional.empty(),
+                SessionAccess.FULL,
+                Optional.empty(),
+                Optional.empty()).orElseThrow();
                 McpRegistration claude = broker.register("assigned", directory, directory, directory.resolve("provider"), AgentPermissionPolicy.AUTO,
                         SessionAccess.FULL, approvals, redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), Optional.empty())) {
             closed = codex.token();
@@ -72,9 +81,26 @@ class TestPullRequestContextTool
         }
         assertThat(broker.handle(closed, mapper.createObjectNode()).status()).isEqualTo(401);
         available.set(Optional.of(new PullRequestContextBridge(query -> "saved")));
-        assertThat(broker.registerTools("assigned", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
-                Optional.empty(), SessionAccess.READ_ONLY, Optional.empty())).isEmpty();
-        assertThat(broker.registerTools("other", directory, AgentPermissionPolicy.AUTO, approvals, redactor, Optional.empty())).isEmpty();
+        assertThat(broker.registerTools(
+                "assigned",
+                directory,
+                AgentPermissionPolicy.AUTO,
+                approvals,
+                redactor,
+                Optional.empty(),
+                SessionAccess.READ_ONLY,
+                Optional.empty(),
+                Optional.empty())).isEmpty();
+        assertThat(broker.registerTools(
+                "other",
+                directory,
+                AgentPermissionPolicy.AUTO,
+                approvals,
+                redactor,
+                Optional.empty(),
+                SessionAccess.FULL,
+                Optional.empty(),
+                Optional.empty())).isEmpty();
     }
 
     private JsonNode call(PermissionBroker broker, String token, String name, String arguments)

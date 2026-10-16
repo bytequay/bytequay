@@ -81,7 +81,7 @@ public record CiAutofixRun(
         checkSha(expectedRemoteHead, "expectedRemoteHead");
         checkSha(latestObservedBaseSha, "latestObservedBaseSha");
         requireNonNull(authorization, "authorization is null");
-        checkArgument(attemptsUsed >= 0 && attemptsUsed <= authorization.maxFixAttempts(), "attemptsUsed exceeds authorization");
+        checkArgument(attemptsUsed >= 0 && attemptsUsed <= MAX_FIX_ATTEMPTS, "attemptsUsed exceeds authorization");
         requireNonNull(rerunCounter, "rerunCounter is null");
         requireNonNull(finalFixupCheck, "finalFixupCheck is null");
         checkOptionalText(currentTurnId, "currentTurnId", 128);
@@ -163,7 +163,7 @@ public record CiAutofixRun(
         requireActive(now);
         requireNonNull(attempt, "attempt is null");
         checkArgument(attempt.runId().equals(id), "attempt belongs to another run");
-        checkState(attempts.size() < authorization.maxFixAttempts(), "fix attempt limit is exhausted");
+        checkState(attempts.size() < MAX_FIX_ATTEMPTS, "fix attempt limit is exhausted");
         int expectedNumber = attempts.size() + 1;
         checkArgument(attempt.number() == expectedNumber, "attempt number must be " + expectedNumber);
         return edit(now, run -> run.attempts = ImmutableList.<CiAutofixAttempt>builder().addAll(attempts).add(attempt).build());
@@ -179,7 +179,7 @@ public record CiAutofixRun(
         boolean alreadyLinked = attempt.agentTurnId().isPresent();
         CiAutofixAttempt updatedAttempt = attempt.withAgentTurn(turnId, now);
         int updatedAttemptsUsed = alreadyLinked ? attemptsUsed : attemptsUsed + 1;
-        checkState(updatedAttemptsUsed <= authorization.maxFixAttempts(), "fix attempt limit is exhausted");
+        checkState(updatedAttemptsUsed <= MAX_FIX_ATTEMPTS, "fix attempt limit is exhausted");
         return edit(now, run -> {
             run.attemptsUsed = updatedAttemptsUsed;
             run.currentTurnId = Optional.of(turnId);
@@ -442,7 +442,7 @@ public record CiAutofixRun(
 
     private static void validateAttempts(CiAutofixRunId runId, Authorization authorization, int attemptsUsed, List<CiAutofixAttempt> attempts)
     {
-        checkArgument(attempts.size() <= authorization.maxFixAttempts(), "attempts exceeds authorization");
+        checkArgument(attempts.size() <= MAX_FIX_ATTEMPTS, "attempts exceeds authorization");
         Set<CiAutofixAttemptId> ids = new HashSet<>();
         int linkedTurns = 0;
         for (int index = 0; index < attempts.size(); index++) {
@@ -573,16 +573,11 @@ public record CiAutofixRun(
     }
 
     public record Authorization(
-            boolean allowFailedJobReruns,
-            boolean allowHistoryRewrites,
-            boolean allowExactLeasePush,
-            int maxFixAttempts,
             Instant authorizedAt,
             Instant expiresAt)
     {
         public Authorization
         {
-            checkArgument(maxFixAttempts > 0 && maxFixAttempts <= MAX_FIX_ATTEMPTS, "maxFixAttempts must be between 1 and " + MAX_FIX_ATTEMPTS);
             requireNonNull(authorizedAt, "authorizedAt is null");
             requireNonNull(expiresAt, "expiresAt is null");
             checkArgument(expiresAt.isAfter(authorizedAt), "expiresAt must be after authorizedAt");

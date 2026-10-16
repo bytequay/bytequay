@@ -116,8 +116,24 @@ class TestMemorySources
     @Test
     void bindsAReviewRuleToTheDiscussionQuestionAndNeverToAReviewStep()
     {
-        AgentReview review = new AgentReview("review", "workspace", "trinodb/trino", OptionalInt.of(7), OptionalLong.empty(), taskId.toString(), Optional.empty(),
-                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+        AgentReview review = new AgentReview(
+                "review",
+                "workspace",
+                "trinodb/trino",
+                OptionalInt.of(7),
+                OptionalLong.empty(),
+                taskId.toString(),
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                NOW,
+                NOW,
+                Optional.empty(),
+                Optional.empty());
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         ReviewMessage question = new ReviewMessage("message-1", "review", Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.USER,
                 "We never log user input here; please don't suggest it.", 1, "run-1", Optional.empty(), Optional.empty(), 0, NOW);

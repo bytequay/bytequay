@@ -34,7 +34,6 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
-import com.bytequay.agent.core.CodeQueryInstructions;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
@@ -3877,7 +3876,7 @@ class TestDefaultAgentTurnService
         service.start(command("first", "key-1"));
 
         CodeQueryBridge bridge = driver.openedContexts().getFirst().codeQueries().orElseThrow();
-        assertThat(bridge.instruction()).isEqualTo(CodeQueryInstructions.MANAGED);
+        assertThat(bridge.instruction()).isEqualTo(DefaultAgentTurnService.CODE_QUERY_INSTRUCTIONS);
         CodeQuery query = new CodeQuery(CodeQuery.Operation.SYMBOLS, "src/main.go", Optional.of("cleanup"), OptionalInt.empty(), OptionalInt.empty(), 20);
         assertThat(bridge.query().apply(query)).isEqualTo("symbols:cleanup");
         assertThat(queriedWorktree).isEqualTo(task.taskWorktree().orElseThrow());

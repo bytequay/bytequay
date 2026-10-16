@@ -62,7 +62,6 @@ public class GitHubNotificationClient
     private final Map<String, State> states = new ConcurrentHashMap<>();
     private final Map<String, Instant> pollAt = new HashMap<>();
     private final Map<String, String> credentials = new HashMap<>();
-    private final Map<String, String> failures = new ConcurrentHashMap<>();
 
     public GitHubNotificationClient(RestClient gitHubRestClient, AppSettingsStore settings, ObjectMapper mapper, Clock clock)
     {
@@ -105,7 +104,6 @@ public class GitHubNotificationClient
                     if (page != 1 || modified.isEmpty()) {
                         throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Unexpected GitHub notification 304");
                     }
-                    failures.remove(account);
                     return;
                 }
                 if (page == 1) {
@@ -152,14 +150,12 @@ public class GitHubNotificationClient
                             seen.values().stream().filter(thread -> !thread.updatedAt().isBefore(retention)).collect(ImmutableList.toImmutableList()));
                     settings.put(key(account), encode(completed));
                     states.put(account, completed);
-                    failures.remove(account);
                     return;
                 }
             }
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub notification catch-up exceeded 10000 threads; checkpoint retained");
         }
         catch (RuntimeException failure) {
-            failures.put(account, failure.getMessage() == null ? "GitHub notifications unavailable" : failure.getMessage());
             State partial = new State(previous.completedAt(), previous.lastModified(), ImmutableList.copyOf(seen.values()));
             if (!partial.equals(previous)) {
                 try {
@@ -194,11 +190,6 @@ public class GitHubNotificationClient
     {
         return state(login.toLowerCase(Locale.ROOT)).threads().stream().filter(GitHubNotificationRef::pullRequest)
                 .filter(thread -> "mention".equals(thread.reason())).map(GitHubNotificationRef::ref).collect(toImmutableSet());
-    }
-
-    public Optional<String> failure(String login)
-    {
-        return Optional.ofNullable(failures.get(login.toLowerCase(Locale.ROOT)));
     }
 
     /** Fetches one comment, without its discussion history, patches, reactions or checks. */

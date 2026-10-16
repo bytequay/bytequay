@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { plural } from '../displayText';
+import { shortDate as formatDate, plural } from '../displayText';
 import { displayModelName, effortLabel, providerAvailable, providerRemedy } from '../settings/model';
 import type { ModelSettingsDto } from '../types';
 import type { ContextSpecCheckDto } from './contracts';
@@ -23,7 +23,7 @@ export function shortDate(value: string | null | undefined, now = Date.now()): s
   if (Number.isNaN(date.getTime())) return '';
   const today = new Date(now);
   if (date.toDateString() === today.toDateString()) return 'Today';
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(date.getFullYear() === today.getFullYear() ? {} : { year: 'numeric' }) });
+  return formatDate(date, date.getFullYear() !== today.getFullYear());
 }
 
 /** "Codex · 5.6 Sol Medium", and why a check cannot start when the Review model is unavailable. */

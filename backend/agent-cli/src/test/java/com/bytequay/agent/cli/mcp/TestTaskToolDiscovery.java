@@ -18,6 +18,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
+import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -138,9 +139,16 @@ class TestTaskToolDiscovery
 
     private McpRegistration register()
     {
-        return broker.registerTools("review", directory, AgentPermissionPolicy.AUTO,
+        return broker.registerTools(
+                "review",
+                directory,
+                AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")), Optional.empty()).orElseThrow();
+                SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")),
+                Optional.empty(),
+                SessionAccess.FULL,
+                Optional.empty(),
+                Optional.empty()).orElseThrow();
     }
 
     private JsonNode call(McpRegistration registration, String name, String arguments)

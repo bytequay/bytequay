@@ -13,37 +13,12 @@
  */
 package com.bytequay.app.review;
 
-import java.util.Optional;
-
-import static java.util.Objects.requireNonNull;
-
 /** A save refused because the file on disk is no longer the version the editor loaded. */
 public class ReviewFileConflictException
         extends RuntimeException
 {
-    private final String currentHash;
-    private final Optional<String> currentContent;
-
-    /**
-     * Creates a conflict.
-     *
-     * @param currentHash the SHA-256 of the file's bytes on disk
-     * @param currentContent the file's text, empty when it is binary or larger than the read cap
-     */
-    public ReviewFileConflictException(String currentHash, Optional<String> currentContent)
+    public ReviewFileConflictException()
     {
         super("The file changed on disk");
-        this.currentHash = requireNonNull(currentHash, "currentHash is null");
-        this.currentContent = requireNonNull(currentContent, "currentContent is null");
-    }
-
-    public String currentHash()
-    {
-        return currentHash;
-    }
-
-    public Optional<String> currentContent()
-    {
-        return currentContent;
     }
 }

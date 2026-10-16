@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { clock } from '../displayText';
 import type { JiraTaskSource } from '../jira/contracts';
 import { BackportRequestHint } from './BackportRequestHint';
 import { JiraRequestCard } from '../jira/JiraSourceAttachment';
@@ -97,14 +98,6 @@ function permissionLabel(policy: string): string {
 }
 
 /** "Aug 16", or "Aug 23, 2026" with the year, as the design dates a finished agent. */
-export function shortDate(iso: string, withYear = false): string {
-  return new Date(iso).toLocaleDateString([], withYear ? { month: 'short', day: 'numeric', year: 'numeric' } : { month: 'short', day: 'numeric' });
-}
-
-export function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
-
 /** "Today 4:31 PM", or the date when the message is older than today. */
 function stamp(iso: string, now: number): string {
   const at = new Date(iso);

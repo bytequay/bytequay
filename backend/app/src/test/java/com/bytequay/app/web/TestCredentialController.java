@@ -64,7 +64,6 @@ class TestCredentialController
         when(credentials.cachedCredential()).thenReturn(Optional.of(new GitHubCredential(token,
                 new UserProfile("octocat", "Private name", "", "", 0, 0, 0, "", "", "", "private@example.com"))));
         when(credentials.isGitHubAccountConfigured()).thenReturn(true);
-        when(notifications.failure("octocat")).thenReturn(Optional.of("GitHub notifications permission denied"));
         Instant retryAt = Instant.parse("2026-09-29T01:00:00Z");
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com").requestInterceptor(rateLimit);
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -82,7 +81,6 @@ class TestCredentialController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.configured").value(true))
                 .andExpect(jsonPath("$.login").value("octocat"))
-                .andExpect(jsonPath("$.notificationDegradedReason").value("GitHub notifications permission denied"))
                 .andExpect(jsonPath("$.usage.requests[0].count").value(1))
                 .andExpect(jsonPath("$.usage.requests[0].status").value(429))
                 .andExpect(jsonPath("$.usage.quotas[0].remaining").value(4900))
@@ -92,7 +90,6 @@ class TestCredentialController
         assertThat(body).doesNotContain(token, "Private name", "private@example.com");
         verify(credentials).cachedCredential();
         verify(credentials).isGitHubAccountConfigured();
-        verify(notifications).failure("octocat");
         verifyNoMoreInteractions(credentials, notifications);
         server.verify();
     }
@@ -108,7 +105,6 @@ class TestCredentialController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.configured").value(true))
                 .andExpect(jsonPath("$.login").isEmpty())
-                .andExpect(jsonPath("$.notificationDegradedReason").isEmpty())
                 .andExpect(jsonPath("$.usage").isEmpty());
         verify(credentials).cachedCredential();
         verify(credentials).isGitHubAccountConfigured();
@@ -118,7 +114,7 @@ class TestCredentialController
 
     private MockMvc mvc()
     {
-        return standaloneSetup(new CredentialController(credentials, notifications, rateLimit))
+        return standaloneSetup(new CredentialController(credentials, rateLimit))
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(Jackson2ObjectMapperBuilder.json()
                         .featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS).build()))
                 .build();

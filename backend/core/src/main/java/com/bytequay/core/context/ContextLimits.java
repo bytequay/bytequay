@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.context;
 
+import com.google.common.base.Utf8;
+
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Collection;
@@ -20,7 +22,6 @@ import java.util.Locale;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /** UTF-8 text, path and address checks shared by review and spec check values. */
@@ -36,7 +37,7 @@ public final class ContextLimits
 
     public static int bytes(String value)
     {
-        return requireNonNull(value, "value is null").getBytes(UTF_8).length;
+        return Utf8.encodedLength(requireNonNull(value, "value is null"));
     }
 
     public static void unique(Collection<?> values, String name, int maximum)

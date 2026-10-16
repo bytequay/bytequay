@@ -20,7 +20,6 @@ import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
@@ -53,16 +52,31 @@ class TestReviewTaskObserver
         ObjectProvider<AgentReviewService> services = mock(ObjectProvider.class);
         when(services.getObject()).thenReturn(service);
         TaskId taskId = TaskId.random();
-        AgentReview review = new AgentReview("review-queue", "workspace-1", "acme/widgets", OptionalInt.of(1), OptionalLong.empty(), taskId.toString(), Optional.empty(),
-                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        AgentReview review = new AgentReview(
+                "review-queue",
+                "workspace-1",
+                "acme/widgets",
+                OptionalInt.of(1),
+                OptionalLong.empty(),
+                taskId.toString(),
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                Instant.EPOCH,
+                Instant.EPOCH,
+                Optional.empty(),
+                Optional.empty());
         when(events.readHistory(eq(taskId), any(), any())).thenReturn(new AgentHistoryPage(ImmutableList.of(), OptionalLong.empty(), OptionalLong.empty(), 0));
         when(events.subscribe(taskId, 0)).thenReturn(subscriber -> {
             subscriber.onSubscribe(mock(java.util.concurrent.Flow.Subscription.class));
             subscriber.onNext(new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, taskId, Optional.empty(),
                     AgentEventSource.root(), Instant.EPOCH, new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.QUEUE_CHANGED, "Removed queued question")));
         });
-        ReviewTaskObserver observer = new ReviewTaskObserver(events, mock(AgentReviewStore.class), mock(AgentTurnStore.class), services,
-                mock(ObjectProvider.class), mock(ObjectProvider.class));
+        ReviewTaskObserver observer = new ReviewTaskObserver(events, mock(AgentReviewStore.class), services, mock(ObjectProvider.class), mock(ObjectProvider.class));
         try {
             observer.watch(review);
             verify(service, timeout(1000)).reconcile(review.id());
@@ -80,8 +94,7 @@ class TestReviewTaskObserver
         ObjectProvider<PullRequestRefreshService> refreshes = mock(ObjectProvider.class);
         when(refreshes.getObject()).thenReturn(refresh);
         when(store.listOpenReviews()).thenReturn(ImmutableList.of(review("remote", 1, Optional.empty()), review("local", 2, Optional.of("source-task"))));
-        ReviewTaskObserver observer = new ReviewTaskObserver(mock(AgentEventService.class), store, mock(AgentTurnStore.class), mock(ObjectProvider.class),
-                refreshes, mock(ObjectProvider.class));
+        ReviewTaskObserver observer = new ReviewTaskObserver(mock(AgentEventService.class), store, mock(ObjectProvider.class), refreshes, mock(ObjectProvider.class));
         try {
             observer.onPullRequestsRefreshed(new PullRequestsRefreshed());
             verify(refresh, timeout(1000)).warmDetail("acme/widgets", 1);
@@ -101,8 +114,12 @@ class TestReviewTaskObserver
         ObjectProvider<AgentReviewService> services = mock(ObjectProvider.class);
         when(services.getObject()).thenReturn(service);
         when(service.endIfPullRequestEnded("acme/widgets", 1)).thenReturn(true);
-        ReviewTaskObserver observer = new ReviewTaskObserver(mock(AgentEventService.class), mock(AgentReviewStore.class), mock(AgentTurnStore.class), services,
-                mock(ObjectProvider.class), mock(ObjectProvider.class));
+        ReviewTaskObserver observer = new ReviewTaskObserver(
+                mock(AgentEventService.class),
+                mock(AgentReviewStore.class),
+                services,
+                mock(ObjectProvider.class),
+                mock(ObjectProvider.class));
         try {
             observer.onDetailRefreshed(new PullRequestDetailRefreshed("acme/widgets", 1, Optional.of("ended-head")));
             observer.onDetailRefreshed(new PullRequestDetailRefreshed("acme/widgets", 2, Optional.of("open-head")));
@@ -118,7 +135,23 @@ class TestReviewTaskObserver
 
     private static AgentReview review(String id, int number, Optional<String> sourceTaskId)
     {
-        return new AgentReview(id, "workspace-1", "acme/widgets", OptionalInt.of(number), OptionalLong.empty(), TaskId.random().toString(), sourceTaskId,
-                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        return new AgentReview(
+                id,
+                "workspace-1",
+                "acme/widgets",
+                OptionalInt.of(number),
+                OptionalLong.empty(),
+                TaskId.random().toString(),
+                sourceTaskId,
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                Instant.EPOCH,
+                Instant.EPOCH,
+                Optional.empty(),
+                Optional.empty());
     }
 }

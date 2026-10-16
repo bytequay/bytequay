@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkSha;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -95,11 +96,5 @@ public class PullRequestTimelineService
         checkArgument(copy.size() <= MAXIMUM_VALUES, name + " exceeds " + MAXIMUM_VALUES + " values");
         copy.forEach(value -> checkText(value, name, 500));
         return copy;
-    }
-
-    private static void checkSha(String value, String name)
-    {
-        checkText(value, name, 64);
-        checkArgument(value.matches("[0-9a-fA-F]{40,64}"), name + " is not a Git SHA");
     }
 }

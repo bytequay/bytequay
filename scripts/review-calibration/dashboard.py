@@ -34,6 +34,14 @@ LOOKS = {"7 days": 7, "14 days": suggest.DAYS, "28 days": 28, "every day": None}
 MARKDOWN = re.compile(r"([\\`*_\[\]<>#|~$])")
 
 
+def start_page():
+    st.set_page_config(page_title="ByteQuay Lab", layout="wide")
+    # Started any other way, Streamlit would serve the page to the whole network.
+    if st.get_option("server.address") != HOST:
+        st.error("This page is only shown to this machine. Start it with `uv run dashboard.py`")
+        st.stop()
+
+
 def draw(name, figure):
     """Draw a chart under a name of its own. Two charts can hold the same numbers, and the page must still tell them apart."""
     st.plotly_chart(figure, key=name, **SHOW)
@@ -41,7 +49,7 @@ def draw(name, figure):
 
 def when(moment):
     """A saved time in the reader's own time zone."""
-    return datetime.fromisoformat(moment).astimezone().strftime("%Y-%m-%d %H:%M")
+    return (datetime.fromisoformat(moment) if isinstance(moment, str) else moment).astimezone().strftime("%Y-%m-%d %H:%M")
 
 
 def chosen(made, table):
@@ -458,7 +466,6 @@ def plain(text):
     return MARKDOWN.sub(r"\\\1", text)
 
 
-@st.cache_data(ttl=300, show_spinner=False)
 def read_logs(runtime, since=None, until=None):
     """The asks, Codex's own reviews and command lines of every task log, kept for a few minutes because reading them all takes about a
     second. The command lines stay in this process to match rules against and are never shown."""
@@ -467,6 +474,11 @@ def read_logs(runtime, since=None, until=None):
         made, reviewed, run, left = approvals.read_log(log, since, until)
         asks, automatic, lines, unanswered = asks + made, automatic + reviewed, lines + run, unanswered + left
     return asks, automatic, lines, unanswered
+
+
+# Importing the shared labels from a CLI must not start Streamlit caching.
+if get_script_run_ctx(suppress_warning=True):
+    read_logs = st.cache_data(ttl=300, show_spinner=False)(read_logs)
 
 
 def refresh(folder, runtime):
@@ -634,11 +646,7 @@ def timed(tab, logged, *more):
 
 
 def page(folder, runtime):
-    st.set_page_config(page_title="ByteQuay Lab", layout="wide")
-    # Started any other way, Streamlit would serve the page to the whole network.
-    if st.get_option("server.address") != HOST:
-        st.error("This page is only shown to this machine. Start it with `uv run dashboard.py`")
-        return
+    start_page()
     st.title("ByteQuay Lab")
     refresh(folder, runtime)
     try:

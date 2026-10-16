@@ -50,8 +50,16 @@ class TestDiscussionContextTool
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/mcp"), mapper, (task, query) -> "")
                 .reviews(task -> { throw new AssertionError("Read-only sessions must not resolve task write capabilities"); }).build();
         String closed;
-        try (McpRegistration codex = broker.registerTools("same-task", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
-                Optional.empty(), SessionAccess.READ_ONLY, Optional.of(new DiscussionContextBridge(query -> "first known-secret"))).orElseThrow();
+        try (McpRegistration codex = broker.registerTools(
+                "same-task",
+                directory,
+                AgentPermissionPolicy.AUTO,
+                approvals,
+                redactor,
+                Optional.empty(),
+                SessionAccess.READ_ONLY,
+                Optional.of(new DiscussionContextBridge(query -> "first known-secret")),
+                Optional.empty()).orElseThrow();
                 McpRegistration claude = broker.register("same-task", directory, directory, directory.resolve("provider"), AgentPermissionPolicy.AUTO,
                         SessionAccess.READ_ONLY, approvals, redactor, Optional.empty(), ImmutableMap.of(),
                         Optional.of(new DiscussionContextBridge(query -> "second")), Optional.empty())) {
@@ -77,10 +85,26 @@ class TestDiscussionContextTool
             assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
         }
         assertThat(broker.handle(closed, mapper.createObjectNode()).status()).isEqualTo(401);
-        assertThat(broker.registerTools("same-task", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
-                Optional.empty(), SessionAccess.READ_ONLY, Optional.empty())).isEmpty();
-        assertThatThrownBy(() -> broker.registerTools("same-task", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
-                Optional.empty(), SessionAccess.FULL, Optional.of(new DiscussionContextBridge(query -> "context"))))
+        assertThat(broker.registerTools(
+                "same-task",
+                directory,
+                AgentPermissionPolicy.AUTO,
+                approvals,
+                redactor,
+                Optional.empty(),
+                SessionAccess.READ_ONLY,
+                Optional.empty(),
+                Optional.empty())).isEmpty();
+        assertThatThrownBy(() -> broker.registerTools(
+                "same-task",
+                directory,
+                AgentPermissionPolicy.AUTO,
+                approvals,
+                redactor,
+                Optional.empty(),
+                SessionAccess.FULL,
+                Optional.of(new DiscussionContextBridge(query -> "context")),
+                Optional.empty()))
                 .hasMessageContaining("read-only");
     }
 

@@ -127,8 +127,24 @@ class TestReviewPrompts
     @Test
     void theSecondReaderGetsItsAssignmentTheFrozenRangeAndOnlyTheReferenceItWasGiven()
     {
-        AgentReview review = new AgentReview("review", "workspace", "acme/widgets", OptionalInt.of(42), OptionalLong.empty(), "task", Optional.empty(),
-                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        AgentReview review = new AgentReview(
+                "review",
+                "workspace",
+                "acme/widgets",
+                OptionalInt.of(42),
+                OptionalLong.empty(),
+                "task",
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                Instant.EPOCH,
+                Instant.EPOCH,
+                Optional.empty(),
+                Optional.empty());
         ReviewRun run = new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", "base", "fork", "head", Optional.empty(), Optional.empty(),
                 ImmutableList.of(), ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, null)), ImmutableList.of(), ReviewRun.State.RUNNING,
                 Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(),

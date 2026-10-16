@@ -277,12 +277,12 @@ def work(brief, prompt, ask, deadline, log=lambda event: None, max_steps=MAX_STE
 
 
 def asker(client, model):
-    """The model call work() makes, through an OpenAI SDK client such as judge.make_client() gives."""
+    """The model call work() makes, through the DeepSeek client judge.make_client() gives."""
     def ask(messages, offered, timeout):
-        response = client.chat.completions.create(model=model, messages=messages, tools=offered, timeout=timeout)
+        response = client.complete(model=model, messages=messages, tools=offered, timeout=timeout)
         # A provider may answer under a dated name of the same model; any other name means the model was swapped.
-        if not response.model.startswith(model):
-            raise RuntimeError(f"Asked {model}, but {response.model} answered")
-        choice = response.choices[0]
-        return choice.message.model_dump(exclude_none=True), judge.usage_of(response), choice.finish_reason
+        if not response["model"].startswith(model):
+            raise RuntimeError(f"Asked {model}, but {response["model"]} answered")
+        choice = response["choices"][0]
+        return {key: value for key, value in choice["message"].items() if value is not None}, judge.usage_of(response), choice["finish_reason"]
     return ask

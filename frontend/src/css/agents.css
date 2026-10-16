@@ -4081,10 +4081,7 @@ button:is(.agt-type-chip, .agt-type-tile) {
   --disc-rd: #cf222e;
   --disc-rdbg: #ffebe9;
   --disc-rdbd: #ffcecb;
-  --disc-btn: #1f2328;
-  --disc-btnfg: #ffffff;
   --disc-shadow: rgb(140 149 159 / 28%);
-  --disc-focus: rgb(9 105 218 / 25%);
   --disc-shim: rgb(9 105 218 / 16%);
 }
 
@@ -4106,10 +4103,7 @@ button:is(.agt-type-chip, .agt-type-tile) {
     --disc-rd: #f85149;
     --disc-rdbg: #3a1417;
     --disc-rdbd: #5c2225;
-    --disc-btn: #373e47;
-    --disc-btnfg: #e6edf3;
     --disc-shadow: rgb(1 4 9 / 70%);
-    --disc-focus: rgb(68 147 248 / 35%);
     --disc-shim: rgb(68 147 248 / 20%);
   }
 }

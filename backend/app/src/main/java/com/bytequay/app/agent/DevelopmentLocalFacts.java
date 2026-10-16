@@ -20,11 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 public record DevelopmentLocalFacts(
         String branch,
         String headSha,
-        String treeSha,
         String fingerprint,
-        int stagedFiles,
-        int unstagedFiles,
-        int untrackedFiles,
         int uncommittedFileCount,
         long commitCount,
         boolean diffFromBase,
@@ -34,8 +30,7 @@ public record DevelopmentLocalFacts(
     {
         checkText(branch, "branch");
         checkText(headSha, "headSha");
-        checkText(treeSha, "treeSha");
         checkText(fingerprint, "fingerprint");
-        checkArgument(stagedFiles >= 0 && unstagedFiles >= 0 && untrackedFiles >= 0 && uncommittedFileCount >= 0 && commitCount >= 0, "Git counts are negative");
+        checkArgument(uncommittedFileCount >= 0 && commitCount >= 0, "Git counts are negative");
     }
 }

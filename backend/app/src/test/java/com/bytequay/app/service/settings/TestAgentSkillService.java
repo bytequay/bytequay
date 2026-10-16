@@ -333,6 +333,7 @@ class TestAgentSkillService
                 0,
                 Instant.EPOCH,
                 Instant.EPOCH,
+                Optional.empty(),
                 Optional.empty());
     }
 }

@@ -447,9 +447,7 @@ class TestGitHubActionsClient
         String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
 
         assertThat(log.blob()).isPresent();
-        assertThat(log.byteCount()).isEqualTo(fixture.stored.get().length);
-        assertThat(log.truncated()).isFalse();
-        assertThat(log.omittedBeginning()).isFalse();
+        assertThat(log.blob().orElseThrow().size()).isEqualTo(fixture.stored.get().length);
         assertThat(log.terminalErrorLines()).containsExactly("error: compilation failed with [REDACTED]");
         assertThat(stored).doesNotContain(PAT, "ghp_anotherSecret123");
         assertThat(stored).contains("error: compilation failed with [REDACTED]");
@@ -470,10 +468,8 @@ class TestGitHubActionsClient
         BoundedCiLog log = fixture.client.readLog(logQuery(1024 * 1024));
         String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
 
-        assertThat(log.truncated()).isFalse();
-        assertThat(log.omittedBeginning()).isFalse();
         assertThat(log.compacted()).isTrue();
-        assertThat(log.byteCount()).isEqualTo(fixture.stored.get().length).isLessThanOrEqualTo(32 * 1024);
+        assertThat(log.blob().orElseThrow().size()).isEqualTo(fixture.stored.get().length).isLessThanOrEqualTo(32 * 1024);
         assertThat(stored).contains("Compilation failed with [REDACTED] and [REDACTED]", "Example.java:12", "BUILD FAILURE");
         assertThat(stored).doesNotContain(PAT, "ghp_anotherSecret123");
         assertThat(log.terminalErrorLines()).contains("[ERROR] Compilation failed with [REDACTED] and [REDACTED]");
@@ -501,9 +497,8 @@ class TestGitHubActionsClient
 
         assertThat(stored).endsWith(inline);
         assertThat(inline).contains(failure.replace(PAT, "[REDACTED]")).doesNotContain(PAT, "line shortened", "previous line repeated");
-        assertThat(log.byteCount()).isGreaterThan(32 * 1024).isLessThanOrEqualTo(1024 * 1024);
+        assertThat(log.blob().orElseThrow().size()).isGreaterThan(32 * 1024).isLessThanOrEqualTo(1024 * 1024);
         assertThat(log.compacted()).isTrue();
-        assertThat(log.truncated()).isFalse();
         fixture.verify();
     }
 
@@ -521,7 +516,6 @@ class TestGitHubActionsClient
         String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
         assertThat(log.diagnosticsMatched()).isFalse();
         assertThat(log.compacted()).isTrue();
-        assertThat(log.truncated()).isFalse();
         assertThat(stored).contains("No diagnostic keywords", "only the log tail", "32 KiB", "read_ci_raw_log", "exit code 1");
         assertThat(stored).doesNotContain("original beginning", PAT);
         assertThat(stored.length()).isLessThan(33 * 1024);

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.discussion;
 
+import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
@@ -71,7 +72,7 @@ class TestReviewSummaryWatcher
     private final TaskDiscussionStore discussions = mock(TaskDiscussionStore.class);
     private final TaskDiscussionService service = mock(TaskDiscussionService.class);
     private final AgentServingGate gate = mock(AgentServingGate.class, withSettings().mockMaker(MockMakers.INLINE));
-    private final ReviewSummaryWatcher watcher = new ReviewSummaryWatcher(tasks, ownership, comments, discussions, service, gate);
+    private final PullRequestTaskWatcher watcher = new PullRequestTaskWatcher(tasks, ownership, mock(AgentCompletionService.class), gate, comments, discussions, service);
 
     @BeforeEach
     void setUp()
@@ -81,14 +82,15 @@ class TestReviewSummaryWatcher
     }
 
     @Test
-    void doesNothingForATaskWithTheOptionOff()
+    void doesNotSummarizeForATaskWithTheOptionOff()
     {
         AgentTask task = task(false);
         when(tasks.listLive()).thenReturn(ImmutableList.of(task));
 
         watcher.pass();
 
-        verifyNoInteractions(ownership, comments, service);
+        verify(ownership, never()).shownPullRequest(any());
+        verifyNoInteractions(comments, service);
     }
 
     @Test

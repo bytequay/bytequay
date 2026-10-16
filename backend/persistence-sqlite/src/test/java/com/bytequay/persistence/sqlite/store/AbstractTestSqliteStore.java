@@ -34,7 +34,7 @@ abstract class AbstractTestSqliteStore
     {
         registry.add("spring.datasource.url", () -> url);
         registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
-        registry.add("spring.jpa.database-platform", () -> "org.hibernate.community.dialect.SQLiteDialect");
+        registry.add("spring.jpa.database-platform", () -> "com.bytequay.persistence.sqlite.config.SqliteDialect");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> ddlAuto);
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "1");
     }

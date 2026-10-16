@@ -550,13 +550,7 @@ public final class ManagedWorktreeService
 
     private static String requireOutput(Result result, String operation)
     {
-        if (!result.successful()) {
-            throw new AgentStorageException("Cannot " + operation + ": " + diagnostic(result));
-        }
-        if (result.truncated()) {
-            throw new AgentStorageException("Cannot " + operation + ": Git output was truncated");
-        }
-        return result.output().strip();
+        return result.requireOutput(message -> new AgentStorageException("Cannot " + operation + ": " + message)).strip();
     }
 
     private static String diagnostic(Result result)

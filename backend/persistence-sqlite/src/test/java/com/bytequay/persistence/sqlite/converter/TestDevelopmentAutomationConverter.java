@@ -26,12 +26,10 @@ class TestDevelopmentAutomationConverter
     private final DevelopmentAutomationConverter converter = new DevelopmentAutomationConverter();
 
     @Test
-    void readsAMissingReviewSummaryAsOffAndKeepsOtherFieldsRequired()
+    void requiresEveryFieldAndRoundTripsCurrentSettings()
     {
         DevelopmentAutomation automation = new DevelopmentAutomation(true, false, true, Optional.empty(), true);
         assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(automation))).isEqualTo(automation);
-        assertThat(converter.convertToEntityAttribute("{\"autoCommit\":true,\"autoDraftPr\":true,\"autoCiFix\":false,\"ciLaneId\":null}"))
-                .isEqualTo(new DevelopmentAutomation(true, true, false, Optional.empty(), false));
         assertThatThrownBy(() -> converter.convertToEntityAttribute("{\"autoCommit\":true,\"autoDraftPr\":true,\"ciLaneId\":null}"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> converter.convertToEntityAttribute("{\"autoCommit\":true,\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":null,\"reviewSummary\":null}"))

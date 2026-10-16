@@ -35,7 +35,6 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
-import com.bytequay.agent.core.CodeQueryInstructions;
 import com.bytequay.agent.core.CodeQueryService;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnCompletion;
@@ -131,6 +130,23 @@ import static java.util.Objects.requireNonNull;
 public final class DefaultAgentTurnService
         implements AgentTurnService
 {
+    static final String CODE_QUERY_INSTRUCTIONS = """
+            ByteQuay provides code_query for Java, Go and Rust in this task's own working copy. \
+            It shares the IDE's language services. Use SYMBOLS for a name search, DOCUMENT_SYMBOLS \
+            for an outline, or DEFINITIONS, REFERENCES, IMPLEMENTATIONS, INCOMING_CALLS and \
+            OUTGOING_CALLS at a source position. DIAGNOSTICS reads currently published diagnostics; \
+            no diagnostics is not proof of a successful build or test. Always name a repository-relative \
+            source path to activate its language. Positions and ranges use one-based lines and UTF-16 \
+            columns. Read current source before choosing a position. Supply a limit from 1 to 200. \
+            SYMBOLS also requires query; positional operations require line and column. \
+            Results include task, revision and working-copy fingerprint. They cover imported projects \
+            and can be partial while indexing. Check status and truncation, inspect the actual source, \
+            and use compiler/test/runtime evidence for correctness. Stale or unsaved results must be \
+            retried after the source is reconciled. If unavailable or unsupported, continue with normal \
+            source and text search; do not install or start another index. This is not natural-language \
+            architecture search or a repository dependency graph. Use ordinary source search for those \
+            questions and never describe text matches as semantic callers.""";
+
     private static final System.Logger log = System.getLogger(DefaultAgentTurnService.class.getName());
 
     private final AgentTaskStore taskStore;
@@ -1743,7 +1759,7 @@ public final class DefaultAgentTurnService
     {
         return task.taskWorktree()
                 .filter(worktree -> !task.laneId().value().startsWith("deepseek-key-"))
-                .map(worktree -> new CodeQueryBridge(query -> queryForAgent(worktree, query), CodeQueryInstructions.MANAGED));
+                .map(worktree -> new CodeQueryBridge(query -> queryForAgent(worktree, query), CODE_QUERY_INSTRUCTIONS));
     }
 
     private String queryForAgent(TaskWorktree worktree, CodeQuery query)

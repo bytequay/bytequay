@@ -35,21 +35,6 @@ final class CodexProtocolCodec
                 .enable(DeserializationFeature.READ_UNKNOWN_ENUM_VALUES_USING_DEFAULT_VALUE);
     }
 
-    CodexProtocol.JsonRpcEnvelope decodeEnvelope(String line)
-    {
-        return decode(line, CodexProtocol.JsonRpcEnvelope.class);
-    }
-
-    CodexProtocol.Notification decodeNotification(String line)
-    {
-        return decode(line, CodexProtocol.Notification.class);
-    }
-
-    CodexProtocol.ServerRequest decodeServerRequest(String line)
-    {
-        return decode(line, CodexProtocol.ServerRequest.class);
-    }
-
     <T> T decodeResult(JsonNode result, Class<T> type)
     {
         requireNonNull(result, "result is null");
@@ -73,7 +58,7 @@ final class CodexProtocolCodec
         }
     }
 
-    private <T> T decode(String line, Class<T> type)
+    <T> T decode(String line, Class<T> type)
     {
         requireNonNull(line, "line is null");
         try {

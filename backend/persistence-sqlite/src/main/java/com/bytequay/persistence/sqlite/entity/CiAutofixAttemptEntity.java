@@ -35,6 +35,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 
 import java.time.Instant;
@@ -45,7 +46,7 @@ import static com.bytequay.persistence.sqlite.entity.JsonGuard.CI_AUTOFIX;
 import static com.google.common.base.Preconditions.checkArgument;
 
 @Entity
-@Table(name = "ci_autofix_attempt")
+@Table(name = "ci_autofix_attempt", uniqueConstraints = @UniqueConstraint(columnNames = {"run_id", "attempt_number"}))
 public class CiAutofixAttemptEntity
         extends AssignedIdEntity<String>
 {
@@ -70,9 +71,6 @@ public class CiAutofixAttemptEntity
     @Column(nullable = false)
     @Getter
     private int attemptNumber;
-
-    @Column(nullable = false, unique = true)
-    private String runAttemptSlot;
 
     @Column(nullable = false)
     private String inputSha;
@@ -129,7 +127,6 @@ public class CiAutofixAttemptEntity
         entity.id = attempt.id().toString();
         entity.runId = attempt.runId().toString();
         entity.attemptNumber = attempt.number();
-        entity.runAttemptSlot = attempt.runId() + ":" + attempt.number();
         entity.updateFrom(attempt);
         return entity;
     }

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import monitor
 import argparse
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
@@ -704,7 +705,7 @@ def main():
     print(render(total) + ("\n\n" + timeline(total) if args.task and total.turns else ""))
     if args.save and total.turns:  # with no turns there is nothing worth replacing an earlier result with
         # The tables above come from the logs alone. Only the saved tables also carry what the database knows.
-        database, now = args.database or args.runtime.parent / "bytequay-1.0.db", datetime.now(timezone.utc)
+        database, now = args.database or args.runtime.parent / monitor.DATABASE.name, datetime.now(timezone.utc)
         recorded, problem = from_database(lambda: records.read(database))
         if problem:
             print(f"\nModel, effort, tokens and cost are left out: {problem}.")

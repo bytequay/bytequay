@@ -339,13 +339,13 @@ final class CodexAppServerClient
 
     private void receive(String line)
     {
-        CodexProtocol.JsonRpcEnvelope envelope = codec.decodeEnvelope(line);
+        CodexProtocol.JsonRpcEnvelope envelope = codec.decode(line, CodexProtocol.JsonRpcEnvelope.class);
         if (envelope.method().isEmpty()) {
             receiveResponse(envelope);
             return;
         }
         if (envelope.id().isPresent()) {
-            CodexProtocol.ServerRequest request = codec.decodeServerRequest(line);
+            CodexProtocol.ServerRequest request = codec.decode(line, CodexProtocol.ServerRequest.class);
             if (request instanceof CodexProtocol.UnknownServerRequest) {
                 // Identify protocol gaps without logging arguments, user input, or credentials.
                 log.warn("Unsupported Codex server request: method={}, threadId={}", redactor.redact(envelope.method().orElseThrow()), redactor.redact(request.threadId()));
@@ -353,7 +353,7 @@ final class CodexAppServerClient
             receiveRequest(request);
         }
         else {
-            receiveNotification(codec.decodeNotification(line));
+            receiveNotification(codec.decode(line, CodexProtocol.Notification.class));
         }
     }
 

@@ -20,7 +20,6 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.google.common.collect.ImmutableList;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -104,15 +104,13 @@ public class CherryPickExecutionController
             return CherryPickExecutionId.valueOf(value);
         }
         catch (IllegalArgumentException e) {
-            throw new CherryPickInvalidRequestException("executionId is not a valid identifier");
+            throw new IllegalArgumentException("executionId is not a valid identifier");
         }
     }
 
     private static String text(String value, String name)
     {
-        if (value == null || value.isBlank()) {
-            throw new CherryPickInvalidRequestException(name + " is blank");
-        }
+        checkArgument(!(value == null || value.isBlank()), name + " is blank");
         return value;
     }
 

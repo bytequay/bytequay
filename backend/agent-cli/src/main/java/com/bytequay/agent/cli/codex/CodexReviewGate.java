@@ -14,17 +14,15 @@
 package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.google.common.io.Resources;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 
 import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
-import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
-import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.util.Objects.requireNonNull;
 
 /** The one review hook ByteQuay permits inside its isolated Codex home. */
@@ -59,26 +57,12 @@ final class CodexReviewGate
     static Path install(Path codexHome)
     {
         Path target = path(codexHome);
-        Path staged = null;
         try {
-            staged = Files.createTempFile(codexHome, ".bytequay-review-gate-", ".sh");
-            Files.writeString(staged, SCRIPT, StandardCharsets.UTF_8);
-            Files.setPosixFilePermissions(staged, PosixFilePermissions.fromString("rwx------"));
-            Files.move(staged, target, ATOMIC_MOVE, REPLACE_EXISTING);
+            CodexHome.writeAtomically(target, SCRIPT.getBytes(StandardCharsets.UTF_8), PosixFilePermissions.fromString("rwx------"));
             return target;
         }
         catch (IOException e) {
             throw new AgentUnavailableException("Unable to install Codex review child gate", e);
-        }
-        finally {
-            if (staged != null) {
-                try {
-                    Files.deleteIfExists(staged);
-                }
-                catch (IOException ignored) {
-                    // The staged path is owner-only and never passed to Codex.
-                }
-            }
         }
     }
 
@@ -99,8 +83,8 @@ final class CodexReviewGate
 
     private static String readScript()
     {
-        try (InputStream resource = CodexReviewGate.class.getResourceAsStream("review-child-gate.sh")) {
-            return new String(requireNonNull(resource, "Codex review child gate resource is missing").readAllBytes(), StandardCharsets.UTF_8);
+        try {
+            return Resources.toString(Resources.getResource(CodexReviewGate.class, "review-child-gate.sh"), StandardCharsets.UTF_8);
         }
         catch (IOException e) {
             throw new AgentUnavailableException("Unable to read Codex review child gate resource", e);

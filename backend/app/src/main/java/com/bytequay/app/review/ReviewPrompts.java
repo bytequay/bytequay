@@ -18,12 +18,11 @@ import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewValidation;
+import com.google.common.io.Resources;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.Locale;
 
-import static com.google.common.base.Preconditions.checkState;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 /** The managed review policy and the ByteQuay-built requests that drive a review task. */
@@ -96,9 +95,8 @@ final class ReviewPrompts
 
     private static String load(String name)
     {
-        try (InputStream resource = ReviewPrompts.class.getResourceAsStream("/agent-skills/" + name)) {
-            checkState(resource != null, "ByteQuay review guidance %s is missing", name);
-            return new String(resource.readAllBytes(), UTF_8).strip();
+        try {
+            return Resources.toString(Resources.getResource(ReviewPrompts.class, "/agent-skills/" + name), UTF_8).strip();
         }
         catch (IOException failure) {
             throw new IllegalStateException("ByteQuay review guidance " + name + " could not be read", failure);

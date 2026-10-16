@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
 
+import static com.bytequay.core.domain.Checks.checkSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -76,7 +77,7 @@ public class DevelopmentGitInspector
         String sourceRemote = workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin";
         String baseBranch = workspace.upstreamDefaultBranch().orElse(workspace.defaultBranch());
         String baseSha = output(worktree, "rev-parse", "--verify", "refs/remotes/" + sourceRemote + "/" + baseBranch + "^{commit}").strip();
-        requireSha(baseSha);
+        checkSha(baseSha, "sha");
         DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(
                 workspace.selectedRepository(), workspace.monitoredRepository(), workspace.originCloneUrl(), sourceRemote,
                 baseBranch, baseSha, worktree.generatedBranch());
@@ -88,7 +89,7 @@ public class DevelopmentGitInspector
         WorktreeSnapshot snapshot = verify(worktree, route);
         requireCommit(worktree, route.baseSha());
         String tree = output(worktree, "rev-parse", "--verify", "HEAD^{tree}").strip();
-        requireSha(tree);
+        checkSha(tree, "sha");
         String status = status(worktree);
         StatusCounts counts = countStatus(status);
         Hasher digest = Hashing.sha256().newHasher();
@@ -110,14 +111,18 @@ public class DevelopmentGitInspector
             throw new AgentStorageException("Git returned an invalid development commit count", invalid);
         }
         String mergeBase = output(worktree, "merge-base", "--all", route.baseSha(), snapshot.head()).strip();
-        requireSha(mergeBase);
+        checkSha(mergeBase, "sha");
         Result diff = git.run(worktree.canonicalWorktree(), "diff", "--quiet", "--no-ext-diff", "--no-textconv", mergeBase, snapshot.head(), "--");
         checkState(!diff.truncated() && (diff.exitCode() == 0 || diff.exitCode() == 1), "Cannot inspect the committed development diff");
         WorktreeSnapshot after = worktrees.inspect(worktree);
         checkState(after.head().equals(snapshot.head()) && status(worktree).equals(status), "Development files changed during inspection");
         return new DevelopmentLocalFacts(
-                worktree.generatedBranch(), snapshot.head(), tree, digest.hash().toString(),
-                counts.staged(), counts.unstaged(), counts.untrackedPaths().size(), counts.total(), commits, diff.exitCode() == 1,
+                worktree.generatedBranch(),
+                snapshot.head(),
+                digest.hash().toString(),
+                counts.total(),
+                commits,
+                diff.exitCode() == 1,
                 snapshot.gitOperationInProgress() || after.gitOperationInProgress() || counts.unmerged());
     }
 
@@ -188,7 +193,7 @@ public class DevelopmentGitInspector
             checkState(result.successful(), "Cannot verify the remote development branch; check GitHub access");
             String[] values = result.output().strip().split("\\s+", -1);
             checkState(values.length == 2 && values[1].equals(ref), "Remote development branch response was ambiguous");
-            requireSha(values[0]);
+            checkSha(values[0], "remote SHA");
             remoteHead = Optional.of(values[0]);
         }
         var matches = pullRequests.fetchPullRequestIdentities(
@@ -214,7 +219,7 @@ public class DevelopmentGitInspector
         requireNonNull(route, "route is null");
         requireNonNull(expectedRemoteSha, "expectedRemoteSha is null");
         requireCommit(worktree, localHead);
-        expectedRemoteSha.ifPresent(DevelopmentGitInspector::requireSha);
+        expectedRemoteSha.ifPresent(value -> checkSha(value, "expected remote SHA"));
         verify(worktree, route);
         String ref = "refs/heads/" + route.headBranch();
         Result result = git.run(worktree.canonicalWorktree(), Duration.ofSeconds(120),
@@ -230,8 +235,8 @@ public class DevelopmentGitInspector
     {
         requireNonNull(baseline, "baseline is null");
         requireNonNull(requireAuthority, "requireAuthority is null");
-        requireSha(expectedSourceHead);
-        requireSha(publishedHead);
+        checkSha(expectedSourceHead, "sha");
+        checkSha(publishedHead, "sha");
         TaskWorktree worktree = baseline.worktree();
         requireAuthority.run();
         requireSyncSource(baseline, expectedSourceHead);
@@ -289,7 +294,7 @@ public class DevelopmentGitInspector
         if (!sourceRemote.equals("origin")) {
             requireRemote(worktree, sourceRemote, workspace.upstreamCloneUrl().orElseThrow());
         }
-        requireSha(snapshot.head());
+        checkSha(snapshot.head(), "sha");
         return snapshot;
     }
 
@@ -369,24 +374,16 @@ public class DevelopmentGitInspector
 
     private void requireCommit(TaskWorktree worktree, String sha)
     {
-        requireSha(sha);
+        checkSha(sha, "sha");
         Result result = git.run(worktree.canonicalWorktree(), "cat-file", "-e", sha + "^{commit}");
         checkState(result.successful() && !result.truncated(), "Development commit is unavailable locally");
     }
 
-    private static void requireSha(String sha)
-    {
-        requireNonNull(sha, "sha is null");
-        checkArgument(sha.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"), "Development revision is not an exact Git object ID");
-    }
-
     private String output(TaskWorktree worktree, String... arguments)
     {
-        Result result = git.run(worktree.canonicalWorktree(), arguments);
-        if (!result.successful() || result.truncated()) {
-            throw new AgentStorageException("Cannot inspect development Git facts: " + arguments[0]);
-        }
-        return result.output();
+        return git.run(
+                worktree.canonicalWorktree(),
+                arguments).requireOutput(message -> new AgentStorageException("Cannot inspect development Git facts: " + arguments[0] + ": " + message));
     }
 
     private static void add(Hasher digest, String value)

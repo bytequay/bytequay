@@ -58,6 +58,7 @@ import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
+import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
@@ -125,6 +126,7 @@ public class AgentController
     private static final Logger log = LoggerFactory.getLogger(AgentController.class);
 
     private final AgentTaskService taskService;
+    private final ContextBuildService contextBuilds;
     private final InteractiveAgentTaskCreator taskCreator;
     private final AgentStartupRecovery startupRecovery;
     private final AgentTurnService turnService;
@@ -150,6 +152,7 @@ public class AgentController
 
     public AgentController(
             AgentTaskService taskService,
+            ContextBuildService contextBuilds,
             InteractiveAgentTaskCreator taskCreator,
             AgentStartupRecovery startupRecovery,
             AgentTurnService turnService,
@@ -174,6 +177,7 @@ public class AgentController
             WorkItemService workItems)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
+        this.contextBuilds = requireNonNull(contextBuilds, "contextBuilds is null");
         this.taskCreator = requireNonNull(taskCreator, "taskCreator is null");
         this.startupRecovery = requireNonNull(startupRecovery, "startupRecovery is null");
         this.turnService = requireNonNull(turnService, "turnService is null");
@@ -819,7 +823,7 @@ public class AgentController
     {
         checkText(request.reason(), "reason");
         TaskId id = TaskId.valueOf(taskId);
-        AgentTask task = taskService.getInteractive(workspaceId, id);
+        AgentTask task = lifecycleTask(workspaceId, id);
         if (task.developmentContinuationUnfinished()) {
             throw new AgentConflictException("Stop development automation before marking the task failed; its linked CI writers must be verified stopped");
         }
@@ -846,7 +850,7 @@ public class AgentController
     public AgentHttpModels.RuntimeStopImpactResponse runtimeStopImpact(@PathVariable String taskId, @RequestParam String workspaceId)
     {
         TaskId id = TaskId.valueOf(taskId);
-        taskService.getInteractive(workspaceId, id);
+        lifecycleTask(workspaceId, id);
         return AgentHttpModels.stopImpact(turnService.stopImpact(id));
     }
 
@@ -861,8 +865,13 @@ public class AgentController
     {
         checkText(request.generation(), "generation");
         TaskId id = TaskId.valueOf(taskId);
-        AgentTask task = taskService.getInteractive(workspaceId, id);
+        AgentTask task = lifecycleTask(workspaceId, id);
         return taskResponse(stopTaskRuntime(task, request.generation()));
+    }
+
+    private AgentTask lifecycleTask(String workspaceId, TaskId id)
+    {
+        return taskService.get(id).interactive() ? taskService.getInteractive(workspaceId, id) : contextBuilds.task(workspaceId, id.toString());
     }
 
     private AgentTask stopTaskRuntime(AgentTask task, String generation)
@@ -877,7 +886,7 @@ public class AgentController
     public InteractiveAgentHttpContract.TaskResponse cleanupTask(@PathVariable String taskId, @RequestParam String workspaceId)
     {
         TaskId id = TaskId.valueOf(taskId);
-        taskService.getInteractive(workspaceId, id);
+        lifecycleTask(workspaceId, id);
         completionService.cleanupWorktree(id);
         return taskResponse(taskService.get(id));
     }

@@ -85,7 +85,7 @@ public class MemoryHarvestTools
 
     public Optional<ReviewBridge> bridge(String taskId)
     {
-        return builds.findByTask(taskId).filter(build -> build.harvest().isPresent())
+        return builds.findByTask(taskId).filter(build -> build.work() instanceof ContextBuild.Harvest)
                 .flatMap(build -> tasks.find(TaskId.valueOf(taskId)).filter(task -> task.state() == TaskState.OPEN).map(this::bridge));
     }
 
@@ -117,7 +117,7 @@ public class MemoryHarvestTools
 
     private JsonNode threads(ContextBuild build, TurnId turn, JsonNode args)
     {
-        ContextBuild.Harvest harvest = build.harvest().orElseThrow();
+        ContextBuild.Harvest harvest = (ContextBuild.Harvest) build.work();
         int pages = Math.max(1, (harvest.threads().size() + PAGE_SIZE - 1) / PAGE_SIZE);
         int page = args.path("page").asInt(1);
         checkArgument(page >= 1 && page <= pages, "page: there are %s pages", pages);
@@ -145,7 +145,7 @@ public class MemoryHarvestTools
 
     private JsonNode save(ContextBuild build, TurnId turn, JsonNode args)
     {
-        ContextBuild.Harvest harvest = build.harvest().orElseThrow();
+        ContextBuild.Harvest harvest = (ContextBuild.Harvest) build.work();
         String action = args.path("action").asText("");
         List<MemorySource> sources = strings(args, "sources").stream()
                 .map(key -> source(harvest, harvest.note(key).orElseThrow(() -> new IllegalArgumentException("sources: " + key + " is not a note of this harvest"))))
@@ -210,7 +210,7 @@ public class MemoryHarvestTools
             JsonNode args = mapper.readTree(raw);
             checkArgument(args != null && args.isObject(), "Tool arguments must be an object");
             ContextBuild build = service.authorize(taskId, turn);
-            checkArgument(build.harvest().isPresent(), "This run is not a harvest");
+            checkArgument(build.work() instanceof ContextBuild.Harvest, "This run is not a harvest");
             return handler.handle(build, turn.orElseThrow(), args).toString();
         }
         catch (JsonProcessingException | RuntimeException failure) {

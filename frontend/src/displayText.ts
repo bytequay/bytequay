@@ -13,3 +13,12 @@
  */
 export const shortSha = (sha: string) => sha.slice(0, 7);
 export const plural = (count: number, one: string, many = one + 's') => `${count} ${count === 1 ? one : many}`;
+
+export function shortDate(value: string | number | Date, withYear = false): string {
+  const date = new Date(typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}) });
+}
+
+export function clock(value: string | number | Date): string {
+  return new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}

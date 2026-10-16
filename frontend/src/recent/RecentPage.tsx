@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { clock } from '../displayText';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDot, Copy, GitPullRequest, Sparkles } from 'lucide-react';
 import Avatar from '../Avatar';
@@ -25,7 +26,6 @@ import type {
 } from '../types';
 import {
   calendarCells,
-  clockTime,
   dayHeading,
   isoDay,
   mayLoad,
@@ -442,7 +442,7 @@ export function Row({ row, change, open, onToggle, onOpen }: {
         aria-expanded={row.snippet ? open : undefined}
         onClick={activate}
         onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } }}>
-        <span className="rc-row__time">{clockTime(row.touchedAt)}</span>
+        <span className="rc-row__time">{clock(row.touchedAt)}</span>
         <Icon className={`rc-glyph rc-row__glyph is-${roleTone(row)}`} size={16} strokeWidth={1.7} aria-hidden="true" />
         <span className="rc-row__main">
           <span className="rc-row__title">
@@ -474,7 +474,7 @@ export function Row({ row, change, open, onToggle, onOpen }: {
       </div>
       {open && row.snippet && (
         <div className="rc-wrote">
-          <div className="rc-wrote__head">WHAT YOU WROTE · {clockTime(row.touchedAt)}</div>
+          <div className="rc-wrote__head">WHAT YOU WROTE · {clock(row.touchedAt)}</div>
           <div className="rc-wrote__body">“{row.snippet}”</div>
           <div className="rc-wrote__actions">
             <button type="button" className="rc-mini"

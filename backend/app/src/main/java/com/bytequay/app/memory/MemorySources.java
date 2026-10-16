@@ -76,12 +76,6 @@ public class MemorySources
         this.git = requireNonNull(git, "git is null");
     }
 
-    /** The task's accepted or running turn: a session is registered for one turn, and what it remembers is bound to that turn. */
-    public Optional<TurnId> capture(String taskId)
-    {
-        return assignments.capture(taskId);
-    }
-
     /**
      * The user's words the turn answers: a review discussion question, or the messages the user sent in the turn, including steers.
      * A quote must be the user's own words from them; without one, the first message is quoted. ByteQuay's own requests, such as a

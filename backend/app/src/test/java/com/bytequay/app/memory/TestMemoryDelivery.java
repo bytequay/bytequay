@@ -125,9 +125,24 @@ class TestMemoryDelivery
         store.save(rule("m5", "workspace", "Iceberg rule", ImmutableList.of("plugin/trino-iceberg/")));
         AgentTask review = AgentTask.created(taskId, Optional.of("workspace"), false, "Review", new AgentLaneId("codex"), new RepositoryIdentity("trinodb", "trino"),
                 repository, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
-        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(new AgentReview("review", "workspace", "trinodb/trino", OptionalInt.of(1),
-                OptionalLong.empty(), taskId.toString(), Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0,
-                NOW, NOW, Optional.empty())));
+        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(new AgentReview(
+                "review",
+                "workspace",
+                "trinodb/trino",
+                OptionalInt.of(1),
+                OptionalLong.empty(),
+                taskId.toString(),
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                NOW,
+                NOW,
+                Optional.empty(),
+                Optional.empty())));
         when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run("plugin/trino-delta-lake/src/DeltaLakeWriter.java")));
 
         Reference reference = delivery.reference(review, turn(true));

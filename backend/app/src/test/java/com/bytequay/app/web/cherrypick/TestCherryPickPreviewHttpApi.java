@@ -23,7 +23,6 @@ import com.bytequay.app.web.agent.AgentRequestFilter;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
@@ -119,7 +118,7 @@ class TestCherryPickPreviewHttpApi
     void mapsInvalidInputToBadRequestAndSyncFailureToConflict()
             throws Exception
     {
-        doThrow(new CherryPickInvalidRequestException("Source range contains no commits"))
+        doThrow(new IllegalArgumentException("Source range contains no commits"))
                 .when(previewService).preview(any());
         mvc.perform(post("/api/workspaces/workspace-id/cherry-pick/preview")
                         .header(AgentController.SESSION_HEADER, SESSION)
@@ -143,7 +142,7 @@ class TestCherryPickPreviewHttpApi
             throws Exception
     {
         when(workspaces.requireReadyRepository("direct-id")).thenReturn(context("direct-id", Path.of("/managed/direct-id/repository"), Topology.DIRECT, "origin"));
-        doThrow(new CherryPickInvalidRequestException("stop after capture"))
+        doThrow(new IllegalArgumentException("stop after capture"))
                 .when(previewService).preview(any());
 
         mvc.perform(post("/api/workspaces/workspace-id/cherry-pick/preview")
@@ -179,7 +178,7 @@ class TestCherryPickPreviewHttpApi
                 Topology.DIRECT,
                 "origin",
                 new RemoteSource("direct-id", "oss", "https://example.com/oss.git")));
-        doThrow(new CherryPickInvalidRequestException("stop after capture"))
+        doThrow(new IllegalArgumentException("stop after capture"))
                 .when(previewService).preview(any());
 
         mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview")
@@ -215,7 +214,7 @@ class TestCherryPickPreviewHttpApi
     void keepsTheLinkedUpstreamWhilePreviewingTheRequestedReleaseBranch()
             throws Exception
     {
-        doThrow(new CherryPickInvalidRequestException("stop after capture"))
+        doThrow(new IllegalArgumentException("stop after capture"))
                 .when(previewService).preview(any());
 
         mvc.perform(post("/api/workspaces/workspace-id/cherry-pick/preview")
@@ -246,7 +245,7 @@ class TestCherryPickPreviewHttpApi
                 "origin",
                 new RemoteSource("direct-id", "oss", "https://github.com/trinodb/trino.git")
                         .withRepositoryIdentity(303, RepoRef.of("trinodb", "trino"))));
-        doThrow(new CherryPickInvalidRequestException("stop after capture"))
+        doThrow(new IllegalArgumentException("stop after capture"))
                 .when(previewService).preview(any());
 
         mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview")

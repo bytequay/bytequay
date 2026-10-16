@@ -13,7 +13,9 @@
  */
 package com.bytequay.agent.cli.process;
 
+import com.bytequay.agent.spi.AgentPermissionScope;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
@@ -77,4 +79,29 @@ public final class BuildCacheRoots
             return Optional.empty();
         }
     }
-}
+    // Restricted sessions cannot seed caches or temporary scripts that later builds might execute.
+    public static List<Path> buildCaches(AgentPermissionScope scope, Map<String, String> environment)
+    {
+        return scope.access().restricted() ? ImmutableList.of() : writableRoots(environment);
+    }
+
+    public static List<Path> temporary(AgentPermissionScope scope, Map<String, String> environment)
+    {
+        return scope.access().restricted() ? ImmutableList.of() : temporary(environment);
+    }
+    public static List<Path> temporary(Map<String, String> environment)
+    {
+        ImmutableSet.Builder<Path> roots = ImmutableSet.builder();
+        for (String candidate : ImmutableList.of("/tmp", "/var/tmp", System.getProperty("java.io.tmpdir", ""), environment.getOrDefault("TMPDIR", ""))) {
+            try {
+                Path path = Path.of(candidate);
+                if (path.isAbsolute() && Files.isDirectory(path)) {
+                    roots.add(path.toRealPath());
+                }
+            }
+            catch (IOException | InvalidPathException ignored) {
+                // A missing or malformed temporary root must not grant a different location.
+            }
+        }
+        return roots.build().asList();
+    }}

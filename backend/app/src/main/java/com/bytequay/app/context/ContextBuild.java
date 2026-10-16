@@ -18,6 +18,8 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.memory.MemorySource;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -26,7 +28,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -38,8 +39,7 @@ import static java.util.Objects.requireNonNull;
 public record ContextBuild(
         long sequence, String requestKey, String requestDigest, String workspaceId, String taskId,
         RepositoryIdentity physicalRepository, long repositoryId, RepoRef repository, String baselineSha, String branch,
-        String laneId, AgentTaskDefaults defaults, Instant requestedAt, Capture capture, Optional<Check> check, Optional<Harvest> harvest,
-        Optional<Research> research)
+        String laneId, AgentTaskDefaults defaults, Instant requestedAt, Capture capture, Work work)
 {
     public ContextBuild
     {
@@ -56,16 +56,17 @@ public record ContextBuild(
         requireNonNull(defaults, "defaults is null");
         requireNonNull(requestedAt, "requestedAt is null");
         requireNonNull(capture, "capture is null");
-        requireNonNull(check, "check is null");
-        requireNonNull(harvest, "harvest is null");
-        requireNonNull(research, "research is null");
-        checkArgument(Stream.of(check, harvest, research).filter(Optional::isPresent).count() == 1, "A run is a spec check, a harvest or a research run");
+        requireNonNull(work, "work is null");
     }
 
     /** The spec check, harvest or research this run works for. */
     public String workId()
     {
-        return check.map(Check::checkId).or(() -> harvest.map(Harvest::harvestId)).orElseGet(() -> research.orElseThrow().researchId());
+        return switch (work) {
+            case Check check -> check.checkId();
+            case Harvest harvest -> harvest.harvestId();
+            case Research research -> research.researchId();
+        };
     }
 
     /** Keyed by sequence as well: one task takes a check's planning turn and then a turn per reproduction. */
@@ -76,9 +77,30 @@ public record ContextBuild(
 
     public ContextBuild withCapture(Capture replacement)
     {
-        return new ContextBuild(sequence, requestKey, requestDigest, workspaceId, taskId, physicalRepository, repositoryId, repository, baselineSha, branch,
-                laneId, defaults, requestedAt, replacement, check, harvest, research);
+        return new ContextBuild(
+                sequence,
+                requestKey,
+                requestDigest,
+                workspaceId,
+                taskId,
+                physicalRepository,
+                repositoryId,
+                repository,
+                baselineSha,
+                branch,
+                laneId,
+                defaults,
+                requestedAt,
+                replacement,
+                work);
     }
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = Check.class, name = "CHECK"),
+            @JsonSubTypes.Type(value = Harvest.class, name = "HARVEST"),
+            @JsonSubTypes.Type(value = Research.class, name = "RESEARCH")})
+    public sealed interface Work permits Check, Harvest, Research {}
 
     /**
      * A research run for a goal: the card's scope and pages, and the checkouts of the workspaces the goal's workspace depends on, each at
@@ -87,6 +109,7 @@ public record ContextBuild(
      * @param researchId the recommendation card that started it
      */
     public record Research(String researchId, String goalId, String goalTitle, String objective, String scope, List<String> pages, List<Related> related)
+            implements Work
     {
         public Research
         {
@@ -115,6 +138,7 @@ public record ContextBuild(
      * candidate. The brief is what the turn starts from.
      */
     public record Check(String checkId, String directory, Optional<Reproduction> reproduction, String brief)
+            implements Work
     {
         public static final int MAX_BRIEF_BYTES = 48 * 1024;
 
@@ -133,6 +157,7 @@ public record ContextBuild(
      * @param mine whether it reads the user's own and reviewed pull requests after the cursor, rather than one chosen pull request
      */
     public record Harvest(String harvestId, String label, boolean mine, List<HarvestPull> pulls, List<HarvestThread> threads)
+            implements Work
     {
         public Harvest
         {

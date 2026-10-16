@@ -14,7 +14,6 @@
 package com.bytequay.app.cherrypick;
 
 import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -52,17 +51,13 @@ public record StartCherryPickExecutionCommand(
         requireNonNull(expectedSourceTipSha, "expectedSourceTipSha is null");
         requireNonNull(expectedTargetSha, "expectedTargetSha is null");
         userSkippedSourceShas = ImmutableList.copyOf(requireNonNull(userSkippedSourceShas, "userSkippedSourceShas is null"));
-        if (userSkippedSourceShas.size() > MAX_SKIPPED) {
-            throw new CherryPickInvalidRequestException("userSkippedSourceShas exceeds " + MAX_SKIPPED + " values");
-        }
+        checkArgument(userSkippedSourceShas.size() <= MAX_SKIPPED, "userSkippedSourceShas exceeds " + MAX_SKIPPED + " values");
         requireNonNull(laneId, "laneId is null");
         requireNonNull(model, "model is null");
         requireNonNull(effort, "effort is null");
         checkArgument(effort.isEmpty() || model.isPresent(), "effort requires a model");
         requireNonNull(idempotencyKey, "idempotencyKey is null");
         requireNonNull(pullRequestDraft, "pullRequestDraft is null");
-        if (idempotencyKey.isBlank() || idempotencyKey.length() > 200) {
-            throw new CherryPickInvalidRequestException("idempotencyKey must contain between 1 and 200 characters");
-        }
+        checkArgument(!idempotencyKey.isBlank() && idempotencyKey.length() <= 200, "idempotencyKey must contain between 1 and 200 characters");
     }
 }

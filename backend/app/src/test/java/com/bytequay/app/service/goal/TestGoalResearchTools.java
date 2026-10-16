@@ -235,8 +235,23 @@ class TestGoalResearchTools
     private static ContextBuild build(Optional<ContextBuild.Research> research)
     {
         Optional<ContextBuild.Check> check = research.isPresent() ? Optional.empty() : Optional.of(new ContextBuild.Check("check-1", "plugin/x/", Optional.empty(), "brief"));
-        return new ContextBuild(1, "research-request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(), new RepositoryIdentity("trinodb", "trino"), 1,
-                RepoRef.of("trinodb", "trino"), HEAD, "bytequay/research", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH,
-                ContextBuild.Capture.empty(), check, Optional.empty(), research);
+        return new ContextBuild(
+                1,
+                "research-request",
+                "sha256:" + "b".repeat(64),
+                WORKSPACE,
+                TASK.toString(),
+                new RepositoryIdentity(
+                        "trinodb",
+                        "trino"),
+                1,
+                RepoRef.of("trinodb", "trino"),
+                HEAD,
+                "bytequay/research",
+                "codex",
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                Instant.EPOCH,
+                ContextBuild.Capture.empty(),
+                research.<ContextBuild.Work>map(value -> value).orElseGet(check::orElseThrow));
     }
 }

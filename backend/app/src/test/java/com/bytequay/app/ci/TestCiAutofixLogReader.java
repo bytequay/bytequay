@@ -133,8 +133,8 @@ class TestCiAutofixLogReader
         assertThat(failures.get(1).log()).isEmpty();
         assertThat(failures.get(1).summary()).contains("Job 2 failed at Compile", "log unavailable: GitHub returned HTTP 404");
         assertThat(failures.get(2).log().orElseThrow().truncated()).isTrue();
-        assertThat(failures.get(3).log().orElseThrow().truncated()).isTrue();
-        assertThat(failures.get(4).log().orElseThrow().truncated()).isTrue();
+        assertThat(failures.get(3).log().orElseThrow().truncated()).isFalse();
+        assertThat(failures.get(4).log().orElseThrow().truncated()).isFalse();
 
         CiAutofixAttempt attempt = CiAutofixAttempt.create(CiAutofixAttemptId.random(), CiAutofixRunId.random(), 1, HEAD_SHA, failures, Instant.EPOCH);
         assertThat(new CiAutofixPromptBuilder().build(snapshot, attempt))
@@ -145,14 +145,10 @@ class TestCiAutofixLogReader
 
     private static BoundedCiLog log(long jobId)
     {
-        return new BoundedCiLog(
-                Optional.of(new BlobRef("blobs/job-" + jobId, "text/plain", 10)),
-                10,
-                jobId == 4,
-                jobId == 5,
-                jobId == 3,
-                ImmutableList.of("error: compilation failed"),
-                Optional.empty(), Optional.empty(), true);
+        return new BoundedCiLog(Optional.of(new BlobRef(
+                "blobs/job-" + jobId,
+                "text/plain",
+                10)), jobId == 3, ImmutableList.of("error: compilation failed"), Optional.empty(), Optional.empty(), true);
     }
 
     private static CiHeadSnapshot snapshot()
@@ -227,6 +223,6 @@ class TestCiAutofixLogReader
 
     private static BoundedCiLog errorLog(List<String> errors)
     {
-        return new BoundedCiLog(Optional.of(new BlobRef("blobs/log", "text/plain", 10)), 10, false, false, false, errors, Optional.empty(), Optional.empty(), true);
+        return new BoundedCiLog(Optional.of(new BlobRef("blobs/log", "text/plain", 10)), false, errors, Optional.empty(), Optional.empty(), true);
     }
 }

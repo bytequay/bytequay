@@ -178,7 +178,7 @@ class TestCiAutofixRun
     @Test
     void validatesAuthorizationAndDurableEvidence()
     {
-        assertThatThrownBy(() -> new Authorization(true, true, true, 4, NOW, NOW.plusSeconds(1)))
+        assertThatThrownBy(() -> new Authorization(NOW, NOW))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> CiAutofixAttempt.create(CiAutofixAttemptId.random(), CiAutofixRunId.random(), 1, "short", ImmutableList.of(failure("signature")), NOW))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -271,7 +271,7 @@ class TestCiAutofixRun
                 HEAD,
                 HEAD,
                 BASE,
-                new Authorization(true, true, true, 3, now, now.plus(Duration.ofHours(8))),
+                new Authorization(now, now.plus(Duration.ofHours(8))),
                 now);
     }
 

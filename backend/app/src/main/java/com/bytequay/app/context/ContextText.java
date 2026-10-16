@@ -41,7 +41,7 @@ public final class ContextText
     }
 
     /** Returns only source characters, without adding an excerpt marker to retained evidence. */
-    static String prefix(String text, int maximumBytes)
+    public static String prefix(String text, int maximumBytes)
     {
         checkArgument(maximumBytes >= 0, "Prefix budget must not be negative");
         if (ContextLimits.bytes(text) <= maximumBytes) {

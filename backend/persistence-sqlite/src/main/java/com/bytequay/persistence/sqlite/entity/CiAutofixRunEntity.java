@@ -87,14 +87,6 @@ public class CiAutofixRunEntity
     @Column(nullable = false)
     private String baseRef;
 
-    /**
-     * Retains the former non-null column so Hibernate can open populated
-     * pre-workspace databases. New rows store the workspace ID here as a
-     * compatibility value; {@code workspaceId} carries the current meaning.
-     */
-    @Column(nullable = false)
-    private String worktree;
-
     @Column(nullable = false)
     private String workspaceId;
 
@@ -136,18 +128,6 @@ public class CiAutofixRunEntity
 
     @Column(nullable = false)
     private String latestObservedBaseSha;
-
-    @Column(nullable = false)
-    private boolean allowFailedJobReruns;
-
-    @Column(nullable = false)
-    private boolean allowHistoryRewrites;
-
-    @Column(nullable = false)
-    private boolean allowExactLeasePush;
-
-    @Column(nullable = false)
-    private int maxFixAttempts;
 
     @Column(nullable = false)
     private Instant authorizedAt;
@@ -239,7 +219,6 @@ public class CiAutofixRunEntity
         forkRepositoryName = sameRepository ? null : scope.headRepository().repo();
         pullRequestNumber = scope.pullRequest().number();
         workspaceId = scope.workspaceId();
-        worktree = scope.workspaceId();
         physicalRepositoryOwner = scope.physicalRepository().owner();
         physicalRepositoryName = scope.physicalRepository().repo();
         author = scope.author();
@@ -260,10 +239,6 @@ public class CiAutofixRunEntity
         expectedRemoteHead = run.expectedRemoteHead();
         latestObservedBaseSha = run.latestObservedBaseSha();
         Authorization authorization = run.authorization();
-        allowFailedJobReruns = authorization.allowFailedJobReruns();
-        allowHistoryRewrites = authorization.allowHistoryRewrites();
-        allowExactLeasePush = authorization.allowExactLeasePush();
-        maxFixAttempts = authorization.maxFixAttempts();
         authorizedAt = authorization.authorizedAt();
         authorizationExpiresAt = authorization.expiresAt();
         attemptsUsed = run.attemptsUsed();
@@ -285,7 +260,7 @@ public class CiAutofixRunEntity
         Scope scope = new Scope(
                 PullRequestRef.of(repositoryOwner, repositoryName, pullRequestNumber), headRepository(), workspaceId, RepoRef.of(physicalRepositoryOwner, physicalRepositoryName),
                 author, headRef, baseRef, laneId, Optional.ofNullable(parentTaskId));
-        Authorization authorization = new Authorization(allowFailedJobReruns, allowHistoryRewrites, allowExactLeasePush, maxFixAttempts, authorizedAt, authorizationExpiresAt);
+        Authorization authorization = new Authorization(authorizedAt, authorizationExpiresAt);
         return new CiAutofixRun(
                 CiAutofixRunId.valueOf(id), startIdempotencyKey, scope, Optional.ofNullable(agentTaskId), status, Optional.ofNullable(pauseReason),
                 Optional.ofNullable(finishReason), Optional.ofNullable(summary), taskStartCommit, expectedRemoteHead, latestObservedBaseSha, authorization, attemptsUsed,

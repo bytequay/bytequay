@@ -65,9 +65,9 @@ describe('task list days', () => {
     expect(grouped.todayDate).toBe('Fri, Sep 25');
     expect(grouped.groups.map((group) => [group.label, group.date, group.items.map((entry) => entry.key)])).toEqual([
       ['Yesterday', 'Thu, Sep 24', ['yesterday']],
-      ['Earlier this week', 'Sep 21 – 23', ['wednesday', 'monday']],
+      ['Earlier this week', 'Sep 21\u2009–\u200923', ['wednesday', 'monday']],
       // A time that does not read still lists the item rather than losing it.
-      ['Older', 'Sep 18 – 20', ['last-sunday', 'last-friday', 'unreadable']],
+      ['Older', 'Sep 18\u2009–\u200920', ['last-sunday', 'last-friday', 'unreadable']],
     ]);
   });
 

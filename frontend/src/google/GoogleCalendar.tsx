@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { clock, shortDate } from '../displayText';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Calendar, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, Clock, ExternalLink, LoaderCircle, RefreshCw, Sparkles, X } from 'lucide-react';
 import type { GoogleEvent, GoogleSnapshot, GoogleStatus } from './contracts';
@@ -18,8 +19,6 @@ import { agendaRange, dayLayout, eventTime, googleLink, localDate } from './cont
 
 const HOUR = 46;
 const iso = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
-const short = (value: Date) => value.toLocaleDateString([], { month: 'short', day: 'numeric' });
-const clock = (value: Date) => value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(':00', '');
 
 export function calendarDays(date: string, days: number): string[] {
   return Array.from({ length: days }, (_, index) => {
@@ -32,7 +31,7 @@ export function rangeLabel(date: string, days: number): string {
   const start = new Date(`${date}T12:00:00`);
   if (days === 1) return start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   const end = new Date(start); end.setDate(end.getDate() + days - 1);
-  return `${short(start)} – ${start.getMonth() === end.getMonth() ? end.getDate() : short(end)}, ${end.getFullYear()}`;
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).formatRange(start, end);
 }
 
 /** A day or week time grid over the cached range; changing the view or the dates never fetches. */
@@ -91,7 +90,7 @@ export default function GoogleCalendar({ status, data, busy, hidden, act, open, 
       <button type="button" className="google-square-btn" aria-label="Refresh agenda" title="Refresh agenda" disabled={busy} onClick={refresh}><RefreshCw size={14} /></button>
     </div>
     <div className="google-status is-bar" role="status">{status.operation ? <><LoaderCircle className="pr-task-spinner" size={12} aria-hidden="true" /><span>{status.operation}…</span></>
-      : cached ? <><span className="google-dot" /><span>Cached {short(new Date(data.timeMin))} – {short(lastCached)}{data.calendarSavedAt && ` · updated ${clock(new Date(data.calendarSavedAt))}`}</span></>
+      : cached ? <><span className="google-dot" /><span>Cached {shortDate(new Date(data.timeMin))} – {shortDate(lastCached)}{data.calendarSavedAt && ` · updated ${clock(new Date(data.calendarSavedAt))}`}</span></>
         : <><span className="google-dot is-stale" /><span>Not cached — refresh to load this range</span></>}</div>
     <div className={`google-cal${days === 1 ? ' is-day' : ''}`} aria-label={days === 1 ? 'Day calendar' : 'Week calendar'}>
       <div className="google-cal__head" style={columns}><div />{week.map(({ day, date: value }) => <div key={day} className={day === today ? 'is-today' : ''}>

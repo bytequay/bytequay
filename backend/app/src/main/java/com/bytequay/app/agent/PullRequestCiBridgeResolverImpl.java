@@ -338,7 +338,7 @@ public class PullRequestCiBridgeResolverImpl
         }
         ObjectNode result = anchor(head);
         ObjectNode log = result.putObject("log").put("jobId", job.id()).put("workflowRunId", run.id()).put("attempt", job.attempt())
-                .put("downloadTruncated", fetched.truncated() || fetched.omittedBeginning()).put("unavailableReason", fetched.unavailableReason().orElse(null));
+                .put("unavailableReason", fetched.unavailableReason().orElse(null));
         log.put("rawLogId", fetched.rawLogId().orElse(null)).put("diagnosticsMatched", fetched.diagnosticsMatched());
         log.put("message", fetched.unavailableReason().orElseGet(() -> fetched.diagnosticsMatched()
                 ? "Error blocks selected from the cached raw log. Use read_ci_raw_log with logId set to rawLogId for complete evidence."
@@ -358,9 +358,9 @@ public class PullRequestCiBridgeResolverImpl
         while (true) {
             CiLogExcerpt excerpt = CiLogExcerpt.from(contents, Math.min(32 * 1024, excerptBudget), excerptBudget);
             boolean compacted = fetched.compacted() || excerpt.compacted();
-            log.put("excerpt", excerpt.text()).put("excerptOmittedBeginning", fetched.omittedBeginning())
-                    .put("excerptOmittedEnd", fetched.truncated()).put("excerptCompacted", compacted)
-                    .put("truncated", fetched.truncated() || fetched.omittedBeginning() || compacted || errors.size() < fetched.terminalErrorLines().size());
+            log.put("excerpt", excerpt.text())
+                    .put("excerptCompacted", compacted)
+                    .put("truncated", compacted || errors.size() < fetched.terminalErrorLines().size());
             if (json(result).length() <= PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH) {
                 return json(result);
             }

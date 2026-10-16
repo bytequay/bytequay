@@ -13,11 +13,10 @@
  */
 package com.bytequay.app.cherrypick;
 
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
-
 import java.nio.file.Path;
 import java.util.OptionalLong;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -50,15 +49,11 @@ public record PreviewCherryPickRangeCommand(
     public PreviewCherryPickRangeCommand
     {
         requireNonNull(repository, "repository is null");
-        if (!repository.isAbsolute()) {
-            throw new CherryPickInvalidRequestException("repository path is not absolute");
-        }
+        checkArgument(repository.isAbsolute(), "repository path is not absolute");
         repository = repository.normalize();
         checkRef(workspaceId, "workspaceId");
         requireNonNull(sourceRepositoryId, "sourceRepositoryId is null");
-        if (sourceRepositoryId.isPresent() && sourceRepositoryId.orElseThrow() <= 0) {
-            throw new CherryPickInvalidRequestException("sourceRepositoryId is not positive");
-        }
+        checkArgument(sourceRepositoryId.isEmpty() || sourceRepositoryId.orElseThrow() > 0, "sourceRepositoryId is not positive");
         checkRef(sourceRemote, "sourceRemote");
         checkRef(sourceBaseRef, "sourceBaseRef");
         checkRef(sourceTipRef, "sourceTipRef");
@@ -80,19 +75,11 @@ public record PreviewCherryPickRangeCommand(
 
     private static void checkRef(String value, String name)
     {
-        if (value == null || value.isBlank()) {
-            throw new CherryPickInvalidRequestException(name + " is blank");
-        }
-        if (value.length() > MAX_REF_LENGTH) {
-            throw new CherryPickInvalidRequestException(name + " exceeds " + MAX_REF_LENGTH + " characters");
-        }
+        checkArgument(value != null && !value.isBlank(), name + " is blank");
+        checkArgument(value.length() <= MAX_REF_LENGTH, name + " exceeds " + MAX_REF_LENGTH + " characters");
         // Refs reach Git as argv values, so a shell cannot see them; these
         // characters would still corrupt the record-separated output parsing.
-        if (value.indexOf('\0') >= 0 || value.contains("\n") || value.contains("\r")) {
-            throw new CherryPickInvalidRequestException(name + " contains a control character");
-        }
-        if (value.startsWith("-")) {
-            throw new CherryPickInvalidRequestException(name + " looks like a command-line option");
-        }
+        checkArgument(value.indexOf('\0') < 0 && !value.contains("\n") && !value.contains("\r"), name + " contains a control character");
+        checkArgument(!value.startsWith("-"), name + " looks like a command-line option");
     }
 }

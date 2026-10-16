@@ -47,10 +47,7 @@ public final class CiAutofixHttpModels
                 run.updatedAt(),
                 run.terminalAt(),
                 new AuthorizationResponse(
-                        run.authorization().allowFailedJobReruns(),
-                        run.authorization().allowHistoryRewrites(),
-                        run.authorization().allowExactLeasePush(),
-                        run.authorization().maxFixAttempts(),
+                        CiAutofixRun.MAX_FIX_ATTEMPTS,
                         run.authorization().authorizedAt(),
                         run.authorization().expiresAt()),
                 run.expectedRemoteHead(),
@@ -88,7 +85,7 @@ public final class CiAutofixHttpModels
     {
         return new DevelopmentResponse(
                 run.id().toString(), run.agentTaskId(), run.status().name(), activity(run, run.agentTaskId().isPresent()),
-                run.attemptsUsed(), run.authorization().maxFixAttempts(), run.rerunCounter().used(), run.summary(),
+                run.attemptsUsed(), CiAutofixRun.MAX_FIX_ATTEMPTS, run.rerunCounter().used(), run.summary(),
                 run.finishReason().map(Enum::name), run.terminalAt(), run.scope().headRef(), run.expectedRemoteHead(),
                 run.scope().pullRequest().number(), "https://github.com/" + run.scope().pullRequest().repoFullName() + "/pull/" + run.scope().pullRequest().number(),
                 canMessage, run.currentTurnId());
@@ -220,9 +217,6 @@ public final class CiAutofixHttpModels
             boolean canMessage) {}
 
     record AuthorizationResponse(
-            boolean allowFailedJobReruns,
-            boolean allowHistoryRewrites,
-            boolean allowExactLeasePush,
             int maxAttempts,
             Instant authorizedAt,
             Instant expiresAt) {}

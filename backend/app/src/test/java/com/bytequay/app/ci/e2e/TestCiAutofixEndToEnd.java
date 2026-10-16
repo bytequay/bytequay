@@ -575,13 +575,10 @@ class TestCiAutofixEndToEnd
         RepoRef repository = RepoRef.of(fixture.repository().pullRequest().owner(), fixture.repository().pullRequest().repo());
 
         harness.scriptUnauthorizedCi(fixture, "another-author", repository);
-        assertThat(harness.startStatus(fixture, "non-author-start", true, true, true)).isEqualTo(400);
+        assertThatThrownBy(() -> harness.start(fixture, "non-author-start")).isInstanceOf(IllegalArgumentException.class);
         harness.scriptUnauthorizedCi(fixture, "author", RepoRef.of("unknown-fork", repository.repo()));
-        assertThat(harness.startStatus(fixture, "unknown-fork-route", true, true, true)).isEqualTo(400);
+        assertThatThrownBy(() -> harness.start(fixture, "unknown-fork-route")).isInstanceOf(IllegalArgumentException.class);
         harness.scriptUnauthorizedCi(fixture, "author", repository);
-        assertThat(harness.startStatus(fixture, "rerun-consent", false, true, true)).isEqualTo(400);
-        assertThat(harness.startStatus(fixture, "history-consent", true, false, true)).isEqualTo(400);
-        assertThat(harness.startStatus(fixture, "push-consent", true, true, false)).isEqualTo(400);
 
         assertThat(service.list(200)).hasSize(runsBefore);
         assertThat(taskStore.listRecent(200)).hasSize(tasksBefore);

@@ -9,6 +9,7 @@ or text. The page reads the titles from the database only to show them."""
 
 from __future__ import annotations
 
+import monitor
 import argparse
 from datetime import datetime, timezone
 import json
@@ -61,7 +62,7 @@ def held(findings):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--database", type=Path, default=activity.RUNTIME.parent / "bytequay-1.0.db", help="ByteQuay's database, read without writing")
+    parser.add_argument("--database", type=Path, default=monitor.DATABASE, help="ByteQuay's database, read without writing")
     parser.add_argument("--save", type=Path, nargs="?", const=saved.FOLDER, metavar="FOLDER", help="Also save the counts as memory.json for the dashboard")
     args = parser.parse_args()
     try:

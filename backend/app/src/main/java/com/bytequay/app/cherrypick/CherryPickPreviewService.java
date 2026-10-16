@@ -21,7 +21,6 @@ import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.MergedPullRequestRange;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.RepoRef;
@@ -51,6 +50,7 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -135,12 +135,8 @@ public class CherryPickPreviewService
         String targetSha = resolve(repository, command.localTargetBranch());
         String baseSha = resolve(repository, command.sourceBaseRef());
         String tipSha = resolve(repository, command.sourceTipRef());
-        if (baseSha.equals(tipSha)) {
-            throw new CherryPickInvalidRequestException("Source range is empty: base and tip are the same commit");
-        }
-        if (!isAncestor(repository, baseSha, tipSha)) {
-            throw new CherryPickInvalidRequestException("Source base " + shortSha(baseSha) + " is not an ancestor of tip " + shortSha(tipSha));
-        }
+        checkArgument(!baseSha.equals(tipSha), "Source range is empty: base and tip are the same commit");
+        checkArgument(isAncestor(repository, baseSha, tipSha), "Source base " + shortSha(baseSha) + " is not an ancestor of tip " + shortSha(tipSha));
 
         List<RangeCommit> range = readRange(repository, baseSha, tipSha);
         Set<String> targetAncestors = readTargetAncestors(repository, targetSha, range);
@@ -205,18 +201,16 @@ public class CherryPickPreviewService
     /** Reuses ordinary preview while requiring the frozen landed sequence, including its repository identity. */
     public CherryPickPreview preview(PreviewCherryPickRangeCommand command, MergedPullRequestRange source)
     {
-        if (!command.sourceBaseRef().equals(source.sourceBaseSha()) || !command.sourceTipRef().equals(source.mergeSha())
-                || command.sourceRepositoryId().isPresent() && command.sourceRepositoryId().orElseThrow() != source.repositoryId()) {
-            throw new CherryPickInvalidRequestException("Preview does not match the saved merged pull request");
-        }
-        if (!readRepository(command.repository(), command.sourceRemote()).fullName().equalsIgnoreCase(source.pullRequest().repoFullName())) {
-            throw new CherryPickInvalidRequestException("Source remote does not match the saved merged pull request");
-        }
+        checkArgument(command.sourceBaseRef().equals(source.sourceBaseSha()) && command.sourceTipRef().equals(source.mergeSha())
+                && (command.sourceRepositoryId().isEmpty() || command.sourceRepositoryId().orElseThrow() == source.repositoryId()),
+                "Preview does not match the saved merged pull request");
+        checkArgument(readRepository(command.repository(), command.sourceRemote()).fullName().equalsIgnoreCase(source.pullRequest().repoFullName()),
+                "Source remote does not match the saved merged pull request");
         CherryPickPreview preview = preview(command);
         if (!preview.sourceRepository().fullName().equalsIgnoreCase(source.pullRequest().repoFullName())
                 || !preview.commits().stream().map(CherryPickCommitPreview::sourceSha).collect(toImmutableList()).equals(source.commits())) {
             cache.invalidate(preview.previewId());
-            throw new CherryPickInvalidRequestException("Git history does not match the saved landed commits; select an explicit source range");
+            throw new IllegalArgumentException("Git history does not match the saved landed commits; select an explicit source range");
         }
         return preview;
     }
@@ -266,10 +260,9 @@ public class CherryPickPreviewService
     {
         requireNonNull(repository, "repository is null");
         requireNonNull(preview, "preview is null");
-        if (!readRepository(repository, preview.sourceRemote()).equals(preview.sourceRepository())
-                || !readRepository(repository, preview.targetRemote()).equals(preview.repository())) {
-            throw new CherryPickInvalidRequestException("Repository routing changed; preview again");
-        }
+        checkArgument(readRepository(repository, preview.sourceRemote()).equals(preview.sourceRepository())
+                        && readRepository(repository, preview.targetRemote()).equals(preview.repository()),
+                "Repository routing changed; preview again");
         relationships.requireTransferAllowed(preview.sourceRepository(), preview.repository());
         Map<String, String> environment = authenticationEnvironment(repository, preview.workspaceId(), ImmutableList.of(preview.targetRemote()));
         synchronizeTarget(
@@ -279,9 +272,9 @@ public class CherryPickPreviewService
                 preview.localTargetBranch(),
                 "refs/remotes/" + preview.targetRemote() + "/" + preview.targetBranch(),
                 environment);
-        if (!resolve(repository, preview.localTargetBranch()).equals(preview.targetSha())) {
-            throw new CherryPickInvalidRequestException("Preview is stale; the synchronized target moved, so review a refreshed preview");
-        }
+        checkArgument(
+                resolve(repository, preview.localTargetBranch()).equals(preview.targetSha()),
+                "Preview is stale; the synchronized target moved, so review a refreshed preview");
     }
 
     private static Optional<TargetMatch> evidence(String sourceSha, Set<String> targetAncestors, Map<String, String> originLines)
@@ -295,18 +288,16 @@ public class CherryPickPreviewService
 
     private void requireRepository(Path repository)
     {
-        if (!git.run(repository, "rev-parse", "--git-dir").successful()) {
-            throw new CherryPickInvalidRequestException("Not a Git repository: " + repository);
-        }
+        checkArgument(git.run(repository, "rev-parse", "--git-dir").successful(), "Not a Git repository: " + repository);
     }
 
     private void requireFullClone(Path repository)
     {
         // Range enumeration, ancestry, and merge-base all read wrong on a shallow
         // clone, and they fail quietly rather than loudly.
-        if (required(repository, "rev-parse", "--is-shallow-repository").equals("true")) {
-            throw new CherryPickInvalidRequestException("Repository is a shallow clone; run 'git fetch --unshallow' before previewing a range");
-        }
+        checkArgument(
+                !required(repository, "rev-parse", "--is-shallow-repository").equals("true"),
+                "Repository is a shallow clone; run 'git fetch --unshallow' before previewing a range");
     }
 
     private void synchronizeTarget(Path repository, PreviewCherryPickRangeCommand command, Map<String, String> environment)
@@ -378,24 +369,14 @@ public class CherryPickPreviewService
                 continue;
             }
             String[] fields = record.split(FIELD, -1);
-            if (fields.length < 6) {
-                throw new CherryPickInvalidRequestException("Cannot read source range metadata");
-            }
+            checkArgument(fields.length >= 6, "Cannot read source range metadata");
             String[] parents = fields[1].isBlank() ? new String[0] : fields[1].strip().split(" ");
-            if (parents.length > 1) {
-                throw new CherryPickInvalidRequestException("Source range contains merge commit " + shortSha(fields[0]) + "; merge commits are not supported");
-            }
-            if (parents.length == 0) {
-                throw new CherryPickInvalidRequestException("Source range contains root commit " + shortSha(fields[0]));
-            }
-            if (++count > MAX_RANGE_COMMITS) {
-                throw new CherryPickInvalidRequestException("Source range exceeds " + MAX_RANGE_COMMITS + " commits");
-            }
+            checkArgument(parents.length <= 1, "Source range contains merge commit " + shortSha(fields[0]) + "; merge commits are not supported");
+            checkArgument(parents.length != 0, "Source range contains root commit " + shortSha(fields[0]));
+            checkArgument(++count <= MAX_RANGE_COMMITS, "Source range exceeds " + MAX_RANGE_COMMITS + " commits");
             commits.add(new RangeCommit(fields[0], parents[0], fields[2], fields[3], Instant.parse(fields[4]), paths(fields[5])));
         }
-        if (count == 0) {
-            throw new CherryPickInvalidRequestException("Source range contains no commits");
-        }
+        checkArgument(count != 0, "Source range contains no commits");
         return commits.build();
     }
 
@@ -417,9 +398,7 @@ public class CherryPickPreviewService
         if (result.exitCode() == 1) {
             return ImmutableSet.of();
         }
-        if (!result.successful()) {
-            throw new CherryPickInvalidRequestException("git merge-base failed: " + result.output().strip());
-        }
+        checkArgument(result.successful(), "git merge-base failed: " + result.output().strip());
         String mergeBase = result.output().strip();
         ImmutableSet.Builder<String> ancestors = ImmutableSet.builder();
         for (RangeCommit commit : range) {
@@ -499,9 +478,7 @@ public class CherryPickPreviewService
         }
         path = path.replaceFirst("^/+", "").replaceFirst("\\.git$", "");
         int separator = path.lastIndexOf('/');
-        if (separator <= 0 || separator == path.length() - 1) {
-            throw new CherryPickInvalidRequestException("Remote " + remote + " does not name an owner and repository");
-        }
+        checkArgument(separator > 0 && separator != path.length() - 1, "Remote " + remote + " does not name an owner and repository");
         return RepoRef.of(path.substring(0, separator), path.substring(separator + 1));
     }
 
@@ -512,10 +489,8 @@ public class CherryPickPreviewService
         List<String> urls = remotes.stream()
                 .map(remote -> {
                     String expected = Optional.ofNullable(configured.get(remote))
-                            .orElseThrow(() -> new CherryPickInvalidRequestException("Remote " + remote + " is not persisted for this workspace"));
-                    if (!remoteUrl(repository, remote).equals(expected)) {
-                        throw new CherryPickInvalidRequestException("Remote " + remote + " does not match persisted workspace routing");
-                    }
+                            .orElseThrow(() -> new IllegalArgumentException("Remote " + remote + " is not persisted for this workspace"));
+                    checkArgument(remoteUrl(repository, remote).equals(expected), "Remote " + remote + " does not match persisted workspace routing");
                     return expected;
                 })
                 .collect(toImmutableList());
@@ -525,9 +500,7 @@ public class CherryPickPreviewService
     private String remoteUrl(Path repository, String remote)
     {
         Result result = git.run(repository, "config", "--get", "remote." + remote + ".url");
-        if (!result.successful()) {
-            throw new CherryPickInvalidRequestException("Remote " + remote + " has no configured URL");
-        }
+        checkArgument(result.successful(), "Remote " + remote + " has no configured URL");
         return result.output().strip();
     }
 
@@ -539,7 +512,7 @@ public class CherryPickPreviewService
     private String resolve(Path repository, String ref)
     {
         return tryResolve(repository, ref)
-                .orElseThrow(() -> new CherryPickInvalidRequestException("Cannot resolve ref: " + ref));
+                .orElseThrow(() -> new IllegalArgumentException("Cannot resolve ref: " + ref));
     }
 
     private Optional<String> tryResolve(Path repository, String ref)
@@ -564,14 +537,7 @@ public class CherryPickPreviewService
      */
     private String requiredRaw(Path repository, String... arguments)
     {
-        Result result = git.run(repository, arguments);
-        if (!result.successful()) {
-            throw new CherryPickInvalidRequestException("git " + arguments[0] + " failed: " + result.output().strip());
-        }
-        if (result.truncated()) {
-            throw new CherryPickInvalidRequestException("git " + arguments[0] + " produced too much output");
-        }
-        return result.output();
+        return git.run(repository, arguments).requireOutput(message -> new IllegalArgumentException("git " + arguments[0] + " failed: " + message));
     }
 
     private static String shortSha(String sha)

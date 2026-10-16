@@ -25,9 +25,6 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullReques
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
-import com.bytequay.core.domain.PrActivitySummary;
-import com.bytequay.core.domain.PrCheckRunState;
-import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PrDetailFreshness;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
@@ -47,7 +44,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -80,26 +76,6 @@ public class PullRequestSnapshotService
     {
         return details.find(prId)
                 .map(stored -> PullRequestDetailMapper.toPullRequestDetail(prId, repo, number, stored, stored.viewerCanWrite()));
-    }
-
-    Map<Long, String> findAuthorAvatarUrls(Set<Long> prIds)
-    {
-        return details.findAuthorAvatarUrls(prIds);
-    }
-
-    Map<Long, PrActivitySummary> findLatestActivities(Set<Long> prIds)
-    {
-        return details.findLatestActivities(prIds);
-    }
-
-    Map<Long, List<PrCommitLine>> findCommitsAfter(Map<Long, Instant> since)
-    {
-        return details.findCommitsAfter(since);
-    }
-
-    Map<Long, List<PrCheckRunState>> findCheckRuns(Set<Long> prIds)
-    {
-        return details.findCheckRuns(prIds);
     }
 
     String readCheckLog(PullRequestRef pullRequest, long jobId)
@@ -155,11 +131,6 @@ public class PullRequestSnapshotService
         checkText(path, "path");
         return Optional.ofNullable(storedDiff(prId, baseSha, headSha).fileContents().get(path))
                 .orElseThrow(() -> missing("Pull request file content"));
-    }
-
-    Optional<StoredPrDetail> findStoredDetail(long prId)
-    {
-        return details.find(prId);
     }
 
     PrDetailFreshness findFreshness(long prId)
@@ -298,26 +269,6 @@ public class PullRequestSnapshotService
         else {
             diffs.saveFileContent(prId, baseSha, headSha, path, content);
         }
-    }
-
-    Optional<String> findDetailEtag(long prId)
-    {
-        return details.findEtag(prId);
-    }
-
-    void updateDetailEtag(long prId, Optional<String> etag)
-    {
-        details.updateEtag(prId, etag);
-    }
-
-    Map<String, String> findDiscussionEtags(long prId)
-    {
-        return details.findDiscussionEtags(prId);
-    }
-
-    void updateDiscussionEtags(long prId, Map<String, String> etags)
-    {
-        details.updateDiscussionEtags(prId, etags);
     }
 
     Optional<String> findHeadSha(long prId)

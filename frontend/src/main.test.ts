@@ -81,7 +81,7 @@ it.each([
 
   const result = await desktop.handlers.get('terminal:open')?.({ sender }, host, 100, 30);
 
-  expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/code/terminal'), expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/code/terminal'), expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   expect(desktop.spawnPty).toHaveBeenCalledWith(expect.any(String), ['-l'], expect.objectContaining({
     cwd: '/managed/cork', cols: 100, rows: 30, env: expect.objectContaining({ CLAUDE_CONFIG_DIR: '/profiles/work' }),
   }));
@@ -100,7 +100,7 @@ it('returns a confirmed-missing comment to its draft through the versioned local
   expect(result).toEqual(draft);
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/api/agent-review/drafts/items/item%2F1/confirm-not-posted?repo=owner%2Frepo&number=7&expectedVersion=4',
-    expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ 'X-ByteQuay-Session': 'test-session' }) }));
+    expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
 });
 
 it('forwards PR opening freshness separately from periodic and checks-only refreshes', async () => {
@@ -214,24 +214,24 @@ it('authenticates and validates Team IPC, with time for a bounded collection pas
   await expect(desktop.handlers.get('teams:create')?.({}, { name: ' Internal ', description: ' Our reviewers ', avatar: { color: 'gray', shape: 'square' }, repositories: ['Owner/Repo'], members: [member] })).resolves.toEqual(directory);
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams', expect.objectContaining({ method: 'POST',
     body: JSON.stringify({ name: 'Internal', description: 'Our reviewers', avatar: { color: 'gray', shape: 'square' }, repositories: ['owner/repo'], members: [member] }),
-    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' },
+    headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }),
   }));
   await expect(desktop.handlers.get('teams:contributors')?.({})).resolves.toEqual(contributors);
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/contributors', expect.objectContaining({
-    headers: { 'X-ByteQuay-Session': 'test-session' },
+    headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }),
   }));
   await desktop.handlers.get('teams:members:add')?.({}, 'circle-1', member);
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/circle-1/members', expect.objectContaining({ method: 'POST',
-    body: JSON.stringify(member), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' },
+    body: JSON.stringify(member), headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }),
   }));
   await desktop.handlers.get('teams:members:remove')?.({}, 'circle-1', 42);
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/circle-1/members/42', expect.objectContaining({
-    method: 'DELETE', headers: { 'X-ByteQuay-Session': 'test-session' },
+    method: 'DELETE', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }),
   }));
   const timeout = vi.spyOn(AbortSignal, 'timeout');
   await expect(desktop.handlers.get('teams:refresh')?.({}, { circleId: 'circle-1', memberId: 42, days: 30 })).resolves.toEqual(activity);
   expect(fetch).toHaveBeenLastCalledWith(new URL('http://127.0.0.1:9527/api/teams/refresh?circleId=circle-1&memberId=42&days=30&limit=100'),
-    expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+    expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   expect(timeout).toHaveBeenCalledWith(15 * 60_000);
   const calls = fetch.mock.calls.length;
   expect(() => desktop.handlers.get('teams:members:remove')?.({}, '../activity', 42)).toThrow('Invalid circle ID');
@@ -263,17 +263,17 @@ it('routes CI detail reads and replies to the authenticated CI API', async () =>
   expect(reply).toBeDefined();
   await expect(get?.({}, 'run/one')).resolves.toEqual(CI_RUN);
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/ci-autofix/runs/run%2Fone', expect.objectContaining({
-    headers: { 'X-ByteQuay-Session': 'test-session' },
+    headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }),
   }));
   await expect(reply?.({}, 'run/one', 'Use the compatibility fix', 'reply-key')).resolves.toEqual(CI_RUN);
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/ci-autofix/runs/run%2Fone/messages', expect.objectContaining({
     method: 'POST', body: JSON.stringify({ message: 'Use the compatibility fix' }),
-    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session', 'Idempotency-Key': 'reply-key' },
+    headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session', 'Idempotency-Key': 'reply-key' }),
   }));
   await expect(reply?.({}, 'run/one', 'Docker is running', 'steer-key', 'ci-turn')).resolves.toEqual(CI_RUN);
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/ci-autofix/runs/run%2Fone/messages', expect.objectContaining({
     method: 'POST', body: JSON.stringify({ message: 'Docker is running', expectedTurnId: 'ci-turn' }),
-    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session', 'Idempotency-Key': 'steer-key' },
+    headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session', 'Idempotency-Key': 'steer-key' }),
   }));
   expect(fetch).toHaveBeenCalledTimes(3);
 });
@@ -336,7 +336,7 @@ it('refreshes only the explanation using its displayed owner and revision', asyn
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/api/agent-review/review%2Fone/explanation/refresh', expect.objectContaining({
     method: 'POST', body: JSON.stringify({ runId: 'run/one', expectedRevision: 3 }),
-    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' },
+    headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }),
   }));
 });
 
@@ -371,7 +371,7 @@ it('routes review passage and comment discussions through their owning review', 
     expect(url).toBe(`http://127.0.0.1:9527/api/agent-review/review%2Fone/discussions${entry.path}`);
     expect(init.method ?? 'GET').toBe(entry.method);
     expect(init.body).toBe(entry.body === undefined ? undefined : JSON.stringify(entry.body));
-    expect(init.headers).toMatchObject({ 'X-ByteQuay-Session': 'test-session' });
+    expect(new Headers(init.headers).get('X-ByteQuay-Session')).toBe('test-session');
   }
 });
 
@@ -396,7 +396,7 @@ it('routes Code & Tests reads and writes to the review or the development task t
   fetch.mockResolvedValueOnce(json(codeFile));
   await expect(handler('code:file')(task, codeFile.path, 'a'.repeat(40))).resolves.toEqual(codeFile);
   expect(fetch).toHaveBeenLastCalledWith(`http://127.0.0.1:9527/agent/tasks/task%2Fone/code/file?workspaceId=workspace%2Fone&path=src%2FExample.java&expectedRevision=${'a'.repeat(40)}`,
-    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+    expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   fetch.mockResolvedValueOnce(json(codeFile));
   await expect(handler('code:file')(review, codeFile.path)).resolves.toEqual(codeFile);
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/agent-review/review%2Fone/code/file?path=src%2FExample.java', expect.any(Object));
@@ -406,7 +406,7 @@ it('routes Code & Tests reads and writes to the review or the development task t
   await expect(handler('code:runs:output')(task, 'run/1', 12.7)).resolves.toEqual(output);
   expect(fetch).toHaveBeenLastCalledWith(
     'http://127.0.0.1:9527/agent/tasks/task%2Fone/code/runs/run%2F1/output?workspaceId=workspace%2Fone&after=12',
-    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+    expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   await expect(handler('code:runs:output')(review, 'run/1', 0)).resolves.toEqual(output);
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/agent-review/review%2Fone/code/runs/run%2F1/output?after=0', expect.any(Object));
 
@@ -427,22 +427,25 @@ it('routes spec check runs, their baseline and their recovery through the authen
   vi.stubGlobal('fetch', fetch);
   const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/build';
   await expect(desktop.handlers.get('repository-context:build:get')?.({}, 'workspace/one')).resolves.toEqual(view);
-  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
+  const taskBase = 'http://127.0.0.1:9527/agent/tasks/task';
   const cases = [
-    { name: 'stop', path: '/stop', args: ['task'], body: { taskId: 'task' } },
-    { name: 'stop-runtime', path: '/runtime/stop', args: ['task', 'generation'], body: { taskId: 'task', generation: 'generation' } },
-    { name: 'fail', path: '/mark-failed', args: ['task', 'User ended the spec check.'], body: { taskId: 'task', reason: 'User ended the spec check.' } },
-    { name: 'cleanup', path: '/cleanup', args: ['task'], body: { taskId: 'task' } },
+    { name: 'stop', url: base + '/stop', args: ['task'], body: { taskId: 'task' } },
+    { name: 'stop-runtime', url: taskBase + '/runtime/stop?workspaceId=workspace%2Fone', args: ['task', 'generation'], body: { generation: 'generation' } },
+    { name: 'fail', url: taskBase + '/mark-failed?workspaceId=workspace%2Fone', args: ['task', 'User ended the spec check.'], body: { reason: 'User ended the spec check.' } },
+    { name: 'cleanup', url: taskBase + '/cleanup?workspaceId=workspace%2Fone', args: ['task'], body: undefined },
   ];
   for (const item of cases) {
+    fetch.mockClear();
     await expect(desktop.handlers.get(`repository-context:build:${item.name}`)?.({}, 'workspace/one', ...item.args)).resolves.toEqual(view);
-    expect(fetch).toHaveBeenLastCalledWith(base + item.path, expect.objectContaining({ method: 'POST', body: JSON.stringify(item.body),
-      headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+    expect(fetch).toHaveBeenNthCalledWith(1, item.url, expect.objectContaining({ method: 'POST',
+      ...(item.body ? { body: JSON.stringify(item.body) } : {}), headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
+    if (item.name !== 'stop') expect(fetch).toHaveBeenLastCalledWith(base, expect.anything());
   }
   const impact: AgentRuntimeStopImpactDto = { taskId: 'task/one', generation: 'generation', activeTurnId: null, liveProcess: true };
   fetch.mockImplementation(async () => new Response(JSON.stringify(impact)));
   await expect(desktop.handlers.get('repository-context:build:stop-impact')?.({}, 'workspace/one', 'task/one')).resolves.toEqual(impact);
-  expect(fetch).toHaveBeenLastCalledWith(base + '/runtime/stop-impact?taskId=task%2Fone', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/agent/tasks/task%2Fone/runtime/stop-impact?workspaceId=workspace%2Fone', expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   fetch.mockImplementation(async () => new Response(JSON.stringify({ ...view, notebookRevision: 7, build: { ...view.build, outcome: 'SUBMITTED' } })));
   await expect(desktop.handlers.get('repository-context:build:get')?.({}, 'workspace/one')).rejects.toThrow('Malformed run outcome');
 });
@@ -455,14 +458,14 @@ it('reads a directory’s spec sources and starts a check of it, refusing a forg
   const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/spec-checks';
   await expect(desktop.handlers.get('repository-context:spec-checks:sources')?.({}, 'workspace/one', 'plugin/trino-iceberg/'))
     .resolves.toEqual([{ url: 'https://iceberg.apache.org/spec/', kind: 'PAGE', links: 3, sections: ['manifests'] }]);
-  expect(fetch).toHaveBeenLastCalledWith(base + '/sources?directory=plugin%2Ftrino-iceberg%2F', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(base + '/sources?directory=plugin%2Ftrino-iceberg%2F', expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   fetch.mockImplementationOnce(async () => new Response(JSON.stringify({ modules: [
     { directory: 'plugin/trino-delta-lake/', page: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', sections: 20, links: 25 },
     { directory: 'plugin/trino-iceberg/', page: null, sections: 0, links: 0 }] })));
   await expect(desktop.handlers.get('repository-context:spec-checks:modules')?.({}, 'workspace/one')).resolves.toEqual([
     { directory: 'plugin/trino-delta-lake/', page: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', sections: 20, links: 25 },
     { directory: 'plugin/trino-iceberg/', page: null, sections: 0, links: 0 }]);
-  expect(fetch).toHaveBeenLastCalledWith(base + '/modules', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(base + '/modules', expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   fetch.mockClear();
   expect(() => desktop.handlers.get('repository-context:spec-checks:sources')?.({}, 'workspace/one', 'plugin/../core/')).toThrow('Malformed spec check: directory');
   const request = { requestKey: 'check-key', expectedBuildSequence: 2, directory: 'plugin/trino-iceberg/', specs: ['https://iceberg.apache.org/spec/'], maxReproductions: 3 };
@@ -543,7 +546,7 @@ it('routes review replays through the agent review routes with the desktop sessi
   const fetch = vi.fn(async () => new Response(JSON.stringify({ replays: [replay] })));
   vi.stubGlobal('fetch', fetch);
   const base = 'http://127.0.0.1:9527/api/agent-review/replays';
-  const session = expect.objectContaining({ 'X-ByteQuay-Session': 'test-session' });
+  const session = withHeaders({ 'X-ByteQuay-Session': 'test-session' });
   await expect(desktop.handlers.get('replay:list')?.({}, 'workspace/one')).resolves.toHaveLength(1);
   expect(fetch).toHaveBeenLastCalledWith(base + '?workspaceId=workspace%2Fone', expect.objectContaining({ headers: session }));
   fetch.mockImplementation(async () => new Response(JSON.stringify(replay)));
@@ -570,20 +573,20 @@ it('routes Jira reads and versioned writes through the authenticated native API'
   const location = { connectionId: 'connection/one', cloudId: 'site/one', issueId: '7' };
   const base = 'http://127.0.0.1:9527/api/jira/connections/connection%2Fone/sites/site%2Fone';
   await desktop.handlers.get('jira:config')?.({});
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/config', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/config', expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:connect')?.({});
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections', expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections', expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   const token = { siteUrl: 'https://example.atlassian.net', email: 'alex@example.com', token: 'fixture-token' };
   await desktop.handlers.get('jira:token:connect')?.({}, token);
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections/token', expect.objectContaining({ method: 'POST', body: JSON.stringify(token), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections/token', expect.objectContaining({ method: 'POST', body: JSON.stringify(token), headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:token:replace')?.({}, 'connection/one', token);
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections/connection%2Fone/token', expect.objectContaining({ method: 'PUT', body: JSON.stringify(token), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections/connection%2Fone/token', expect.objectContaining({ method: 'PUT', body: JSON.stringify(token), headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:reconnect')?.({}, 'connection/one');
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections/connection%2Fone/reconnect', expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections/connection%2Fone/reconnect', expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:issues')?.({}, { ...location, boardId: 828, sprintId: 11, mine: true }, true);
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/refresh?boardId=828&mine=true&sprintId=11`, expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/refresh?boardId=828&mine=true&sprintId=11`, expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:issues')?.({}, { ...location, boardId: 828, sprintId: null, mine: false, completed: true }, false);
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues?boardId=828&mine=false&completed=true`, expect.objectContaining({ method: 'GET', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues?boardId=828&mine=false&completed=true`, expect.objectContaining({ method: 'GET', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:issues')?.({}, { ...location, boardId: 828, sprintId: null, mine: true, completed: true, nextPageToken: 'next/token + value' }, true);
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/refresh?boardId=828&mine=true&completed=true&nextPageToken=next%2Ftoken+%2B+value`, expect.objectContaining({ method: 'POST' }));
   await desktop.handlers.get('jira:issues')?.({}, { ...location, boardId: 828, sprintId: 11, mine: false, coassigned: true }, true);
@@ -591,29 +594,29 @@ it('routes Jira reads and versioned writes through the authenticated native API'
   await desktop.handlers.get('jira:issues')?.({}, { ...location, boardId: 828, sprintId: null, mine: true, coassigned: true, completed: true }, false);
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues?boardId=828&mine=true&coassigned=true&completed=true`, expect.objectContaining({ method: 'GET' }));
   await desktop.handlers.get('jira:issue')?.({}, location, true, true);
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/refresh?automatic=true`, expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/refresh?automatic=true`, expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:issue')?.({}, location, true);
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/refresh`, expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/refresh`, expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:key:refresh')?.({}, 'connection/one', 'site/one', 'ENG-7');
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/keys/ENG-7/refresh`, expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/keys/ENG-7/refresh`, expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:issue:update')?.({}, location, { labels: ['connector'] }, '2026-09-26T00:00:00Z');
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7`, expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ fields: { labels: ['connector'] }, expectedUpdatedAt: '2026-09-26T00:00:00Z' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7`, expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ fields: { labels: ['connector'] }, expectedUpdatedAt: '2026-09-26T00:00:00Z' }), headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:issue:comment')?.({}, location, 'Ready for review', 'operation-1');
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/comments`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ body: 'Ready for review', operationId: 'operation-1', parentId: null }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/comments`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ body: 'Ready for review', operationId: 'operation-1', parentId: null }), headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:issue:comment')?.({}, location, 'Agreed', 'operation-2', '5');
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/comments`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ body: 'Agreed', operationId: 'operation-2', parentId: '5' }) }));
   await desktop.handlers.get('jira:comment:edit')?.({}, location, '5', 'Updated', '2026-09-26T01:00:00.000+0000');
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/comments/5`, expect.objectContaining({ method: 'PUT', body: JSON.stringify({ body: 'Updated', expectedUpdated: '2026-09-26T01:00:00.000+0000' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/comments/5`, expect.objectContaining({ method: 'PUT', body: JSON.stringify({ body: 'Updated', expectedUpdated: '2026-09-26T01:00:00.000+0000' }), headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:issue:workspace')?.({}, location, 'workspace-one');
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/workspace`, expect.objectContaining({ method: 'PUT', body: JSON.stringify({ workspaceId: 'workspace-one' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/workspace`, expect.objectContaining({ method: 'PUT', body: JSON.stringify({ workspaceId: 'workspace-one' }), headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }) }));
   await expect(desktop.handlers.get('jira:issue:local-child')?.({}, location, 'local-id', 'Add the flag', 'Context')).rejects.toThrow('Malformed work item');
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/local-children`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ id: 'local-id', title: 'Add the flag', description: 'Context' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/local-children`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ id: 'local-id', title: 'Add the flag', description: 'Context' }), headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:link-types')?.({}, 'connection/one', 'site/one');
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/link-types`, expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/link-types`, expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:issue:link')?.({}, location, '10000', false, 'ENG-8');
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/links`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ typeId: '10000', outward: false, key: 'ENG-8' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/links`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ typeId: '10000', outward: false, key: 'ENG-8' }), headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }) }));
   await desktop.handlers.get('jira:connections')?.({});
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections', expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
 });
 
 it('records a Jira visit without parsing the empty response and preserves HTTP errors', async () => {
@@ -622,12 +625,12 @@ it('records a Jira visit without parsing the empty response and preserves HTTP e
   const fetch = vi.fn(async () => new Response(null, { status: 204 }));
   vi.stubGlobal('fetch', fetch);
   const location = { connectionId: 'connection/one', cloudId: 'site/one', issueId: '7' };
-  await expect(desktop.handlers.get('jira:issue:recent')?.({}, location, 20)).resolves.toBeUndefined();
+  await expect(desktop.handlers.get('jira:issue:recent')?.({}, location, 20)).resolves.toBeNull();
   expect(fetch).toHaveBeenLastCalledWith(
     'http://127.0.0.1:9527/api/jira/connections/connection%2Fone/sites/site%2Fone/issues/7/recent',
-    expect.objectContaining({ method: 'POST', body: JSON.stringify({ dwellSeconds: 20 }), headers: {
+    expect.objectContaining({ method: 'POST', body: JSON.stringify({ dwellSeconds: 20 }), headers: withHeaders({
       'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session',
-    } }),
+    }) }),
   );
   fetch.mockImplementation(async () => new Response(JSON.stringify({ message: 'Ticket unavailable' }), { status: 404 }));
   await expect(desktop.handlers.get('jira:issue:recent')?.({}, location, 20)).rejects.toThrow('Ticket unavailable');
@@ -676,12 +679,14 @@ it('reads API-key usage by stable ID while retaining the alias and desktop authe
   await expect(desktop.handlers.get('usage:accounts')?.({})).resolves.toEqual([account]);
   await expect(desktop.handlers.get('usage:read')?.({}, accountId)).resolves.toMatchObject(usage);
   expect(fetch).toHaveBeenLastCalledWith(`http://127.0.0.1:9527/agent/usage/${accountId}`,
-    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+    expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   expect(() => desktop.handlers.get('usage:read')?.({}, 'api-key-../codex')).toThrow('Invalid usage account');
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 
 it('authenticates Google account, mail and Gemini connector requests without exposing the session token', async () => {
+  const { GeminiSetup } = await import('./google/geminiSetup');
+  vi.spyOn(GeminiSetup.prototype, 'status').mockResolvedValue({ configured: true, installed: true });
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
   const fetcher = vi.fn(async () => new Response('{}'));
@@ -696,14 +701,14 @@ it('authenticates Google account, mail and Gemini connector requests without exp
   for (const [channel, endpoint, args] of requests) {
     await desktop.handlers.get(channel)?.({}, ...args);
     expect(fetcher).toHaveBeenLastCalledWith(`http://127.0.0.1:9527/api/google${endpoint}`, expect.objectContaining({
-      headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' },
+      headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }),
     }));
   }
   // Reject before credentials or a provider process are touched; inspect the real native chat command request.
   fetcher.mockImplementation(async () => new Response('Account unavailable', { status: 403 }));
   await desktop.handlers.get('google-chat:prompt')?.({}, profile, 'Read mail');
   expect(fetcher).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/google/chat-command', expect.objectContaining({
-    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }, body: JSON.stringify({ profile }),
+    headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }), body: JSON.stringify({ profile }),
   }));
   await desktop.handlers.get('google-chat:clear')?.({}, profile);
 });
@@ -721,6 +726,10 @@ it.each([
   await desktop.handlers.get(channel)?.({}, 'owner/repo', 7, 4, ...args);
   expect(fetch).toHaveBeenCalledOnce();
   expect(fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
-    method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' },
+    method, body: JSON.stringify(body), headers: withHeaders({ 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }),
   }));
 });
+
+function withHeaders(expected: Record<string, string>) {
+  return { asymmetricMatch: (value: unknown) => value instanceof Headers && Object.entries(expected).every(([key, value_]) => value.get(key) === value_) };
+}

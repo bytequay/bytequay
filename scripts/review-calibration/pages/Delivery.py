@@ -13,7 +13,6 @@ import delivery
 import saved
 
 SPANS = {"Last 7 days": 7 * 86400, "Last 30 days": 30 * 86400, "All": None}
-SAVE = "uv run activity.py --save"
 NUMBERS = {"ready %": "%.0f%%", "minutes per ready": "%,.0f", "M tokens per ready": "%,.1f", "dollars per ready": "$%,.2f"}
 
 
@@ -29,11 +28,7 @@ def tiles(tasks, whole):
                   help=f"Tasks with results and none of them ready: {stuck['minutes'].sum() / 60:,.1f} agent hours in all.")
 
 
-st.set_page_config(page_title="ByteQuay Lab", layout="wide")
-# Started any other way, Streamlit would serve the page to the whole network.
-if st.get_option("server.address") != dashboard.HOST:
-    st.error("This page is only shown to this machine. Start it with `uv run dashboard.py`")
-    st.stop()
+dashboard.start_page()
 arguments = argparse.ArgumentParser(add_help=False)
 arguments.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER)
 FOLDER = arguments.parse_known_args()[0].folder
@@ -42,17 +37,17 @@ st.title("Delivery")
 st.caption("What development tasks delivered for the agent time, tokens and dollars they took. A result is the agent's own report when a development "
            "ends: the change is ready to deliver, or it is not. A turn that answered a question or researched asked for no change, so its result does not count "
            "here. A task counts under the model and effort most of its turns ran with.")
-UNREADABLE = f"The saved turn table could not be read. Save it again with `{SAVE}`"
+UNREADABLE = f"The saved turn table could not be read. Save it again with `{dashboard.SAVE}`"
 try:
     MADE = saved.read(FOLDER, "turns.json")
 except (OSError, ValueError):
     st.warning(UNREADABLE)
     st.stop()
 if MADE is None:
-    st.info(f"Nothing saved yet. Save the turn table with `{SAVE}`")
+    st.info(f"Nothing saved yet. Save the turn table with `{dashboard.SAVE}`")
     st.stop()
 if MADE["turns"] and "result" not in MADE["turns"][0]:
-    st.info(f"This table was saved before development results were kept. Save it again with `{SAVE}`")
+    st.info(f"This table was saved before development results were kept. Save it again with `{dashboard.SAVE}`")
     st.stop()
 REACH = SPANS[st.segmented_control("Show", list(SPANS), default="All", key="span") or "All"]
 try:
@@ -75,7 +70,7 @@ st.caption("Tokens count every input token, cached ones too, and the output. Dol
 st.subheader("Why results were not ready")
 WHY = delivery.not_ready(MADE, 0.0 if REACH is None else time.time() - REACH)
 if WHY.empty:
-    st.info(f"No result was not ready in this stretch, or the table was saved before the reasons were named. Save it again with `{SAVE}`")
+    st.info(f"No result was not ready in this stretch, or the table was saved before the reasons were named. Save it again with `{dashboard.SAVE}`")
 else:
     st.caption("Named by the words of each report, which are read and never kept. No change asked: a question or research turn, left out above. Waiting for "
                "you: a choice or a review was yours to make. Not committed: the change was made but not committed. Other: the words matched none of these.")

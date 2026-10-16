@@ -15,13 +15,11 @@ package com.bytequay.persistence.sqlite.credential;
 
 import com.bytequay.core.domain.ModelApiKey;
 import com.bytequay.core.store.ModelApiKeyStore;
-import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -38,17 +36,6 @@ public class SqliteModelApiKeyStore
     {
         this.jpaRepository = requireNonNull(jpaRepository, "jpaRepository is null");
         this.cipher = requireNonNull(cipher, "cipher is null");
-    }
-
-    @PostConstruct
-    void assignMissingIds()
-    {
-        for (ModelApiKeyEntity entity : jpaRepository.findAll()) {
-            if (entity.getKeyId() == null) {
-                entity.setKeyId(UUID.randomUUID().toString());
-                jpaRepository.save(entity);
-            }
-        }
     }
 
     @Override

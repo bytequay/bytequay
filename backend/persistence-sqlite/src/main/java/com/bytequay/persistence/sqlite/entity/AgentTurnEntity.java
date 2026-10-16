@@ -39,6 +39,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 import lombok.Getter;
 
@@ -49,7 +50,7 @@ import java.util.Optional;
 import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
 @Entity
-@Table(name = "agent_turn")
+@Table(name = "agent_turn", uniqueConstraints = @UniqueConstraint(columnNames = {"task_id", "idempotency_key"}))
 public class AgentTurnEntity
         extends AssignedIdEntity<String>
 {
@@ -74,9 +75,6 @@ public class AgentTurnEntity
 
     @Column(name = "idempotency_key", nullable = false)
     private String idempotencyKey;
-
-    @Column(nullable = false, unique = true)
-    private String idempotencySlot;
 
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
@@ -155,7 +153,6 @@ public class AgentTurnEntity
     public void updateFrom(AgentTurn turn)
     {
         idempotencyKey = turn.idempotencyKey();
-        idempotencySlot = turn.taskId() + ":" + turn.idempotencyKey();
         state = turn.state();
         activeTaskId = turn.state().active() ? turn.taskId().toString() : null;
         createdAt = turn.createdAt();

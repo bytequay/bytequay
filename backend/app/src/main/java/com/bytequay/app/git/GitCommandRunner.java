@@ -38,6 +38,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -430,6 +431,17 @@ public class GitCommandRunner
         public static Result failed(String reason)
         {
             return new Result(-1, reason, false);
+        }
+
+        public String requireOutput(Function<String, ? extends RuntimeException> failure)
+        {
+            if (!successful()) {
+                throw failure.apply(output.isBlank() ? "Git exited with status " + exitCode : output.strip());
+            }
+            if (truncated) {
+                throw failure.apply("Git output was truncated");
+            }
+            return output;
         }
 
         public boolean successful()

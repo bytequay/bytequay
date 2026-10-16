@@ -133,11 +133,11 @@ class TestJudgeRun(unittest.TestCase):
 
 class TestAskModel(unittest.TestCase):
     def client(self, content='{"verdict": "MISSED"}', finish="stop", model="deepseek-v4-pro", reasoning=5):
-        detail = None if reasoning is None else SimpleNamespace(reasoning_tokens=reasoning)
-        usage = SimpleNamespace(prompt_tokens=100, completion_tokens=10, prompt_cache_hit_tokens=60, prompt_cache_miss_tokens=40, completion_tokens_details=detail)
-        response = SimpleNamespace(model=model, usage=usage, choices=[SimpleNamespace(finish_reason=finish, message=SimpleNamespace(content=content))])
+        usage = {"prompt_tokens": 100, "completion_tokens": 10, "prompt_cache_hit_tokens": 60, "prompt_cache_miss_tokens": 40,
+                 "completion_tokens_details": None if reasoning is None else {"reasoning_tokens": reasoning}}
+        response = {"model": model, "usage": usage, "choices": [{"finish_reason": finish, "message": {"content": content}}]}
         self.requests = []
-        return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **request: self.requests.append(request) or response)))
+        return SimpleNamespace(complete=lambda **request: self.requests.append(request) or response)
 
     def test_one_json_mode_request_with_both_messages(self):
         reply = judge.ask_model(self.client(), "the rules", "the leads and the comment", "deepseek-v4-pro")
@@ -161,25 +161,26 @@ class TestAskModel(unittest.TestCase):
             judge.ask_model(self.client(model="deepseek-flash"), "s", "u", "deepseek-v4-pro")
 
 
-@unittest.skipUnless(importlib.util.find_spec("openai"), "needs the OpenAI SDK; run through uv")
 class TestAskModelOverHttp(unittest.TestCase):
-    """The real SDK against a local stand-in for DeepSeek, for what a fake client cannot show."""
+    """Exercise JSON decoding and request serialization without sending credentials over the network."""
 
     def client(self, finish="stop", content='{"verdict": "MISSED"}'):
-        import httpx2
-        import openai
+        import io
         usage = {"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110, "prompt_cache_hit_tokens": 60, "prompt_cache_miss_tokens": 40,
                  "completion_tokens_details": {"reasoning_tokens": 5}}
         body = {"id": "x", "object": "chat.completion", "created": 1, "model": "deepseek-v4-pro", "usage": usage,
                 "choices": [{"index": 0, "finish_reason": finish, "message": {"role": "assistant", "content": content}}]}
 
-        def answer(request):
-            self.sent = json.loads(request.content)
+        def answer(request, timeout):
+            self.sent = json.loads(request.data)
             # DeepSeek sends blank lines while a request waits, before the JSON body.
-            return httpx2.Response(200, content=("\n\n" + json.dumps(body)).encode(), headers={"content-type": "application/json"})
-        return openai.OpenAI(api_key="not-a-real-key", base_url=judge.BASE_URL, max_retries=0, http_client=httpx2.Client(transport=httpx2.MockTransport(answer)))
+            return io.BytesIO(("\n\n" + json.dumps(body)).encode())
+        patched = mock.patch.object(judge, "urlopen", side_effect=answer)
+        patched.start()
+        self.addCleanup(patched.stop)
+        return judge.Client("not-a-real-key")
 
-    def test_sdk_keeps_the_token_counts_only_deepseek_sends_and_skips_its_keep_alive_lines(self):
+    def test_http_keeps_the_token_counts_only_deepseek_sends_and_skips_its_keep_alive_lines(self):
         reply = judge.ask_model(self.client(), "the rules", "the leads and the comment", "deepseek-v4-pro")
         self.assertEqual((reply.text, reply.usage), ('{"verdict": "MISSED"}', TOKENS))
         self.assertEqual((sorted(self.sent), self.sent["response_format"]), (["messages", "model", "response_format"], {"type": "json_object"}))
@@ -189,7 +190,29 @@ class TestAskModelOverHttp(unittest.TestCase):
             judge.ask_model(self.client(finish="insufficient_system_resource", content=None), "s", "u", "deepseek-v4-pro")
 
 
-@unittest.skipUnless(importlib.util.find_spec("openai"), "needs the OpenAI SDK; run through uv")
+class TestHttpRetries(unittest.TestCase):
+    def test_transient_failure_retries_but_bad_credentials_do_not(self):
+        import io
+        from urllib.error import HTTPError
+        for status, calls in ((429, 2), (503, 2), (401, 1)):
+            with self.subTest(status=status), mock.patch.object(judge, "urlopen", side_effect=[HTTPError("https://fixture", status, "failure", {}, None),
+                                                                                           io.BytesIO(b'{"ok": true}')]) as send, mock.patch.object(judge.time, "sleep"):
+                if calls == 1:
+                    with self.assertRaises(HTTPError):
+                        judge.Client("test").complete(model="fixture")
+                else:
+                    self.assertEqual(judge.Client("test").complete(model="fixture"), {"ok": True})
+                self.assertEqual(send.call_count, calls)
+
+    def test_transport_retries_are_bounded(self):
+        from urllib.error import URLError
+        with mock.patch.object(judge, "urlopen", side_effect=URLError("offline")) as send, mock.patch.object(judge.time, "sleep") as sleep:
+            with self.assertRaises(URLError):
+                judge.Client("test").complete(model="fixture", timeout=2)
+            self.assertEqual((send.call_count, sleep.call_count), (6, 5))
+            self.assertEqual(send.call_args.kwargs["timeout"], 2)
+
+
 class TestMakeClient(unittest.TestCase):
     def test_missing_key_stops_with_the_variable_name(self):
         for environment in [{}, {"DEEPSEEK_API_KEY": ""}]:

@@ -399,8 +399,23 @@ class TestReviewRuntimeRecovery
     private static AgentReviewProjection projection(List<ReviewRun> runs, List<ReviewFinding> findings)
     {
         AgentReview review = new AgentReview(
-                REVIEW_ID, "workspace-1", "owner/repo", OptionalInt.of(7), OptionalLong.empty(), TASK_ID.toString(), Optional.empty(), AgentReview.State.OPEN, true,
-                Optional.empty(), Optional.of("head"), Optional.of("head"), 0, NOW, NOW, Optional.empty());
+                REVIEW_ID,
+                "workspace-1",
+                "owner/repo",
+                OptionalInt.of(7),
+                OptionalLong.empty(),
+                TASK_ID.toString(),
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                true,
+                Optional.empty(),
+                Optional.of("head"),
+                Optional.of("head"),
+                0,
+                NOW,
+                NOW,
+                Optional.empty(),
+                Optional.empty());
         return new AgentReviewProjection(
                 review, runs, findings, ImmutableList.of(new AgentReviewProjection.MessageView(
                         new ReviewMessage("message-1", REVIEW_ID, Optional.empty(), Optional.of("run-1:limitations"), ReviewMessage.Author.USER,

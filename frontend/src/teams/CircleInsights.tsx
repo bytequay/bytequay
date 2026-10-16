@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { shortDate } from '../displayText';
 import Avatar from '../Avatar';
 import { METRICS, type Metric } from './activity';
 import type { TeamActivitySnapshot, TeamMember, TeamStatistics } from './types';
@@ -31,7 +32,6 @@ const COLUMNS: [Metric, keyof TeamStatistics, string][] = [
   ['comments', 'comments', 'Comments'], ['interactions', 'directInteractions', 'With you'],
 ];
 
-const shortDate = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 const shared = (statistics: TeamStatistics) => `${statistics.sharedPullRequests} PRs · ${statistics.sharedIssues} issues`;
 
 /** Headline counts, secondary counts, updates per day and a per-person table; every number opens its updates. */

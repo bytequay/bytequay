@@ -154,7 +154,7 @@ class TestPullRequestCiBridgeResolverImpl
         verifyNoInteractions(catalog);
         verify(actions, never()).readDescription(any());
         assertThat(bridge.requestRerun()).isEmpty();
-        storeLog(COMMIT_FAILURE, false);
+        storeLog(COMMIT_FAILURE);
         assertThat(read(bridge, Optional.of(201L)).toString()).contains("check-commit-messages");
         when(actions.inspect(PR)).thenReturn(snapshot(new PullRequestRef("trinodb", "trino", 9), HEAD, 1, "job", "failure"));
         assertThat(read(bridge, Optional.empty()).path("status").asText()).isEqualTo("stale");
@@ -164,7 +164,7 @@ class TestPullRequestCiBridgeResolverImpl
     void readsTheForkPullRequestsFailingJobAndTheActualCommitSubjectDiagnostic()
             throws Exception
     {
-        storeLog(COMMIT_FAILURE, false);
+        storeLog(COMMIT_FAILURE);
         PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
         verifyNoInteractions(actions);
 
@@ -292,7 +292,7 @@ class TestPullRequestCiBridgeResolverImpl
     void discardsALogWhenItsPullRequestOrAttemptChangesDuringTheRead(String change)
             throws Exception
     {
-        storeLog(COMMIT_FAILURE, false);
+        storeLog(COMMIT_FAILURE);
         CiHeadSnapshot after = switch (change) {
             case "head" -> snapshot(PR, NEXT, 1, "check-commit-messages", "failure");
             case "base" -> new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", NEXT, url(PR), failing.workflowRuns());
@@ -339,7 +339,7 @@ class TestPullRequestCiBridgeResolverImpl
     void doesNotReturnEvidenceWhenTheTaskClosesDuringTheDownload()
             throws Exception
     {
-        storeLog(COMMIT_FAILURE, false);
+        storeLog(COMMIT_FAILURE);
         doAnswer(ignored -> {
             when(tasks.find(taskId)).thenReturn(Optional.of(task.fail("Closed", NOW.plusSeconds(1), NOW.plus(Duration.ofDays(7)))));
             return BoundedCiLog.unavailable("Log expired");
@@ -406,7 +406,7 @@ class TestPullRequestCiBridgeResolverImpl
     void boundsJsonEscapingAndKeepsTheFailureAtTheEndOfALargeLog()
             throws Exception
     {
-        storeLog("\u0001".repeat(80_000) + COMMIT_FAILURE, true);
+        storeLog("\u0001".repeat(80_000) + COMMIT_FAILURE);
         PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
 
         String output = bridge.read().apply(Optional.of(201L));
@@ -415,9 +415,7 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(output.length()).isLessThanOrEqualTo(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH);
         assertThat(result.at("/log/excerpt").asText()).contains("subject: 64 characters");
         assertThat(result.at("/log/truncated").asBoolean()).isTrue();
-        assertThat(result.at("/log/downloadTruncated").asBoolean()).isTrue();
         assertThat(result.at("/log/excerptCompacted").asBoolean()).isTrue();
-        assertThat(result.at("/log/excerptOmittedEnd").asBoolean()).isTrue();
     }
 
     @Test
@@ -469,7 +467,7 @@ class TestPullRequestCiBridgeResolverImpl
                 + "java.lang.IllegalStateException: worker unavailable\n"
                 + "    at Worker.repeat(Worker.java:42)\n".repeat(1000)
                 + "Caused by: java.net.ConnectException: refused\n    at Client.connect(Client.java:55)\n";
-        storeLog("[INFO] noise\n".repeat(4000) + failure + "[INFO] done\n", false);
+        storeLog("[INFO] noise\n".repeat(4000) + failure + "[INFO] done\n");
         String output = resolver.resolve(taskId.toString()).orElseThrow().read().apply(Optional.of(201L));
         assertThat(output.length()).isLessThanOrEqualTo(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH);
         assertThat(mapper.readTree(output).at("/log/excerpt").asText()).contains(failure);
@@ -528,7 +526,7 @@ class TestPullRequestCiBridgeResolverImpl
         String id = "a".repeat(64);
         String source = "original beginning\n" + "downloaded artifact\n".repeat(4000) + "command exited\n";
         BlobRef blob = new BlobRef("ci/excerpt.log", "text/plain", 0);
-        when(actions.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(blob), 0, false, false, true, ImmutableList.of(), Optional.empty(), Optional.of(id), false));
+        when(actions.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(blob), true, ImmutableList.of(), Optional.empty(), Optional.of(id), false));
         when(rawLogs.read(taskId, id)).thenReturn(source);
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
         assertThat(result.at("/log/diagnosticsMatched").asBoolean()).isFalse();
@@ -544,12 +542,17 @@ class TestPullRequestCiBridgeResolverImpl
         return mapper.readTree(bridge.read().apply(jobId));
     }
 
-    private void storeLog(String text, boolean truncated)
+    private void storeLog(String text)
     {
         byte[] bytes = text.getBytes(UTF_8);
         BlobRef blob = new BlobRef("ci/check-commit-messages.log", "text/plain", bytes.length);
-        when(actions.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(blob), bytes.length, truncated, false, false,
-                ImmutableList.of("##[error]Process completed with exit code 1."), Optional.empty(), Optional.empty(), true));
+        when(actions.readLog(any())).thenReturn(new BoundedCiLog(
+                Optional.of(blob),
+                false,
+                ImmutableList.of("##[error]Process completed with exit code 1."),
+                Optional.empty(),
+                Optional.empty(),
+                true));
         when(logs.readBlob(taskId, blob)).thenAnswer(ignored -> ByteBuffer.wrap(bytes));
     }
 

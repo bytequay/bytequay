@@ -26,7 +26,6 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.context.ContextStorageException;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixNotFoundException;
@@ -126,7 +125,6 @@ public class GlobalExceptionHandler
 
     @ExceptionHandler({
             InvalidAgentRequestException.class,
-            CherryPickInvalidRequestException.class,
             HttpMessageNotReadableException.class,
             MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ErrorResponse> handleInvalidAgentRequest(Exception exception, HttpServletRequest request)

@@ -11,10 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { clock } from '../displayText';
 import { describe, expect, it } from 'vitest';
 import {
   calendarCells,
-  clockTime,
   dayHeading,
   highlightParts,
   mayLoad,
@@ -49,7 +49,7 @@ describe('range windows', () => {
   });
 
   it('labels a span the way the header reads it', () => {
-    expect(rangeLabel('2026-08-22', TODAY)).toBe('Aug 22 – Aug 28');
+    expect(rangeLabel('2026-08-22', TODAY)).toBe('Aug 22\u2009–\u200928');
     expect(rangeLabel(TODAY, TODAY)).toBe('Aug 28');
   });
 
@@ -117,8 +117,8 @@ describe('jump-to-a-date calendar', () => {
 
 describe('clock', () => {
   it('formats a wall clock with a meridiem', () => {
-    expect(clockTime(new Date(2026, 7, 28, 14, 14).toISOString())).toBe('2:14 PM');
-    expect(clockTime(new Date(2026, 7, 28, 0, 5).toISOString())).toBe('12:05 AM');
+    expect(clock(new Date(2026, 7, 28, 14, 14).toISOString())).toBe('2:14 PM');
+    expect(clock(new Date(2026, 7, 28, 0, 5).toISOString())).toBe('12:05 AM');
   });
 });
 

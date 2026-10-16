@@ -750,10 +750,33 @@ class TestTaskDiscussionAnswers
                 .withWorktreeRemovedAt(NOW.plusSeconds(60)));
         assertThatThrownBy(() -> service.askReviewComment(REVIEW, KEY, "Still?")).hasMessage("This review has ended, so its threads are read-only");
 
-        when(reviews.findReview(REVIEW)).thenReturn(Optional.of(review(AgentReview.State.OPEN, OptionalInt.empty(), Optional.of(new AgentReview.Replay("replay-1", 12, true, NOW)))));
-        assertThatThrownBy(() -> service.askReviewComment(REVIEW, KEY, "")).isInstanceOf(AgentConflictException.class).hasMessage("A replay reviews past code, so it has no private threads");
-        when(reviews.findReview(REVIEW)).thenReturn(Optional.of(new AgentReview(REVIEW, "w1", REPO, OptionalInt.empty(), OptionalLong.empty(), REVIEW_TASK.toString(),
-                Optional.of("development-task"), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty())));
+        when(reviews.findReview(REVIEW)).thenReturn(Optional.of(review(AgentReview.State.OPEN, OptionalInt.empty(), Optional.of(new AgentReview.Replay(
+                "replay-1",
+                12,
+                true,
+                NOW)))));
+        assertThatThrownBy(() -> service.askReviewComment(
+                REVIEW,
+                KEY,
+                "")).isInstanceOf(AgentConflictException.class).hasMessage("A replay reviews past code, so it has no private threads");
+        when(reviews.findReview(REVIEW)).thenReturn(Optional.of(new AgentReview(
+                REVIEW,
+                "w1",
+                REPO,
+                OptionalInt.empty(),
+                OptionalLong.empty(),
+                REVIEW_TASK.toString(),
+                Optional.of("development-task"),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                NOW,
+                NOW,
+                Optional.empty(),
+                Optional.empty())));
         assertThatThrownBy(() -> service.askReviewComment(REVIEW, KEY, "")).isInstanceOf(AgentConflictException.class).hasMessage("This review has no pull request");
         assertThatThrownBy(() -> service.listReviewThreads("missing")).isInstanceOf(ReviewNotFoundException.class);
     }
@@ -821,8 +844,24 @@ class TestTaskDiscussionAnswers
     @Test
     void localAndReplayReviewsCanDiscussTheirOwnAnswersAndRetryFailures()
     {
-        hostReview(new AgentReview(REVIEW, "w1", REPO, OptionalInt.empty(), OptionalLong.empty(), REVIEW_TASK.toString(),
-                Optional.of(TASK.toString()), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty()));
+        hostReview(new AgentReview(
+                REVIEW,
+                "w1",
+                REPO,
+                OptionalInt.empty(),
+                OptionalLong.empty(),
+                REVIEW_TASK.toString(),
+                Optional.of(TASK.toString()),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                NOW,
+                NOW,
+                Optional.empty(),
+                Optional.empty()));
         TurnId turn = TurnId.random();
         events.add(new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, REVIEW_TASK, Optional.of(turn),
                 AgentEventSource.root(), NOW, new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "Cancellation releases the writer.")));

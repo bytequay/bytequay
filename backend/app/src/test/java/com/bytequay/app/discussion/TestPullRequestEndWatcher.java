@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.agent;
+package com.bytequay.app.discussion;
 
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
@@ -25,6 +25,9 @@ import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.agent.TaskPullRequestOwnership;
+import com.bytequay.core.discussion.TaskDiscussionStore;
 import com.bytequay.core.domain.PullRequest;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -54,7 +57,14 @@ class TestPullRequestEndWatcher
     private final TaskPullRequestOwnership ownership = mock(TaskPullRequestOwnership.class);
     private final AgentCompletionService completions = mock(AgentCompletionService.class);
     private final AgentServingGate gate = mock(AgentServingGate.class, withSettings().mockMaker(MockMakers.INLINE));
-    private final PullRequestEndWatcher watcher = new PullRequestEndWatcher(tasks, ownership, completions, gate);
+    private final PullRequestTaskWatcher watcher = new PullRequestTaskWatcher(
+            tasks,
+            ownership,
+            completions,
+            gate,
+            mock(ReviewCommentReader.class, withSettings().mockMaker(MockMakers.INLINE)),
+            mock(TaskDiscussionStore.class),
+            mock(TaskDiscussionService.class));
 
     @BeforeEach
     void setUp()

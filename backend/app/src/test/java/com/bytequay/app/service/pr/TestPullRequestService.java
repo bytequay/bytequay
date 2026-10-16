@@ -2065,23 +2065,6 @@ class TestPullRequestService
     }
 
     @Test
-    void derivesTheCurrentUsersLatestReviewVerdict()
-    {
-        assertThat(PullRequestService.deriveHandledActionFromReviews(ImmutableList.of(
-                new PrReviewState(null, "me", null, false, "APPROVED", null, null, null, null),
-                new PrReviewState(null, "me", null, false, "DISMISSED", null, null, null, null),
-                new PrReviewState(null, "me", null, false, "CHANGES_REQUESTED", null, null, null, null)), "me"))
-                .isEqualTo(HandledAction.CHANGES_REQUESTED);
-        assertThat(PullRequestService.deriveHandledActionFromReviews(ImmutableList.of(new PrReviewState(null, "me", null, false, "COMMENTED", null, null, null, null)), "me"))
-                .isEqualTo(HandledAction.COMMENTED);
-        assertThat(PullRequestService.deriveHandledActionFromReviews(ImmutableList.of(
-                new PrReviewState(null, "ME", null, false, "APPROVED", null, null, null, null),
-                new PrReviewState(null, "me", null, false, "DISMISSED", null, null, null, null),
-                new PrReviewState(null, "other", null, false, "APPROVED", null, null, null, null)), "me"))
-                .isNull();
-    }
-
-    @Test
     void doesNotTreatEveryRepositoryPullRequestAsAReviewRequest()
     {
         assertThat(pullRequest().withViewerOrigin("me").origin())
@@ -2417,11 +2400,9 @@ class TestPullRequestService
 
     private PullRequestService newService(Clock clock)
     {
-        return new PullRequestService(
-                gitHub, writes, repositories, accounts, store, snapshots,
-                new PullRequestDetailFetcher(gitHub, Runnable::run),
-                viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext,
-                notifications, syncSettings, issues, clock);
+        return new PullRequestService(gitHub, writes, repositories, accounts, store, snapshots, detailStore, new PullRequestDetailFetcher(
+                gitHub,
+                Runnable::run), viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext, notifications, syncSettings, issues, clock);
     }
 
     private PullRequestService serviceAt(AtomicReference<Instant> now)

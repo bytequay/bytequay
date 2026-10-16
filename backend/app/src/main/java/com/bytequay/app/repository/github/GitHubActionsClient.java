@@ -282,8 +282,7 @@ public class GitHubActionsClient
         CiLogExcerpt excerpt = CiLogExcerpt.from(text, Math.min(budget, 32 * 1024), budget);
         byte[] stored = (rawNote + (excerpt.diagnosticsMatched() ? "" : TAIL_NOTE) + excerpt.text()).getBytes(StandardCharsets.UTF_8);
         BlobRef blob = blobWriter.write(query.taskId(), ByteBuffer.wrap(stored), LOG_MEDIA_TYPE);
-        return new BoundedCiLog(Optional.of(blob), stored.length, false, false, excerpt.compacted(), terminalErrors(text),
-                Optional.empty(), Optional.of(logId), excerpt.diagnosticsMatched());
+        return new BoundedCiLog(Optional.of(blob), excerpt.compacted(), terminalErrors(text), Optional.empty(), Optional.of(logId), excerpt.diagnosticsMatched());
     }
 
     /** Uses the same full download and excerpt selection without creating task-owned storage. */

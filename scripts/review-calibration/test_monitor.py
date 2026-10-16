@@ -236,7 +236,7 @@ class TestSpace(Folder):
     def test_every_table_whose_rows_name_a_worktree_is_read(self):
         sources = [path.read_text() for path in ENTITIES.glob("*Entity.java")]
         named = {re.search(r'@Table\(name = "(\w+)"', source)[1] for source in sources if "private String worktree;" in source}
-        self.assertEqual(named, {"agent_task", "ci_autofix_run", *monitor.WORKTREES})  # a CI fix's worktree column holds the id of its workspace
+        self.assertEqual(named, {"agent_task", *monitor.WORKTREES})
         task = (ENTITIES / "AgentTaskEntity.java").read_text()
         for field in ("id", "state", "updatedAt", "worktree"):
             with self.subTest(field=field):

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.ci;
 
+import com.google.common.base.Utf8;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -102,7 +103,7 @@ public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMa
             }
             return new CiLogExcerpt(new String(bytes, start, bytes.length - start, UTF_8), start > 0, false);
         }
-        if (failedCommands.isEmpty() && text.getBytes(UTF_8).length <= targetBytes) {
+        if (failedCommands.isEmpty() && Utf8.encodedLength(text) <= targetBytes) {
             return new CiLogExcerpt(text, false, true);
         }
         diagnostics.sort(Comparator.comparingInt(index -> failedCommands.containsKey(index) ? 0 : priority(normalized.get(index))));
@@ -203,7 +204,7 @@ public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMa
             int additionalBytes = 0;
             for (int index = start; index < end; index++) {
                 if (!selected.get(index)) {
-                    additionalBytes += lines.get(index).getBytes(UTF_8).length;
+                    additionalBytes += Utf8.encodedLength(lines.get(index));
                 }
             }
             if (additionalBytes == 0) {

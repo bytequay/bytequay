@@ -51,7 +51,6 @@ import com.bytequay.core.cherrypick.CherryPickExecution.Step;
 import com.bytequay.core.cherrypick.CherryPickExecution.Workspace;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.ConflictPath;
 import com.bytequay.core.cherrypick.CherryPickItem.ConflictType;
@@ -81,6 +80,7 @@ import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
 import static com.bytequay.app.agent.WorkflowAgentTasks.requireReady;
 import static com.bytequay.app.agent.WorkflowAgentTasks.requireSelectedRepository;
 import static com.bytequay.app.utils.Locks.withLock;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -172,7 +172,7 @@ public class CherryPickExecutionService
         }
 
         CherryPickPreview preview = previews.find(command.previewId())
-                .orElseThrow(() -> new CherryPickInvalidRequestException("Preview is unknown or expired; preview the range again"));
+                .orElseThrow(() -> new IllegalArgumentException("Preview is unknown or expired; preview the range again"));
         requireWorkspace(preview.workspaceId(), workspaceId);
         previews.requireTransferAllowed(Optional.of(preview.sourceRepository()), preview.repository());
         requireUnmoved(preview, command);
@@ -183,9 +183,7 @@ public class CherryPickExecutionService
         requireNoLiveExecution(preview, workspaceId);
         WorkspaceRepositoryContext workspace = workspaceRepositories.requireReadyRepository(workspaceId);
         RepositoryIdentity selectedRepository = new RepositoryIdentity(workspace.selectedRepository().owner(), workspace.selectedRepository().repo());
-        if (!workspace.repository().equals(repository) || !selectedRepository.equals(physicalRepository)) {
-            throw new CherryPickInvalidRequestException("Workspace repository routing changed before start");
-        }
+        checkArgument(workspace.repository().equals(repository) && selectedRepository.equals(physicalRepository), "Workspace repository routing changed before start");
 
         TaskId taskId = TaskId.random();
         String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), "Cherry-pick " + preview.targetBranch());
@@ -530,11 +528,11 @@ public class CherryPickExecutionService
 
     private void requireUnmoved(CherryPickPreview preview, StartCherryPickExecutionCommand command)
     {
-        if (!preview.sourceBaseSha().equals(command.expectedSourceBaseSha())
-                || !preview.sourceTipSha().equals(command.expectedSourceTipSha())
-                || !preview.targetSha().equals(command.expectedTargetSha())) {
-            throw new CherryPickInvalidRequestException("Preview is stale; review a refreshed preview before confirming");
-        }
+        checkArgument(
+                preview.sourceBaseSha().equals(command.expectedSourceBaseSha())
+                        && preview.sourceTipSha().equals(command.expectedSourceTipSha())
+                        && preview.targetSha().equals(command.expectedTargetSha()),
+                "Preview is stale; review a refreshed preview before confirming");
     }
 
     private void requireNoLiveExecution(CherryPickPreview preview, String workspaceId)
@@ -549,9 +547,7 @@ public class CherryPickExecutionService
 
     private static void requireWorkspace(String actualWorkspaceId, String expectedWorkspaceId)
     {
-        if (!actualWorkspaceId.equals(expectedWorkspaceId)) {
-            throw new CherryPickInvalidRequestException("Cherry-pick data does not belong to this workspace");
-        }
+        checkArgument(actualWorkspaceId.equals(expectedWorkspaceId), "Cherry-pick data does not belong to this workspace");
     }
 
     private static List<CherryPickItem> plan(CherryPickPreview preview, List<String> userSkipped)
@@ -560,9 +556,7 @@ public class CherryPickExecutionService
         for (String sha : skipped) {
             boolean eligible = preview.commits().stream()
                     .anyMatch(commit -> commit.sourceSha().equals(sha) && !commit.alreadyOnTarget());
-            if (!eligible) {
-                throw new CherryPickInvalidRequestException("Skipped commit is not an eligible commit in this preview: " + sha);
-            }
+            checkArgument(eligible, "Skipped commit is not an eligible commit in this preview: " + sha);
         }
         return preview.commits().stream()
                 .map(commit -> CherryPickItem.planned(
@@ -809,7 +803,7 @@ public class CherryPickExecutionService
             return workspacePaths.canonicalTaskWorktree(workspaceId, taskId.toString());
         }
         catch (IOException failure) {
-            throw new CherryPickInvalidRequestException("Managed repository path cannot be resolved");
+            throw new IllegalArgumentException("Managed repository path cannot be resolved");
         }
     }
 
@@ -967,9 +961,7 @@ public class CherryPickExecutionService
     public CherryPickExecution sendMessage(CherryPickExecutionId executionId, String message)
     {
         requireNonNull(message, "message is null");
-        if (message.isBlank() || message.length() > MAX_MESSAGE_CHARACTERS) {
-            throw new CherryPickInvalidRequestException("message must contain between 1 and " + MAX_MESSAGE_CHARACTERS + " characters");
-        }
+        checkArgument(!message.isBlank() && message.length() <= MAX_MESSAGE_CHARACTERS, "message must contain between 1 and " + MAX_MESSAGE_CHARACTERS + " characters");
         Lock lock = advanceLocks.get(executionId.toString());
         return withLock(lock, () -> {
             CherryPickExecution execution = get(executionId);

@@ -52,8 +52,24 @@ class TestAgentReview
     @Test
     void retainsLocalSourceWhenLinkingAPullRequest()
     {
-        AgentReview local = new AgentReview("review", "workspace", "owner/repo", OptionalInt.empty(), OptionalLong.empty(), "task", Optional.of("source"),
-                AgentReview.State.OPEN, false, Optional.of("run"), Optional.of("head"), Optional.of("aligned-head"), 4, NOW, NOW, Optional.empty());
+        AgentReview local = new AgentReview(
+                "review",
+                "workspace",
+                "owner/repo",
+                OptionalInt.empty(),
+                OptionalLong.empty(),
+                "task",
+                Optional.of("source"),
+                AgentReview.State.OPEN,
+                false,
+                Optional.of("run"),
+                Optional.of("head"),
+                Optional.of("aligned-head"),
+                4,
+                NOW,
+                NOW,
+                Optional.empty(),
+                Optional.empty());
         AgentReview linked = local.withPullRequest(42, OptionalLong.of(7), NOW.plusSeconds(1));
 
         assertThat(linked).usingRecursiveComparison().ignoringFields("number", "pullRequestId", "updatedAt").isEqualTo(local);

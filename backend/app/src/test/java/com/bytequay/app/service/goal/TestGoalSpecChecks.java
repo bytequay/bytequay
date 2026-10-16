@@ -54,10 +54,11 @@ class TestGoalSpecChecks
     private final ContextBuildService builds = mock(ContextBuildService.class);
     private final GoalConversationService conversation = mock(GoalConversationService.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+    private final SpecWorkItems specWorkItems = mock(SpecWorkItems.class);
     private final WorkItemService work = mock(WorkItemService.class);
     private final GoalSpecChecks specChecks = new GoalSpecChecks(goals, cards, beans.getBeanProvider(WorkItemService.class), beans.getBeanProvider(ContextSpecCheckService.class),
             beans.getBeanProvider(ContextBuildService.class), beans.getBeanProvider(GoalConversationService.class),
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            Clock.fixed(NOW, ZoneOffset.UTC), specWorkItems);
 
     @BeforeEach
     void setUp()
@@ -175,7 +176,7 @@ class TestGoalSpecChecks
                 local.state(), 1, local.links(), local.history(), NOW, NOW, local.priority(), 0, ImmutableList.of(), Optional.empty(), 0);
         when(work.list("workspace")).thenReturn(ImmutableList.of(local));
         assertThat(specChecks.gaps("workspace", "goal-1").getFirst().workItemId()).as("local work still offers Add to Goal").isEmpty();
-        when(checks.workItem("workspace", "check-1", "c-1")).thenReturn(local);
+        when(specWorkItems.save("workspace", "check-1", "c-1")).thenReturn(local);
         when(work.change(eq("workspace"), eq(id), any())).thenReturn(adopted);
         assertThat(specChecks.adopt("workspace", "goal-1", "c-1")).isEqualTo(adopted);
         when(work.list("workspace")).thenReturn(ImmutableList.of(adopted));

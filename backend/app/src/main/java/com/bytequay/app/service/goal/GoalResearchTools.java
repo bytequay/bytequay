@@ -77,7 +77,7 @@ public class GoalResearchTools
 
     public Optional<ReviewBridge> bridge(String taskId)
     {
-        return builds.findByTask(taskId).filter(build -> build.research().isPresent())
+        return builds.findByTask(taskId).filter(build -> build.work() instanceof ContextBuild.Research)
                 .flatMap(build -> tasks.find(TaskId.valueOf(taskId)).filter(task -> task.state() == TaskState.OPEN).map(this::bridge));
     }
 
@@ -102,8 +102,8 @@ public class GoalResearchTools
         ContextBuild authorized = service.authorize(taskId, turn);
         return WorkspaceOperationLocks.withLock(authorized.workspaceId(), () -> unitOfWork.execute(() -> {
             ContextBuild build = service.authorize(taskId, turn);
-            checkArgument(build.research().isPresent(), "This run is not a research run");
-            ContextBuild.Research research = build.research().orElseThrow();
+            checkArgument(build.work() instanceof ContextBuild.Research, "This run is not a research run");
+            ContextBuild.Research research = (ContextBuild.Research) build.work();
             long saved = build.capture().attempts().keySet().stream().filter(key -> key.startsWith(SAVED)).count();
             checkArgument(saved < MAX_NOTES, "This run already saved %s notes; end the run", MAX_NOTES);
             List<GoalKnowledgeNote.Source> sources = request.sources().stream().map(value -> source(build, value)).collect(toImmutableList());
@@ -129,7 +129,8 @@ public class GoalResearchTools
         String repository = value.substring(0, colon);
         String commit = value.substring(at + 1);
         boolean read = repository.equalsIgnoreCase(build.repository().fullName()) && commit.equals(build.baselineSha())
-                || build.research().orElseThrow().related().stream().anyMatch(related -> related.repository().equalsIgnoreCase(repository) && related.commit().equals(commit));
+                || ((ContextBuild.Research) build.work()).related().stream()
+                        .anyMatch(related -> related.repository().equalsIgnoreCase(repository) && related.commit().equals(commit));
         checkArgument(read, "sources: %s is not at a commit this run reads", value);
         return new GoalKnowledgeNote.Source(value.substring(0, at), Optional.of(commit));
     }

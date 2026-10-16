@@ -355,9 +355,24 @@ class TestLocalReviewService
         task = AgentTask.created(taskId, false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, task.taskWorktree().orElseThrow(),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
         when(tasks.get(taskId)).thenReturn(task);
-        AgentReview review = new AgentReview("review", "workspace", "owner/repo", OptionalInt.of(7),
-                OptionalLong.empty(), taskId.toString(), Optional.empty(), AgentReview.State.OPEN,
-                false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        AgentReview review = new AgentReview(
+                "review",
+                "workspace",
+                "owner/repo",
+                OptionalInt.of(7),
+                OptionalLong.empty(),
+                taskId.toString(),
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                Instant.EPOCH,
+                Instant.EPOCH,
+                Optional.empty(),
+                Optional.empty());
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         doAnswer(call -> {
             String prompt = call.getArgument(2);
@@ -467,8 +482,24 @@ class TestLocalReviewService
         task = AgentTask.created(taskId, false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, task.taskWorktree().orElseThrow(),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
         when(tasks.get(taskId)).thenReturn(task);
-        AgentReview review = new AgentReview("review", "workspace", "owner/repo", OptionalInt.of(7), OptionalLong.empty(), taskId.toString(), Optional.empty(),
-                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        AgentReview review = new AgentReview(
+                "review",
+                "workspace",
+                "owner/repo",
+                OptionalInt.of(7),
+                OptionalLong.empty(),
+                taskId.toString(),
+                Optional.empty(),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                Instant.EPOCH,
+                Instant.EPOCH,
+                Optional.empty(),
+                Optional.empty());
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         when(reviews.listReviews("workspace")).thenReturn(ImmutableList.of(review));
 
@@ -689,8 +720,24 @@ class TestLocalReviewService
 
     private static AgentReview review(String id, OptionalInt number, Optional<String> sourceTaskId)
     {
-        return new AgentReview(id, "workspace", "owner/repo", number, OptionalLong.empty(), "task-of-" + id, sourceTaskId, AgentReview.State.OPEN,
-                false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        return new AgentReview(
+                id,
+                "workspace",
+                "owner/repo",
+                number,
+                OptionalLong.empty(),
+                "task-of-" + id,
+                sourceTaskId,
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                Instant.EPOCH,
+                Instant.EPOCH,
+                Optional.empty(),
+                Optional.empty());
     }
 
     private static ReviewFinding finding(String id, String reviewId)

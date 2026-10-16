@@ -11,18 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.persistence.sqlite.converter;
+import { ipcRenderer } from 'electron';
 
-import com.bytequay.core.domain.Epic;
-import com.fasterxml.jackson.core.type.TypeReference;
-import jakarta.persistence.Converter;
-
-@Converter
-public class EpicConverter
-        extends JsonColumnConverter<Epic>
-{
-    EpicConverter()
-    {
-        super(new TypeReference<>() {}, "Epic", null, null);
-    }
+export function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
+  const receive = (_event: unknown, payload: T) => callback(payload);
+  ipcRenderer.on(channel, receive);
+  return () => { ipcRenderer.removeListener(channel, receive); };
 }

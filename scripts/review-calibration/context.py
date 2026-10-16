@@ -14,6 +14,7 @@ arguments, a path or what a tool returned. Model and effort come read-only from 
 
 from __future__ import annotations
 
+import monitor
 import argparse
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -181,7 +182,7 @@ def main():
     parser.add_argument("--database", type=Path, help="ByteQuay's database, read without writing (default: beside the runtime folder)")
     parser.add_argument("--save", type=Path, nargs="?", const=saved.FOLDER, metavar="FOLDER", help="Also save the calls as context.json for the dashboard")
     args = parser.parse_args()
-    made = table(args.runtime, args.database or args.runtime.parent / "bytequay-1.0.db", datetime.now(timezone.utc).timestamp())
+    made = table(args.runtime, args.database or args.runtime.parent / monitor.DATABASE.name, datetime.now(timezone.utc).timestamp())
     found = made["calls"]
     sent = [call["sent"] for call in found]
     print(f"{len(found):,} model calls in {len({(call['task'], call['turn']) for call in found}):,} turns; "

@@ -200,20 +200,13 @@ public class SelectedDocumentationReader
     private static List<String> pages(String text)
     {
         ImmutableList.Builder<String> pages = ImmutableList.builder();
-        int start = 0;
-        int bytes = 0;
-        for (int offset = 0; offset < text.length(); ) {
-            int codePoint = text.codePointAt(offset);
-            int width = codePoint <= 0x7F ? 1 : codePoint <= 0x7FF ? 2 : codePoint <= 0xFFFF ? 3 : 4;
-            if (bytes + width > PAGE_BYTES) {
-                pages.add(text.substring(start, offset));
-                start = offset;
-                bytes = 0;
-            }
-            bytes += width;
-            offset += Character.charCount(codePoint);
+        int offset = 0;
+        do {
+            String page = ContextText.prefix(text.substring(offset), PAGE_BYTES);
+            pages.add(page);
+            offset += page.length();
         }
-        pages.add(text.substring(start));
+        while (offset < text.length());
         return pages.build();
     }
 

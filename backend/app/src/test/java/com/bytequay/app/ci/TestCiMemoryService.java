@@ -31,6 +31,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.MockMakers;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -47,7 +48,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.withSettings;
 
 class TestCiMemoryService
 {
@@ -147,12 +150,9 @@ class TestCiMemoryService
         Path memory = taskResources(taskId).runtimeDirectory().resolve("ci-memory.md");
         String valid = Files.readString(memory);
 
-        CiMemoryService failingService = new CiMemoryService(
-                store,
-                new CiMemoryFile(resources, (target, markdown) -> {
-                    throw new IOException("simulated atomic replacement failure");
-                }),
-                Clock.fixed(NOW.plus(Duration.ofHours(1)), ZoneOffset.UTC));
+        CiMemoryFile files = mock(CiMemoryFile.class, withSettings().mockMaker(MockMakers.INLINE));
+        doThrow(new IOException("simulated atomic replacement failure")).when(files).write(any(), any());
+        CiMemoryService failingService = new CiMemoryService(store, files, Clock.fixed(NOW.plus(Duration.ofHours(1)), ZoneOffset.UTC));
         failingService.update(store.run.id());
 
         assertThat(Files.readString(memory)).isEqualTo(valid);
@@ -186,7 +186,7 @@ class TestCiMemoryService
                 HEAD,
                 HEAD,
                 BASE,
-                new Authorization(true, true, true, 3, NOW, NOW.plus(Duration.ofHours(8))),
+                new Authorization(NOW, NOW.plus(Duration.ofHours(8))),
                 NOW);
         return run.assignAgentTask(taskId.toString(), NOW.plusSeconds(1));
     }

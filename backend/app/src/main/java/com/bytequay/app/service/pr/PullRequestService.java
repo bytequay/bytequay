@@ -59,6 +59,7 @@ import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.AppSettingsStore;
+import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -133,6 +134,7 @@ public class PullRequestService
     private final GitHubAccountClient accounts;
     private final PullRequestStore store;
     private final PullRequestSnapshotService snapshots;
+    private final PrDetailStore details;
     private final PullRequestDetailFetcher detailFetcher;
     private final PrViewStateStore viewStateStore;
     private final RecentTouchRecorder recent;
@@ -153,6 +155,7 @@ public class PullRequestService
             GitHubAccountClient accounts,
             PullRequestStore store,
             PullRequestSnapshotService snapshots,
+            PrDetailStore details,
             PullRequestDetailFetcher detailFetcher,
             PrViewStateStore viewStateStore,
             RecentTouchRecorder recent,
@@ -172,6 +175,7 @@ public class PullRequestService
         this.accounts = requireNonNull(accounts, "accounts is null");
         this.store = requireNonNull(store, "store is null");
         this.snapshots = requireNonNull(snapshots, "snapshots is null");
+        this.details = requireNonNull(details, "details is null");
         this.detailFetcher = requireNonNull(detailFetcher, "detailFetcher is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.recent = requireNonNull(recent, "recent is null");
@@ -216,19 +220,19 @@ public class PullRequestService
     /** Reads the cached description the same way, so it is empty until a detail read has stored the pull request once. */
     public Optional<String> findStoredDescription(String repo, int number)
     {
-        return store.findIdByRepoAndNumber(repo, number).flatMap(snapshots::findStoredDetail).map(detail -> Optional.ofNullable(detail.raw().body()).orElse(""));
+        return store.findIdByRepoAndNumber(repo, number).flatMap(details::find).map(detail -> Optional.ofNullable(detail.raw().body()).orElse(""));
     }
 
     /** Reads cached avatar URLs without loading full details or contacting GitHub. */
     public Map<Long, String> findCachedAuthorAvatarUrls(Set<Long> prIds)
     {
-        return snapshots.findAuthorAvatarUrls(prIds);
+        return details.findAuthorAvatarUrls(prIds);
     }
 
     public Map<Long, PrActivitySummary> findCachedLatestActivities(List<PullRequest> pullRequests)
     {
         Set<Long> ids = pullRequests.stream().map(PullRequest::id).collect(toImmutableSet());
-        Map<Long, PrActivitySummary> activities = new HashMap<>(snapshots.findLatestActivities(ids));
+        Map<Long, PrActivitySummary> activities = new HashMap<>(details.findLatestActivities(ids));
         store.findActivities(ids).forEach((id, activity) -> activities.merge(id, activity, (cached, card) -> cached.timestamp().isAfter(card.timestamp()) ? cached : card));
         ImmutableMap.Builder<Long, PrActivitySummary> latest = ImmutableMap.builder();
         for (PullRequest pullRequest : pullRequests) {
@@ -254,7 +258,7 @@ public class PullRequestService
                 since.put(pullRequest.id(), anchor);
             }
         }
-        return snapshots.findCommitsAfter(since.buildOrThrow());
+        return details.findCommitsAfter(since.buildOrThrow());
     }
 
     /** Reads the last polled GitHub inbox, never GitHub itself. */
@@ -273,7 +277,7 @@ public class PullRequestService
                 .filter(pullRequest -> pullRequest.activityAt() == null || activityIsCurrent(pullRequest, snapshots.findFreshness(pullRequest.id()).checksAt()))
                 .map(PullRequest::id)
                 .collect(toImmutableSet());
-        return snapshots.findCheckRuns(failing).entrySet().stream()
+        return details.findCheckRuns(failing).entrySet().stream()
                 .collect(toImmutableMap(Map.Entry::getKey, entry -> PullRequestDetailMapper.failingCheckNames(entry.getValue())));
     }
 
@@ -840,7 +844,7 @@ public class PullRequestService
         String pat = credential.token();
         String login = credential.profile().login();
         Optional<PullRequest> previousRow = store.findIdByRepoAndNumber(ref.repoFullName(), ref.number()).flatMap(store::findById);
-        Optional<StoredPrDetail> previous = previousRow.flatMap(row -> snapshots.findStoredDetail(row.id()));
+        Optional<StoredPrDetail> previous = previousRow.flatMap(row -> details.find(row.id()));
         boolean missing = previous.isEmpty();
         PrDetailFreshness times = previousRow.map(row -> snapshots.findFreshness(row.id())).orElseGet(PrDetailFreshness::unknown);
         Instant now = clock.instant();
@@ -849,12 +853,12 @@ public class PullRequestService
         boolean missingCoordinates = previous.filter(detail -> detail.raw().headSha() == null || detail.raw().baseSha() == null).isPresent();
         boolean missingHead = previous.filter(detail -> detail.raw().headSha() == null || detail.raw().headSha().isBlank()).isPresent();
         boolean metadataDue = missing || force || metadataLag || missingHead || (!checksOnly && (missingCoordinates || expired(times.metadataAt(), freshness, now)
-                || snapshots.findDetailEtag(previousRow.orElseThrow().id()).isEmpty()));
+                || details.findEtag(previousRow.orElseThrow().id()).isEmpty()));
         PullRequest row = previousRow.orElse(null);
         StoredPrDetail detail = previous.orElse(null);
         boolean full = missing;
         if (metadataDue) {
-            Optional<String> etag = force || missing || missingCoordinates || missingHead ? Optional.empty() : snapshots.findDetailEtag(previousRow.orElseThrow().id());
+            Optional<String> etag = force || missing || missingCoordinates || missingHead ? Optional.empty() : details.findEtag(previousRow.orElseThrow().id());
             PullRequestFetch fetched = gitHub.getPullRequest(pat, ref, etag);
             PrRawDetail raw;
             if (fetched.pullRequest().isPresent()) {
@@ -874,7 +878,7 @@ public class PullRequestService
             detail = snapshots.saveMetadata(row.id(), raw, viewerCanWrite);
             // A metadata 304 must not restore an ETag invalidated by a concurrent user write.
             if (fetched.pullRequest().isPresent()) {
-                snapshots.updateDetailEtag(row.id(), fetched.etag());
+                details.updateEtag(row.id(), fetched.etag());
             }
         }
         PullRequest current = requireNonNull(row, "pull request is missing");
@@ -890,7 +894,7 @@ public class PullRequestService
         if ((!checksOnly || missing) && discussionDue) {
             // A quiet warm reconcile rarely finds anything new, so it asks with ETags first and skips every GraphQL read on 304s.
             // Refreshes someone waits for, opening included, still read everything: thread resolutions change no REST response.
-            Optional<DiscussionProbe> probe = warm && quiet ? Optional.of(gitHub.probeDiscussion(pat, ref, snapshots.findDiscussionEtags(current.id()))) : Optional.empty();
+            Optional<DiscussionProbe> probe = warm && quiet ? Optional.of(gitHub.probeDiscussion(pat, ref, details.findDiscussionEtags(current.id()))) : Optional.empty();
             if (probe.filter(DiscussionProbe::unchanged).isPresent()) {
                 detail = snapshots.saveDiscussion(current.id(), detail, sourceAt);
             }
@@ -899,7 +903,7 @@ public class PullRequestService
                 detail = snapshots.saveDiscussion(current.id(), fetched, sourceAt);
                 // Taken before the refetch, these ETags can only be older than what was saved; a partial save keeps none.
                 boolean complete = fetched.reviewsComplete() && fetched.timelineComplete();
-                probe.ifPresent(asked -> snapshots.updateDiscussionEtags(current.id(), complete ? asked.etags() : ImmutableMap.of()));
+                probe.ifPresent(asked -> details.updateDiscussionEtags(current.id(), complete ? asked.etags() : ImmutableMap.of()));
                 full = true;
             }
         }
@@ -1589,18 +1593,6 @@ public class PullRequestService
         viewStateStore.markReviewed(prId, handledAction(review), review.commitId(), Optional.ofNullable(review.submittedAt()).orElse(Instant.now()));
     }
 
-    /**
-     * Pure-logic version of the review→handled-action mapping, exposed
-     * package-private for unit tests. Returns the action implied by the
-     * current user's latest review, or {@code null} if no review remains after
-     * a dismissal.
-     */
-    static HandledAction deriveHandledActionFromReviews(List<PrReviewState> reviews, String currentLogin)
-    {
-        PrReviewState review = latestHandledReview(reviews, currentLogin);
-        return review == null ? null : handledAction(review);
-    }
-
     private static PrReviewState latestHandledReview(List<PrReviewState> reviews, String currentLogin)
     {
         if (currentLogin == null || reviews == null || reviews.isEmpty()) {
@@ -1704,7 +1696,7 @@ public class PullRequestService
     {
         // Keep the snapshot readable by a conditional refresh already in flight.
         store.findIdByRepoAndNumber(repo, number)
-                .ifPresent(prId -> snapshots.updateDetailEtag(prId, Optional.empty()));
+                .ifPresent(prId -> details.updateEtag(prId, Optional.empty()));
     }
 
     private void invalidatePullRequestCaches(String repo, int number)

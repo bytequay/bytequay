@@ -15,9 +15,9 @@ package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
 import com.bytequay.agent.cli.process.AgentPermissionManager;
+import com.bytequay.agent.cli.process.BuildCacheRoots;
 import com.bytequay.agent.cli.process.GitWorktreeWriteRoots;
 import com.bytequay.agent.cli.process.SecretRedactor;
-import com.bytequay.agent.cli.process.SessionWriteRoots;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -57,10 +57,10 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
+import com.google.common.io.Resources;
 import lombok.Builder;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -232,7 +232,18 @@ public final class PermissionBroker
         Path settingsFile = providerDirectory.resolve("sandbox-settings.json");
         Path childGateFile = providerDirectory.resolve("review-child-gate.sh");
         requireNonNull(codeQueries, "codeQueries is null");
-        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeQueries, access, true, environment, discussionContext, reviewContext);
+        PermissionContext context = resolveContext(
+                taskId,
+                worktree,
+                permissionPolicy,
+                approvals,
+                redactor.withSecret(token),
+                codeQueries,
+                access,
+                true,
+                environment,
+                discussionContext,
+                reviewContext);
         contexts.put(token, context);
         Optional<Path> childGate = (context.reviewChildren() || context.relatedWork().isPresent()) ? Optional.of(childGateFile) : Optional.empty();
         try {
@@ -283,23 +294,6 @@ public final class PermissionBroker
      * configuration, exposing its CI memory, graph, review, development, or local discussion capability. Empty
      * when the task has no local tools.
      */
-    public Optional<McpRegistration> registerTools(
-            String taskId,
-            Path worktree,
-            AgentPermissionPolicy permissionPolicy,
-            AgentApprovalHandler approvals,
-            SecretRedactor redactor,
-            Optional<CodeQueryBridge> codeQueries)
-    {
-        return registerTools(taskId, worktree, permissionPolicy, approvals, redactor, codeQueries, SessionAccess.FULL, Optional.empty());
-    }
-
-    public Optional<McpRegistration> registerTools(
-            String taskId, Path worktree, AgentPermissionPolicy permissionPolicy, AgentApprovalHandler approvals, SecretRedactor redactor,
-            Optional<CodeQueryBridge> codeQueries, SessionAccess access, Optional<DiscussionContextBridge> discussionContext)
-    {
-        return registerTools(taskId, worktree, permissionPolicy, approvals, redactor, codeQueries, access, discussionContext, Optional.empty());
-    }
 
     public Optional<McpRegistration> registerTools(
             String taskId, Path worktree, AgentPermissionPolicy permissionPolicy, AgentApprovalHandler approvals, SecretRedactor redactor,
@@ -1504,13 +1498,13 @@ public final class PermissionBroker
         boolean allowUnsandboxedRetry = access == SessionAccess.FULL
                 && (permissionPolicy == AgentPermissionPolicy.AUTO || permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX);
         ImmutableList.Builder<String> allowWrite = ImmutableList.builder();
-        allowWrite.addAll(SessionWriteRoots.buildCaches(scope, environment).stream().map(Path::toString).collect(toImmutableList()));
+        allowWrite.addAll(BuildCacheRoots.buildCaches(scope, environment).stream().map(Path::toString).collect(toImmutableList()));
         if (access == SessionAccess.FULL && !reviewSession
                 && Files.exists(worktree.resolve(".git"), LinkOption.NOFOLLOW_LINKS)) {
             List<String> gitRoots = GitWorktreeWriteRoots.writableRoots(worktree);
             allowWrite.addAll(gitRoots.subList(1, gitRoots.size()));
         }
-        allowWrite.addAll(SessionWriteRoots.temporary(scope, environment).stream().map(Path::toString).collect(toImmutableList()));
+        allowWrite.addAll(BuildCacheRoots.temporary(scope, environment).stream().map(Path::toString).collect(toImmutableList()));
         ImmutableMap.Builder<String, Object> sandbox = ImmutableMap.builder();
         sandbox.put("enabled", true)
                 .put("failIfUnavailable", true)
@@ -1520,7 +1514,7 @@ public final class PermissionBroker
                 .put("excludedCommands", ImmutableList.of())
                 .put("filesystem", ImmutableMap.of(
                         // Claude's private scratch allowance does not cover /tmp or macOS Java's host temp root.
-                        // ponytail: add a vetted root in BuildCacheRoots when a task toolchain needs one; SessionWriteRoots grants it.
+                        // ponytail: add a vetted root in BuildCacheRoots when a task toolchain needs one; BuildCacheRoots grants it.
                         "allowWrite", allowWrite.build(),
                         "denyRead", denyRead.build(),
                         // The task runtime directory holds the CI logs, the event log, and this
@@ -1588,9 +1582,8 @@ public final class PermissionBroker
 
     private static String readChildGateScript()
     {
-        try (InputStream script = PermissionBroker.class.getResourceAsStream("review-child-gate.sh")) {
-            requireNonNull(script, "review-child-gate.sh is missing from the agent-cli resources");
-            return new String(script.readAllBytes(), StandardCharsets.UTF_8);
+        try {
+            return Resources.toString(Resources.getResource(PermissionBroker.class, "review-child-gate.sh"), StandardCharsets.UTF_8);
         }
         catch (IOException e) {
             throw new UncheckedIOException("Cannot load the review child gate", e);

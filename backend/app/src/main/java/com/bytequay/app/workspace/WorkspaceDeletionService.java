@@ -22,7 +22,6 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.app.context.ContextSpecCheckService;
 import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
@@ -266,11 +265,7 @@ public class WorkspaceDeletionService
 
     private String output(Path repository, String... arguments)
     {
-        Result result = git.run(repository, arguments);
-        if (!result.successful() || result.truncated()) {
-            throw unsafeDirectory();
-        }
-        return result.output();
+        return git.run(repository, arguments).requireOutput(ignored -> unsafeDirectory());
     }
 
     private static void requireDirectory(Path path)

@@ -17,6 +17,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Ascii;
+import com.google.common.base.Enums;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -124,24 +125,14 @@ record ReviewLead(String path, OptionalInt line, Lens lens, Kind kind, String cl
         String path = item.path("path").asText("").strip();
         String claim = item.path("claim").asText("").strip();
         String ask = item.path("ask").asText("").strip();
-        Optional<Lens> lens = constant(Lens.class, item.path("lens").asText(""));
-        Optional<Kind> kind = constant(Kind.class, item.path("kind").asText(""));
+        Optional<Lens> lens = Enums.getIfPresent(Lens.class, item.path("lens").asText("").strip().toUpperCase(Locale.ROOT)).toJavaUtil();
+        Optional<Kind> kind = Enums.getIfPresent(Kind.class, item.path("kind").asText("").strip().toUpperCase(Locale.ROOT)).toJavaUtil();
         if (!item.isObject() || claim.isEmpty() || ask.isEmpty() || lens.isEmpty() || kind.isEmpty() || path.length() > MAX_PATH || path.contains("\n")) {
             return Optional.empty();
         }
         int line = item.path("line").asInt(0);
         return Optional.of(new ReviewLead(path, line > 0 && !path.isEmpty() ? OptionalInt.of(line) : OptionalInt.empty(), lens.orElseThrow(), kind.orElseThrow(),
                 bounded(claim), bounded(ask)));
-    }
-
-    private static <E extends Enum<E>> Optional<E> constant(Class<E> type, String name)
-    {
-        try {
-            return Optional.of(Enum.valueOf(type, name.strip().toUpperCase(Locale.ROOT)));
-        }
-        catch (IllegalArgumentException unknown) {
-            return Optional.empty();
-        }
     }
 
     private static String bounded(String text)

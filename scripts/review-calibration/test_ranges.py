@@ -54,14 +54,11 @@ class TestChange(unittest.TestCase):
         moved = ranges.change(before, since)
         self.assertTrue(ranges.clear(moved))
         self.assertTrue(moved[1] < 0)
-        self.assertEqual(ranges.change_in_words((-80.0, -60.0)), "It went down, clearly: by 60.0 to 80.0.")
-        self.assertEqual(ranges.change_in_words((5.0, 9.0), 0), "It went up, clearly: by 5 to 9.")
 
     def test_a_change_within_chance_is_not_clear_yet(self):
         before, since = ranges.Ratio((1, 9, 2, 8), (10,) * 4, 100), ranges.Ratio((2, 8, 1, 9), (10,) * 4, 100)
         moved = ranges.change(before, since)
         self.assertFalse(ranges.clear(moved))
-        self.assertEqual(ranges.change_in_words((-12.0, 3.5)), "Not clear yet: the change lies somewhere from -12.0 to +3.5.")
 
     def test_the_tasks_before_and_since_are_drawn_apart_and_never_paired(self):
         # Paired draws would see every task move by exactly one and call it clear; these are other tasks, so the spread of each side counts.
@@ -83,7 +80,6 @@ class TestChange(unittest.TestCase):
         self.assertIsNone(ranges.change(many, few))
         self.assertIsNone(ranges.change(None, many))
         self.assertFalse(ranges.clear(None))
-        self.assertEqual(ranges.change_in_words(None), "Too few tasks on one side to tell whether it changed.")
 
     def test_a_range_is_said_in_words(self):
         self.assertEqual((ranges.said((4.06, 6.94)), ranges.said((1200.4, 3000.6), 0), ranges.said(None)), ("4.1 to 6.9", "1,200 to 3,001", None))

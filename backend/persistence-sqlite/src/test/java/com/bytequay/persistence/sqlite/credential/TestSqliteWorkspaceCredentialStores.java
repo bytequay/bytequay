@@ -71,7 +71,7 @@ class TestSqliteWorkspaceCredentialStores
     {
         registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON");
         registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
-        registry.add("spring.jpa.database-platform", () -> "org.hibernate.community.dialect.SQLiteDialect");
+        registry.add("spring.jpa.database-platform", () -> "com.bytequay.persistence.sqlite.config.SqliteDialect");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "update");
     }
 
@@ -142,24 +142,6 @@ class TestSqliteWorkspaceCredentialStores
         assertThat(replacement.id()).isNotEqualTo(key.id());
         assertThat(apiKeys.findSecretById(key.id())).isEmpty();
         assertThat(apiKeys.findSecretById(replacement.id())).contains("sk-other");
-    }
-
-    @Test
-    void existingApiKeyReceivesPermanentId()
-    {
-        apiKeyRows.save(new ModelApiKeyEntity(null, "legacy-deepseek", "DeepSeek", cipher.encrypt("sk-legacy"), "sk-le••••••gacy", Instant.parse("2026-08-23T10:00:00Z")));
-
-        apiKeys.assignMissingIds();
-        String id = apiKeys.findAll().stream()
-                .filter(key -> key.alias().equals("legacy-deepseek"))
-                .findFirst().orElseThrow().id();
-        apiKeyRows.flush();
-        entityManager.clear();
-
-        assertThat(apiKeyRows.findById("legacy-deepseek").orElseThrow().getKeyId()).isEqualTo(id);
-        assertThat(apiKeys.findSecretById(id)).contains("sk-legacy");
-        apiKeys.assignMissingIds();
-        assertThat(apiKeys.findById(id)).isPresent();
     }
 
     @Test

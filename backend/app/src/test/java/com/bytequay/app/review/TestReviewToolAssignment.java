@@ -63,8 +63,24 @@ class TestReviewToolAssignment
     private final QueuedInputStore queue = mock(QueuedInputStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final ReviewToolAssignment assignments = new ReviewToolAssignment(turns, queue, reviews);
-    private final AgentReview review = new AgentReview(REVIEW_ID, "workspace", "acme/widgets", OptionalInt.of(1), OptionalLong.empty(), TASK_ID.toString(), Optional.empty(),
-            AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+    private final AgentReview review = new AgentReview(
+            REVIEW_ID,
+            "workspace",
+            "acme/widgets",
+            OptionalInt.of(1),
+            OptionalLong.empty(),
+            TASK_ID.toString(),
+            Optional.empty(),
+            AgentReview.State.OPEN,
+            false,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            0,
+            NOW,
+            NOW,
+            Optional.empty(),
+            Optional.empty());
     private ReviewRun run;
 
     @BeforeEach

@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import CopyLinkButton from './CopyLinkButton';
 import { useEffect, useState } from 'react';
 import LogoLoading from './LogoLoading';
 
@@ -202,18 +203,10 @@ export default function OnboardingScreen({ onSaved }: Props) {
 
 /** A shell command the user has to run themselves, with one-click copy. */
 function CommandToRun({ command }: { command: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    await navigator.clipboard.writeText(command);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
-  };
   return (
     <div className="onboarding__cmd">
       <code>{command}</code>
-      <button type="button" onClick={() => { void copy(); }}>
-        {copied ? 'Copied' : 'Copy'}
-      </button>
+      <CopyLinkButton value={command} label="command" />
     </div>
   );
 }

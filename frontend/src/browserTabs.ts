@@ -100,23 +100,21 @@ export class BrowserTabs {
 
   pin(id: string, pinned: boolean): void {
     if (typeof pinned !== 'boolean') throw new Error('Invalid pinned state.');
-    const tab = this.requireTab(id);
-    const previous = tab.state.pinned;
-    tab.state.pinned = pinned;
-    try { this.save(); }
-    catch (error) { tab.state.pinned = previous; throw error; }
-    this.emit();
+    this.persist(id, { pinned });
   }
 
   /** A page keeps the name the user gave it while its own title changes underneath. */
   rename(id: string, name: unknown): void {
     if (typeof name !== 'string') throw new Error('Invalid page name.');
-    const next = name.trim();
+    this.persist(id, { name: name.trim() || null });
+  }
+
+  private persist(id: string, update: Partial<Pick<Tab['state'], 'pinned' | 'name'>>): void {
     const tab = this.requireTab(id);
-    const previous = tab.state.name;
-    tab.state.name = next === '' ? null : next;
+    const previous = tab.state;
+    tab.state = { ...previous, ...update };
     try { this.save(); }
-    catch (error) { tab.state.name = previous; throw error; }
+    catch (error) { tab.state = previous; throw error; }
     this.emit();
   }
 
@@ -147,12 +145,7 @@ export class BrowserTabs {
   }
 
   setBounds(id: string, target: unknown): void {
-    const window = this.window();
-    if (!window || window.isDestroyed()) return;
-    const bounds = browserBounds(target, window);
-    if (this.activeTabId !== id || this.surface?.id !== id) return;
-    this.surface.bounds = bounds;
-    this.present();
+    if (this.surface?.id === id) this.mount(id, target);
   }
 
   unmount(id: string): void {

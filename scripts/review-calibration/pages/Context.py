@@ -43,11 +43,7 @@ def fills_figure(rows, mode):
     return charts.bar_list(figure, 28 * len(shown) + 20).update_xaxes(range=[0, 1.2 * shown[0]["caused"] / 1e6])
 
 
-st.set_page_config(page_title="ByteQuay Lab", layout="wide")
-# Started any other way, Streamlit would serve the page to the whole network.
-if st.get_option("server.address") != dashboard.HOST:
-    st.error("This page is only shown to this machine. Start it with `uv run dashboard.py`")
-    st.stop()
+dashboard.start_page()
 arguments = argparse.ArgumentParser(add_help=False)
 arguments.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER)
 FOLDER = arguments.parse_known_args()[0].folder

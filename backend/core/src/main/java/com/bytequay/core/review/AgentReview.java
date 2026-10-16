@@ -76,28 +76,6 @@ public record AgentReview(
         checkArgument((state == State.CLOSED) == closedAt.isPresent(), "closedAt and state disagree");
     }
 
-    public AgentReview(
-            String id,
-            String workspaceId,
-            String repo,
-            OptionalInt number,
-            OptionalLong pullRequestId,
-            String taskId,
-            Optional<String> sourceTaskId,
-            State state,
-            boolean followUpPaused,
-            Optional<String> latestCompletedRunId,
-            Optional<String> observedHeadSha,
-            Optional<String> worktreeHeadSha,
-            long version,
-            Instant createdAt,
-            Instant updatedAt,
-            Optional<Instant> closedAt)
-    {
-        this(id, workspaceId, repo, number, pullRequestId, taskId, sourceTaskId, state, followUpPaused, latestCompletedRunId, observedHeadSha, worktreeHeadSha,
-                version, createdAt, updatedAt, closedAt, Optional.empty());
-    }
-
     public AgentReview withVersion(long updatedVersion)
     {
         return toBuilder().version(updatedVersion).build();

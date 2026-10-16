@@ -29,7 +29,6 @@ import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.cherrypick.CherryPickExecution.Range;
 import com.bytequay.core.cherrypick.CherryPickExecution.Workspace;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
@@ -157,7 +156,7 @@ class TestCherryPickExecutionHttpApi
     void mapsAStalePreviewToBadRequestAndALiveExecutionToConflict()
             throws Exception
     {
-        doThrow(new CherryPickInvalidRequestException("Preview is stale"))
+        doThrow(new IllegalArgumentException("Preview is stale"))
                 .when(service).start(any(), any(), any(), any());
         mvc.perform(post("/api/workspaces/workspace-id/cherry-pick/executions")
                         .header(AgentController.SESSION_HEADER, SESSION)

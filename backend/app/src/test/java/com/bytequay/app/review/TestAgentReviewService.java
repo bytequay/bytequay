@@ -2813,6 +2813,7 @@ class TestAgentReviewService
                 0,
                 NOW,
                 NOW,
+                Optional.empty(),
                 Optional.empty()));
         when(fixture.turns.get(TURN_ONE)).thenReturn(AgentTurn.accepted(TURN_ONE, TASK_ID, "review-run", SETTINGS, NOW));
 
@@ -2991,9 +2992,24 @@ class TestAgentReviewService
         Fixture fixture = rewrittenHistory();
         AutoCheckout checkout = new AutoCheckout(fixture);
         AgentReview review = fixture.store.listOpenReviews().getFirst();
-        fixture.store.updateReview(new AgentReview(review.id(), review.workspaceId(), review.repo(), review.number(), review.pullRequestId(), review.taskId(),
-                Optional.of("development-task"), review.state(), review.followUpPaused(), review.latestCompletedRunId(), review.observedHeadSha(), review.worktreeHeadSha(),
-                review.version(), review.createdAt(), review.updatedAt(), review.closedAt()));
+        fixture.store.updateReview(new AgentReview(
+                review.id(),
+                review.workspaceId(),
+                review.repo(),
+                review.number(),
+                review.pullRequestId(),
+                review.taskId(),
+                Optional.of("development-task"),
+                review.state(),
+                review.followUpPaused(),
+                review.latestCompletedRunId(),
+                review.observedHeadSha(),
+                review.worktreeHeadSha(),
+                review.version(),
+                review.createdAt(),
+                review.updatedAt(),
+                review.closedAt(),
+                Optional.empty()));
 
         fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
         fixture.service.reconcile(review.id());
@@ -3624,7 +3640,6 @@ class TestAgentReviewService
                     drafts,
                     publications,
                     tasks,
-                    events,
                     turns,
                     turnStore,
                     queueStore,

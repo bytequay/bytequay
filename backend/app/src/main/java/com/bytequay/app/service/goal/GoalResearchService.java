@@ -187,7 +187,7 @@ public class GoalResearchService
     /** Settles the card when its run ends, and tells the goal's agent what a finished run saved. Never throws: the run's cleanup follows. */
     public void finish(ContextBuild build, boolean completed)
     {
-        ContextBuild.Research research = build.research().orElseThrow();
+        ContextBuild.Research research = ((ContextBuild.Research) build.work());
         try {
             synchronized (this) {
                 recommendations.find(research.researchId())
@@ -302,7 +302,7 @@ public class GoalResearchService
 
     public static String prompt(ContextBuild build)
     {
-        ContextBuild.Research research = build.research().orElseThrow();
+        ContextBuild.Research research = ((ContextBuild.Research) build.work());
         StringBuilder prompt = new StringBuilder("Research what a learner needs for the goal \"").append(research.goalTitle()).append('"')
                 .append(research.objective().isBlank() ? "" : ": " + research.objective()).append("\nThis worktree is ").append(build.repository().fullName())
                 .append(" at ").append(build.baselineSha()).append(".\nScope: ").append(research.scope()).append('\n');

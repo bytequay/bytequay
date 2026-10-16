@@ -190,7 +190,6 @@
 
 @container rcp (max-width: 600px) {
   .rcp-scroll { padding: 22px 20px 140px; }
-  .rcp-limits { left: 20px; }
 }
 
 /* Remember for <path> beside a spec finding's dismissal: the user's words become a rule for that file. */
@@ -199,3 +198,5 @@
 .rcp-remember code { font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
 .rcp-remember__rule { box-sizing: border-box; width: 100%; border: 1px solid #d0d7de; border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px;
   resize: vertical; }
+
+summary.rcp-how, summary.rcp-spec-toggle { display: list-item; }

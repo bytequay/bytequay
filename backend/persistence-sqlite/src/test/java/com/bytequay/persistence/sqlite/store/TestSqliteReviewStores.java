@@ -114,8 +114,24 @@ class TestSqliteReviewStores
     @Test
     void retainsDevelopmentSourceWithoutAPullRequest()
     {
-        AgentReview review = new AgentReview("local-review", "workspace-a", "bytequay/sample", OptionalInt.empty(), OptionalLong.empty(), "reviewer",
-                Optional.of("developer"), AgentReview.State.OPEN, false, Optional.empty(), Optional.of(HEAD_SHA), Optional.of(HEAD_SHA), 0, NOW, NOW, Optional.empty());
+        AgentReview review = new AgentReview(
+                "local-review",
+                "workspace-a",
+                "bytequay/sample",
+                OptionalInt.empty(),
+                OptionalLong.empty(),
+                "reviewer",
+                Optional.of("developer"),
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.of(HEAD_SHA),
+                Optional.of(HEAD_SHA),
+                0,
+                NOW,
+                NOW,
+                Optional.empty(),
+                Optional.empty());
         store.insertReview(review);
         entityManager.flush();
         entityManager.clear();
@@ -544,6 +560,7 @@ class TestSqliteReviewStores
                 0,
                 createdAt,
                 createdAt,
+                Optional.empty(),
                 Optional.empty());
     }
 

@@ -120,7 +120,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
-import static java.lang.Math.toIntExact;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -233,14 +232,10 @@ class TestCiAutofixService
         when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspaceContext());
         when(provisioning.synchronizeCode("workspace-1")).thenReturn(new WorkspaceCodeSyncResult("workspace-1", true, Optional.of(NOW)));
         when(gitHub.inspect(any())).thenReturn(snapshot);
-        when(gitHub.readLog(any())).thenReturn(new BoundedCiLog(
-                Optional.of(new com.bytequay.agent.core.BlobRef(runtime.relativize(log).toString(), "text/plain", Files.size(log))),
-                toIntExact(Files.size(log)),
-                false,
-                false,
-                false,
-                ImmutableList.of("error: compilation failed"),
-                Optional.empty(), Optional.empty(), true));
+        when(gitHub.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(new com.bytequay.agent.core.BlobRef(
+                runtime.relativize(log).toString(),
+                "text/plain",
+                Files.size(log))), false, ImmutableList.of("error: compilation failed"), Optional.empty(), Optional.empty(), true));
         when(worktreeService.inspect(any())).thenAnswer(invocation -> new WorktreeSnapshot(invocation.getArgument(0), HEAD, false, false, false));
         when(taskService.create(any())).thenAnswer(invocation -> task(invocation.getArgument(0)));
         when(taskService.get(any())).thenAnswer(invocation -> {
@@ -552,20 +547,6 @@ class TestCiAutofixService
         assertThat(inspection.getValue().baseSha()).isEqualTo(BASE);
         assertThat(run.pushJournal()).isPresent();
         verify(rebaseService, times(2)).start(any());
-    }
-
-    @Test
-    void rejectsMissingConsentAndInvalidAttemptLimitsBeforeReadingGitHub()
-    {
-        StartCiAutofixCommand missingConsent = new StartCiAutofixCommand("workspace-1", PULL_REQUEST.number(), AgentLaneId.CLAUDE_CLI, 3, true, false, true, "missing-consent");
-
-        assertThatThrownBy(() -> service.start(missingConsent))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("consent");
-        assertThatThrownBy(() -> service.start(new StartCiAutofixCommand("workspace-1", PULL_REQUEST.number(), AgentLaneId.CLAUDE_CLI, 4, true, true, true, "too-many")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("between 1 and 3");
-        verify(gitHub, never()).inspect(any());
     }
 
     @Test
@@ -966,7 +947,7 @@ class TestCiAutofixService
     void rejectsARepeatedStartKeyFromAnotherWorkspace()
     {
         service.start(startCommand("workspace-key"));
-        StartCiAutofixCommand wrongWorkspace = new StartCiAutofixCommand("workspace-2", PULL_REQUEST.number(), AgentLaneId.CLAUDE_CLI, 3, true, true, true, "workspace-key");
+        StartCiAutofixCommand wrongWorkspace = new StartCiAutofixCommand("workspace-2", PULL_REQUEST.number(), AgentLaneId.CLAUDE_CLI, "workspace-key");
 
         assertThatThrownBy(() -> service.start(wrongWorkspace))
                 .isInstanceOf(CiAutofixConflictException.class)
@@ -1965,7 +1946,6 @@ class TestCiAutofixService
         CiAutofixRun run = service.startDevelopment(startCommand("development"), parent.id(), source, publishedPr(), activated);
         assertThat(run.authorization().authorizedAt()).isEqualTo(activated);
         assertThat(run.authorization().expiresAt()).isEqualTo(activated.plus(Duration.ofHours(8)));
-        assertThat(run.authorization().maxFixAttempts()).isEqualTo(3);
         assertThat(service.startDevelopment(startCommand("development"), parent.id(), source, publishedPr(), NOW).authorization()).isEqualTo(run.authorization());
         assertThatThrownBy(() -> service.start(startCommand("development"))).isInstanceOf(CiAutofixConflictException.class);
         verify(taskService).create(any());
@@ -2286,7 +2266,7 @@ class TestCiAutofixService
 
     private StartCiAutofixCommand startCommand(String key, AgentLaneId lane)
     {
-        return new StartCiAutofixCommand("workspace-1", PULL_REQUEST.number(), lane, 3, true, true, true, key);
+        return new StartCiAutofixCommand("workspace-1", PULL_REQUEST.number(), lane, key);
     }
 
     private WorktreeSnapshot worktree(boolean dirty, String head)

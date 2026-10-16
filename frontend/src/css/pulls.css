@@ -653,9 +653,6 @@
 .pull-detail__pr-tab.is-merged > svg { color: #8250df; }
 .pull-detail__pr-tab.is-closed > svg { color: #cf222e; }
 .pull-detail__pr-tab.is-draft > svg { color: #6e7781; }
-.pull-detail__change-count { border-radius: 999px; padding: 1px 7px; font-size: 10.5px; font-weight: 700; }
-.pull-detail__change-count.is-addition { background: #dafbe1; color: #1a7f37; }
-.pull-detail__change-count.is-deletion { background: #ffebe9; color: #cf222e; }
 
 .pull-detail__body { display: flex; width: 100%; min-height: 0; flex: 1; flex-direction: column; overflow-y: auto; }
 .pull-detail__body > * { flex-shrink: 0; }

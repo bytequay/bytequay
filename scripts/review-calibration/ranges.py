@@ -168,14 +168,3 @@ def clear(moved):
 def said(found, digits=1):
     """A range as words, such as "4.1 to 6.9"; None when there is none."""
     return None if found is None else f"{found[0]:,.{digits}f} to {found[1]:,.{digits}f}"
-
-
-def change_in_words(moved, digits=1):
-    """What a change amounts to, as a reader would say it."""
-    if moved is None:
-        return "Too few tasks on one side to tell whether it changed."
-    if moved[1] < 0:
-        return f"It went down, clearly: by {-moved[1]:,.{digits}f} to {-moved[0]:,.{digits}f}."
-    if moved[0] > 0:
-        return f"It went up, clearly: by {moved[0]:,.{digits}f} to {moved[1]:,.{digits}f}."
-    return f"Not clear yet: the change lies somewhere from {moved[0]:+,.{digits}f} to {moved[1]:+,.{digits}f}."

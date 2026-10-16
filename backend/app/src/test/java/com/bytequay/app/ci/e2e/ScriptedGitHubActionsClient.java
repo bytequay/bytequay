@@ -121,14 +121,7 @@ final class ScriptedGitHubActionsClient
         checkState(scripted != null, "No GitHub Actions log scripted for " + key.identity());
         int length = Math.min(scripted.content().length, query.maximumBytes());
         BlobRef blob = logs.writeBlob(query.taskId(), ByteBuffer.wrap(Arrays.copyOf(scripted.content(), length)), "text/plain");
-        return new BoundedCiLog(
-                Optional.of(blob),
-                length,
-                scripted.content().length > length,
-                false,
-                false,
-                scripted.terminalErrorLines(),
-                Optional.empty(), Optional.empty(), true);
+        return new BoundedCiLog(Optional.of(blob), false, scripted.terminalErrorLines(), Optional.empty(), Optional.empty(), true);
     }
 
     @Override

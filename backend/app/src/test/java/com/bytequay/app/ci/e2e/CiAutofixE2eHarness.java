@@ -29,6 +29,7 @@ import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
+import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.scheduler.WorkflowMonitorJob;
 import com.bytequay.app.web.agent.AgentController;
 import com.bytequay.app.workspace.WorkspacePaths;
@@ -233,42 +234,16 @@ final class CiAutofixE2eHarness
     StartResult start(Fixture fixture, String idempotencyKey)
             throws Exception
     {
-        MvcResult result = mvc.perform(post("/api/ci-autofix/runs")
-                        .header(AgentController.SESSION_HEADER, SESSION)
-                        .header("Idempotency-Key", idempotencyKey)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(startBody(fixture)))
-                .andExpect(status().isCreated())
-                .andReturn();
-        JsonNode response = objectMapper.readTree(result.getResponse().getContentAsByteArray());
-        CiAutofixRunId runId = CiAutofixRunId.valueOf(response.required("id").textValue());
-        startedRuns.add(runId);
-        return new StartResult(runId, response);
-    }
-
-    int startStatus(Fixture fixture, String idempotencyKey, boolean allowFailedJobReruns, boolean allowHistoryRewrites, boolean allowExactLeasePush)
-            throws Exception
-    {
-        return mvc.perform(post("/api/ci-autofix/runs")
-                        .header(AgentController.SESSION_HEADER, SESSION)
-                        .header("Idempotency-Key", idempotencyKey)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(startBody(fixture, allowFailedJobReruns, allowHistoryRewrites, allowExactLeasePush)))
-                .andReturn()
-                .getResponse()
-                .getStatus();
+        CiAutofixRun run = service.start(new StartCiAutofixCommand(
+                fixture.workspaceId(), fixture.repository().pullRequest().number(), ScriptedAgentDriver.LANE, idempotencyKey));
+        startedRuns.add(run.id());
+        return new StartResult(run.id(), getResponse(run.id()));
     }
 
     int startWithoutSession()
             throws Exception
     {
-        return mvc.perform(post("/api/ci-autofix/runs")
-                        .header("Idempotency-Key", "missing-session-" + UUID.randomUUID())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andReturn()
-                .getResponse()
-                .getStatus();
+        return mvc.perform(get("/api/ci-autofix/runs")).andReturn().getResponse().getStatus();
     }
 
     void tick()
@@ -307,11 +282,8 @@ final class CiAutofixE2eHarness
     JsonNode cancel(CiAutofixRunId runId)
             throws Exception
     {
-        MvcResult result = mvc.perform(post("/api/ci-autofix/runs/{runId}/cancel", runId)
-                        .header(AgentController.SESSION_HEADER, SESSION))
-                .andExpect(status().isOk())
-                .andReturn();
-        return objectMapper.readTree(result.getResponse().getContentAsByteArray());
+        service.cancel(runId);
+        return getResponse(runId);
     }
 
     JsonNode sendMessage(CiAutofixRunId runId, String idempotencyKey, String message)
@@ -387,25 +359,6 @@ final class CiAutofixE2eHarness
         catch (IOException e) {
             return ImmutableList.of("runtime files unavailable: " + e.getClass().getSimpleName());
         }
-    }
-
-    private String startBody(Fixture fixture)
-            throws Exception
-    {
-        return startBody(fixture, true, true, true);
-    }
-
-    private String startBody(Fixture fixture, boolean allowFailedJobReruns, boolean allowHistoryRewrites, boolean allowExactLeasePush)
-            throws Exception
-    {
-        return objectMapper.writeValueAsString(ImmutableMap.of(
-                "workspaceId", fixture.workspaceId(),
-                "pullRequestNumber", fixture.repository().pullRequest().number(),
-                "laneId", ScriptedAgentDriver.LANE.toString(),
-                "maxAttempts", 3,
-                "allowFailedJobReruns", allowFailedJobReruns,
-                "allowHistoryRewrites", allowHistoryRewrites,
-                "allowExactLeasePush", allowExactLeasePush));
     }
 
     private long seedPullRequest(E2eGitRepository repository)

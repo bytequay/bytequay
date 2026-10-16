@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { clock } from '../displayText';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   DevelopmentAutomationDto,
@@ -44,10 +45,6 @@ import {
 import { isWorkspaceSection, settingsLocationFromRoute, type SettingsSection } from './routes';
 import '../css/settings-window.css';
 
-function clockTime(at: Date): string {
-  return at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
 export default function SettingsWindow({ section, workspace, onWorkspacesChanged }: {
   section: SettingsSection;
   /** Resolved by the shell, because its sidebar owns the workspace picker. */
@@ -69,7 +66,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const [modelsScope, setModelsScope] = useState<string | undefined>(undefined);
   const [models, setModels] = useState<ModelSettingsDto | null>(null);
   const [checking, setChecking] = useState(false);
-  const checkedAt = models?.checkedAt ? clockTime(new Date(models.checkedAt)) : null;
+  const checkedAt = models?.checkedAt ? clock(new Date(models.checkedAt)) : null;
   const modelRequest = useRef(0);
   const [skills, setSkills] = useState<AgentSkillDto[] | null>(null);
   const [skillsBusy, setSkillsBusy] = useState(false);

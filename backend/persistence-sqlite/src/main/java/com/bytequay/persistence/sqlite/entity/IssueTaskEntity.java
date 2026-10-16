@@ -65,10 +65,6 @@ public class IssueTaskEntity
     @Column(name = "source_updated_at", nullable = false)
     private Instant sourceUpdatedAt;
 
-    // Existing SQLite rows require this column; never expose or reuse its former wrapped prompt.
-    @Column(name = "initial_context", nullable = false, columnDefinition = "TEXT")
-    private String initialContext;
-
     @Column(columnDefinition = "TEXT")
     private String instructions;
 
@@ -92,7 +88,6 @@ public class IssueTaskEntity
         body = source.body();
         sourceUpdatedAt = source.updatedAt();
         instructions = task.instructions().orElse(null);
-        initialContext = task.instructions().orElse("");
         createdAt = task.createdAt();
     }
 

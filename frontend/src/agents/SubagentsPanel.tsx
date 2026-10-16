@@ -12,11 +12,12 @@
  * limitations under the License.
  */
 
+import { clock, shortDate } from '../displayText';
 import { CircleCheck, CircleX } from 'lucide-react';
 import { Chevron } from '../Chevron';
 import type { AgentChildSummaryDto } from '../types';
 import { AgentMark } from './AgentMark';
-import { BlockView, clock, Glyph, shortDate, Spinner, type ApprovalDecider } from './AgentConversation';
+import { BlockView, Glyph, Spinner, type ApprovalDecider } from './AgentConversation';
 import { renderMarkdown } from './markdown';
 import { activeAgents, agentDisplayName, formatDuration, type AgentNode, type TranscriptTurn } from './transcript';
 

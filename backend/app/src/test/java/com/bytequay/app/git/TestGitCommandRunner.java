@@ -26,6 +26,7 @@ import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestGitCommandRunner
 {
@@ -135,6 +136,18 @@ class TestGitCommandRunner
         assertThat(bounded.successful()).isTrue();
         assertThat(bounded.truncated()).isTrue();
         assertThat(bounded.output()).isEqualTo("1 1 0 C\n");
+    }
+
+    @Test
+    void requiresCompleteSuccessfulOutputAndPreservesItsBytes()
+    {
+        assertThat(new GitCommandRunner.Result(0, " path \0\n", false).requireOutput(IllegalStateException::new)).isEqualTo(" path \0\n");
+        assertThatThrownBy(() -> new GitCommandRunner.Result(0, "partial", true).requireOutput(IllegalStateException::new))
+                .isInstanceOf(IllegalStateException.class).hasMessage("Git output was truncated");
+        assertThatThrownBy(() -> new GitCommandRunner.Result(2, " failure\n", false).requireOutput(IllegalArgumentException::new))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("failure");
+        assertThatThrownBy(() -> new GitCommandRunner.Result(2, "", false).requireOutput(IllegalStateException::new))
+                .hasMessage("Git exited with status 2");
     }
 
     private static void git(Path directory, String... arguments)

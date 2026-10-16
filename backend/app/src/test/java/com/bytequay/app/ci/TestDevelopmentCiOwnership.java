@@ -144,7 +144,7 @@ class TestDevelopmentCiOwnership
         return CiAutofixRun.create(CiAutofixRunId.random(), "fork-ci",
                 new CiAutofixRun.Scope(PullRequestRef.of(BASE.owner(), BASE.repo(), 1), headRepository, "workspace", FORK, "author",
                         source.taskWorktree().orElseThrow().generatedBranch(), "main", AgentLaneId.CLAUDE_CLI.toString(), parent),
-                HEAD, HEAD, "b".repeat(40), new CiAutofixRun.Authorization(true, true, true, 3, NOW, NOW.plus(Duration.ofHours(8))), NOW);
+                HEAD, HEAD, "b".repeat(40), new CiAutofixRun.Authorization(NOW, NOW.plus(Duration.ofHours(8))), NOW);
     }
 
     private TurnId reserveParent(AgentTask parent)

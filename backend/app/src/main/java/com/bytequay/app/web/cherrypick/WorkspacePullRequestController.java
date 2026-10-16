@@ -20,7 +20,6 @@ import com.bytequay.app.workspace.WorkspacePullRequestService.PullRequestResult;
 import com.bytequay.app.workspace.WorkspacePullRequestService.PushCommand;
 import com.bytequay.app.workspace.WorkspacePullRequestService.PushResult;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
-import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -64,7 +63,7 @@ public final class WorkspacePullRequestController
             return CherryPickExecutionId.valueOf(value);
         }
         catch (IllegalArgumentException failure) {
-            throw new CherryPickInvalidRequestException("executionId is not a valid identifier");
+            throw new IllegalArgumentException("executionId is not a valid identifier");
         }
     }
 }

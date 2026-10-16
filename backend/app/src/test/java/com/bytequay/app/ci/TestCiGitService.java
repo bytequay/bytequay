@@ -212,12 +212,12 @@ class TestCiGitService
         write(fixture.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
         commit(fixture.worktree(), "fixup! Target change");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
-        PushCiHeadCommand command = push(fixture, inspection, 0, authorization(true));
+        PushCiHeadCommand command = push(fixture, inspection, 0, authorization());
 
         CiPushResult pushed = service().push(command);
         write(fixture.worktree().resolve("later.txt"), "later local work\n");
         commit(fixture.worktree(), "Later local change");
-        Authorization expired = new Authorization(true, true, true, 3, NOW.minusSeconds(120), NOW.minusSeconds(60));
+        Authorization expired = new Authorization(NOW.minusSeconds(120), NOW.minusSeconds(60));
         CiPushResult reconciled = service().push(new PushCiHeadCommand(fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, expired, command.journal()));
 
         assertThat(pushed.outcome()).isEqualTo(PUSHED);
@@ -237,7 +237,7 @@ class TestCiGitService
         commit(fixture.worktree(), "fixup! Target change");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
 
-        CiPushResult pushed = service().push(push(fixture, inspection, 0, authorization(true)));
+        CiPushResult pushed = service().push(push(fixture, inspection, 0, authorization()));
 
         assertThat(pushed.outcome()).isEqualTo(PUSHED);
         assertThat(remoteHead(fixture)).isEqualTo(inspection.localHead().orElseThrow());
@@ -288,7 +288,7 @@ class TestCiGitService
         assertThat(inspection.outcome()).isEqualTo(READY);
         gitFailure(worktree, "merge-base", "--is-ancestor", original, inspection.localHead().orElseThrow());
 
-        CiPushResult result = service.push(push(fixture, inspection, 0, authorization(true)));
+        CiPushResult result = service.push(push(fixture, inspection, 0, authorization()));
 
         assertThat(result.outcome()).isEqualTo(PUSHED);
         assertThat(remoteHead(fixture)).isEqualTo(inspection.localHead().orElseThrow());
@@ -298,17 +298,9 @@ class TestCiGitService
     }
 
     @Test
-    void rejectsUnauthorizedRewriteAndStaleLease()
+    void rejectsStaleLease()
             throws IOException
     {
-        Repository rewrite = repository("rewrite-rejected");
-        git(rewrite.worktree(), "reset", "--hard", rewrite.baseSha());
-        write(rewrite.worktree().resolve("source.txt"), "rewritten\n");
-        commit(rewrite.worktree(), "Target change");
-        CiGitInspection rewritten = service().inspectAgentResult(inspect(rewrite));
-        assertThat(service().push(push(rewrite, rewritten, 0, authorization(false))).outcome())
-                .isEqualTo(REJECTED);
-
         Repository stale = repository("stale");
         write(stale.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
         commit(stale.worktree(), "fixup! Target change");
@@ -319,7 +311,7 @@ class TestCiGitService
         git(stale.worktree(), "push", stale.remote().toString(), "HEAD:refs/heads/" + HEAD_REF);
         git(stale.worktree(), "switch", HEAD_REF);
 
-        assertThat(service().push(push(stale, local, 0, authorization(true))).outcome())
+        assertThat(service().push(push(stale, local, 0, authorization())).outcome())
                 .isEqualTo(STALE);
     }
 
@@ -335,9 +327,9 @@ class TestCiGitService
         write(hook, "#!/bin/sh\nexit 1\n");
         assertThat(hook.toFile().setExecutable(true)).isTrue();
 
-        assertThat(service().push(push(fixture, inspection, 0, authorization(true))).outcome())
+        assertThat(service().push(push(fixture, inspection, 0, authorization())).outcome())
                 .isEqualTo(RETRYABLE);
-        assertThat(service().push(push(fixture, inspection, 1, authorization(true))).outcome())
+        assertThat(service().push(push(fixture, inspection, 1, authorization())).outcome())
                 .isEqualTo(REJECTED);
         assertThat(remoteHead(fixture)).isEqualTo(fixture.inputSha());
     }
@@ -351,14 +343,11 @@ class TestCiGitService
         commit(fixture.worktree(), "fixup! Target change");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
 
-        Authorization noPush = new Authorization(true, true, false, 3, NOW.minusSeconds(60), NOW.plusSeconds(3600));
-        assertThat(service().push(push(fixture, inspection, 0, noPush)).outcome()).isEqualTo(REJECTED);
-
-        Authorization expired = new Authorization(true, true, true, 3, NOW.minusSeconds(120), NOW.minusSeconds(60));
+        Authorization expired = new Authorization(NOW.minusSeconds(120), NOW.minusSeconds(60));
         assertThat(service().push(push(fixture, inspection, 0, expired)).outcome()).isEqualTo(REJECTED);
 
         PushJournal altered = new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.localHead().orElseThrow(), "changed-fingerprint", NOW, 0);
-        PushCiHeadCommand alteredCommand = new PushCiHeadCommand(fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, authorization(true), altered);
+        PushCiHeadCommand alteredCommand = new PushCiHeadCommand(fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, authorization(), altered);
         assertThat(service().push(alteredCommand).outcome()).isEqualTo(REJECTED);
         assertThat(remoteHead(fixture)).isEqualTo(fixture.inputSha());
     }
@@ -371,7 +360,7 @@ class TestCiGitService
         write(fixture.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
         commit(fixture.worktree(), "fixup! Target change");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
-        PushCiHeadCommand command = push(fixture, inspection, 0, authorization(true));
+        PushCiHeadCommand command = push(fixture, inspection, 0, authorization());
         Path redirected = fixture.remote().getParent().resolve("redirected.git");
         git(fixture.remote().getParent(), "init", "--bare", redirected.toString());
 
@@ -397,7 +386,7 @@ class TestCiGitService
         write(fixture.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
         commit(fixture.worktree(), "fixup! Target change");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
-        PushCiHeadCommand command = push(fixture, inspection, 0, authorization(true));
+        PushCiHeadCommand command = push(fixture, inspection, 0, authorization());
         Path redirected = fixture.remote().getParent().resolve("redirected.git");
         git(fixture.remote().getParent(), "init", "--bare", redirected.toString());
         for (String rewrite : ImmutableList.of("pushInsteadOf", "insteadOf")) {
@@ -473,7 +462,7 @@ class TestCiGitService
                 "origin",
                 REPOSITORY,
                 "feature:refs/heads/other",
-                authorization(true),
+                authorization(),
                 journal(fixture, inspection, 0));
         assertThat(service().push(unsafe).outcome()).isEqualTo(REJECTED);
         assertThat(remoteHead(fixture)).isEqualTo(fixture.inputSha());
@@ -551,9 +540,9 @@ class TestCiGitService
         return new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.localHead().orElseThrow(), inspection.fingerprint().orElseThrow(), NOW, retries);
     }
 
-    private static Authorization authorization(boolean allowRewrite)
+    private static Authorization authorization()
     {
-        return new Authorization(true, allowRewrite, true, 3, NOW.minusSeconds(60), NOW.plusSeconds(3600));
+        return new Authorization(NOW.minusSeconds(60), NOW.plusSeconds(3600));
     }
 
     private static void assertInvalid(CiGitService service, Repository fixture, String message)

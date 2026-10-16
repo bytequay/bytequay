@@ -188,20 +188,13 @@ function dayStart(at: Date): number {
   return new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime();
 }
 
-function shortDate(at: number): string {
-  return new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
 /** "Sep 21 – 25", or "Aug 30 – Sep 2" across a month, or one date; nothing when no time reads. */
 function dateRange(items: TaskListItem[]): string {
   const days = items.map((item) => dayStart(new Date(item.at))).filter(Number.isFinite);
   if (days.length === 0) return '';
   const first = Math.min(...days);
   const last = Math.max(...days);
-  if (first === last) return shortDate(first);
-  const from = new Date(first);
-  const to = new Date(last);
-  return from.getMonth() === to.getMonth() ? `${shortDate(first)} – ${to.getDate()}` : `${shortDate(first)} – ${shortDate(last)}`;
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).formatRange(first, last);
 }
 
 /**

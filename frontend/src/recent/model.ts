@@ -59,12 +59,8 @@ export function rangeWindow(key: RangeKey, today: string): { from: string; to: s
   return { from: shiftDay(to, -(option.days - 1)), to };
 }
 
-export function shortDate(iso: string): string {
-  return parseDay(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
 export function rangeLabel(from: string, to: string): string {
-  return from === to ? shortDate(from) : `${shortDate(from)} – ${shortDate(to)}`;
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).formatRange(parseDay(from), parseDay(to));
 }
 
 /**
@@ -79,10 +75,6 @@ export function dayHeading(iso: string, today: string): string {
   return date.toLocaleDateString('en-US', within < 7
     ? { weekday: 'long', month: 'short', day: 'numeric' }
     : { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
-}
-
-export function clockTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
 /** Badge colour. Verdicts read green, discussion purple, agent work amber. */

@@ -113,10 +113,7 @@ class TestWorkspacePullRequestService
         verify(fixture.ciAutofix(), times(2)).start(argThat(command ->
                 command.workspaceId().equals("workspace")
                         && command.pullRequestNumber() == 12
-                        && command.laneId().toString().equals("lane")
-                        && command.allowFailedJobReruns()
-                        && command.allowHistoryRewrites()
-                        && command.allowExactLeasePush()));
+                        && command.laneId().toString().equals("lane")));
         assertThat(result).isEqualTo(repeated);
         assertThat(result.providerId()).isEqualTo(900);
         assertThat(result.url()).isEqualTo("https://github.com/owner/project/pull/12");

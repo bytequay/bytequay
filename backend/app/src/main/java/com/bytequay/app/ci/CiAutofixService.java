@@ -244,7 +244,7 @@ public class CiAutofixService
      * failed-job-rerun permissions are explicit. Creates one durable run and
      * one agent task in a fresh managed worktree. Does not write to GitHub.
      *
-     * @param command PR, workspace, lane, limits, consent, and idempotency key
+     * @param command PR, workspace, lane, and idempotency key
      * @return the created or existing run
      */
     public CiAutofixRun start(StartCiAutofixCommand command)
@@ -259,7 +259,6 @@ public class CiAutofixService
         requireNonNull(sourceTurnId, "sourceTurnId is null");
         requireNonNull(expectedPr, "expectedPr is null");
         requireNonNull(activatedAt, "activatedAt is null");
-        checkArgument(command.maxAttempts() == CiAutofixRun.MAX_FIX_ATTEMPTS, "Development CI allows exactly three fix attempts");
         checkArgument(!activatedAt.isAfter(clock.instant()) && clock.instant().isBefore(activatedAt.plus(AUTHORIZATION_PERIOD)),
                 "Development CI authorization is expired or invalid");
         checkArgument(expectedPr.state() == GitHubPullRequestIdentity.State.OPEN, "Development CI requires an open pull request");
@@ -315,10 +314,6 @@ public class CiAutofixService
                 snapshot.headSha(),
                 snapshot.baseSha(),
                 new Authorization(
-                        true,
-                        true,
-                        true,
-                        command.maxAttempts(),
                         development.map(DevelopmentStart::activatedAt).orElse(now),
                         development.map(DevelopmentStart::activatedAt).orElse(now).plus(AUTHORIZATION_PERIOD)),
                 now)
@@ -980,7 +975,7 @@ public class CiAutofixService
                     workflow.id(),
                     snapshot.headSha(),
                     workflow.attempt(),
-                    run.authorization().allowFailedJobReruns() && now.isBefore(run.authorization().expiresAt())));
+                    now.isBefore(run.authorization().expiresAt())));
         }
         catch (RuntimeException failure) {
             refreshMemory(journaled);
@@ -1089,7 +1084,7 @@ public class CiAutofixService
 
     private CiAutofixRun startNextAttemptOrFinish(CiAutofixRun run, CiHeadSnapshot snapshot, Instant now)
     {
-        if (run.attemptsUsed() >= run.authorization().maxFixAttempts()) {
+        if (run.attemptsUsed() >= CiAutofixRun.MAX_FIX_ATTEMPTS) {
             return finishRun(run, FinishReason.MAX_ATTEMPTS, "GitHub Actions still fails after " + run.attemptsUsed() + " fix attempts", now);
         }
         return snapshot.actionableFailures().isEmpty() ? run : prepareFixAttempt(run, requireOpenTask(run), snapshot);
@@ -1263,7 +1258,7 @@ public class CiAutofixService
             return true;
         }
         return attempt.observedCiResult() == CiResult.FAILED
-                && run.attemptsUsed() < run.authorization().maxFixAttempts()
+                && run.attemptsUsed() < CiAutofixRun.MAX_FIX_ATTEMPTS
                 && !snapshot.baseSha().equals(run.latestObservedBaseSha());
     }
 
@@ -1610,13 +1605,6 @@ public class CiAutofixService
     private static void validateStartCommand(StartCiAutofixCommand command)
     {
         requireNonNull(command, "command is null");
-        checkArgument(command.maxAttempts() > 0
-                        && command.maxAttempts() <= CiAutofixRun.MAX_FIX_ATTEMPTS,
-                "maxAttempts must be between 1 and 3");
-        checkArgument(command.allowFailedJobReruns()
-                        && command.allowHistoryRewrites()
-                        && command.allowExactLeasePush(),
-                "All CI Autofix consent flags must be true");
         checkText(command.idempotencyKey(), "idempotencyKey", 200);
     }
 

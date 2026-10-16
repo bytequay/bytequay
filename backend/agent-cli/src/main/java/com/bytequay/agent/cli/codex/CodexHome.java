@@ -18,8 +18,11 @@ import com.bytequay.agent.cli.ProviderSessions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Instant;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -75,5 +78,18 @@ public final class CodexHome
     {
         requireNonNull(home, "home is null");
         return ProviderSessions.prune(home.resolve(SESSIONS), DAY_DEPTH, deleteBefore);
+    }
+
+    static void writeAtomically(Path target, byte[] content, Set<PosixFilePermission> permissions)
+            throws IOException
+    {
+        Path staged = Files.createTempFile(target.getParent(), ".bytequay-", ".tmp", PosixFilePermissions.asFileAttribute(permissions));
+        try {
+            Files.write(staged, content);
+            Files.move(staged, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        }
+        finally {
+            Files.deleteIfExists(staged);
+        }
     }
 }

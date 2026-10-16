@@ -227,8 +227,30 @@ class TestGoalResearchService
 
     private static ContextBuild build(String task)
     {
-        return new ContextBuild(4, "research", "sha256:" + "b".repeat(64), "workspace", task, new RepositoryIdentity("trinodb", "trino"), 1, RepoRef.of("trinodb", "trino"),
-                HEAD, "bytequay/research", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW, ContextBuild.Capture.empty(), Optional.empty(),
-                Optional.empty(), Optional.of(new ContextBuild.Research("card-1", "goal-1", "Iceberg connector expert", "", "Snapshots", ImmutableList.of(), ImmutableList.of())));
+        return new ContextBuild(
+                4,
+                "research",
+                "sha256:" + "b".repeat(64),
+                "workspace",
+                task,
+                new RepositoryIdentity(
+                        "trinodb",
+                        "trino"),
+                1,
+                RepoRef.of("trinodb", "trino"),
+                HEAD,
+                "bytequay/research",
+                "codex",
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                NOW,
+                ContextBuild.Capture.empty(),
+                new ContextBuild.Research(
+                        "card-1",
+                        "goal-1",
+                        "Iceberg connector expert",
+                        "",
+                        "Snapshots",
+                        ImmutableList.of(),
+                        ImmutableList.of()));
     }
 }

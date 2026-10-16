@@ -59,13 +59,14 @@ public class GoalSpecChecks
     private final ObjectProvider<ContextBuildService> builds;
     private final ObjectProvider<GoalConversationService> conversations;
     private final Clock clock;
+    private final SpecWorkItems workItems;
     private final Map<String, Modules> modules = new ConcurrentHashMap<>();
     private final Object writes = new Object();
 
     private record Modules(String sha, List<ContextSpecModule> found) {}
 
     public GoalSpecChecks(GoalStore goals, GoalRecommendationStore recommendations, ObjectProvider<WorkItemService> work, ObjectProvider<ContextSpecCheckService> checks,
-            ObjectProvider<ContextBuildService> builds, ObjectProvider<GoalConversationService> conversations, Clock clock)
+            ObjectProvider<ContextBuildService> builds, ObjectProvider<GoalConversationService> conversations, Clock clock, SpecWorkItems workItems)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.recommendations = requireNonNull(recommendations, "recommendations is null");
@@ -74,6 +75,7 @@ public class GoalSpecChecks
         this.builds = requireNonNull(builds, "builds is null");
         this.conversations = requireNonNull(conversations, "conversations is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.workItems = requireNonNull(workItems, "workItems is null");
     }
 
     /** Start on a spec-check card: the check runs; starting it again changes nothing. */
@@ -157,7 +159,7 @@ public class GoalSpecChecks
     {
         GoalGap gap = gaps(workspaceId, goalId).stream().filter(found -> found.candidateId().equals(candidateId)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Gap not found"));
-        WorkItemView item = checks.getObject().workItem(workspaceId, gap.checkId(), candidateId);
+        WorkItemView item = workItems.save(workspaceId, gap.checkId(), candidateId);
         String id = item.id();
         if (item.goalId().isEmpty()) {
             item = work.getObject().change(workspaceId, item.id(), new WorkItemCommand("adopt:" + goalId + ":" + id, item.revision(), WorkItemCommand.Action.MOVE,

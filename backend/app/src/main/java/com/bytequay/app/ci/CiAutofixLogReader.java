@@ -113,7 +113,7 @@ final class CiAutofixLogReader
                 blob.relativePath(),
                 blob.mediaType(),
                 toIntExact(blob.size()),
-                log.truncated() || log.omittedBeginning() || log.compacted()));
+                log.compacted()));
         return new FailureEvidence(
                 failureSignature(workflow, job, log),
                 workflow.name() + " / " + job.failureSummary() + log.unavailableReason().map(reason -> "; log unavailable: " + reason).orElse(""),

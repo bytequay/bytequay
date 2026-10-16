@@ -165,12 +165,10 @@ class TestGitHubNotificationClient
         assertThat(partial.path("threads")).hasSize(2);
         assertThat(partial.at("/threads/0/id").asText()).isEqualTo("1");
         assertThat(partial.at("/threads/1/id").asText()).isEqualTo("3");
-        assertThat(fixture.client.failure("me")).contains("SQLite ingestion failed");
         fixture.restart();
         fixture.now.set(START.plusSeconds(60));
         fixture.client.poll("pat", "me", item -> received.add(item.id()));
         assertThat(received).containsExactly("1", "3", "2");
-        assertThat(fixture.client.failure("me")).isEmpty();
 
         fixture.restart();
         fixture.now.set(START.plusSeconds(120));
@@ -279,14 +277,12 @@ class TestGitHubNotificationClient
         fixture.client.poll("old", "me", ignored -> {});
 
         assertThatThrownBy(() -> fixture.client.poll("replacement", "ME", ignored -> {})).hasMessageContaining("403");
-        assertThat(fixture.client.failure("me")).isPresent();
         fixture.now.set(START.plusSeconds(1799));
         fixture.client.poll("replacement", "me", ignored -> {});
         fixture.now.set(START.plusSeconds(1800));
         fixture.client.poll("replacement", "me", ignored -> {});
         fixture.client.poll("different", "other", ignored -> {});
 
-        assertThat(fixture.client.failure("me")).isEmpty();
         assertThat(fixture.stored).containsKeys(KEY, "github.notifications.other");
         fixture.server.verify();
     }

@@ -19,6 +19,7 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
+import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import com.sun.net.httpserver.HttpServer;
@@ -123,9 +124,16 @@ class TestDeepSeekLoopback
         PermissionBroker permissions = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper, (taskId, query) -> "memory")
                 .developments(taskId -> taskId.equals("task")
                         ? Optional.of(new DevelopmentResultBridge("turn", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())) : Optional.empty()).build();
-        try (McpRegistration registration = permissions.registerTools("task", temporary, AgentPermissionPolicy.AUTO,
+        try (McpRegistration registration = permissions.registerTools(
+                "task",
+                temporary,
+                AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow()) {
+                SecretRedactor.fromEnvironment(ImmutableMap.of()),
+                Optional.empty(),
+                SessionAccess.FULL,
+                Optional.empty(),
+                Optional.empty()).orElseThrow()) {
             HttpClient client = HttpClient.newHttpClient();
             HttpRequest request;
             try (DeepSeekLoopback loopback = DeepSeekLoopback.start("fake-secret-for-test", UNREACHABLE, permissions, Optional.of(registration), mapper)) {
@@ -160,9 +168,16 @@ class TestDeepSeekLoopback
     {
         PermissionBroker permissions = PermissionBroker.builder(
                 () -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper, (taskId, query) -> taskId + ": " + query.orElse("")).build();
-        try (McpRegistration registration = permissions.registerTools("ci-task", temporary, AgentPermissionPolicy.CI_AUTOFIX,
+        try (McpRegistration registration = permissions.registerTools(
+                "ci-task",
+                temporary,
+                AgentPermissionPolicy.CI_AUTOFIX,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow();
+                SecretRedactor.fromEnvironment(ImmutableMap.of()),
+                Optional.empty(),
+                SessionAccess.FULL,
+                Optional.empty(),
+                Optional.empty()).orElseThrow();
                 DeepSeekLoopback loopback = DeepSeekLoopback.start("fake-secret-for-test", UNREACHABLE, permissions, Optional.of(registration), mapper)) {
             HttpResponse<String> called = HttpClient.newHttpClient().send(post(loopback.mcpEndpoint(), """
                     {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{

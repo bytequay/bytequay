@@ -19,7 +19,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Arrays;
 
@@ -35,26 +34,13 @@ final class DeepSeekModelCatalog
     static void prepare(Path path)
     {
         requireNonNull(path, "path is null");
-        Path temporary = null;
         try {
             verifyHome(path.getParent());
             CodexHome.prepare(path.getParent());
-            temporary = Files.createTempFile(path.getParent(), ".deepseek-models-", ".json", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
-            Files.write(temporary, contents());
-            Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            CodexHome.writeAtomically(path, contents(), PosixFilePermissions.fromString("rw-------"));
         }
         catch (IOException e) {
             throw new AgentUnavailableException("Unable to prepare the isolated DeepSeek model catalog", e);
-        }
-        finally {
-            if (temporary != null) {
-                try {
-                    Files.deleteIfExists(temporary);
-                }
-                catch (IOException ignored) {
-                    // The launch fails closed if the catalog was not installed.
-                }
-            }
         }
     }
 

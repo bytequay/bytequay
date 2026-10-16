@@ -25,7 +25,6 @@ import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.ProviderCli;
 import com.bytequay.agent.cli.process.SecretRedactor;
-import com.bytequay.agent.cli.process.SessionWriteRoots;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
@@ -689,7 +688,7 @@ public final class CodexCliDriver
     {
         return Stream.concat(
                         GitWorktreeWriteRoots.writableRoots(worktree).stream(),
-                        // CI repair always has full access, which is what SessionWriteRoots grants caches to.
+                        // CI repair always has full access, which is what BuildCacheRoots grants caches to.
                         BuildCacheRoots.writableRoots(environment).stream().map(Path::toString))
                 .collect(toImmutableList());
     }
@@ -1216,7 +1215,7 @@ public final class CodexCliDriver
             }
             return Stream.concat(
                     Stream.concat(Stream.of(worktree.toString()), gitRoots.stream()),
-                    permissionScope.remoteReads() ? SessionWriteRoots.buildCaches(permissionScope, environment).stream().map(Path::toString) : Stream.empty())
+                    permissionScope.remoteReads() ? BuildCacheRoots.buildCaches(permissionScope, environment).stream().map(Path::toString) : Stream.empty())
                     .collect(toImmutableList());
         }
 

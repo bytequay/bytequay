@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { subscribe } from './ipcSubscribe';
 import { contextBridge, ipcRenderer } from 'electron';
-import type { CodeQueryRequest } from './ide/codeQuery';
-import type { IdeContext, IdeWorkbenchBridge } from './ide/contracts';
+import type { IdeWorkbenchBridge } from './ide/contracts';
 
 const bridge: IdeWorkbenchBridge = {
   terminal: {
@@ -21,10 +21,9 @@ const bridge: IdeWorkbenchBridge = {
     writeReviewTerminal: (id, data) => ipcRenderer.send('terminal:write', id, data),
     resizeReviewTerminal: (id, cols, rows) => ipcRenderer.send('terminal:resize', id, cols, rows),
     onReviewTerminalEvent: listener => {
-      const data = (_event: Electron.IpcRendererEvent, value: { terminalId: string; data: string }) => listener(value);
-      const exit = (_event: Electron.IpcRendererEvent, value: { terminalId: string; exitCode: number }) => listener(value);
-      ipcRenderer.on('terminal:data', data); ipcRenderer.on('terminal:exit', exit);
-      return () => { ipcRenderer.removeListener('terminal:data', data); ipcRenderer.removeListener('terminal:exit', exit); };
+      const data = subscribe('terminal:data', listener);
+      const exit = subscribe('terminal:exit', listener);
+      return () => { data(); exit(); };
     },
   },
   startExecution: request => ipcRenderer.invoke('ide:execution', { operation: 'start', request }),
@@ -33,19 +32,11 @@ const bridge: IdeWorkbenchBridge = {
   stopExecution: id => ipcRenderer.invoke('ide:execution', { operation: 'stop', id }),
   queryReady: () => ipcRenderer.send('ide:query-ready'),
   queryReply: (id, reply) => ipcRenderer.send('ide:query-reply', id, reply),
-  onQuery: listener => {
-    const receive = (_event: Electron.IpcRendererEvent, request: CodeQueryRequest & { cancel?: boolean }) => listener(request);
-    ipcRenderer.on('ide:query', receive);
-    return () => ipcRenderer.removeListener('ide:query', receive);
-  },
+  onQuery: listener => subscribe('ide:query', listener),
   save: (path, content, expectedHash) => ipcRenderer.invoke('ide:save', path, content, expectedHash),
   bootstrap: () => ipcRenderer.invoke('ide:bootstrap'),
   request: (method, ...args) => ipcRenderer.invoke('ide:request', method, args, navigator.userActivation.isActive),
   report: event => ipcRenderer.send('ide:report', event),
-  onContext: listener => {
-    const receive = (_event: Electron.IpcRendererEvent, context: IdeContext) => listener(context);
-    ipcRenderer.on('ide:context', receive);
-    return () => ipcRenderer.removeListener('ide:context', receive);
-  },
+  onContext: listener => subscribe('ide:context', listener),
 };
 contextBridge.exposeInMainWorld('ideWorkbench', bridge);

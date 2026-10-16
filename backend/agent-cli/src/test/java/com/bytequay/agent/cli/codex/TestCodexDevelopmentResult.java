@@ -74,15 +74,15 @@ class TestCodexDevelopmentResult
             arguments.putObject("arguments").put("readyForDelivery", true);
             tool.put("success", true);
             tool.putArray("contentItems").addObject().put("type", "inputText").put("text", tool.at("/result/content/0/text").asText());
-            CodexProtocol.Notification completed = codec.decodeNotification(event.toString());
+            CodexProtocol.Notification completed = codec.decode(event.toString(), CodexProtocol.Notification.class);
             assertThat(mapper.developmentResult(completed, true, "native-turn", Optional.of(bridge))).isPresent();
             assertThat(mapper.developmentResult(completed, false, "native-turn", Optional.of(bridge))).isEmpty();
             assertThat(mapper.developmentResult(completed, true, "stale-turn", Optional.of(bridge))).isEmpty();
             arguments.put("name", "read_issue_context");
-            assertThat(mapper.developmentResult(codec.decodeNotification(event.toString()), true, "native-turn", Optional.of(bridge))).isEmpty();
+            assertThat(mapper.developmentResult(codec.decode(event.toString(), CodexProtocol.Notification.class), true, "native-turn", Optional.of(bridge))).isEmpty();
             arguments.put("name", DevelopmentResultBridge.TOOL_NAME);
             tool.put("status", "failed").put("success", false);
-            assertThat(mapper.developmentResult(codec.decodeNotification(event.toString()), true, "native-turn", Optional.of(bridge))).isEmpty();
+            assertThat(mapper.developmentResult(codec.decode(event.toString(), CodexProtocol.Notification.class), true, "native-turn", Optional.of(bridge))).isEmpty();
         }
     }
 
@@ -105,10 +105,10 @@ class TestCodexDevelopmentResult
         String receipt = json.writeValueAsString(DevelopmentResultTool.receipt(receiptBridge,
                 new DevelopmentResultReport(true, Optional.of("done known-secret"),
                         Optional.of(new DevelopmentLearningSummary("Purpose known-secret", ImmutableList.of(), Optional.empty(), "", ImmutableList.of())))));
-        return codec.decodeNotification("""
+        return codec.decode("""
                 {"method":"%s","params":{"threadId":"root-thread","turnId":"%s","item":{
                 "type":"mcpToolCall","id":"tool-1","server":"bytequay","tool":"report_development_result",
                 "arguments":{},"status":"%s","error":%s,"result":{"content":[{"type":"text","text":%s}]}}}}
-                """.formatted(method, nativeTurn, status, error, receipt));
+                """.formatted(method, nativeTurn, status, error, receipt), CodexProtocol.Notification.class);
     }
 }

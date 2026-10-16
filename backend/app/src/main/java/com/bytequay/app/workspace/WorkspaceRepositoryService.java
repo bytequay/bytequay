@@ -49,7 +49,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
-import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
+import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -87,7 +87,7 @@ public class WorkspaceRepositoryService
             WorkspaceProvisioningService provisioning,
             WorkspaceMetadataService metadata,
             PullRequestRefreshService pullRequestRefresh,
-            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
+            @Qualifier(IO_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");

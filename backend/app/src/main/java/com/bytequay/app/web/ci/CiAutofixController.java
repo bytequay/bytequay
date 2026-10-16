@@ -19,13 +19,10 @@ import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.SendCiAutofixMessageCommand;
-import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -58,24 +55,6 @@ public class CiAutofixController
         this.taskService = requireNonNull(taskService, "taskService is null");
     }
 
-    @PostMapping
-    public ResponseEntity<CiAutofixHttpModels.RunResponse> start(@RequestHeader("Idempotency-Key") String idempotencyKey, @RequestBody StartRequest request)
-    {
-        checkText(idempotencyKey, "Idempotency-Key");
-        checkText(request.workspaceId(), "workspaceId");
-        checkText(request.laneId(), "laneId");
-        CiAutofixRun run = service.start(new StartCiAutofixCommand(
-                request.workspaceId(),
-                request.pullRequestNumber(),
-                new AgentLaneId(request.laneId()),
-                request.maxAttempts(),
-                request.allowFailedJobReruns(),
-                request.allowHistoryRewrites(),
-                request.allowExactLeasePush(),
-                idempotencyKey));
-        return ResponseEntity.status(HttpStatus.CREATED).body(response(run));
-    }
-
     @GetMapping
     public List<CiAutofixHttpModels.RunResponse> list(@RequestParam(defaultValue = "100") int limit)
     {
@@ -104,12 +83,6 @@ public class CiAutofixController
         return ResponseEntity.accepted().body(response(run));
     }
 
-    @PostMapping("/{runId}/cancel")
-    public CiAutofixHttpModels.RunResponse cancel(@PathVariable String runId)
-    {
-        return response(service.cancel(CiAutofixRunId.valueOf(runId)));
-    }
-
     private CiAutofixHttpModels.RunResponse response(CiAutofixRun run)
     {
         Optional<AgentTask> task = run.agentTaskId()
@@ -131,15 +104,6 @@ public class CiAutofixController
             return Optional.empty();
         }
     }
-
-    public record StartRequest(
-            String workspaceId,
-            int pullRequestNumber,
-            String laneId,
-            int maxAttempts,
-            boolean allowFailedJobReruns,
-            boolean allowHistoryRewrites,
-            boolean allowExactLeasePush) {}
 
     public record MessageRequest(String message, Optional<String> expectedTurnId) {}
 }

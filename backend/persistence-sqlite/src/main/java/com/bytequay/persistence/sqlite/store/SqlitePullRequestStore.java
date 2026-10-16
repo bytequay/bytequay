@@ -27,6 +27,7 @@ import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.primitives.Ints;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -275,12 +276,7 @@ public class SqlitePullRequestStore
     private static Integer pullRequestNumber(String search)
     {
         String value = search.startsWith("#") ? search.substring(1) : search;
-        try {
-            return Integer.valueOf(value);
-        }
-        catch (NumberFormatException ignored) {
-            return null;
-        }
+        return Ints.tryParse(value);
     }
 
     /** The stored row for a pull request, found on its natural key. */

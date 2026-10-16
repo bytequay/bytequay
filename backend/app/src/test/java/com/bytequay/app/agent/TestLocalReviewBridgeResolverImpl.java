@@ -335,8 +335,24 @@ class TestLocalReviewBridgeResolverImpl
 
     private static AgentReview review(String id, Optional<String> sourceTaskId)
     {
-        return new AgentReview(id, "workspace-1", "owner/repo", OptionalInt.of(7), OptionalLong.empty(), "task-of-" + id, sourceTaskId, AgentReview.State.OPEN,
-                false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        return new AgentReview(
+                id,
+                "workspace-1",
+                "owner/repo",
+                OptionalInt.of(7),
+                OptionalLong.empty(),
+                "task-of-" + id,
+                sourceTaskId,
+                AgentReview.State.OPEN,
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                Instant.EPOCH,
+                Instant.EPOCH,
+                Optional.empty(),
+                Optional.empty());
     }
 
     private static ReviewFinding finding(String id, String reviewId, int ordinal, ReviewFinding.State state, List<ReviewEvidence> evidence)

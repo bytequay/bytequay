@@ -152,9 +152,26 @@ class TestMemoryHarvestTools
     void onlyAHarvestRunGetsTheTools()
     {
         ContextBuild harvest = build(1);
-        store.save(Optional.empty(), new ContextBuild(harvest.sequence(), harvest.requestKey(), harvest.requestDigest(), WORKSPACE, TASK.toString(),
-                harvest.physicalRepository(), 1, harvest.repository(), harvest.baselineSha(), harvest.branch(), harvest.laneId(), harvest.defaults(), Instant.EPOCH,
-                ContextBuild.Capture.empty(), Optional.of(new ContextBuild.Check("check-1", "plugin/x/", Optional.empty(), "brief")), Optional.empty(), Optional.empty()));
+        store.save(Optional.empty(), new ContextBuild(
+                harvest.sequence(),
+                harvest.requestKey(),
+                harvest.requestDigest(),
+                WORKSPACE,
+                TASK.toString(),
+                harvest.physicalRepository(),
+                1,
+                harvest.repository(),
+                harvest.baselineSha(),
+                harvest.branch(),
+                harvest.laneId(),
+                harvest.defaults(),
+                Instant.EPOCH,
+                ContextBuild.Capture.empty(),
+                new ContextBuild.Check(
+                        "check-1",
+                        "plugin/x/",
+                        Optional.empty(),
+                        "brief")));
         assertThat(tools.bridge(TASK.toString())).isEmpty();
     }
 
@@ -177,8 +194,23 @@ class TestMemoryHarvestTools
                         Optional.of("plugin/x/A.java"), number == 1, false, ImmutableList.of(new ContextBuild.HarvestNote("c" + number, "node-" + number, "alice", true,
                         "Please document property " + number + ".", "https://github.com/trinodb/trino/pull/31201#discussion_r" + number, Instant.EPOCH))))
                         .collect(toImmutableList()));
-        return new ContextBuild(1, "harvest-request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(), new RepositoryIdentity("trinodb", "trino"), 1,
-                RepoRef.of("trinodb", "trino"), "a".repeat(40), "bytequay/learn", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH,
-                ContextBuild.Capture.empty(), Optional.empty(), Optional.of(harvest), Optional.empty());
+        return new ContextBuild(
+                1,
+                "harvest-request",
+                "sha256:" + "b".repeat(64),
+                WORKSPACE,
+                TASK.toString(),
+                new RepositoryIdentity(
+                        "trinodb",
+                        "trino"),
+                1,
+                RepoRef.of("trinodb", "trino"),
+                "a".repeat(40),
+                "bytequay/learn",
+                "codex",
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                Instant.EPOCH,
+                ContextBuild.Capture.empty(),
+                harvest);
     }
 }

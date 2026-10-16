@@ -306,8 +306,11 @@ public class DevelopmentFollowupCoordinator
         checkState(owns(source), "Development automation was stopped");
         var lane = automation.ciLaneId().orElse(source.task().laneId());
         checkState(Instant.now(clock).isBefore(activatedAt.plus(Duration.ofHours(8))), "CI Autofix authorization expired before attachment");
-        CiAutofixRun run = ci.startDevelopment(new StartCiAutofixCommand(source.task().workspaceId().orElseThrow(), pullRequest.pullRequest().number(),
-                lane, 3, true, true, true, "development-ci:" + source.task().id() + ":" + source.turn().id()),
+        CiAutofixRun run = ci.startDevelopment(new StartCiAutofixCommand(
+                source.task().workspaceId().orElseThrow(),
+                pullRequest.pullRequest().number(),
+                lane,
+                "development-ci:" + source.task().id() + ":" + source.turn().id()),
                 source.task().id(), source.turn().id(), pullRequest, activatedAt);
         while (owns(source)) {
             if (run.status() == CiAutofixRun.Status.FINISHED) {

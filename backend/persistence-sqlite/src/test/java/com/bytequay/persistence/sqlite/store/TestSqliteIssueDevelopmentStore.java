@@ -72,21 +72,6 @@ class TestSqliteIssueDevelopmentStore
     }
 
     @Test
-    void retainedWrappedContextNeverBecomesUserInstructionProvenance()
-    {
-        GitHubIssueSource source = source(issue(42, "alice"));
-        store.insertTask(new IssueTask("earlier-task", "workspace-1", source, Optional.empty(), NOW));
-        entityManager.createNativeQuery("UPDATE issue_task SET initial_context = :context WHERE id = :id")
-                .setParameter("context", "Earlier wrapped source prompt that must not be displayed")
-                .setParameter("id", "earlier-task").executeUpdate();
-        entityManager.flush();
-        entityManager.clear();
-        IssueTask retained = store.findByTaskId("earlier-task").orElseThrow();
-        assertThat(retained.source()).isEqualTo(source);
-        assertThat(retained.instructions()).isEmpty();
-    }
-
-    @Test
     void retainsClassificationAndAcceptedContextAfterIssueDeletion()
     {
         RepositoryIssue issue = issue(42, "alice");

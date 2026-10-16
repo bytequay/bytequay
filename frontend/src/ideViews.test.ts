@@ -287,7 +287,8 @@ it.each([host, { kind: 'review', reviewId: 'review' }])('reads retained $kind ed
     const parsed = new URL(url);
     expect(parsed.pathname).toBe((owner.kind === 'task' ? '/agent/tasks/task/code' : '/api/agent-review/review/code') + test.endpoint);
     expect(Object.fromEntries(parsed.searchParams)).toEqual({ ...(owner.kind === 'task' ? { workspaceId: 'workspace' } : {}), ...test.params });
-    expect(options).toMatchObject({ method: 'GET', headers: { 'X-ByteQuay-Session': 'desktop-only-token' } });
+    expect(options.method ?? 'GET').toBe('GET');
+    expect(new Headers(options.headers).get('X-ByteQuay-Session')).toBe('desktop-only-token');
     expect(() => invoke('ide:request', child(), test.method, [{ kind: 'review', reviewId: 'other' }, ...test.args], false)).toThrow('different task');
   }
   expect(sender.send).not.toHaveBeenCalledWith('ide:request', expect.anything());

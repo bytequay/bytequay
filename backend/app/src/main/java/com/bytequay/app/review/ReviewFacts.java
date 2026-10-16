@@ -47,7 +47,6 @@ final class ReviewFacts
     private static final Pattern HEADING = Pattern.compile("^#{1,6}\\s*(.+?)\\s*#*\\s*$");
     // "( )", "()", "(x )" and the task-list form "- [x]".
     private static final Pattern OPTION = Pattern.compile("^\\s*(?:[-*]\\s*)?(?:\\(\\s*([xX]?)\\s*\\)|\\[\\s*([xX]?)\\s*\\])\\s*(\\S.*)$");
-    private static final Pattern HUNK = Pattern.compile("^@@ -\\d+(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@.*");
     private static final Pattern SWITCHED_OFF = Pattern.compile(
             "@Disabled\\b|@Ignore\\b|\\benabled\\s*=\\s*false\\b|\\b(?:it|test|describe)\\.skip\\(|\\bx(?:it|describe)\\(|@pytest\\.mark\\.skip|\\bt\\.Skip\\(");
 
@@ -238,25 +237,9 @@ final class ReviewFacts
     /** The lines the change adds, each at its line number in the new file. */
     private static List<Added> addedLines(List<DiffFile> diff)
     {
-        ImmutableList.Builder<Added> added = ImmutableList.builder();
-        for (DiffFile file : diff) {
-            int line = 0;
-            for (String raw : Optional.ofNullable(file.patch()).orElse("").split("\n")) {
-                Matcher hunk = HUNK.matcher(raw);
-                if (hunk.matches()) {
-                    line = Integer.parseInt(hunk.group(1));
-                    continue;
-                }
-                if (line == 0 || raw.startsWith("-") || raw.startsWith("\\")) {
-                    continue;
-                }
-                if (raw.startsWith("+")) {
-                    added.add(new Added(file.filename(), line, raw.substring(1)));
-                }
-                line++;
-            }
-        }
-        return added.build();
+        ReviewDiffAnchors anchors = ReviewDiffAnchors.of(diff);
+        return diff.stream().flatMap(file -> anchors.hunks(file.filename()).stream()).flatMap(hunk -> hunk.lines().stream())
+                .filter(line -> line.kind() == '+').map(line -> new Added(line.path(), line.line(), line.text())).collect(toImmutableList());
     }
 
     private static List<String> switchedOff(List<Added> added)

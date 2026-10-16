@@ -9,7 +9,7 @@ import tempfile
 import threading
 import unittest
 
-from openai import OpenAI
+from judge import Client
 
 import agent
 import run
@@ -205,7 +205,7 @@ class Served(Folder):
 class TestModelApi(Served):
     def test_the_sdk_sends_the_tools_and_hands_the_models_message_back_whole(self):
         server, address = self.serve(completion(said(call("a", "list_files", {"path": "."}), reasoning="Look first.")), completion(said(call("b", "submit_review", ANSWER))))
-        ask = agent.asker(OpenAI(api_key="stand-in", base_url=address, max_retries=0), "deepseek-v4-pro")
+        ask = agent.asker(Client(api_key="stand-in", base_url=address), "deepseek-v4-pro")
         done = agent.review(self.root, "Review the change.", run.SCHEMA, run.problem_of, ask, float("inf"))
         self.assertEqual((done.status, done.answer, done.usage["cachedInputTokens"]), ("completed", ANSWER, 1200))
         first, second = server.requests
@@ -216,7 +216,7 @@ class TestModelApi(Served):
 
     def test_an_answer_from_another_model_fails_the_run(self):
         _, address = self.serve(completion(said(call("a", "list_files", {"path": "."})), model="deepseek-flash"))
-        done = agent.review(self.root, "Review.", run.SCHEMA, run.problem_of, agent.asker(OpenAI(api_key="stand-in", base_url=address, max_retries=0), "deepseek-v4-pro"),
+        done = agent.review(self.root, "Review.", run.SCHEMA, run.problem_of, agent.asker(Client(api_key="stand-in", base_url=address), "deepseek-v4-pro"),
                             float("inf"))
         self.assertEqual((done.status, done.reason), ("failed", "RuntimeError: Asked deepseek-v4-pro, but deepseek-flash answered"))
 

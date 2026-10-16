@@ -5,6 +5,8 @@ the table for the dashboard's Tuning page."""
 
 from __future__ import annotations
 
+import monitor
+import dashboard
 import argparse
 from collections import Counter, defaultdict
 from contextlib import closing
@@ -218,7 +220,7 @@ def setups_table(turns):
         called = group[group["calls"] > 0] if "calls" in group else group.iloc[:0]
         halves = setup.split("-")
         rows.append({"setup": setup, "changed": "" if not seen[0] else " and ".join(part for part, half, earlier in zip(("instructions", "tools"), halves, seen) if half not in earlier),
-                     "first ran": datetime.fromtimestamp(group["start"].min()).strftime("%Y-%m-%d %H:%M"), "turns": len(group),
+                     "first ran": dashboard.when(datetime.fromtimestamp(group["start"].min())), "turns": len(group),
                      # A turn names its setup only through its row in the database, which always holds how it ended.
                      "completed": (group["ended"] == "COMPLETED").sum() / len(group), "minutes per turn": group["seconds"].median() / 60,
                      "calls per turn": called["calls"].median() if len(called) else None,
@@ -234,7 +236,7 @@ def main():
     parser.add_argument("--database", type=Path, help="ByteQuay's database, read without writing (default: beside the runtime folder)")
     parser.add_argument("--save", type=Path, nargs="?", const=saved.FOLDER, metavar="FOLDER", help="Also save the table as tuning.json for the dashboard")
     args = parser.parse_args()
-    made = table(args.runtime, args.database or args.runtime.parent / "bytequay-1.0.db", datetime.now(timezone.utc))
+    made = table(args.runtime, args.database or args.runtime.parent / monitor.DATABASE.name, datetime.now(timezone.utc))
     turns, tasks = made["turns"], made["tasks"]
     touched = lambda row: row["messages"] + row["queued"] + row["steers"] + row["answered"] + bool(row["cancelAsked"])
     print(f"{len(turns):,} turns of {len(tasks):,} tasks; {sum(map(touched, turns)):,} times a person stepped in" + (f"; {made['database']['problem']}" if made["database"]["problem"] else ""))

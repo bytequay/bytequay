@@ -150,7 +150,8 @@ class TestSqliteAgentStores
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        // Match production startup: create fresh tables and their unique indexes through schema update.
+        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "update");
     }
 
     @Test

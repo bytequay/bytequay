@@ -15,6 +15,7 @@ package com.bytequay.agent.core;
 
 import java.nio.file.Path;
 
+import static com.bytequay.core.domain.Checks.checkSha;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -28,7 +29,7 @@ public record TaskWorktree(TaskId taskId, String workspaceId, RepositoryIdentity
         checkText(workspaceId, "workspaceId");
         requireNonNull(physicalRepository, "physicalRepository is null");
         requireNonNull(canonicalWorktree, "canonicalWorktree is null");
-        ProvisionWorktreeCommand.checkObjectId(startCommit, "startCommit");
+        checkSha(startCommit, "startCommit");
 
         checkArgument(canonicalWorktree.isAbsolute(), "canonicalWorktree is not absolute");
         checkArgument(canonicalWorktree.equals(canonicalWorktree.normalize()), "canonicalWorktree is not normalized");

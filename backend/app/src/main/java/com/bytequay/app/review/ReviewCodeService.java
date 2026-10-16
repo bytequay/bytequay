@@ -160,16 +160,6 @@ public class ReviewCodeService
         return task.taskWorktree().orElseThrow();
     }
 
-    /** Agent queries can inspect an active review task without gaining the interactive task save route. */
-    public TaskWorktree ideQueryWorktree(TaskCodeHost host)
-    {
-        AgentTask task = task(host);
-        if (task.state() != TaskState.OPEN) {
-            throw new ReviewConflictException("The task has ended");
-        }
-        return task.taskWorktree().orElseThrow();
-    }
-
     private CodeFiles files(Source source)
     {
         Set<String> changed = source.diff().get().stream().map(DiffFile::filename).collect(toImmutableSet());
@@ -550,12 +540,11 @@ public class ReviewCodeService
                 throw new ReviewConflictException("Cannot create " + path + ": " + failure.getMessage(), failure);
             }
         }
-        byte[] current = readCheckout(root, path);
+        readCheckout(root, path);
         Path file = root.resolve(path);
         String currentHash = contentHash(file);
         if (!currentHash.equals(expectedHash)) {
-            boolean shown = current.length <= MAXIMUM_FILE_BYTES && !binary(current);
-            throw new ReviewFileConflictException(currentHash, shown ? Optional.of(new String(current, UTF_8)) : Optional.empty());
+            throw new ReviewFileConflictException();
         }
         try {
             Files.write(file, bytes, LinkOption.NOFOLLOW_LINKS, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);

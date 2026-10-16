@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Connect work items, Epics, and repository knowledge."
+    />
+    <meta name="theme-color" content="#101017" />
+    <title>Plan and organize — ByteQuay Docs</title>
+    <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css?v=concise-docs" />
+  </head>
+  <body class="doc-page">
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="header wrap">
+      <a class="brand" href="index.html" aria-label="ByteQuay home"
+        ><img src="assets/logo.svg" width="34" height="34" alt="" />ByteQuay</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="lab.html">Lab</a
+        ><a href="documentation.html" aria-current="page">Docs</a
+        ><a href="design.html">Design</a
+        ><a href="https://github.com/bytequay/bytequay">GitHub</a>
+      </nav>
+    </header>
+    <main id="main" class="wrap">
+      <div class="docs-layout concise-docs">
+        <aside>
+          <nav class="contents" aria-label="Documentation topics">
+            <span class="mini-label">DOCUMENTATION</span
+            ><a href="documentation.html">All guides</a
+            ><a href="guide-get-started.html">Get started</a
+            ><a href="guide-reviews.html">Review pull requests</a
+            ><a href="guide-agents.html">Build with agents</a
+            ><a href="guide-planning.html" aria-current="page"
+              >Plan and organize</a
+            ><a href="guide-integrations.html">Connect integrations</a
+            ><a href="guide-help.html">Get help</a
+            ><a href="lab-guide.html">ByteQuay Lab</a
+            ><span class="mini-label doc-on-page">ON THIS PAGE</span
+            ><a href="#issues-and-jira">Start from a work item</a
+            ><a href="#epics">Epics</a><a href="#goals">Goals experiment</a
+            ><a href="#memory-and-specs">Memory and specs</a
+            ><a href="#circles">Circles</a>
+          </nav>
+        </aside>
+        <article class="docs-content">
+          <header class="doc-title">
+            <a href="documentation.html">Docs</a
+            ><span aria-hidden="true"> / </span><span>Plan and organize</span>
+            <h1>Plan and organize</h1>
+            <p>Connect work items, Epics, and repository knowledge.</p>
+          </header>
+          <section id="issues-and-jira">
+            <h2>Start from a work item</h2>
+            <p>
+              Open <strong>Work items</strong> and choose
+              <strong>Local</strong>, <strong>GitHub issues</strong>, or
+              <strong>Jira</strong>.
+            </p>
+            <ol>
+              <li>
+                Choose <strong>Local → New</strong> and add context and
+                acceptance criteria. It stays on your Mac.
+              </li>
+              <li>
+                <strong>Start development</strong> on a Local item immediately
+                starts the configured agent. GitHub and Jira items open a
+                prepared composer for you to review and send.
+              </li>
+              <li>
+                Open the item to follow tasks, PRs, and history. In an Epic,
+                select a card to zoom in; <strong>Escape</strong> returns to the
+                Epic.
+              </li>
+              <li>
+                To publish an item, use <strong>Push to remote…</strong>,
+                inspect the preview, then create the GitHub issue or Jira
+                ticket. Conversations and local history are not included.
+              </li>
+            </ol>
+            <p>
+              If publication is uncertain, link the existing remote item before
+              retrying.
+            </p>
+          </section>
+          <section id="epics">
+            <h2>Organize an Epic</h2>
+            <p>
+              An Epic connects a larger issue or ticket to its work, attempts,
+              and dependencies.
+            </p>
+            <ol>
+              <li>
+                Open the Epic’s <strong>Work</strong> view. Review offered
+                source children before <strong>Sync</strong>.
+              </li>
+              <li>
+                Add a Local item, <strong>Add existing</strong>, or
+                <strong>Suggest work</strong>. Inspect suggestions before
+                <strong>Accept as Local</strong>.
+              </li>
+              <li>
+                Use <strong>Planned</strong>, <strong>Working</strong>, and
+                <strong>Done</strong> to track progress. <strong>Run</strong> on
+                eligible work starts its development task immediately.
+              </li>
+              <li>
+                Review outcomes, then <strong>Conclude Epic</strong>. Closing
+                the source issue or ticket is separate.
+              </li>
+            </ol>
+          </section>
+          <section id="goals">
+            <h2>Explore Goals</h2>
+            <p>
+              <strong>Development-only experiment.</strong> Packaged releases
+              hide Goals and automatic guidance.
+            </p>
+            <ol>
+              <li>
+                Open the floating <strong>Goal</strong> control or press
+                <strong>⌥G</strong>. Describe the outcome in
+                <strong>Guide</strong>.
+              </li>
+              <li>
+                Review the objective, success definition, and constraints before
+                <strong>Accept goal</strong>.
+              </li>
+              <li>
+                Review recommendations and follow
+                <strong>Work → Next / Working / Blocked / Done</strong>. Use
+                <strong>Waits on</strong> for dependencies.
+              </li>
+              <li>
+                Add evidence and choose <strong>Accept result</strong> when the
+                outcome is achieved. Finishing a task alone does not complete
+                the work item.
+              </li>
+            </ol>
+            <p>Use <strong>Pause guidance</strong> to pause suggestions.</p>
+          </section>
+          <section id="memory-and-specs">
+            <h2>Build repository memory</h2>
+            <ol>
+              <li>
+                Open <strong>Memory → Learn from my PRs</strong>, or choose
+                <strong>Learn from this PR</strong> on a closed or merged PR.
+              </li>
+              <li>
+                Inspect <strong>Rules</strong>, <strong>Recipes</strong>, and
+                <strong>Specs</strong>, including their scope and sources. Edit,
+                delete, or restore entries as needed.
+              </li>
+              <li>
+                Choose whether agents use memory in <strong>Reviews</strong>,
+                <strong>Development tasks</strong>, or both. Review entries
+                under <strong>Needs you</strong>.
+              </li>
+            </ol>
+            <p>
+              For a specification check, choose
+              <strong>Memory → Check against spec</strong>, select the code and
+              source pages, and start a ready agent. Inspect reproduced failures
+              under <strong>Spec checks</strong>;
+              <strong>Open local work item</strong> continues a finding.
+              Unreproduced candidates stay separate.
+            </p>
+          </section>
+          <section id="circles">
+            <h2>Follow a Circle</h2>
+            <p>
+              Choose <strong>Circles → Create a circle</strong>, name it, and
+              select people and optional repositories. Use
+              <strong>Needs you</strong>, <strong>Activity</strong>,
+              <strong>Members</strong>, and <strong>Insights</strong> to follow
+              their work.
+            </p>
+            <p>
+              Creating a Circle sends no invitations.
+              <strong>Refresh activity</strong> updates collected information;
+              insights reflect that coverage, not a complete measure of a
+              person’s work.
+            </p>
+          </section>
+          <div class="doc-next">
+            <a href="documentation.html">← All guides</a
+            ><a href="guide-help.html">Need help? →</a>
+          </div>
+        </article>
+      </div>
+    </main>
+    <footer class="footer wrap">
+      <a class="brand" href="index.html"
+        ><img src="assets/logo.svg" width="26" height="26" alt="" />ByteQuay</a
+      >
+      <p>Review is all you need.</p>
+      <nav aria-label="Footer navigation">
+        <a href="lab.html">Lab</a><a href="documentation.html">Docs</a
+        ><a href="design.html">Design</a
+        ><a href="https://github.com/bytequay/bytequay">Source</a>
+      </nav>
+    </footer>
+  </body>
+</html>

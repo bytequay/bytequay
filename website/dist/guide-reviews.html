@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Understand the change, discuss it privately, and choose what to publish."
+    />
+    <meta name="theme-color" content="#101017" />
+    <title>Review pull requests — ByteQuay Docs</title>
+    <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css?v=concise-docs" />
+  </head>
+  <body class="doc-page">
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="header wrap">
+      <a class="brand" href="index.html" aria-label="ByteQuay home"
+        ><img src="assets/logo.svg" width="34" height="34" alt="" />ByteQuay</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="lab.html">Lab</a
+        ><a href="documentation.html" aria-current="page">Docs</a
+        ><a href="design.html">Design</a
+        ><a href="https://github.com/bytequay/bytequay">GitHub</a>
+      </nav>
+    </header>
+    <main id="main" class="wrap">
+      <div class="docs-layout concise-docs">
+        <aside>
+          <nav class="contents" aria-label="Documentation topics">
+            <span class="mini-label">DOCUMENTATION</span
+            ><a href="documentation.html">All guides</a
+            ><a href="guide-get-started.html">Get started</a
+            ><a href="guide-reviews.html" aria-current="page"
+              >Review pull requests</a
+            ><a href="guide-agents.html">Build with agents</a
+            ><a href="guide-planning.html">Plan and organize</a
+            ><a href="guide-integrations.html">Connect integrations</a
+            ><a href="guide-help.html">Get help</a
+            ><a href="lab-guide.html">ByteQuay Lab</a
+            ><span class="mini-label doc-on-page">ON THIS PAGE</span
+            ><a href="#pull-requests">Review a pull request</a
+            ><a href="#explore-locally">Explore code and tests</a
+            ><a href="#private-review">Private agent reviews</a
+            ><a href="#ask-from-review">Ask from a review card</a
+            ><a href="#link-previews">PR and issue previews</a>
+          </nav>
+        </aside>
+        <article class="docs-content">
+          <header class="doc-title">
+            <a href="documentation.html">Docs</a
+            ><span aria-hidden="true"> / </span
+            ><span>Review pull requests</span>
+            <h1>Review pull requests</h1>
+            <p>
+              Understand the change, discuss it privately, and choose what to
+              publish.
+            </p>
+          </header>
+          <section id="pull-requests">
+            <h2>Review a pull request</h2>
+            <ol>
+              <li>
+                Open <strong>Pull requests</strong>. Filter by
+                <strong>Review</strong> or <strong>My work</strong>, or search
+                by title, <code>#number</code>, or <code>@author</code>.
+              </li>
+              <li>
+                Read checks and activity in <strong>PR</strong>. Inspect files
+                and commits in <strong>WorkBench → Changes</strong>.
+              </li>
+              <li>
+                Select diff lines and choose <strong>Add to review</strong>. In
+                <strong>Submit review</strong>, check your comments and choose
+                <strong>Comment</strong>, <strong>Approve</strong>, or
+                <strong>Request Changes</strong>.
+              </li>
+              <li>
+                Inspect the header’s merge/check-status control when ready to
+                merge. Use <strong>Monitor PR</strong> to follow updates.
+              </li>
+            </ol>
+            <p>
+              <strong>Post now</strong> and <strong>Reply</strong> publish
+              immediately. <strong>Add to review</strong> keeps comments
+              pending. Monitoring alone does not start CI repair.
+            </p>
+          </section>
+          <section id="explore-locally">
+            <h2>Explore code and tests</h2>
+            <p>
+              For a watched PR, open
+              <strong
+                >WorkBench → Code &amp; Tests → Create worktree to
+                explore</strong
+              >. A local editor uses memory, CPU, and disk; opening it does not
+              start an agent.
+            </p>
+            <ul>
+              <li>
+                Use <strong>Changes</strong> for diffs and
+                <strong>Comment</strong> for review cards beside the code.
+              </li>
+              <li>
+                Press <strong>Shift twice</strong> or <strong>⌘⇧F</strong> for
+                Search Everywhere; <strong>⌘F</strong> searches the current
+                file.
+              </li>
+              <li>
+                Use a test’s play button to run or debug it.
+                <strong>Run</strong> and <strong>Debug</strong> retain their
+                results.
+              </li>
+            </ul>
+            <p>
+              On your own PR, <strong>Development task</strong> opens its
+              conversation without sending a new prompt.
+            </p>
+          </section>
+          <section id="private-review">
+            <h2>Ask for a private review</h2>
+            <p>
+              First watch the repository and configure a ready Review model in
+              <strong>Settings → Agents → Models</strong>.
+            </p>
+            <ol>
+              <li>
+                Choose <strong>WorkBench → Summary → Start review</strong>. For
+                unpublished development work, choose
+                <strong>Review changes</strong> in the task instead.
+              </li>
+              <li>
+                Read the explanation and findings. Use
+                <strong>View in Changes</strong> for code,
+                <strong>Review details</strong> for evidence, or
+                <strong>Ask reviewer</strong> for a private discussion.
+              </li>
+              <li>
+                Choose <strong>Add to my review</strong> to edit a finding
+                before <strong>Submit review</strong> publishes it.
+                <strong>Request fix → Send to developer</strong> asks the
+                development agent to address it privately.
+              </li>
+              <li>
+                Choose <strong>Update review</strong> after the PR changes, or
+                <strong>Review again</strong> for local development changes.
+              </li>
+            </ol>
+            <p>
+              For <strong>Could not finish</strong>, use
+              <strong>Resume review</strong>; typing “continue” starts a
+              discussion. If required, use
+              <strong>Recover runtime</strong> first. Findings remain
+              provisional until the review finishes.
+            </p>
+          </section>
+          <section id="ask-from-review">
+            <h2>Ask from a review card</h2>
+            <ol>
+              <li>
+                On someone else’s review comment, choose
+                <strong>Ask agent</strong>.
+              </li>
+              <li>
+                Ask about the reasoning, a fix, or a tradeoff. The PR’s code
+                context is prepared automatically.
+              </li>
+              <li>
+                Choose <strong>Draft with agent</strong> for an editable reply.
+                It remains private until you choose <strong>Comment</strong>.
+              </li>
+            </ol>
+            <p>
+              <strong>Resolve locally</strong> closes the private discussion
+              without resolving the GitHub thread.
+            </p>
+          </section>
+          <section id="link-previews">
+            <h2>Preview PR and issue links</h2>
+            <p>
+              Hover over a PR or issue link to read its title, status,
+              description, and labels. Move into the card to follow references,
+              or drag its header to keep it open. Choose
+              <strong>Open</strong> for the full item;
+              <strong>Escape</strong> dismisses the preview.
+            </p>
+          </section>
+          <div class="doc-next">
+            <a href="documentation.html">← All guides</a
+            ><a href="guide-help.html">Need help? →</a>
+          </div>
+        </article>
+      </div>
+    </main>
+    <footer class="footer wrap">
+      <a class="brand" href="index.html"
+        ><img src="assets/logo.svg" width="26" height="26" alt="" />ByteQuay</a
+      >
+      <p>Review is all you need.</p>
+      <nav aria-label="Footer navigation">
+        <a href="lab.html">Lab</a><a href="documentation.html">Docs</a
+        ><a href="design.html">Design</a
+        ><a href="https://github.com/bytequay/bytequay">Source</a>
+      </nav>
+    </footer>
+  </body>
+</html>

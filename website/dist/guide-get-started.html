@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Connect GitHub and open your first repository."
+    />
+    <meta name="theme-color" content="#101017" />
+    <title>Get started — ByteQuay Docs</title>
+    <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css?v=concise-docs" />
+  </head>
+  <body class="doc-page">
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="header wrap">
+      <a class="brand" href="index.html" aria-label="ByteQuay home"
+        ><img src="assets/logo.svg" width="34" height="34" alt="" />ByteQuay</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="lab.html">Lab</a
+        ><a href="documentation.html" aria-current="page">Docs</a
+        ><a href="design.html">Design</a
+        ><a href="https://github.com/bytequay/bytequay">GitHub</a>
+      </nav>
+    </header>
+    <main id="main" class="wrap">
+      <div class="docs-layout concise-docs">
+        <aside>
+          <nav class="contents" aria-label="Documentation topics">
+            <span class="mini-label">DOCUMENTATION</span
+            ><a href="documentation.html">All guides</a
+            ><a href="guide-get-started.html" aria-current="page">Get started</a
+            ><a href="guide-reviews.html">Review pull requests</a
+            ><a href="guide-agents.html">Build with agents</a
+            ><a href="guide-planning.html">Plan and organize</a
+            ><a href="guide-integrations.html">Connect integrations</a
+            ><a href="guide-help.html">Get help</a
+            ><a href="lab-guide.html">ByteQuay Lab</a
+            ><span class="mini-label doc-on-page">ON THIS PAGE</span
+            ><a href="#what-is-bytequay">About ByteQuay</a
+            ><a href="#getting-started">Quickstart</a
+            ><a href="#workspaces">Home and workspaces</a>
+          </nav>
+        </aside>
+        <article class="docs-content">
+          <header class="doc-title">
+            <a href="documentation.html">Docs</a
+            ><span aria-hidden="true"> / </span><span>Get started</span>
+            <h1>Get started</h1>
+            <p>Connect GitHub and open your first repository.</p>
+          </header>
+          <section id="what-is-bytequay">
+            <h2>About ByteQuay</h2>
+            <p>
+              ByteQuay is a macOS app for GitHub reviews and local coding
+              agents. Let agents build and guide you, choose how much detail to
+              explore, and merge when you feel confident.
+            </p>
+            <p>
+              A <strong>workspace</strong> holds a repository’s work. A
+              <strong>task</strong> is an agent conversation with its own
+              working copy. App data stays on your Mac; GitHub and model
+              requests use the services you connect.
+            </p>
+            <p>
+              ByteQuay is pre-1.0. These guides cover the development version;
+              check your release notes for availability.
+            </p>
+          </section>
+          <section id="getting-started">
+            <h2>Get started</h2>
+            <ol>
+              <li>
+                Download ByteQuay from
+                <a href="https://github.com/bytequay/bytequay/releases"
+                  >GitHub Releases</a
+                >. Open the DMG and drag the app to Applications. Follow your
+                release’s requirements; current builds need macOS 14+ and JDK
+                25.
+              </li>
+              <li>
+                Choose <strong>Use my GitHub CLI login</strong> after running
+                <code>gh auth login</code>, or
+                <strong>Connect with token →</strong>. The app recommends a
+                classic token with <code>repo</code> and
+                <code>read:user</code> scopes.
+              </li>
+              <li>
+                Choose <strong>Home → Repos you watch → + Watch</strong>. Select
+                a repository, check its branch and publication destinations,
+                then <strong>Watch repository</strong>.
+              </li>
+              <li>
+                Open <strong>Pull requests</strong>, select a PR, and inspect
+                <strong>WorkBench → Changes</strong>.
+              </li>
+            </ol>
+            <p>
+              You can review without an agent. For coding tasks,
+              <a href="guide-agents.html#agent-tasks">connect a provider</a>.
+              Change appearance in
+              <strong>Settings → Personal → Appearance</strong>.
+            </p>
+          </section>
+          <section id="workspaces">
+            <h2>Home and workspaces</h2>
+            <p>
+              Home brings together watched repositories and recent activity. A
+              workspace holds tasks, PRs, work items, commits, and memory.
+            </p>
+            <ul>
+              <li>
+                Choose <strong>Direct clone</strong> to work in the selected
+                repository, or <strong>Personal fork</strong> to publish through
+                your fork. Review the source, push, and PR destinations before
+                confirming.
+              </li>
+              <li>
+                <strong>My PRs</strong> shows your open work.
+                <strong>Snooze</strong> hides a card temporarily;
+                <strong>Needs attention</strong> collects updates needing a
+                response.
+              </li>
+              <li>
+                <strong>Unwatch</strong> retires a workspace while keeping local
+                history. <strong>Watch again</strong> restores it.
+                <strong>Delete local data</strong> is a separate, confirmed
+                removal.
+              </li>
+            </ul>
+          </section>
+          <div class="doc-next">
+            <a href="documentation.html">← All guides</a
+            ><a href="guide-help.html">Need help? →</a>
+          </div>
+        </article>
+      </div>
+    </main>
+    <footer class="footer wrap">
+      <a class="brand" href="index.html"
+        ><img src="assets/logo.svg" width="26" height="26" alt="" />ByteQuay</a
+      >
+      <p>Review is all you need.</p>
+      <nav aria-label="Footer navigation">
+        <a href="lab.html">Lab</a><a href="documentation.html">Docs</a
+        ><a href="design.html">Design</a
+        ><a href="https://github.com/bytequay/bytequay">Source</a>
+      </nav>
+    </footer>
+  </body>
+</html>

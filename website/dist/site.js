@@ -5,7 +5,7 @@ const views = {
     title: "From a request to a reviewable change.",
     caption:
       "Give an agent a task, follow the conversation, and inspect its code and tests in WorkBench. Keep the next decision in your hands.",
-    guide: "documentation.html#agent-tasks",
+    guide: "guide-agents.html#agent-tasks",
     alt: "ByteQuay in dark mode with a completed development task beside its code changes and regression tests.",
   },
   review: {
@@ -13,7 +13,7 @@ const views = {
     title: "Understand the change before you approve it.",
     caption:
       "Read the intention and commit explanations, inspect reproduced findings, and discuss them privately. Choose what belongs in your GitHub review.",
-    guide: "documentation.html#private-review",
+    guide: "guide-reviews.html#private-review",
     alt: "ByteQuay PR review with change intention, commit explanations, and a private finding.",
   },
   "cherry-pick": {
@@ -21,7 +21,7 @@ const views = {
     title: "The right commits. The right destination.",
     caption:
       "Check the branch route, selected commits, and predicted conflicts before starting. Follow the resolver and review the generated branch before delivery.",
-    guide: "documentation.html#commits-and-backports",
+    guide: "guide-agents.html#commits-and-backports",
     alt: "ByteQuay cherry-pick confirmation with five selected commits, destination branch, and conflict prediction.",
   },
   goals: {
@@ -29,16 +29,16 @@ const views = {
     title: "Turn an objective into work that matters.",
     caption:
       "A development-only experiment: clarify the result you want and track next steps, active work, blockers, and accepted outcomes.",
-    guide: "documentation.html#goals",
+    guide: "guide-planning.html#goals",
     alt: "ByteQuay Goal work board with next steps, working items, blocked work, and completed outcomes.",
   },
   epics: {
-    source: "assets/app-epics.jpg",
+    source: "assets/app-epic-zoom.jpg",
     title: "A larger change, with every piece in view.",
     caption:
       "Group related work, connect issues and attempts, and follow progress. Review suggested work and decide what to add to the Epic.",
-    guide: "documentation.html#epics",
-    alt: "ByteQuay Epic work page showing progress, related issues, active tasks, and proposed work.",
+    guide: "guide-planning.html#epics",
+    alt: "ByteQuay Epic in a zoom window over the workspace, showing progress, related issues, active tasks, and proposed work.",
   },
 };
 const buttons = document.querySelectorAll("[data-view]");

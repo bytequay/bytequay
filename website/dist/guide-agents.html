@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Start a task, guide the work, and review the result."
+    />
+    <meta name="theme-color" content="#101017" />
+    <title>Build with agents — ByteQuay Docs</title>
+    <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css?v=concise-docs" />
+  </head>
+  <body class="doc-page">
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="header wrap">
+      <a class="brand" href="index.html" aria-label="ByteQuay home"
+        ><img src="assets/logo.svg" width="34" height="34" alt="" />ByteQuay</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="lab.html">Lab</a
+        ><a href="documentation.html" aria-current="page">Docs</a
+        ><a href="design.html">Design</a
+        ><a href="https://github.com/bytequay/bytequay">GitHub</a>
+      </nav>
+    </header>
+    <main id="main" class="wrap">
+      <div class="docs-layout concise-docs">
+        <aside>
+          <nav class="contents" aria-label="Documentation topics">
+            <span class="mini-label">DOCUMENTATION</span
+            ><a href="documentation.html">All guides</a
+            ><a href="guide-get-started.html">Get started</a
+            ><a href="guide-reviews.html">Review pull requests</a
+            ><a href="guide-agents.html" aria-current="page"
+              >Build with agents</a
+            ><a href="guide-planning.html">Plan and organize</a
+            ><a href="guide-integrations.html">Connect integrations</a
+            ><a href="guide-help.html">Get help</a
+            ><a href="lab-guide.html">ByteQuay Lab</a
+            ><span class="mini-label doc-on-page">ON THIS PAGE</span
+            ><a href="#agent-tasks">Start an agent task</a
+            ><a href="#delivery-and-ci">Delivery and CI</a
+            ><a href="#commits-and-backports">Cherry-pick and backport</a>
+          </nav>
+        </aside>
+        <article class="docs-content">
+          <header class="doc-title">
+            <a href="documentation.html">Docs</a
+            ><span aria-hidden="true"> / </span><span>Build with agents</span>
+            <h1>Build with agents</h1>
+            <p>Start a task, guide the work, and review the result.</p>
+          </header>
+          <section id="agent-tasks">
+            <h2>Start an agent task</h2>
+            <ol>
+              <li>
+                Install Codex or Claude CLI, then open
+                <strong>Settings → Agents → Models</strong>.
+                <strong>Sign in</strong>, choose <strong>Check</strong>, and
+                wait for <strong>Ready</strong>. Supported API-key providers are
+                also available.
+              </li>
+              <li>
+                Select Development and Review defaults. Use a repository’s
+                <strong>Model overrides</strong> for different choices.
+              </li>
+              <li>
+                Open <strong>Tasks → + New task</strong>. Describe the outcome,
+                useful context, and how to check success.
+              </li>
+              <li>
+                Review <strong>Automation</strong>, then <strong>Send</strong>.
+                ByteQuay prepares a separate branch and working copy.
+              </li>
+            </ol>
+            <p>
+              During work, <strong>Steer</strong> adds guidance when supported;
+              <strong>Run next</strong> queues a message. Inspect permission
+              requests before allowing them.
+              <strong>Stop this turn</strong> interrupts the agent.
+            </p>
+            <p>
+              Check <strong>WorkBench → Changes</strong>,
+              <strong>Summary</strong>, and tests before accepting the result.
+              Use <strong>Mark it complete</strong> when the task is idle and
+              its queue is handled. <strong>Archive</strong> retains history;
+              <strong>Delete</strong> removes local task data.
+            </p>
+            <h3>Accounts, usage, and skills</h3>
+            <ul>
+              <li>
+                <strong>Usage</strong> shows provider-reported limits or
+                balances, including activity outside ByteQuay. Missing values
+                are unknown.
+              </li>
+              <li>
+                Repository-specific Claude accounts are available only there.
+                Existing tasks keep their selected account.
+              </li>
+              <li>
+                <strong>Settings → Agents → Skills → Add skill</strong> saves
+                reusable instructions for subsequent turns.
+              </li>
+            </ul>
+          </section>
+          <section id="delivery-and-ci">
+            <h2>Deliver changes and repair CI</h2>
+            <p>
+              Review <strong>Automation</strong> before the first submission;
+              the choices lock when the task starts.
+            </p>
+            <ul>
+              <li>
+                <strong>Auto draft PR</strong> pushes commits and creates or
+                updates a PR. It defaults on.
+              </li>
+              <li>
+                <strong>Auto CI fix</strong> repairs supported failures and can
+                mark a draft ready. It also defaults on and can write to GitHub.
+              </li>
+              <li>
+                <strong>Auto review summary</strong> adds private notes; it
+                defaults off.
+              </li>
+              <li>
+                <strong>Keep commits local for this turn</strong> disables
+                publication and CI follow-up for that submission.
+              </li>
+            </ul>
+            <p>
+              Finished development work is committed automatically. Set new-task
+              defaults in <strong>Settings → Agents → Workflow</strong>.
+            </p>
+            <p>
+              During CI repair, use <code>@ci</code> to guide the agent when
+              supported. To resume development, choose
+              <strong>Stop automation and continue…</strong>. Review and merge
+              the PR yourself.
+            </p>
+          </section>
+          <section id="commits-and-backports">
+            <h2>Cherry-pick and backport</h2>
+            <ol>
+              <li>
+                In <strong>Commits → History</strong>, check the first control
+                for the destination and the second for the source.
+              </li>
+              <li>
+                Select commits or a range, then <strong>Cherry-pick</strong>.
+                Review the route, order, and resolver before
+                <strong>Start cherry-pick</strong>.
+              </li>
+              <li>
+                Follow the run under <strong>Commits → Cherry pick</strong>. Use
+                <strong>Send note</strong> or
+                <strong>Cancel execution</strong> if needed.
+              </li>
+              <li>
+                When ready, choose
+                <strong>Deliver this generated branch → Push branch</strong>,
+                then <strong>Create pull request</strong>.
+              </li>
+            </ol>
+            <p>
+              Cherry-picking starts locally. <strong>Dry run</strong> shows the
+              plan. PR creation also authorizes the disclosed CI monitor.
+            </p>
+            <p>
+              For chained backports, configure
+              <strong>Related workspaces</strong> in repository settings, then
+              use <strong>Backport</strong> or send
+              <code>@backport example/project #123</code>. Follow
+              <strong>Tasks → Backport chains</strong>. Each step waits for its
+              source PR to merge; you control merges.
+            </p>
+          </section>
+          <div class="doc-next">
+            <a href="documentation.html">← All guides</a
+            ><a href="guide-help.html">Need help? →</a>
+          </div>
+        </article>
+      </div>
+    </main>
+    <footer class="footer wrap">
+      <a class="brand" href="index.html"
+        ><img src="assets/logo.svg" width="26" height="26" alt="" />ByteQuay</a
+      >
+      <p>Review is all you need.</p>
+      <nav aria-label="Footer navigation">
+        <a href="lab.html">Lab</a><a href="documentation.html">Docs</a
+        ><a href="design.html">Design</a
+        ><a href="https://github.com/bytequay/bytequay">Source</a>
+      </nav>
+    </footer>
+  </body>
+</html>

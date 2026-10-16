@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Start ByteQuay Lab, inspect resource and agent activity, compare review guidance, and check whether a product change helped."
+    />
+    <meta name="theme-color" content="#101017" />
+    <title>Lab guide — ByteQuay</title>
+    <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css?v=concise-docs" />
+  </head>
+  <body class="doc-page">
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="header wrap">
+      <a class="brand" href="index.html" aria-label="ByteQuay home"
+        ><img src="assets/logo.svg" width="34" height="34" alt="" />ByteQuay</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="lab.html">Lab</a><a href="documentation.html">Docs</a
+        ><a href="design.html">Design</a
+        ><a href="https://github.com/bytequay/bytequay">GitHub</a>
+      </nav>
+    </header>
+    <main id="main" class="wrap">
+      <div class="design-hero">
+        <p class="eyebrow">THE LAB GUIDE</p>
+        <h1>Use ByteQuay Lab.</h1>
+        <p class="lede">
+          Start the dashboard, choose a question, and follow the evidence.
+        </p>
+        <a class="text-link" href="lab.html">← About ByteQuay Lab</a>
+      </div>
+      <div class="docs-layout">
+        <aside>
+          <nav class="contents" aria-label="Lab guide topics">
+            <span class="mini-label">IN THIS GUIDE</span
+            ><a href="#start">Start the Lab</a><a href="#resources">Resources</a
+            ><a href="#activity">Time &amp; tools</a
+            ><a href="#experiments">Skills &amp; review rules</a
+            ><a href="#context">Context &amp; memory</a
+            ><a href="#outcomes">Tuning &amp; delivery</a
+            ><a href="#follow-up">Check a change</a
+            ><a href="#reading-results">Read results fairly</a
+            ><a href="#data">Data &amp; controls</a>
+          </nav>
+        </aside>
+        <div class="docs-content user-guide">
+          <section id="start">
+            <h2>Start the Lab</h2>
+            <p>
+              You need a ByteQuay source checkout,
+              <strong>Python 3.12–3.14</strong>, and <strong>uv</strong>. Run
+              some app tasks first so there is activity to read.
+            </p>
+            <p>From the repository root:</p>
+            <pre
+              class="lab-command"
+            ><code class="language-sh">cd scripts/review-calibration
+uv run activity.py --save
+uv run tuning.py --save
+uv run context.py --save
+uv run memory.py --save
+uv run dashboard.py
+</code></pre>
+            <p>
+              Open <code>http://127.0.0.1:8517/</code>. Enable
+              <strong>Settings → Integrations → Lab → Show the Lab</strong> for
+              a sidebar link. That switch does not start the dashboard.
+            </p>
+          </section>
+          <section id="resources">
+            <h2>Check resources</h2>
+            <a
+              class="lab-guide-visual"
+              href="assets/lab-resources.svg"
+              target="_blank"
+              rel="noopener"
+              aria-label="Open resource usage and agent activity illustration at full size"
+              ><img
+                src="assets/lab-resources.svg"
+                width="1440"
+                height="900"
+                loading="lazy"
+                alt="Resource usage and agent activity — illustrated preview with sample data."
+            /></a>
+            <p>
+              Run <code>uv run monitor.py</code> for a snapshot. For history,
+              use <code>uv run monitor.py --start</code>: it installs a local
+              login service, samples every five seconds, and refreshes analysis
+              hourly. <code>--stop</code> removes the service.
+            </p>
+            <p>
+              Open <strong>Resources</strong> to compare memory, CPU, and disk
+              use with running turns. <strong>Processes</strong> shows the Lab’s
+              own programs. <strong>Look for risks</strong> optionally asks
+              DeepSeek for advice; it does not apply changes.
+            </p>
+          </section>
+          <section id="activity">
+            <h2>Find where time goes</h2>
+            <p>
+              Filter by days, repository, and model.
+              <strong>Read the logs again</strong> refreshes activity.
+            </p>
+            <ul>
+              <li>
+                <strong>Overview / Time:</strong> model work, tools, and waiting
+                for you.
+              </li>
+              <li>
+                <strong>Slow spots / Tools:</strong> slow, repeated, or failed
+                calls.
+              </li>
+              <li>
+                <strong>Models / Cost:</strong> time, tokens, and known costs.
+                Estimates are not subscription bills.
+              </li>
+              <li>
+                <strong>Approvals:</strong> try rules against past requests
+                without changing settings.
+              </li>
+            </ul>
+          </section>
+          <section id="experiments">
+            <h2>Compare review guidance</h2>
+            <a
+              class="lab-guide-visual"
+              href="assets/lab-experiments.svg"
+              target="_blank"
+              rel="noopener"
+              aria-label="Open baseline and candidate review comparison illustration at full size"
+              ><img
+                src="assets/lab-experiments.svg"
+                width="1440"
+                height="900"
+                loading="lazy"
+                alt="Baseline and candidate review comparison — illustrated preview with sample data."
+            /></a>
+            <ol>
+              <li>
+                Build cases from public PRs with reviewer comments. Freeze the
+                code and context available at the review cutoff.
+              </li>
+              <li>
+                Compare a baseline and candidate on the same cases. Keep other
+                settings fixed, repeat runs, and save unseen cases for a final
+                check.
+              </li>
+              <li>
+                Run and judge the plan in <strong>Reviews</strong>. Use
+                <strong>Judge</strong> to compare human labels without seeing
+                the model verdict first.
+              </li>
+            </ol>
+            <p>
+              Results are <strong>Found</strong>, <strong>Partly</strong>, or
+              <strong>Missed</strong>. Extra leads are unjudged; failed and
+              incomplete runs stay separate. This tests review discovery, not
+              the full workflow.
+            </p>
+            <p>
+              <a
+                href="https://github.com/bytequay/bytequay/tree/main/scripts/review-calibration#experiments"
+                >Experiment commands and case setup</a
+              >
+            </p>
+          </section>
+          <section id="context">
+            <h2>Inspect context and memory</h2>
+            <a
+              class="lab-guide-visual"
+              href="assets/lab-context.svg"
+              target="_blank"
+              rel="noopener"
+              aria-label="Open context growth and token contributors illustration at full size"
+              ><img
+                src="assets/lab-context.svg"
+                width="1440"
+                height="900"
+                loading="lazy"
+                alt="Context growth and token contributors — illustrated preview with sample data."
+            /></a>
+            <p>
+              <strong>Context</strong> shows Codex input growth by call and
+              estimates which outputs contribute most. Claude currently provides
+              turn totals only.
+            </p>
+            <p>
+              <strong>Memory</strong> shows what was supplied, cited, and
+              associated with resolved or withdrawn findings. Citations indicate
+              use, not proven value. Inspect a candidate, narrow it, and compare
+              both cost and quality.
+            </p>
+          </section>
+          <section id="outcomes">
+            <h2>Check outcomes</h2>
+            <ul>
+              <li>
+                <strong>Tuning:</strong> steering, approvals, retries, and
+                instruction setups. Follow-up messages can be new work as well
+                as corrections.
+              </li>
+              <li>
+                <strong>Delivery:</strong> effort behind results reported ready
+                by the agent. “Ready” does not mean merged or independently
+                verified.
+              </li>
+              <li>
+                <strong>Reviews:</strong> resolved versus withdrawn findings.
+                Resolution is not a correctness audit.
+              </li>
+            </ul>
+          </section>
+          <section id="follow-up">
+            <h2>Follow a change</h2>
+            <a
+              class="lab-guide-visual"
+              href="assets/lab-follow-up.svg"
+              target="_blank"
+              rel="noopener"
+              aria-label="Open before and after a recorded change illustration at full size"
+              ><img
+                src="assets/lab-follow-up.svg"
+                width="1440"
+                height="900"
+                loading="lazy"
+                alt="Before and after a recorded change — illustrated preview with sample data."
+            /></a>
+            <ol>
+              <li>
+                Read a <strong>Suggestion</strong> and its metric. Choose
+                <strong>Working on it</strong> or <strong>Not wanted</strong>.
+              </li>
+              <li>
+                Make the change, then select
+                <strong>I made this change</strong>.
+              </li>
+              <li>
+                Return after more comparable work. Read <strong>helped</strong>,
+                <strong>made it worse</strong>, or
+                <strong>not clear yet</strong>, with the sample size and
+                uncertainty.
+              </li>
+            </ol>
+            <p>
+              <strong>Report</strong> summarizes a day or week.
+              <strong>What became of them</strong> keeps earlier decisions
+              visible. <code>uv run digest.py</code> saves a report from current
+              tables.
+            </p>
+          </section>
+          <section id="reading-results">
+            <h2>Read results fairly</h2>
+            <ul>
+              <li>Missing data is unknown, not zero.</li>
+              <li>
+                Check sample size, uncertainty, failures, and judge
+                disagreements.
+              </li>
+              <li>
+                Compare similar work; before-and-after trends do not establish a
+                cause.
+              </li>
+              <li>Check quality alongside time, tokens, and cost.</li>
+            </ul>
+          </section>
+          <section id="data">
+            <h2>Data and controls</h2>
+            <p>
+              The dashboard runs on localhost. Saved tables, experiments, and
+              reports live under
+              <code>~/Library/Application Support/ByteQuay Lab</code>.
+            </p>
+            <p>
+              Ordinary analysis reads app data locally. Optional experiments
+              send frozen inputs to your selected provider; judging sends
+              comments and leads to DeepSeek; resource advice sends measured
+              counters and prior risk titles.
+            </p>
+            <p>
+              <strong>Clean up</strong> deletes eligible app data only after
+              confirmation. The website never connects to your Lab.
+            </p>
+            <p>
+              <a
+                href="https://github.com/bytequay/bytequay/tree/main/scripts/review-calibration"
+                >Full Python toolkit runbook</a
+              >
+            </p>
+          </section>
+        </div>
+      </div>
+    </main>
+    <footer class="footer wrap">
+      <a class="brand" href="index.html"
+        ><img src="assets/logo.svg" width="26" height="26" alt="" />ByteQuay</a
+      >
+      <p>Review is all you need.</p>
+      <nav aria-label="Footer navigation">
+        <a href="lab.html">Lab</a
+        ><a href="lab-guide.html" aria-current="page">Lab guide</a
+        ><a href="documentation.html">Docs</a><a href="design.html">Design</a
+        ><a href="https://github.com/bytequay/bytequay">Source</a>
+      </nav>
+    </footer>
+  </body>
+</html>

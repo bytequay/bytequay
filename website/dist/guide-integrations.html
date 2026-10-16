@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Bring Jira, Gmail, and Calendar into your workspace."
+    />
+    <meta name="theme-color" content="#101017" />
+    <title>Connect integrations — ByteQuay Docs</title>
+    <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css?v=concise-docs" />
+  </head>
+  <body class="doc-page">
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="header wrap">
+      <a class="brand" href="index.html" aria-label="ByteQuay home"
+        ><img src="assets/logo.svg" width="34" height="34" alt="" />ByteQuay</a
+      >
+      <nav aria-label="Main navigation">
+        <a href="lab.html">Lab</a
+        ><a href="documentation.html" aria-current="page">Docs</a
+        ><a href="design.html">Design</a
+        ><a href="https://github.com/bytequay/bytequay">GitHub</a>
+      </nav>
+    </header>
+    <main id="main" class="wrap">
+      <div class="docs-layout concise-docs">
+        <aside>
+          <nav class="contents" aria-label="Documentation topics">
+            <span class="mini-label">DOCUMENTATION</span
+            ><a href="documentation.html">All guides</a
+            ><a href="guide-get-started.html">Get started</a
+            ><a href="guide-reviews.html">Review pull requests</a
+            ><a href="guide-agents.html">Build with agents</a
+            ><a href="guide-planning.html">Plan and organize</a
+            ><a href="guide-integrations.html" aria-current="page"
+              >Connect integrations</a
+            ><a href="guide-help.html">Get help</a
+            ><a href="lab-guide.html">ByteQuay Lab</a
+            ><span class="mini-label doc-on-page">ON THIS PAGE</span
+            ><a href="#jira">Jira</a
+            ><a href="#gmail-and-google-calendar">Gmail and Calendar</a>
+          </nav>
+        </aside>
+        <article class="docs-content">
+          <header class="doc-title">
+            <a href="documentation.html">Docs</a
+            ><span aria-hidden="true"> / </span
+            ><span>Connect integrations</span>
+            <h1>Connect integrations</h1>
+            <p>Bring Jira, Gmail, and Calendar into your workspace.</p>
+          </header>
+          <section id="jira">
+            <h2>Connect Jira</h2>
+            <ol>
+              <li>
+                Open
+                <strong>Settings → Integrations → Jira → Add account</strong>.
+                Enter your site, account email, and API token with the required
+                permissions.
+              </li>
+              <li>
+                In <strong>Work items → Jira</strong>, choose the site, board,
+                and sprint or backlog. Filter by assignee and status.
+              </li>
+              <li>
+                Open an eligible ticket and choose
+                <strong>Start development</strong>. Assign a workspace if
+                prompted, then review and submit the composer.
+              </li>
+            </ol>
+            <p>
+              <strong>Add subtask</strong> creates Local work in the ByteQuay
+              Epic. <strong>Open in Jira</strong> handles unsupported fields and
+              actions.
+            </p>
+          </section>
+          <section id="gmail-and-google-calendar">
+            <h2>Connect Gmail and Calendar</h2>
+            <ol>
+              <li>
+                Open <strong>Settings → Integrations → Google Apps</strong>,
+                install the connector, and <strong>Sign in with Google</strong>.
+                Use <strong>Add account</strong> for another account.
+              </li>
+              <li>
+                <strong>Refresh</strong> mail or the calendar agenda. Choose
+                <strong>Compose</strong> or <strong>Reply</strong>, then inspect
+                <strong>Review email</strong> before
+                <strong>Send email</strong>.
+              </li>
+              <li>
+                For <strong>Ask Gemini</strong>, save a Gemini API key in the
+                same settings page. Ask a question or attach an email or event;
+                approve requested actions in the conversation.
+              </li>
+            </ol>
+            <p>
+              Mail, events, and Gemini conversations stay in memory until quit;
+              sign-ins and the key remain. Task-agent access is optional and
+              reads only the selected account’s loaded items. Its consent resets
+              on restart or account switch.
+            </p>
+            <p>
+              Gemini uses your key’s quota and billing. If a send is uncertain,
+              check Sent and Drafts before retrying.
+            </p>
+          </section>
+          <div class="doc-next">
+            <a href="documentation.html">← All guides</a
+            ><a href="guide-help.html">Need help? →</a>
+          </div>
+        </article>
+      </div>
+    </main>
+    <footer class="footer wrap">
+      <a class="brand" href="index.html"
+        ><img src="assets/logo.svg" width="26" height="26" alt="" />ByteQuay</a
+      >
+      <p>Review is all you need.</p>
+      <nav aria-label="Footer navigation">
+        <a href="lab.html">Lab</a><a href="documentation.html">Docs</a
+        ><a href="design.html">Design</a
+        ><a href="https://github.com/bytequay/bytequay">Source</a>
+      </nav>
+    </footer>
+  </body>
+</html>

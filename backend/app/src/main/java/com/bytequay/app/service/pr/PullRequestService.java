@@ -82,6 +82,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -328,7 +329,11 @@ public class PullRequestService
         store.saveRepositorySyncPage(repository.fullName(), ImmutableList.of(pullRequest), UUID.randomUUID().toString());
     }
 
-    /** Discovers repository updates independently of the bounded full-detail warm set. */
+    /**
+     * Discovers repository updates independently of the bounded full-detail warm set. After one complete pass, later passes
+     * read only what changed since: rereading every open and recent pull request was most of the scheduled refresh's search
+     * time, and the attention job already reads each watched repository's updates every few minutes.
+     */
     public void syncRepository(RepoRef repository)
     {
         requireNonNull(repository, "repository is null");
@@ -341,9 +346,24 @@ public class PullRequestService
             store.saveRepositorySyncPage(repository.fullName(), rows, syncMarker);
             rows.forEach(row -> seen.put(row.repo() + "#" + row.number(), row));
         };
-        String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(CLOSED_RETENTION_DAYS).toString();
-        discoverQuery(credential.token(), "is:pr repo:" + repository.fullName() + " updated:>=" + sinceDate, save);
-        discoverQuery(credential.token(), "is:pr repo:" + repository.fullName() + " is:open", save);
+        String query = "is:pr repo:" + repository.fullName();
+        String key = "github.repository-sync." + credential.profile().login().toLowerCase(Locale.ROOT) + "." + repository.fullName().toLowerCase(Locale.ROOT);
+        Instant started = clock.instant();
+        // Deleting the last workspace of a repository hides its rows, so watching it again needs the full pass.
+        Optional<Instant> synced = syncSettings.get(key).map(Instant::parse)
+                .filter(at -> at.isAfter(started.minus(Duration.ofDays(CLOSED_RETENTION_DAYS))) && !at.isAfter(started))
+                .filter(ignored -> store.findRepositoryPage(repository.fullName(), 0, 1).totalPullRequests() > 0);
+        if (synced.isPresent()) {
+            discoverQuery(credential.token(), query + " updated:>=" + synced.orElseThrow().minusSeconds(300).truncatedTo(ChronoUnit.SECONDS), save);
+        }
+        else {
+            // A full pass that fails part way must not leave an older checkpoint behind its partly saved rows.
+            syncSettings.delete(key);
+            String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(CLOSED_RETENTION_DAYS).toString();
+            discoverQuery(credential.token(), query + " updated:>=" + sinceDate, save);
+            discoverQuery(credential.token(), query + " is:open", save);
+        }
+        syncSettings.put(key, started.toString());
         enrichCards(credential, seen.values().stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
         // Search can omit cached rows; discovery never deletes their data or local marks.
     }
@@ -479,7 +499,7 @@ public class PullRequestService
             return false;
         }
         Instant since = completed.orElse(started.minus(Duration.ofHours(1))).minusSeconds(300);
-        discoverQuery(credential.token(), query + " updated:>=" + since.truncatedTo(java.time.temporal.ChronoUnit.SECONDS), page -> {
+        discoverQuery(credential.token(), query + " updated:>=" + since.truncatedTo(ChronoUnit.SECONDS), page -> {
             List<FetchedPullRequest> rows = page.stream().map(row -> row.withViewerOrigin(credential.profile().login()))
                     .map(row -> origin == REVIEW_REQUESTED && row.origin() != AUTHORED ? row.withOrigin(REVIEW_REQUESTED) : row)
                     .collect(toImmutableList());

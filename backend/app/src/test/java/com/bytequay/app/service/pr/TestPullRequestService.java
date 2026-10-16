@@ -59,6 +59,7 @@ import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestHistoryPage;
+import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RecentTextKind;
@@ -100,6 +101,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1182,6 +1184,40 @@ class TestPullRequestService
         verify(summaries).fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 7), PullRequestRef.of("owner", "repo", 8)), "me");
         verify(summaries).fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 7)), "me");
         verifyNoMoreInteractions(summaries);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void workspaceSyncReadsOnlyChangesSinceItsLastCompletePass(boolean rowsVisible)
+    {
+        AtomicReference<Instant> now = new AtomicReference<>(REVIEWED_AT);
+        service = serviceAt(now);
+        Map<String, String> settings = new HashMap<>();
+        when(syncSettings.get(anyString())).thenAnswer(invocation -> Optional.ofNullable(settings.get(invocation.<String>getArgument(0))));
+        doAnswer(invocation -> {
+            settings.put(invocation.getArgument(0), invocation.getArgument(1));
+            return null;
+        }).when(syncSettings).put(anyString(), anyString());
+        doAnswer(invocation -> {
+            settings.remove(invocation.<String>getArgument(0));
+            return null;
+        }).when(syncSettings).delete(anyString());
+        // Deleting the repository's last workspace hides its rows.
+        when(store.findRepositoryPage("owner/repo", 0, 1))
+                .thenReturn(new PullRequestPage(rowsVisible ? ImmutableList.of(storedPullRequest()) : ImmutableList.of(), 0, 1, rowsVisible ? 1 : 0, 0, false));
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100))).thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+
+        service.syncRepository(RepoRef.of("owner", "repo"));
+        now.set(REVIEWED_AT.plus(Duration.ofMinutes(30)));
+        service.syncRepository(RepoRef.of("owner", "repo"));
+
+        ArgumentCaptor<String> queries = ArgumentCaptor.forClass(String.class);
+        verify(gitHub, times(rowsVisible ? 3 : 4)).searchPullRequestsPaged(eq("pat"), queries.capture(), eq(1), eq(100));
+        List<String> fullPass = ImmutableList.of("is:pr repo:owner/repo updated:>=30 days ago", "is:pr repo:owner/repo is:open");
+        assertThat(queries.getAllValues().stream().map(query -> query.replaceFirst(">=\\d{4}-\\d{2}-\\d{2}$", ">=30 days ago")))
+                .containsExactlyElementsOf(ImmutableList.<String>builder().addAll(fullPass)
+                        .addAll(rowsVisible ? ImmutableList.of("is:pr repo:owner/repo updated:>=" + REVIEWED_AT.minusSeconds(300)) : fullPass)
+                        .build());
     }
 
     @Test

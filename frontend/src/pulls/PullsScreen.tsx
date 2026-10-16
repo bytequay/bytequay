@@ -36,12 +36,11 @@ import { useResizablePane } from '../useResizablePane';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import { useZoom, ZoomActions, ZoomScrim, type ZoomControls } from '../Zoom';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
-import type { AgentReviewDto, ReviewDraftItemDto, ReviewEvent } from './agent-review/contracts';
+import type { AgentReviewDto, ReviewDraftDto, ReviewDraftItemDto, ReviewEvent } from './agent-review/contracts';
 import { draftCommentCommit, mergeReviewFindings, pendingDraftCount, reviewStatus } from './agent-review/model';
 import BetterWordsButton from './BetterWordsButton';
 import CodeTestsTab from './code-tests/CodeTestsTab';
 import DetailSkeleton from './DetailSkeleton';
-import { reviewCommentGroups } from './lineRangeSelection';
 import type { LocalReviewThreads } from './local-review/types';
 import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
 import MarkdownBody from './MarkdownBody';
@@ -1709,17 +1708,21 @@ export function ReviewDialog({
   ) => void;
   onClose: () => void;
 }) {
-  const [body, setBody] = useState(review?.draft?.body ?? '');
+  // Without an agent review the sheet loads the draft itself: every review leaves through it, so a
+  // send whose outcome is unknown stays recorded and cannot go out twice.
+  const [loadedDraft, setLoadedDraft] = useState<ReviewDraftDto | null>(null);
+  const draft = review?.draft ?? loadedDraft;
+  const [body, setBody] = useState(draft?.body ?? '');
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const commentRef = useRef<HTMLTextAreaElement>(null);
   const [commentPreview, setCommentPreview] = useState(false);
-  const savedDraft = useRef(review?.draft ?? null);
+  const savedDraft = useRef(draft);
   const edited = useRef(false);
   const command = usePrCommentCommand({ repository: detail.repo, number: detail.number, value: body,
     onChange: text => { edited.current = true; setBody(text); }, textareaRef: bodyRef });
   const inFlight = useRef(false);
   const authored = pr.origin === 'AUTHORED';
-  const [selectedEvent, setEvent] = useState<ReviewEvent>(authored ? 'COMMENT' : review?.draft?.event ?? 'APPROVE');
+  const [selectedEvent, setEvent] = useState<ReviewEvent>(authored ? 'COMMENT' : draft?.event ?? 'COMMENT');
   const event = authored ? 'COMMENT' : selectedEvent;
   const [submitting, setSubmitting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1727,27 +1730,45 @@ export function ReviewDialog({
   const [commentEdit, setCommentEdit] = useState<{ key: string; body: string; version: number } | null>(null);
   const busy = submitting || saving || command.loading;
   const [error, setError] = useState<string | null>(null);
-  const promoted = review?.draft?.items.filter(item => !item.published && (item.included || item.publication !== null)) ?? [];
-  const unconfirmed = review?.draft?.items.some(item => item.publication?.state === 'UNCERTAIN' || item.publication?.state === 'RESERVED') ?? false;
+  const promoted = draft?.items.filter(item => !item.published && (item.included || item.publication !== null)) ?? [];
+  // Review text in a send stays as sent until the user says whether it reached GitHub.
+  const reviewSend = draft?.reviewPublication?.state ?? null;
+  const unconfirmed = reviewSend !== null || (draft?.items.some(item => item.publication?.state === 'UNCERTAIN' || item.publication?.state === 'RESERVED') ?? false);
   const bodyRequired = event !== 'APPROVE' && pendingComments.length === 0 && promoted.length === 0;
   const failed = useCallback((value: unknown) => setError(remoteErrorMessage(value)), []);
+  const hasReviewDraft = Boolean(review?.draft);
+
+  useEffect(() => {
+    if (hasReviewDraft) return;
+    let live = true;
+    window.bridge.getReviewDraft(detail.repo, detail.number).then(value => { if (live) setLoadedDraft(value); }, failed);
+    return () => { live = false; };
+  }, [hasReviewDraft, detail.repo, detail.number, failed]);
 
   // A draft write can leave the draft changed even when it fails, so the sheet re-reads it.
   const reloadReview = useCallback(() => {
     if (review !== null) void window.bridge.getAgentReview(review.id).then(onReviewChange, () => {});
-  }, [review, onReviewChange]);
+    else void window.bridge.getReviewDraft(detail.repo, detail.number).then(setLoadedDraft, () => {});
+  }, [review, onReviewChange, detail.repo, detail.number]);
+
+  const showDraft = (updated: ReviewDraftDto) => {
+    if (review !== null) onReviewChange({ ...review, draft: updated });
+    else setLoadedDraft(updated);
+  };
 
   useEffect(() => {
-    const incoming = review?.draft;
+    const incoming = draft;
     const saved = savedDraft.current;
     if (incoming && saved === null && !edited.current) {
       savedDraft.current = incoming;
       setBody(incoming.body);
       setEvent(authored ? 'COMMENT' : incoming.event);
     }
+    // Text typed before an empty draft arrived overwrites nothing, so it stays.
+    else if (incoming && saved === null && incoming.body === '' && incoming.reviewPublication === null) savedDraft.current = incoming;
     // Item edits can advance the version; another editor's review prose must still conflict.
     if (incoming && saved && incoming.version >= saved.version && incoming.body === saved.body && incoming.event === saved.event) savedDraft.current = incoming;
-  }, [review?.draft, authored]);
+  }, [draft, authored]);
 
   const close = useCallback(async () => {
     if (inFlight.current) return;
@@ -1755,8 +1776,9 @@ export function ReviewDialog({
       setError('Save or cancel the comment edit before closing the review.');
       return;
     }
-    const draft = savedDraft.current;
-    if (draft === null || (body === draft.body && event === draft.event)) {
+    const saved = savedDraft.current;
+    // Locked text cannot have changed, though it may differ from the stored copy by trimmed whitespace.
+    if (saved === null || reviewSend !== null || (body === saved.body && event === saved.event)) {
       onClose();
       return;
     }
@@ -1765,7 +1787,7 @@ export function ReviewDialog({
     setUnsavedClose(false);
     setError(null);
     try {
-      savedDraft.current = await window.bridge.saveReviewDraft(detail.repo, detail.number, draft.version, body, event);
+      savedDraft.current = await window.bridge.saveReviewDraft(detail.repo, detail.number, saved.version, body, event);
       reloadReview();
       onClose();
     }
@@ -1778,15 +1800,15 @@ export function ReviewDialog({
       inFlight.current = false;
       setSaving(false);
     }
-  }, [body, event, detail.repo, detail.number, onClose, reloadReview, failed, commentEdit]);
+  }, [body, event, detail.repo, detail.number, onClose, reloadReview, failed, commentEdit, reviewSend]);
 
   const removePromoted = async (itemId: string) => {
-    if (!review?.draft || inFlight.current) return;
+    if (draft === null || inFlight.current) return;
     inFlight.current = true;
     setSaving(true);
     setError(null);
     try {
-      const updated = await window.bridge.removeReviewDraftComment(detail.repo, detail.number, savedDraft.current?.version ?? review.draft.version, itemId);
+      const updated = await window.bridge.removeReviewDraftComment(detail.repo, detail.number, savedDraft.current?.version ?? draft.version, itemId);
       if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current.event) savedDraft.current = updated;
     }
     catch (value) {
@@ -1800,17 +1822,40 @@ export function ReviewDialog({
   };
 
   const confirmDelivery = async (itemId: string, posted: boolean) => {
-    if (!review?.draft || inFlight.current) return;
+    if (draft === null || inFlight.current) return;
     inFlight.current = true;
     setSaving(true);
     setError(null);
     try {
-      const version = savedDraft.current?.version ?? review.draft.version;
+      const version = savedDraft.current?.version ?? draft.version;
       const updated = posted
         ? await window.bridge.confirmReviewDraftCommentPosted(detail.repo, detail.number, version, itemId)
         : await window.bridge.confirmReviewDraftCommentNotPosted(detail.repo, detail.number, version, itemId);
       if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current.event) savedDraft.current = updated;
-      onReviewChange({ ...review, draft: updated });
+      showDraft(updated);
+    }
+    catch (value) {
+      failed(value);
+      reloadReview();
+    }
+    finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  };
+
+  const confirmReview = async (posted: boolean) => {
+    if (draft === null || inFlight.current) return;
+    inFlight.current = true;
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await window.bridge.confirmReviewDraftReview(detail.repo, detail.number, savedDraft.current?.version ?? draft.version, posted);
+      // The locked box showed the sent text; posted clears it, so Submit cannot send it again.
+      savedDraft.current = updated;
+      setBody(updated.body);
+      setEvent(authored ? 'COMMENT' : updated.event);
+      showDraft(updated);
     }
     catch (value) {
       failed(value);
@@ -1832,10 +1877,9 @@ export function ReviewDialog({
     ...promoted.map(item => ({ key: item.id, comment: { ...item, commitId: draftCommentCommit(item, review?.findings ?? []) },
       remove: () => { void removePromoted(item.id); },
       save: async (text: string, version: number) => {
-        if (review === null) return;
         const updated = await window.bridge.editReviewDraftComment(detail.repo, detail.number, version, item.id, text, item.included);
         if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current.event) savedDraft.current = updated;
-        onReviewChange({ ...review, draft: updated });
+        showDraft(updated);
       } })),
   ];
   const cancelCommentEdit = () => { setCommentEdit(null); setError(null); };
@@ -1883,64 +1927,35 @@ export function ReviewDialog({
     setSubmitting(true);
     setError(null);
     try {
-      if (review?.draft) {
-        // Added findings can only leave through the draft, which reserves each one so Post comment
-        // now cannot send it again. Written comments retain their commits in the same draft;
-        // the backend sends one reserved batch per commit.
-        const draft = savedDraft.current;
-        if (draft === null) throw new Error('The review draft loaded after you started editing. Close and reopen to review its latest text.');
-        savedDraft.current = await window.bridge.saveReviewDraft(detail.repo, detail.number, draft.version, body, event);
-        let remaining = pendingComments;
-        let version = savedDraft.current.version;
-        for (const comment of remaining) {
-          savedDraft.current = await window.bridge.addReviewDraftComment(detail.repo, detail.number, version, {
-            path: comment.path, side: comment.side, line: comment.line, startLine: comment.startLine, body: comment.body, commitId: comment.commitId, replyToCommentId: comment.replyToCommentId,
-          });
-          version = savedDraft.current.version;
-          remaining = remaining.filter(value => value !== comment);
-          onPendingCommentsChange(remaining);
-        }
-        await window.bridge.submitReviewDraft(detail.repo, detail.number, version, body.trim(), event);
-        recordAttentionAction(`${detail.repo}#${detail.number}`, event === 'COMMENT' ? 'comment' : 'review',
-          event === 'COMMENT' ? Math.max(1, pendingComments.length + promoted.length + Number(body.trim().length > 0)) : 1);
-        reloadReview();
-        // The draft answers with itself alone; the stored detail already carries the new review.
-        void window.bridge.fetchPullRequestDetailByRef(detail.repo, detail.number)
-          .then(reviewed => onReviewSubmitted(reviewed, event), () => {});
+      // Everything leaves through the draft, which reserves each comment and the review text, so
+      // Post comment now or a retry after an unknown outcome cannot send them again. Written
+      // comments retain their commits in the same draft; the backend sends one batch per commit.
+      const saved = savedDraft.current;
+      if (saved === null) throw new Error('The review draft loaded after you started editing. Close and reopen to review its latest text.');
+      savedDraft.current = await window.bridge.saveReviewDraft(detail.repo, detail.number, saved.version, body, event);
+      let remaining = pendingComments;
+      let version = savedDraft.current.version;
+      for (const comment of remaining) {
+        savedDraft.current = await window.bridge.addReviewDraftComment(detail.repo, detail.number, version, {
+          path: comment.path, side: comment.side, line: comment.line, startLine: comment.startLine, body: comment.body, commitId: comment.commitId, replyToCommentId: comment.replyToCommentId,
+        });
+        version = savedDraft.current.version;
+        remaining = remaining.filter(value => value !== comment);
+        onPendingCommentsChange(remaining);
       }
-      else {
-        // One review is anchored at one commit, so comments written while different commits were
-        // selected go out as one review each and the verdict rides the one written on the head.
-        // Each group leaves the staged list as it lands, so retrying after a group fails cannot
-        // send an earlier one twice.
-        const groups = reviewCommentGroups(pendingComments, snapshot?.headSha ?? null);
-        let remaining = pendingComments;
-        let reviewed = detail;
-        for (const [index, group] of groups.entries()) {
-          const verdict = index === groups.length - 1;
-          reviewed = await window.bridge.submitReview(
-            pr.id,
-            detail.repo,
-            detail.number,
-            verdict ? event : 'COMMENT',
-            verdict ? body.trim() : '',
-            group,
-          );
-          recordAttentionAction(`${detail.repo}#${detail.number}`, verdict && event !== 'COMMENT' ? 'review' : 'comment',
-            verdict && event !== 'COMMENT' ? 1 : Math.max(1, group.length + Number(verdict && body.trim().length > 0)));
-          remaining = remaining.filter(comment => !group.includes(comment));
-          onPendingCommentsChange(remaining);
-        }
-        // A review cannot move the diff, so the patched detail is enough and the
-        // Changes tab keeps what it already loaded.
-        onReviewSubmitted(reviewed, event);
-      }
+      await window.bridge.submitReviewDraft(detail.repo, detail.number, version, body.trim(), event);
+      recordAttentionAction(`${detail.repo}#${detail.number}`, event === 'COMMENT' ? 'comment' : 'review',
+        event === 'COMMENT' ? Math.max(1, pendingComments.length + promoted.length + Number(body.trim().length > 0)) : 1);
+      reloadReview();
+      // The draft answers with itself alone; the stored detail already carries the new review.
+      void window.bridge.fetchPullRequestDetailByRef(detail.repo, detail.number)
+        .then(reviewed => onReviewSubmitted(reviewed, event), () => {});
       onClose();
     }
     catch (value) {
       failed(value);
       setSubmitting(false);
-      if (review?.draft) reloadReview();
+      reloadReview();
     }
     finally {
       inFlight.current = false;
@@ -1961,7 +1976,7 @@ export function ReviewDialog({
         <textarea
           ref={bodyRef}
           autoFocus
-          disabled={submitting || saving}
+          disabled={submitting || saving || reviewSend !== null}
           value={body}
           placeholder="Leave a comment on this pull request…"
           aria-label="Review comment"
@@ -1970,8 +1985,19 @@ export function ReviewDialog({
           onKeyDown={command.keyDown}
           onChange={command.change} />
         {command.suggestion}
+        {reviewSend !== null && <div className="pr-review-sheet__review-delivery">
+          <span className="pull-diff-pending__badge">{reviewSend === 'UNCERTAIN' ? 'Delivery unconfirmed' : 'Sending…'}</span>
+          {reviewSend === 'UNCERTAIN' && <>
+            <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
+              title="I found this review on GitHub. Mark it posted so it is never sent again."
+              onClick={() => { void confirmReview(true); }}>Confirmed posted</button>
+            <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
+              title="I checked GitHub and this review is not there. Unlock it without sending it."
+              onClick={() => { void confirmReview(false); }}>Confirmed not posted</button>
+          </>}
+        </div>}
         <BetterWordsButton text={body} textareaRef={bodyRef} repository={detail.repo} workspaceId={review?.workspaceId}
-          disabled={busy} onError={value => setError(value === null ? null : remoteErrorMessage(value))} />
+          disabled={busy || reviewSend !== null} onError={value => setError(value === null ? null : remoteErrorMessage(value))} />
         {outgoing.length > 0 && (
           <div className="pr-review-sheet__pending">
             {outgoing.map(({ key, comment, remove, save }) => {
@@ -1999,7 +2025,7 @@ export function ReviewDialog({
                         onClick={() => { void confirmDelivery(key, false); }}>Confirmed not posted</button>
                     </>}
                     <button className="pr-review-sheet__edit" type="button" disabled={busy || locked || commentEdit !== null}
-                      onClick={() => { setError(null); setCommentPreview(false); setCommentEdit({ key, body: comment.body, version: review?.draft?.version ?? 0 }); }}>Edit</button>
+                      onClick={() => { setError(null); setCommentPreview(false); setCommentEdit({ key, body: comment.body, version: draft?.version ?? 0 }); }}>Edit</button>
                     <button className="pr-review-sheet__remove" type="button" disabled={busy || locked || commentEdit !== null} onClick={remove}>Remove</button>
                   </>}>
                   {commentEdit?.key === key ? <MarkdownEditor
@@ -2019,26 +2045,26 @@ export function ReviewDialog({
           </div>
         )}
         <ReviewChoice
-          disabled={busy}
+          disabled={busy || reviewSend !== null}
           checked={event === 'COMMENT'}
           title="Comment"
           description="Submit general feedback without explicit approval."
           onChange={() => { edited.current = true; setEvent('COMMENT'); }} />
         {!authored && <ReviewChoice
-          disabled={busy}
+          disabled={busy || reviewSend !== null}
           checked={event === 'APPROVE'}
           title="Approve"
           description="Submit feedback and approve merging these changes."
           onChange={() => { edited.current = true; setEvent('APPROVE'); }} />}
         {!authored && <ReviewChoice
-          disabled={busy}
+          disabled={busy || reviewSend !== null}
           checked={event === 'REQUEST_CHANGES'}
           title="Request Changes"
           description="Submit feedback that must be addressed before merging."
           onChange={() => { edited.current = true; setEvent('REQUEST_CHANGES'); }} />}
         {unconfirmed && <div className="pr-review-sheet__error" role="alert">
-          An earlier comment is still sending or its delivery is unconfirmed. Check the <a href={`https://github.com/${detail.repo}/pull/${detail.number}`}>pull request on GitHub</a>.
-          {' '}For each unconfirmed comment, choose <strong>Confirmed posted</strong> if it is there, or <strong>Confirmed not posted</strong> to return it to pending, then submit your review.
+          An earlier comment or review is still sending or its delivery is unconfirmed. Check the <a href={`https://github.com/${detail.repo}/pull/${detail.number}`}>pull request on GitHub</a>.
+          {' '}For each unconfirmed one, choose <strong>Confirmed posted</strong> if it is there, or <strong>Confirmed not posted</strong> to return it to pending, then submit your review.
         </div>}
         {error && <div className="pr-review-sheet__error" role="alert">{error}</div>}
     </PullActionSheet>

@@ -167,8 +167,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('prs:review-thread:resolution', repo, number, commentId, resolved),
   getPrCheckLog: (repo, number, jobId) => ipcRenderer.invoke('prs:checks:log', repo, number, jobId),
   rerunFailedPrChecks: (repo, number) => ipcRenderer.invoke('prs:checks:rerun-failed', repo, number),
-  submitReview: (prId, repo, number, event, body, comments) =>
-    ipcRenderer.invoke('prs:review', prId, repo, number, event, body, comments),
   betterWords: (text, repository, workspaceId) =>
     ipcRenderer.invoke('agent:better-words', text, repository, workspaceId),
   mergePr: (prId, repo, number, strategy) =>
@@ -563,6 +561,7 @@ const bridge: Bridge = {
     ipcRenderer.invoke('review:approvals:resolve', reviewId, approvalId, decision, answers),
   subscribeAgentReview: streamSubscriber('review'),
 
+  getReviewDraft: (repo, number) => ipcRenderer.invoke('review:draft:get', repo, number),
   addReviewDraftComment: (repo, number, expectedVersion, comment) =>
     ipcRenderer.invoke('review:draft:add-comment', repo, number, expectedVersion, comment),
   addReviewDraftFinding: (repo, number, expectedVersion, reviewId, findingId) =>
@@ -575,6 +574,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('review:draft:confirm-not-posted', repo, number, expectedVersion, itemId),
   confirmReviewDraftCommentPosted: (repo, number, expectedVersion, itemId) =>
     ipcRenderer.invoke('review:draft:confirm-posted', repo, number, expectedVersion, itemId),
+  confirmReviewDraftReview: (repo, number, expectedVersion, posted) =>
+    ipcRenderer.invoke('review:draft:confirm-review', repo, number, expectedVersion, posted),
   saveReviewDraft: (repo, number, expectedVersion, body, event) =>
     ipcRenderer.invoke('review:draft:save', repo, number, expectedVersion, body, event),
   publishReviewDraftComment: (repo, number, expectedVersion, itemId) =>

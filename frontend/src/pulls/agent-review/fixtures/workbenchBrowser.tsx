@@ -127,7 +127,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       install({
         addReviewDraftFinding: async () => {
           const finding = current.findings[0];
-          const draft: NonNullable<AgentReviewDto['draft']> = { repo: current.repo, number: 30304, body: '', event: 'COMMENT', postedSummaryFindingIds: [], version: 1,
+          const draft: NonNullable<AgentReviewDto['draft']> = { repo: current.repo, number: 30304, body: '', event: 'COMMENT', reviewPublication: null, postedSummaryFindingIds: [], version: 1,
             updatedAt: finding.updatedAt, items: [{ id: 'outgoing', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
               commitId: finding.validatedHeadSha, path: finding.path, side: finding.side, line: finding.endLine, startLine: finding.startLine,
               body: `${finding.title}\n\n${finding.body}`, included: true, published: false, publication: null }] };
@@ -168,7 +168,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await scenario('Published and withdrawn findings keep their private reviewer conversation open', async () => {
       const finding = { ...review.findings[0], state: 'WITHDRAWN' as const, outdated: true, stateReason: 'Fixed by the latest commit' };
       const published = reviewFixture({ findings: [finding], messages: reviewFixture().messages.map(message => ({ ...message, findingId: finding.id })), draft: {
-        repo: review.repo, number: 30304, body: '', event: 'COMMENT', postedSummaryFindingIds: [], version: 1, updatedAt: finding.updatedAt,
+        repo: review.repo, number: 30304, body: '', event: 'COMMENT', reviewPublication: null, postedSummaryFindingIds: [], version: 1, updatedAt: finding.updatedAt,
         items: [{ id: 'published-item', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
           commitId: finding.validatedHeadSha, path: finding.path, side: finding.side, line: finding.endLine, startLine: finding.startLine,
           body: finding.body, included: true, published: true, publication: null }],

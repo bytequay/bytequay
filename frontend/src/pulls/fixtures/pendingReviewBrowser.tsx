@@ -51,7 +51,11 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const agent = createPreviewBridge(review.workspaceId, { replayThrough: Number.MAX_SAFE_INTEGER });
   let detail = stored;
   let reviewedReads = 0;
-  const submissions: Parameters<Bridge['submitReview']>[] = [];
+  // The review has no draft yet, so the sheet loads one; every review leaves through it.
+  let saved: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: '', event: 'COMMENT', reviewPublication: null, items: [],
+    postedSummaryFindingIds: [], version: 0, updatedAt: '2026-09-07T00:00:00Z' };
+  const added: Parameters<Bridge['addReviewDraftComment']>[3][] = [];
+  const submissions: Parameters<Bridge['submitReviewDraft']>[] = [];
   let polls: (() => void)[] = [];
   const originalTimeout = window.setTimeout;
   window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
@@ -90,13 +94,16 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     listAgentReviews: async () => [review],
     subscribeAgentReview: async () => () => {},
     fetchMergeMode: async () => ({ mergeQueue: false }),
-    submitReview: async (...request) => { submissions.push(request); return detail; },
+    getReviewDraft: async () => saved,
+    saveReviewDraft: async (_repo, _number, version, body, event) => (saved = { ...saved, body, event, version: version + 1 }),
+    addReviewDraftComment: async (_repo, _number, version, comment) => { added.push(comment); return (saved = { ...saved, version: version + 1 }); },
+    submitReviewDraft: async (...request) => { submissions.push(request); },
     recordRecentTouch: async () => {},
   } satisfies Pick<Bridge, 'getUserProfile' | 'readAgentReviewHistory' | 'fetchAttentionPrs' | 'fetchPullRequestDetailByRef'
     | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits'
     | 'refreshPrDiffFiles' | 'readWorktreeChanges' | 'getAgentReview' | 'findAgentReview' | 'findPullRequestTask' | 'listWorkspaces'
     | 'listLocalReviewComments' | 'listCodeFiles' | 'listCodeRuns' | 'listAgentReviews' | 'subscribeAgentReview'
-    | 'fetchMergeMode' | 'submitReview' | 'recordRecentTouch'>;
+    | 'fetchMergeMode' | 'getReviewDraft' | 'saveReviewDraft' | 'addReviewDraftComment' | 'submitReviewDraft' | 'recordRecentTouch'>;
   const previous = window.bridge;
   Object.assign(window, { bridge: { ...agent, ...stubs } });
   const host = document.createElement('main');
@@ -230,11 +237,11 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(submissions.length === 0, 'Opening and staging review comments must not publish them');
     submit.click(); await settle();
     assert(Number(submissions.length) === 1, 'The explicit submit action must publish the review exactly once');
-    const [, repo, number, event, , comments] = submissions[0];
-    assert(repo === detail.repo && number === detail.number && event === 'APPROVE' && comments?.length === 2
-      && comments[0].path === files[0].filename && comments[0].side === 'RIGHT' && comments[0].line === 1
-      && comments[0].commitId === 'two' && comments[0].body === editedBody
-      && comments[1].replyToCommentId === 61 && comments[1].body === 'Include this reply in my review',
+    const [repo, number, version, , event] = submissions[0];
+    assert(repo === detail.repo && number === detail.number && version === saved.version && event === 'COMMENT' && added.length === 2
+      && added[0].path === files[0].filename && added[0].side === 'RIGHT' && added[0].line === 1
+      && added[0].commitId === 'two' && added[0].body === editedBody
+      && added[1].replyToCommentId === 61 && added[1].body === 'Include this reply in my review',
     'Submitting from WorkBench must preserve the PR, revision, line, and staged comment');
     assert(host.querySelector('.pr-review-sheet') === null && host.querySelector('[aria-label^="Submit review, 2 pending"]') === null,
       'Successful submission must close the dialog and clear the staged comment');
@@ -250,7 +257,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function runDraftCommentEdit(): Promise<string> {
-  let draft: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: 'Review summary', event: 'COMMENT', postedSummaryFindingIds: [], version: 4,
+  let draft: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: 'Review summary', event: 'COMMENT', reviewPublication: null, postedSummaryFindingIds: [], version: 4,
     updatedAt: '2026-09-07T00:00:00Z', items: [{ id: 'draft-comment', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1,
       path: files[0].filename, side: 'RIGHT', line: 1, startLine: null, commitId: 'two', body: 'Original finding', included: true,
       published: false, publication: null }] };

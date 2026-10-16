@@ -14,6 +14,7 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, DiffCommitDto, PullRequestDetailDto } from '../../types';
+import type { ReviewDraftDto } from '../agent-review/contracts';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import { DiscussionComposer } from '../PullOverview';
 import { remotePullRequest, ReviewDialog } from '../PullsScreen';
@@ -38,6 +39,9 @@ export async function run(): Promise<string> {
   let reads = 0;
   const posted: string[] = [];
   let closed = false;
+  const draft = (body: string, version: number): ReviewDraftDto => ({ repo: detail.repo, number: detail.number, body, event: 'COMMENT', reviewPublication: null,
+    items: [], postedSummaryFindingIds: [], version, updatedAt: '2026-09-07T00:00:00Z' });
+  let saved = draft('', 0);
   const bridge = {
     fetchPrDiffCommits: async (repo, number) => {
       assert(repo === detail.repo && number === detail.number, 'Completion must read this PR');
@@ -45,8 +49,11 @@ export async function run(): Promise<string> {
       if (fail) throw new Error('Unavailable');
       return read ? read() : [commit('a'.repeat(40)), commit(head)];
     },
-    submitReview: async (_id, _repo, _number, _event, body) => { posted.push(body); return detail; },
-  } satisfies Pick<Bridge, 'fetchPrDiffCommits' | 'submitReview'>;
+    getReviewDraft: async () => saved,
+    saveReviewDraft: async (_repo, _number, version, body) => (saved = draft(body, version + 1)),
+    submitReviewDraft: async (_repo, _number, _version, body) => { posted.push(body); saved = draft('', saved.version + 1); },
+    fetchPullRequestDetailByRef: async () => detail,
+  } satisfies Pick<Bridge, 'fetchPrDiffCommits' | 'getReviewDraft' | 'saveReviewDraft' | 'submitReviewDraft' | 'fetchPullRequestDetailByRef'>;
   Object.assign(window, { bridge });
   const host = document.createElement('main');
   document.body.append(host);

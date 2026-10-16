@@ -91,7 +91,7 @@ it.each([
 it.each(['confirm-not-posted', 'confirm-posted'])('settles an unconfirmed comment through the versioned local %s endpoint', async outcome => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: 'Saved review', event: 'COMMENT', items: [], postedSummaryFindingIds: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
+  const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: 'Saved review', event: 'COMMENT', items: [], reviewPublication: null, postedSummaryFindingIds: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
   const fetch = vi.fn(async () => new Response(JSON.stringify(draft)));
   vi.stubGlobal('fetch', fetch);
 
@@ -100,6 +100,20 @@ it.each(['confirm-not-posted', 'confirm-posted'])('settles an unconfirmed commen
   expect(result).toEqual(draft);
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(fetch).toHaveBeenCalledWith(`http://127.0.0.1:9527/api/agent-review/drafts/items/item%2F1/${outcome}?repo=owner%2Frepo&number=7&expectedVersion=4`,
+    expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
+});
+
+it.each([true, false])('settles review text with an unknown outcome through the versioned local endpoint, posted %s', async posted => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: '', event: 'COMMENT', items: [], reviewPublication: null, postedSummaryFindingIds: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
+  const fetch = vi.fn(async () => new Response(JSON.stringify(draft)));
+  vi.stubGlobal('fetch', fetch);
+
+  const result = await desktop.handlers.get('review:draft:confirm-review')?.({}, 'owner/repo', 7, 4, posted);
+
+  expect(result).toEqual(draft);
+  expect(fetch).toHaveBeenCalledWith(`http://127.0.0.1:9527/api/agent-review/drafts/review/confirm?repo=owner%2Frepo&number=7&expectedVersion=4&posted=${posted}`,
     expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
 });
 
@@ -720,7 +734,7 @@ it.each([
 ])('preserves the JSON body and session header for %s', async (channel, args, method, body) => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: '', event: 'COMMENT', items: [], postedSummaryFindingIds: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
+  const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: '', event: 'COMMENT', items: [], reviewPublication: null, postedSummaryFindingIds: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
   const fetch = vi.fn(async () => new Response(JSON.stringify(draft)));
   vi.stubGlobal('fetch', fetch);
   await desktop.handlers.get(channel)?.({}, 'owner/repo', 7, 4, ...args);

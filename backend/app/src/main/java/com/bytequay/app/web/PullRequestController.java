@@ -226,8 +226,6 @@ public class PullRequestController
 
     public record TitleRequest(String title) {}
 
-    public record ReviewRequest(String event, String body, List<InlineReviewComment> comments) {}
-
     public record ResolutionRequest(boolean resolved) {}
 
     public record MetadataRequest(List<String> assignees, List<String> labels) {}
@@ -338,12 +336,6 @@ public class PullRequestController
     {
         pullRequests.setReviewThreadResolved(repo, number, commentId, request.resolved());
         return ImmutableMap.of("result", request.resolved() ? "resolved" : "unresolved");
-    }
-
-    @PostMapping("/prs/review")
-    public PullRequestDetail review(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam("id") long prId, @RequestBody ReviewRequest request)
-    {
-        return pullRequests.submitReview(repo, number, prId, request.event(), request.body(), request.comments()).detail();
     }
 
     @PostMapping("/prs/review-comment")

@@ -1066,6 +1066,8 @@ function registerIpc(): void {
     reviewSubscriptions.stop(subscriptionId);
   });
 
+  ipcMain.handle('review:draft:get', (_event, repo: string, number: number) =>
+    draft('/drafts', { repo, number: String(number) }));
   ipcMain.handle('review:draft:add-comment', (_event, repo: string, number: number, expectedVersion: number, comment: unknown) =>
     draft('/drafts/items', { repo, number: String(number) }, jsonInit('POST', { expectedVersion, ...(comment as Record<string, unknown>) })));
   ipcMain.handle('review:draft:add-finding', (_event, repo: string, number: number, expectedVersion: number, reviewId: string, findingId: string) =>
@@ -1080,6 +1082,8 @@ function registerIpc(): void {
   ipcMain.handle('review:draft:confirm-posted', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
     draft(`/drafts/items/${encodeURIComponent(itemId)}/confirm-posted`,
       { repo, number: String(number), expectedVersion: String(expectedVersion) }, { method: 'POST' }));
+  ipcMain.handle('review:draft:confirm-review', (_event, repo: string, number: number, expectedVersion: number, posted: boolean) =>
+    draft('/drafts/review/confirm', { repo, number: String(number), expectedVersion: String(expectedVersion), posted: String(posted === true) }, { method: 'POST' }));
   ipcMain.handle('review:draft:save', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string) =>
     draft('/drafts/review', { repo, number: String(number) }, jsonInit('PUT', { expectedVersion, body, event })));
   ipcMain.handle('review:draft:publish', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
@@ -1699,19 +1703,6 @@ function registerIpc(): void {
   });
   ipcMain.handle('prs:checks:rerun-failed', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/checks/rerun-failed', repo, number), { method: 'POST' }));
-  ipcMain.handle('prs:review', (
-    _event,
-    prId: number,
-    repo: string,
-    number: number,
-    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
-    body: string,
-    comments?: import('./types').InlineReviewCommentDto[],
-  ) => {
-    const url = prUrl('/prs/review', repo, number);
-    url.searchParams.set('id', String(prId));
-    return backendJson(url, jsonInit('POST', { event, body, comments }));
-  });
   ipcMain.handle('prs:merge', (
     _event,
     prId: number,

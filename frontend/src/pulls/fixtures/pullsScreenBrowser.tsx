@@ -516,7 +516,9 @@ export async function runActionSheetDismissal(): Promise<string> {
   let closes = 0;
   let finishMerge = () => {};
   const merging = new Promise<void>(resolve => { finishMerge = resolve; });
-  Object.assign(window, { bridge: { ...originalBridge, mergePr: () => merging } });
+  const empty: ReviewDraftDto = { repo: detail.repo, number: detail.number, body: '', event: 'COMMENT', reviewPublication: null, items: [],
+    postedSummaryFindingIds: [], version: 0, updatedAt: '2026-09-06T16:20:00Z' };
+  Object.assign(window, { bridge: { ...originalBridge, mergePr: () => merging, getReviewDraft: async () => empty } });
   const close = () => { closes++; };
   const escape = (handled = false) => {
     const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
@@ -562,7 +564,7 @@ export async function runActionSheetDismissal(): Promise<string> {
 }
 
 export async function runReviewSheet(): Promise<string> {
-  const draft: ReviewDraftDto = { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', postedSummaryFindingIds: [], version: 4, updatedAt: '2026-09-06T16:20:00Z',
+  const draft: ReviewDraftDto = { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', reviewPublication: null, postedSummaryFindingIds: [], version: 4, updatedAt: '2026-09-06T16:20:00Z',
     items: [{ id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, path: 'src/Finding.java', side: 'RIGHT',
       commitId: reviewFixture().findings[0].validatedHeadSha,
       line: 12, startLine: null, body: 'Promoted finding text', included: true, published: false, publication: null }] };
@@ -582,7 +584,14 @@ export async function runReviewSheet(): Promise<string> {
   let publicationProblem: string | null = null;
   let diffHead = review.observedHeadSha;
   const addedCommits: Array<string | null> = [];
+  // What a pull request without an agent review loads into the sheet.
+  let stored: ReviewDraftDto = { ...draft, items: [], version: 0 };
   const bridge = {
+    getReviewDraft: async () => { calls.push('load'); return stored; },
+    confirmReviewDraftReview: async (_repo, _number, version, posted) => {
+      calls.push(`confirm v${version} ${posted ? 'posted' : 'missing'}`);
+      return { ...stored, body: posted ? '' : stored.body, event: posted ? 'COMMENT' : stored.event, reviewPublication: null, version: version + 1 };
+    },
     saveReviewDraft: async (_repo, _number, version, body, event) => {
       calls.push(`save v${version} ${event} "${body}"`);
       return { ...draft, body, event, version: version + 1 };
@@ -596,10 +605,6 @@ export async function runReviewSheet(): Promise<string> {
       calls.push(`draft v${version} ${event} "${body}"`);
       if (publicationProblem !== null) throw new Error(`Error invoking remote method 'review:draft:submit': Error: ${publicationProblem}`);
     },
-    submitReview: async (_prId, _repo, _number, event, body, comments) => {
-      calls.push(`plain ${event} "${body}" ${(comments ?? []).map(comment => comment.path).join(',')}`);
-      return detail;
-    },
     getAgentReview: async () => { calls.push('reload'); return review; },
     fetchPullRequestDetailByRef: async () => { calls.push('detail'); return detail; },
     fetchPrDiffFiles: async () => [
@@ -609,8 +614,8 @@ export async function runReviewSheet(): Promise<string> {
     fetchPrDiffCommits: async () => [{ sha: diffHead ?? 'head', parentSha: null, message: null, author: null, authoredAt: null }],
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0, following: 0,
       bio: null, location: null, company: null, email: null }),
-  } satisfies Pick<Bridge, 'saveReviewDraft' | 'addReviewDraftComment' | 'submitReviewDraft' | 'submitReview' | 'getAgentReview' | 'fetchPullRequestDetailByRef'
-    | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getUserProfile'>;
+  } satisfies Pick<Bridge, 'getReviewDraft' | 'confirmReviewDraftReview' | 'saveReviewDraft' | 'addReviewDraftComment' | 'submitReviewDraft' | 'getAgentReview'
+    | 'fetchPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getUserProfile'>;
   const originalBridge = window.bridge;
   Object.assign(window, { bridge });
   const host = document.createElement('div');
@@ -683,19 +688,44 @@ export async function runReviewSheet(): Promise<string> {
     publicationProblem = null;
     diffHead = review.observedHeadSha;
 
-    // No added findings, so the comments go out as plain reviews — one per commit they were
-    // written on, because GitHub anchors a whole review at a single commit.
+    // Without an agent review the sheet loads the draft itself, so every review is reserved there
+    // and the backend splits comments written on different commits into one review each.
     calls.length = 0;
     events.length = 0;
+    closed = false;
     mount([written, { ...written, path: 'src/Older.java', commitId: 'older-commit' }], null);
     await settle();
-    await settle();
     await submit();
-    assert(calls.join(' | ') === 'plain COMMENT "" src/Older.java | plain APPROVE "" src/Written.java',
-      `Comments written on different commits must go out as one review each, the verdict last: ${calls.join(' | ')}`);
+    assert(closed && calls.join(' | ')
+      === 'load | save v0 COMMENT "" | add v1 src/Written.java:3 Written comment text | add v2 src/Older.java:3 Written comment text | draft v3 COMMENT "" | load | detail',
+    `Without an agent review, written comments still go out through the durable draft: ${calls.join(' | ')}`);
     assert(events.join(' | ').startsWith('pending 1 | pending 0'),
-      `Each group must leave the staged list as it lands, so a retry cannot send it twice: ${events.join(' | ')}`);
-    return 'Submit review sends added findings through the draft and splits written comments by commit';
+      `Each comment leaves the staged list once the draft holds it, so a retry cannot send it twice: ${events.join(' | ')}`);
+
+    // Review text whose send has an unknown outcome stays as sent until the user checks GitHub.
+    const textarea = () => host.querySelector<HTMLTextAreaElement>('textarea');
+    const primary = () => host.querySelector<HTMLButtonElement>('.pr-review-sheet__footer .is-primary');
+    const delivery = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('.pr-review-sheet__review-delivery button')]
+      .find(button => button.textContent === label);
+    stored = { ...draft, body: 'Sent once', event: 'APPROVE', version: 4,
+      reviewPublication: { state: 'UNCERTAIN', remoteReviewId: null, remoteCommentId: null, url: null, at: '2026-09-06T16:21:00Z' } };
+    for (const posted of [false, true]) {
+      closed = false;
+      mount([], null);
+      await settle();
+      assert(textarea()?.disabled === true && textarea()?.value === 'Sent once' && primary()?.disabled === true
+        && host.querySelector('.pr-review-sheet__review-delivery')?.textContent?.includes('Delivery unconfirmed') === true,
+      'Review text with an unknown outcome is shown as sent, locked, and cannot be submitted again');
+      calls.length = 0;
+      delivery(posted ? 'Confirmed posted' : 'Confirmed not posted')?.click();
+      await settle();
+      assert(calls.join(' | ') === `confirm v4 ${posted ? 'posted' : 'missing'}` && textarea()?.disabled === false
+        && textarea()?.value === (posted ? '' : 'Sent once') && host.querySelector('.pr-review-sheet__review-delivery') === null,
+      `Confirming unlocks the text, and a posted one is cleared: ${calls.join(' | ')}`);
+    }
+    await submit();
+    assert(closed && calls.includes('draft v6 COMMENT ""'), `Text confirmed as posted is never submitted again: ${calls.join(' | ')}`);
+    return 'Submit review sends every review through the draft and keeps text with an unknown outcome as sent';
   }
   finally {
     flushSync(() => root.unmount());

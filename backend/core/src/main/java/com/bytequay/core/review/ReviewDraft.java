@@ -18,6 +18,7 @@ import com.google.common.collect.ImmutableList;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -30,6 +31,11 @@ import static java.util.Objects.requireNonNull;
  * <p>A finding about the whole pull request joins the review text instead of becoming an item. Its
  * id waits in {@code summaryFindingIds} until a submitted review carries its text, then moves to
  * {@code postedSummaryFindingIds}, so it is never offered again after the text is cleared.
+ *
+ * <p>{@code reviewPublication} is the send that carries the review text and event while its outcome
+ * is unknown: reserved while it runs, uncertain once it failed without a refusal from GitHub. Until
+ * the user confirms whether that review landed, the text and event stay as sent and are never
+ * submitted again.
  */
 public record ReviewDraft(
         String id,
@@ -37,6 +43,7 @@ public record ReviewDraft(
         int number,
         String body,
         String event,
+        Optional<ReviewPublication> reviewPublication,
         List<ReviewDraftItem> items,
         List<String> summaryFindingIds,
         List<String> postedSummaryFindingIds,
@@ -52,6 +59,7 @@ public record ReviewDraft(
         checkArgument(number > 0, "number is not positive");
         requireNonNull(body, "body is null");
         requireNonNull(event, "event is null");
+        requireNonNull(reviewPublication, "reviewPublication is null");
         items = ImmutableList.copyOf(items);
         summaryFindingIds = ImmutableList.copyOf(summaryFindingIds);
         postedSummaryFindingIds = ImmutableList.copyOf(postedSummaryFindingIds);
@@ -61,27 +69,32 @@ public record ReviewDraft(
 
     public static ReviewDraft empty(String repo, int number, Instant now)
     {
-        return new ReviewDraft(repo.toLowerCase(Locale.ROOT) + "#" + number, repo.toLowerCase(Locale.ROOT), number, "", DEFAULT_EVENT, ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), 0, now);
+        return new ReviewDraft(repo.toLowerCase(Locale.ROOT) + "#" + number, repo.toLowerCase(Locale.ROOT), number, "", DEFAULT_EVENT, Optional.empty(), ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), 0, now);
     }
 
     public ReviewDraft withVersion(long updatedVersion)
     {
-        return new ReviewDraft(id, repo, number, body, event, items, summaryFindingIds, postedSummaryFindingIds, updatedVersion, updatedAt);
+        return new ReviewDraft(id, repo, number, body, event, reviewPublication, items, summaryFindingIds, postedSummaryFindingIds, updatedVersion, updatedAt);
     }
 
     public ReviewDraft withItems(List<ReviewDraftItem> updatedItems, Instant now)
     {
-        return new ReviewDraft(id, repo, number, body, event, updatedItems, summaryFindingIds, postedSummaryFindingIds, version, now);
+        return new ReviewDraft(id, repo, number, body, event, reviewPublication, updatedItems, summaryFindingIds, postedSummaryFindingIds, version, now);
     }
 
     public ReviewDraft withReview(String updatedBody, String updatedEvent, Instant now)
     {
-        return new ReviewDraft(id, repo, number, updatedBody, updatedEvent, items, summaryFindingIds, postedSummaryFindingIds, version, now);
+        return new ReviewDraft(id, repo, number, updatedBody, updatedEvent, reviewPublication, items, summaryFindingIds, postedSummaryFindingIds, version, now);
+    }
+
+    public ReviewDraft withReviewPublication(Optional<ReviewPublication> publication, Instant now)
+    {
+        return new ReviewDraft(id, repo, number, body, event, publication, items, summaryFindingIds, postedSummaryFindingIds, version, now);
     }
 
     public ReviewDraft withSummaryFindings(List<String> pending, List<String> posted, Instant now)
     {
-        return new ReviewDraft(id, repo, number, body, event, items, pending, posted, version, now);
+        return new ReviewDraft(id, repo, number, body, event, reviewPublication, items, pending, posted, version, now);
     }
 }

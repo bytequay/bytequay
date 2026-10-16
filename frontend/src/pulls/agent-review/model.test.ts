@@ -64,7 +64,7 @@ it('keeps newer finding state when review reads arrive out of order', () => {
 });
 
 function draft(items: ReviewDraftDto['items']): ReviewDraftDto {
-  return { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items, postedSummaryFindingIds: [], version: 1, updatedAt: '2026-09-06T16:30:00Z' };
+  return { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items, reviewPublication: null, postedSummaryFindingIds: [], version: 1, updatedAt: '2026-09-06T16:30:00Z' };
 }
 
 function draftItem(overrides: Partial<ReviewDraftDto['items'][number]> = {}): ReviewDraftDto['items'][number] {

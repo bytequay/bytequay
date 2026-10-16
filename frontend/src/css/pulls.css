@@ -1330,6 +1330,7 @@
 .pull-commit-picker__body { margin: 0; padding: 0 16px 12px 70px; background: linear-gradient(#d0d7de, #d0d7de) calc(70px + 120ch) 0 / 1px 100% no-repeat local, #f6f8fa; color: var(--text-1); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; white-space: pre; overflow-x: auto; }
 .pr-review-sheet__pending { display: grid; flex: 0 0 auto; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .pr-review-sheet__pending .pr-inline-thread { margin: 0; }
+.pr-review-sheet__review-delivery { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .pr-review-sheet__edit,
 .pr-review-sheet__remove { border: 0; background: transparent; padding: 3px; }
 .pr-review-sheet__edit { color: var(--accent); }

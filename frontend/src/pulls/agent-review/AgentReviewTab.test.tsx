@@ -74,7 +74,7 @@ function summary(review: AgentReviewDto): string {
 }
 
 function draftWith(items: ReviewDraftDto['items']): ReviewDraftDto {
-  return { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items, postedSummaryFindingIds: [], version: 1, updatedAt: '2026-09-06T16:30:00Z' };
+  return { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items, reviewPublication: null, postedSummaryFindingIds: [], version: 1, updatedAt: '2026-09-06T16:30:00Z' };
 }
 
 describe('starting a review', () => {

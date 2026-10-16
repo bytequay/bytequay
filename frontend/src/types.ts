@@ -1488,14 +1488,6 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   setReviewThreadResolved: (repo: string, number: number, commentId: number, resolved: boolean) => Promise<void>;
   getPrCheckLog: (repo: string, number: number, jobId: number) => Promise<{ text: string }>;
   rerunFailedPrChecks: (repo: string, number: number) => Promise<void>;
-  submitReview: (
-    prId: number,
-    repo: string,
-    number: number,
-    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
-    body: string,
-    comments?: InlineReviewCommentDto[],
-  ) => Promise<PullRequestDetailDto>;
   betterWords: (text: string, repository?: string, workspaceId?: string) => Promise<string>;
   mergePr: (prId: number, repo: string, number: number, strategy: string) => Promise<void>;
   removePrFromMergeQueue: (repo: string, number: number) => Promise<void>;
@@ -1995,6 +1987,7 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   ) => Promise<() => void>;
 
   /** The user's local pending review for one pull request; it exists without any agent review. */
+  getReviewDraft: (repo: string, number: number) => Promise<ReviewDraftDto>;
   addReviewDraftComment: (
     repo: string,
     number: number,
@@ -2021,6 +2014,8 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   confirmReviewDraftCommentNotPosted: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<ReviewDraftDto>;
   /** Records an uncertain comment as posted after the user finds it on GitHub; it is never sent again. */
   confirmReviewDraftCommentPosted: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<ReviewDraftDto>;
+  /** Settles review text whose send has an unknown outcome: posted clears it like a successful send, not posted unlocks it. Never publishes. */
+  confirmReviewDraftReview: (repo: string, number: number, expectedVersion: number, posted: boolean) => Promise<ReviewDraftDto>;
   saveReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent) => Promise<ReviewDraftDto>;
   /** Publishes one previewed comment at its saved commit; the backend validates the payload first. */
   publishReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<void>;

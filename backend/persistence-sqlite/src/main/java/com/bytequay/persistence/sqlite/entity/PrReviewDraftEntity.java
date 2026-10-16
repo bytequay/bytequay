@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.review.ReviewDraft;
 import com.bytequay.core.review.ReviewDraftItem;
+import com.bytequay.core.review.ReviewPublication;
 import com.fasterxml.jackson.core.type.TypeReference;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -25,6 +26,7 @@ import lombok.Getter;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static com.bytequay.persistence.sqlite.entity.JsonGuard.REVIEW;
 
@@ -52,6 +54,9 @@ public class PrReviewDraftEntity
 
     @Column(nullable = false)
     private String event;
+
+    @Column(name = "review_publication_json", columnDefinition = "TEXT")
+    private String reviewPublicationJson;
 
     @Column(name = "items_json", nullable = false, columnDefinition = "TEXT")
     private String itemsJson;
@@ -86,6 +91,7 @@ public class PrReviewDraftEntity
         number = draft.number();
         body = draft.body();
         event = draft.event();
+        reviewPublicationJson = draft.reviewPublication().map(publication -> REVIEW.write(publication, "review publication")).orElse(null);
         itemsJson = REVIEW.write(draft.items(), "review draft items");
         summaryFindingIdsJson = REVIEW.write(draft.summaryFindingIds(), "review summary findings");
         postedSummaryFindingIdsJson = REVIEW.write(draft.postedSummaryFindingIds(), "posted review summary findings");
@@ -100,6 +106,7 @@ public class PrReviewDraftEntity
                 number,
                 body,
                 event,
+                Optional.ofNullable(reviewPublicationJson).map(json -> REVIEW.read(json, ReviewPublication.class, "review publication")),
                 REVIEW.read(itemsJson, ITEMS, "review draft items"),
                 REVIEW.read(summaryFindingIdsJson, IDS, "review summary findings"),
                 REVIEW.read(postedSummaryFindingIdsJson, IDS, "posted review summary findings"),

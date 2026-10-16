@@ -379,7 +379,9 @@ class TestSqliteReviewStores
         ReviewDraft draft = ReviewDraft.empty("ByteQuay/Sample", 7, NOW)
                 .withReview("Close, but the counter is wrong.", "REQUEST_CHANGES", NOW.plusSeconds(1))
                 .withItems(ImmutableList.of(manual, promoted, reply), NOW.plusSeconds(2))
-                .withSummaryFindings(ImmutableList.of("finding-pending"), ImmutableList.of("finding-posted"), NOW.plusSeconds(3));
+                .withSummaryFindings(ImmutableList.of("finding-pending"), ImmutableList.of("finding-posted"), NOW.plusSeconds(3))
+                .withReviewPublication(Optional.of(new ReviewPublication(
+                        "attempt-2", ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW.plusSeconds(11))), NOW.plusSeconds(4));
 
         ReviewDraft saved = draftStore.save(draft);
         entityManager.clear();
@@ -391,6 +393,10 @@ class TestSqliteReviewStores
         assertThat(stored.items().get(0).published()).isFalse();
         assertThat(stored.items().get(1).published()).isTrue();
         assertThat(stored.items().get(2).published()).isFalse();
+
+        draftStore.save(stored.withReviewPublication(Optional.empty(), NOW.plusSeconds(5)));
+        entityManager.clear();
+        assertThat(draftStore.find("bytequay/sample", 7).orElseThrow().reviewPublication()).isEmpty();
     }
 
     @Test

@@ -28,6 +28,7 @@ import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
+import com.bytequay.core.review.ReviewPublication;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
@@ -159,10 +160,16 @@ final class ReviewHttpModels
                 draft.number(),
                 draft.body(),
                 draft.event(),
+                draft.reviewPublication().map(ReviewHttpModels::publication),
                 draft.items().stream().map(ReviewHttpModels::item).collect(toImmutableList()),
                 draft.postedSummaryFindingIds(),
                 draft.version(),
                 draft.updatedAt());
+    }
+
+    private static PublicationResponse publication(ReviewPublication publication)
+    {
+        return new PublicationResponse(publication.state().name(), publication.remoteReviewId(), publication.remoteCommentId(), publication.url(), publication.at());
     }
 
     private static DraftItemResponse item(ReviewDraftItem item)
@@ -181,12 +188,7 @@ final class ReviewHttpModels
                 item.body(),
                 item.included(),
                 item.published(),
-                item.publication().map(publication -> new PublicationResponse(
-                        publication.state().name(),
-                        publication.remoteReviewId(),
-                        publication.remoteCommentId(),
-                        publication.url(),
-                        publication.at())));
+                item.publication().map(ReviewHttpModels::publication));
     }
 
     static PublishResponse publish(ReviewPublicationService.Publication publication)
@@ -292,6 +294,7 @@ final class ReviewHttpModels
             int number,
             String body,
             String event,
+            Optional<PublicationResponse> reviewPublication,
             List<DraftItemResponse> items,
             List<String> postedSummaryFindingIds,
             long version,

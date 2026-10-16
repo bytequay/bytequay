@@ -30,7 +30,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const originalFindings = JSON.stringify([finding, other]);
   const originalBody = `Thanks for the change.\n\n${finding.title}\n\n${finding.body}\n\n${other.title}\n\n${other.body}\n\nMy own closing note.`;
   let saved = reviewFixture({ findings: [finding, other], messages: [], draft: {
-    repo: 'trinodb/trino', number: 30304, body: originalBody, event: 'APPROVE', items: [], postedSummaryFindingIds: [], version: 4, updatedAt: finding.updatedAt,
+    repo: 'trinodb/trino', number: 30304, body: originalBody, event: 'APPROVE', items: [], reviewPublication: null, postedSummaryFindingIds: [], version: 4, updatedAt: finding.updatedAt,
   } });
   const requests: Parameters<Bridge['saveReviewDraft']>[] = [];
   const completions: Array<(failure?: Error) => void> = [];

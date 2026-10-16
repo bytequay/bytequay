@@ -29,7 +29,7 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
   if (projection === 'review') {
     const running = runningReviewFixture();
     saved = { ...saved, task: running.task, activeTurn: running.activeTurn,
-      draft: { repo: saved.repo, number: 30304, body: '', event: 'COMMENT', postedSummaryFindingIds: [], version: 1, updatedAt: finding.updatedAt,
+      draft: { repo: saved.repo, number: 30304, body: '', event: 'COMMENT', reviewPublication: null, postedSummaryFindingIds: [], version: 1, updatedAt: finding.updatedAt,
         items: [{ id: 'published-item', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
           commitId: finding.validatedHeadSha, path: finding.path, side: 'RIGHT', line: 2, startLine: null,
           body: finding.body, included: true, published: true,

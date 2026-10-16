@@ -250,6 +250,8 @@ export type ReviewDraftDto = {
   number: number;
   body: string;
   event: ReviewEvent;
+  /** The send carrying the review text and event while its outcome is unknown; until then they stay as sent. */
+  reviewPublication: ReviewPublicationDto | null;
   items: ReviewDraftItemDto[];
   /** Whole-PR findings whose text went out in a submitted review; they are never offered again. */
   postedSummaryFindingIds: string[];
@@ -547,11 +549,9 @@ export function parseReviewDraft(value: unknown): ReviewDraftDto {
     number: count(draft.number, 'pull request number'),
     body: text(draft.body, 'review body'),
     event: oneOf(draft.event, ['COMMENT', 'APPROVE', 'REQUEST_CHANGES'] as const, 'review event'),
+    reviewPublication: parsePublication(draft.reviewPublication),
     items: list(draft.items).map(item => {
       const draftItem = object(item, 'pending comment');
-      const publication = draftItem.publication === null || draftItem.publication === undefined
-        ? null
-        : object(draftItem.publication, 'publication');
       return {
         id: text(draftItem.id, 'comment id'),
         source: oneOf(draftItem.source, ['MANUAL', 'AGENT_FINDING'] as const, 'comment source'),
@@ -565,18 +565,24 @@ export function parseReviewDraft(value: unknown): ReviewDraftDto {
         body: text(draftItem.body, 'comment body'),
         included: flag(draftItem.included),
         published: flag(draftItem.published),
-        publication: publication === null ? null : {
-          state: oneOf(publication.state, ['RESERVED', 'PUBLISHED', 'UNCERTAIN'] as const, 'publication state'),
-          remoteReviewId: optionalCount(publication.remoteReviewId),
-          remoteCommentId: optionalCount(publication.remoteCommentId),
-          url: optionalText(publication.url),
-          at: text(publication.at, 'publication time'),
-        },
+        publication: parsePublication(draftItem.publication),
       };
     }),
     postedSummaryFindingIds: list(draft.postedSummaryFindingIds).map(id => text(id, 'finding id')),
     version: count(draft.version, 'review version'),
     updatedAt: text(draft.updatedAt, 'review time'),
+  };
+}
+
+function parsePublication(value: unknown): ReviewPublicationDto | null {
+  if (value === null || value === undefined) return null;
+  const publication = object(value, 'publication');
+  return {
+    state: oneOf(publication.state, ['RESERVED', 'PUBLISHED', 'UNCERTAIN'] as const, 'publication state'),
+    remoteReviewId: optionalCount(publication.remoteReviewId),
+    remoteCommentId: optionalCount(publication.remoteCommentId),
+    url: optionalText(publication.url),
+    at: text(publication.at, 'publication time'),
   };
 }
 

@@ -679,6 +679,83 @@ class TestReviewPublicationService
     }
 
     @Test
+    void aReviewWhoseSendHasAnUnknownOutcomeWaitsForTheUserBeforeItCanGoAgain()
+    {
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("APPROVE"), eq("Looks good"), any()))
+                .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub did not answer"))
+                .thenReturn(posted());
+
+        // No comment rides along, so only the review's own state can stop a second approval.
+        assertThatThrownBy(() -> service.submit(REPO, NUMBER, 0, "Looks good", "APPROVE")).hasMessageContaining("GitHub did not answer");
+
+        ReviewDraft after = service.draft(REPO, NUMBER);
+        assertThat(after.reviewPublication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
+        assertThat(after.body()).isEqualTo("Looks good");
+        assertThat(after.event()).isEqualTo("APPROVE");
+        assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), after.body(), after.event())).hasMessageContaining("unknown outcome");
+        assertThatThrownBy(() -> service.saveReview(REPO, NUMBER, after.version(), "Looks good!", "APPROVE")).hasMessageContaining("unknown outcome");
+        verify(pullRequests, times(1)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any());
+
+        ReviewDraft missing = service.confirmReview(REPO, NUMBER, after.version(), false);
+
+        assertThat(missing.reviewPublication()).isEmpty();
+        assertThat(missing.body()).isEqualTo("Looks good");
+        assertThat(missing.event()).isEqualTo("APPROVE");
+        assertThatThrownBy(() -> service.confirmReview(REPO, NUMBER, missing.version(), true)).hasMessageContaining("Only a review with unconfirmed delivery");
+        ReviewDraft resent = service.submit(REPO, NUMBER, missing.version(), missing.body(), missing.event()).draft();
+        assertThat(resent.body()).isEmpty();
+        assertThat(resent.reviewPublication()).isEmpty();
+        verify(pullRequests, times(2)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any());
+    }
+
+    @Test
+    void aReviewFoundOnGitHubCountsAsSubmittedAndIsNeverSentAgain()
+    {
+        reviews.put(new ReviewFinding("f-whole", REVIEW_ID, RUN_ID, 1, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),
+                Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC));
+        ReviewDraft added = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, "f-whole");
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenThrow(new IllegalStateException("Read timed out"));
+        assertThatThrownBy(() -> service.submit(REPO, NUMBER, added.version(), added.body(), "COMMENT")).hasMessage("Read timed out");
+        ReviewDraft uncertain = service.draft(REPO, NUMBER);
+
+        ReviewDraft found = service.confirmReview(REPO, NUMBER, uncertain.version(), true);
+
+        assertThat(found.reviewPublication()).isEmpty();
+        assertThat(found.body()).isEmpty();
+        assertThat(found.event()).isEqualTo(ReviewDraft.DEFAULT_EVENT);
+        assertThat(found.postedSummaryFindingIds()).containsExactly("f-whole");
+        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, found.version(), REVIEW_ID, "f-whole")).hasMessageContaining("already posted to GitHub");
+        assertThatThrownBy(() -> service.submit(REPO, NUMBER, found.version(), found.body(), found.event())).hasMessageContaining("Add a comment or review text");
+        verify(pullRequests, times(1)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any());
+    }
+
+    @Test
+    void reviewTextStaysAsSentWhileItsSendRuns()
+    {
+        reviews.put(new ReviewFinding("f-whole", REVIEW_ID, RUN_ID, 1, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),
+                Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC));
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenAnswer(invocation -> {
+            ReviewDraft sending = service.draft(REPO, NUMBER);
+            assertThat(sending.reviewPublication().orElseThrow().state()).isEqualTo(ReviewPublication.State.RESERVED);
+            assertThatThrownBy(() -> service.saveReview(REPO, NUMBER, sending.version(), "Next review notes", "REQUEST_CHANGES")).hasMessageContaining("being sent");
+            assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, sending.version(), REVIEW_ID, "f-whole")).hasMessageContaining("being sent");
+            assertThatThrownBy(() -> service.confirmReview(REPO, NUMBER, sending.version(), false)).hasMessageContaining("Only a review with unconfirmed delivery");
+            return posted();
+        });
+
+        ReviewDraft after = service.submit(REPO, NUMBER, 0, "Submitted notes", "REQUEST_CHANGES").draft();
+
+        assertThat(after.reviewPublication()).isEmpty();
+        assertThat(after.body()).isEmpty();
+        assertThat(service.addFinding(REPO, NUMBER, after.version(), REVIEW_ID, "f-whole").body()).isEqualTo("Nit: commit subject\n\nCommit message: name the behavior.");
+    }
+
+    @Test
     void confirmedMissingCommentReturnsToPendingWithoutChangingThePayloadOrPosting()
     {
         ReviewPublication uncertain = new ReviewPublication("failed-send", ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW);
@@ -749,16 +826,21 @@ class TestReviewPublicationService
         ReviewPublication reserved = new ReviewPublication(
                 "before-restart", ReviewPublication.State.RESERVED, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), Instant.EPOCH);
         ReviewDraftItem item = manual("src/A.java", 10, "Was it sent?").withPublication(Optional.of(reserved));
-        drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withItems(ImmutableList.of(item), NOW));
+        drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withReview("Was the review sent?", "APPROVE", NOW).withReviewPublication(Optional.of(reserved), NOW)
+                .withItems(ImmutableList.of(item), NOW));
 
         ReviewDraft restarted = new ReviewPublicationService(drafts, reviews, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC)).draft(REPO, NUMBER);
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
 
         assertThat(restarted.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
         assertThat(restarted.items().getFirst().publication().orElseThrow().attemptId()).isEqualTo("before-restart");
+        assertThat(restarted.reviewPublication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
         assertThatThrownBy(() -> service.submit(REPO, NUMBER, restarted.version(), "Review", "COMMENT")).hasMessageContaining("unknown outcome");
         ReviewDraft pending = service.confirmNotPosted(REPO, NUMBER, restarted.version(), item.id());
         assertThat(pending.items().getFirst().publication()).isEmpty();
+        // The review text waits for its own answer.
+        assertThatThrownBy(() -> service.submit(REPO, NUMBER, pending.version(), pending.body(), pending.event())).hasMessageContaining("unknown outcome");
+        assertThat(service.confirmReview(REPO, NUMBER, pending.version(), false).reviewPublication()).isEmpty();
         verify(pullRequests, never()).submitReview(any(), anyInt(), anyLong(), any(), any(), any());
     }
 
@@ -795,6 +877,8 @@ class TestReviewPublicationService
         when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenThrow(new GitHubRateLimitException("secondary", NOW.getEpochSecond() + 60));
         assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), "Review", "COMMENT")).isInstanceOf(GitHubRateLimitException.class);
         assertThat(service.draft(REPO, NUMBER).items().getFirst().publication()).isEmpty();
+        assertThat(service.draft(REPO, NUMBER).reviewPublication()).isEmpty();
+        assertThat(service.draft(REPO, NUMBER).body()).isEqualTo("Review");
     }
 
     @Test
@@ -863,6 +947,7 @@ class TestReviewPublicationService
         assertThat(published.publishedItemIds()).containsExactly(itemId);
         assertThat(published.draft().body()).isEmpty();
         assertThat(published.draft().event()).isEqualTo(ReviewDraft.DEFAULT_EVENT);
+        assertThat(published.draft().reviewPublication()).isEmpty();
         ReviewDraftItem item = published.draft().items().getFirst();
         assertThat(item.published()).isTrue();
         assertThat(item.publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.PUBLISHED);
@@ -889,7 +974,9 @@ class TestReviewPublicationService
         assertThat(after.items().get(1).publication()).hasValueSatisfying(value -> assertThat(value.state()).isEqualTo(ReviewPublication.State.UNCERTAIN));
         assertThat(after.items()).extracting(ReviewDraftItem::published).containsExactly(true, false, false);
         assertThat(after.items().get(2).publication()).isEmpty();
+        // The summary rides the last batch, so it never left and waits for no confirmation.
         assertThat(after.body()).isEqualTo("Final summary");
+        assertThat(after.reviewPublication()).isEmpty();
         assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), after.body(), after.event())).hasMessageContaining("unknown outcome");
         verify(pullRequests, times(2)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), any());
 
@@ -911,6 +998,8 @@ class TestReviewPublicationService
         when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenAnswer(invocation -> {
             ReviewDraft sending = service.draft(REPO, NUMBER);
             String itemId = lastItemId(sending);
+            // A COMMENT without text reserves no review text, so the user may start the next one meanwhile.
+            assertThat(sending.reviewPublication()).isEmpty();
             assertThatThrownBy(() -> service.editItem(REPO, NUMBER, sending.version(), itemId, "Changed", true)).hasMessageContaining("being sent");
             assertThatThrownBy(() -> service.removeItem(REPO, NUMBER, sending.version(), itemId)).hasMessageContaining("being sent");
             assertThatThrownBy(() -> service.confirmNotPosted(REPO, NUMBER, sending.version(), itemId)).hasMessageContaining("Only a comment with unconfirmed delivery");
@@ -919,7 +1008,7 @@ class TestReviewPublicationService
             return posted();
         });
 
-        service.submit(REPO, NUMBER, draft.version(), "Submitted notes", "COMMENT");
+        service.submit(REPO, NUMBER, draft.version(), "", "COMMENT");
 
         ReviewDraft after = service.draft(REPO, NUMBER);
         assertThat(after.items().getFirst().body()).isEqualTo("First");

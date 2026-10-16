@@ -26,7 +26,7 @@ const draftItem: ReviewDraftItemDto = { id: 'draft-suggestion', source: 'AGENT_F
 
 function render(value = finding, item?: ReviewDraftItemDto, projection: 'review' | 'changes' = 'review', messages: ReviewMessageDto[] = []) {
   const review: AgentReviewDto = reviewFixture({ findings: [value], messages, draft: item === undefined ? null : {
-    repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items: [item], postedSummaryFindingIds: [], version: 1, updatedAt: value.updatedAt,
+    repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items: [item], reviewPublication: null, postedSummaryFindingIds: [], version: 1, updatedAt: value.updatedAt,
   } });
   return renderToStaticMarkup(<ReviewFindingCard review={review} finding={value} projection={projection}
     viewerLogin="reviewer" viewerAvatarUrl={null} actions={{
@@ -131,7 +131,7 @@ describe('finding suggestions', () => {
 
     const inSummary = renderToStaticMarkup(<ReviewFindingCard projection="review" viewerLogin="reviewer" viewerAvatarUrl={null} finding={whole}
       review={reviewFixture({ findings: [whole], draft: {
-        repo: 'trinodb/trino', number: 30304, body: `Thanks.\n\n${whole.body}`, event: 'COMMENT', items: [], postedSummaryFindingIds: [], version: 2, updatedAt: whole.updatedAt,
+        repo: 'trinodb/trino', number: 30304, body: `Thanks.\n\n${whole.body}`, event: 'COMMENT', items: [], reviewPublication: null, postedSummaryFindingIds: [], version: 2, updatedAt: whole.updatedAt,
       } })}
       actions={{ onAsk: async () => {}, onResolve: async () => {}, onReopen: async () => {}, onAddToReview: async () => {},
         onPostNow: async () => {}, onEditDraft: async () => {}, onRemoveFromReview: async () => {}, onNavigate: () => {} }} />);

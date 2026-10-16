@@ -345,6 +345,9 @@ and understand context costs. Record a change and check the results.
 - **Comment delivery unconfirmed:** check GitHub. For a missing comment, choose
   **Submit review → Confirmed not posted** before submitting again. If it posted,
   choose **Confirmed posted** so it is never sent again.
+- **Review text unconfirmed:** the text and verdict stay as sent and **Submit
+  review** is off. Choose **Confirmed posted** to clear it, or **Confirmed not
+  posted** to submit it again.
 - **Check failed:** expand it in **PR → Show log**, or use **Open in GitHub**.
   **Rerun failed tests** appears when supported and permitted.
 

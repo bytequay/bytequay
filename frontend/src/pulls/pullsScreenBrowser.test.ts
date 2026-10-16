@@ -106,7 +106,7 @@ it('prepares comment context on send, preserves setup drafts and isolates late r
 
 it.each([
   ['loads, retries and isolates check logs', 'runCheckLogs', 'Open failed CI in the browser, load and retry inline logs, and discard stale attempts'],
-  ['publishes review drafts and preserves failed submissions', 'runReviewSheet', 'Submit review sends added findings through the draft and splits written comments by commit'],
+  ['publishes review drafts and preserves failed submissions', 'runReviewSheet', 'Submit review sends every review through the draft and keeps text with an unknown outcome as sent'],
   ['retains selected PRs and loaded rows across refreshes', 'runSelectionStability', 'Refresh and sync keep a pull request opened from a later page or a link'],
 ])('%s', async (_name, scenario, expected) => {
   const result = await fixture.run<string>({

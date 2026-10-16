@@ -14,7 +14,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { InlineReviewCommentDto } from '../types';
 import {
   draggedLineSelection,
   inlineReviewComment,
@@ -22,7 +21,6 @@ import {
   NO_RANGE_SELECTION,
   rangeHeading,
   rangeSelectionReducer,
-  reviewCommentGroups,
   type RangeSelection,
   type RangeSelectionAction,
 } from './lineRangeSelection';
@@ -152,27 +150,6 @@ describe('line range selection', () => {
     expect(inlineReviewComment('a.ts', 'Why?', { side: 'LEFT', start: 2, end: 3 }, 'abc')).toEqual({
       path: 'a.ts', body: 'Why?', line: 3, side: 'LEFT', startLine: 2, startSide: 'LEFT', commitId: 'abc',
     });
-  });
-
-  it('groups review comments by the commit they were written on, head last', () => {
-    const on = (path: string, commitId: string | null): InlineReviewCommentDto =>
-      ({ path, body: 'Why?', line: 4, side: 'RIGHT', startLine: null, startSide: null, commitId });
-    const older = on('older.ts', 'older');
-    const head = on('head.ts', 'head');
-    const alsoOlder = on('also-older.ts', 'older');
-
-    const reply: InlineReviewCommentDto = { ...head, commitId: null, replyToCommentId: 61 };
-    expect(reviewCommentGroups([reply], 'head')).toEqual([[reply]]);
-    expect(reviewCommentGroups([reply, head, older], 'head')).toEqual([[older], [head, reply]]);
-
-    // A body-only review still needs one submission.
-    expect(reviewCommentGroups([], 'head')).toEqual([[]]);
-    expect(reviewCommentGroups([head], 'head')).toEqual([[head]]);
-    expect(reviewCommentGroups([head, older, alsoOlder], 'head'))
-      .toEqual([[older, alsoOlder], [head]]);
-    // Nothing is written on the head, so the groups keep the order they were written in.
-    expect(reviewCommentGroups([on('a.ts', 'one'), on('b.ts', 'two')], 'head'))
-      .toEqual([[on('a.ts', 'one')], [on('b.ts', 'two')]]);
   });
 
   it('paints selected diff rows and Code & Tests lines with the shared selection token', () => {

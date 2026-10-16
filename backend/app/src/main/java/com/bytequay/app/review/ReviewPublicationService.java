@@ -78,8 +78,8 @@ public class ReviewPublicationService
     private final PullRequestService pullRequests;
     private final Clock clock;
     private final Striped<Lock> locks = Striped.lock(32);
-    // Attempts a send in this process still owns. A RESERVED item outside it lost its sender to a
-    // restart or a failed save, so nobody knows whether it landed: it reads as UNCERTAIN.
+    // Attempts a send in this process still owns. A RESERVED item or review text outside it lost its
+    // sender to a restart or a failed save, so nobody knows whether it landed: it reads as UNCERTAIN.
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
 
     public ReviewPublicationService(ReviewDraftStore drafts, AgentReviewStore reviews, PullRequestService pullRequests, Clock clock)
@@ -160,6 +160,7 @@ public class ReviewPublicationService
                 if (draft.body().contains(body(finding.body()))) {
                     throw new ReviewConflictException("This finding is already in your review");
                 }
+                requireReviewEditable(draft);
                 List<String> pending = draft.summaryFindingIds().contains(findingId)
                         ? draft.summaryFindingIds()
                         : ImmutableList.<String>builder().addAll(draft.summaryFindingIds()).add(findingId).build();
@@ -245,12 +246,31 @@ public class ReviewPublicationService
         });
     }
 
+    /**
+     * The user checked GitHub for review text whose send has an unknown outcome. Found, it counts as
+     * submitted, the way a successful send leaves it; missing, it waits for an explicit Submit again.
+     */
+    public ReviewDraft confirmReview(String repo, int number, long expectedVersion, boolean posted)
+    {
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
+            ReviewDraft draft = expect(repo, number, expectedVersion);
+            if (draft.reviewPublication().filter(value -> value.state() == ReviewPublication.State.UNCERTAIN).isEmpty()) {
+                throw new ReviewConflictException("Only a review with unconfirmed delivery can be marked as posted or not posted");
+            }
+            ReviewDraft confirmed = draft.withReviewPublication(Optional.empty(), now());
+            return drafts.save(posted ? submitted(confirmed, draft.body(), draft.event()) : confirmed);
+        });
+    }
+
     /** Persists the review text and event the sheet holds; new drafts default to COMMENT. */
     public ReviewDraft saveReview(String repo, int number, long expectedVersion, String body, String event)
     {
         String chosen = requireEvent(event);
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> drafts.save(expect(repo, number,
-                expectedVersion).withReview(body == null ? "" : body.strip(), chosen, now())));
+        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
+            ReviewDraft draft = expect(repo, number, expectedVersion);
+            requireReviewEditable(draft);
+            return drafts.save(draft.withReview(body == null ? "" : body.strip(), chosen, now()));
+        });
     }
 
     /** Publishes exactly one previewed item, reserving it first so no other route can send it twice. */
@@ -271,7 +291,7 @@ public class ReviewPublicationService
                 posted = pullRequests.createReviewComment(repo, number, comment(reservation.items().getFirst()));
             }
             catch (RuntimeException failure) {
-                return releaseAfterFailure(repo, number, reservation, failure);
+                return releaseAfterFailure(repo, number, reservation, failure, false);
             }
             return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, reservation, posted, false));
         }
@@ -289,7 +309,8 @@ public class ReviewPublicationService
         long prId = prId(repo, number);
         Reservation reservation = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
-            if (draft.items().stream().anyMatch(item -> item.publication().filter(value -> value.state() != ReviewPublication.State.PUBLISHED).isPresent())) {
+            if (draft.reviewPublication().isPresent()
+                    || draft.items().stream().anyMatch(item -> item.publication().filter(value -> value.state() != ReviewPublication.State.PUBLISHED).isPresent())) {
                 throw new ReviewConflictException("An earlier send is in flight or has an unknown outcome; check it on GitHub before submitting again");
             }
             List<ReviewDraftItem> sending = draft.items().stream().filter(item -> item.included() && !item.published()).collect(toImmutableList());
@@ -300,7 +321,9 @@ public class ReviewPublicationService
             String attemptId = UUID.randomUUID().toString();
             List<ReviewDraftItem> items = new ArrayList<>(draft.items());
             sending.forEach(item -> items.set(indexOf(items, item.id()), reserve(item, attemptId)));
-            ReviewDraft reserved = drafts.save(draft.withReview(text, chosen, now()).withItems(items, now()));
+            // A plain COMMENT without text adds nothing to GitHub beyond its comments, which carry their own reservations.
+            Optional<ReviewPublication> review = text.isEmpty() && chosen.equals("COMMENT") ? Optional.empty() : Optional.of(reserved(attemptId));
+            ReviewDraft reserved = drafts.save(draft.withReview(text, chosen, now()).withReviewPublication(review, now()).withItems(items, now()));
             inFlight.add(attemptId);
             return new Reservation(attemptId, reserved, sending);
         });
@@ -336,8 +359,9 @@ public class ReviewPublicationService
                             batch.stream().map(this::comment).collect(toImmutableList()));
                 }
                 catch (RuntimeException failure) {
-                    releaseUnsent(repo, number, reservation, batches.subList(index + 1, batches.size()).stream().flatMap(List::stream).collect(toImmutableList()));
-                    return releaseAfterFailure(repo, number, group, failure);
+                    // The review text rides the last batch, so a failure before it leaves the text unsent too.
+                    releaseUnsent(repo, number, reservation, batches.subList(index + 1, batches.size()).stream().flatMap(List::stream).collect(toImmutableList()), !last);
+                    return releaseAfterFailure(repo, number, group, failure, last);
                 }
                 Publication result = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, group, posted, last));
                 published.addAll(result.publishedItemIds());
@@ -351,9 +375,9 @@ public class ReviewPublicationService
         }
     }
 
-    private void releaseUnsent(String repo, int number, Reservation reservation, List<ReviewDraftItem> unsent)
+    private void releaseUnsent(String repo, int number, Reservation reservation, List<ReviewDraftItem> unsent, boolean reviewUnsent)
     {
-        if (unsent.isEmpty()) {
+        if (unsent.isEmpty() && !reviewUnsent) {
             return;
         }
         withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
@@ -365,7 +389,8 @@ public class ReviewPublicationService
                     items.set(index, items.get(index).withPublication(Optional.empty()));
                 }
             }
-            return drafts.save(draft.withItems(items, now()));
+            ReviewDraft released = draft.withItems(items, now());
+            return drafts.save(reviewUnsent ? withReviewOutcome(released, reservation.attemptId(), Optional.empty()) : released);
         });
     }
 
@@ -409,27 +434,34 @@ public class ReviewPublicationService
                                 + " sent, but GitHub's reply did not identify them; they are not sent again");
         ReviewDraft settled = draft.withItems(items, now());
         if (carriedReview) {
-            String sent = reservation.draft().body();
-            List<String> carried = draft.summaryFindingIds().stream()
-                    .filter(findingId -> reviews.findFinding(findingId).filter(finding -> sent.contains(body(finding.body()))).isPresent())
-                    .collect(toImmutableList());
-            settled = settled.withSummaryFindings(
-                    draft.summaryFindingIds().stream().filter(findingId -> !carried.contains(findingId)).collect(toImmutableList()),
-                    ImmutableList.<String>builder().addAll(draft.postedSummaryFindingIds()).addAll(carried).build(),
-                    now());
-            if (draft.body().equals(sent) && draft.event().equals(reservation.draft().event())) {
-                settled = settled.withReview("", ReviewDraft.DEFAULT_EVENT, now());
-            }
+            settled = withReviewOutcome(submitted(settled, reservation.draft().body(), reservation.draft().event()), reservation.attemptId(), Optional.empty());
         }
         return new Publication(drafts.save(settled), ImmutableList.copyOf(published), uncertain);
     }
 
     /**
-     * A send that threw. A refusal GitHub answers before acting sent nothing, so those items return
-     * to the pending review. Any other failure may have landed: the items stay uncertain rather than
-     * released, nothing may resend them, and the user sees why.
+     * The draft once a review carrying {@code sent} is on GitHub: the whole-pull-request findings in
+     * that text count as posted, and the text and event are cleared unless they changed since.
      */
-    private Publication releaseAfterFailure(String repo, int number, Reservation reservation, RuntimeException failure)
+    private ReviewDraft submitted(ReviewDraft draft, String sent, String sentEvent)
+    {
+        List<String> carried = draft.summaryFindingIds().stream()
+                .filter(findingId -> reviews.findFinding(findingId).filter(finding -> sent.contains(body(finding.body()))).isPresent())
+                .collect(toImmutableList());
+        ReviewDraft settled = draft.withSummaryFindings(
+                draft.summaryFindingIds().stream().filter(findingId -> !carried.contains(findingId)).collect(toImmutableList()),
+                ImmutableList.<String>builder().addAll(draft.postedSummaryFindingIds()).addAll(carried).build(),
+                now());
+        return draft.body().equals(sent) && draft.event().equals(sentEvent) ? settled.withReview("", ReviewDraft.DEFAULT_EVENT, now()) : settled;
+    }
+
+    /**
+     * A send that threw. A refusal GitHub answers before acting sent nothing, so those items, and the
+     * review text when this batch carried it, return to the pending review. Any other failure may
+     * have landed: they stay uncertain rather than released, nothing may resend them, and the user
+     * sees why.
+     */
+    private Publication releaseAfterFailure(String repo, int number, Reservation reservation, RuntimeException failure, boolean carriedReview)
     {
         log.warn("Review publication {} for {}#{} failed: {}", reservation.attemptId(), repo, number, failure.toString());
         boolean refused = failure instanceof ResponseStatusException response && REFUSED.contains(response.getStatusCode().value());
@@ -443,7 +475,8 @@ public class ReviewPublicationService
                     items.set(index, items.get(index).withPublication(outcome));
                 }
             }
-            drafts.save(draft.withItems(items, now()));
+            ReviewDraft released = draft.withItems(items, now());
+            drafts.save(carriedReview ? withReviewOutcome(released, reservation.attemptId(), outcome) : released);
             throw failure;
         });
     }
@@ -480,6 +513,16 @@ public class ReviewPublicationService
         if (items.stream().map(ReviewDraftItem::publication).anyMatch(publication -> publication.filter(value -> value.state() == ReviewPublication.State.RESERVED).isPresent())) {
             throw new ReviewConflictException("Another send of this review is already in flight");
         }
+    }
+
+    /** Review text in a send stays exactly as sent, so confirming that send later settles what went out. */
+    private static void requireReviewEditable(ReviewDraft draft)
+    {
+        draft.reviewPublication().ifPresent(publication -> {
+            throw new ReviewConflictException(publication.state() == ReviewPublication.State.RESERVED
+                    ? "Your review is being sent; wait for the result before changing it"
+                    : "An earlier send of your review has an unknown outcome; check the pull request on GitHub before changing it");
+        });
     }
 
     private static void requireKnownOutcome(ReviewDraftItem item)
@@ -587,13 +630,23 @@ public class ReviewPublicationService
 
     private static ReviewDraftItem reserve(ReviewDraftItem item, String attemptId)
     {
-        return item.withPublication(
-                Optional.of(new ReviewPublication(attemptId, ReviewPublication.State.RESERVED, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), Instant.EPOCH)));
+        return item.withPublication(Optional.of(reserved(attemptId)));
+    }
+
+    private static ReviewPublication reserved(String attemptId)
+    {
+        return new ReviewPublication(attemptId, ReviewPublication.State.RESERVED, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), Instant.EPOCH);
     }
 
     private static ReviewPublication uncertain(String attemptId, Instant at)
     {
         return new ReviewPublication(attemptId, ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), at);
+    }
+
+    /** Settles the review text's send when this attempt carries it; a COMMENT without text reserved none. */
+    private ReviewDraft withReviewOutcome(ReviewDraft draft, String attemptId, Optional<ReviewPublication> outcome)
+    {
+        return draft.reviewPublication().filter(value -> value.attemptId().equals(attemptId)).isPresent() ? draft.withReviewPublication(outcome, now()) : draft;
     }
 
     private static List<ReviewDraftItem> append(List<ReviewDraftItem> items, ReviewDraftItem item)
@@ -641,12 +694,13 @@ public class ReviewPublicationService
     {
         String repository = AgentReviewService.normalize(repo);
         ReviewDraft draft = drafts.find(repository, number).orElseGet(() -> ReviewDraft.empty(repository, number, now()));
-        return draft.withItems(draft.items().stream()
-                .map(item -> item.publication()
-                        .filter(value -> value.state() == ReviewPublication.State.RESERVED && !inFlight.contains(value.attemptId()))
-                        .map(value -> item.withPublication(Optional.of(uncertain(value.attemptId(), draft.updatedAt()))))
-                        .orElse(item))
-                .collect(toImmutableList()), draft.updatedAt());
+        List<ReviewDraftItem> items = draft.items().stream().map(item -> item.withPublication(effective(item.publication(), draft.updatedAt()))).collect(toImmutableList());
+        return draft.withItems(items, draft.updatedAt()).withReviewPublication(effective(draft.reviewPublication(), draft.updatedAt()), draft.updatedAt());
+    }
+
+    private Optional<ReviewPublication> effective(Optional<ReviewPublication> publication, Instant at)
+    {
+        return publication.map(value -> value.state() == ReviewPublication.State.RESERVED && !inFlight.contains(value.attemptId()) ? uncertain(value.attemptId(), at) : value);
     }
 
     private ReviewDraft expect(String repo, int number, long expectedVersion)

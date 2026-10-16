@@ -1465,10 +1465,12 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
     baseSha?: string,
     headSha?: string,
   ) => Promise<DiffFileContentDto>;
+  /** `key` stays the same for every try from one comment box, so a retry after an unknown outcome cannot post twice. */
   postPrReviewComment: (
     repo: string,
     number: number,
     comment: InlineReviewCommentDto,
+    key: string,
   ) => Promise<PullRequestDetailDto>;
   updatePrDescription: (repo: string, number: number, body: string) => Promise<void>;
   updatePrTitle: (repo: string, number: number, title: string) => Promise<void>;

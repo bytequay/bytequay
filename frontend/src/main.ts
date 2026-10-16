@@ -1631,12 +1631,14 @@ function registerIpc(): void {
     }
     return backendJson(url, { method: 'POST' });
   });
+  // Sent through the pending review under the comment box's key, so a retry after an unknown outcome meets the first send.
   ipcMain.handle('prs:review-comment:create', (
     _event,
     repo: string,
     number: number,
     comment: import('./types').InlineReviewCommentDto,
-  ) => backendJson(prUrl('/prs/review-comment', repo, number), jsonInit('POST', comment)));
+    key: string,
+  ) => backendJson(reviewUrl(`/drafts/items/${encodeURIComponent(key)}/post`, { repo, number: String(number) }), jsonInit('POST', comment)));
   ipcMain.handle('prs:description:update', (_event, repo: string, number: number, body: string) =>
     backendJson(prUrl('/prs/description', repo, number), jsonInit('PATCH', { body })));
   ipcMain.handle('prs:title:update', (_event, repo: string, number: number, title: string) =>

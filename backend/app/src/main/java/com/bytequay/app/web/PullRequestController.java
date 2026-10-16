@@ -18,7 +18,6 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
-import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCommitLine;
@@ -336,12 +335,6 @@ public class PullRequestController
     {
         pullRequests.setReviewThreadResolved(repo, number, commentId, request.resolved());
         return ImmutableMap.of("result", request.resolved() ? "resolved" : "unresolved");
-    }
-
-    @PostMapping("/prs/review-comment")
-    public PullRequestDetail reviewComment(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestBody InlineReviewComment comment)
-    {
-        return pullRequests.createReviewComment(repo, number, comment).detail();
     }
 
     @DeleteMapping("/prs/merge-queue")

@@ -766,6 +766,8 @@ function DiffFileCard({
   const [posting, setPosting] = useState(false);
   const [sendingToAgent, setSendingToAgent] = useState(false);
   const submissionInFlight = useRef(false);
+  // Made on the first Post now and kept until the box closes, so a retry is never a second comment.
+  const commentKey = useRef<string | null>(null);
   const submitting = posting || sendingToAgent;
   const [pendingEdit, setPendingEdit] = useState<{ comment: InlineReviewCommentDto; body: string } | null>(null);
   const oldLines = sourceLines(content?.oldContent);
@@ -875,6 +877,7 @@ function DiffFileCard({
     setReviewBody('');
     dispatchRange({ type: 'clear' });
     setPreview(false);
+    commentKey.current = null;
   };
 
   const addPending = () => {
@@ -890,9 +893,10 @@ function DiffFileCard({
     submissionInFlight.current = true;
     setPosting(true);
     setReviewError(null);
+    commentKey.current ??= crypto.randomUUID();
     try {
       await submitInlineReviewComment(
-        window.bridge, review.repo, review.number, value, review.onDetailChange);
+        window.bridge, review.repo, review.number, value, commentKey.current, review.onDetailChange);
       closeComposer();
     }
     catch (error) {
@@ -1287,9 +1291,10 @@ export async function submitInlineReviewComment(
   repo: string,
   number: number,
   comment: InlineReviewCommentDto,
+  key: string,
   onDetailChange: (detail: PullRequestDetailDto) => void,
 ) {
-  onDetailChange(await bridge.postPrReviewComment(repo, number, comment));
+  onDetailChange(await bridge.postPrReviewComment(repo, number, comment, key));
   recordAttentionAction(`${repo}#${number}`, 'comment');
 }
 

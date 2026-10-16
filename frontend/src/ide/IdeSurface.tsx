@@ -71,7 +71,7 @@ async function handleRequest(props: IdeSurfaceProps, request: IdeRequest, findin
     case 'getGitHubUserProfile': return window.bridge.getGitHubUserProfile(args[0] as string);
     case 'fetchGitHubCodeSnippet': return window.bridge.fetchGitHubCodeSnippet(args[0] as GitHubCodeSnippetRequest);
     case 'openInAppBrowser': return window.bridge.openInAppBrowser(args[0] as string);
-    case 'github.post': return window.bridge.postPrReviewComment(comments.repo, comments.number, args[2] as InlineReviewCommentDto);
+    case 'github.post': return window.bridge.postPrReviewComment(comments.repo, comments.number, args[2] as InlineReviewCommentDto, args[3] as string);
     case 'github.reply': return window.bridge.replyToReviewComment(comments.repo, comments.number, args[2] as number, args[3] as string);
     case 'github.resolve': return window.bridge.setReviewThreadResolved(comments.repo, comments.number, args[2] as number, args[3] as boolean);
     case 'github.edit': return window.bridge.editPrComment(comments.repo, comments.number, 'review_comment', args[3] as number, args[4] as string);

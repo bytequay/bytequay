@@ -90,6 +90,7 @@ class TestReviewPublicationService
     private static final String FINDING_ID = "finding-1";
     private static final String REVIEWED_HEAD = "a".repeat(40);
     private static final String CURRENT_HEAD = "b".repeat(40);
+    private static final String COMMENT_KEY = "6f1c2e3a-5b7d-4c8e-9a0b-1c2d3e4f5a6b";
 
     private InMemoryReviewDraftStore drafts;
     private InMemoryAgentReviewStore reviews;
@@ -908,6 +909,116 @@ class TestReviewPublicationService
         assertThat(publication.remoteReviewId()).hasValue(77L);
         assertThat(publication.url()).contains("https://github.com/octo/widgets/pull/7#discussion_r9001");
         assertThat(result.uncertainReason()).isEmpty();
+    }
+
+    @Test
+    void aCommentPostedNowIsSentOnceUnderItsKey()
+    {
+        PrTimelineEvent created = thread("src/A.java", comment(9001L, 77L, "Rename this", null));
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(new PullRequestService.Posted(detail(), OptionalLong.empty(), ImmutableList.of(created)));
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+
+        assertThat(service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isEqualTo(detail());
+        // The answer was lost on its way to the screen, so the box sends the same key again.
+        assertThat(service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isEqualTo(detail());
+
+        assertThat(service.draft(REPO, NUMBER).items()).singleElement().satisfies(item -> {
+            assertThat(item.id()).isEqualTo(COMMENT_KEY);
+            assertThat(item.published()).isTrue();
+            assertThat(item.publication().orElseThrow().remoteCommentId()).hasValue(9001L);
+        });
+        verify(pullRequests).createReviewComment(REPO, NUMBER, new InlineReviewComment("src/A.java", "Rename this", 10, "RIGHT", null, null, REVIEWED_HEAD, OptionalLong.empty()));
+        verify(pullRequests, times(1)).createReviewComment(any(), anyInt(), any());
+    }
+
+    @Test
+    void aCommentPostedNowWithAnUnknownOutcomeWaitsForTheUserBeforeItCanGoAgain()
+    {
+        ResponseStatusException lost = new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub did not answer");
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenThrow(lost).thenReturn(posted());
+
+        assertThatThrownBy(() -> service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this")))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY))
+                .hasMessageContaining("may have been posted")
+                .hasCauseReference(lost);
+
+        ReviewDraft uncertain = service.draft(REPO, NUMBER);
+        assertThat(uncertain.items()).singleElement().satisfies(item -> {
+            assertThat(item.id()).isEqualTo(COMMENT_KEY);
+            assertThat(item.publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
+            assertThat(item.body()).isEqualTo("Rename this");
+        });
+        // Neither another click nor reworded text from the same box goes out while GitHub may already have the comment.
+        assertThatThrownBy(() -> service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this, please")))
+                .isInstanceOf(ReviewConflictException.class)
+                .hasMessageContaining("may have been posted");
+        verify(pullRequests, times(1)).createReviewComment(any(), anyInt(), any());
+
+        // Confirmed not posted: the box's current text then goes out as that same comment, not beside it.
+        service.confirmNotPosted(REPO, NUMBER, uncertain.version(), COMMENT_KEY);
+        service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this, please"));
+
+        assertThat(service.draft(REPO, NUMBER).items()).singleElement().satisfies(item -> {
+            assertThat(item.published()).isTrue();
+            assertThat(item.body()).isEqualTo("Rename this, please");
+        });
+        verify(pullRequests).createReviewComment(REPO, NUMBER, new InlineReviewComment("src/A.java", "Rename this, please", 10, "RIGHT", null, null, REVIEWED_HEAD, OptionalLong.empty()));
+        verify(pullRequests, times(2)).createReviewComment(any(), anyInt(), any());
+    }
+
+    @Test
+    void aCommentConfirmedPostedIsNotSentAgainFromItsBox()
+    {
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenThrow(new IllegalStateException("Read timed out"));
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        assertThatThrownBy(() -> service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).hasMessageContaining("may have been posted");
+
+        service.confirmPosted(REPO, NUMBER, service.draft(REPO, NUMBER).version(), COMMENT_KEY);
+
+        assertThat(service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isEqualTo(detail());
+        verify(pullRequests, times(1)).createReviewComment(any(), anyInt(), any());
+    }
+
+    @Test
+    void aCommentGitHubRefusedLeavesNothingBehindAndCanBeSentAgain()
+    {
+        ResponseStatusException invalid = new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Line could not be resolved");
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenThrow(invalid).thenReturn(posted());
+
+        assertThatThrownBy(() -> service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isSameAs(invalid);
+
+        // Nothing went out, so the box keeps the only copy and nothing waits in the review.
+        assertThat(service.draft(REPO, NUMBER).items()).isEmpty();
+        service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 11, "Rename this"));
+        assertThat(service.draft(REPO, NUMBER).items()).singleElement().matches(ReviewDraftItem::published);
+        verify(pullRequests, times(2)).createReviewComment(any(), anyInt(), any());
+    }
+
+    @Test
+    void aCommentStillSendingIsNotSentTwice()
+    {
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenAnswer(invocation -> {
+            assertThat(service.draft(REPO, NUMBER).items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.RESERVED);
+            assertThatThrownBy(() -> service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).hasMessageContaining("being sent");
+            return posted();
+        });
+
+        service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"));
+
+        verify(pullRequests, times(1)).createReviewComment(any(), anyInt(), any());
+    }
+
+    @Test
+    void aCommentKeyCannotTakeOverAFindingInTheReview()
+    {
+        ReviewDraftItem finding = new ReviewDraftItem(COMMENT_KEY, Source.AGENT_FINDING, Optional.of(FINDING_ID), OptionalInt.of(1), "src/A.java", "RIGHT", 10,
+                OptionalInt.empty(), "Finding text", true, Optional.empty(), Optional.of(REVIEWED_HEAD), OptionalLong.empty());
+        ReviewDraft saved = drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withItems(ImmutableList.of(finding), NOW));
+
+        assertThatThrownBy(() -> service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isInstanceOf(ReviewConflictException.class);
+
+        assertThat(service.draft(REPO, NUMBER)).isEqualTo(saved);
+        verifyNoInteractions(pullRequests);
     }
 
     @Test

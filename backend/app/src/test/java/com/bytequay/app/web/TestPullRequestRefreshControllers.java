@@ -26,7 +26,6 @@ import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
-import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PullRequest;
@@ -39,19 +38,15 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -405,41 +400,9 @@ class TestPullRequestRefreshControllers
         PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
         PullRequestDetail detail = detail();
-        InlineReviewComment inline = new InlineReviewComment("src/Main.java", "Please simplify this", 18, "RIGHT", null, null, "head-sha", OptionalLong.empty());
         when(pullRequests.commentOnPullRequest("owner/repo", 7, "hello")).thenReturn(detail);
-        when(pullRequests.createReviewComment("owner/repo", 7, inline)).thenReturn(new PullRequestService.Posted(detail, OptionalLong.empty(), ImmutableList.of()));
 
         assertThat(controller.comment("owner/repo", 7, new PullRequestController.CommentRequest("hello"))).isSameAs(detail);
-        assertThat(controller.reviewComment("owner/repo", 7, inline)).isSameAs(detail);
-    }
-
-    @Test
-    void reportsAnUncertainReviewCommentTimeout()
-            throws Exception
-    {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
-        doThrow(new ResourceAccessException("Operation timed out"))
-                .when(pullRequests).createReviewComment(any(), anyInt(), any());
-
-        standaloneSetup(controller)
-                .setControllerAdvice(new GlobalExceptionHandler())
-                .build()
-                .perform(post("/prs/review-comment")
-                        .queryParam("repo", "owner/repo")
-                        .queryParam("number", "7")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "path":"src/Main.java",
-                                  "body":"Please simplify this",
-                                  "line":18,
-                                  "side":"RIGHT",
-                                  "commitId":"head-sha"
-                                }
-                                """))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.message").value("GitHub did not respond. Refresh before retrying; a submitted action may already have completed."));
     }
 
     @Test

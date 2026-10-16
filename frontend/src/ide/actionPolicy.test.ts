@@ -94,6 +94,14 @@ describe('IDE action boundary', () => {
     expect(() => validateIdeAction('github.react', ['owner/repo', 1, 'issue_comment', 20, '+1', true], current, true)).toThrow('Invalid');
   });
 
+  it('posts a new comment only with the key its comment box keeps for retries', () => {
+    const current = { ...context, comments: { repo: 'owner/repo', number: 1, canReview: true, threads: { activities: [] } } } as unknown as IdeContext;
+    const comment = { path: 'src/main.go', body: 'Rename this', line: 3, side: 'RIGHT', commitId: review.observedHeadSha };
+    expect(() => validateIdeAction('github.post', ['owner/repo', 1, comment, '6f1c2e3a-5b7d-4c8e-9a0b-1c2d3e4f5a6b'], current, true)).not.toThrow();
+    expect(() => validateIdeAction('github.post', ['owner/repo', 1, comment], current, true)).toThrow('Invalid IDE action arguments');
+    expect(() => validateIdeAction('github.post', ['owner/repo', 1, comment, 'retry-1'], current, true)).toThrow('Missing comment key');
+  });
+
   it('opens web links only on a user gesture and bounds read-only profile and code previews', () => {
     expect(() => validateIdeAction('openInAppBrowser', ['https://github.com/owner/repo'], context, true)).not.toThrow();
     expect(() => validateIdeAction('openInAppBrowser', ['https://github.com/owner/repo'], context, false)).toThrow('user click');

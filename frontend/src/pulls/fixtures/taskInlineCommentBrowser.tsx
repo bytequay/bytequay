@@ -199,6 +199,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       githubWrites++;
       assert(mode === 'published', 'Private feedback must not post to GitHub');
       posted.push(request);
+      if (posted.length === 1) throw new Error('GitHub did not confirm this comment, so it may have been posted.');
       return detail;
     },
   } satisfies Pick<Bridge, 'findAgentReview' | 'findTaskAgentReview' | 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef'
@@ -237,11 +238,16 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       const post = button(host, 'Post now');
       assert(!post.disabled && githubWrites === 0, 'A published line must allow posting without writing before the explicit action');
       post.click(); await settle();
-      const request = posted[0];
-      assert(posted.length === 1 && request[0] === detail.repo && request[1] === detail.number
+      assert(host.querySelector('.pull-diff-review [role="alert"]')?.textContent?.includes('may have been posted') === true,
+        'A send with an unknown outcome must keep its composer and say so');
+      button(host, 'Post now').click(); await settle();
+      const [request, retry] = posted;
+      assert(posted.length === 2 && request[0] === detail.repo && request[1] === detail.number
         && request[2].path === file.filename && request[2].side === 'RIGHT' && request[2].line === 1 && request[2].startLine === null
         && request[2].commitId === '2222222' && request[2].body === 'Please cover this implementation with a test',
-      'Post now must publish exactly once to the displayed PR revision and selected line');
+      'Post now must publish to the displayed PR revision and selected line');
+      assert(/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(request[3]) && retry[3] === request[3],
+        'A retry from the same comment box must send its key again, so the backend cannot post it twice');
       assert(host.querySelector('.pull-diff-review') === null && composer.value === 'Keep my unrelated draft'
         && host.querySelector('[aria-label="Remove image draft.png"]') !== null && requests.length === 0
         && !bridge.commands.some(command => ['startAgentTurn', 'queueAgentInput', 'steerAgentTurn'].includes(command.name)),

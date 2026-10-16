@@ -72,6 +72,7 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     let uncommitted = false;
     let pending: InlineReviewCommentDto[] = [];
     const posts: InlineReviewCommentDto[] = [];
+    const keys: string[] = [];
     const bridge: CodeTestsBridge = {
       ...originalBridge,
       listCodeFiles: async (): Promise<ReviewCodeFilesDto> => ({ source: 'WORKING_COPY', revision: head, sourceFingerprint: uncommitted ? 'edited' : 'clean',
@@ -81,8 +82,10 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
         prPatch: '@@ -1,8 +1,8 @@\n' + text.split('\n').slice(0, 8).map(line => ' ' + line).join('\n'), lineChanges: [] }),
     };
     Object.defineProperty(window, 'bridge', { configurable: true, value: { ...originalBridge,
-      postPrReviewComment: async (repo: string, number: number, comment: InlineReviewCommentDto) => {
+      postPrReviewComment: async (repo: string, number: number, comment: InlineReviewCommentDto, key: string) => {
         assert(repo === options.repo && number === options.number, 'Publication keeps the current PR identity');
+        keys.push(key);
+        if (keys.length === 1) throw new Error('GitHub did not confirm this comment, so it may have been posted.');
         posts.push(comment); return {} as PullRequestDetailDto;
       },
     } });
@@ -112,8 +115,11 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
       'The pending comment stays beside its line on the latest PR');
     await compose(4, 'My immediate comment');
     button('Post now').click(); await settle();
+    button('Post now').click(); await settle();
     assert(Number(posts.length) === 1 && posts[0].commitId === head && posts[0].line === 4 && posts[0].body === 'My immediate comment',
       'Post now sends exactly once against the displayed PR commit');
+    assert(keys.length === 2 && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(keys[0]) && keys[1] === keys[0],
+      'A retry from the same comment box sends its key again, so the backend cannot post it twice');
     await compose(5, 'Keep this draft');
     for (const movedHead of ['c'.repeat(40), null]) {
       observedHead = movedHead; render(); await settle();

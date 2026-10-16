@@ -33,6 +33,7 @@ import com.bytequay.app.utils.PullRequestRefUtil;
 import com.bytequay.app.web.agent.AgentHttpModels;
 import com.bytequay.app.web.agent.AgentStreamRegistry;
 import com.bytequay.app.web.agent.ResolveApprovalRequest;
+import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.review.ReviewDraftItem;
 import com.bytequay.core.review.ReviewFinding;
@@ -377,22 +378,7 @@ public class ReviewController
     public ReviewHttpModels.DraftResponse addManual(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.DraftItemRequest request)
     {
         PullRequestRefUtil.parseRef(repo, number);
-        checkText(request.path(), "path");
-        checkText(request.body(), "body");
-        ReviewDraftItem item = new ReviewDraftItem(
-                "new",
-                ReviewDraftItem.Source.MANUAL,
-                Optional.empty(),
-                OptionalInt.empty(),
-                request.path(),
-                side(request.side()),
-                required(request.line(), "line"),
-                request.startLine() == null ? OptionalInt.empty() : OptionalInt.of(request.startLine()),
-                request.body(),
-                true,
-                Optional.empty(),
-                Optional.ofNullable(request.commitId()), request.replyToCommentId() == null ? OptionalLong.empty() : OptionalLong.of(request.replyToCommentId()));
-        return ReviewHttpModels.draft(publications.addManual(repo, number, required(request.expectedVersion(), "expectedVersion"), item));
+        return ReviewHttpModels.draft(publications.addManual(repo, number, required(request.expectedVersion(), "expectedVersion"), manual(request)));
     }
 
     @PostMapping("/drafts/findings")
@@ -469,6 +455,17 @@ public class ReviewController
         return ReviewHttpModels.publish(publications.publishItem(repo, number, expectedVersion, itemId));
     }
 
+    /** Posts one comment now; its comment box's key names it in the draft, so a retry after an unknown outcome cannot post it twice. */
+    @PostMapping("/drafts/items/{itemId}/post")
+    public PullRequestDetail postComment(@RequestParam String repo, @RequestParam int number, @PathVariable String itemId, @RequestBody ReviewHttpModels.DraftItemRequest request)
+    {
+        PullRequestRefUtil.parseRef(repo, number);
+        if (!itemId.matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")) {
+            throw new ReviewInvalidRequestException("The comment key must be a UUID");
+        }
+        return publications.postComment(repo, number, itemId, manual(request));
+    }
+
     @PostMapping("/drafts/submit")
     public ReviewHttpModels.PublishResponse submit(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.DraftReviewRequest request)
     {
@@ -492,6 +489,25 @@ public class ReviewController
             throw new ReviewInvalidRequestException("The turn does not belong to this review");
         }
         return turn.id();
+    }
+
+    private static ReviewDraftItem manual(ReviewHttpModels.DraftItemRequest request)
+    {
+        checkText(request.path(), "path");
+        checkText(request.body(), "body");
+        return new ReviewDraftItem(
+                "new",
+                ReviewDraftItem.Source.MANUAL,
+                Optional.empty(),
+                OptionalInt.empty(),
+                request.path(),
+                side(request.side()),
+                required(request.line(), "line"),
+                request.startLine() == null ? OptionalInt.empty() : OptionalInt.of(request.startLine()),
+                request.body(),
+                true,
+                Optional.empty(),
+                Optional.ofNullable(request.commitId()), request.replyToCommentId() == null ? OptionalLong.empty() : OptionalLong.of(request.replyToCommentId()));
     }
 
     private static String side(String side)

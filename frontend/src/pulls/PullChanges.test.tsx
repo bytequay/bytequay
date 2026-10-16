@@ -453,9 +453,9 @@ describe('DiffViewer', () => {
     const onDetailChange = vi.fn();
 
     await submitInlineReviewComment(
-      { postPrReviewComment }, 'owner/repo', 42, comment, onDetailChange);
+      { postPrReviewComment }, 'owner/repo', 42, comment, 'comment-box-key', onDetailChange);
 
-    expect(postPrReviewComment).toHaveBeenCalledWith('owner/repo', 42, comment);
+    expect(postPrReviewComment).toHaveBeenCalledWith('owner/repo', 42, comment, 'comment-box-key');
     expect(onDetailChange).toHaveBeenCalledWith(updated);
   });
 });

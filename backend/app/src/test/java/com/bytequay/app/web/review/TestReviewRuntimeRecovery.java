@@ -54,6 +54,7 @@ import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewCoverage;
+import com.bytequay.core.review.ReviewDraftItem;
 import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvalidRequestException;
@@ -112,8 +113,9 @@ class TestReviewRuntimeRecovery
             mock(AgentEventOutboxStore.class), mock(AgentEventService.class), maintenance(), supervisor,
             new AgentServingGate(), launchStore, taskStore, turnStore, mock(AgentTurnService.class));
     private final MemoryService memories = mock(MemoryService.class);
+    private final ReviewPublicationService publications = mock(ReviewPublicationService.class);
     private final ReviewController controller = new ReviewController(
-            reviews, mock(ReviewPublicationService.class), turns, mock(AgentEventService.class), mock(AgentApprovalService.class), recovery, new AgentStreamRegistry(),
+            reviews, publications, turns, mock(AgentEventService.class), mock(AgentApprovalService.class), recovery, new AgentStreamRegistry(),
             memories);
 
     @Test
@@ -255,6 +257,27 @@ class TestReviewRuntimeRecovery
         mvc.perform(get("/api/agent-review")).andExpect(status().isBadRequest());
         mvc.perform(get("/api/agent-review").param("workspaceId", " ")).andExpect(status().isBadRequest());
         verifyNoInteractions(reviews, turns, supervisor, taskStore, turnStore, launchStore);
+    }
+
+    @Test
+    void postingACommentNowNeedsItsBoxKeyAndPassesTheCommentThrough()
+            throws Exception
+    {
+        MockMvc mvc = standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
+        String key = "6f1c2e3a-5b7d-4c8e-9a0b-1c2d3e4f5a6b";
+        // The comment box's own shape, startSide included.
+        String comment = """
+                {"path":"src/Main.java","body":"Please simplify this","line":18,"side":"RIGHT","startLine":null,"startSide":null,"commitId":"head-sha"}
+                """;
+
+        mvc.perform(post("/api/agent-review/drafts/items/{key}/post", key).param("repo", "owner/repo").param("number", "7").contentType("application/json").content(comment))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/agent-review/drafts/items/{key}/post", "new").param("repo", "owner/repo").param("number", "7").contentType("application/json").content(comment))
+                .andExpect(status().isBadRequest());
+
+        verify(publications).postComment("owner/repo", 7, key, new ReviewDraftItem("new", ReviewDraftItem.Source.MANUAL, Optional.empty(), OptionalInt.empty(),
+                "src/Main.java", "RIGHT", 18, OptionalInt.empty(), "Please simplify this", true, Optional.empty(), Optional.of("head-sha"), OptionalLong.empty()));
+        verifyNoMoreInteractions(publications);
     }
 
     @Test

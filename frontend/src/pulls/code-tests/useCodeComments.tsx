@@ -114,6 +114,8 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
   const [sending, setSending] = useState(false);
   const [pendingEdit, setPendingEdit] = useReviewDraft<{ comment: InlineReviewCommentDto; body: string } | null>('codeComment:pendingEdit', null);
   const editing = (item: InlineReviewCommentDto) => pendingEdit !== null && ['path', 'side', 'line', 'startLine', 'commitId', 'body'].every(key => pendingEdit.comment[key as keyof InlineReviewCommentDto] === item[key as keyof InlineReviewCommentDto]);
+  // Made on the first Post now and kept as long as the box's text, so a retry is never a second comment.
+  const [commentKey, setCommentKey] = useReviewDraft<string | null>('codeComment:key', null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   // One action state for every finding card, as on Changes, so two cards cannot race the same review draft version.
   const defaultFindingActions = useFindingActions({
@@ -137,6 +139,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
     setBody('');
     setPreview(false);
     setError(null);
+    setCommentKey(null);
   };
 
   const onComment = options.canReview || options.onAskAgent !== undefined
@@ -271,7 +274,9 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
           if (value === null || blocker !== null) return;
           setPosting(true);
           setError(null);
-          void submitInlineReviewComment(window.bridge, options.repo, options.number, value, options.onDetailChange)
+          const key = commentKey ?? crypto.randomUUID();
+          setCommentKey(key);
+          void submitInlineReviewComment(window.bridge, options.repo, options.number, value, key, options.onDetailChange)
             .then(close)
             .catch(failure => setError(remoteErrorMessage(failure)))
             .finally(() => setPosting(false));

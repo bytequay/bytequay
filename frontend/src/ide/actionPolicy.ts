@@ -159,7 +159,8 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
   if (method.startsWith('github.')) {
     if (!comments.canReview || args[0] !== comments.repo || args[1] !== comments.number) throw new Error('Different or unavailable pull request');
     if (method === 'github.post') {
-      count(args, 3);
+      count(args, 4);
+      if (typeof args[3] !== 'string' || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(args[3])) throw new Error('Missing comment key');
       const comment = object(args[2]);
       file(comment.path); text(comment.body); integer(comment.line);
       if (comment.line === 0 || comment.side !== 'RIGHT') throw new Error('Invalid code selection');

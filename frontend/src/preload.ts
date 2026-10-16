@@ -149,8 +149,8 @@ const bridge: Bridge = {
   fetchPrDiffCommits: (repo, number) => ipcRenderer.invoke('prs:diff-commits', repo, number),
   refreshPrDiffFileContent: (repo, number, path, baseSha, headSha) =>
     ipcRenderer.invoke('prs:diff-content:refresh', repo, number, path, baseSha, headSha),
-  postPrReviewComment: (repo, number, comment) =>
-    ipcRenderer.invoke('prs:review-comment:create', repo, number, comment),
+  postPrReviewComment: (repo, number, comment, key) =>
+    ipcRenderer.invoke('prs:review-comment:create', repo, number, comment, key),
   updatePrDescription: (repo, number, body) =>
     ipcRenderer.invoke('prs:description:update', repo, number, body),
   updatePrTitle: (repo, number, title) => ipcRenderer.invoke('prs:title:update', repo, number, title),

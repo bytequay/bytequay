@@ -15,6 +15,7 @@ package com.bytequay.app.review;
 
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.InlineReviewComment;
+import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
@@ -34,6 +35,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -72,6 +74,8 @@ public class ReviewPublicationService
     private static final int MAX_BODY = 60_000;
     // GitHub answers these before acting on a write, as do the checks before one; the work-item publish uses the same set.
     private static final Set<Integer> REFUSED = ImmutableSet.of(400, 401, 403, 404, 422, 429);
+    private static final String UNCONFIRMED_COMMENT = "GitHub did not confirm this comment, so it may have been posted. Check the pull request on GitHub, "
+            + "then open Submit review and choose Confirmed posted or Confirmed not posted.";
 
     private final ReviewDraftStore drafts;
     private final AgentReviewStore reviews;
@@ -300,6 +304,73 @@ public class ReviewPublicationService
         }
     }
 
+    /**
+     * Posts one comment now under the key its comment box sent. The comment waits in this draft under
+     * that key while it is sent, so a second click, another window or a restart meets this send
+     * instead of making another: one still sending or with an unknown outcome is refused until the
+     * user confirms it in the review sheet, and one already posted is not sent again.
+     */
+    public PullRequestDetail postComment(String repo, int number, String itemId, ReviewDraftItem comment)
+    {
+        requireNonNull(itemId, "itemId is null");
+        requireNonNull(comment, "comment is null");
+        Optional<Reservation> reservation = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
+            ReviewDraft draft = stored(repo, number);
+            Optional<ReviewDraftItem> earlier = draft.items().stream().filter(item -> item.id().equals(itemId)).findFirst();
+            if (earlier.filter(ReviewDraftItem::published).isPresent()) {
+                return Optional.empty();
+            }
+            earlier.ifPresent(ReviewPublicationService::requireRepostable);
+            // Confirmed not posted left the earlier send pending; the box's current text replaces it.
+            ReviewDraftItem item = new ReviewDraftItem(itemId, ReviewDraftItem.Source.MANUAL, Optional.empty(), OptionalInt.empty(), comment.path(), comment.side(),
+                    comment.line(), comment.startLine(), body(comment.body()), true, Optional.empty(), comment.commitId(), comment.replyToCommentId());
+            requireSendable(ImmutableList.of(item));
+            String attemptId = UUID.randomUUID().toString();
+            ReviewDraftItem reserved = reserve(item, attemptId);
+            ReviewDraft saved = drafts.save(draft.withItems(earlier.isPresent() ? replace(draft.items(), reserved) : append(draft.items(), reserved), now()));
+            inFlight.add(attemptId);
+            return Optional.of(new Reservation(attemptId, saved, ImmutableList.of(item)));
+        });
+        if (reservation.isEmpty()) {
+            return pullRequests.getPullRequestDetail(repo, number);
+        }
+        Reservation sending = reservation.get();
+        try {
+            PullRequestService.Posted posted;
+            try {
+                posted = pullRequests.createReviewComment(repo, number, comment(sending.items().getFirst()));
+            }
+            catch (RuntimeException failure) {
+                throw failedPost(repo, number, sending, failure);
+            }
+            withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, sending, posted, false));
+            return posted.detail();
+        }
+        finally {
+            inFlight.remove(sending.attemptId());
+        }
+    }
+
+    /**
+     * A comment posted now whose send threw. GitHub refused it before acting, so nothing went out: it
+     * leaves the draft and its box keeps the text. Any other failure may have landed, so it stays in
+     * the draft as unconfirmed until the user checks GitHub.
+     */
+    private RuntimeException failedPost(String repo, int number, Reservation reservation, RuntimeException failure)
+    {
+        log.warn("Comment {} for {}#{} failed: {}", reservation.attemptId(), repo, number, failure.toString());
+        boolean refused = refused(failure);
+        String itemId = reservation.items().getFirst().id();
+        withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
+            ReviewDraft draft = stored(repo, number);
+            return drafts.save(draft.withItems(draft.items().stream()
+                    .filter(item -> !refused || !item.id().equals(itemId))
+                    .map(item -> item.id().equals(itemId) ? item.withPublication(Optional.of(uncertain(reservation.attemptId(), now()))) : item)
+                    .collect(toImmutableList()), now()));
+        });
+        return refused ? failure : new ResponseStatusException(HttpStatus.BAD_GATEWAY, UNCONFIRMED_COMMENT, failure);
+    }
+
     /** Publishes the included, eligible items with the user's chosen review text and event. */
     public Publication submit(String repo, int number, long expectedVersion, String body, String event)
     {
@@ -464,8 +535,7 @@ public class ReviewPublicationService
     private Publication releaseAfterFailure(String repo, int number, Reservation reservation, RuntimeException failure, boolean carriedReview)
     {
         log.warn("Review publication {} for {}#{} failed: {}", reservation.attemptId(), repo, number, failure.toString());
-        boolean refused = failure instanceof ResponseStatusException response && REFUSED.contains(response.getStatusCode().value());
-        Optional<ReviewPublication> outcome = refused ? Optional.empty() : Optional.of(uncertain(reservation.attemptId(), now()));
+        Optional<ReviewPublication> outcome = refused(failure) ? Optional.empty() : Optional.of(uncertain(reservation.attemptId(), now()));
         return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = stored(repo, number);
             List<ReviewDraftItem> items = new ArrayList<>(draft.items());
@@ -522,6 +592,25 @@ public class ReviewPublicationService
             throw new ReviewConflictException(publication.state() == ReviewPublication.State.RESERVED
                     ? "Your review is being sent; wait for the result before changing it"
                     : "An earlier send of your review has an unknown outcome; check the pull request on GitHub before changing it");
+        });
+    }
+
+    /** GitHub, or a check before the write, answered without acting, so nothing went out. */
+    private static boolean refused(RuntimeException failure)
+    {
+        return failure instanceof ResponseStatusException response && REFUSED.contains(response.getStatusCode().value());
+    }
+
+    /** An earlier send under the same comment box key may go again only once nothing about it is unknown. */
+    private static void requireRepostable(ReviewDraftItem item)
+    {
+        if (item.source() != ReviewDraftItem.Source.MANUAL) {
+            throw new ReviewConflictException("This comment key belongs to another comment in your review");
+        }
+        item.publication().ifPresent(publication -> {
+            throw new ReviewConflictException(publication.state() == ReviewPublication.State.RESERVED
+                    ? "This comment is being sent; wait for the result before sending it again"
+                    : UNCONFIRMED_COMMENT);
         });
     }
 

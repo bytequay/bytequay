@@ -348,6 +348,8 @@ and understand context costs. Record a change and check the results.
 - **Review text unconfirmed:** the text and verdict stay as sent and **Submit
   review** is off. Choose **Confirmed posted** to clear it, or **Confirmed not
   posted** to submit it again.
+- **Post now unconfirmed:** the comment waits in **Submit review** as **Delivery
+  unconfirmed**. Posting it again is refused until you confirm it there.
 - **Check failed:** expand it in **PR → Show log**, or use **Open in GitHub**.
   **Rerun failed tests** appears when supported and permitted.
 

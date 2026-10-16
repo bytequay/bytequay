@@ -117,6 +117,20 @@ it.each([true, false])('settles review text with an unknown outcome through the 
     expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
 });
 
+it('posts a single comment through the pending review under its comment box key', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response('{"number":7}'));
+  vi.stubGlobal('fetch', fetch);
+  const comment = { path: 'src/A.java', body: 'Rename this', line: 10, side: 'RIGHT', commitId: 'a'.repeat(40) };
+
+  const result = await desktop.handlers.get('prs:review-comment:create')?.({}, 'owner/repo', 7, comment, '6f1c2e3a-5b7d-4c8e-9a0b-1c2d3e4f5a6b');
+
+  expect(result).toEqual({ number: 7 });
+  expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/api/agent-review/drafts/items/6f1c2e3a-5b7d-4c8e-9a0b-1c2d3e4f5a6b/post?repo=owner%2Frepo&number=7',
+    expect.objectContaining({ method: 'POST', body: JSON.stringify(comment), headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
+});
+
 it('forwards PR opening freshness separately from periodic and checks-only refreshes', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');

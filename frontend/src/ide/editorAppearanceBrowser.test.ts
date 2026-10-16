@@ -19,6 +19,7 @@ import { promisify } from 'node:util';
 import electron from 'electron';
 import { createServer } from 'vite';
 import { expect, it } from 'vitest';
+import { electronFixtureLifecycle } from '../fixtures/electronFixtureLifecycle';
 
 it('renders native syntax, folding, type icons, test colors, usages, search, private line comments, and change markers', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-editor-appearance-'));
@@ -39,6 +40,7 @@ it('renders native syntax, folding, type icons, test colors, usages, search, pri
     const script = join(directory, 'main.cjs');
     await writeFile(script, `
       const { app, BrowserWindow } = require('electron');
+      ${electronFixtureLifecycle(90_000)}
       app.setPath('userData', ${JSON.stringify(join(directory, 'profile'))});
       app.whenReady().then(async () => {
         const window = new BrowserWindow({ show: false, width: 1050, height: 720, webPreferences: { backgroundThrottling: false } });
@@ -96,7 +98,7 @@ it('renders native syntax, folding, type icons, test colors, usages, search, pri
     const executable = electron as unknown as string;
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
     const args = command === executable ? [script] : ['-a', executable, script];
-    const result = await promisify(execFile)(command, args, { env: environment, timeout: 90_000, maxBuffer: 2 * 1024 * 1024 });
+    const result = await promisify(execFile)(command, args, { env: environment, timeout: 90_000, killSignal: 'SIGKILL', maxBuffer: 2 * 1024 * 1024 });
     const colors = JSON.parse(result.stdout.trim()) as Record<string, number>;
     expect(Object.keys(colors)).toHaveLength(9);
     expect(Object.values(colors).every(count => count >= 4)).toBe(true);

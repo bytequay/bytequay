@@ -19,6 +19,7 @@ import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import electron from 'electron';
 import { build } from 'vite';
+import { electronFixtureLifecycle } from './electronFixtureLifecycle';
 
 export type ScenarioResult = { name: string; error?: string };
 
@@ -87,6 +88,7 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
       : "window.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, callback) => callback({ cancel: true }));";
     await writeFile(join(directory, 'main.cjs'), `
       const { app, BrowserWindow, ipcMain } = require('electron');
+      ${electronFixtureLifecycle(fixture.timeoutMs ?? 20_000)}
       app.setPath('userData', ${JSON.stringify(join(directory, 'profile'))});
       app.whenReady().then(async () => {
         const window = new BrowserWindow({ show: false, ${size}webPreferences: { backgroundThrottling: false${preload} } });
@@ -105,7 +107,7 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
     const executable = electron as unknown as string;
     const args = [join(directory, 'main.cjs')];
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
-    const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: fixture.timeoutMs ?? 20_000 });
+    const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: fixture.timeoutMs ?? 20_000, killSignal: 'SIGKILL' });
     return JSON.parse(result.stdout.trim()) as T;
   }
   finally { await rm(directory, { recursive: true, force: true }); }

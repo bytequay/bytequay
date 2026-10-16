@@ -76,7 +76,25 @@ class TestIndependentReviewContextTool
         assertThatThrownBy(() -> broker.registerTools("same-task", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
                 Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(),
                 Optional.of(new ReviewTool("review_save_finding", "Write", ImmutableMap.of(), query -> "", false))))
-                .hasMessageContaining("Only review context reads");
+                .hasMessageContaining("Only context reads");
+    }
+
+    @Test
+    void anAgendaRunReadsItsDayThroughTheSameSlot()
+            throws Exception
+    {
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/mcp"), mapper, (task, query) -> "")
+                .reviews(task -> { throw new AssertionError("An agenda run must not resolve task write capabilities"); }).build();
+        ReviewTool agenda = new ReviewTool("agenda_context", "Read the user's day", ImmutableMap.of("type", "object"), query -> "today", true);
+        try (McpRegistration codex = broker.registerTools("agenda-run", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
+                Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(), Optional.of(agenda)).orElseThrow()) {
+            assertThat(codex.toolNames()).containsExactly("agenda_context", "bytequay_list_tools", "bytequay_get_tool", "bytequay_call_tool");
+            assertThat(call(broker, codex.token(), "agenda_context", "{}").at("/result/content/0/text").asText()).isEqualTo("today");
+        }
+        assertThatThrownBy(() -> broker.registerTools("agenda-run", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
+                Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(),
+                Optional.of(new ReviewTool("agenda_context", "Read the user's day", ImmutableMap.of(), query -> "", false))))
+                .hasMessageContaining("Only context reads");
     }
 
     private static ReviewTool context(String text)

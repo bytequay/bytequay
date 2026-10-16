@@ -70,7 +70,7 @@ public record AgentSessionContext(
         requireNonNull(managedInstructions, "managedInstructions is null");
         requireNonNull(reviewContext, "reviewContext is null");
         checkArgument(reviewContext.isEmpty() || access == SessionAccess.READ_ONLY, "Review context requires a read-only session");
-        reviewContext.ifPresent(tool -> checkArgument(tool.name().equals("review_get_context") && tool.childCallable(), "Only review context reads are allowed"));
+        reviewContext.ifPresent(tool -> checkArgument(ReviewTool.SESSION_CONTEXT_TOOLS.contains(tool.name()) && tool.childCallable(), "Only context reads are allowed"));
         requireNonNull(discussionContext, "discussionContext is null");
         checkArgument(discussionContext.isEmpty() || access == SessionAccess.READ_ONLY, "Discussion context requires a read-only session");
         checkArgument(model.isPresent() || effort.isEmpty(), "effort requires a model");

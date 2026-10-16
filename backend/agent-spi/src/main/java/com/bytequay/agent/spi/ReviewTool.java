@@ -14,6 +14,7 @@
 package com.bytequay.agent.spi;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Map;
 import java.util.Set;
@@ -33,6 +34,8 @@ import static java.util.Objects.requireNonNull;
 public record ReviewTool(String name, String description, Map<String, Object> inputSchema, Function<String, String> call, boolean childCallable)
 {
     public static final String NAME_PREFIX = "review_";
+    /** The reads a read-only one-shot session may carry: a review pass's captured context, or the user's day for an agenda. */
+    public static final Set<String> SESSION_CONTEXT_TOOLS = ImmutableSet.of("review_get_context", "agenda_context");
     private static final Set<String> CONTEXT_TOOLS = Set.of(
             "repository_context_read",
             "repository_context_spec_search",
@@ -40,7 +43,8 @@ public record ReviewTool(String name, String description, Map<String, Object> in
             "repository_context_spec_result",
             "repository_context_harvest_threads",
             "repository_context_harvest_save",
-            "goal_knowledge_save");
+            "goal_knowledge_save",
+            "agenda_context");
 
     /** A tool only the root agent may call, which is every tool that saves or changes review state. */
     public ReviewTool(String name, String description, Map<String, Object> inputSchema, Function<String, String> call)

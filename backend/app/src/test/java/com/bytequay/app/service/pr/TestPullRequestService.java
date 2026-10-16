@@ -2139,6 +2139,19 @@ class TestPullRequestService
     }
 
     @ParameterizedTest
+    @CsvSource({"OTHER, open", "AUTHORED, closed"})
+    void warmingLeavesAQuietUntimedPullRequestUntilActivity(PullRequest.Origin origin, String state)
+    {
+        Instant stale = Instant.now().minus(Duration.ofMinutes(31));
+        PullRequest row = storedPullRequest(pullRequest(state, pullRequest().updatedAt(), null).withOrigin(origin));
+        cacheDetail(row, stored(), new PrDetailFreshness(Optional.of(stale), Optional.of(stale), Optional.of(stale), Optional.of(row.updatedAt())));
+
+        service.refreshPullRequestDetailFromGitHub("owner/repo", 7, Duration.ofMinutes(10));
+
+        verifyNoInteractions(gitHub, actions, accounts);
+    }
+
+    @ParameterizedTest
     @CsvSource({"60, 2, 0", "600, 11, 0", "60, 31, 1", "600, 31, 1", "60, -1, 1"})
     void quietDiscussionsUseTheirOwnReconciliationInterval(long freshnessSeconds, long discussionAgeMinutes, int expectedFetches)
     {

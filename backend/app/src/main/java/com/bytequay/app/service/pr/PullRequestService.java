@@ -604,7 +604,7 @@ public class PullRequestService
 
     /**
      * Rechecking every open card in the watched repositories keeps GitHub's secondary limit nearly full. Someone else's
-     * pull request is summarized again only when discovery reports activity, or while its checks are still running.
+     * pull request is summarized or warmed again only when discovery reports activity, or while its checks are still running.
      */
     private static boolean timed(PullRequest row)
     {
@@ -852,7 +852,10 @@ public class PullRequestService
                 && newer(previousRow.orElseThrow().updatedAt(), Optional.ofNullable(previous.orElseThrow().raw().updatedAt()));
         boolean missingCoordinates = previous.filter(detail -> detail.raw().headSha() == null || detail.raw().baseSha() == null).isPresent();
         boolean missingHead = previous.filter(detail -> detail.raw().headSha() == null || detail.raw().headSha().isBlank()).isPresent();
-        boolean metadataDue = missing || force || metadataLag || missingHead || (!checksOnly && (missingCoordinates || expired(times.metadataAt(), freshness, now)
+        // A warm pass rechecks on a timer only what timed summaries follow; any other pull request waits for activity. The reactions
+        // and thread resolutions GitHub does not report as activity wait until someone opens it.
+        boolean timed = !warm || previousRow.filter(PullRequestService::timed).isPresent();
+        boolean metadataDue = missing || force || metadataLag || missingHead || (!checksOnly && (missingCoordinates || (timed && expired(times.metadataAt(), freshness, now))
                 || details.findEtag(previousRow.orElseThrow().id()).isEmpty()));
         PullRequest row = previousRow.orElse(null);
         StoredPrDetail detail = previous.orElse(null);
@@ -884,9 +887,6 @@ public class PullRequestService
         PullRequest current = requireNonNull(row, "pull request is missing");
         Instant sourceAt = discussionSourceUpdatedAt(current);
         boolean headChanged = previous.isPresent() && !Objects.equals(previous.orElseThrow().raw().headSha(), detail.raw().headSha());
-        // A warm pass refreshes a settled pull request only after activity. The reactions and thread
-        // resolutions GitHub does not report as activity wait until someone opens it.
-        boolean timed = !warm || !settled(current);
         // Opening uses a short freshness window; periodic refreshes reconcile quiet discussions less often
         // because every pass paginates the full history, including several GraphQL reaction/thread queries.
         boolean quiet = !missing && !force && !headChanged && detail.reviewsComplete() && detail.timelineComplete() && !newer(sourceAt, times.discussionSourceUpdatedAt());

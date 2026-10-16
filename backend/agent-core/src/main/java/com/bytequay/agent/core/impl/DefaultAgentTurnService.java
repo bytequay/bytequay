@@ -183,6 +183,9 @@ public final class DefaultAgentTurnService
     /** How long a closed process may take to report its turn interrupted before the stop is a failure. */
     private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
 
+    /** Refuses a key another kind of input already used. The desktop matches this text to clear a draft it already sent. */
+    static final String ALREADY_SENT = "This message was already sent";
+
     /** How long a passed readiness check spares the next Send on that task from launching the provider CLI again. */
     private static final Duration READINESS_REUSE = Duration.ofMinutes(10);
 
@@ -261,6 +264,7 @@ public final class DefaultAgentTurnService
             if (repeated.isPresent()) {
                 return repeated.orElseThrow();
             }
+            requireUnusedKey(command.taskId(), command.idempotencyKey());
 
             AgentTask task = requireStartableTask(command);
             command.expectedTaskVersion().ifPresent(expectedVersion -> {
@@ -896,7 +900,7 @@ public final class DefaultAgentTurnService
                 if (repeated.isPresent()) {
                     AgentInputDelivery existing = repeated.orElseThrow();
                     if (!existing.turnId().equals(turnId)) {
-                        throw new AgentConflictException("Steer idempotency key belongs to another turn: " + existing.turnId());
+                        throw steeredElsewhere(existing);
                     }
                     if (existing.state() == AgentInputDelivery.State.SENDING) {
                         return settleSteer(existing, AgentInputDelivery.State.UNKNOWN, Optional.of("Previous steer attempt ended without a recorded provider response"));
@@ -904,6 +908,9 @@ public final class DefaultAgentTurnService
                     if (existing.state() != AgentInputDelivery.State.ACCEPTED) {
                         return existing;
                     }
+                }
+                else {
+                    requireUnusedKey(taskId, idempotencyKey);
                 }
                 AgentTurn turn = turnStore.require(turnId);
                 // The turn the user was looking at, and only that one: a turn that has since ended
@@ -953,10 +960,18 @@ public final class DefaultAgentTurnService
         synchronized (runtimeRegistry.taskLock(taskId)) {
             Optional<AgentInputDelivery> found = steerStore.findSteerByIdempotencyKey(taskId, idempotencyKey);
             found.filter(delivery -> !delivery.turnId().equals(turnId)).ifPresent(delivery -> {
-                throw new AgentConflictException("Steer idempotency key belongs to another turn: " + delivery.turnId());
+                throw steeredElsewhere(delivery);
             });
             return found;
         }
+    }
+
+    /** A key steered into an earlier turn names that message; only a delivery known to have failed sent nothing. */
+    private static AgentConflictException steeredElsewhere(AgentInputDelivery delivery)
+    {
+        return new AgentConflictException(delivery.state() == AgentInputDelivery.State.FAILED
+                ? "Steer idempotency key belongs to another turn: " + delivery.turnId()
+                : ALREADY_SENT);
     }
 
     private SteerAcceptance acceptSteerLocked(AgentTask task, AgentTurn turn, SteerAgentTurnCommand command, Optional<QueuedAgentInput> queued)
@@ -1050,6 +1065,7 @@ public final class DefaultAgentTurnService
             if (repeated.isPresent()) {
                 return displayInput(repeated.orElseThrow());
             }
+            requireUnusedKey(command.taskId(), command.idempotencyKey());
             AgentTask task = taskStore.require(command.taskId());
             if (task.state() != TaskState.OPEN) {
                 throw new AgentConflictException("Task cannot queue input in state " + task.state());
@@ -1443,6 +1459,19 @@ public final class DefaultAgentTurnService
         readyUntil.values().removeIf(until -> !until.isAfter(now));
         readyUntil.put(check, now.plus(READINESS_REUSE));
         return task;
+    }
+
+    /**
+     * A key names one message whichever way it was sent, so a retry by another route, such as Queue after a Send whose
+     * answer was lost, cannot run it twice. Only input known never to have reached the provider frees its key.
+     */
+    private void requireUnusedKey(TaskId taskId, String idempotencyKey)
+    {
+        if (turnStore.findByIdempotencyKey(taskId, idempotencyKey).filter(turn -> !turn.knownUnsent()).isPresent()
+                || queueStore.findQueuedByIdempotencyKey(taskId, idempotencyKey).filter(input -> input.state() != QueuedAgentInput.State.REMOVED).isPresent()
+                || steerStore.findSteerByIdempotencyKey(taskId, idempotencyKey).filter(delivery -> delivery.state() != AgentInputDelivery.State.FAILED).isPresent()) {
+            throw new AgentConflictException(ALREADY_SENT);
+        }
     }
 
     @Override

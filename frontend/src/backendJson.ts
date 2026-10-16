@@ -12,13 +12,16 @@
  * limitations under the License.
  */
 import { sessionToken } from './backendProcess';
-import { parseAgentProviderUnavailable } from './agents/contracts';
+import { parseAgentProviderUnavailable, UNCONFIRMED_REQUEST } from './agents/contracts';
 
 /** Authenticated localhost JSON transport. The session secret stays in the main process. */
 export async function backendJson<T = unknown>(input: string | URL, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('X-ByteQuay-Session', sessionToken());
-  const response = await fetch(input, { signal: AbortSignal.timeout(60_000), ...init, headers });
+  const response = await fetch(input, { signal: AbortSignal.timeout(60_000), ...init, headers }).catch((failure: unknown) => {
+    // A timeout says nothing about whether the backend acted, so it answers with that rather than an abort error.
+    throw (failure as { name?: unknown } | null)?.name === 'TimeoutError' ? new Error(UNCONFIRMED_REQUEST) : failure;
+  });
   if (!response.ok) {
     const text = await response.text().catch(() => '');
     let body: unknown;

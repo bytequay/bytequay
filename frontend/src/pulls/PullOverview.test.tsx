@@ -303,6 +303,9 @@ describe('PullOverview', () => {
     expect(remoteErrorMessage(new Error(
       "Error invoking remote method 'prs:metadata:update': Error: Grant it access to this repository",
     ))).toBe('Grant it access to this repository');
+    expect(remoteErrorMessage(new Error(
+      "Error invoking remote method 'agent:turns:start': TimeoutError: The operation was aborted due to timeout",
+    ))).toBe('The operation was aborted due to timeout');
   });
 
   it('sends the known desired reaction state without requesting a refresh', async () => {

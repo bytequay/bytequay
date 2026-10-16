@@ -57,6 +57,25 @@ import type {
 
 const AGENT_PROVIDER_UNAVAILABLE_MARKER = 'AGENT_PROVIDER_UNAVAILABLE:';
 
+/** Main's message for a request whose answer did not arrive in time; the backend may still finish it. */
+export const UNCONFIRMED_REQUEST = 'ByteQuay did not answer in time. The request may still finish, so check before trying again.';
+/** The backend's refusal of a message already sent another way, such as Queue after a Send whose answer was lost. */
+const ALREADY_SENT = 'This message was already sent';
+
+function failureMessage(failure: unknown): string {
+  return failure instanceof Error ? failure.message : typeof failure === 'string' ? failure : '';
+}
+
+/** Nobody knows whether the request took effect, so its input must keep its key rather than be offered again as new. */
+export function unconfirmedRequest(failure: unknown): boolean {
+  return failureMessage(failure).includes(UNCONFIRMED_REQUEST);
+}
+
+/** The message is already in the conversation under this key, so its draft is done. */
+export function alreadySent(failure: unknown): boolean {
+  return failureMessage(failure).endsWith(ALREADY_SENT);
+}
+
 /**
  * Narrows the backend's task, turn, approval and completion responses.
  *

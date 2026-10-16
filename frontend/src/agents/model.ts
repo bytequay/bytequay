@@ -662,8 +662,8 @@ export function canQueue(state: AgentTaskState): boolean {
 }
 
 export type DraftSubmissionTracker = {
-  keyFor: (kind: 'send' | 'retry' | 'steer' | 'queue', targetId: string, taskId: string, message: string, attachmentIds: string[], defaults: AgentTaskDefaultsDto | null) => string;
-  draftChanged: (taskId: string, message: string, attachmentIds: string[], defaults: AgentTaskDefaultsDto | null) => void;
+  keyFor: (kind: 'send' | 'retry' | 'steer' | 'queue', targetId: string, taskId: string, message: string, attachmentIds: string[]) => string;
+  draftChanged: (taskId: string, message: string, attachmentIds: string[]) => void;
   settled: (idempotencyKey: string) => void;
 };
 
@@ -728,30 +728,23 @@ export function createTaskCreationTracker(createKey: () => string = () => global
   };
 }
 
-/** Retains one random key until its exact draft changes or the server gives a durable response. */
+/**
+ * Retains one random key per message until its text or attachments change or the server gives a durable response. Send,
+ * Queue and Steer share it, so a retry by another route after a lost answer is the same message, which the backend refuses
+ * to run twice; only an explicit retry of a failed turn is a new one.
+ */
 export function createDraftSubmissionTracker(createKey: () => string = () => globalThis.crypto.randomUUID()): DraftSubmissionTracker {
-  let retained: { kind: 'send' | 'retry' | 'steer' | 'queue'; draft: string; request: string; key: string } | null = null;
-  const signature = (
-    kind: 'send' | 'retry' | 'steer' | 'queue',
-    taskId: string,
-    message: string,
-    attachmentIds: string[],
-    defaults: AgentTaskDefaultsDto | null,
-  ): string => JSON.stringify([
-    taskId,
-    message.trim(),
-    attachmentIds,
-    ...(kind === 'steer' ? [] : [defaults?.model ?? null, defaults?.effort ?? null, defaults?.permissionPolicy ?? null, defaults?.serviceTier ?? null, defaults?.developmentAutomation ?? null]),
-  ]);
+  let retained: { draft: string; request: string; key: string } | null = null;
+  const signature = (taskId: string, message: string, attachmentIds: string[]): string => JSON.stringify([taskId, message.trim(), attachmentIds]);
   return {
-    keyFor(kind, targetId, taskId, message, attachmentIds, defaults) {
-      const draft = signature(kind, taskId, message, attachmentIds, defaults);
-      const request = JSON.stringify([kind, targetId, draft]);
-      if (retained?.request !== request) retained = { kind, draft, request, key: createKey() };
+    keyFor(kind, targetId, taskId, message, attachmentIds) {
+      const draft = signature(taskId, message, attachmentIds);
+      const request = kind === 'retry' ? JSON.stringify([kind, targetId, draft]) : draft;
+      if (retained?.request !== request) retained = { draft, request, key: createKey() };
       return retained.key;
     },
-    draftChanged(taskId, message, attachmentIds, defaults) {
-      if (retained !== null && retained.draft !== signature(retained.kind, taskId, message, attachmentIds, defaults)) retained = null;
+    draftChanged(taskId, message, attachmentIds) {
+      if (retained !== null && retained.draft !== signature(taskId, message, attachmentIds)) retained = null;
     },
     settled(idempotencyKey) {
       if (retained?.key === idempotencyKey) retained = null;

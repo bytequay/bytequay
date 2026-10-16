@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { afterEach, expect, it, vi } from 'vitest';
+import { UNCONFIRMED_REQUEST } from './agents/contracts';
 import { backendJson } from './backendJson';
 
 vi.mock('./backendProcess', () => ({ sessionToken: () => 'desktop-session' }));
@@ -46,6 +47,11 @@ it.each([
 ])('retains meaningful failure details', async (body, status, message) => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status })));
   await expect(backendJson('/local')).rejects.toThrow(message);
+});
+
+it('answers a timeout with a request that may still finish', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new DOMException('The operation timed out.', 'TimeoutError'); }));
+  await expect(backendJson('/local')).rejects.toThrow(UNCONFIRMED_REQUEST);
 });
 
 it('preserves the provider sign-in details in a typed failure', async () => {

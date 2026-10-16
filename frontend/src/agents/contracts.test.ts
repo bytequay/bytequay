@@ -21,6 +21,9 @@ import {
   parseAgentCompletion,
   parseAgentInputDelivery,
   agentProviderUnavailableFrom,
+  alreadySent,
+  unconfirmedRequest,
+  UNCONFIRMED_REQUEST,
   parseAgentProviderStatus,
   parseAgentProviderUnavailable,
   parseAgentQueue,
@@ -315,6 +318,15 @@ describe('provider contracts', () => {
     const serialized = new Error(`Error invoking remote method: AGENT_PROVIDER_UNAVAILABLE:${JSON.stringify(detail)}`);
     expect(agentProviderUnavailableFrom(serialized)).toEqual(detail);
     expect(agentProviderUnavailableFrom(new Error('ordinary failure'))).toBeNull();
+  });
+
+  it('tells a request without an answer and a message already sent apart from an ordinary refusal', () => {
+    const unconfirmed = new Error(`Error invoking remote method 'agent:turns:start': Error: ${UNCONFIRMED_REQUEST}`);
+    const sent = new Error("Error invoking remote method 'agent:queue:add': Error: This message was already sent");
+    expect(unconfirmedRequest(unconfirmed)).toBe(true);
+    expect(alreadySent(sent)).toBe(true);
+    expect(unconfirmedRequest(sent) || alreadySent(unconfirmed)).toBe(false);
+    expect(unconfirmedRequest(new Error('Task version changed: task-1')) || alreadySent(new Error('Task version changed: task-1'))).toBe(false);
   });
 });
 

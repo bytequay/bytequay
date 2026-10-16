@@ -380,6 +380,31 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void aKeyNamesOneMessageWhicheverWayItIsSent()
+    {
+        AgentTurn sent = service.start(command("first", "draft-1"));
+
+        // Queue or Steer after a Send whose answer was lost must not run the same message twice.
+        assertThatThrownBy(() -> service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "first", ImmutableList.of(), "draft-1")))
+                .isInstanceOf(AgentConflictException.class).hasMessage(DefaultAgentTurnService.ALREADY_SENT);
+        assertThatThrownBy(() -> service.steer(new SteerAgentTurnCommand(sent.id(), "first", ImmutableList.of(), "draft-1")))
+                .isInstanceOf(AgentConflictException.class).hasMessage(DefaultAgentTurnService.ALREADY_SENT);
+        service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "draft-2"));
+        assertThatThrownBy(() -> service.start(command("second", "draft-2")))
+                .isInstanceOf(AgentConflictException.class).hasMessage(DefaultAgentTurnService.ALREADY_SENT);
+        driver.complete("first done");
+        driver.complete("second done");
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("first", "second");
+
+        // Input known never to have reached the agent frees its key.
+        driver.failNextStart();
+        assertThatThrownBy(() -> service.start(command("third", "draft-3"))).isInstanceOf(IllegalStateException.class);
+        service.start(command("fourth", "draft-4"));
+        assertThat(service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "third", ImmutableList.of(), "draft-3")).state())
+                .isEqualTo(QueuedAgentInput.State.QUEUED);
+    }
+
+    @Test
     void pausesAQueuedInputThatNothingWillStart()
     {
         List<Runnable> queueStarts = new ArrayList<>();
@@ -3228,12 +3253,13 @@ class TestDefaultAgentTurnService
         driver.complete("first done");
         AgentTurn second = service.start(command("second", "key-2"));
 
+        // The first turn got that message, so the same key in a later turn is the same message again.
         assertThatThrownBy(() -> service.steer(new SteerAgentTurnCommand(second.id(), "two", ImmutableList.of(), "steer-1")))
                 .isInstanceOf(AgentConflictException.class)
-                .hasMessageContaining("belongs to another turn");
+                .hasMessage(DefaultAgentTurnService.ALREADY_SENT);
         assertThatThrownBy(() -> service.findSteerByIdempotencyKey(second.id(), "steer-1"))
                 .isInstanceOf(AgentConflictException.class)
-                .hasMessageContaining("belongs to another turn");
+                .hasMessage(DefaultAgentTurnService.ALREADY_SENT);
         assertThat(driver.steers()).extracting(AgentTurnInput::message).containsExactly("one");
     }
 

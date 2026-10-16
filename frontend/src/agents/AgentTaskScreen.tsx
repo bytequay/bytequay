@@ -108,7 +108,7 @@ import { taskAttentionAfterQueue, taskAttentionItem } from './attention';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
 import { pasteImage } from './clipboard';
-import { agentProviderUnavailableFrom } from './contracts';
+import { agentProviderUnavailableFrom, alreadySent, unconfirmedRequest } from './contracts';
 import { developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { revealPassage, type SelectedPassage } from './discussions/DiscussableAnswer';
 import { DiscussionsPanel, discussionTurnSummaries } from './discussions/DiscussionsPanel';
@@ -137,7 +137,7 @@ import {
   type DraftSubmissionTracker,
   type RetryableInput
 } from './model';
-import { usePreparedAgentInput } from './preparedInput';
+import { prepareAgentInput, usePreparedAgentInput } from './preparedInput';
 import { useReviewCardFocus } from './reviewCardNavigation';
 import {
   activeAgents,
@@ -1619,7 +1619,7 @@ export default function AgentTaskScreen({
   usePreparedAgentInput(taskId, text => {
     const draft = stateRef.current;
     const message = [draft.composer, text].filter(Boolean).join('\n\n');
-    submissions.draftChanged(taskId, message, draft.attachments.map(attachment => attachment.id), draft.task?.defaults ?? null);
+    submissions.draftChanged(taskId, message, draft.attachments.map(attachment => attachment.id));
     dispatch({ type: 'composer/changed', text: message });
     composerRef.current?.focus();
   });
@@ -2018,14 +2018,12 @@ export default function AgentTaskScreen({
       developmentAutomation: task.defaults.developmentAutomation,
     });
     attentionAction('update');
-    const draft = stateRef.current;
-    submissions.draftChanged(taskId, draft.composer, draft.attachments.map((attachment) => attachment.id), updated.defaults);
     applyTask(updated);
     dispatch({
       type: 'settings/loaded',
       settings: await live().getEffectiveTurnSettings(taskId, workspaceId),
     });
-  }), [applyTask, attentionAction, live, run, state.task, submissions, taskId, workspaceId]);
+  }), [applyTask, attentionAction, live, run, state.task, taskId, workspaceId]);
 
   const rename = useCallback((title: string) => run(async () => {
     const task = state.task;
@@ -2112,7 +2110,7 @@ export default function AgentTaskScreen({
     const task = state.task;
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
-    const idempotencyKey = submissions.keyFor('send', taskId, taskId, message, attachmentIds, { ...task.defaults, developmentAutomation: submissionAutomation });
+    const idempotencyKey = submissions.keyFor('send', taskId, taskId, message, attachmentIds);
     // The draft moves into the transcript at once, as local progress its durable user-message event
     // replaces; a development turn's request can return seconds after that event. Restoring the draft
     // without draftChanged keeps its idempotency key for a retry.
@@ -2120,17 +2118,39 @@ export default function AgentTaskScreen({
     dispatch({ type: 'composer/changed', text: '' });
     dispatch({ type: 'attachments/cleared' });
     dispatch({ type: 'message/sent', text: message, attachments: state.attachments });
-    try {
-      const turn = await startTurn(message, attachmentIds, idempotencyKey, task.version, submissionAutomation);
-      // A retried key answers with the turn it already started, whose durable message is already shown.
-      if (turn.id === shownTurnId) dispatch({ type: 'message/cleared' });
-    }
-    catch (failure) {
+    const restore = () => {
       dispatch({ type: 'message/cleared' });
       dispatch({ type: 'composer/changed', text: state.composer });
       dispatch({ type: 'attachments/added', attachments: state.attachments });
+      // A screen left mid-send gets the text back when the task opens again.
+      if (!mountedRef.current) prepareAgentInput(taskId, message);
+    };
+    let turn: AgentTurnDto;
+    try {
+      turn = await startTurn(message, attachmentIds, idempotencyKey, task.version, submissionAutomation);
+    }
+    catch (failure) {
+      if (alreadySent(failure)) {
+        // Queued or steered before under this key, so the message is already in the conversation.
+        submissions.settled(idempotencyKey);
+        dispatch({ type: 'message/cleared' });
+      }
+      else if (unconfirmedRequest(failure) && !mountedRef.current) {
+        // It may still start; handing the text to a later screen, whose new key the backend cannot match, could send it twice.
+        dispatch({ type: 'message/cleared' });
+      }
+      else {
+        restore();
+      }
       throw failure;
     }
+    if (turn.state === 'FAILED' && turn.knownUnsent) {
+      // A retried key answered with the earlier attempt, which never reached the agent; the next Send is a new message.
+      restore();
+      throw new Error(`Not sent: ${turn.terminalReason ?? 'the agent did not start'}`);
+    }
+    // A retried key answers with the turn it already started, whose durable message is already shown.
+    if (turn.id === shownTurnId) dispatch({ type: 'message/cleared' });
   }), [attentionAction, automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
   const taskCommentDisabled = state.task?.state !== 'OPEN' ? 'This task is closed.'
@@ -2188,7 +2208,7 @@ export default function AgentTaskScreen({
     const turn = state.turn;
     if (message.length === 0 || turn === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
-    const idempotencyKey = submissions.keyFor('steer', turn.id, taskId, message, attachmentIds, null);
+    const idempotencyKey = submissions.keyFor('steer', turn.id, taskId, message, attachmentIds);
     dispatch({ type: 'composer/sending', sending: true });
     try {
       const delivery = await live().steerAgentTurn({
@@ -2196,6 +2216,13 @@ export default function AgentTaskScreen({
         message,
         idempotencyKey,
         attachments: attachmentIds,
+      }).catch((failure: unknown) => {
+        if (!alreadySent(failure)) throw failure;
+        // Sent before under this key, so the draft is done; the notice says why nothing new was sent.
+        submissions.settled(idempotencyKey);
+        dispatch({ type: 'composer/changed', text: '' });
+        dispatch({ type: 'attachments/cleared' });
+        throw failure;
       });
       if (delivery.state === 'DELIVERED') attentionAction('prompt');
       submissions.settled(idempotencyKey);
@@ -2222,7 +2249,7 @@ export default function AgentTaskScreen({
     const task = state.task;
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
-    const idempotencyKey = submissions.keyFor('queue', taskId, taskId, message, attachmentIds, { ...task.defaults, developmentAutomation: submissionAutomation });
+    const idempotencyKey = submissions.keyFor('queue', taskId, taskId, message, attachmentIds);
     dispatch({ type: 'composer/sending', sending: true });
     try {
       const queued = await live().queueAgentInput({
@@ -2233,6 +2260,13 @@ export default function AgentTaskScreen({
         developmentAutomation: submissionAutomation,
         idempotencyKey,
         attachments: attachmentIds,
+      }).catch((failure: unknown) => {
+        if (!alreadySent(failure)) throw failure;
+        // Sent before under this key, such as a Send whose answer was lost, so the draft is done.
+        submissions.settled(idempotencyKey);
+        dispatch({ type: 'composer/changed', text: '' });
+        dispatch({ type: 'attachments/cleared' });
+        throw failure;
       });
       attentionAction('prompt', 1, taskAttentionAfterQueue(viewedItem.current, queued));
       submissions.settled(idempotencyKey);
@@ -2269,7 +2303,7 @@ export default function AgentTaskScreen({
       attentionAction('update');
       const { model, effort, serviceTier, permissionPolicy, developmentAutomation } = draft.settings;
       const defaults = { model, effort, serviceTier, permissionPolicy, developmentAutomation };
-      submissions.draftChanged(taskId, draft.message, draft.attachments.map(attachment => attachment.id), defaults);
+      submissions.draftChanged(taskId, draft.message, draft.attachments.map(attachment => attachment.id));
       const task = await live().getAgentTask(taskId, workspaceId);
       if (task.defaults.model !== model || task.defaults.effort !== effort || (task.defaults.serviceTier ?? null) !== (serviceTier ?? null)
         || task.defaults.permissionPolicy !== permissionPolicy || JSON.stringify(task.defaults.developmentAutomation) !== JSON.stringify(developmentAutomation)) {
@@ -2339,12 +2373,7 @@ export default function AgentTaskScreen({
       const stored = await (source === 'clipboard' ? live().pasteAgentAttachments(taskId, workspaceId) : live().pickAgentAttachments(taskId, workspaceId));
       if (!mountedRef.current || stateRef.current.task?.id !== taskId || stored.length === 0) return;
       const draft = stateRef.current;
-      submissions.draftChanged(
-        taskId,
-        draft.composer,
-        [...draft.attachments, ...stored].map((attachment) => attachment.id),
-        draft.task?.defaults ?? null,
-      );
+      submissions.draftChanged(taskId, draft.composer, [...draft.attachments, ...stored].map((attachment) => attachment.id));
       dispatch({ type: 'attachments/added', attachments: stored });
     }
     finally {
@@ -2358,12 +2387,7 @@ export default function AgentTaskScreen({
 
   const removeAttachment = useCallback((attachmentId: string) => run(async () => {
     const draft = stateRef.current;
-    submissions.draftChanged(
-      taskId,
-      draft.composer,
-      draft.attachments.filter((attachment) => attachment.id !== attachmentId).map((attachment) => attachment.id),
-      draft.task?.defaults ?? null,
-    );
+    submissions.draftChanged(taskId, draft.composer, draft.attachments.filter((attachment) => attachment.id !== attachmentId).map((attachment) => attachment.id));
     dispatch({ type: 'attachments/removed', attachmentId });
     const preview = previewsRef.current[attachmentId];
     if (preview?.status === 'ready') {
@@ -2548,7 +2572,7 @@ export default function AgentTaskScreen({
       : undefined;
     // The failed turn's key is never reused. The tracker retains this new key only if this reply is
     // ambiguous, so a second confirmed click cannot create a duplicate retry turn.
-    const idempotencyKey = submissions.keyFor('retry', task.id, taskId, input.text, attachmentIds, { ...task.defaults, developmentAutomation });
+    const idempotencyKey = submissions.keyFor('retry', task.id, taskId, input.text, attachmentIds);
     await startTurn(input.text, attachmentIds, idempotencyKey, task.version, developmentAutomation);
   }), [providerStatus, providerStatusTurnId, run, startTurn, submissions, taskId]);
 
@@ -2638,7 +2662,7 @@ export default function AgentTaskScreen({
       onDecide={(approvalId, decision, answers) => { void decide(approvalId, decision, answers); }}
       onCompose={(text) => {
         const draft = stateRef.current;
-        submissions.draftChanged(taskId, text, draft.attachments.map((attachment) => attachment.id), draft.task?.defaults ?? null);
+        submissions.draftChanged(taskId, text, draft.attachments.map((attachment) => attachment.id));
         dispatch({ type: 'composer/changed', text });
       }}
       onSelectModel={(model, effort, serviceTier) => { void selectModel(model, effort, serviceTier); }}

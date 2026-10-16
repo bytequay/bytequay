@@ -606,62 +606,54 @@ describe('steering and queueing', () => {
   it('retains only an unchanged thrown request across the composer interaction lifecycle', () => {
     const createKey = vi.fn().mockReturnValueOnce('intent-1').mockReturnValueOnce('intent-2').mockReturnValueOnce('intent-3');
     const submissions = createDraftSubmissionTracker(createKey);
-    const defaults = { model: 'm', effort: 'high', permissionPolicy: 'AUTO' };
 
-    const first = submissions.keyFor('queue', 'task-1', 'task-1', 'do it', ['image-1'], defaults);
+    const first = submissions.keyFor('queue', 'task-1', 'task-1', 'do it', ['image-1']);
     // A thrown bridge request calls neither settled nor draftChanged, so the retry is identical.
-    expect(submissions.keyFor('queue', 'task-1', 'task-1', 'do it', ['image-1'], defaults)).toBe(first);
+    expect(submissions.keyFor('queue', 'task-1', 'task-1', 'do it', ['image-1'])).toBe(first);
 
     // The actual composer callback invalidates on the edit, even if the user later restores A.
-    submissions.draftChanged('task-1', 'do something else', ['image-1'], defaults);
-    submissions.draftChanged('task-1', 'do it', ['image-1'], defaults);
-    expect(submissions.keyFor('queue', 'task-1', 'task-1', 'do it', ['image-1'], defaults)).toBe('intent-2');
+    submissions.draftChanged('task-1', 'do something else', ['image-1']);
+    submissions.draftChanged('task-1', 'do it', ['image-1']);
+    expect(submissions.keyFor('queue', 'task-1', 'task-1', 'do it', ['image-1'])).toBe('intent-2');
 
     // A durable response settles the intent, so a deliberate identical submission is new.
     submissions.settled('intent-2');
-    expect(submissions.keyFor('queue', 'task-1', 'task-1', 'do it', ['image-1'], defaults)).toBe('intent-3');
+    expect(submissions.keyFor('queue', 'task-1', 'task-1', 'do it', ['image-1'])).toBe('intent-3');
     expect(createKey).toHaveBeenCalledTimes(3);
   });
 
   it('gives an explicit authentication retry a fresh identity and retains it while ambiguous', () => {
     const createKey = vi.fn().mockReturnValueOnce('original').mockReturnValueOnce('retry');
     const submissions = createDraftSubmissionTracker(createKey);
-    const defaults = { model: 'm', effort: 'high', permissionPolicy: 'AUTO' };
 
-    expect(submissions.keyFor('send', 'task-1', 'task-1', 'do it', [], defaults)).toBe('original');
-    expect(submissions.keyFor('retry', 'task-1', 'task-1', 'do it', [], defaults)).toBe('retry');
-    expect(submissions.keyFor('retry', 'task-1', 'task-1', 'do it', [], defaults)).toBe('retry');
+    expect(submissions.keyFor('send', 'task-1', 'task-1', 'do it', [])).toBe('original');
+    expect(submissions.keyFor('retry', 'task-1', 'task-1', 'do it', [])).toBe('retry');
+    expect(submissions.keyFor('retry', 'task-1', 'task-1', 'do it', [])).toBe('retry');
   });
 
-  it('treats attachments, applicable settings, action, and the active steer turn as intent identity', () => {
+  it('keeps one key per message whichever way it is sent, until its text or attachments change', () => {
     let next = 0;
     const submissions = createDraftSubmissionTracker(() => `intent-${++next}`);
-    const defaults = { model: 'm', effort: 'high', permissionPolicy: 'AUTO' };
 
-    expect(submissions.keyFor('queue', 'task-1', 'task-1', 'do it', [], defaults)).toBe('intent-1');
-    submissions.draftChanged('task-1', 'do it', ['image-1'], defaults);
-    expect(submissions.keyFor('queue', 'task-1', 'task-1', 'do it', ['image-1'], defaults)).toBe('intent-2');
-    submissions.draftChanged('task-1', 'do it', ['image-1'], { ...defaults, model: 'm-2' });
-    expect(submissions.keyFor('queue', 'task-1', 'task-1', 'do it', ['image-1'], { ...defaults, model: 'm-2' })).toBe('intent-3');
-    expect(submissions.keyFor('steer', 'turn-1', 'task-1', 'do it', ['image-1'], { ...defaults, model: 'm-2' })).toBe('intent-4');
-    // A steer targets the active turn's immutable settings; changing the next-turn defaults must
-    // not rotate an ambiguous request's key and risk delivering the same steer twice.
-    submissions.draftChanged('task-1', 'do it', ['image-1'], { ...defaults, model: 'm-3' });
-    expect(submissions.keyFor('steer', 'turn-1', 'task-1', 'do it', ['image-1'], { ...defaults, model: 'm-3' })).toBe('intent-4');
-    expect(submissions.keyFor('steer', 'turn-2', 'task-1', 'do it', ['image-1'], { ...defaults, model: 'm-2' })).toBe('intent-5');
+    // A Send whose answer was lost, then Queue or Steer of the same draft: one message, so the backend can refuse a second run.
+    expect(submissions.keyFor('send', 'task-1', 'task-1', 'do it', [])).toBe('intent-1');
+    expect(submissions.keyFor('queue', 'task-1', 'task-1', 'do it', [])).toBe('intent-1');
+    expect(submissions.keyFor('steer', 'turn-1', 'task-1', 'do it', [])).toBe('intent-1');
+    expect(submissions.keyFor('steer', 'turn-2', 'task-1', 'do it', [])).toBe('intent-1');
+    submissions.draftChanged('task-1', 'do it', ['image-1']);
+    expect(submissions.keyFor('queue', 'task-1', 'task-1', 'do it', ['image-1'])).toBe('intent-2');
   });
 
   it('gives ordinary sends the same safe ambiguous-retry lifecycle', () => {
     let next = 0;
     const submissions = createDraftSubmissionTracker(() => `intent-${++next}`);
-    const defaults = { model: 'm', effort: 'high', permissionPolicy: 'AUTO' };
 
-    const first = submissions.keyFor('send', 'task-1', 'task-1', 'do it', [], defaults);
-    expect(submissions.keyFor('send', 'task-1', 'task-1', 'do it', [], defaults)).toBe(first);
-    submissions.draftChanged('task-1', 'changed', [], defaults);
-    expect(submissions.keyFor('send', 'task-1', 'task-1', 'changed', [], defaults)).toBe('intent-2');
+    const first = submissions.keyFor('send', 'task-1', 'task-1', 'do it', []);
+    expect(submissions.keyFor('send', 'task-1', 'task-1', 'do it', [])).toBe(first);
+    submissions.draftChanged('task-1', 'changed', []);
+    expect(submissions.keyFor('send', 'task-1', 'task-1', 'changed', [])).toBe('intent-2');
     submissions.settled('intent-2');
-    expect(submissions.keyFor('send', 'task-1', 'task-1', 'changed', [], defaults)).toBe('intent-3');
+    expect(submissions.keyFor('send', 'task-1', 'task-1', 'changed', [])).toBe('intent-3');
   });
 
   it('replays one composite task creation with stable task and first-turn identities', () => {
@@ -719,16 +711,6 @@ describe('steering and queueing', () => {
       .not.toBe(changed.taskId);
   });
 
-  it('changes send and queue identities for Fast while steering keeps the active turn settings', () => {
-    const defaults = { model: 'm', effort: 'high', permissionPolicy: 'AUTO' };
-    for (const kind of ['send', 'queue', 'steer'] as const) {
-      let next = 0;
-      const submissions = createDraftSubmissionTracker(() => `intent-${++next}`);
-      const first = submissions.keyFor(kind, 'target', 'task', 'look', [], defaults);
-      const changed = submissions.keyFor(kind, 'target', 'task', 'look', [], { ...defaults, serviceTier: 'priority' });
-      expect(changed === first).toBe(kind === 'steer');
-    }
-  });
 
   it('keeps the queue and normalized lane capabilities the server reported', () => {
     const capabilities = { ...NO_AGENT_CAPABILITIES, steering: true, structuredPlans: true };

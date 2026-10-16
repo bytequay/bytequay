@@ -18,7 +18,7 @@ import { AutomationControl, CiProviderSelect } from './AutomationControl';
 import { automationForSubmission, automationSummary, DEFAULT_DEVELOPMENT_AUTOMATION, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { parseAgentTask, parseAgentTurn, parseDevelopmentAutomation, parseDevelopmentResult } from './contracts';
 import { parseAgentEventSequence } from './events';
-import { canComplete, canQueue, canSend, canSteer, createDraftSubmissionTracker, createTaskCreationTracker, initialAgentTaskState, runtimeStatus } from './model';
+import { canComplete, canQueue, canSend, canSteer, createTaskCreationTracker, initialAgentTaskState, runtimeStatus } from './model';
 import contracts from './fixtures/agent-contracts-v1.json';
 import events from './fixtures/agent-events-v2.json';
 import WorkflowPage from '../settings/WorkflowPage';
@@ -65,9 +65,6 @@ it('changes request identity when automation or its first-turn override changes'
   expect(local.defaults.developmentAutomation).toEqual(defaults);
   expect(local.developmentAutomation?.autoDraftPr).toBe(false);
   expect(tracker.requestFor('workspace', 'Change code', 'codex', taskDefaults, [], local.developmentAutomation)).toBe(local);
-  const submissions = createDraftSubmissionTracker(() => String(++id));
-  const key = submissions.keyFor('send', 'task', 'task', 'Change code', [], taskDefaults);
-  expect(submissions.keyFor('send', 'task', 'task', 'Change code', [], { ...taskDefaults, developmentAutomation: local.developmentAutomation })).not.toBe(key);
 });
 
 it('validates and narrows automation and durable readiness at the bridge', () => {

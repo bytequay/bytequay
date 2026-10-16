@@ -603,7 +603,8 @@ export function toggleSelection(values: string[], value: string) {
 
 export function remoteErrorMessage(failure: unknown) {
   const message = failure instanceof Error ? failure.message : String(failure);
-  return message.replace(/^Error invoking remote method '[^']+': Error: /, '');
+  // Electron prefixes the channel and the error's class, which is not always a plain Error, such as TimeoutError.
+  return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
 }
 
 export function peoplePickerCandidates(

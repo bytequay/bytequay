@@ -19,7 +19,7 @@ import { assert, changeInput, settle } from '../../../fixtures/harness';
 import { PullDetailHeader } from '../../PullsScreen';
 import { pr } from '../../fixtures/pullRequest';
 import AgentReviewTab from '../AgentReviewTab';
-import type { AgentReviewDto } from '../contracts';
+import type { AgentReviewDto, ReviewRunDto } from '../contracts';
 import { candidateFixture, reviewFixture, runningReviewFixture } from './review';
 import '../../../css/base.css';
 import '../../../css/pulls.css';
@@ -34,7 +34,8 @@ export function preview(host: HTMLElement) {
   const value: AgentReviewDto = { ...review, observedHeadSha: 'b'.repeat(40), messages: [], findings: reviewFixture().findings.slice(0, 2).map((finding, index) => ({ ...finding,
     state: index === 0 ? 'OPEN' as const : 'RESOLVED' as const })), runs: [{ ...original, commits,
     summary: original.summary === null ? null : { ...original.summary, commits: original.summary.commits.slice(0, 3) } },
-  { ...run, id: 'run-2', ordinal: 2, commits, headSha: 'b'.repeat(40),
+  ...Array.from({ length: 7 }, (_, index): ReviewRunDto => ({ ...original, id: `run-${index + 2}`, ordinal: index + 2, summary: null, headSha: String(index + 2).repeat(40) })),
+  { ...run, id: 'run-9', ordinal: 9, commits, headSha: 'b'.repeat(40),
     createdAt: new Date(Date.now() - 1_803_000).toISOString(), summary: null,
     investigation: { changeMap: 'Follow the sort field from parsing to storage.', reviewedFiles: ['src/SortField.java'], contextEvidenceRefs: [], perspectives: [], candidates: [candidateFixture('Check nested lookup')], validations: [], answers: [] },
     steps: [{ number: 2, kind: 'VALIDATE' as const, repair: false, investigation: null, validation: null }],
@@ -86,7 +87,7 @@ export async function run() {
     const commits = [...host.querySelectorAll<HTMLElement>('.agr-explanation.is-commit')];
     assert(host.textContent?.includes('Original change explanation · head d9a0c41') === true && !intention?.textContent?.includes('Provisional'),
       'The retained explanation must identify its original head and keep its accepted status');
-    assert(host.querySelector('[data-review-card="run-2:details"]')?.textContent?.includes('Follow the sort field from parsing to storage.') === true,
+    assert(host.querySelector('[data-review-card="run-9:details"]')?.textContent?.includes('Follow the sort field from parsing to storage.') === true,
       'Current review details must remain visible beside the original explanation');
     const outline = [...host.querySelectorAll<HTMLButtonElement>('.agr-summary-nav__item')];
     assert(intention !== null && commits.length === 3 && outline.length === 4 && intention.getBoundingClientRect().height > 0
@@ -99,13 +100,25 @@ export async function run() {
     assert(finding !== null && finding.querySelector('.lrc.is-local') !== null, 'Findings must retain the existing local card');
     assert(finding.getBoundingClientRect().height === 0 && host.textContent?.includes('No findings in this round.') === true,
       'Findings must open on the last review round');
-    button('.agr-findings__filters button', 'Round 1').click(); await settle();
+    const filters = host.querySelector('.agr-findings__filters');
+    const others = filters?.querySelector('select');
+    assert(filters !== null && others !== null && others !== undefined, 'Older rounds must be available in Others');
+    assert([...filters.querySelectorAll('button')].map(item => item.textContent).join('|') === 'All rounds2|Last round0|Round 80',
+      'Only All rounds and the two latest rounds must be shown as buttons');
+    assert([...others.options].map(option => option.textContent).join('|') === 'Others|Round 7 · 0|Round 6 · 0|Round 5 · 0|Round 4 · 0|Round 3 · 0|Round 2 · 0|Round 1 · 2',
+      'Others must list every older round newest first, including empty rounds and finding counts');
+    others.value = fixture.review.runs[0].id;
+    others.dispatchEvent(new Event('change', { bubbles: true })); await settle();
+    assert(finding.getBoundingClientRect().height > 0 && others.classList.contains('is-selected')
+      && host.querySelector('.agr-findings__meta')?.textContent?.startsWith('Round 1 · head') === true,
+      'Selecting an older round must show its findings and identify the active round');
     button('.agr-finding button', 'Ask reviewer').click(); await settle();
     const draft = finding.querySelector('textarea');
     assert(draft !== null, 'Finding discussion must remain available');
     changeInput(draft, 'Keep this private draft'); await settle();
     button('.agr-findings__filters button', 'Last round').click(); await settle();
-    assert(finding.getBoundingClientRect().height === 0, 'Another round must hide this round\'s findings');
+    assert(finding.getBoundingClientRect().height === 0 && others.value === '' && !others.classList.contains('is-selected'),
+      'Returning to a recent round must hide older findings and reset Others');
     button('.agr-findings__filters button', 'All rounds').click(); await settle();
     assert(finding.querySelector('textarea')?.value === 'Keep this private draft', 'Switching rounds must retain a finding draft and its card instance');
     button('.agr-explanation.is-commit button', 'Ask reviewer').click(); await settle();

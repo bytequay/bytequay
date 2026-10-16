@@ -31,7 +31,7 @@ export function shownRound<T extends FindingsRound>(rounds: T[], round: string):
   return round === 'all' ? null : round === 'last' ? rounds.at(-1) ?? null : rounds.find(item => item.id === round) ?? null;
 }
 
-/** The Summary's Findings heading: a tab per review round with its count, then a line about what the tab shows. */
+/** The Summary's Findings heading: recent rounds, an older-round picker, and the selected round's details. */
 export function FindingsHead({ rounds, round, onRound, count, overall, children }: {
   rounds: FindingsRound[];
   round: string;
@@ -47,13 +47,20 @@ export function FindingsHead({ rounds, round, onRound, count, overall, children 
   const shownCount = count(shown);
   const tabs = [{ id: 'all', label: 'All rounds', round: null }, ...rounds.map((item, position) => position === rounds.length - 1
     ? { id: 'last', label: 'Last round', round: item } : { id: item.id, label: `Round ${position + 1}`, round: item }).reverse()];
+  const others = tabs.slice(3);
+  const otherSelected = others.some(tab => tab.id === round);
   return <header className="agr-findings">
     <div className="agr-findings__head">
       <h2>Findings</h2>
       {children}
       {rounds.length > 0 && <div className="agr-findings__filters" aria-label="Review rounds">
-        {tabs.map(tab => <button key={tab.id} type="button" aria-pressed={round === tab.id} onClick={() => onRound(tab.id)}>
+        {tabs.slice(0, 3).map(tab => <button key={tab.id} type="button" aria-pressed={round === tab.id} onClick={() => onRound(tab.id)}>
           {tab.label}<span>{count(tab.round)}</span></button>)}
+        {others.length > 0 && <select aria-label="Other review rounds" className={otherSelected ? 'is-selected' : undefined}
+          value={otherSelected ? round : ''} onChange={event => onRound(event.target.value)}>
+          <option value="" disabled>Others</option>
+          {others.map(tab => <option key={tab.id} value={tab.id}>{tab.label} · {count(tab.round)}</option>)}
+        </select>}
       </div>}
     </div>
     <p className="agr-findings__meta">{shown === null ? `All rounds · ${overall}`

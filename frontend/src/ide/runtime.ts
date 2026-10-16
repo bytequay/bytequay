@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 /* eslint-disable import/no-unresolved -- The pinned modular packages export these paths; Vite and TypeScript resolve them. */
-import { initialize, getService, ICommandService, ICodeEditorService, ITestResultService, IDebugService, IViewDescriptorService, ITerminalService, IPaneCompositePartService, IExtensionService, IEditorService } from '@codingame/monaco-vscode-api';
+import { initialize, getService, ICodeEditorService, ITestResultService, IDebugService, IViewDescriptorService, ITerminalService, IPaneCompositePartService, IExtensionService, IEditorService } from '@codingame/monaco-vscode-api';
 import { registerExtension, ExtensionHostKind } from '@codingame/monaco-vscode-api/extensions';
 import { IWorkbenchExtensionEnablementService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/extensionManagement/common/extensionManagement.service';
 import { SyncDescriptor } from '@codingame/monaco-vscode-api/vscode/vs/platform/instantiation/common/descriptors';
@@ -126,7 +126,7 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
   installTestTabColors(await getService(IEditorService));
   return {
     api, workspace, views, executions: await coordinateExecutions(api, connection.root, connection.authority),
-    editors, commands: await getService(ICommandService),
+    editors,
     tests: await getService(ITestResultService),
     debug: await getService(IDebugService),
     terminals: await getService(ITerminalService),

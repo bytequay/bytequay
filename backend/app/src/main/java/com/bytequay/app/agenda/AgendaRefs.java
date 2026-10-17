@@ -20,12 +20,12 @@ import java.util.Optional;
  * The short names the agenda's reading tool gives the things it lists, which its reply must repeat: {@code pr:owner/name#12},
  * {@code issue:owner/name#3}, {@code jira:cloud:issue}, {@code task:id}, {@code review:id}, {@code work:id} and {@code epic:id}.
  */
-final class AgendaRefs
+public final class AgendaRefs
 {
     private AgendaRefs() {}
 
     // Repositories are lower case, as work items key them, so one pull request has one ref whichever page names it.
-    static String pull(String repo, int number)
+    public static String pull(String repo, int number)
     {
         return "pr:" + repo.toLowerCase(Locale.ROOT) + "#" + number;
     }
@@ -40,12 +40,12 @@ final class AgendaRefs
         return "jira:" + cloudId + ":" + issueId;
     }
 
-    static String task(String taskId)
+    public static String task(String taskId)
     {
         return "task:" + taskId;
     }
 
-    static String review(String reviewId)
+    public static String review(String reviewId)
     {
         return "review:" + reviewId;
     }
@@ -61,20 +61,20 @@ final class AgendaRefs
     }
 
     /** What kind of thing a ref names: its prefix. */
-    static String kind(String ref)
+    public static String kind(String ref)
     {
         int colon = ref.indexOf(':');
         return colon < 0 ? "" : ref.substring(0, colon);
     }
 
     /** The task, review, work item or Epic id after the prefix. */
-    static String id(String ref)
+    public static String id(String ref)
     {
         return ref.substring(ref.indexOf(':') + 1);
     }
 
     /** The repository and number of a {@code pr:} or {@code issue:} ref. */
-    static Optional<Numbered> numbered(String ref)
+    public static Optional<Numbered> numbered(String ref)
     {
         String rest = id(ref);
         int hash = rest.lastIndexOf('#');
@@ -89,5 +89,5 @@ final class AgendaRefs
         }
     }
 
-    record Numbered(String repo, int number) {}
+    public record Numbered(String repo, int number) {}
 }

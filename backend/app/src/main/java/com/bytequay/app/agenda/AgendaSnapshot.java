@@ -34,7 +34,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @param refs every ref a page can hand out, with what the app needs to keep an item the reply picks
  */
-record AgendaSnapshot(
+public record AgendaSnapshot(
         Overview overview,
         List<Change> changes,
         List<Mine> mine,
@@ -45,7 +45,7 @@ record AgendaSnapshot(
         Optional<Week> week,
         Map<String, RefInfo> refs)
 {
-    AgendaSnapshot
+    public AgendaSnapshot
     {
         requireNonNull(overview, "overview is null");
         changes = ImmutableList.copyOf(changes);
@@ -63,7 +63,7 @@ record AgendaSnapshot(
      *
      * @param where what a row names beside the reason when the target alone cannot: an Epic's progress, a task's pull request
      */
-    record RefInfo(Optional<Instant> at, Optional<String> workspaceId, AgendaTarget target, Optional<String> where)
+    public record RefInfo(Optional<Instant> at, Optional<String> workspaceId, AgendaTarget target, Optional<String> where)
     {
         RefInfo(Optional<Instant> at, Optional<String> workspaceId, AgendaTarget target)
         {

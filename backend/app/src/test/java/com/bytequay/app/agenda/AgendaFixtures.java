@@ -29,20 +29,20 @@ import java.util.Map;
 import java.util.Optional;
 
 /** One Friday's snapshot, shaped like the design's sample day. */
-final class AgendaFixtures
+public final class AgendaFixtures
 {
-    static final Instant SINCE = Instant.parse("2026-10-15T01:02:00Z");
-    static final Instant NOW = Instant.parse("2026-10-16T01:02:00Z");
+    public static final Instant SINCE = Instant.parse("2026-10-15T01:02:00Z");
+    public static final Instant NOW = Instant.parse("2026-10-16T01:02:00Z");
 
     private AgendaFixtures() {}
 
-    static ObjectMapper mapper()
+    public static ObjectMapper mapper()
     {
         // As Spring Boot configures the backend's mapper: ISO dates, Optional unwrapped.
         return new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule()).disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     }
 
-    static AgendaSnapshot friday(int changes)
+    public static AgendaSnapshot friday(int changes)
     {
         Map<String, RefInfo> refs = new LinkedHashMap<>();
         ImmutableList.Builder<AgendaSnapshot.Change> changeEntries = ImmutableList.builder();

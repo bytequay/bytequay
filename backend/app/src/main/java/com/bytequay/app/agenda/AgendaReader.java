@@ -104,7 +104,7 @@ import static java.util.Objects.requireNonNull;
  * describe, Epic work, assigned issues and tickets, and earlier agendas. No GitHub, Jira or provider request is made here.
  */
 @Component
-class AgendaReader
+public class AgendaReader
 {
     private static final Logger log = LoggerFactory.getLogger(AgendaReader.class);
 
@@ -183,7 +183,7 @@ class AgendaReader
      * @param earlier the agendas of earlier days, newest first
      * @param calendar today's busy time, already read
      */
-    AgendaSnapshot read(LocalDate today, Instant since, boolean recapDay, List<AgendaDay> earlier, AgendaCalendar calendar)
+    public AgendaSnapshot read(LocalDate today, Instant since, boolean recapDay, List<AgendaDay> earlier, AgendaCalendar calendar)
     {
         Map<String, RefInfo> refs = new LinkedHashMap<>();
         Optional<String> viewer = credentials.cachedLogin();
@@ -400,13 +400,7 @@ class AgendaReader
                 case QUESTION, APPROVAL, RECOVERY, QUEUE_PAUSED -> "waiting_on_you";
                 case FAILURE, TURN_FINISHED -> "idle";
             };
-            Optional<String> waitingFor = switch (notice.kind()) {
-                case QUESTION -> Optional.of(notice.id().startsWith("question:") ? "result" : "question");
-                case APPROVAL -> Optional.of("approval");
-                case RECOVERY -> Optional.of("recovery");
-                case QUEUE_PAUSED -> Optional.of("queue");
-                case FAILURE, TURN_FINISHED -> Optional.empty();
-            };
+            Optional<String> waitingFor = waitingFor(notice);
             Optional<String> lastTurn = switch (notice.kind()) {
                 case FAILURE -> Optional.of("failed");
                 case TURN_FINISHED -> Optional.of("completed");
@@ -418,6 +412,18 @@ class AgendaReader
         }
         return entries.build().stream().sorted(Comparator.comparing((Task task) -> !task.state().equals("waiting_on_you"))
                 .thenComparing(task -> task.lastTurn().filter("failed"::equals).isEmpty())).collect(toImmutableList());
+    }
+
+    /** What a task's notice says it waits on the user for; nothing once its turn has settled. */
+    public static Optional<String> waitingFor(AppNotice notice)
+    {
+        return switch (notice.kind()) {
+            case QUESTION -> Optional.of(notice.id().startsWith("question:") ? "result" : "question");
+            case APPROVAL -> Optional.of("approval");
+            case RECOVERY -> Optional.of("recovery");
+            case QUEUE_PAUSED -> Optional.of("queue");
+            case FAILURE, TURN_FINISHED -> Optional.empty();
+        };
     }
 
     private Optional<Findings> findings(String taskId)
@@ -654,7 +660,7 @@ class AgendaReader
         return value.toLowerCase(Locale.ROOT);
     }
 
-    static String clip(String text, int length)
+    public static String clip(String text, int length)
     {
         String flat = text.strip().replaceAll("\\s+", " ");
         return flat.length() <= length ? flat : flat.substring(0, length - 1).stripTrailing() + "…";

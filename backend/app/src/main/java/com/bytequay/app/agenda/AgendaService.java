@@ -74,8 +74,8 @@ public class AgendaService
     private static final Logger log = LoggerFactory.getLogger(AgendaService.class);
     private static final Duration MAXIMUM_RUNTIME = Duration.ofMinutes(5);
     // With no earlier agenda, "new" reaches back over a weekend.
-    private static final Duration FIRST_LOOK = Duration.ofDays(3);
-    private static final int EARLIER_DAYS = 6;
+    public static final Duration FIRST_LOOK = Duration.ofDays(3);
+    public static final int EARLIER_DAYS = 6;
     private static final int RETAINED_DAYS = 30;
     private static final int REASON = 200;
     private static final String INSTRUCTIONS = """

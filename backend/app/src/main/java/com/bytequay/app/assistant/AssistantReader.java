@@ -209,6 +209,14 @@ class AssistantReader
         return new Page(new Entries("waiting", entries.build()), refs);
     }
 
+    /** A line for each card a message lists as visible that still shows: its ref, its task's title and what it says, clipped. */
+    List<String> cards(List<String> visible)
+    {
+        return notices.current().stream().filter(notice -> visible.contains(notice.id()))
+                .map(notice -> notice.id() + ": " + AgendaReader.clip(notice.title(), TITLE) + " · " + AgendaReader.clip(notice.message(), TITLE))
+                .collect(toImmutableList());
+    }
+
     /** Facts about the page a message was sent from. */
     Page screen(Optional<String> onScreen)
     {

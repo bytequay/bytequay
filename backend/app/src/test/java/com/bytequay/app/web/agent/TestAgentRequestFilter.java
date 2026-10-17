@@ -66,6 +66,12 @@ class TestAgentRequestFilter
             "/api/agenda/today",
             "/api/agenda/today/run",
             "/api/settings/agenda",
+            "/api/assistant",
+            "/api/assistant/today",
+            "/api/assistant/messages",
+            "/api/assistant/stop",
+            "/api/assistant/retry",
+            "/api/settings/assistant",
             "/api/jira/connections/connection/sites/cloud/issues/1001/comments",
             "/api/ci-autofix/runs",
             "/api/cherry-pick-ranges/previews",
@@ -91,6 +97,7 @@ class TestAgentRequestFilter
             "/agent/tasks",
             "/agent/tasks/task-id/stream",
             "/agent/approvals/approval-id",
+            "/api/assistant/messages",
             "/api/ci-autofix/runs",
             "/api/cherry-pick-ranges/previews"})
     void rejectsAgentOperationsUntilStartupRecoveryCompletes(String path)

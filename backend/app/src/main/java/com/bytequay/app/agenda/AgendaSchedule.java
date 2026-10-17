@@ -33,7 +33,8 @@ import static java.util.Objects.requireNonNull;
  */
 public record AgendaSchedule(boolean enabled, int minute, List<DayOfWeek> days, Optional<String> calendarAccountId)
 {
-    public static final AgendaSchedule DEFAULT = new AgendaSchedule(true, 9 * 60,
+    // Off until the user turns it on: each run spends their model account without a click.
+    public static final AgendaSchedule DEFAULT = new AgendaSchedule(false, 9 * 60,
             ImmutableList.of(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY), Optional.empty());
 
     public AgendaSchedule

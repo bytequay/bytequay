@@ -63,10 +63,12 @@ tasks, PRs, work items, commits, and memory.
 
 ### Plan the day with Today
 
-On working days, after the time you set, Home opens with **Today**: up to five
-things worth doing first, each with a reason. An agent picks them from
-ByteQuay's records; it never writes to GitHub or starts a task. If ByteQuay was
-closed at that time, Today is made when you return.
+Today is off until you turn it on in **Settings → General → Daily agenda**,
+because each day's list spends a model session from your default Development
+account. Once on, Home opens on working days, after the time you set, with
+**Today**: up to five things worth doing first, each with a reason. An agent
+picks them from ByteQuay's records; it never writes to GitHub or starts a task.
+If ByteQuay was closed at that time, Today is made when you return.
 
 - Click a row to open its PR, task, issue, ticket, or work item. Hover it for
   **Done** or **Not today**; a row also closes when its work happens.

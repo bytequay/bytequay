@@ -109,7 +109,8 @@ class TestAgendaService
             throws Exception
     {
         AppSettingsStore settings = mock(AppSettingsStore.class);
-        when(settings.get(any())).thenReturn(Optional.empty());
+        AgendaSchedule weekdayMornings = new AgendaSchedule(true, AgendaSchedule.DEFAULT.minute(), AgendaSchedule.DEFAULT.days(), Optional.empty());
+        when(settings.get(any())).thenReturn(Optional.of(AgendaFixtures.mapper().writeValueAsString(weekdayMornings)));
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.empty()))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "claude", "Claude", "sonnet", "Sonnet", Optional.empty()));
         when(drivers.require(LANE)).thenReturn(driver);
@@ -159,6 +160,14 @@ class TestAgendaService
         };
         agenda = new AgendaService(store, reader, calendars, teams, done, new AgendaSettings(settings, AgendaFixtures.mapper()), appSettings, models, drivers, resources,
                 AgendaFixtures.mapper(), clock);
+    }
+
+    @Test
+    void staysOffUntilTheUserTurnsItOn()
+    {
+        AppSettingsStore nothingSaved = mock(AppSettingsStore.class);
+        when(nothingSaved.get(any())).thenReturn(Optional.empty());
+        assertThat(new AgendaSettings(nothingSaved, AgendaFixtures.mapper()).schedule().enabled()).isFalse();
     }
 
     @Test

@@ -19,24 +19,22 @@ import type { ICodeEditor } from '@codingame/monaco-vscode-api/vscode/vs/editor/
 import { MouseTargetType } from '@codingame/monaco-vscode-api/vscode/vs/editor/browser/editorBrowser';
 // eslint-disable-next-line import/no-unresolved -- The pinned package exports this path; Vite and tsc resolve it.
 import { EditorOption } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/config/editorOptions';
-import { AlignRight, GitCommitHorizontal, X } from 'lucide-react';
+import { GitCommitHorizontal, X } from 'lucide-react';
 import { codeHostKey, type ReviewCodeFileDto } from '../pulls/code-tests/contracts';
 import type { BlameSpan, CodeBlame, IdeContext } from './contracts';
 import type { IdeRuntime } from './runtime';
 import { blameAt, blameDate, blameLine, overviewLine, uncommitted } from './navigationModel';
 
-type Preview = { line: number; top: number; left: number; width: number; keyboard: boolean };
-function previewPosition(editor: ICodeEditor, line: number, y: number, keyboard: boolean): Preview {
+type Preview = { line: number; top: number; left: number; width: number };
+function previewPosition(editor: ICodeEditor, line: number, y: number): Preview {
   const rect = editor.getDomNode()?.getBoundingClientRect();
   const width = Math.max(200, Math.min(900, (rect?.width ?? 700) - 28));
-  return { line, width, left: Math.max(4, (rect?.right ?? window.innerWidth) - width - 24), top: Math.max(4, Math.min(y + 14, window.innerHeight - 270)), keyboard };
+  return { line, width, left: Math.max(4, (rect?.right ?? window.innerWidth) - width - 24), top: Math.max(4, Math.min(y + 14, window.innerHeight - 270)) };
 }
 
-function CodePreview({ editor, preview, onChange, onClose }: { editor: ICodeEditor; preview: Preview; onChange: (line: number) => void; onClose: () => void }) {
+function CodePreview({ editor, preview }: { editor: ICodeEditor; preview: Preview }) {
   const host = useRef<HTMLDivElement>(null);
   const code = useRef<monaco.IStandaloneCodeEditor | undefined>(undefined);
-  const lineCount = editor.getModel()?.getLineCount() ?? 1;
-  const jump = () => { editor.setPosition({ lineNumber: preview.line, column: 1 }); editor.revealLineInCenter(preview.line); onClose(); editor.focus(); };
   useLayoutEffect(() => {
     if (!host.current) return;
     const font = editor.getOption(EditorOption.fontInfo);
@@ -52,20 +50,9 @@ function CodePreview({ editor, preview, onChange, onClose }: { editor: ICodeEdit
     return () => { code.current = undefined; instance.dispose(); };
   }, [editor]);
   useLayoutEffect(() => { code.current?.revealLineNearTop(preview.line); }, [preview.line]);
-  return <section className={`ide-code-preview${preview.keyboard ? '' : ' is-hover'}`} role={preview.keyboard ? 'dialog' : undefined}
-    aria-label="Code preview" style={{ top: preview.top, left: preview.left, width: preview.width }} onKeyDown={event => {
-      event.stopPropagation();
-      if (event.key === 'Escape') { event.preventDefault(); onClose(); editor.focus(); }
-      if (event.key === 'Enter') { event.preventDefault(); jump(); }
-    }}>
-    <header><span>Code preview</span>{preview.keyboard ? <>
-      <label>Line <input autoFocus aria-label="Preview line" type="number" min={1} max={lineCount} defaultValue={preview.line}
-        onChange={event => onChange(Math.max(1, Math.min(lineCount, Number(event.target.value) || 1)))} /></label>
-      <button onClick={jump}>Go to line</button><button aria-label="Close code preview" onClick={() => { onClose(); editor.focus(); }}><X size={14} /></button>
-    </> : <span>Line {preview.line} · click the strip to jump</span>}</header>
+  return <section className="ide-code-preview" aria-label="Code preview" style={{ top: preview.top, left: preview.left, width: preview.width }}>
+    <header><span>Code preview</span><span>Line {preview.line} · click the strip to jump</span></header>
     <div ref={host} className="ide-preview-code" inert />
-    {preview.keyboard && <pre className="ide-preview-accessible" aria-label="Previewed source">{Array.from({ length: Math.min(10, lineCount - preview.line + 1) }, (_, offset) =>
-      `${preview.line + offset}: ${editor.getModel()?.getLineContent(preview.line + offset) ?? ''}`).join('\n').slice(0, 10_000)}</pre>}
   </section>;
 }
 
@@ -116,9 +103,8 @@ export default function EditorNavigation({ runtime, active, context, file, revis
     setPreview(null);
     if (!editor) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const clear = () => { clearTimeout(timer); if (!previewRef.current?.keyboard) setPreview(null); };
+    const clear = () => { clearTimeout(timer); setPreview(null); };
     const move = editor.onMouseMove(event => {
-      if (previewRef.current?.keyboard) return;
       const rect = editor.getDomNode()?.getBoundingClientRect();
       const model = editor.getModel();
       if (event.event.browserEvent.buttons !== 0) return;
@@ -127,7 +113,7 @@ export default function EditorNavigation({ runtime, active, context, file, revis
         || event.event.posx < rect.right - 20 || event.event.posy >= rect.bottom - 14) { clear(); return; }
       const line = overviewLine((event.event.posy - rect.top) / editor.getLayoutInfo().height, editor.getScrollHeight(), model.getLineCount(), line => editor.getTopForLineNumber(line));
       clearTimeout(timer);
-      const show = () => setPreview(previewPosition(editor, line, event.event.posy, false));
+      const show = () => setPreview(previewPosition(editor, line, event.event.posy));
       if (previewRef.current) show(); else timer = setTimeout(show, 180);
     });
     // Monaco handles scrollbar presses before onMouseDown. Observe the native gesture without taking its drag handling.
@@ -135,7 +121,7 @@ export default function EditorNavigation({ runtime, active, context, file, revis
     const down = (event: PointerEvent) => {
       const current = previewRef.current;
       const rect = editor.getDomNode()?.getBoundingClientRect();
-      if (event.button !== 0 || !current || current.keyboard || !rect
+      if (event.button !== 0 || !current || !rect
         || event.clientX < rect.right - 20 || event.clientX > rect.right || event.clientY < rect.top || event.clientY >= rect.bottom - 14) return;
       press = { x: event.clientX, y: event.clientY, line: current.line };
       clearTimeout(timer); setPreview(null);
@@ -162,9 +148,8 @@ export default function EditorNavigation({ runtime, active, context, file, revis
   return <>
     <button aria-pressed={enabled} disabled={!editor || !file} onClick={() => { setEnabled(value => !value); setDetail(null); }} title="Show Git author and date beside each saved line"><GitCommitHorizontal size={14} /> Blame</button>
     {enabled && <button disabled={!blame?.spans.length || !matches} onClick={() => setDetail(blameAt(blame?.spans ?? [], (active?.selection.active.line ?? 0) + 1) ?? null)}>Line history</button>}
-    <button disabled={!editor} onClick={() => { if (editor) setPreview(previewPosition(editor, editor.getPosition()?.lineNumber ?? 1, editor.getDomNode()?.getBoundingClientRect().top ?? 50, true)); }}><AlignRight size={14} /> Code preview</button>
     {enabled && status && <span className="ide-blame-status" role="status">{status}</span>}
-    {editor && preview && <CodePreview editor={editor} preview={preview} onChange={line => setPreview(current => current && { ...current, line })} onClose={() => setPreview(null)} />}
+    {editor && preview && <CodePreview editor={editor} preview={preview} />}
     {enabled && matches && detail && <section className="ide-blame-detail" role="dialog" aria-label="Line history" onKeyDown={event => { if (event.key === 'Escape') { setDetail(null); editor?.focus(); } }}>
       <header><strong>{uncommitted(detail) ? 'Uncommitted changes' : detail.author}</strong><button autoFocus aria-label="Close line history" onClick={() => setDetail(null)}><X size={14} /></button></header>
       {!uncommitted(detail) && <><p>{blameDate(detail)} · <code>{detail.commit.slice(0, 12)}</code></p><p>{detail.summary}</p><p>{detail.originalPath}:{detail.originalLine}</p>

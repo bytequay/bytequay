@@ -14,7 +14,7 @@
 import type { ReactNode } from 'react';
 import { LogIn, RefreshCw } from 'lucide-react';
 import type { ModelProviderDto } from '../types';
-import { isDeepSeekKeyLane, providerStatusLabel } from './model';
+import { isDeepSeekKeyLane, providerAvailable, providerStatusLabel } from './model';
 import { SettingsRow, StatusDot, dotTone } from './primitives';
 
 export default function ProviderRow({ provider, checking, account = false, onSignIn, onCheck, children }: {
@@ -26,7 +26,7 @@ export default function ProviderRow({ provider, checking, account = false, onSig
   children?: ReactNode;
 }) {
   const status = providerStatusLabel(provider.readiness, checking, provider.id);
-  const available = provider.readiness === 'READY' || provider.readiness === 'DEGRADED';
+  const available = providerAvailable(provider.readiness);
   const title = provider.id === 'claude' ? `Claude Code${account ? '' : ' CLI'} · Default account`
     : account || isDeepSeekKeyLane(provider.id) ? provider.label : `${provider.label} CLI`;
   return <SettingsRow title={title} subtitle={

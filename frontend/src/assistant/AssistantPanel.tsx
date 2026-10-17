@@ -18,7 +18,7 @@ import { renderMarkdown } from '../agents/markdown';
 import { openTarget } from '../home/TodayList';
 import { clockTime } from '../home/today';
 import type { AppNotice } from '../notices/contracts';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import { settingsRoute, type SettingsSection } from '../settings/routes';
 import type { AgendaTargetDto, AssistantItemDto } from '../types';
 import { entries, linkRefs, refFromHref, refLabel } from './model';

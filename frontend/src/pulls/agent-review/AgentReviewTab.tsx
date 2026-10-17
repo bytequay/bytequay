@@ -41,7 +41,7 @@ import type {
 import { useNow } from '../../useNow';
 import { workspaceRoute } from '../../workspaces/model';
 import MarkdownBody from '../MarkdownBody';
-import { remoteErrorMessage } from '../PullOverview';
+import { remoteErrorMessage } from '../../remoteError';
 import ReviewCommentIndex from '../ReviewCommentIndex';
 import LocalReviewThreadCard from '../local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../local-review/types';

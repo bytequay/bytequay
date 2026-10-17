@@ -30,9 +30,10 @@ import { displayModelName, laneLabel } from '../settings/model';
 import { BackportButton } from './BackportRequestHint';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import {
-  ComposerDock, StartingAgentTask, TaskComposer, taskArchived, useAgentTaskCreation, useTaskChanges, useWorkspaceWork, type DraftImage, type TaskModelSelection,
+  ComposerDock, StartingAgentTask, TaskComposer, useAgentTaskCreation, useTaskChanges, useWorkspaceWork, type DraftImage, type TaskModelSelection,
 } from './AgentTasksView';
 import type { TaskAttention } from './attention';
+import { taskArchived } from './taskStatus';
 import { developmentItem, reviewItem, type TaskListItem } from './taskList';
 import type { AgentBridgePort } from './model';
 import type {

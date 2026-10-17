@@ -112,11 +112,7 @@ export function parseAgentProviderUnavailable(
     status,
     code,
     laneId: text(source.laneId, `${path}.laneId`),
-    readiness: enumText(
-      source.readiness,
-      ['READY', 'AUTHENTICATION_REQUIRED', 'CLI_MISSING', 'UNSUPPORTED', 'DEGRADED', 'TEMPORARILY_UNAVAILABLE'] as const,
-      `${path}.readiness`,
-    ),
+    readiness: enumText(source.readiness, PROVIDER_READINESS, `${path}.readiness`),
     diagnostic: text(source.diagnostic, `${path}.diagnostic`),
     signInCommand: optionalText(source.signInCommand, `${path}.signInCommand`),
     path: text(source.path, `${path}.path`),
@@ -133,7 +129,7 @@ export function agentProviderUnavailableFrom(failure: unknown): AgentProviderUna
       return null;
     }
   }
-  const message = failure instanceof Error ? failure.message : typeof failure === 'string' ? failure : '';
+  const message = failureMessage(failure);
   const marker = message.indexOf(AGENT_PROVIDER_UNAVAILABLE_MARKER);
   if (marker < 0) return null;
   try {
@@ -152,10 +148,7 @@ function list(value: unknown, path: string): unknown[] {
 }
 
 function textList(value: unknown, path: string): string[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`${path} is not an array`);
-  }
-  return value.map((entry, index) => text(entry, `${path}[${index}]`));
+  return list(value, path).map((entry, index) => text(entry, `${path}[${index}]`));
 }
 
 function metrics(value: unknown, path: string): AgentMetricsDto {
@@ -350,10 +343,7 @@ export function parseAgentTaskActivity(value: unknown): Record<string, AgentTask
 }
 
 export function parseAgentTasks(value: unknown): AgentTaskDto[] {
-  if (!Array.isArray(value)) {
-    throw new Error('tasks is not an array');
-  }
-  return value.map((entry, index) => parseAgentTask(entry, `tasks[${index}]`));
+  return list(value, 'tasks').map((entry, index) => parseAgentTask(entry, `tasks[${index}]`));
 }
 
 export function parseAgentDevelopmentCi(value: unknown, path = 'developmentCi'): AgentDevelopmentCiDto {
@@ -651,19 +641,16 @@ export function parseAgentQueuedInput(value: unknown, path = 'queuedInput'): Age
 
 export function parseAgentQueuedInputDraft(value: unknown): AgentQueuedInputDraftDto {
   const source = object(value, 'queuedInputDraft');
-  if (!Array.isArray(source.attachments)) throw new Error('queuedInputDraft.attachments is not an array');
+  const attachments = list(source.attachments, 'queuedInputDraft.attachments');
   return {
     message: text(source.message, 'queuedInputDraft.message'),
     settings: parseAgentTurnSettings(source.settings, 'queuedInputDraft.settings'),
-    attachments: source.attachments.map((entry, index) => parseAgentAttachment(entry, `queuedInputDraft.attachments[${index}]`)),
+    attachments: attachments.map((entry, index) => parseAgentAttachment(entry, `queuedInputDraft.attachments[${index}]`)),
   };
 }
 
 export function parseAgentQueue(value: unknown): AgentQueuedInputDto[] {
-  if (!Array.isArray(value)) {
-    throw new Error('queue is not an array');
-  }
-  return value.map((entry, index) => parseAgentQueuedInput(entry, `queue[${index}]`));
+  return list(value, 'queue').map((entry, index) => parseAgentQueuedInput(entry, `queue[${index}]`));
 }
 
 export function parseAgentInputDelivery(value: unknown, path = 'delivery'): AgentInputDeliveryDto {

@@ -16,9 +16,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ZOOM_REFERENCE, type ZoomedReference } from '../githubReference';
 import {
   mergePullRequestWriteDetail,
-  remoteErrorMessage,
   type PullDetailUpdater,
 } from './PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import type {
   PullRequestDetailDto,
   PullRequestDto,

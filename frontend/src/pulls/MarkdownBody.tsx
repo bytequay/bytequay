@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { shortSha } from '../displayText';
 import hljs from 'highlight.js/lib/common';
 import { ArrowUpRight, CircleDot, GitPullRequest, Info, Lightbulb, MessageSquareWarning, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { Fragment, useEffect, useId, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
@@ -724,7 +725,7 @@ export function CodeReferenceCard({ reference, snippet }: {
         <a href={reference.href} title={`${reference.repo}/${reference.path}`} onClick={open}>
           {reference.repo}/{reference.path}
         </a>
-        <span>{lineLabel} in <a href={reference.href} onClick={open}>{reference.commit.slice(0, 7)}</a></span>
+        <span>{lineLabel} in <a href={reference.href} onClick={open}>{shortSha(reference.commit)}</a></span>
       </div>
       {snippet === undefined
         ? <div className="md-code-reference__status" role="status">Loading code…</div>

@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { PullRequestConflictsDto } from '../types';
-import { remoteErrorMessage } from './PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 
 export default function PullRequestConflictFiles({ repo, number }: { repo: string; number: number }) {
   const [result, setResult] = useState<PullRequestConflictsDto | null>(null);

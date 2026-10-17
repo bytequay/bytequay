@@ -11,13 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { shortSha } from '../../displayText';
 import { useCallback, useEffect, useState } from 'react';
 import { Check, Eye, Lock, PanelsTopLeft } from 'lucide-react';
 import type { ReviewCardFocus } from '../../agents/ReviewRequestCard';
 import { relativeTime } from '../../relativeTime';
 import type { AgentTaskDto } from '../../types';
 import { workspaceReviewTaskRoute } from '../../workspaces/model';
-import { remoteErrorMessage } from '../PullOverview';
+import { remoteErrorMessage } from '../../remoteError';
 import type { WorktreeChangesDto } from '../code-tests/contracts';
 import AgentReviewTab, { type ReviewNavigationTarget } from './AgentReviewTab';
 import type { AgentReviewDto } from './contracts';
@@ -116,7 +117,7 @@ export function TaskReviewControls({ state, onShowReview }: { state: TaskReview;
     return <div className="agr-summary-strip__review">
       {unavailable !== null ? <span className="agr-summary-strip__note">{unavailable}</span>
         : source !== null && <span className="agr-summary-strip__note" title="Includes committed, staged, unstaged, and new files in this working copy.">
-          {source.baseLabel} → {source.headSha.slice(0, 7)}
+          {source.baseLabel} → {shortSha(source.headSha)}
         </span>}
       <button type="button" className="agr-action agr-summary-strip__start" disabled={pending !== null || unavailable !== null || error !== null}
         title={unavailable ?? 'A reviewer inspects all changes in this task’s working copy'} onClick={() => { void state.start(); }}>
@@ -199,7 +200,7 @@ export function TaskReviewSection({ options, state }: { options: TaskReviewOptio
         {openFindings(review).length > 0 && <span className="agr-event__local"><Lock size={11} aria-hidden="true" />Local · never posted to GitHub</span>}
       </TimelineEvent>
       {newer && <div className="agr-banner is-warn" role="status">New commits since this review.
-        {' '}The developer is at {source.headSha.slice(0, 7)}; this review stays on {run.headSha.slice(0, 7)}. Use Review again to assess the latest commits.
+        {' '}The developer is at {shortSha(source.headSha)}; this review stays on {shortSha(run.headSha)}. Use Review again to assess the latest commits.
       </div>}
       <AgentReviewTab timeline workspaceId={options.workspaceId} viewer={null} review={review} onReviewChange={state.changeReview}
         ownStream={options.active ?? true} focusFindingId={options.focusFindingId ?? null} focusReviewCard={options.focusReviewCard}

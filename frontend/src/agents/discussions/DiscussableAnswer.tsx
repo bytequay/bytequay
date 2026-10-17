@@ -17,7 +17,7 @@ import Composer from '../../Composer';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 
 import { DiscussionFooter } from './DiscussionFooter';
-import { remoteErrorMessage } from '../../pulls/PullOverview';
+import { remoteErrorMessage } from '../../remoteError';
 import { renderMarkdownBlocks } from '../markdown';
 import { ANSWERING_ELSEWHERE, type TaskDiscussionDto } from './contracts';
 

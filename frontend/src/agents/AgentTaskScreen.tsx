@@ -31,7 +31,7 @@ import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import { useNoticeSource } from '../notices/useNoticeSource';
 import { privateThreadSource } from '../pulls/PrivateThread';
 import { pullReviewThreads, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import { PullRequestStateIcon } from '../pulls/PullRequestStateIcon';
 import { carriedPanelTab, PullDetailHeader } from '../pulls/PullsScreen';
 import ReviewCommentIndex from '../pulls/ReviewCommentIndex';
@@ -81,7 +81,7 @@ import type {
 import { useNow } from '../useNow';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
 import { AgentConversation, ConversationComposer, ConversationQueue, modelName, PlanSteps, serviceTierName, Spinner, stateClass, useConversationHistory, useOutputWheel, type ApprovalDecider, type AttachmentPreview } from './AgentConversation';
-import { taskArchived } from './AgentTasksView';
+import { taskArchived } from './taskStatus';
 import { AutomationControl } from './AutomationControl';
 import { BackportChainCard, useBackportChains } from './BackportChains';
 import ConversationUtilityTab from './ConversationUtilityTab';

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { remoteErrorMessage } from './pulls/PullOverview';
+import { remoteErrorMessage } from './remoteError';
 
 type Thread = { id: string; version: number; createdAt: string };
 const EMPTY: never[] = [];

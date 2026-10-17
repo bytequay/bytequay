@@ -37,11 +37,11 @@ import {
   DiscussionComposer,
   MetadataPicker,
   reactionEmoji,
-  remoteErrorMessage,
   toggleSelection,
   type MentionCandidate,
   type QuoteRequest,
 } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import { CommentIcon, PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
 import { parsePullSearch, pullRequestMatchesSearch } from '../pulls/model';
 import { useRecentTouch } from '../recent/useRecentTouch';

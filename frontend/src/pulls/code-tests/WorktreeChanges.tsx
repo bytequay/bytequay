@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, RotateCw } from 'lucide-react';
 import { DiffViewer } from '../PullChanges';
-import { remoteErrorMessage } from '../PullOverview';
+import { remoteErrorMessage } from '../../remoteError';
 import type { ReviewNavigationTarget } from '../agent-review/AgentReviewTab';
 import type { AgentReviewDto } from '../agent-review/contracts';
 import { findingInResults } from '../agent-review/model';

@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { History } from 'lucide-react';
 import Toast from '../Toast';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import '../css/memory.css';
 
 /** Replay review: Agent Review twice on a merged pull request at the head its maintainers first reviewed, with memory and without. Nothing is posted. */

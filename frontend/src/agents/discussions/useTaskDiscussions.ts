@@ -17,7 +17,7 @@ import { useCallback, useMemo, useRef } from 'react';
 import { useThreadSnapshot } from '../../useThreadSnapshot';
 
 import { recordAttentionAction } from '../../home/useAttentionVisit';
-import { remoteErrorMessage } from '../../pulls/PullOverview';
+import { remoteErrorMessage } from '../../remoteError';
 import type {
   AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest,
   ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto,

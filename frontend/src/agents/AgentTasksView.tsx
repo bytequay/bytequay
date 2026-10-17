@@ -48,6 +48,7 @@ import { pasteImage } from './clipboard';
 import { ImageAttachment } from './ImageAttachment';
 import { ATTENTION_SEED } from '../home/attention';
 import type { TaskAttention } from './attention';
+import { taskArchived, taskBusy } from './taskStatus';
 import { TaskItemCard, TaskItemRow, TaskTypeIcon, viewerInitials, type TaskItemHandlers } from './TaskListCards';
 import { TASK_TYPES, cherryPickItem, ciFixItem, developmentItem, groupTaskList, reviewItem, type TaskListItem, type TaskType } from './taskList';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
@@ -100,54 +101,6 @@ interface AgentTasksViewProps {
   autoStart?: boolean;
   /** The composer took that start; a composer opened later must not send it again. */
   onAutoStart?: () => void;
-}
-
-/** A task state reads as prose; the wire enum is never shown to the user. */
-const STATE_LABELS: Record<string, string> = {
-  OPEN: 'Idle',
-  COMPLETED: 'Completed',
-  FAILED: 'Failed',
-};
-
-/**
- * The list knows the durable task, not its events: a turn's claim on the checkout is what says a
- * task is running, and a completed task reads as done in grey, as the design draws it.
- */
-export function taskStatePill(task: AgentTaskDto): { label: string; className: string; spinning: boolean } {
-  if (task.state === 'OPEN' && task.mutationClaim?.kind === 'RECOVERY') {
-    return { label: 'Recovery required', className: 'is-recovery', spinning: false };
-  }
-  if (task.state === 'OPEN' && task.mutationClaim?.kind === 'TURN') {
-    return { label: 'Running', className: 'is-running', spinning: true };
-  }
-  if (task.state === 'OPEN' && task.developmentContinuationUnfinished) {
-    return { label: 'Automation running', className: 'is-running', spinning: true };
-  }
-  switch (task.state) {
-    case 'OPEN':
-      return { label: STATE_LABELS.OPEN, className: 'is-idle', spinning: false };
-    case 'COMPLETED':
-      return { label: STATE_LABELS.COMPLETED, className: '', spinning: false };
-    case 'FAILED':
-      return { label: STATE_LABELS.FAILED, className: 'is-failed', spinning: false };
-    default:
-      return { label: task.state, className: '', spinning: false };
-  }
-}
-
-/** Archived is a shelf, not a state: the task keeps everything and simply leaves the active list. */
-export function taskArchived(task: Pick<AgentTaskDto, 'archivedAt'>): boolean {
-  return task.archivedAt !== null && task.archivedAt !== undefined;
-}
-
-/**
- * A task something may still be writing to; deleting waits for it to stop. A recovery claim is not
- * one: it holds the worktree of a launch that could not be shown stopped, and deleting is how a
- * task leaves that state.
- */
-function taskBusy(task: AgentTaskDto): boolean {
-  const claim = task.mutationClaim ?? null;
-  return claim !== null && claim.kind !== 'RECOVERY';
 }
 
 /**

@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { shortSha } from '../../displayText';
 import type { ReactNode } from 'react';
 import { Bot, GitCommitHorizontal, Lock, Target } from 'lucide-react';
 import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';
@@ -62,7 +63,7 @@ export function LocalCardMessage({ avatar, author, tag, timestamp, menu, childre
 export function SummaryCardTitle({ sha, tooltip }: { sha?: string; tooltip?: string }) {
   return sha === undefined
     ? <span className="lrc__title" title={tooltip}>Change intention</span>
-    : <span className="lrc__title" title={tooltip}>Design &amp; implementation <code>{sha.slice(0, 7)}</code></span>;
+    : <span className="lrc__title" title={tooltip}>Design &amp; implementation <code>{shortSha(sha)}</code></span>;
 }
 
 /** The review agent's mark, so its comments read as a bot's next to a person's. */

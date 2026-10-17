@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { shortSha } from '../displayText';
 import type { LucideIcon } from 'lucide-react';
 import { Bell, Bot, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
@@ -63,7 +64,8 @@ import {
 } from './model';
 import { usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
 import PullChanges, { pullReviewThreads, updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
-import PullOverview, { CommentedCodeLine, commentedCodeLines, isQueued, mergePullRequestWriteDetail, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
+import PullOverview, { CommentedCodeLine, commentedCodeLines, isQueued, mergePullRequestWriteDetail, useViewer, type PullDetailUpdater } from './PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import PullRequestConflictFiles from './PullRequestConflictFiles';
 import MergeQueueRemoval from './MergeQueueRemoval';
 import { PullRequestStateIcon } from './PullRequestStateIcon';
@@ -2008,7 +2010,7 @@ export function ReviewDialog({
               return <ReviewThreadCard key={key} resolved={false} controls={null}
                 title={<span className="lrc__title"><code title={comment.path}>{comment.path}</code>
                   {comment.replyToCommentId != null && <span> · Reply to thread</span>}
-                  {comment.replyToCommentId == null && comment.commitId !== null && <span> · commit {comment.commitId.slice(0, 7)}</span>}</span>}
+                  {comment.replyToCommentId == null && comment.commitId !== null && <span> · commit {shortSha(comment.commitId)}</span>}</span>}
                 code={lines.length > 0 && <div className="lrc__code">
                   {lines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}
                 </div>}>

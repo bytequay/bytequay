@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import { settingsRoute } from '../settings/routes';
 import { specCheckDirectory, type ContextBuildViewDto, type ContextSpecCandidateDto, type ContextSpecCheckDto, type ContextSpecModuleDto,
   type ContextSpecSourceDto } from './contracts';

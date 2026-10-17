@@ -15,7 +15,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Check, CircleAlert, LoaderCircle, TriangleAlert, X } from 'lucide-react';
 import Avatar from '../Avatar';
 import { useModalDialog } from '../useModalDialog';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import type { RepositoryMetadataDto } from '../types';
 import { people } from './activity';
 import { CIRCLE_COLORS, CIRCLE_SHAPES, type CircleAvatar, type TeamCircle, type TeamCreateInput } from './types';

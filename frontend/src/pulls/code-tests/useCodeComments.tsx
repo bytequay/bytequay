@@ -28,7 +28,8 @@ import {
   type DiffAgentComment,
   type ReviewThreads,
 } from '../PullChanges';
-import { remoteErrorMessage, ReviewThread } from '../PullOverview';
+import { ReviewThread } from '../PullOverview';
+import { remoteErrorMessage } from '../../remoteError';
 import { inlineReviewComment, NO_RANGE_SELECTION, rangeHeading, rangeSelectionReducer } from '../lineRangeSelection';
 import LocalReviewThreadCard, { localReviewMatchesRevision } from '../local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../local-review/types';

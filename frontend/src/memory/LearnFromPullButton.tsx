@@ -13,7 +13,7 @@
  */
 import { useState } from 'react';
 import Toast from '../Toast';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import { Icon } from '../repository-context/icons';
 import { plural } from '../repository-context/model';
 import { MEMORY_CHANGED } from './model';

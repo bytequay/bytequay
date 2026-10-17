@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { shortSha } from '../displayText';
 import { Check, ChevronRight, FileDiff, Folder, GitCommitHorizontal, PanelLeft } from 'lucide-react';
 import { Fragment, useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
@@ -43,7 +44,8 @@ import LocalReviewThreadCard, { localReviewMatchesRevision } from './local-revie
 import type { LocalReviewThreadDto, LocalReviewThreads } from './local-review/types';
 import MarkdownBody, { type SuggestionBase } from './MarkdownBody';
 import MarkdownEditor from './MarkdownEditor';
-import { remoteErrorMessage, ReviewThread, threadCommentedLines, useViewer, type PullDetailUpdater } from './PullOverview';
+import { ReviewThread, threadCommentedLines, useViewer, type PullDetailUpdater } from './PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
 
 export type CommitRange = { start: number; end: number } | null;
@@ -529,7 +531,7 @@ function CommitPicker({ commits, range, onChange }: {
                   <input
                     type="checkbox"
                     checked={selected}
-                    aria-label={`${selected ? 'Deselect' : 'Select'} ${commit.sha.slice(0, 7)}: ${subject}`}
+                    aria-label={`${selected ? 'Deselect' : 'Select'} ${shortSha(commit.sha)}: ${subject}`}
                     onChange={() => {
                       const next = nextCommitRange(range, index, commits.length);
                       if (next !== range) onChange(next);
@@ -555,7 +557,7 @@ function CommitPicker({ commits, range, onChange }: {
                       <ChevronRight size={14} strokeWidth={1.75} aria-hidden="true" />
                     </button>
                   )}
-                  <code>{commit.sha.slice(0, 7)}</code>
+                  <code>{shortSha(commit.sha)}</code>
                   <span>{subject}</span>
                   {commit.authoredAt && <time dateTime={commit.authoredAt}>{age}</time>}
                 </label>

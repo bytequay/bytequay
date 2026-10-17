@@ -20,7 +20,7 @@ import { settingsRoute } from '../settings/routes';
 import type { AgentTaskDto, PullRequestDto } from '../types';
 import type { AgentReviewDto } from './agent-review/contracts';
 import { privateThreadSource, reviewThreadBridge, type PrivateThreadSource } from './PrivateThread';
-import { remoteErrorMessage } from './PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 
 function WatchCommentRepository({ repo, onWatched }: { repo: string; onWatched: () => void }) {
   const [repositoryId, setRepositoryId] = useState<number | null>(null);

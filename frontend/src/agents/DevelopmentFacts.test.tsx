@@ -18,7 +18,7 @@ import { TurnView } from './AgentConversation';
 import { draftPullRequestRequest } from './DevelopmentFacts';
 import { parseAgentTurn } from './contracts';
 import { AgentTaskBody } from './AgentTaskScreen';
-import { taskStatePill } from './AgentTasksView';
+import { taskStatePill } from './taskStatus';
 import { initialAgentTaskState } from './model';
 import { parseAgentEventSequence } from './events';
 import contracts from './fixtures/agent-contracts-v1.json';

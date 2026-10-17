@@ -16,7 +16,7 @@ import { Check, ChevronDown, LockKeyhole, Pencil, Plus, RefreshCw, TriangleAlert
 import Avatar from '../Avatar';
 import { ConfirmDialog } from '../ConfirmDialog';
 import Toast from '../Toast';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import { usePopoverDismiss } from '../usePopoverDismiss';
 import { ago } from '../relativeTime';
 import { ACTIVITY_TYPES, METRICS, membersOf, people, type ActivityType, type Metric } from './activity';

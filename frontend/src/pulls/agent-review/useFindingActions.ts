@@ -14,7 +14,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { alreadySent } from '../../agents/contracts';
 import { recordAttentionAction, type AttentionAction } from '../../home/useAttentionVisit';
-import { remoteErrorMessage } from '../PullOverview';
+import { remoteErrorMessage } from '../../remoteError';
 import { findingFixPrompt } from '../local-review/conversation';
 import { findingReviewText } from './model';
 import type { FindingActions } from './ReviewFindingCard';

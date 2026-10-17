@@ -13,7 +13,7 @@
  */
 import { useState } from 'react';
 import Avatar from '../Avatar';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import CircleDialog, { CircleIcon } from '../teams/CircleDialog';
 import { parseTeamCreateInput } from '../teams/contracts';
 import { circleNeeds } from '../teams/priority';

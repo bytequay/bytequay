@@ -22,7 +22,7 @@ import type { DiscussionBridgePort, TaskDiscussions } from '../agents/discussion
 import type { PullCommentTarget, PullRequestDto } from '../types';
 import ReviewComposer from './agent-review/ReviewComposer';
 import MarkdownBody from './MarkdownBody';
-import { remoteErrorMessage } from './PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import LocalCard, { LocalCardMessage } from './local-review/LocalCard';
 
 /** What the conversation's host supplies; absent where the pull request has none, so nothing here renders there. */

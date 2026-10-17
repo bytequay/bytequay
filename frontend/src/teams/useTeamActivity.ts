@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import type { TeamActivityQuery, TeamActivitySnapshot } from './types';
 import { GITHUB_ACCOUNT_CHANGED, TEAMS_CHANGED } from './useTeams';
 

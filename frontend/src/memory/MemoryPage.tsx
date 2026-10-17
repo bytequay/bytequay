@@ -18,7 +18,7 @@ import RepoAvatar from '../RepoAvatar';
 import Toast from '../Toast';
 import '../css/memory.css';
 import '../css/repository-context.css';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import { RunLine, SpecCheckDrawer, SpecFinding, type SpecCheckActions, type SpecCheckData } from '../repository-context/ContextSpecCheck';
 import type { ContextBuildViewDto, ContextSpecCheckDto } from '../repository-context/contracts';
 import { Icon, Spinner } from '../repository-context/icons';

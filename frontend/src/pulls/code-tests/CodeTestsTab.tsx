@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { AgentTaskDto, Bridge, PullRequestDetailDto } from '../../types';
-import { remoteErrorMessage } from '../PullOverview';
+import { remoteErrorMessage } from '../../remoteError';
 import type { AgentReviewDto } from '../agent-review/contracts';
 import { latestRun } from '../agent-review/model';
 import IdeWorkingCopy from '../../ide/IdeWorkingCopy';

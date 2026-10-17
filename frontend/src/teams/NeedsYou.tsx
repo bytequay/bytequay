@@ -22,7 +22,7 @@ import {
 } from '../home/attention';
 import { usePinnedItems } from '../home/pinned';
 import { useSnoozedAttention } from '../home/useSnoozedAttention';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import { ago } from '../relativeTime';
 import type { PullRequestDto } from '../types';
 import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';

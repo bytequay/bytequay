@@ -11,7 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { shortSha } from '../displayText';
 import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, ExternalLink, Eye, FileText, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, RotateCw, SmilePlus, Tag, User } from 'lucide-react';
+import { remoteErrorMessage } from '../remoteError';
 import { useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { TaskDiscussionDto } from '../agents/discussions/contracts';
 import Avatar from '../Avatar';
@@ -602,12 +604,6 @@ export function toggleSelection(values: string[], value: string) {
     : [...values, value];
 }
 
-export function remoteErrorMessage(failure: unknown) {
-  const message = failure instanceof Error ? failure.message : String(failure);
-  // Electron prefixes the channel and the error's class, which is not always a plain Error, such as TimeoutError.
-  return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
-}
-
 export function peoplePickerCandidates(
   detail: PullRequestDetailDto,
   repoUsers: RepoUserDto[],
@@ -876,7 +872,7 @@ function CommitEvent({ activity }: { activity: Activity }) {
       <span aria-hidden="true"><GitCommitHorizontal size={14} aria-hidden="true" /></span>
       <div>
         {payload.commitMessage?.split('\n')[0] ?? 'Committed'}
-        {payload.commitSha && <code>{payload.commitSha.slice(0, 7)}</code>}
+        {payload.commitSha && <code>{shortSha(payload.commitSha)}</code>}
         <time> · {relativeTime(activity.timestamp)}</time>
       </div>
     </div>
@@ -2219,12 +2215,8 @@ const REACTION_CHOICES = [
   ['eyes', '👀', 'eyes'],
 ] as const;
 
-function reactionLabel(content: PullReactionContent) {
-  return REACTION_CHOICES.find(([choice]) => choice === content)?.[2] ?? content;
-}
-
 function ReactionButton({ value, action }: { value: PullReactionDto; action: ReactionAction }) {
-  const label = reactionLabel(value.content);
+  const label = REACTION_CHOICES.find(([content]) => content === value.content)?.[2] ?? value.content;
   const active = value.viewerHasReacted === true;
   return (
     <button type="button" className={`pr-reaction${active ? ' is-active' : ''}`} disabled={action.saving}
@@ -2255,16 +2247,16 @@ function ReactionPicker({ action, compact = false }: { action: ReactionAction; c
         aria-expanded={open} aria-haspopup="menu" aria-controls={menuId} disabled={action.saving}
         onClick={() => setOpen(value => !value)}><SmilePlus size={16} strokeWidth={1.3} aria-hidden="true" /></button>
       <div className="pr-reaction-picker__menu" id={menuId} role="menu" aria-label="Choose a reaction" aria-busy={action.saving}>
-        {REACTION_CHOICES.map(([content, emoji, label]) => (
-          <button type="button" role="menuitemcheckbox" disabled={action.saving}
-            className={action.reactions.some(reaction => reaction.content === content && reaction.viewerHasReacted === true)
-              ? 'is-active' : undefined}
-            aria-checked={action.reactions.some(reaction => reaction.content === content && reaction.viewerHasReacted === true)}
+        {REACTION_CHOICES.map(([content, emoji, label]) => {
+          const active = action.reactions.some(reaction => reaction.content === content && reaction.viewerHasReacted === true);
+          return <button type="button" role="menuitemcheckbox" disabled={action.saving}
+            className={active ? 'is-active' : undefined}
+            aria-checked={active}
             aria-label={`Add or remove ${label} reaction`} key={content}
             onClick={() => { void choose(content); }}>
             {emoji}
-          </button>
-        ))}
+          </button>;
+        })}
         {action.error && <div className="pr-reaction-picker__error" role="alert">{action.error}</div>}
       </div>
     </div>
@@ -2313,7 +2305,7 @@ function threadLocation(path: string | null, line: number | null, side: string |
 }
 
 export function reactionEmoji(content: string) {
-  return ({ '+1': '👍', '-1': '👎', laugh: '😄', hooray: '🎉', confused: '😕', heart: '❤️', rocket: '🚀', eyes: '👀' } as Record<string, string>)[content] ?? content;
+  return REACTION_CHOICES.find(([choice]) => choice === content)?.[1] ?? content;
 }
 
 function CopyIcon() {

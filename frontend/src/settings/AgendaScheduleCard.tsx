@@ -14,8 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GoogleStatus } from '../google/contracts';
 import type { AgendaDay, AgendaScheduleDto, QuietHoursDto } from '../types';
-import { formatMinuteOfDay, MINUTE_OPTIONS } from './model';
-import { SelectPill, SettingsCard, SettingsRow, Toggle } from './primitives';
+import { SettingsCard, SettingsRow, TimePill, Toggle } from './primitives';
 
 const DAYS: { day: AgendaDay; letter: string; name: string }[] = [
   { day: 'MONDAY', letter: 'M', name: 'Monday' },
@@ -62,9 +61,8 @@ export default function AgendaScheduleCard({ quietHours, onError }: { quietHours
     <SettingsCard footer={schedule !== null && inQuietHours(schedule.minute, quietHours) ? <span>It runs when quiet hours end.</span> : undefined}>
       {schedule === null ? <div className="setw-row-empty">Loading the agenda schedule…</div> : <>
         <SettingsRow title="Daily agenda" subtitle="Suggestions on Home · this Mac’s local time">
-          <SelectPill quiet ariaLabel="Daily agenda time" value={String(schedule.minute)} label={formatMinuteOfDay(schedule.minute)} disabled={!schedule.enabled || busy}
-            options={MINUTE_OPTIONS.map(minute => ({ value: String(minute), label: formatMinuteOfDay(minute) }))}
-            onSelect={minute => save({ ...schedule, minute: Number(minute) })} />
+          <TimePill ariaLabel="Daily agenda time" minute={schedule.minute} disabled={!schedule.enabled || busy}
+            onSelect={minute => save({ ...schedule, minute })} />
           <Toggle on={schedule.enabled} label="Make a daily agenda" disabled={busy} onChange={enabled => save({ ...schedule, enabled })} />
         </SettingsRow>
         <SettingsRow title="Working days" subtitle="The last one also looks back over the week">

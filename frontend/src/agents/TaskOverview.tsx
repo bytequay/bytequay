@@ -14,7 +14,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { taskArchived } from './AgentTasksView';
+import { taskArchived } from './taskStatus';
 import { TaskWindows } from './TaskCard';
 import type { AgentBridgePort } from './model';
 import type { AgentTaskDto, ModelProviderDto } from '../types';

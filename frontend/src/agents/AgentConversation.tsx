@@ -27,7 +27,7 @@ import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../pulls/local-review/types';
 import { findingFixRequest } from '../pulls/local-review/conversation';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import { MEMORY_CHANGED } from '../memory/model';
 import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ModelProviderDto } from '../types';
 import { AgentMark } from './AgentMark';

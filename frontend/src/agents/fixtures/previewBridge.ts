@@ -125,7 +125,7 @@ function previewTurn(taskId: string, state: string): AgentTurnDto {
  * records what it was asked to do.
  */
 export function createPreviewBridge(
-  workspaceId: string,
+  _workspaceId: string,
   options: PreviewOptions = {},
 ): AgentBridgePort & { commands: PreviewCommand[]; events: AgentEventEnvelope[] } {
   const commands: PreviewCommand[] = [];

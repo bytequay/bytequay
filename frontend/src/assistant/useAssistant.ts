@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { pollVisible } from '../ide/pollVisible';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import type { AssistantViewDto } from '../types';
 
 /** How often the open panel looks again while a reply is being written. */

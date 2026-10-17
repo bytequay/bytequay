@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { attachTerminal, type TerminalStatus } from '../../terminalSession';
 import type { Bridge } from '../../types';
-import { remoteErrorMessage } from '../PullOverview';
+import { remoteErrorMessage } from '../../remoteError';
 import { codeHostKey, type CodeHostRef } from './contracts';
 
 export type TerminalBridge = Pick<Bridge, 'openCodeTerminal' | 'writeReviewTerminal' | 'resizeReviewTerminal' | 'onReviewTerminalEvent'>;

@@ -17,7 +17,7 @@ import { QUESTION_TOOL, type AttentionItem, type AttentionKind, type AttentionLi
 import { isDeepSeekKeyLane, laneLabel } from '../settings/model';
 import type { AgentQueuedInputDto, AgentTaskActivityDto, AgentTaskDto, AgentTaskPullRequestDto, Bridge } from '../types';
 import { pollVisible } from '../ide/pollVisible';
-import { taskArchived, taskStatePill } from './AgentTasksView';
+import { taskArchived, taskStatePill } from './taskStatus';
 
 /** How often a Home re-reads what its tasks wait on: a local read, frequent enough for an approval to show promptly. */
 const TASK_ATTENTION_POLL_MS = 5000;

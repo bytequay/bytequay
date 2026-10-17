@@ -18,7 +18,7 @@ import { getCached, setCached } from '../dataCache';
 import { relativeTime } from '../relativeTime';
 import { displayModelName, laneLabel } from '../settings/model';
 import { TurnView } from './AgentTaskScreen';
-import { taskStatePill } from './AgentTasksView';
+import { taskStatePill } from './taskStatus';
 import type { AgentEventEnvelope } from './events';
 import { agentTaskReducer, initialAgentTaskState, pollAgentTask, type AgentBridgePort, type AgentTaskState } from './model';
 import { projectTranscript, settleFinalTurn } from './transcript';

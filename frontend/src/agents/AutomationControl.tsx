@@ -14,6 +14,7 @@
 import { useId, useState } from 'react';
 import '../css/development-automation.css';
 import type { DevelopmentAutomationDto, ModelProviderDto } from '../types';
+import { providerAvailable } from '../settings/model';
 import { usePopoverDismiss } from '../usePopoverDismiss';
 import { AUTOMATION_OPTIONS, automationForSubmission, automationSummary } from './developmentAutomation';
 
@@ -32,11 +33,11 @@ export function CiProviderSelect({ value, providers, disabled, onChange }: {
       <option value="">Same agent as development</option>
       {value !== null && selected === undefined && <option value={value}>{value} · Unavailable</option>}
       {supported.map(provider => <option key={provider.id} value={provider.id}>
-        {provider.label}{provider.readiness === 'READY' || provider.readiness === 'DEGRADED' ? '' : ' · Unavailable'}
+        {provider.label}{providerAvailable(provider.readiness) ? '' : ' · Unavailable'}
       </option>)}
     </select>
     {value !== null && selected === undefined && <small>This agent does not support CI Autofix.</small>}
-    {selected !== undefined && selected.readiness !== 'READY' && selected.readiness !== 'DEGRADED' && <small>{selected.diagnostic}</small>}
+    {selected !== undefined && !providerAvailable(selected.readiness) && <small>{selected.diagnostic}</small>}
   </div>;
 }
 

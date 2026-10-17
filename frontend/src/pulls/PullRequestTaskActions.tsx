@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bot, Eye, LoaderCircle, RefreshCw } from 'lucide-react';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
-import { remoteErrorMessage } from './PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import { findConversationReview } from '../agents/agentConversations';
 import type { AgentReviewDto } from './agent-review/contracts';
 

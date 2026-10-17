@@ -17,10 +17,10 @@ import type { AgentModelSettingDto, AgentModelType, ModelSettingsDto } from '../
 import ProviderRow from './ProviderRow';
 import ClaudeAccountsCard from './ClaudeAccountsCard';
 import { isClaudeAccount, isDeepSeekKeyLane, providerStatusLabel } from './model';
-import { AddAction, Dialog, SelectPill, SettingsCard, SettingsRow, StatusDot, dotTone, type PillOption } from './primitives';
+import { AddAction, Dialog, Segmented, SelectPill, SettingsCard, SettingsRow, StatusDot, dotTone, type PillOption } from './primitives';
 
 /** Chosen when Review should follow Development instead of naming its own model. */
-export const INHERIT_VALUE = '__inherit__';
+const INHERIT_VALUE = '__inherit__';
 
 /** Saved OpenAI keys are kept, but nothing runs on them yet. */
 export const API_KEY_REASON = 'This API-key provider does not support agent tasks yet.';
@@ -32,7 +32,7 @@ export function modelOptions(settings: ModelSettingsDto): PillOption[] {
   for (const provider of settings.providers) {
     for (const model of provider.models) {
       options.push({
-        value: `${provider.id}::${model.id}`,
+        value: optionValue(provider.id, model.id),
         label: model.name,
         note: provider.label,
         group: provider.label,
@@ -42,7 +42,7 @@ export function modelOptions(settings: ModelSettingsDto): PillOption[] {
   for (const key of settings.apiKeys.filter(candidate => candidate.provider !== 'DeepSeek')) {
     for (const model of key.models) {
       options.push({
-        value: `${key.id}::${model}`,
+        value: optionValue(key.id, model),
         label: model,
         note: key.alias,
         group: `${key.provider} · ${key.alias}`,
@@ -54,7 +54,7 @@ export function modelOptions(settings: ModelSettingsDto): PillOption[] {
   return options;
 }
 
-export function optionValue(configId: string, model: string): string {
+function optionValue(configId: string, model: string): string {
   return `${configId}::${model}`;
 }
 
@@ -64,7 +64,7 @@ function splitOption(value: string): { configId: string; model: string } {
 }
 
 /** The efforts the chosen model advertises; empty means the model takes no effort. */
-export function effortsFor(settings: ModelSettingsDto, configId: string, model: string): string[] {
+function effortsFor(settings: ModelSettingsDto, configId: string, model: string): string[] {
   return settings.providers.find(provider => provider.id === configId)
     ?.models.find(option => option.id === model)
     ?.efforts ?? [];
@@ -150,7 +150,7 @@ export function AgentModelControls({ agent, settings, inheritLabel, onChoose, on
 }
 
 /** One agent type as a full settings row, which is how the global Models page draws it. */
-export function AgentModelRow({ agent, subtitle, ...controls }: {
+function AgentModelRow({ agent, subtitle, ...controls }: {
   agent: AgentModelSettingDto;
   settings: ModelSettingsDto;
   subtitle?: string;
@@ -289,20 +289,8 @@ function AddKeyDialog({ keyProviders, onAdd, onCancel }: {
       onCancel={onCancel}
     >
       <div className="setw-field-label">Provider</div>
-      <div className="setw-seg" role="radiogroup" aria-label="API key provider">
-        {keyProviders.map(entry => (
-          <button
-            type="button"
-            key={entry.name}
-            role="radio"
-            aria-checked={entry.name === provider}
-            className={entry.name === provider ? 'is-current' : undefined}
-            onClick={() => setProvider(entry.name)}
-          >
-            {entry.name}
-          </button>
-        ))}
-      </div>
+      <Segmented label="API key provider" value={provider}
+        options={keyProviders.map(entry => ({ value: entry.name, label: entry.name }))} onChange={setProvider} />
       <div className="setw-field-label">Label</div>
       <input value={alias} aria-label="API key label" placeholder="personal" onChange={event => setAlias(event.target.value)} />
       <div className="setw-field-label">Key</div>

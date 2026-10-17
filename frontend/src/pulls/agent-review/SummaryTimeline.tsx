@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { shortSha } from '../../displayText';
 import type { ReactNode } from 'react';
 import { MessageSquare } from 'lucide-react';
 
@@ -64,7 +65,7 @@ export function FindingsHead({ rounds, round, onRound, count, overall, children 
       </div>}
     </div>
     <p className="agr-findings__meta">{shown === null ? `All rounds · ${overall}`
-      : `Round ${index + 1} · head ${shown.headSha.slice(0, 7)} · ${shownCount} ${index > 0 ? 'new' : shownCount === 1 ? 'finding' : 'findings'}`}</p>
+      : `Round ${index + 1} · head ${shortSha(shown.headSha)} · ${shownCount} ${index > 0 ? 'new' : shownCount === 1 ? 'finding' : 'findings'}`}</p>
   </header>;
 }
 

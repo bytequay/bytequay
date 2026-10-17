@@ -15,13 +15,12 @@ import { useState } from 'react';
 import { readBrowserDisplayMode, saveBrowserDisplayMode, type BrowserDisplayMode } from '../browserPreferences';
 import type { AppPreferencesDto, AppThemeDto, QuietHoursDto } from '../types';
 import AgendaScheduleCard from './AgendaScheduleCard';
-import { formatMinuteOfDay, MINUTE_OPTIONS } from './model';
-import { Segmented, SelectPill, SettingsCard, SettingsRow, Toggle } from './primitives';
+import { Segmented, SelectPill, SettingsCard, SettingsRow, TimePill, Toggle } from './primitives';
 
 const RETENTION_DAYS = [3, 7, 14, 30, 90];
 const RECENT_DAYS = [7, 14, 30, 90];
 
-export function dayLabel(days: number): string {
+function dayLabel(days: number): string {
   return days === 1 ? '1 day' : `${days} days`;
 }
 
@@ -61,11 +60,11 @@ export function GeneralPage({ preferences, quietHours, quietHoursBusy, version, 
       <SettingsCard>
         {quietHours === null ? <div className="setw-row-empty">Loading quiet hours…</div> : <div className="setw-quiet-hours">
           <SettingsRow title="Quiet hours" subtitle="GitHub and Jira · this Mac’s local time">
-            <SelectPill quiet ariaLabel="Quiet hours start" value={String(quietHours.startMinute)} label={formatMinuteOfDay(quietHours.startMinute)} disabled={!quietHours.enabled || quietHoursBusy}
-              options={MINUTE_OPTIONS.map(minute => ({ value: String(minute), label: formatMinuteOfDay(minute) }))} onSelect={minute => onQuietHours({ ...quietHours, startMinute: Number(minute) })} />
+            <TimePill ariaLabel="Quiet hours start" minute={quietHours.startMinute} disabled={!quietHours.enabled || quietHoursBusy}
+              onSelect={startMinute => onQuietHours({ ...quietHours, startMinute })} />
             <span className="setw-row-sub">to</span>
-            <SelectPill quiet ariaLabel="Quiet hours end" value={String(quietHours.endMinute)} label={formatMinuteOfDay(quietHours.endMinute)} disabled={!quietHours.enabled || quietHoursBusy}
-              options={MINUTE_OPTIONS.map(minute => ({ value: String(minute), label: formatMinuteOfDay(minute) }))} onSelect={minute => onQuietHours({ ...quietHours, endMinute: Number(minute) })} />
+            <TimePill ariaLabel="Quiet hours end" minute={quietHours.endMinute} disabled={!quietHours.enabled || quietHoursBusy}
+              onSelect={endMinute => onQuietHours({ ...quietHours, endMinute })} />
             <Toggle on={quietHours.enabled} label="Pause background refresh during quiet hours" disabled={quietHoursBusy} onChange={enabled => onQuietHours({ ...quietHours, enabled })} />
           </SettingsRow>
         </div>}

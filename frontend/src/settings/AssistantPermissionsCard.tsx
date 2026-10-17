@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import type { AssistantPermissionsDto } from '../types';
 import { SettingsCard, SettingsRow, Toggle } from './primitives';
 

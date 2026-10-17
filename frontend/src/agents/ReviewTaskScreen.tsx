@@ -21,7 +21,7 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import type { ReviewCardFocus } from './ReviewRequestCard';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { mergeReviewFindings } from '../pulls/agent-review/model';
-import { remoteErrorMessage } from '../pulls/PullOverview';
+import { remoteErrorMessage } from '../remoteError';
 import PinButton from '../home/PinButton';
 import '../css/review-tasks.css';
 

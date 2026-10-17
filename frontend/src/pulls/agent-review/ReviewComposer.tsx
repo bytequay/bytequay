@@ -16,7 +16,7 @@ import { LoaderCircle } from 'lucide-react';
 import type { SuggestionBase } from '../MarkdownBody';
 import MarkdownEditor from '../MarkdownEditor';
 import BetterWordsButton from '../BetterWordsButton';
-import { remoteErrorMessage } from '../PullOverview';
+import { remoteErrorMessage } from '../../remoteError';
 
 /** The same editor writes private questions and outgoing comments, so its destination stays visible. */
 export default function ReviewComposer({

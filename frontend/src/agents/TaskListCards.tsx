@@ -16,6 +16,7 @@ import React from 'react';
 import { Archive, ArchiveRestore, Check, ChevronRight, Cherry, CodeXml, Eye, LayoutGrid, PanelLeft, Trash2, Wrench } from 'lucide-react';
 import { Card, CardActions, CardAge, Clickable, IconButton, InGoalBadge, LinkKey, Pill } from '../cards/Card';
 import { relativeTime } from '../relativeTime';
+import { taskArchived, taskBusy } from './taskStatus';
 import { TASK_TYPES, type TaskListItem, type TaskType } from './taskList';
 
 const TYPE_ICONS = { dev: CodeXml, review: Eye, cherry: Cherry, ci: Wrench };
@@ -95,8 +96,8 @@ function TypeSlot({ item, checked, onToggle, chip }: {
 
 function Actions({ item, onArchive, onDelete, onOpenWorkspace }: Pick<TaskItemHandlers, 'onArchive' | 'onDelete' | 'onOpenWorkspace'> & { item: TaskListItem }): React.JSX.Element | null {
   if (onArchive === undefined && onDelete === undefined && onOpenWorkspace === undefined) return null;
-  const archived = item.task?.archivedAt != null;
-  const busy = item.task?.mutationClaim != null && item.task.mutationClaim.kind !== 'RECOVERY';
+  const archived = item.task !== null && taskArchived(item.task);
+  const busy = item.task !== null && taskBusy(item.task);
   return (
     <CardActions>
       {onOpenWorkspace !== undefined && (

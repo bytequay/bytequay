@@ -15,6 +15,9 @@ import { Check, ChevronDown, Plus, X } from 'lucide-react';
 import { type ReactNode, useId, useState } from 'react';
 import { useModalDialog } from '../useModalDialog';
 import { usePopoverDismiss } from '../usePopoverDismiss';
+import { formatMinuteOfDay, MINUTE_OPTIONS } from './model';
+
+const TIME_OPTIONS = MINUTE_OPTIONS.map(minute => ({ value: String(minute), label: formatMinuteOfDay(minute) }));
 
 /** One concern. Rows inside are separated by hairlines; a footer holds the card's one add action. */
 export function SettingsCard({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
@@ -191,6 +194,16 @@ export function SelectPill({ value, label, options, ariaLabel, quiet, disabled, 
       )}
     </div>
   );
+}
+
+export function TimePill({ minute, ariaLabel, disabled, onSelect }: {
+  minute: number;
+  ariaLabel: string;
+  disabled?: boolean;
+  onSelect: (minute: number) => void;
+}) {
+  return <SelectPill quiet ariaLabel={ariaLabel} value={String(minute)} label={formatMinuteOfDay(minute)} disabled={disabled}
+    options={TIME_OPTIONS} onSelect={value => onSelect(Number(value))} />;
 }
 
 /** The card-footer add action shared by Models, Skills and Remotes. */

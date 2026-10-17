@@ -25,11 +25,13 @@
   <a href="https://github.com/bytequay/bytequay/actions/workflows/ci.yml"><img src="https://github.com/bytequay/bytequay/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
 
-ByteQuay is a macOS app that brings GitHub reviews and local coding agents
+ByteQuay is a desktop app that brings GitHub reviews and local coding agents
 together. Let agents build and guide you, choose how much detail to explore,
 and discuss any part of the work before you merge.
 
-App data stays on your Mac. GitHub and model requests use the services you
+macOS is the first supported platform, with Linux support planned.
+
+App data stays on your computer. GitHub and model requests use the services you
 connect; publishing requires your action or explicitly accepted automation.
 
 ByteQuay is open source and pre-1.0. The guides cover the development version;
@@ -111,7 +113,7 @@ Download the latest `.dmg` from
 [GitHub Releases](https://github.com/bytequay/bytequay/releases), open it, and
 drag **ByteQuay.app** to **Applications**.
 
-Current builds require macOS 14+. The app bundles Java 25; no separate JDK
+Current macOS builds require macOS 14+. The app bundles Java 25; no separate JDK
 installation is required.
 
 Follow the [quickstart](https://bytequay.github.io/bytequay/guide-get-started.html#getting-started)

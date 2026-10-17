@@ -322,6 +322,7 @@ public class PullRequestCiBridgeResolverImpl
         CiWorkflowRun run = workflow.orElseThrow();
         CiJob job = run.jobs().stream().filter(value -> value.id() == jobId).findFirst().orElseThrow();
         BoundedCiLog fetched = actions.readLog(new ReadCiLogQuery(taskId, head.pullRequest(), run, job, MAXIMUM_LOG_BYTES));
+        List<String> annotations = actions.readFailureAnnotations(head.pullRequest(), job.id());
         String contents = fetched.rawLogId().map(logId -> rawLogs.read(taskId, logId))
                 .orElseGet(() -> fetched.blob().map(blob -> StandardCharsets.UTF_8.decode(logs.readBlob(taskId, blob)).toString()).orElse(""));
         CiHeadSnapshot after = actions.inspect(head.pullRequest());
@@ -344,6 +345,7 @@ public class PullRequestCiBridgeResolverImpl
                 ? "Error blocks selected from the cached raw log. Use read_ci_raw_log with logId set to rawLogId for complete evidence."
                 : "No diagnostic keywords or stack trace matched. Only the log tail (at most 32 KiB) is shown. "
                         + "Call read_ci_raw_log with logId set to rawLogId for the full cached log."));
+        annotations.forEach(log.putArray("githubAnnotations")::add);
         ArrayNode errors = log.putArray("terminalErrorLines");
         log.put("terminalErrorLinesOmitted", fetched.terminalErrorLines().size());
         for (String error : fetched.terminalErrorLines()) {

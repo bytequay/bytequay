@@ -49,6 +49,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -100,6 +101,9 @@ public class GitHubActionsClient
     private static final int MAX_PAGES = 10;
     private static final int MAX_TERMINAL_ERRORS = 20;
     private static final int MAX_ERROR_LINE = 500;
+    private static final int MAX_ANNOTATIONS = 10;
+    /** The job log already ends with this line. */
+    private static final Pattern EXIT_STATUS_ANNOTATION = Pattern.compile("Process completed with exit code \\d+\\.?");
     private static final String TAIL_NOTE = "No diagnostic keywords or stack trace matched. Showing only the log tail (at most 32 KiB); "
             + "request the cached raw log for complete evidence.\n";
     private static final String LOG_MEDIA_TYPE = "text/plain; charset=utf-8";
@@ -305,6 +309,33 @@ public class GitHubActionsClient
         catch (IOException failure) {
             throw new UncheckedIOException("Cannot read CI log", failure);
         }
+    }
+
+    @Override
+    public List<String> readFailureAnnotations(PullRequestRef pullRequest, long jobId)
+    {
+        requireNonNull(pullRequest, "pullRequest is null");
+        String pat = token();
+        List<AnnotationResponse> annotations;
+        try {
+            // An Actions job is its own check run.
+            annotations = get(gitHubRestClient, pat, "/repos/{owner}/{repo}/check-runs/{jobId}/annotations?per_page=100", pullRequest.owner(), pullRequest.repo(), jobId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<List<AnnotationResponse>>() {});
+        }
+        catch (RestClientException failure) {
+            // Annotations only add context; a token without check-run access still gets the log.
+            return ImmutableList.of();
+        }
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("GITHUB_TOKEN", pat));
+        return Optional.ofNullable(annotations).orElse(ImmutableList.of()).stream()
+                .filter(annotation -> "failure".equals(annotation.level()) && annotation.message() != null)
+                .map(annotation -> Optional.ofNullable(annotation.title()).filter(title -> !title.isBlank()).map(title -> title + ": ").orElse("") + annotation.message())
+                .map(message -> normalizeLogLine(redact(message, redactor)))
+                .filter(message -> !message.isBlank() && !EXIT_STATUS_ANNOTATION.matcher(message).matches())
+                .distinct()
+                .limit(MAX_ANNOTATIONS)
+                .collect(toImmutableList());
     }
 
     private Optional<String> retrieveLog(String pat, PullRequestRef pullRequest, long jobId, Path destination)
@@ -759,6 +790,8 @@ public class GitHubActionsClient
             String conclusion,
             @JsonProperty("html_url") String htmlUrl,
             List<StepResponse> steps) {}
+
+    private record AnnotationResponse(@JsonProperty("annotation_level") String level, String title, String message) {}
 
     private record StepResponse(
             int number,

@@ -15,6 +15,8 @@ package com.bytequay.app.ci;
 
 import com.bytequay.core.domain.PullRequestRef;
 
+import java.util.List;
+
 public interface GitHubActionsClient
 {
     /** Reads the complete current description; an empty body is returned as an empty string. */
@@ -35,6 +37,14 @@ public interface GitHubActionsClient
      * @return bounded excerpt blob, cached raw-log identifier, terminal errors, and selection facts
      */
     BoundedCiLog readLog(ReadCiLogQuery query);
+
+    /**
+     * Reads the failure messages GitHub attached to a job's check run. Some causes, such as a lost
+     * runner, appear only here and never in the job log.
+     *
+     * @return credential-redacted messages, or an empty list when GitHub has none or refuses the read
+     */
+    List<String> readFailureAnnotations(PullRequestRef pullRequest, long jobId);
 
     /**
      * Reruns failed jobs for one exact completed workflow run.

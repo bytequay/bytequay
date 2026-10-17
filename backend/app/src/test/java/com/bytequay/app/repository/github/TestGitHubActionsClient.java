@@ -424,6 +424,29 @@ class TestGitHubActionsClient
     }
 
     @Test
+    void readsRedactedFailureAnnotationsAndToleratesARefusedRead()
+    {
+        Fixture fixture = fixture();
+        String annotationsUrl = "https://api.github.test/repos/owner/repo/check-runs/902/annotations?per_page=100";
+        fixture.apiServer.expect(requestTo(annotationsUrl))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + PAT))
+                .andRespond(withSuccess("""
+                        [
+                          {"annotation_level": "failure", "title": "", "message": "The self-hosted runner lost communication with the server."},
+                          {"annotation_level": "failure", "title": "ExampleTest", "message": "failed with %s"},
+                          {"annotation_level": "failure", "title": "", "message": "Process completed with exit code 1."},
+                          {"annotation_level": "warning", "title": "", "message": "Node 16 is deprecated"}
+                        ]
+                        """.formatted(PAT), MediaType.APPLICATION_JSON));
+        fixture.apiServer.expect(requestTo(annotationsUrl)).andRespond(withStatus(HttpStatus.FORBIDDEN));
+
+        assertThat(fixture.client.readFailureAnnotations(PULL_REQUEST, 902))
+                .containsExactly("The self-hosted runner lost communication with the server.", "ExampleTest: failed with [REDACTED]");
+        assertThat(fixture.client.readFailureAnnotations(PULL_REQUEST, 902)).isEmpty();
+        fixture.verify();
+    }
+
+    @Test
     void followsLogRedirectWithoutCredentialsAndStoresBoundedRedactedBlob()
     {
         Fixture fixture = fixture();

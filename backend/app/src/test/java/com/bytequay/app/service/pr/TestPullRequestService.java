@@ -1071,6 +1071,8 @@ class TestPullRequestService
         when(actions.readJobLog(ref, 301)).thenReturn("test failed");
 
         assertThat(service.readCheckLog("owner/repo", 7, 301)).isEqualTo("test failed");
+        when(actions.readFailureAnnotations(ref, 301)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."));
+        assertThat(service.readCheckLog("owner/repo", 7, 301)).isEqualTo("GitHub annotation: The self-hosted runner lost communication with the server.\n\ntest failed");
         for (long jobId : ImmutableList.of(302L, 999L)) {
             assertThatThrownBy(() -> service.readCheckLog("owner/repo", 7, jobId))
                     .isInstanceOf(ResponseStatusException.class)

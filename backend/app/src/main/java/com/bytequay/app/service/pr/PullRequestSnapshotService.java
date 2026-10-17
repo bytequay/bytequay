@@ -52,6 +52,7 @@ import java.util.function.UnaryOperator;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 /** Owns persisted pull-request detail and diff snapshots. */
 @Service
@@ -87,7 +88,11 @@ public class PullRequestSnapshotService
         if (!failedJob) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This failed job is no longer part of the current PR checks. Refresh the pull request.");
         }
-        return actions.readJobLog(pullRequest, jobId);
+        String log = actions.readJobLog(pullRequest, jobId);
+        String annotations = actions.readFailureAnnotations(pullRequest, jobId).stream()
+                .map(message -> "GitHub annotation: " + message + "\n")
+                .collect(joining());
+        return annotations.isEmpty() ? log : annotations + "\n" + log;
     }
 
     void rerunFailedChecks(PullRequestRef pullRequest)

@@ -34,7 +34,8 @@ public record PullRequestCiBridge(
             Prefer read_pull_request_ci before gh or shell commands when inspecting this task's associated
             pull request checks or failed CI logs. Call without arguments for the current pull request,
             head revision, checks, and failed job identities. Supply only a returned failed jobId to read
-            its error log. ByteQuay caches the complete credential-redacted raw log before selecting
+            its error log. Its githubAnnotations are failure messages GitHub attached to the job, such as a
+            lost runner; they can explain a failure the log never shows. ByteQuay caches the complete credential-redacted raw log before selecting
             diagnostic blocks. When no diagnostic keywords or stack traces match, the result is explicitly
             only the last 32 KiB. If that tail or any excerpt is insufficient, call read_ci_raw_log with the
             returned rawLogId as logId. It reads the cached file without downloading again. Start at offset 0 and pass

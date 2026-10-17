@@ -533,7 +533,22 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(result.at("/log/rawLogId").asText()).isEqualTo(id);
         assertThat(result.at("/log/message").asText()).contains("No diagnostic", "tail", "32 KiB", "read_ci_raw_log");
         assertThat(result.at("/log/excerpt").asText()).isEqualTo(source.substring(source.length() - 32768));
+        assertThat(result.at("/log/githubAnnotations").isEmpty()).isTrue();
         verifyNoInteractions(logs);
+    }
+
+    @Test
+    void returnsGitHubAnnotationsThatTheLogNeverShows()
+            throws Exception
+    {
+        String id = "a".repeat(64);
+        when(actions.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(new BlobRef("ci/excerpt.log", "text/plain", 0)), false, ImmutableList.of(), Optional.empty(), Optional.of(id), false));
+        when(rawLogs.read(taskId, id)).thenReturn("[INFO] Running ExampleTest\n");
+        when(actions.readFailureAnnotations(PR, 201L)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."));
+
+        JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
+
+        assertThat(result.at("/log/githubAnnotations/0").asText()).isEqualTo("The self-hosted runner lost communication with the server.");
     }
 
     private JsonNode read(PullRequestCiBridge bridge, Optional<Long> jobId)

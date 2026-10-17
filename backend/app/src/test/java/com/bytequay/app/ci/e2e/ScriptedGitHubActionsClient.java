@@ -125,6 +125,12 @@ final class ScriptedGitHubActionsClient
     }
 
     @Override
+    public List<String> readFailureAnnotations(PullRequestRef pullRequest, long jobId)
+    {
+        return ImmutableList.of();
+    }
+
+    @Override
     public synchronized CiRerunResult rerunFailedJobs(RerunFailedJobsCommand command)
     {
         requireNonNull(command, "command is null");

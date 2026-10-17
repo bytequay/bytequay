@@ -11,9 +11,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { RunningTask } from '../agents/runningTaskModel';
 import { pullRequestFromRoute, type ZoomedReference } from '../githubReference';
+import { needsAction, type AppNotice } from '../notices/contracts';
 import type { AgendaTargetDto, AssistantItemDto } from '../types';
 import { workspaceLocationFromRoute } from '../workspaces/model';
+
+/** The pills over the stack, in the order Tab moves through them. */
+export const GROUPS = ['all', 'decision', 'running', 'finished', 'today'] as const;
+export type Group = typeof GROUPS[number];
+
+/** One card in the stack: a task's notice, or a task still running. */
+export type WaitingCard = { key: string; group: 'decision' | 'finished'; at: number; notice: AppNotice }
+  | { key: string; group: 'running'; at: number; task: RunningTask };
+
+/** Newest first: notices that need the user are Decisions, finished turns are Finished, and running tasks are Running. */
+export function waitingCards(notices: AppNotice[], tasks: RunningTask[]): WaitingCard[] {
+  const cards: WaitingCard[] = notices.map(notice => ({ key: notice.id, group: needsAction(notice) ? 'decision' : 'finished', at: Date.parse(notice.occurredAt), notice }));
+  for (const task of tasks) {
+    if (task.status === 'RUNNING') cards.push({ key: `running:${task.id}`, group: 'running', at: Date.parse(task.startedAt), task });
+  }
+  return cards.sort((left, right) => right.at - left.at);
+}
+
+/** The top card and the two peeking behind it, wrapping round so paging never runs out of peeks. */
+export function stackOf<T>(cards: T[], top: number): T[] {
+  return Array.from({ length: Math.min(3, cards.length) }, (_, offset) => cards[(top + offset) % cards.length]);
+}
 
 /**
  * The ref of what the user is looking at, so "this one" in a message can resolve: the top layer first, then the page's route. Pages whose

@@ -11,28 +11,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { Hand, Mic, Settings, TriangleAlert, X } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { Hand, Mic, TriangleAlert, X } from 'lucide-react';
 import Composer from '../Composer';
-import { PendingApprovalCard, type ApprovalDecider } from '../agents/AgentConversation';
 import { renderMarkdown } from '../agents/markdown';
-import { IconButton } from '../cards/Card';
-import TodayList, { openTarget } from '../home/TodayList';
-import { clockTime, dayText } from '../home/today';
-import { useTodayAgenda } from '../home/useTodayAgenda';
-import { APPROVAL_NOTICE, NOTICE_ACTIONS, noticeLabel, type AppNotice } from '../notices/contracts';
+import { openTarget } from '../home/TodayList';
+import { clockTime } from '../home/today';
+import type { AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import { settingsRoute, type SettingsSection } from '../settings/routes';
-import type { AgendaTargetDto, AgentPendingApprovalDto, AssistantItemDto } from '../types';
+import type { AgendaTargetDto, AssistantItemDto } from '../types';
 import { entries, linkRefs, refFromHref, refLabel } from './model';
 import { useAssistant } from './useAssistant';
+import WaitingStack from './WaitingStack';
 import '../css/assistant.css';
 
 /**
- * The Assistant beside every page: today's agenda, the day's conversation, then the notices waiting on the user with their own buttons.
- * It docks rather than floats, because a page can be a native browser or editor view that nothing can paint over.
+ * The Assistant over every page, opened with ⌘J: the composer, the day's conversation once the user talks, then what waits on them.
+ * It floats, and nothing paints over a native view, so the app leaves a web page before it opens and the editor hides under any dialog.
  */
-export default function AssistantPanel({ open, notices, openCard, onScreen, onClose, onShowApp, onResizeStart }: {
+export default function AssistantPanel({ open, notices, openCard, onScreen, onClose }: {
   open: boolean;
   notices: AppNotice[];
   /** The waiting card an alert's Answer asked for; a new object each time. */
@@ -40,26 +38,26 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
   /** The ref of what the user is looking at, sent with a message unless they remove it. */
   onScreen: string | null;
   onClose: () => void;
-  /** Brings the app back from a web page before the panel opens anything in it. */
-  onShowApp: () => void;
-  onResizeStart: (event: ReactMouseEvent) => void;
 }) {
   const { view, error, sending, send, stop, retry, refresh } = useAssistant(open);
   const [draft, setDraft] = useState('');
   const [hiddenScreen, setHiddenScreen] = useState<string | null>(null);
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
   const [failure, setFailure] = useState<string | null>(null);
-  const [opened, setOpened] = useState<string | null>(null);
-  const panel = useRef<HTMLElement>(null);
+  const [request, setRequest] = useState(openCard);
+  // The conversation shows once the user talks, or when a reply came in while the Assistant was closed.
+  const [talking, setTalking] = useState(false);
+  const [closedAt, setClosedAt] = useState(Date.now);
   const input = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
-  const content = useRef<HTMLDivElement>(null);
+  const visible = useRef<string[]>([]);
   const returnFocus = useRef<Element | null>(null);
   const items = view?.items ?? [];
   const running = view?.running ?? false;
   // A card answered here leaves at once; the notice itself goes on the host's next read.
   const waiting = notices.filter(notice => !answered.has(notice.id));
   const screen = onScreen !== null && onScreen !== hiddenScreen ? onScreen : null;
+  const talkShown = talking || running || items.some(item => Date.parse(item.at) > closedAt);
 
   useLayoutEffect(() => {
     if (open) {
@@ -67,11 +65,17 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
       input.current?.focus();
       return;
     }
+    setTalking(false);
+    setFailure(null);
+    setClosedAt(Date.now());
     const previous = returnFocus.current;
     returnFocus.current = null;
     const active = document.activeElement;
-    if (previous instanceof HTMLElement && previous.isConnected && (active === null || active === document.body || panel.current?.contains(active))) previous.focus();
+    if (previous instanceof HTMLElement && previous.isConnected && (active === null || active === document.body)) previous.focus();
   }, [open]);
+
+  useEffect(() => setRequest(openCard), [openCard]);
+  const requestDone = useCallback(() => setRequest(null), []);
 
   useEffect(() => setAnswered(current => {
     const live = current.size === 0 ? current : new Set([...current].filter(id => notices.some(notice => notice.id === id)));
@@ -80,36 +84,20 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
 
   useLayoutEffect(() => {
     const node = scroller.current;
-    if (open && node) node.scrollTop = node.scrollHeight;
-  }, [open, items.length, running, waiting.length]);
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [open, talkShown, items.length, running]);
 
-  useLayoutEffect(() => {
-    const card = openCard === null ? null : scroller.current?.querySelector<HTMLElement>(`[data-notice="${CSS.escape(openCard.id)}"]`);
-    if (openCard === null || !card || !content.current) return;
-    card.scrollIntoView({ block: 'nearest' });
-    // The card itself, not one of its buttons, so a stray Enter cannot answer it.
-    card.focus({ preventScroll: true });
-    setOpened(openCard.id);
-    // The agenda, the conversation and the card's own approval are still being read; what they add must not push it out of view.
-    const observer = new ResizeObserver(() => card.scrollIntoView({ block: 'nearest' }));
-    observer.observe(content.current);
-    // The outline holds for 2 s, then fades for 0.4 s (assistant.css).
-    const timer = window.setTimeout(() => { observer.disconnect(); setOpened(null); }, 2400);
-    return () => { window.clearTimeout(timer); observer.disconnect(); setOpened(null); };
-  }, [openCard]);
+  if (!open) return null;
 
-  const show = (target: AgendaTargetDto) => { onShowApp(); openTarget(target); };
-  const openSettings = (section: SettingsSection) => { onShowApp(); window.location.hash = settingsRoute(section); };
+  const show = (target: AgendaTargetDto) => { onClose(); openTarget(target); };
+  const openSettings = (section: SettingsSection) => { onClose(); window.location.hash = settingsRoute(section); };
   // A receipt a card's button left after a failed reply does not end that exchange, so Retry stays on the failure.
   const lastExchange = items.findLast(item => item.kind !== 'RECEIPT')?.id;
-  const noticeAction = (action: Promise<void>, message: string) => {
-    setFailure(null);
-    void action.catch(() => setFailure(message));
-  };
   const submit = () => {
     const text = draft.trim();
-    void send(text, waiting.map(notice => notice.id), screen).then(sent => {
+    void send(text, visible.current, screen).then(sent => {
       if (!sent) return;
+      setTalking(true);
       setDraft(current => current.trim() === text ? '' : current);
       setHiddenScreen(null);
     });
@@ -124,48 +112,39 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
     event.preventDefault();
     if (ref in targets) show(targets[ref]);
   };
+  const noticeAction = (action: Promise<void>, message: string, then?: () => void) => {
+    setFailure(null);
+    void action.then(then).catch(() => setFailure(message));
+  };
+
+  const talk = talkShown && items.length > 0 && (
+    <div ref={scroller} className="assistant-sheet assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
+      {entries(items).map(entry => Array.isArray(entry)
+        ? <div key={entry[0].id} className="assistant-receipts">{entry.map(item => <Receipt key={item.id} item={item} onOpen={show} />)}</div>
+        : <Entry key={entry.id} item={entry} retryable={!running && entry.id === lastExchange} onRetry={retry} onSettings={openSettings} />)}
+      {running && <p className="assistant-thinking" role="status">Thinking…</p>}
+    </div>
+  );
 
   return (
-    <aside ref={panel} className="assistant-panel" aria-label="Assistant" hidden={!open}
-      onKeyDown={event => {
-        if (event.key !== 'Escape' || event.defaultPrevented) return;
-        event.preventDefault();
-        onClose();
-      }}>
-      <div className="assistant-panel__resize" role="separator" aria-label="Resize the Assistant" aria-orientation="vertical" title="Drag to resize"
-        onMouseDown={onResizeStart} />
-      <header className="assistant-head">
-        <span className="assistant-head__title" title={view?.model ? `Model: ${view.model}` : undefined}>Assistant</span>
-        {view !== null && <span className="assistant-head__date">{dayText(view.day)}</span>}
-        <span className="assistant-spacer" />
-        <IconButton label="Assistant settings" title="Settings" onClick={() => openSettings('workflow')}><Settings size={15} aria-hidden="true" /></IconButton>
-        <IconButton label="Close the Assistant" title="Close (⌘J)" onClick={onClose}><X size={15} aria-hidden="true" /></IconButton>
-      </header>
-      <div ref={scroller} className="assistant-scroll" onClickCapture={openLink} onAuxClickCapture={openLink}>
-        <div ref={content}>
-          {open && <PanelAgenda onOpen={show} />}
-          {entries(items).map(entry => Array.isArray(entry)
-            ? <div key={entry[0].id} className="assistant-receipts">{entry.map(item => <Receipt key={item.id} item={item} onOpen={show} />)}</div>
-            : <Entry key={entry.id} item={entry} retryable={!running && entry.id === lastExchange} onRetry={retry} onSettings={openSettings} />)}
-          {running && <p className="assistant-thinking" role="status">Thinking…</p>}
-          {waiting.length > 0 && <section className="assistant-waiting" aria-label="Waiting on you">
-            {waiting.map(notice => (
-              <div key={notice.id} className={`assistant-waiting__card${opened === notice.id ? ' is-opened' : ''}`} data-notice={notice.id} tabIndex={-1}>
-                {notice.id.startsWith(APPROVAL_NOTICE)
-                  ? <WaitingApproval notice={notice} onAnswered={() => { setAnswered(current => new Set(current).add(notice.id)); refresh(); }}
-                    onOpen={() => noticeAction(window.bridge.openAppNotice(notice.id), 'Unable to open this task.')}
-                    onClear={() => noticeAction(window.bridge.removeAppNotice(notice.id), 'Unable to clear this notice.')} />
-                  : <NoticeRow notice={notice} onOpen={() => noticeAction(window.bridge.openAppNotice(notice.id), 'Unable to open this task.')}
-                    onClear={() => noticeAction(window.bridge.removeAppNotice(notice.id), 'Unable to clear this notice.')} />}
-              </div>
-            ))}
-          </section>}
-        </div>
-      </div>
-      <div className="assistant-compose">
-        {(error ?? failure) !== null && <p className="assistant-error" role="alert">{error ?? failure}</p>}
-        <Composer inputRef={input} aria-label="Message the Assistant" placeholder="Ask, or tell it what to start…" value={draft} maxLength={16 * 1024}
+    <div className="assistant-panel">
+      <button type="button" className="assistant-backdrop" tabIndex={-1} aria-label="Close the Assistant" onClick={onClose} />
+      <section className={`assistant-float${running || sending ? ' is-replying' : ''}`} role="dialog" aria-label="Assistant"
+        onKeyDown={event => {
+          if (event.key !== 'Escape' || event.defaultPrevented) return;
+          event.preventDefault();
+          onClose();
+        }}>
+        <Composer inputRef={input} aria-label="Message the Assistant" placeholder="Ask, or tell it what to start" value={draft} maxLength={16 * 1024}
           onChange={event => setDraft(event.target.value)} busy={sending} onSubmit={submit}
+          onKeyDown={event => {
+            if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey) return;
+            const pill = event.currentTarget.closest('.assistant-float')?.querySelector<HTMLElement>('.assistant-pill.is-selected');
+            if (!pill) return;
+            event.preventDefault();
+            pill.focus();
+          }}
+          notice={(error ?? failure) !== null && <p className="assistant-error" role="alert">{error ?? failure}</p>}
           submitEnabled={draft.trim() !== '' && !running && !sending} showSubmit={!running} submitLabel="Send to the Assistant" submitTitle="Send (Enter)"
           trailingActions={running && (
             <button type="button" className="agt-send is-stop" aria-label="Stop the reply" title="Stop the reply" onClick={stop}>
@@ -173,27 +152,26 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
             </button>
           )}>
           {screen !== null && (
-            <span className="assistant-chip">
+            <span className="assistant-chip" title="On screen: tells the assistant what “this one” means">
               <span className="assistant-chip__name">On screen:</span>
               <span className="assistant-chip__ref">{refLabel(screen)}</span>
-              <button type="button" aria-label="Leave what's on screen out of this message" title="Leave it out of this message"
+              <button type="button" aria-label="Leave what's on screen out of this message" title="Leave it out"
                 onClick={() => setHiddenScreen(screen)}><X size={11} aria-hidden="true" /></button>
             </span>
           )}
           <span className="assistant-spacer" />
+          {view?.model && <span className="assistant-model" title={`Answers with ${view.model}`}>{view.model}</span>}
           <span className="assistant-mic" role="img" aria-label="Voice comes later" title="Voice comes later. macOS Dictation already types here.">
             <Mic size={15} aria-hidden="true" />
           </span>
         </Composer>
-      </div>
-    </aside>
+        <WaitingStack notices={waiting} talk={talk} request={request} onRequestDone={requestDone} visible={visible} input={input} onLeave={onClose}
+          onAnswered={id => { setAnswered(current => new Set(current).add(id)); refresh(); }}
+          onOpenNotice={id => noticeAction(window.bridge.openAppNotice(id), 'Unable to open this task.', onClose)}
+          onClearNotice={id => noticeAction(window.bridge.removeAppNotice(id), 'Unable to clear this notice.')} />
+      </section>
+    </div>
   );
-}
-
-function PanelAgenda({ onOpen }: { onOpen: (target: AgendaTargetDto) => void }) {
-  const today = useTodayAgenda();
-  // Before the day's agenda is made there is nothing to show; Home keeps its Make now.
-  return today.agenda?.state === 'NONE' ? null : <TodayList today={today} scope="global" onOpen={onOpen} />;
 }
 
 function Entry({ item, retryable, onRetry, onSettings }: {
@@ -256,65 +234,6 @@ function Receipt({ item, onOpen }: { item: AssistantItemDto; onOpen: (target: Ag
         ? <span className="assistant-receipt__detail">Stopped</span>
         : <button type="button" className="assistant-receipt__action" disabled={stop === 'stopping'} onClick={() => cancel(turnId)}>Stop</button>)}
       {target !== null && <button type="button" className="assistant-receipt__action" onClick={() => onOpen(target)}>Open</button>}
-    </div>
-  );
-}
-
-/** An approval or a question with the task's own buttons; its data is the task's, read fresh, never the notice's text. */
-function WaitingApproval({ notice, onAnswered, onOpen, onClear }: { notice: AppNotice; onAnswered: () => void; onOpen: () => void; onClear: () => void }) {
-  const [approval, setApproval] = useState<AgentPendingApprovalDto | null | undefined>(undefined);
-  const [error, setError] = useState<string | null>(null);
-  const { taskId, turnId, reviewId } = notice;
-  const approvalId = notice.id.slice(APPROVAL_NOTICE.length);
-
-  useEffect(() => {
-    let live = true;
-    if (turnId === null) {
-      setApproval(null);
-      return;
-    }
-    const read = reviewId === null ? window.bridge.readAgentPendingApprovals(taskId, turnId) : window.bridge.readAgentReviewApprovals(reviewId, taskId, turnId);
-    void read.then(pending => { if (live) setApproval(pending.find(item => item.approvalId === approvalId) ?? null); })
-      .catch(() => { if (live) setApproval(null); });
-    return () => { live = false; };
-  }, [approvalId, reviewId, taskId, turnId]);
-
-  // Answered elsewhere, or no longer readable: the task itself shows what happened.
-  if (approval === null) return <NoticeRow notice={notice} onOpen={onOpen} onClear={onClear} />;
-  const decide: ApprovalDecider = (id, decision, answers) => {
-    setError(null);
-    const resolved = reviewId === null
-      ? window.bridge.resolveAgentApproval(id, decision, undefined, answers)
-      : window.bridge.resolveAgentReviewApproval(reviewId, id, decision, answers);
-    // The answer stands whether or not its receipt is kept, so a lost receipt never brings the card back.
-    void resolved.then(() => window.bridge.recordAssistantAnswer(id).catch((): void => undefined)).then(onAnswered)
-      .catch((cause: unknown) => setError(remoteErrorMessage(cause)));
-  };
-  const heading = notice.pullRequestTitle ?? notice.title;
-  return (
-    <div className="assistant-wait">
-      <div className="assistant-wait__head">
-        <span className="assistant-wait__title" title={heading}>{heading}</span>
-        <span className="assistant-wait__meta" title={notice.repository}>· {notice.repository}</span>
-        <span className="assistant-spacer" />
-        <button type="button" className="assistant-link" onClick={onOpen}>Open</button>
-      </div>
-      {approval === undefined ? <div className="assistant-wait__loading">Loading…</div> : <PendingApprovalCard approval={approval} onDecide={decide} />}
-      {error !== null && <p className="assistant-error" role="alert">{error}</p>}
-    </div>
-  );
-}
-
-function NoticeRow({ notice, onOpen, onClear }: { notice: AppNotice; onOpen: () => void; onClear: () => void }) {
-  const heading = notice.pullRequestTitle ?? notice.title;
-  return (
-    <div className="assistant-row">
-      <span className="assistant-row__text" title={`${noticeLabel(notice)}: ${heading}`}>
-        <span className="assistant-row__title">{heading}</span>
-        <span className="assistant-row__meta"> · {noticeLabel(notice)}</span>
-      </span>
-      <button type="button" className="assistant-row__open" onClick={onOpen}>{NOTICE_ACTIONS[notice.kind]}</button>
-      <IconButton label={`Clear “${heading}”`} title="Clear" onClick={onClear}><X size={14} aria-hidden="true" /></IconButton>
     </div>
   );
 }

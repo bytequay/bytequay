@@ -12,9 +12,11 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
+import type { RunningTask } from '../agents/runningTaskModel';
+import type { AppNotice } from '../notices/contracts';
 import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceIssueRoute, workspacePullRequestRoute, workspaceReviewTaskRoute } from '../workspaces/model';
-import { entries, linkRefs, refFromHref, refLabel, screenRef } from './model';
+import { entries, linkRefs, refFromHref, refLabel, screenRef, stackOf, waitingCards } from './model';
 
 const target: AgendaTargetDto = { kind: 'PULL', workspaceId: 'ws', repo: 'trinodb/trino', number: 31402, id: null, connectionId: null, cloudId: null };
 
@@ -75,5 +77,31 @@ describe('entries', () => {
     const drawn = entries([item('u1', 'USER'), item('d1', 'RECEIPT', 'DONE'), item('d2', 'RECEIPT', 'DONE'), item('x1', 'RECEIPT', 'REFUSED'),
       item('d3', 'RECEIPT', 'DONE'), item('r1', 'REPLY')]);
     expect(drawn.map(entry => Array.isArray(entry) ? entry.map(one => one.id) : entry.id)).toEqual(['u1', ['d1', 'd2'], 'x1', ['d3'], 'r1']);
+  });
+});
+
+describe('waitingCards', () => {
+  const notice = (id: string, kind: AppNotice['kind'], minute: number): AppNotice => ({
+    id, kind, taskId: id, workspaceId: 'ws', turnId: null, reviewId: null, title: id, pullRequest: null, pullRequestTitle: null, changes: null,
+    message: '', repository: 'trinodb/trino', laneId: 'claude', occurredAt: `2026-10-17T09:${String(minute).padStart(2, '0')}:00Z`,
+  });
+  const task = (id: string, status: RunningTask['status'], minute: number): RunningTask => ({
+    id, workspaceId: 'ws', title: id, repository: 'trinodb/trino', kind: 'TASK', targetId: id, status, startedAt: `2026-10-17T09:${String(minute).padStart(2, '0')}:00Z`,
+    expiresAt: null,
+  });
+
+  it('puts what needs the user under Decision, finished turns under Finished and running tasks under Running, newest first', () => {
+    const cards = waitingCards([notice('approval:a', 'APPROVAL', 49), notice('done', 'TURN_FINISHED', 31), notice('failed', 'FAILURE', 58)],
+      [task('t1', 'RUNNING', 50), task('t2', 'COMPLETED', 59)]);
+    expect(cards.map(card => [card.key, card.group])).toEqual([['failed', 'decision'], ['running:t1', 'running'], ['approval:a', 'decision'], ['done', 'finished']]);
+  });
+});
+
+describe('stackOf', () => {
+  it('shows the top card and at most two behind it, wrapping round', () => {
+    expect(stackOf(['a', 'b', 'c', 'd'], 0)).toEqual(['a', 'b', 'c']);
+    expect(stackOf(['a', 'b', 'c', 'd'], 3)).toEqual(['d', 'a', 'b']);
+    expect(stackOf(['a', 'b'], 1)).toEqual(['b', 'a']);
+    expect(stackOf([], 0)).toEqual([]);
   });
 });

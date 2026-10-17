@@ -60,7 +60,6 @@ import WorkspaceShell from './workspaces/WorkspaceShell';
 import WorkspaceItemLayer from './workspaces/WorkspaceItemLayer';
 import { LayerCovered } from './Zoom';
 import { needsAction, type AppNotice } from './notices/contracts';
-import { useResizablePane } from './useResizablePane';
 import {
   workspaceIssueRoute,
   workspaceIssueTaskRoute,
@@ -80,14 +79,6 @@ function layerKey(layer: ZoomedReference): string {
   return layer.kind === 'jira'
     ? `jira:${layer.connectionId}/${layer.cloudId}/${layer.issueId}`
     : `${layer.kind}:${layer.workspaceId ?? ''}:${layer.repo}#${layer.number}`;
-}
-
-function storedAssistantWidth(): number {
-  try {
-    const width = Number(localStorage.getItem('bytequay.assistant-width'));
-    return width >= 320 && width <= 560 ? width : 380;
-  }
-  catch { return 380; }
 }
 
 function pageFromRoute(hash: string): AppPage {
@@ -125,12 +116,7 @@ export default function App() {
     try { return localStorage.getItem('bytequay.browser-rail-expanded') === 'true'; }
     catch { return false; }
   });
-  const [assistantOpen, setAssistantOpen] = useState(() => {
-    try { return localStorage.getItem('bytequay.assistant-open') === 'true'; }
-    catch { return false; }
-  });
-  const [initialAssistantWidth] = useState(storedAssistantWidth);
-  const assistantPane = useResizablePane(initialAssistantWidth, 320, 560, 'start');
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const assistantShown = assistantOpen && status === 'ready';
   // A new object for every Answer, so the panel shows the card again even when the same one was asked for last.
   const [assistantCard, setAssistantCard] = useState<{ id: string } | null>(null);
@@ -223,16 +209,11 @@ export default function App() {
     setAssistantCard({ id });
   }), []);
 
-  useEffect(() => {
-    try { localStorage.setItem('bytequay.assistant-open', String(assistantOpen)); } catch { /* preference is optional */ }
-  }, [assistantOpen]);
-
   useEffect(() => window.bridge.setAssistantPanelOpen?.(assistantShown), [assistantShown]);
 
-  useEffect(() => {
-    if (assistantPane.resizing || assistantPane.width === null) return;
-    try { localStorage.setItem('bytequay.assistant-width', String(assistantPane.width)); } catch { /* preference is optional */ }
-  }, [assistantPane.resizing, assistantPane.width]);
+  // A web page is a native view the floating Assistant cannot cover: opening the Assistant goes back to the app, and opening a page closes it.
+  useEffect(() => { if (assistantShown) backToApp(); }, [assistantShown, backToApp]);
+  useEffect(() => { if (browserOpen) setAssistantOpen(false); }, [browserOpen]);
 
   useEffect(() => {
     let received = false;
@@ -511,7 +492,6 @@ export default function App() {
   return (
     <div className={`browser-workspace${railVisible ? '' : ' is-web-rail-hidden'}`} style={{
       '--browser-rail-width': railVisible ? (railExpanded ? '220px' : '40px') : '0px',
-      '--assistant-panel-width': assistantShown ? `${assistantPane.width ?? 380}px` : '0px',
     } as CSSProperties}>
       <BrowserRail state={browser} expanded={railExpanded} error={browserError}
         onToggle={() => setRailExpanded(value => {
@@ -662,8 +642,7 @@ export default function App() {
       </div>
       {browserTab && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
         error={browserError} onError={setBrowserError} onBack={backToApp} />}
-      <AssistantPanel open={assistantShown} notices={notices} openCard={assistantCard} onScreen={onScreen} onClose={() => setAssistantOpen(false)}
-        onShowApp={() => { if (browserOpen) backToApp(); }} onResizeStart={assistantPane.startResize} />
+      <AssistantPanel open={assistantShown} notices={notices} openCard={assistantCard} onScreen={onScreen} onClose={() => setAssistantOpen(false)} />
     </div>
   );
 }

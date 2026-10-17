@@ -1,83 +1,153 @@
-/* Docked at the right edge, above the browser rail (1101): native browser and editor views cannot be painted over, so pages make room. */
+/* Over every page and the browser rail (1101); pages keep their size, since no native view is showing while it is open. */
 .assistant-panel {
   --assistant-line: light-dark(#e3e3e6, var(--dark-border));
+  --assistant-gold: #d4a72c;
+  --assistant-selected: light-dark(#f0f1f3, var(--dark-hover));
+  --assistant-shadow: 0 0 0 1px light-dark(rgb(31 35 40 / 4%), rgb(0 0 0 / 40%)), 0 16px 40px light-dark(rgb(31 35 40 / 14%), rgb(0 0 0 / 50%));
+  --assistant-shadow-low: 0 6px 18px light-dark(rgb(31 35 40 / 8%), rgb(0 0 0 / 35%));
   position: fixed;
   z-index: 1102;
-  top: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
+}
+
+.assistant-backdrop {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: light-dark(rgb(31 35 40 / 16%), rgb(10 11 13 / 45%));
+  cursor: default;
+}
+
+.assistant-float {
+  position: absolute;
+  top: 72px;
+  left: 50%;
   display: flex;
-  width: var(--assistant-panel-width);
+  width: min(640px, calc(100% - 32px));
+  max-height: calc(100% - 88px);
   box-sizing: border-box;
   flex-direction: column;
-  border-left: 1px solid var(--assistant-line);
-  background: var(--surface-elevated);
+  gap: 10px;
+  transform: translateX(-50%);
   color: var(--fg-default);
 }
 
-.assistant-panel[hidden] { display: none; }
-
-.assistant-panel__resize {
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  bottom: 0;
-  left: -3px;
-  width: 6px;
-  cursor: col-resize;
-}
-
-.assistant-panel__resize::after {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 2px;
-  width: 1px;
-  background: transparent;
-  content: '';
-}
-
-.assistant-panel__resize:hover::after { background: light-dark(#0969da, #3378cc); }
-
-.assistant-head {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 8px 0 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.assistant-head__title { font-size: 13.5px; }
-.assistant-head__date { color: var(--fg-dim); font-size: 12px; }
-.assistant-head .card-iconbtn { width: 28px; height: 28px; }
 .assistant-spacer { flex: 1; }
 
-.assistant-scroll {
-  flex: 1;
+/* The app's composer, larger: its running light circles faster here, and faster again while a reply is written. */
+.assistant-float .agt-compose {
+  flex: none;
+  max-width: none;
+  border-color: var(--assistant-line);
+  box-shadow: var(--assistant-shadow);
+}
+
+.assistant-float .agt-compose__streamer::after { animation-duration: 4s; }
+.assistant-float.is-replying .agt-compose__streamer::after { animation-duration: 1.6s; }
+
+.assistant-float .agt-compose__input {
+  padding: 13px 16px 0;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.assistant-float .agt-compose__row {
+  gap: 6px;
+  padding: 14px 10px 10px 16px;
+}
+
+.assistant-float .agt-send {
+  width: 32px;
+  height: 32px;
+}
+
+.assistant-error {
+  margin: 6px 16px 0;
+  color: var(--fg-danger);
+  font-size: 12px;
+}
+
+.assistant-chip {
+  display: inline-flex;
+  min-width: 0;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 2px 0 8px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 12px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.assistant-chip__name { flex: none; }
+
+.assistant-chip__ref {
+  overflow: hidden;
+  color: var(--fg-default);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-chip button {
+  display: grid;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.assistant-chip button:hover { background: var(--bg-hover); color: var(--fg-default); }
+
+.assistant-model {
+  margin-right: 4px;
+  color: var(--fg-dim);
+  font-size: 12.5px;
+}
+
+.assistant-mic {
+  display: inline-flex;
+  flex: none;
+  padding: 0 6px;
+  color: var(--fg-muted);
+}
+
+/* The day's conversation, the agenda and View all: one card each, scrolling inside when the window is short. */
+.assistant-sheet {
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 14px 16px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 12px;
+  background: var(--surface-elevated);
+  box-shadow: var(--assistant-shadow);
+}
+
+.assistant-talk {
+  flex: 0 1 auto;
+  padding: 0 14px 12px;
 }
 
 .assistant-time {
-  margin-top: 16px;
+  margin-top: 12px;
   color: var(--fg-dim);
   font-size: 11.5px;
   line-height: 16px;
   text-align: center;
 }
 
-.assistant-scroll .agt-user { margin-top: 6px; }
-
-.assistant-scroll .agt-user__bubble {
-  max-width: 84%;
-  white-space: pre-wrap;
-}
+.assistant-talk .agt-user { margin-top: 6px; }
+.assistant-talk .agt-user__bubble { white-space: pre-wrap; }
 
 .assistant-reply {
-  margin-top: 12px;
+  margin-top: 10px;
   font-size: 13.5px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -85,7 +155,7 @@
 
 .assistant-failure,
 .assistant-thinking {
-  margin: 12px 0 0;
+  margin: 10px 0 0;
   color: var(--fg-muted);
   font-size: 13px;
   line-height: 19px;
@@ -113,91 +183,10 @@
   cursor: pointer;
 }
 
-.assistant-waiting {
-  display: grid;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-/* Room for the outline below when a card is scrolled into view. */
-.assistant-waiting__card { scroll-margin: 8px; }
-
-/* Only an alert's Answer focuses a card, and its fading outline below is the cue. */
-.assistant-waiting__card:focus-visible { outline: none; }
-
-/* Opened from its alert: a 2px accent outline that holds for 2 s, then fades. */
-.assistant-waiting__card.is-opened {
-  border-radius: 10px;
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-  animation: assistant-opened 400ms ease-in 2s forwards;
-}
-
-@keyframes assistant-opened { to { outline-color: transparent; } }
-
-.assistant-wait {
-  display: grid;
-  gap: 6px;
-}
-
-/* A long title or command must not widen the track past the panel. */
-.assistant-waiting,
-.assistant-wait { grid-template-columns: minmax(0, 1fr); }
-
-/* The task's own card, fitted to the narrow panel: its caption above spaces it, and its title truncates. */
-.assistant-wait .agt-appr { margin-top: 0; }
-
-.assistant-wait .agt-appr__title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* The panel's header already names the day. */
-.assistant-scroll .today-head__date { display: none; }
-
-.assistant-wait__head {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  font-size: 12.5px;
-  line-height: 18px;
-}
-
-.assistant-wait__title,
-.assistant-wait__meta,
-.assistant-row__text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.assistant-wait__meta,
-.assistant-row__meta,
-.assistant-wait__loading { color: var(--fg-muted); }
-.assistant-wait__meta { flex: none; max-width: 45%; }
-.assistant-wait__loading { font-size: 12.5px; }
-
-.assistant-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 6px 4px 6px 12px;
-  border: 1px solid var(--assistant-line);
-  border-radius: 10px;
-  background: var(--surface-elevated);
-  font-size: 13px;
-  line-height: 19px;
-}
-
-.assistant-row__text { flex: 1; min-width: 0; }
-
 /* Done receipts in a row read as one group, each with the actions that apply to it. */
 .assistant-receipts {
-  margin-top: 12px;
-  border: 1px solid var(--border);
+  margin-top: 10px;
+  border: 1px solid var(--line-subtle);
   border-radius: 8px;
 }
 
@@ -209,7 +198,7 @@
   padding: 7px 8px 7px 10px;
 }
 
-.assistant-receipt + .assistant-receipt { border-top: 1px solid var(--border); }
+.assistant-receipt + .assistant-receipt { border-top: 1px solid var(--line-subtle); }
 .assistant-receipt__text { flex: 1; min-width: 0; }
 
 .assistant-receipt__line,
@@ -241,7 +230,7 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
-  margin: 12px 0 0;
+  margin: 10px 0 0;
   color: var(--fg-muted);
   font-size: 13px;
   line-height: 19px;
@@ -259,92 +248,340 @@
 .assistant-refusal > span { flex: 1; min-width: 0; }
 .assistant-refusal > button { flex: none; }
 
-.assistant-receipt__action,
-.assistant-row__open {
+.assistant-receipt__action {
   flex: none;
-  padding: 2px 6px;
-  border: 0;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--assistant-line);
   border-radius: 6px;
   background: none;
-  color: var(--fg-link);
+  color: var(--fg-default);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.assistant-receipt__action:hover:not(:disabled) { background: var(--bg-hover); }
+
+.assistant-waiting {
+  display: flex;
+  min-height: 0;
+  flex: 0 1 auto;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.assistant-pills {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.assistant-pill {
+  display: inline-flex;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 15px;
+  background: var(--surface-elevated);
+  box-shadow: var(--assistant-shadow-low);
+  color: var(--fg-default);
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
 }
 
-.assistant-receipt__action:hover:not(:disabled),
-.assistant-row__open:hover { background: var(--bg-hover); }
+.assistant-pill[data-group="today"] { margin-left: auto; }
+.assistant-pill svg { color: var(--fg-muted); }
+.assistant-pill__count { color: var(--fg-dim); }
 
-.assistant-compose {
+.assistant-pill.is-selected {
+  border-color: var(--fg-dim);
+  background: var(--assistant-selected);
+}
+
+.assistant-pill.is-selected .assistant-pill__count { color: var(--fg-default); }
+
+.assistant-pill:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
+
+.assistant-dot {
+  width: 8px;
+  height: 8px;
   flex: none;
-  padding: 6px 12px 12px;
+  border-radius: 50%;
+  background: var(--assistant-gold);
 }
 
-.assistant-error {
-  margin: 0 0 6px;
-  color: var(--fg-danger);
-  font-size: 12px;
-}
-
-.assistant-compose .agt-compose {
-  max-width: none;
-  border-color: var(--assistant-line);
-  border-radius: 10px;
-  background: light-dark(#ffffff, var(--dark-subtle));
-}
-
-.assistant-compose .agt-compose__input {
-  padding: 8px 12px 0;
-  line-height: 22px;
-}
-
-.assistant-compose .agt-compose__row {
-  gap: 8px;
-  padding: 8px 6px 6px 12px;
-}
-
-.assistant-chip {
-  display: inline-flex;
-  min-width: 0;
+.assistant-spinner {
+  display: block;
+  width: 12px;
+  height: 12px;
   box-sizing: border-box;
-  align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 2px 0 7px;
+  flex: none;
+  border: 1.8px solid var(--assistant-line);
+  border-top-color: var(--fg-link);
+  border-radius: 50%;
+  animation: assistant-spin 1s linear infinite;
+}
+
+@keyframes assistant-spin { to { transform: rotate(360deg); } }
+
+/* The top card, with the next two tucked under it by their titles. */
+.assistant-stack {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+}
+
+.assistant-card {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 14px;
   border: 1px solid var(--assistant-line);
+  border-radius: 12px;
+  background: var(--surface-elevated);
+  box-shadow: var(--assistant-shadow);
+}
+
+/* Only an alert's Answer focuses a card, and its fading outline below is the cue. */
+.assistant-card:focus-visible { outline: none; }
+
+/* Opened from its alert: a 2px accent outline that holds for 2 s, then fades. */
+.assistant-card.is-opened {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  animation: assistant-opened 400ms ease-in 2s forwards;
+}
+
+@keyframes assistant-opened { to { outline-color: transparent; } }
+
+.assistant-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+}
+
+.assistant-kind {
+  padding: 0 8px;
+  border: 1px solid var(--assistant-gold);
   border-radius: 10px;
-  color: var(--fg-muted);
+  font-size: 11.5px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.assistant-kind.is-warn {
+  border-color: transparent;
+  background: var(--bg-warning);
+  color: var(--fg-warning);
+}
+
+.assistant-card__time {
+  color: var(--fg-dim);
   font-size: 12px;
 }
 
-.assistant-chip__name { flex: none; }
+.assistant-pager {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
 
-.assistant-chip__ref {
+.assistant-pager > span { min-width: 28px; text-align: center; }
+.assistant-pager .card-iconbtn { width: 22px; height: 22px; }
+
+.assistant-card__title,
+.assistant-card__ref {
   overflow: hidden;
-  color: var(--fg-default);
+  font-size: 13.5px;
+  line-height: 19px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.assistant-chip button {
-  display: grid;
-  flex: none;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  color: var(--fg-dim);
+.assistant-card__where,
+.assistant-card__muted { color: var(--fg-muted); }
+
+.assistant-card__muted {
+  font-size: 12.5px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.assistant-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.assistant-button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 6px;
+  background: var(--surface-elevated);
+  color: var(--fg-default);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.assistant-chip button:hover { background: var(--bg-hover); color: var(--fg-default); }
+.assistant-button:hover { background: var(--bg-hover); }
+.assistant-card .assistant-error { margin: 0; }
 
-.assistant-mic {
-  display: inline-flex;
-  flex: none;
-  padding: 0 4px;
-  color: var(--fg-dim);
+/* The task's own approval card in this one: the chip above already names it, and its parts take this card's plain look. */
+.assistant-card .agt-appr { margin-top: 0; }
+.assistant-card .agt-appr__head > :is(:first-child, .agt-appr__chip) { display: none; }
+
+.assistant-card .agt-appr__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+.assistant-card :is(.agt-appr__title, .agt-ask__text, .agt-ask__label, .agt-ask__tag) { font-weight: 400; }
+
+.assistant-card .agt-code {
+  border: 0;
+  padding: 6px 9px;
+  word-break: break-all;
+}
+
+.assistant-card .agt-decisions .agt-decision {
+  height: 26px;
+  padding: 0 10px;
+  border-color: var(--assistant-line);
+  background: var(--surface-elevated);
+  color: var(--fg-default);
+  font-weight: 400;
+}
+
+.assistant-card .agt-decisions .agt-decision:hover:not(:disabled) { background: var(--bg-hover); }
+.assistant-card .agt-decisions .agt-decision:disabled { opacity: 0.5; }
+
+.assistant-peek {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  margin: -12px 12px 0;
+  padding: 12px 10px 0 12px;
+  border: 1px solid var(--assistant-line);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: var(--surface-elevated);
+  box-shadow: var(--assistant-shadow-low);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.assistant-peek.is-2 {
+  z-index: 1;
+  margin-inline: 24px;
+}
+
+.assistant-line__icon {
+  display: flex;
+  width: 18px;
+  flex: none;
+  justify-content: center;
+  color: var(--fg-muted);
+}
+
+.assistant-line__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-line__meta {
+  flex: none;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.assistant-more {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 6px;
+  height: 28px;
+  margin-top: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 14px;
+  background: var(--surface-elevated);
+  box-shadow: var(--assistant-shadow-low);
+  color: var(--fg-default);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.assistant-more__dim { color: var(--fg-dim); }
+
+.assistant-list {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+}
+
+.assistant-line {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--fg-default);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.assistant-line:is(:hover, .is-current) { background: var(--assistant-selected); }
+
+.assistant-list__back {
+  flex: none;
+  height: 30px;
+  margin-top: 4px;
+  border: 0;
+  border-top: 1px solid var(--line-subtle);
+  background: none;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.assistant-list__back:hover { color: var(--fg-default); }
+
+.assistant-today { padding: 10px 12px; }

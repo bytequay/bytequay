@@ -77,16 +77,21 @@ closed at that time, Today is made when you return.
 
 ## Talk to the assistant
 
-Press **⌘J** on any page, including web pages and the code editor, to open the
-Assistant beside it. It shows today's agenda, today's conversation, and the
-cards waiting on you. It never writes or runs code.
+Press **⌘J** on any page to open the Assistant over it; on a web page it first
+goes back to the app. Under its composer, pills group what waits on you:
+**Decision**, **Running**, and **Finished** cards, and **Today**'s agenda. It
+never writes or runs code.
 
 - Ask about your day, what waits on you, or the page you are on. The **On
   screen** chip sends that page with your message; remove it with its **×**.
+  Today's conversation shows once you send.
+- **Tab** moves between the pills and **← →** page the cards. Up to three cards
+  show at once; **View all** lists the rest. **Esc** or a click outside closes
+  the Assistant.
 - Approval and question cards keep their task's own buttons. Other notices open
-  their task or clear with **×**. While the panel is closed, a new notice shows
-  as a short alert at the bottom right; **Answer** on an approval or question
-  opens the panel at that card.
+  their task or clear with **×**. While the Assistant is closed, a new notice
+  shows as a short alert at the bottom right; **Answer** on an approval or
+  question opens the Assistant at that card.
 - To let it act on your words, turn on **Assistant can start tasks** or
   **Assistant can answer tasks** in **Settings → Agents → Workflow**. It then
   starts the task you ask for, allows once or denies a command that stays in the

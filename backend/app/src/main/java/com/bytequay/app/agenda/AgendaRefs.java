@@ -50,7 +50,7 @@ public final class AgendaRefs
         return "review:" + reviewId;
     }
 
-    static String work(String itemId)
+    public static String work(String itemId)
     {
         return "work:" + itemId;
     }

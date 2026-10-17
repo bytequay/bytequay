@@ -14,14 +14,18 @@
 package com.bytequay.app.assistant;
 
 import com.bytequay.agent.core.AgentApproval;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentCapabilities;
@@ -30,11 +34,15 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.agenda.AgendaFixtures;
 import com.bytequay.app.agenda.AgendaReader;
 import com.bytequay.app.agent.RunningTask;
 import com.bytequay.app.agent.RunningTaskReader;
+import com.bytequay.app.agent.TaskActivity;
+import com.bytequay.app.agent.TaskActivityReader;
+import com.bytequay.app.agent.TaskMessage;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
 import com.bytequay.app.service.settings.AgentModelSetting;
@@ -48,10 +56,12 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.ServedRef;
+import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.AgendaStore;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -103,12 +113,14 @@ class TestAssistantContext
     private final AppNoticeService notices = mock(AppNoticeService.class);
     private final AgentApprovalStore approvals = mock(AgentApprovalStore.class);
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
+    private final TaskActivityReader activities = mock(TaskActivityReader.class);
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
+    private final WorkItemStore workItems = mock(WorkItemStore.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);
-    private final AssistantReader reader = new AssistantReader(agenda, agendas, running, notices, approvals, tasks, mock(AgentReviewStore.class), pullRequests,
-            workspaces, models, settings, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final AssistantReader reader = new AssistantReader(agenda, agendas, running, notices, approvals, tasks, activities, mock(AgentReviewStore.class),
+            pullRequests, workItems, workspaces, models, settings, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void storesHoldOneDay()
@@ -135,7 +147,15 @@ class TestAssistantContext
         when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31402)).thenReturn(Optional.of(7L));
         when(pullRequests.findById(7L)).thenReturn(Optional.of(new PullRequest(7, "trinodb/trino", 31402, "Retry Iceberg commit on conflict", "elric-t",
                 "https://github.com/trinodb/trino/pull/31402", NOW, NOW, PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null,
-                ImmutableList.of(), PullRequestDetail.CiStatus.FAILING, 10, 2, 3, "open", null, null, true, "clean", NOW, "retry", null, NOW, null, "CHANGES_REQUESTED")));
+                ImmutableList.of("marlo-t"), PullRequestDetail.CiStatus.FAILING, 10, 2, 3, "open", null, null, true, "clean", NOW, "retry", null, NOW, null, "CHANGES_REQUESTED")));
+        when(workItems.find("w22")).thenReturn(Optional.of(new WorkItem("w22", "ws1", Optional.empty(), "Expose snapshot id in metadata", WorkItem.Kind.DEVELOP, "",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH, 0,
+                ImmutableList.of("w19"), Optional.empty(), 0)));
+        AgentTurnSettings settled = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO, ImmutableList.of());
+        AgentTurn failed = AgentTurn.accepted(TurnId.random(), FINISHED.id(), "request", settled, NOW.minusSeconds(300)).markDeliveryStarted(NOW.minusSeconds(300))
+                .running(new ProviderTurnRef("provider-turn"), Optional.empty()).finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("The provider stopped answering"), NOW);
+        when(activities.read(ImmutableList.of(FINISHED))).thenReturn(ImmutableMap.of(FINISHED.id(), new TaskActivity(Optional.of(new TaskMessage(TaskMessage.Author.AGENT,
+                "Kept the old cache key and " + "checked every reader of it. ".repeat(30), NOW.minusSeconds(60), Optional.empty())), Optional.empty(), Optional.of(failed))));
         Workspace trino = new Workspace("ws1", "Trino", 1, RepoRef.of("trinodb", "trino"), Optional.empty(), Optional.empty(), 1, RepoRef.of("trinodb", "trino"),
                 Workspace.Topology.DIRECT, "master", "https://github.com/trinodb/trino.git", Optional.empty(), Optional.empty(), "/managed/trino", Optional.empty(),
                 Optional.empty(), 0, NOW, NOW);
@@ -189,7 +209,7 @@ class TestAssistantContext
         assertThat(asked.path("question").asText()).hasSizeLessThanOrEqualTo(160).endsWith("…");
 
         JsonNode screen = read(tool, "screen").path("entries");
-        assertThat(keys(screen.path(0))).isEqualTo(ImmutableSet.of("ref", "title", "author", "state", "ci", "review"));
+        assertThat(keys(screen.path(0))).isEqualTo(ImmutableSet.of("ref", "title", "author", "state", "ci", "review", "pendingReviewers", "lastActivity"));
         assertThat(screen.path(0).path("ci").asText()).isEqualTo("failing");
         assertThat(screen.path(0).path("review").asText()).isEqualTo("changes_requested");
         JsonNode task = read(context(Optional.of("task:" + TASK.id()), ImmutableMap.of()).tool(), "screen").path("entries").path(0);
@@ -252,6 +272,38 @@ class TestAssistantContext
     }
 
     @Test
+    void looksUpAnyItemByRefAndReadsWhatATaskSaidLast()
+            throws Exception
+    {
+        AssistantContext context = context(Optional.empty(), ImmutableMap.of());
+        ReviewTool tool = context.tool();
+
+        JsonNode pull = named(tool, "lookup", "pr:trinodb/trino#31402").path("entries").path(0);
+        assertThat(keys(pull)).isEqualTo(ImmutableSet.of("ref", "title", "author", "state", "ci", "review", "pendingReviewers", "lastActivity"));
+        assertThat(pull.path("pendingReviewers").toString()).isEqualTo("[\"marlo-t\"]");
+        JsonNode work = named(tool, "lookup", "work:w22").path("entries").path(0);
+        assertThat(keys(work)).isEqualTo(ImmutableSet.of("ref", "title", "state", "priority", "blocked"));
+        assertThat(work.path("state").asText()).isEqualTo("planned");
+        assertThat(work.path("blocked").asBoolean()).isTrue();
+        assertThat(keys(named(tool, "lookup", "task:" + TASK.id()).path("entries").path(0))).isEqualTo(ImmutableSet.of("ref", "title", "state", "waitingFor"));
+        // Something ByteQuay holds nothing about reads as an empty page, not as an error to repair.
+        assertThat(named(tool, "lookup", "pr:trinodb/trino#1").path("entries")).isEmpty();
+
+        JsonNode result = named(tool, "result", "task:" + FINISHED.id()).path("entries").path(0);
+        assertThat(keys(result)).isEqualTo(ImmutableSet.of("ref", "title", "state", "turn", "reason", "said"));
+        assertThat(result.path("turn").asText()).isEqualTo("failed");
+        assertThat(result.path("reason").asText()).isEqualTo("The provider stopped answering");
+        assertThat(keys(result.path("said"))).isEqualTo(ImmutableSet.of("by", "text", "at"));
+        assertThat(result.path("said").path("by").asText()).isEqualTo("agent");
+        assertThat(result.path("said").path("text").asText()).hasSizeLessThanOrEqualTo(400).endsWith("…");
+
+        // Each item the agent named joins the day's refs, so a later message may act on it.
+        assertThat(context.served()).containsEntry("pr:trinodb/trino#31402", new ServedRef("lookup", Optional.of(AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1")))))
+                .containsEntry("work:w22", new ServedRef("lookup", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"))))
+                .containsEntry("task:" + FINISHED.id(), new ServedRef("result", Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", FINISHED.id().toString()))));
+    }
+
+    @Test
     void answersABadCallWithAnErrorItCanRepair()
             throws Exception
     {
@@ -260,6 +312,9 @@ class TestAssistantContext
 
         assertThat(error(tool, "{\"kind\":\"pull_request\"}")).startsWith("kind must be one of overview, changes");
         assertThat(error(tool, "{\"kind\":\"screen\",\"ref\":\"pr:trinodb/trino#1\"}")).isEqualTo("Unknown field: ref");
+        assertThat(error(tool, "{\"kind\":\"lookup\"}")).isEqualTo("lookup needs a ref");
+        assertThat(error(tool, "{\"kind\":\"lookup\",\"ref\":\"jira:cloud:10042\"}")).isEqualTo("lookup reads pr, task, review and work refs");
+        assertThat(error(tool, "{\"kind\":\"result\",\"ref\":\"pr:trinodb/trino#31402\"}")).isEqualTo("result reads task and review refs");
         assertThat(error(tool, "{\"kind\":\"tasks\",\"page\":-1}")).contains("non-negative");
         assertThat(error(tool, "not json")).isEqualTo("arguments are not JSON");
         when(running.current()).thenThrow(new IllegalStateException("database is locked"));
@@ -277,6 +332,12 @@ class TestAssistantContext
             throws Exception
     {
         return mapper.readTree(tool.call().apply("{\"kind\":\"" + kind + "\"}"));
+    }
+
+    private JsonNode named(ReviewTool tool, String kind, String ref)
+            throws Exception
+    {
+        return mapper.readTree(tool.call().apply("{\"kind\":\"" + kind + "\",\"ref\":\"" + ref + "\"}"));
     }
 
     private String error(ReviewTool tool, String arguments)

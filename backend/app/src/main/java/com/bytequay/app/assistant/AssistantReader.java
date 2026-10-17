@@ -15,6 +15,7 @@ package com.bytequay.app.assistant;
 
 import com.bytequay.agent.core.AgentApproval;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.TaskId;
@@ -28,6 +29,9 @@ import com.bytequay.app.agenda.AgendaService;
 import com.bytequay.app.agenda.AgendaSnapshot;
 import com.bytequay.app.agent.RunningTask;
 import com.bytequay.app.agent.RunningTaskReader;
+import com.bytequay.app.agent.TaskActivity;
+import com.bytequay.app.agent.TaskActivityReader;
+import com.bytequay.app.agent.TaskMessage;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
 import com.bytequay.app.service.settings.AgentModelSetting;
@@ -38,10 +42,12 @@ import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaDay;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.AgendaStore;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -49,6 +55,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Streams;
 import org.springframework.stereotype.Component;
 
@@ -60,15 +67,18 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 /**
  * Reads what the assistant's {@code assistant_context} answers, fresh on every call: the agenda's pages over the stores as they are
- * now, the tasks at work, the cards a message lists as visible, the page it was sent from, and what a new task can start with. Like
- * the agenda's reader, it reads only what ByteQuay stores: no GitHub, Jira, calendar or provider request is made here.
+ * now, the tasks at work, the cards a message lists as visible, the page it was sent from, any item named by its ref, what a task
+ * said last, and what a new task can start with. Like the agenda's reader, it reads only what ByteQuay stores: no GitHub, Jira,
+ * calendar or provider request is made here.
  */
 @Component
 class AssistantReader
@@ -77,6 +87,8 @@ class AssistantReader
     private static final int LINE = 160;
     private static final int DETAIL = 400;
     private static final String QUESTION_TOOL = "AskUserQuestion";
+    private static final Set<String> LOOKUP_REFS = ImmutableSet.of("pr", "task", "review", "work");
+    private static final Set<String> RESULT_REFS = ImmutableSet.of("task", "review");
 
     private final AgendaReader agenda;
     private final AgendaStore agendas;
@@ -84,8 +96,10 @@ class AssistantReader
     private final AppNoticeService notices;
     private final AgentApprovalStore approvals;
     private final AgentTaskStore tasks;
+    private final TaskActivityReader activities;
     private final AgentReviewStore reviews;
     private final PullRequestStore pullRequests;
+    private final WorkItemStore workItems;
     private final WorkspaceStore workspaces;
     private final ModelSettingsService models;
     private final AppSettingsService settings;
@@ -99,8 +113,10 @@ class AssistantReader
             AppNoticeService notices,
             AgentApprovalStore approvals,
             AgentTaskStore tasks,
+            TaskActivityReader activities,
             AgentReviewStore reviews,
             PullRequestStore pullRequests,
+            WorkItemStore workItems,
             WorkspaceStore workspaces,
             ModelSettingsService models,
             AppSettingsService settings,
@@ -113,8 +129,10 @@ class AssistantReader
         this.notices = requireNonNull(notices, "notices is null");
         this.approvals = requireNonNull(approvals, "approvals is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.activities = requireNonNull(activities, "activities is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.workItems = requireNonNull(workItems, "workItems is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.models = requireNonNull(models, "models is null");
         this.settings = requireNonNull(settings, "settings is null");
@@ -191,18 +209,32 @@ class AssistantReader
         return new Page(new Entries("waiting", entries.build()), refs);
     }
 
-    /** Facts about the page a message was sent from: a pull request, or a task or review. */
+    /** Facts about the page a message was sent from. */
     Page screen(Optional<String> onScreen)
     {
-        Optional<Page> page = onScreen.flatMap(ref -> switch (AgendaRefs.kind(ref)) {
-            case "pr" -> pullRequest(ref);
-            case "task" -> taskId(AgendaRefs.id(ref)).flatMap(tasks::find).map(task -> task(task, AgendaRefs.task(task.id().toString()),
-                    task.workspaceId().map(workspace -> AgendaTarget.of(AgendaTarget.Kind.TASK, workspace, task.id().toString()))));
-            case "review" -> reviews.findReview(AgendaRefs.id(ref)).flatMap(review -> taskId(review.taskId()).flatMap(tasks::find)
-                    .map(task -> task(task, AgendaRefs.review(review.id()), Optional.of(AgendaTarget.of(AgendaTarget.Kind.REVIEW, review.workspaceId(), review.id())))));
-            default -> Optional.empty();
-        });
-        return page.orElseGet(() -> new Page(new Entries("screen", ImmutableList.of()), ImmutableMap.of()));
+        return onScreen.flatMap(ref -> facts("screen", ref)).orElseGet(() -> nothing("screen"));
+    }
+
+    /** Facts about one item the user names, wherever it is: a pull request, a task or review, or a work item. */
+    Page lookup(String ref)
+    {
+        checkArgument(LOOKUP_REFS.contains(AgendaRefs.kind(ref)), "lookup reads pr, task, review and work refs");
+        return facts("lookup", ref).orElseGet(() -> nothing("lookup"));
+    }
+
+    /** What a task or review said last, by its agent or by the user, and how its latest turn ended. */
+    Page result(String ref)
+    {
+        checkArgument(RESULT_REFS.contains(AgendaRefs.kind(ref)), "result reads task and review refs");
+        return named(ref).map(named -> {
+            TaskActivity activity = activities.read(ImmutableList.of(named.task())).get(named.task().id());
+            Optional<AgentTurn> latest = activity.latestTurn();
+            Optional<Said> said = activity.lastMessage()
+                    .map(message -> new Said(message.author() == TaskMessage.Author.AGENT ? "agent" : "user", AgendaReader.clip(message.text(), DETAIL), message.at()));
+            Result entry = new Result(named.ref(), AgendaReader.clip(named.task().title(), TITLE), lower(named.task().state()), latest.map(turn -> lower(turn.state())),
+                    latest.flatMap(AgentTurn::terminalReason).map(reason -> AgendaReader.clip(reason, LINE)), said);
+            return new Page(new Entries("result", ImmutableList.of(entry)), ImmutableMap.of(named.ref(), named.target()));
+        }).orElseGet(() -> nothing("result"));
     }
 
     /** Where a new task can start: each watched repository with its Development default, the agents ready now, and the saved automation. */
@@ -223,23 +255,59 @@ class AssistantReader
         return new Page(new StartOptions("start_options", repositories.build(), agents, automation), refs);
     }
 
-    private Optional<Page> pullRequest(String ref)
+    private Optional<Page> facts(String kind, String ref)
+    {
+        return switch (AgendaRefs.kind(ref)) {
+            case "pr" -> pullRequest(kind, ref);
+            case "task", "review" -> named(ref).map(named -> task(kind, named));
+            case "work" -> workItems.find(AgendaRefs.id(ref)).map(item -> work(kind, item));
+            default -> Optional.empty();
+        };
+    }
+
+    /** The task a task or review ref names, with the ref in its usual form and where it opens. */
+    private Optional<Named> named(String ref)
+    {
+        return switch (AgendaRefs.kind(ref)) {
+            case "task" -> taskId(AgendaRefs.id(ref)).flatMap(tasks::find).map(task -> new Named(AgendaRefs.task(task.id().toString()), task,
+                    task.workspaceId().map(workspace -> AgendaTarget.of(AgendaTarget.Kind.TASK, workspace, task.id().toString()))));
+            case "review" -> reviews.findReview(AgendaRefs.id(ref)).flatMap(review -> taskId(review.taskId()).flatMap(tasks::find)
+                    .map(task -> new Named(AgendaRefs.review(review.id()), task, Optional.of(AgendaTarget.of(AgendaTarget.Kind.REVIEW, review.workspaceId(), review.id())))));
+            default -> Optional.empty();
+        };
+    }
+
+    private Optional<Page> pullRequest(String kind, String ref)
     {
         return AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).flatMap(pullRequests::findById).map(pr -> {
             String canonical = AgendaRefs.pull(pr.repo(), pr.number());
             Optional<String> workspace = workspaces.findAll().stream().filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(pr.repo()))
                     .map(Workspace::id).findFirst();
             PullRequestFacts facts = new PullRequestFacts(canonical, AgendaReader.clip(pr.title(), TITLE), pr.author(), state(pr),
-                    Optional.ofNullable(pr.ciStatus()).map(AssistantReader::lower), Optional.ofNullable(pr.reviewDecision()).map(decision -> decision.toLowerCase(Locale.ROOT)));
-            return new Page(new Entries("screen", ImmutableList.of(facts)), ImmutableMap.of(canonical, Optional.of(AgendaTarget.pull(pr.repo(), pr.number(), workspace))));
+                    Optional.ofNullable(pr.ciStatus()).map(AssistantReader::lower), Optional.ofNullable(pr.reviewDecision()).map(decision -> decision.toLowerCase(Locale.ROOT)),
+                    pr.requestedReviewers(), Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt())));
+            return new Page(new Entries(kind, ImmutableList.of(facts)), ImmutableMap.of(canonical, Optional.of(AgendaTarget.pull(pr.repo(), pr.number(), workspace))));
         });
     }
 
-    private Page task(AgentTask task, String ref, Optional<AgendaTarget> target)
+    private Page task(String kind, Named named)
     {
-        Optional<String> waitingFor = notices.current().stream().filter(notice -> notice.taskId().equals(task.id().toString())).findFirst().flatMap(AgendaReader::waitingFor);
-        TaskFacts facts = new TaskFacts(ref, AgendaReader.clip(task.title(), TITLE), lower(task.state()), waitingFor);
-        return new Page(new Entries("screen", ImmutableList.of(facts)), ImmutableMap.of(ref, target));
+        String id = named.task().id().toString();
+        Optional<String> waitingFor = notices.current().stream().filter(notice -> notice.taskId().equals(id)).findFirst().flatMap(AgendaReader::waitingFor);
+        TaskFacts facts = new TaskFacts(named.ref(), AgendaReader.clip(named.task().title(), TITLE), lower(named.task().state()), waitingFor);
+        return new Page(new Entries(kind, ImmutableList.of(facts)), ImmutableMap.of(named.ref(), named.target()));
+    }
+
+    private static Page work(String kind, WorkItem item)
+    {
+        String ref = AgendaRefs.work(item.id());
+        WorkFacts facts = new WorkFacts(ref, AgendaReader.clip(item.title(), TITLE), lower(item.state()), lower(item.priority()), !item.blockedBy().isEmpty());
+        return new Page(new Entries(kind, ImmutableList.of(facts)), ImmutableMap.of(ref, Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, item.workspaceId(), item.id()))));
+    }
+
+    private static Page nothing(String kind)
+    {
+        return new Page(new Entries(kind, ImmutableList.of()), ImmutableMap.of());
     }
 
     private Approval approval(String ref, String task, ProviderApprovalRequest request)
@@ -314,11 +382,22 @@ class AssistantReader
 
     record Asked(String ref, String task, String question) {}
 
+    private record Named(String ref, AgentTask task, Optional<AgendaTarget> target) {}
+
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    record PullRequestFacts(String ref, String title, String author, String state, Optional<String> ci, Optional<String> review) {}
+    record PullRequestFacts(String ref, String title, String author, String state, Optional<String> ci, Optional<String> review, List<String> pendingReviewers,
+            Optional<Instant> lastActivity) {}
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record TaskFacts(String ref, String title, String state, Optional<String> waitingFor) {}
+
+    record WorkFacts(String ref, String title, String state, String priority, boolean blocked) {}
+
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    record Result(String ref, String title, String state, Optional<String> turn, Optional<String> reason, Optional<Said> said) {}
+
+    /** The newest message in the conversation, by the task's own agent or by the user, clipped. */
+    record Said(String by, String text, Instant at) {}
 
     record StartOptions(String kind, List<Repository> repositories, List<Agent> agents, Automation automation) {}
 

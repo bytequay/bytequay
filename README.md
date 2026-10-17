@@ -49,7 +49,7 @@ Click a preview or title to open its guide, or
         <img src="website/dist/assets/app-development.jpg" alt="Agent conversation and worktree changes in ByteQuay" width="440"><br>
         <strong>Build with agents →</strong>
       </a><br>
-      Work with Codex or Claude. Steer the conversation and inspect the result.
+      Use Codex, Claude Code, or your agent API, such as DeepSeek. Guide the work and inspect the result.
     </td>
     <td width="50%" valign="top">
       <a href="https://bytequay.github.io/bytequay/guide-reviews.html#private-review">

@@ -342,11 +342,25 @@ p {
 }
 .foundation {
   display: flex;
-  justify-content: center;
-  gap: 72px;
+  gap: 32px;
   padding-block: 32px;
-  color: #aca6b9;
   font-size: 0.875rem;
+}
+.foundation > a {
+  flex: 1;
+  padding-block: 10px;
+}
+.foundation strong {
+  display: block;
+  color: var(--ink);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.foundation > a > span {
+  color: var(--muted);
+}
+.foundation > a:hover strong {
+  color: var(--purple);
 }
 .section-heading h2,
 .agent-copy h2,
@@ -938,7 +952,7 @@ details p {
     padding-block: 25px;
     gap: 10px;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
     font-size: 0.875rem;
   }
   .workflow {

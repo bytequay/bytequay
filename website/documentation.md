@@ -5,7 +5,7 @@ Set up a workspace, review a change, and build with an agent.
 - [Get started](#getting-started)
 - [Use the Assistant](#assistant)
 - [Review pull requests](#pull-requests)
-- [Work with agents](#agent-tasks)
+- [Models, accounts, and agent tasks](#models)
 - [Plan and organize](#issues-and-jira)
 - [Connect integrations](#jira)
 - [Use ByteQuay Lab](#lab)
@@ -43,7 +43,7 @@ release notes for availability.
 4. Open **Pull requests**, select a PR, and inspect **WorkBench → Changes**.
 
 You can review without an agent. For coding tasks,
-[connect a provider](#agent-tasks). Change appearance in **Settings → Personal →
+[connect a provider](#models). Change appearance in **Settings → Personal →
 Appearance**.
 
 <a id="workspaces"></a>
@@ -191,78 +191,86 @@ Hover over a PR or issue link to read its title, status, description, and
 labels. Move into the card to follow references, or drag its header to keep it
 open. Choose **Open** for the full item; **Escape** dismisses the preview.
 
+<a id="models"></a>
+
+## Choose your model
+
+Open **Settings → Agents → Models**.
+
+- **Codex or Claude Code:** install the CLI, sign in, then choose **Check**.
+- **Your agent API:** choose **Add API key**, select a supported provider, such
+  as DeepSeek, enter a label and key, then **Add key**. DeepSeek tasks require
+  Codex CLI.
+- Once **Ready**, choose your Development and Review models. Use repository
+  **Model overrides** for a different choice.
+
+Keys are stored encrypted on your Mac. Saved OpenAI keys cannot run agent tasks
+yet.
+
+<a id="claude-accounts"></a>
+
+## Keep Claude Code accounts separate
+
+Use multiple accounts with isolated sign-ins and sessions.
+
+1. In **Models → Claude accounts**, choose **Add Claude account**. Enter a name
+   and email, then **Add and sign in**.
+2. Select the account for Development or Review. Global accounts are available
+   across repositories.
+3. For a dedicated account, add it in the repository's **Model overrides**, or
+   choose **Use only here** on a global account. Other repositories cannot use
+   it.
+
+Changing defaults affects new tasks. Existing tasks keep their selected account.
+
 <a id="agent-tasks"></a>
 
 ## Start an agent task
 
-1. Install Codex or Claude CLI, then open **Settings → Agents → Models**. **Sign
-   in**, choose **Check**, and wait for **Ready**. Supported API-key providers
-   are also available.
-2. Select Development and Review defaults. Use a repository’s **Model
-   overrides** for different choices.
-3. Open **Tasks → + New task**. Describe the outcome, useful context, and how to
-   check success.
-4. Review **Automation**, then **Send**. ByteQuay prepares a separate branch and
+1. Open **Tasks → + New task** and choose a ready model.
+2. Describe the outcome, useful context, and how to check success.
+3. Review **Automation**, then **Send**. ByteQuay prepares a separate branch and
    working copy.
 
-During work, **Steer** adds guidance when supported; **Run next** queues a
-message. Inspect permission requests before allowing them. **Stop this turn**
-interrupts the agent.
+**Steer** adds guidance when supported; **Run next** queues a message.
+**Stop this turn** interrupts the agent.
 
-Check **WorkBench → Changes**, **Summary**, and tests before accepting the
-result. Use **Mark it complete** when the task is idle and its queue is handled.
-**Archive** retains history; **Delete** removes local task data.
+Review approvals, inspect **WorkBench → Changes**, and check tests before
+**Mark it complete**.
 
-### Accounts, usage, and skills
-
-- **Usage** shows provider-reported limits or balances, including activity
-  outside ByteQuay. Missing values are unknown.
-- Repository-specific Claude accounts are available only there. Existing tasks
-  keep their selected account.
-- **Settings → Agents → Skills → Add skill** saves reusable instructions for
-  subsequent turns.
+Check limits in **Usage**. Add reusable instructions in
+**Settings → Agents → Skills**.
 
 <a id="delivery-and-ci"></a>
 
 ## Deliver changes and repair CI
 
-Review **Automation** before the first submission; the choices lock when the
-task starts.
+Review **Automation** before starting:
 
-- **Auto draft PR** pushes commits and creates or updates a PR. It defaults on.
-- **Auto CI fix** repairs supported failures and can mark a draft ready. It also
-  defaults on and can write to GitHub.
-- **Auto review summary** adds private notes; it defaults off.
-- **Keep commits local for this turn** disables publication and CI follow-up for
-  that submission.
+- **Auto draft PR:** pushes commits and creates or updates a PR. On by default.
+- **Auto CI fix:** repairs supported failures and can mark a draft ready. On by
+  default; can write to GitHub.
+- **Auto review summary:** adds private notes. Off by default.
+- **Keep commits local for this turn:** skips publication and CI follow-up.
 
-Finished development work is committed automatically. Set new-task defaults in
-**Settings → Agents → Workflow**.
-
-During CI repair, use `@ci` to guide the agent when supported. To resume
-development, choose **Stop automation and continue…**. Review and merge the PR
-yourself.
+Completed development work is committed automatically. Change defaults in
+**Settings → Agents → Workflow**. Use **Stop automation and continue…** to
+resume development. You review and merge the PR.
 
 <a id="commits-and-backports"></a>
 
 ## Cherry-pick and backport
 
-1. In **Commits → History**, check the first control for the destination and the
-   second for the source.
-2. Select commits or a range, then **Cherry-pick**. Review the route, order, and
-   resolver before **Start cherry-pick**.
-3. Follow the run under **Commits → Cherry pick**. Use **Send note** or **Cancel
-   execution** if needed.
-4. When ready, choose **Deliver this generated branch → Push branch**, then
-   **Create pull request**.
+1. In **Commits → History**, choose the destination and source.
+2. Select commits, then **Cherry-pick**. Check the plan with **Dry run**, then
+   **Start cherry-pick**.
+3. Follow progress in **Commits → Cherry pick**.
+4. Review the result, then **Deliver this generated branch → Push branch** and
+   **Create pull request**. PR creation also starts the disclosed CI monitor.
 
-Cherry-picking starts locally. **Dry run** shows the plan. PR creation also
-authorizes the disclosed CI monitor.
-
-For chained backports, configure **Related workspaces** in repository settings,
-then use **Backport** or send `@backport example/project #123`. Follow **Tasks →
-Backport chains**. Each step waits for its source PR to merge; you control
-merges.
+For chained backports, set **Related workspaces** in repository settings and
+choose **Backport**. Follow **Tasks → Backport chains**. Each step waits for its
+source PR to merge.
 
 <a id="issues-and-jira"></a>
 
@@ -383,8 +391,8 @@ and understand context costs. Record a change and check the results.
 
 - **GitHub unavailable:** renew CLI sign-in or update the token in **Settings →
   Integrations → GitHub**. Check repository access.
-- **Agent unavailable:** sign in under **Settings → Agents → Models**, then
-  **Check**. Inspect repository overrides too.
+- **Agent unavailable:** open **Settings → Agents → Models** and choose
+  **Check**. Verify the selected account or API key and repository overrides.
 - **Review could not finish:** use **Resume review**, or **Recover runtime**
   first when shown. Wait for a provider limit to reset or select another
   available provider.

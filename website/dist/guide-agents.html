@@ -41,6 +41,8 @@
             ><a href="guide-help.html">Get help</a
             ><a href="lab-guide.html">ByteQuay Lab</a
             ><span class="mini-label doc-on-page">ON THIS PAGE</span
+            ><a href="#models">Choose your model</a
+            ><a href="#claude-accounts">Claude Code accounts</a
             ><a href="#agent-tasks">Start an agent task</a
             ><a href="#delivery-and-ci">Delivery and CI</a
             ><a href="#commits-and-backports">Cherry-pick and backport</a>
@@ -53,129 +55,78 @@
             <h1>Build with agents</h1>
             <p>Start a task, guide the work, and review the result.</p>
           </header>
+          <section id="models">
+            <h2>Choose your model</h2>
+            <p>Open <strong>Settings → Agents → Models</strong>.</p>
+            <ul>
+              <li><strong>Codex or Claude Code:</strong> install the CLI, sign in,
+                then choose <strong>Check</strong>.</li>
+              <li><strong>Your agent API:</strong> choose <strong>Add API key</strong>,
+                select a supported provider, such as DeepSeek, enter a label and key,
+                then <strong>Add key</strong>. DeepSeek tasks require Codex CLI.</li>
+              <li>Once <strong>Ready</strong>, choose your Development and Review
+                models. Use repository <strong>Model overrides</strong> for a different choice.</li>
+            </ul>
+            <p>Keys are stored encrypted on your Mac. Saved OpenAI keys cannot run agent tasks yet.</p>
+          </section>
+          <section id="claude-accounts">
+            <h2>Keep Claude Code accounts separate</h2>
+            <p>Use multiple accounts with isolated sign-ins and sessions.</p>
+            <ol>
+              <li>In <strong>Models → Claude accounts</strong>, choose
+                <strong>Add Claude account</strong>. Enter a name and email, then
+                <strong>Add and sign in</strong>.</li>
+              <li>Select the account for Development or Review. Global accounts
+                are available across repositories.</li>
+              <li>For a dedicated account, add it in the repository’s
+                <strong>Model overrides</strong>, or choose <strong>Use only here</strong>
+                on a global account. Other repositories cannot use it.</li>
+            </ol>
+            <p>Changing defaults affects new tasks. Existing tasks keep their selected account.</p>
+          </section>
           <section id="agent-tasks">
             <h2>Start an agent task</h2>
             <ol>
-              <li>
-                Install Codex or Claude CLI, then open
-                <strong>Settings → Agents → Models</strong>.
-                <strong>Sign in</strong>, choose <strong>Check</strong>, and
-                wait for <strong>Ready</strong>. Supported API-key providers are
-                also available.
-              </li>
-              <li>
-                Select Development and Review defaults. Use a repository’s
-                <strong>Model overrides</strong> for different choices.
-              </li>
-              <li>
-                Open <strong>Tasks → + New task</strong>. Describe the outcome,
-                useful context, and how to check success.
-              </li>
-              <li>
-                Review <strong>Automation</strong>, then <strong>Send</strong>.
-                ByteQuay prepares a separate branch and working copy.
-              </li>
+              <li>Open <strong>Tasks → + New task</strong> and choose a ready model.</li>
+              <li>Describe the outcome, useful context, and how to check success.</li>
+              <li>Review <strong>Automation</strong>, then <strong>Send</strong>.
+                ByteQuay prepares a separate branch and working copy.</li>
             </ol>
-            <p>
-              During work, <strong>Steer</strong> adds guidance when supported;
-              <strong>Run next</strong> queues a message. Inspect permission
-              requests before allowing them.
-              <strong>Stop this turn</strong> interrupts the agent.
-            </p>
-            <p>
-              Check <strong>WorkBench → Changes</strong>,
-              <strong>Summary</strong>, and tests before accepting the result.
-              Use <strong>Mark it complete</strong> when the task is idle and
-              its queue is handled. <strong>Archive</strong> retains history;
-              <strong>Delete</strong> removes local task data.
-            </p>
-            <h3>Accounts, usage, and skills</h3>
-            <ul>
-              <li>
-                <strong>Usage</strong> shows provider-reported limits or
-                balances, including activity outside ByteQuay. Missing values
-                are unknown.
-              </li>
-              <li>
-                Repository-specific Claude accounts are available only there.
-                Existing tasks keep their selected account.
-              </li>
-              <li>
-                <strong>Settings → Agents → Skills → Add skill</strong> saves
-                reusable instructions for subsequent turns.
-              </li>
-            </ul>
+            <p><strong>Steer</strong> adds guidance when supported;
+              <strong>Run next</strong> queues a message.
+              <strong>Stop this turn</strong> interrupts the agent.</p>
+            <p>Review approvals, inspect <strong>WorkBench → Changes</strong>,
+              and check tests before <strong>Mark it complete</strong>.</p>
+            <p>Check limits in <strong>Usage</strong>. Add reusable instructions
+              in <strong>Settings → Agents → Skills</strong>.</p>
           </section>
           <section id="delivery-and-ci">
             <h2>Deliver changes and repair CI</h2>
-            <p>
-              Review <strong>Automation</strong> before the first submission;
-              the choices lock when the task starts.
-            </p>
+            <p>Review <strong>Automation</strong> before starting:</p>
             <ul>
-              <li>
-                <strong>Auto draft PR</strong> pushes commits and creates or
-                updates a PR. It defaults on.
-              </li>
-              <li>
-                <strong>Auto CI fix</strong> repairs supported failures and can
-                mark a draft ready. It also defaults on and can write to GitHub.
-              </li>
-              <li>
-                <strong>Auto review summary</strong> adds private notes; it
-                defaults off.
-              </li>
-              <li>
-                <strong>Keep commits local for this turn</strong> disables
-                publication and CI follow-up for that submission.
-              </li>
+              <li><strong>Auto draft PR:</strong> pushes commits and creates or updates a PR. On by default.</li>
+              <li><strong>Auto CI fix:</strong> repairs supported failures and can mark a draft ready. On by default; can write to GitHub.</li>
+              <li><strong>Auto review summary:</strong> adds private notes. Off by default.</li>
+              <li><strong>Keep commits local for this turn:</strong> skips publication and CI follow-up.</li>
             </ul>
-            <p>
-              Finished development work is committed automatically. Set new-task
-              defaults in <strong>Settings → Agents → Workflow</strong>.
-            </p>
-            <p>
-              During CI repair, use <code>@ci</code> to guide the agent when
-              supported. To resume development, choose
-              <strong>Stop automation and continue…</strong>. Review and merge
-              the PR yourself.
-            </p>
+            <p>Completed development work is committed automatically. Change defaults
+              in <strong>Settings → Agents → Workflow</strong>. Use
+              <strong>Stop automation and continue…</strong> to resume development.
+              You review and merge the PR.</p>
           </section>
           <section id="commits-and-backports">
             <h2>Cherry-pick and backport</h2>
             <ol>
-              <li>
-                In <strong>Commits → History</strong>, check the first control
-                for the destination and the second for the source.
-              </li>
-              <li>
-                Select commits or a range, then <strong>Cherry-pick</strong>.
-                Review the route, order, and resolver before
-                <strong>Start cherry-pick</strong>.
-              </li>
-              <li>
-                Follow the run under <strong>Commits → Cherry pick</strong>. Use
-                <strong>Send note</strong> or
-                <strong>Cancel execution</strong> if needed.
-              </li>
-              <li>
-                When ready, choose
-                <strong>Deliver this generated branch → Push branch</strong>,
-                then <strong>Create pull request</strong>.
-              </li>
+              <li>In <strong>Commits → History</strong>, choose the destination and source.</li>
+              <li>Select commits, then <strong>Cherry-pick</strong>.
+                Check the plan with <strong>Dry run</strong>, then <strong>Start cherry-pick</strong>.</li>
+              <li>Follow progress in <strong>Commits → Cherry pick</strong>.</li>
+              <li>Review the result, then <strong>Deliver this generated branch → Push branch</strong>
+                and <strong>Create pull request</strong>. PR creation also starts the disclosed CI monitor.</li>
             </ol>
-            <p>
-              Cherry-picking starts locally. <strong>Dry run</strong> shows the
-              plan. PR creation also authorizes the disclosed CI monitor.
-            </p>
-            <p>
-              For chained backports, configure
-              <strong>Related workspaces</strong> in repository settings, then
-              use <strong>Backport</strong> or send
-              <code>@backport example/project #123</code>. Follow
-              <strong>Tasks → Backport chains</strong>. Each step waits for its
-              source PR to merge; you control merges.
-            </p>
+            <p>For chained backports, set <strong>Related workspaces</strong> in repository
+              settings and choose <strong>Backport</strong>. Follow
+              <strong>Tasks → Backport chains</strong>. Each step waits for its source PR to merge.</p>
           </section>
           <div class="doc-next">
             <a href="documentation.html">← All guides</a

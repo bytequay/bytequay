@@ -10,8 +10,8 @@
     <meta name="theme-color" content="#101017" />
     <title>ByteQuay — Don’t lose your understanding.</title>
     <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="style.css?v=understanding" />
-    <script src="site.js?v=assistant-docs" defer></script>
+    <link rel="stylesheet" href="style.css?v=providers" />
+    <script src="site.js?v=providers" defer></script>
   </head>
   <body class="landing">
     <a class="skip" href="#main">Skip to content</a>
@@ -32,9 +32,8 @@
         <p class="eyebrow">YOUR REPOSITORIES. YOUR AGENTS. YOUR CALL.</p>
         <h1>Don’t lose your<br /><span>understanding.</span></h1>
         <p class="hero-lede">
-          As your agents do more, your confidence should grow. ByteQuay keeps
-          context, decisions, and conversations connected, so you can understand
-          every change as deeply as you need.
+          As your agents do more, your confidence should grow. Keep context and
+          decisions close. Explore as deeply as you need, then merge.
         </p>
         <div class="actions">
           <a
@@ -97,8 +96,8 @@
               From a request to a reviewable change.
             </h3>
             <p id="screenshot-caption">
-              Give an agent a task, follow the conversation, and inspect changes
-              in WorkBench. Open Tears of time to explore code and run tests.
+              Give an agent a task. Follow the conversation, inspect the changes,
+              and check the tests.
             </p>
             <a id="screenshot-guide" href="guide-agents.html#agent-tasks"
               >Read the feature guide →</a
@@ -106,19 +105,27 @@
           </div>
         </div>
       </section>
-      <div class="foundation wrap">
-        <span>GitHub, in focus.</span
-        ><span>Codex &amp; Claude, close at hand.</span
-        ><span>Your data, stored locally.</span>
-      </div>
+      <nav class="foundation wrap" aria-label="Models and accounts">
+        <a href="guide-agents.html#models">
+          <strong>Codex &amp; Claude Code <span aria-hidden="true">↗</span></strong>
+          <span>Use your existing CLI sign-ins.</span>
+        </a>
+        <a href="guide-agents.html#models">
+          <strong>Bring your API key <span aria-hidden="true">↗</span></strong>
+          <span>Run tasks with your agent API, such as DeepSeek.</span>
+        </a>
+        <a href="guide-agents.html#claude-accounts">
+          <strong>Multiple Claude Code accounts <span aria-hidden="true">↗</span></strong>
+          <span>Isolated sign-ins. Choose per repository.</span>
+        </a>
+      </nav>
       <section class="workflow wrap" id="workflow">
         <div class="section-heading">
           <p class="eyebrow">FROM CONTEXT TO CONFIDENCE</p>
           <h2>Review is<br />all you need.</h2>
           <p>
-            Let agents build while you explore the intent, assumptions, code,
-            and tests together. Discuss any part of the work, choose how deep
-            to go, and merge when you’re confident.
+            Explore the intent, code, and tests together. Ask questions at any
+            point. Merge when you’re confident.
           </p>
         </div>
         <div class="workflow-grid">
@@ -126,9 +133,8 @@
             <span class="feature-number">01 / DEVELOPMENT</span>
             <h3>A conversation that builds.</h3>
             <p>
-              Work with Codex or Claude in a separate local worktree. Steer the
-              task, handle approvals, and inspect the result beside the
-              conversation.
+              Build with your chosen model in a separate working copy. Guide the
+              task and inspect changes beside the conversation.
             </p>
             <a href="guide-agents.html#agent-tasks">Development guide →</a>
           </article>
@@ -156,9 +162,8 @@
             <span class="feature-number">04 / ASSISTANT</span>
             <h3>Your next step, one shortcut away.</h3>
             <p>
-              Press ⌘J to ask about your day, see what needs you, and handle
-              waiting tasks. Enable task actions when you want the Assistant
-              to start work or pass along your replies.
+              Press ⌘J to see what needs you. Ask about your work, start tasks,
+              or pass along replies when task actions are enabled.
             </p>
             <a href="guide-assistant.html">Assistant guide →</a>
           </article>
@@ -181,13 +186,8 @@
           </div>
           <div class="context-copy">
             <p>
-              Turn a review comment into a private conversation with your agent.
-              Check the reasoning, explore a fix, and understand the tradeoffs
-              with the code in context.
-            </p>
-            <p>
-              When you’re ready, draft a reply together. You choose what gets
-              posted to GitHub.
+              Discuss a review comment privately with your agent. Explore a fix
+              and draft a reply. You choose what gets posted to GitHub.
             </p>
             <a href="guide-reviews.html#ask-from-review">Explore private review discussions →</a>
           </div>
@@ -208,13 +208,8 @@
           </div>
           <div class="context-copy">
             <p>
-              Hover over a pull request or issue link to see its title, status,
-              description, and labels. Get the context behind a reference
-              while staying with the conversation or review.
-            </p>
-            <p>
-              Need a closer look? Move or resize the card to keep it open,
-              or open the full PR or issue.
+              Hover over any PR or issue link for context without leaving your
+              work. Move or resize the preview to keep it close.
             </p>
             <a href="guide-reviews.html#link-previews">Explore link previews →</a>
           </div>
@@ -233,14 +228,9 @@
             <p class="eyebrow">MAKE PROGRESS VISIBLE</p>
             <h2>Big changes.<br />Clear next steps.</h2>
             <p>
-              Epics keep the work behind a larger change together. See what is
-              done, what is moving, and what is waiting for something else.
+              Keep related issues, tasks, and pull requests together. See
+              progress, dependencies, and the next step in one view.
             </p>
-            <ul>
-              <li>Related issues, tasks, and pull requests</li>
-              <li>Progress and dependencies in one view</li>
-              <li>Proposed work for you to review and accept</li>
-            </ul>
             <a class="button secondary" href="guide-planning.html#epics"
               >Explore Epics</a
             >
@@ -277,16 +267,14 @@
             ><span class="resource-label">DOCUMENTATION</span>
             <h3>Make yourself<br />at home.</h3>
             <p>
-              What ByteQuay is, where it’s going, and simple guides to the
-              features you’ll use.
+              Set up your workspace and learn the essentials.
             </p>
             <span class="resource-action">Read the docs</span></a
           ><a class="resource-card design-card" href="design.html"
             ><span class="resource-label">HIGH-LEVEL DESIGN</span>
             <h3>Understand<br />how it fits.</h3>
             <p>
-              Explore the desktop architecture, local data, agent worktrees, and
-              the boundaries between them.
+              Explore the architecture and how your data stays local.
             </p>
             <span class="resource-action">Explore the design</span></a
           >
@@ -298,9 +286,8 @@
           <h2 id="local-data-title">Your data stays local.</h2>
         </div>
         <p>
-          ByteQuay stores all app data locally on your Mac, including
-          conversations, reviews, settings, and working copies. GitHub and model
-          requests use the external services you connect.
+          Conversations, reviews, settings, and working copies stay on your Mac.
+          GitHub and model requests go to the services you connect.
         </p>
       </section>
       <section class="start-section wrap" id="get-started">
@@ -308,8 +295,7 @@
           <p class="eyebrow">OPEN SOURCE. STILL TAKING SHAPE.</p>
           <h2>Start with one repository.</h2>
           <p>
-            ByteQuay is under active development. Try a release, build from
-            source, or help shape what comes next.
+            Try a release or help shape what comes next.
           </p>
         </div>
         <div class="actions">

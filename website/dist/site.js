@@ -4,7 +4,7 @@ const views = {
     source: "assets/app-development.jpg",
     title: "From a request to a reviewable change.",
     caption:
-      "Give an agent a task, follow the conversation, and inspect changes in WorkBench. Open Tears of time to explore code and run tests.",
+      "Give an agent a task. Follow the conversation, inspect the changes, and check the tests.",
     guide: "guide-agents.html#agent-tasks",
     alt: "ByteQuay in dark mode with a completed development task beside its code changes and regression tests.",
   },
@@ -12,7 +12,7 @@ const views = {
     source: "assets/app-review.jpg",
     title: "Understand the change before you approve it.",
     caption:
-      "Read the intention and commit explanations, inspect reproduced findings, and discuss them privately. Choose what belongs in your GitHub review.",
+      "Understand the intent, inspect findings, and discuss them privately before publishing your review.",
     guide: "guide-reviews.html#private-review",
     alt: "ByteQuay PR review with change intention, commit explanations, and a private finding.",
   },
@@ -20,7 +20,7 @@ const views = {
     source: "assets/app-cherry-pick.jpg",
     title: "The right commits. The right destination.",
     caption:
-      "Check the branch route, selected commits, and predicted conflicts before starting. Follow the resolver and review the generated branch before delivery.",
+      "Check the destination, commits, and predicted conflicts. Review the result before delivery.",
     guide: "guide-agents.html#commits-and-backports",
     alt: "ByteQuay cherry-pick confirmation with five selected commits, destination branch, and conflict prediction.",
   },
@@ -28,7 +28,7 @@ const views = {
     source: "assets/app-assistant.jpg",
     title: "Your day and waiting tasks, one shortcut away.",
     caption:
-      "Press ⌘J to ask about the work on screen and see what needs you. With task actions enabled, ask the Assistant to start work or pass along your reply.",
+      "Press ⌘J to see what needs you. With task actions enabled, ask it to start work or pass along a reply.",
     guide: "guide-assistant.html",
     alt: "ByteQuay Assistant with on-screen context, a conversation, action receipts, and waiting task cards.",
   },
@@ -36,7 +36,7 @@ const views = {
     source: "assets/app-epic-zoom.jpg",
     title: "A larger change, with every piece in view.",
     caption:
-      "Group related work, connect issues and attempts, and follow progress. Review suggested work and decide what to add to the Epic.",
+      "Connect related work, follow progress, and choose what to take on next.",
     guide: "guide-planning.html#epics",
     alt: "ByteQuay Epic in a zoom window over the workspace, showing progress, related issues, active tasks, and proposed work.",
   },

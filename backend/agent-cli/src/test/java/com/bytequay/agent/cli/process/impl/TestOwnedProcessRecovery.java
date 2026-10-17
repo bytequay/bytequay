@@ -111,6 +111,8 @@ class TestOwnedProcessRecovery
         });
         assertThat(awaitDead(process.pid())).isTrue();
         assertThat(awaitDead(descendantPid)).isTrue();
+        // The first supervisor writes its terminal receipt into the launch directory after the tree dies.
+        process.exit().toCompletableFuture().get(5, TimeUnit.SECONDS);
     }
 
     @Test

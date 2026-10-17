@@ -19,8 +19,25 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import electron from 'electron';
 import { expect, it, vi } from 'vitest';
-import { runBrowserFixture } from './browserFixture';
+import { buildBrowserFixture, runBrowserFixture } from './browserFixture';
 import { electronFixtureLifecycle } from './electronFixtureLifecycle';
+
+it('returns results and exits when several fixtures finish together', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'bytequay-fixture-concurrent-'));
+  try {
+    const entry = join(directory, 'renderer.js');
+    await writeFile(entry, 'export function run() { return "completed"; }');
+    const fixture = await buildBrowserFixture({
+      prefix: 'bytequay-fixture-concurrent-app-', entry, global: 'Fixture', timeoutMs: 10_000,
+    });
+    try {
+      const results = await Promise.allSettled(Array.from({ length: 6 }, () => fixture.run<string>()));
+      expect(results).toEqual(Array(6).fill({ status: 'fulfilled', value: 'completed' }));
+    }
+    finally { await fixture.dispose(); }
+  }
+  finally { await rm(directory, { recursive: true, force: true }); }
+}, 20_000);
 
 it.each(['parent exit', 'deadline'])('exits a real Electron fixture after %s', async (reason) => {
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-fixture-cleanup-'));

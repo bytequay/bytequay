@@ -15,12 +15,13 @@
 // Each fixture owns its lifetime even if Vitest terminates its worker before cleanup runs.
 export function electronFixtureLifecycle(timeoutMs: number): string {
   return `
+    // Avoid Dock activation transitions while concurrent fixtures start and exit on macOS.
+    if (process.platform === 'darwin') app.setActivationPolicy('accessory');
     process.stdin.on('end', () => app.exit(1));
     process.stdin.resume();
     setTimeout(() => {
       console.error('Electron fixture timed out');
       app.exit(1);
     }, ${timeoutMs}).unref();
-    app.whenReady().then(() => app.dock?.hide());
   `;
 }

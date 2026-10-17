@@ -243,6 +243,10 @@ npm test
 npm run package
 ```
 
+Vitest runs at most four workers because browser suites each build a bundle and
+launch Electron. This keeps browser startup and shutdown from being starved by
+unrestricted parallel builds.
+
 Electron 44 requires a code-signed macOS app to display native PR notifications.
 Unsigned development and packaged builds still show PR updates inside ByteQuay.
 

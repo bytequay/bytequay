@@ -22,7 +22,7 @@ import type { URI } from '@codingame/monaco-vscode-api/vscode/vs/base/common/uri
 import { MouseTargetType, type ICodeEditor } from '@codingame/monaco-vscode-api/vscode/vs/editor/browser/editorBrowser';
 import type { Position } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/core/position';
 import { Range, type IRange } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/core/range';
-import type { Location, LocationLink } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/languages';
+import type { Definition, Location, LocationLink, ProviderResult } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/languages';
 import type { ITextModel } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/model';
 import { ReferencesModel, type OneReference } from '@codingame/monaco-vscode-api/vscode/vs/editor/contrib/gotoSymbol/browser/referencesModel';
 import { fileName, isTestFile } from '../pulls/code-tests/codeModel';
@@ -131,15 +131,20 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
         if (source.token.isCancellationRequested) return;
         setWaiting(false);
       }
-      // The declaration is an occurrence but not a usage, and a language service may return it whatever the search asks for.
-      const declarations = Promise.all(features.definitionProvider.ordered(request.model).map(provider => provider.provideDefinition(request.model, request.position, source.token)))
-        .then(found => found.flatMap((links): (Location | LocationLink)[] => Array.isArray(links) ? links : links ? [links] : [])
-          .map(link => ({ uri: link.uri.toString(), range: ('targetSelectionRange' in link ? link.targetSelectionRange : undefined) ?? link.range })))
-        .catch((): Declaration[] => []);
+      // A declaration is an occurrence but not a usage, and a language service may return the symbol's own
+      // and every overriding one whatever the search asks for.
+      const locations = async (lookups: () => ProviderResult<Definition | LocationLink[]>[]): Promise<Declaration[]> => {
+        try {
+          return (await Promise.all(lookups())).flatMap((links): (Location | LocationLink)[] => Array.isArray(links) ? links : links ? [links] : [])
+            .map(link => ({ uri: link.uri.toString(), range: ('targetSelectionRange' in link ? link.targetSelectionRange : undefined) ?? link.range }));
+        } catch { return []; }
+      };
+      const definitions = locations(() => features.definitionProvider.ordered(request.model).map(provider => provider.provideDefinition(request.model, request.position, source.token)));
+      const overrides = locations(() => features.implementationProvider.ordered(request.model).map(provider => provider.provideImplementation(request.model, request.position, source.token)));
       const declared = (known: Declaration[], uri: URI, range: IRange) => known.some(item => item.uri === uri.toString() && Range.areIntersectingOrTouching(item.range, range));
       // The open file answers long before the project search does; the editor's own word-match fallback would list every same-named method.
       const occurrences = features.documentHighlightProvider.ordered(request.model).filter(provider => (provider as { selector?: { language?: string } }).selector?.language !== '*');
-      void Promise.all([Promise.all(occurrences.map(provider => provider.provideDocumentHighlights(request.model, request.position, source.token))), declarations]).then(([highlights, known]) => {
+      void Promise.all([Promise.all(occurrences.map(provider => provider.provideDocumentHighlights(request.model, request.position, source.token))), definitions]).then(([highlights, known]) => {
         if (complete || source.token.isCancellationRequested) return;
         const local = (highlights.find(found => found?.length) ?? []).filter(found => !declared(known, request.model.uri, found.range));
         if (!local.length) return;
@@ -151,8 +156,9 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
       const links = (await Promise.all(providers.map(provider => provider.provideReferences(request.model, request.position, { includeDeclaration: false }, source.token)))).flatMap(items => items ?? []);
       if (source.token.isCancellationRequested) return;
       complete = true;
-      // A definition lookup that never answers must not hold back usages that already arrived.
-      const known = await Promise.race([declarations, new Promise<Declaration[]>(resolve => setTimeout(() => resolve([]), DECLARATION_WAIT))]);
+      // A lookup that never answers must not hold back usages that already arrived.
+      const capped = (lookup: Promise<Declaration[]>) => Promise.race([lookup, new Promise<Declaration[]>(resolve => setTimeout(() => resolve([]), DECLARATION_WAIT))]);
+      const known = (await Promise.all([capped(definitions), capped(overrides)])).flat();
       if (source.token.isCancellationRequested) return;
       const references = new ReferencesModel(links.filter(link => !declared(known, link.uri, link.range)), request.name);
       results.push(references);

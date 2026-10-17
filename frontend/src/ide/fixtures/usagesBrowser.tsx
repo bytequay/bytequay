@@ -44,7 +44,7 @@ export async function verifyUsages() {
   const sameFile: languages.Location = { uri: source, range: { startLineNumber: 4, endLineNumber: 4, startColumn: 20, endColumn: 27 } };
   // A definition away from every usage, so a Command-click that also followed it would be visible.
   const elsewhere: languages.Location = { uri: uri('src/main/java/Api.java'), range: { startLineNumber: 2, endLineNumber: 2, startColumn: 13, endColumn: 20 } };
-  let mode: 'ready' | 'slow' | 'empty' | 'error' | 'single' | 'self' | 'declared' = 'ready';
+  let mode: 'ready' | 'slow' | 'empty' | 'error' | 'single' | 'self' | 'declared' | 'overridden' = 'ready';
   let finish: ((locations: languages.Location[]) => void) | undefined;
   let cancelled = false;
   let searches = 0;
@@ -57,12 +57,15 @@ export async function verifyUsages() {
     if (mode === 'self') return [declaration];
     // The Java extension applies its own setting and returns the declaration even when asked not to.
     if (mode === 'declared') return [declaration, links[1]];
+    if (mode === 'overridden') return [declaration, links[0], links[1]];
     if (mode === 'slow') { token.onCancellationRequested(() => { cancelled = true; }); return new Promise<languages.Location[]>(resolve => { finish = resolve; }); }
     return [links[2], links[0], links[1], links[0]];
   } });
   let references = registerReferences();
   let definition = elsewhere;
   const definitions = languages.registerDefinitionProvider('java', { provideDefinition: () => definition });
+  let overriding: languages.Location[] = [];
+  const implementations = languages.registerImplementationProvider('java', { provideImplementation: () => overriding });
   const root = createRoot(shell);
   flushSync(() => root.render(<Usages editors={codeEditors} workspace={workspace} />));
   const until = async (test: () => boolean, message: string) => {
@@ -143,7 +146,10 @@ export async function verifyUsages() {
     definition = declaration; mode = 'declared'; click();
     await until(() => editors.activeEditor?.resource?.toString() === links[1].uri.toString() && !popup(), 'A declaration the language service returns anyway is not counted, so the one real usage opens directly');
     await editors.openEditor({ resource: source, options: { pinned: true } }); await settle();
-    definition = elsewhere; mode = 'self'; click();
+    overriding = [links[0]]; mode = 'overridden'; click();
+    await until(() => editors.activeEditor?.resource?.toString() === links[1].uri.toString() && !popup(), 'Declarations of overriding methods are not counted either');
+    await editors.openEditor({ resource: source, options: { pinned: true } }); await settle();
+    overriding = []; definition = elsewhere; mode = 'self'; click();
     await until(() => rows().length === 1 && popup()?.querySelector('[role="status"]')?.textContent === '1 usage', 'A lone usage under the cursor is listed instead of jumping onto itself');
     key('Escape'); await settle();
     definition = declaration;
@@ -182,7 +188,7 @@ export async function verifyUsages() {
     await until(() => popup()?.textContent?.includes('Reference search is not available for this file.') === true, 'Unsupported files do not wait indefinitely for project import');
     key('Escape');
   } finally {
-    flushSync(() => root.unmount()); references.dispose(); definitions.dispose();
+    flushSync(() => root.unmount()); references.dispose(); definitions.dispose(); implementations.dispose();
     await editors.activeEditorPane?.group.closeAllEditors(); contents.dispose(); attached.dispose(); host.remove();
   }
 }

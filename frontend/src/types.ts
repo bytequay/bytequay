@@ -230,7 +230,7 @@ export type PullRequestDetailDto = {
 };
 
 export type PullRequestStatusRefreshDto = Pick<PullRequestDetailDto,
-  'mergeable' | 'mergeableState' | 'ciStatus' | 'checkRuns' | 'unavailableSections'>;
+  'mergeable' | 'mergeableState' | 'ciStatus' | 'checkRuns' | 'unavailableSections' | 'viewerCanWrite'>;
 
 export type PullRequestDetailRefreshDto =
   | { full: true; detail: PullRequestDetailDto; status: null }

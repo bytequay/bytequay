@@ -897,8 +897,7 @@ public class PullRequestService
             else {
                 raw = previous.orElseThrow().raw();
             }
-            boolean viewerCanWrite = previous.map(StoredPrDetail::viewerCanWrite)
-                    .orElseGet(() -> accounts.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo())));
+            boolean viewerCanWrite = accounts.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo()));
             detail = snapshots.saveMetadata(row.id(), raw, viewerCanWrite);
             // A metadata 304 must not restore an ETag invalidated by a concurrent user write.
             if (fetched.pullRequest().isPresent()) {

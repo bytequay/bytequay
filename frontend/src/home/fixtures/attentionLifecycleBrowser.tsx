@@ -278,7 +278,7 @@ async function canonicalSnapshot(): Promise<void> {
   window.bridge.refreshPullRequestDetailByRef = async () => {
     await new Promise<void>(resolve => { publish = resolve; });
     refreshed = true;
-    return { full: false, detail: null, status: { mergeable: null, mergeableState: null, ciStatus: null, checkRuns: [], unavailableSections: [] } };
+    return { full: false, detail: null, status: { mergeable: null, mergeableState: null, ciStatus: null, checkRuns: [], unavailableSections: [], viewerCanWrite: false } };
   };
   window.bridge.fetchAttentionPrs = async () => {
     reads++;

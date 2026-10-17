@@ -238,13 +238,14 @@ describe('findCodeTask', () => {
 });
 
 describe('mergePullRequestDetailStatus', () => {
-  it('changes only mergeability and CI fields', () => {
+  it('refreshes permissions with mergeability and CI fields', () => {
     const result = mergePullRequestDetailStatus(
-      { title: 'Keep me', body: 'Still here' },
+      { title: 'Keep me', body: 'Still here', viewerCanWrite: false },
       {
         mergeable: false,
         mergeableState: 'dirty',
         ciStatus: 'FAILING',
+        viewerCanWrite: true,
         checkRuns: [],
         unavailableSections: [],
       },
@@ -256,6 +257,7 @@ describe('mergePullRequestDetailStatus', () => {
       mergeable: false,
       mergeableState: 'dirty',
       ciStatus: 'FAILING',
+      viewerCanWrite: true,
       checkRuns: [],
       unavailableSections: [],
     });

@@ -58,6 +58,7 @@ import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.PullRequestRef;
@@ -1441,6 +1442,38 @@ class TestPullRequestService
         verify(detailStore, never()).updateEtag(anyLong(), any());
         verify(gitHub, never()).fetchPrIssueComments(anyString(), any());
         verify(gitHub, never()).fetchPrDetail(anyString(), any());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true, true", "true, false", "false, true", "false, false"})
+    void refreshesChangedPermissionsEvenForUnchangedMetadata(boolean force, boolean canWrite)
+    {
+        StoredPrDetail old = stored();
+        cacheDetail(new StoredPrDetail(old.raw(), old.reviews(), old.timeline(), old.checkRuns(), old.unavailableSections(), !canWrite),
+                new PrDetailFreshness(Optional.of(Instant.EPOCH), Optional.of(Instant.now()), Optional.of(Instant.EPOCH), Optional.of(pullRequest().updatedAt())));
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(gitHub.getPullRequest("pat", ref, force ? Optional.empty() : Optional.of("etag-1")))
+                .thenReturn(new PullRequestFetch(force ? Optional.of(pullRequest()) : Optional.empty(), Optional.of("etag-1")));
+        when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(canWrite);
+        when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
+                .thenReturn(new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty()));
+        if (force) {
+            when(store.saveObserved(any())).thenReturn(storedPullRequest());
+            when(gitHub.fetchPrDetail("pat", ref)).thenReturn(raw());
+            when(gitHub.fetchPrDiffFiles(eq("pat"), eq(ref), anyList(), any()))
+                    .thenReturn(new ConditionalList<>(Optional.of(ImmutableList.of()), Optional.empty()));
+            when(gitHub.fetchPrDiffCommits(eq("pat"), eq(ref), anyList(), any()))
+                    .thenReturn(new ConditionalList<>(Optional.of(ImmutableList.of()), Optional.empty()));
+        }
+
+        PullRequestDetail refreshed = force
+                ? service.refreshAllPullRequestDetailFromGitHub("owner/repo", 7)
+                : service.refreshPullRequestDetailFromGitHub("owner/repo", 7).detail();
+
+        assertThat(refreshed.viewerCanWrite()).isEqualTo(canWrite);
+        assertThat(detailStore.find(12L).orElseThrow().viewerCanWrite()).isEqualTo(canWrite);
+        assertThat(PullRequestDetailRefresh.status(refreshed).status().viewerCanWrite()).isEqualTo(canWrite);
+        verify(accounts).fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"));
     }
 
     @Test

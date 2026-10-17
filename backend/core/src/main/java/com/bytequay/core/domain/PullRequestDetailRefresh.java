@@ -41,7 +41,8 @@ public record PullRequestDetailRefresh(boolean full, PullRequestDetail detail, S
                 detail.mergeableState(),
                 detail.ciStatus(),
                 detail.checkRuns(),
-                detail.unavailableSections()));
+                detail.unavailableSections(),
+                detail.viewerCanWrite()));
     }
 
     public record Status(
@@ -49,7 +50,8 @@ public record PullRequestDetailRefresh(boolean full, PullRequestDetail detail, S
             String mergeableState,
             PullRequestDetail.CiStatus ciStatus,
             List<PullRequestDetail.CheckRun> checkRuns,
-            List<String> unavailableSections)
+            List<String> unavailableSections,
+            boolean viewerCanWrite)
     {
         public Status
         {

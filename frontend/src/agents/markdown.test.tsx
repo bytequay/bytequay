@@ -40,6 +40,12 @@ describe('agent markdown', () => {
     expect(out).toContain('<a href="https://example.com/x" target="_blank" rel="noreferrer">the docs</a>');
   });
 
+  it('unwraps angle-delimited destinations with spaces and parentheses', () => {
+    const out = html('See [Main.java:12](</Users/me/Application Support/worktree (review)/Main.java:12>) and [docs](<https://example.com/api(value)>).');
+    expect(out).toContain('<code title="/Users/me/Application Support/worktree (review)/Main.java:12">Main.java:12</code>');
+    expect(out).toContain('<a href="https://example.com/api(value)" target="_blank" rel="noreferrer">docs</a>');
+  });
+
   it('links a GitHub pull request or issue as an in-app reference rather than a web page', () => {
     const out = html('Created draft [PR #31101](https://github.com/trinodb/trino/pull/31101) targeting `master` for [the flaky test](https://github.com/trinodb/trino/issues/7).');
     expect(out).toContain('<a class="md-reference is-pull" href="https://github.com/trinodb/trino/pull/31101"><svg');

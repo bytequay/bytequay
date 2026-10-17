@@ -87,6 +87,16 @@ describe('finding suggestions', () => {
     expect(html.match(/class="lrc-bot"/g)).toHaveLength(2);
   });
 
+  it.each(['review', 'changes'] as const)('renders reviewer file citations in %s without exposing Markdown delimiters', projection => {
+    const path = '/Users/me/Library/Application Support/ByteQuay/worktree/BaseIcebergConnectorTest.java:4436';
+    const html = render(finding, undefined, projection, [{ ...reviewFixture().messages[1], findingId: finding.id,
+      body: `In [BaseIcebergConnectorTest.java:4436](<${path}>), the limit is **100**:\n\n\`\`\`java\nassertUpdate("CREATE TABLE example");\n\`\`\``,
+    }]);
+    expect(html).toContain(`<p>In <code title="${path}">BaseIcebergConnectorTest.java:4436</code>, the limit is <strong>100</strong>:</p>`);
+    expect(html).toContain('class="hljs" data-language="java"');
+    expect(html).not.toContain('href="https://github.com/Users/');
+  });
+
   it('says who resolved a finding and keeps Reopen either way', () => {
     const mine = render({ ...finding, state: 'RESOLVED', stateReason: 'Handled elsewhere' });
     expect(mine).toContain('Resolved locally by you · “Handled elsewhere”');

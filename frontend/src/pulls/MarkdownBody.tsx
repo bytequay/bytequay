@@ -297,10 +297,10 @@ function htmlToMarkdown(value: string) {
   return parts.join('\n');
 }
 
-// A truncated inline code span must not protect HTML in later paragraphs. Fences are handled separately.
+// Code and bracketed link destinations are not HTML; an unclosed code span must not protect later paragraphs.
 function htmlProseToMarkdown(value: string) {
   return decodeEntities(value
-    .replace(/\\[!-/:-@[-`{-~]|(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n)[^])*?(?<!`)\1(?!`)|&(?:lt|gt|#(?:x0*3[ce]|0*(?:60|62)));/gi,
+    .replace(/\\[!-/:-@[-`{-~]|(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n)[^])*?(?<!`)\1(?!`)|(?<=\]\()<[^<>\r\n]+>(?=\))|&(?:lt|gt|#(?:x0*3[ce]|0*(?:60|62)));/gi,
       part => part.startsWith('&') ? `\\${part}` : part.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'))
     .replace(/<!--[^]*?-->/g, '')
     .replace(/<(https?:\/\/[^>\s]+)>/gi, '$1')
@@ -350,7 +350,7 @@ export function tableAlignments(line: string) {
 
 // Like GitHub, `_` emphasis cannot open or close inside a word, so ICEBERG_FILESYSTEM_ERROR stays literal.
 // Its content admits only intraword underscores, which keeps an unclosed `_` from scanning the rest of the text.
-const INLINE_TOKEN = /(\\[!-/:-@[-`{-~]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\*\*(?:\\.|[^*\\]|\*(?!\*))+?\*\*|(?<!\w)__[^_]+__(?!\w)|\*[^*\s][^*]*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:\\.|[^_\\]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n)[^])*?(?<!`)\2(?!`)|\[(?:\\.|[^\]\\])+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|<(strong|sub)>[^]*?<\/\3>)/gu;
+const INLINE_TOKEN = /(\\[!-/:-@[-`{-~]|\[!\[[^\]]*\]\((?:<[^<>\r\n]+>|[^)]+)\)\]\((?:<[^<>\r\n]+>|[^)]+)\)|!\[[^\]]*\]\((?:<[^<>\r\n]+>|[^)]+)\)|\*\*(?:\\.|[^*\\]|\*(?!\*))+?\*\*|(?<!\w)__[^_]+__(?!\w)|\*[^*\s][^*]*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:\\.|[^_\\]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n)[^])*?(?<!`)\2(?!`)|\[(?:\\.|[^\]\\])+\]\((?:<[^<>\r\n]+>|[^)]+)\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|<(strong|sub)>[^]*?<\/\3>)/gu;
 
 export function parseGitHubCodePermalink(value: string, repository?: string): GitHubCodePermalink | null {
   if (!repository) return null;
@@ -556,6 +556,10 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
   return blocks;
 }
 
+function linkDestination(value: string) {
+  return value.startsWith('<') && value.endsWith('>') ? value.slice(1, -1) : value;
+}
+
 const EMPTY_LINK_DEFINITIONS = new Map<string, string>();
 
 export function inline(
@@ -580,17 +584,17 @@ export function inline(
       const Tag = html[1] as 'strong' | 'sub';
       return <Tag key={key}>{inline(html[2], `${key}-html`, definitions, repository, agent)}</Tag>;
     }
-    const linkedImage = part.match(/^\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)$/);
+    const linkedImage = part.match(/^\[!\[([^\]]*)\]\((<[^<>\r\n]+>|[^)]+)\)\]\((<[^<>\r\n]+>|[^)]+)\)$/);
     if (linkedImage) return (
-      <a className="md-image-link" key={key} href={linkedImage[3]} onClick={event => {
+      <a className="md-image-link" key={key} href={linkDestination(linkedImage[3])} onClick={event => {
         event.preventDefault();
-        void openWebLink(linkedImage[3]);
+        void openWebLink(linkDestination(linkedImage[3]));
       }}>
-        <img src={linkedImage[2]} alt={linkedImage[1]} />
+        <img src={linkDestination(linkedImage[2])} alt={linkedImage[1]} />
       </a>
     );
-    const image = part.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-    if (image) return <img className="md-image" key={key} src={image[2]} alt={image[1]} />;
+    const image = part.match(/^!\[([^\]]*)\]\((<[^<>\r\n]+>|[^)]+)\)$/);
+    if (image) return <img className="md-image" key={key} src={linkDestination(image[2])} alt={image[1]} />;
     if ((part.startsWith('**') && part.endsWith('**')) || (part.startsWith('__') && part.endsWith('__'))) return <strong key={key}>{inline(part.slice(2, -2), `${key}-strong`, definitions, repository, agent)}</strong>;
     if ((part.startsWith('_') && part.endsWith('_')) || (part.startsWith('*') && part.endsWith('*'))) return <em key={key}>{inline(part.slice(1, -1), `${key}-em`, definitions, repository, agent)}</em>;
     const codeFence = part.match(/^`+/)?.[0];
@@ -598,14 +602,16 @@ export function inline(
       const code = part.slice(codeFence.length, -codeFence.length).replaceAll('\n', ' ');
       return <code key={key}>{code.startsWith(' ') && code.endsWith(' ') && code.trim() ? code.slice(1, -1) : code}</code>;
     }
-    const directLink = part.match(/^\[((?:\\.|[^\]\\])+)\]\(([^)]+)\)$/);
+    const directLink = part.match(/^\[((?:\\.|[^\]\\])+)\]\((<[^<>\r\n]+>|[^)]+)\)$/);
     const referenceLink = directLink ? null : part.match(/^\[([^\]]+)\](?:\[([^\]]*)\])?$/);
     const definitionLabel = referenceLink ? referenceLink[2] || referenceLink[1] : null;
     const definition = definitionLabel ? definitions.get(normalizeLinkLabel(definitionLabel)) : undefined;
     const linkText = directLink?.[1] ?? (definition ? referenceLink?.[1] : undefined);
-    const linkHref = directLink?.[2] ?? definition;
+    const destination = directLink?.[2] ?? definition;
+    const linkHref = destination === undefined ? undefined : linkDestination(destination);
     if (linkText && linkHref) {
-      if (agent && !/^https?:\/\//i.test(linkHref)) return <code key={key} title={linkHref}>{linkText}</code>;
+      const localFile = /^(?:file:\/\/|(?:\/(?!\/)|[a-z]:[\\/]).*:\d+(?::\d+)?(?:-\d+(?::\d+)?)?$)/i.test(linkHref);
+      if (localFile || (agent && !/^https?:\/\//i.test(linkHref))) return <code key={key} title={linkHref}>{linkText}</code>;
       const href = linkHref.startsWith('/') ? `https://github.com${linkHref}` : linkHref;
       const reference = linkText.match(/^(.*) (#\d+)$/);
       const githubReference = parseGitHubReference(href);

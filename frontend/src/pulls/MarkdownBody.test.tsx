@@ -369,6 +369,32 @@ describe('MarkdownBody', () => {
     expect(html).toContain('[<strong>full</strong>][unknown]');
   });
 
+  it.each([
+    ['/worktree/src/Main.java:12', '/worktree/src/Main.java:12'],
+    ['</Users/me/Library/Application Support/worktree (review)/Main.java:12>', '/Users/me/Library/Application Support/worktree (review)/Main.java:12'],
+    ['<file:///worktree/Main.java:12>', 'file:///worktree/Main.java:12'],
+  ])('renders the local file location %s without a broken browser link', (destination, path) => {
+    const html = renderToStaticMarkup(<MarkdownBody body={`See [Main.java:12](${destination}).`} />);
+    expect(html).toBe(`<div class="markdown-body"><p>See <code title="${path}">Main.java:12</code>.</p></div>`);
+  });
+
+  it('preserves angle-delimited web destinations and literal code while still removing HTML', () => {
+    const body = 'See [the **docs**](<https://example.com/api(value)?a=1&b=2>) and [pull](/owner/repo/pull/7).\n\n'
+      + '`[source](</worktree/Main.java:12>)`\n\n<script>hidden tag</script>';
+    const html = renderToStaticMarkup(<MarkdownBody body={body} />);
+    expect(html).toContain('<a href="https://example.com/api(value)?a=1&amp;b=2">the <strong>docs</strong></a>');
+    expect(html).toContain('href="https://github.com/owner/repo/pull/7"');
+    expect(html).toContain('<code>[source](&lt;/worktree/Main.java:12&gt;)</code>');
+    expect(html).not.toContain('<script>');
+  });
+
+  it('keeps angle-delimited image and linked-image destinations working', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'![Diagram](<https://example.com/image(1).png>) '
+      + '[![Preview](<https://example.com/preview.png>)](<https://example.com/full(1)>)'} />);
+    expect(html).toContain('<img class="md-image" src="https://example.com/image(1).png" alt="Diagram"/>');
+    expect(html).toContain('<a class="md-image-link" href="https://example.com/full(1)"><img src="https://example.com/preview.png" alt="Preview"/></a>');
+  });
+
   it('renders escaped backticks as literal delimiters', () => {
     const html = renderToStaticMarkup(<MarkdownBody body={'Use \\`ClickHouseClient.toColumnMapping()\\`.'} />);
 

@@ -1019,6 +1019,7 @@
 /* Only the action that posts to GitHub is filled. */
 .lrc__action.is-primary { border: 1px solid light-dark(rgba(31, 35, 40, 0.15), rgb(210 220 235 / 15%)); background: light-dark(#1f883d, #287a43); color: var(--on-solid); font-weight: 600; }
 .lrc__action.is-primary:hover:not(:disabled) { background: light-dark(#1a7f37, #32894f); }
+.lrc__action.is-primary:disabled { background: var(--lrc-hover); color: var(--fg-dim); }
 .lrc__error { color: var(--fg-danger); font-size: 12px; }
 .lrc :is(summary, button):focus-visible { outline: 2px solid var(--control-strong); outline-offset: 2px; }
 .lrc > summary:focus-visible { outline-offset: -2px; }

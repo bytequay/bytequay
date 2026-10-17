@@ -92,7 +92,7 @@ export default function ReviewFindingCard({
     && messages.some(message => message.author === 'USER' && message.turnId === review.activeTurn?.id && !queued(review, message));
   const waitingReason = responding ? 'Agent responding'
     : review.state === 'OPEN' && messages.some(message => message.author === 'USER' && queued(review, message)) ? 'Question queued' : null;
-  const responseBlocked = waitingReason !== null && (composer === 'ask' || composer === 'resolve');
+  const actionsDisabled = busy || waitingReason !== null;
   const item = draftItemFor(review.draft, finding.id);
   const itemCommit = item === null ? null : draftCommentCommit(item, review.findings);
   const reviewText = item === null && finding.path === null && review.draft?.body.includes(finding.body.trim()) ? review.draft.body : null;
@@ -112,6 +112,7 @@ export default function ReviewFindingCard({
     : `${finding.evidence.length} references`;
 
   const openComposer = (kind: Exclude<typeof composer, null>, initial: string) => {
+    if (actionsDisabled) return;
     setError(null);
     setComposer(kind);
     setText(initial);
@@ -125,7 +126,7 @@ export default function ReviewFindingCard({
   };
   const submit = async () => {
     const body = text.trim();
-    if (busy || responseBlocked || (composer === 'post' && awaitingConfirmation)
+    if (actionsDisabled || (composer === 'post' && awaitingConfirmation)
       || (body === '' && !(composer === 'resolve' && !remember) && !(composer === 'draft' && reviewText !== null))) return;
     setError(null);
     try {
@@ -139,6 +140,7 @@ export default function ReviewFindingCard({
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send your message.'); }
   };
   const remove = async () => {
+    if (actionsDisabled || awaitingConfirmation) return;
     setError(null);
     try { await actions.onRemoveFromReview(finding); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not remove this comment.'); }
@@ -153,7 +155,7 @@ export default function ReviewFindingCard({
       suggestion={composer === 'post' ? suggestion : undefined}
       autoFocus
       busy={busy}
-      disabledReason={responseBlocked ? waitingReason : composer === 'post' && awaitingConfirmation ? 'Wait for delivery confirmation before sending again.' : null}
+      disabledReason={waitingReason ?? (composer === 'post' && awaitingConfirmation ? 'Wait for delivery confirmation before sending again.' : null)}
       allowEmpty={(composer === 'resolve' && !remember) || (composer === 'draft' && reviewText !== null)}
       extra={composer === 'resolve' && lines !== null && <label className="agr-remember" title="Saves your reason as a rule agents get for this file">
         <input type="checkbox" checked={remember} disabled={busy} onChange={event => setRemember(event.target.checked)} />
@@ -193,30 +195,30 @@ export default function ReviewFindingCard({
           {editor}
 
           {composer === null && (
-            <button type="button" className="lrc__ask" disabled={busy || waitingReason !== null || review.state === 'CLOSED'} title={waitingReason ?? undefined}
+            <button type="button" className="lrc__ask" disabled={actionsDisabled || review.state === 'CLOSED'} title={waitingReason ?? undefined}
               onClick={() => openComposer('ask', '')}>Ask reviewer</button>
           )}
           {composer === null && !withdrawn && <>
-            {actions.onRequestFix !== undefined && finding.state === 'OPEN' && <button type="button" className="lrc__action" disabled={busy}
+            {actions.onRequestFix !== undefined && finding.state === 'OPEN' && <button type="button" className="lrc__action" disabled={actionsDisabled} title={waitingReason ?? undefined}
               onClick={() => openComposer('fix', 'Please investigate and address this finding.')}>Request fix</button>}
             {fixSent && <span className="pr-local-review__note" role="status">Sent to developer</span>}
             {actions.onNavigate !== undefined && lines !== null && (
-              <button type="button" className="lrc__action" onClick={() => actions.onNavigate?.(finding)}>
+              <button type="button" className="lrc__action" disabled={actionsDisabled} title={waitingReason ?? undefined} onClick={() => actions.onNavigate?.(finding)}>
                 {projection === 'review' ? 'View in Changes' : 'Open in Summary'}
               </button>
             )}
             {finding.state === 'OPEN' && (
-              <button type="button" className="lrc__action" disabled={busy || waitingReason !== null} title={waitingReason ?? undefined}
+              <button type="button" className="lrc__action" disabled={actionsDisabled} title={waitingReason ?? undefined}
                 onClick={() => openComposer('resolve', '')}>Resolve</button>
             )}
             {publication.kind === 'publishable' && (
               <>
                 <span className="agr-actions__divider" aria-hidden="true" />
-                <button type="button" className="lrc__action" disabled={busy}
-                  title={lines === null ? 'Adds this text to your review summary, which you can edit before submitting'
-                    : 'Copies this comment into your pending GitHub review. Nothing is sent until you submit.'}
+                <button type="button" className="lrc__action" disabled={actionsDisabled}
+                  title={waitingReason ?? (lines === null ? 'Adds this text to your review summary, which you can edit before submitting'
+                    : 'Copies this comment into your pending GitHub review. Nothing is sent until you submit.')}
                   onClick={() => { void actions.onAddToReview(finding); }}>Add to my review</button>
-                {lines !== null && <button type="button" className="lrc__action is-primary" disabled={busy}
+                {lines !== null && <button type="button" className="lrc__action is-primary" disabled={actionsDisabled} title={waitingReason ?? undefined}
                   onClick={() => openComposer('post', findingReviewText(finding))}>Post comment now</button>}
               </>
             )}
@@ -275,7 +277,7 @@ export default function ReviewFindingCard({
                 {finding.stateReason ? ` · “${finding.stateReason}”` : ''}
                 {outgoingBody !== null ? ' · your saved review is unchanged' : ''}
               </span>
-              <button type="button" className="agr-action" disabled={busy || waitingReason !== null} title={waitingReason ?? undefined}
+              <button type="button" className="agr-action" disabled={actionsDisabled} title={waitingReason ?? undefined}
                 onClick={() => { void actions.onReopen(finding); }}>Reopen</button>
             </div>
           )}
@@ -308,9 +310,9 @@ export default function ReviewFindingCard({
                 </span>}
                 <span className="agr-spacer" />
                 <span className="agr-draft__note">Editing this never changes the finding</span>
-                <button type="button" disabled={busy || awaitingConfirmation}
+                <button type="button" disabled={actionsDisabled || awaitingConfirmation} title={waitingReason ?? undefined}
                   onClick={() => { setEditVersion(review.draft?.version ?? 0); openComposer('draft', outgoingBody); }}>Edit</button>
-                <button type="button" disabled={busy || awaitingConfirmation} title={reviewText !== null ? "Remove this finding's text from your review summary" : undefined}
+                <button type="button" disabled={actionsDisabled || awaitingConfirmation} title={waitingReason ?? (reviewText !== null ? "Remove this finding's text from your review summary" : undefined)}
                   onClick={() => { void remove(); }}>Remove</button>
               </div>
               <div className="agr-draft__body"><MarkdownBody body={outgoingBody} repository={review.repo} /></div>

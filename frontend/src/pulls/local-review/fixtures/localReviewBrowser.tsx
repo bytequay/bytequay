@@ -775,9 +775,12 @@ async function pendingFindingResponse(): Promise<void> {
     const root = createRoot(host);
     const originalBridge = window.bridge;
     let writes = 0;
-    const noWrite = async () => { writes++; throw new Error('An active discussion must not send or resolve'); };
+    let navigations = 0;
+    const navigate = () => { navigations++; };
+    const noWrite = async () => { writes++; throw new Error('An active discussion must not perform an action'); };
     Object.defineProperty(window, 'bridge', { configurable: true, value: {
       ...originalBridge, askAgentReview: noWrite, resolveAgentReviewFinding: noWrite, reopenAgentReviewFinding: noWrite,
+      addReviewDraftFinding: noWrite, editReviewDraftComment: noWrite, removeReviewDraftComment: noWrite, publishReviewDraftComment: noWrite,
     } });
     const finding = { ...reviewFixture().findings[0], path: 'src/Example.java',
       startLine: 2, endLine: 2, range: 'R2', excerpt: ['new code'] };
@@ -788,10 +791,11 @@ async function pendingFindingResponse(): Promise<void> {
     const render = () => flushSync(() => root.render(projection === 'changes'
       ? <DiffViewer files={[{ filename: finding.path, status: 'modified', additions: 1, deletions: 1,
           patch: '@@ -1,4 +1,4 @@\n context\n-old code\n+new code\n context\n context' }]}
-        agentReview={{ review, viewer: null, navigation: null, onReviewChange: () => {}, onOpenInReview: () => {} }} />
+        agentReview={{ review, viewer: null, navigation: null, onReviewChange: () => {}, onOpenInReview: navigate }} />
       : <>{review.findings.map(value => <ReviewFindingCard key={value.id} review={review} finding={value} projection="review"
         viewerLogin="me" viewerAvatarUrl={null} actions={{ onAsk: noWrite, onResolve: noWrite, onReopen: noWrite,
-          onAddToReview: noWrite, onPostNow: noWrite, onEditDraft: noWrite, onRemoveFromReview: noWrite }} />)}</>));
+          onAddToReview: noWrite, onPostNow: noWrite, onEditDraft: noWrite, onRemoveFromReview: noWrite,
+          onNavigate: navigate, onRequestFix: noWrite }} />)}</>));
     const setResponse = (state: string | null) => {
       review = { ...review, queuedInputIds: state === 'QUEUED' ? ['queued-question'] : [],
         activeTurn: state === null ? null : { id: state === 'QUEUED' ? 'other-turn' : 'response-turn', state: state === 'QUEUED' ? 'RUNNING' : state,
@@ -804,13 +808,20 @@ async function pendingFindingResponse(): Promise<void> {
       const unrelated = host.querySelector<HTMLElement>(`[data-finding-id="${other.id}"]`);
       assert(card !== null && unrelated !== null, `Both reviewer findings must render in ${projection}`);
       if (projection === 'changes') assert(card.closest('tr.is-review-finding') !== null, 'Exercise the actual inline Changes card');
+      const actionLabels = ['Ask reviewer', 'Resolve', 'Add to my review', 'Post comment now',
+        ...(projection === 'review' ? ['View in Changes', 'Request fix'] : ['Open in Summary'])];
       for (const state of ['ACCEPTED', 'RUNNING', 'QUEUED']) {
         setResponse(state);
-        assert(button(card, 'Resolve').disabled && button(card, 'Ask reviewer').disabled
-          && !button(unrelated, 'Resolve').disabled && !button(unrelated, 'Ask reviewer').disabled,
-        'Only the finding with a pending response must block asking and resolving');
-        button(card, 'Resolve').click(); button(card, 'Ask reviewer').click(); await settle();
-        assert(card.querySelector('textarea') === null && writes === 0, 'Blocked controls must not open an editor or perform a mutation');
+        for (const label of actionLabels) {
+          assert(button(card, label).disabled && !button(unrelated, label).disabled,
+            `Only the finding with a pending response must block ${label}`);
+          button(card, label).click();
+        }
+        await settle();
+        assert(card.querySelector('textarea') === null && writes === 0 && navigations === 0,
+          'Blocked controls must not open an editor, perform a mutation or navigate');
+        assert(getComputedStyle(button(card, 'Post comment now')).color === getComputedStyle(button(card, 'Resolve')).color,
+          'The primary publish action must also look disabled');
         const progress = card.querySelector<HTMLElement>('.pr-local-review__progress');
         assert((progress !== null) === (state !== 'QUEUED') && unrelated.querySelector('.pr-local-review__progress') === null,
           'The glow must follow this finding’s active turn, not queued questions or unrelated review work');
@@ -826,22 +837,40 @@ async function pendingFindingResponse(): Promise<void> {
       }
       for (const state of ['COMPLETED', 'FAILED', 'CANCELLED', null]) {
         setResponse(state);
-        assert(!button(card, 'Resolve').disabled && !button(card, 'Ask reviewer').disabled && card.querySelector('.pr-local-review__progress') === null,
+        assert(actionLabels.every(label => !button(card, label).disabled) && card.querySelector('.pr-local-review__progress') === null,
           'Ending the response must release the finding controls and remove the glow');
       }
-      button(card, 'Resolve').click(); await settle();
-      const input = card.querySelector('textarea');
-      assert(input !== null, 'An idle finding must still allow resolution');
-      changeInput(input, 'Keep my resolution reason'); await settle();
+      const checkPendingEditor = async (openLabel: string, submitLabel: string) => {
+        button(card, openLabel).click(); await settle();
+        const input = card.querySelector('textarea');
+        assert(input !== null, `An idle finding must still allow ${openLabel}`);
+        changeInput(input, 'Keep my draft'); await settle();
+        setResponse('RUNNING');
+        const pendingLabel = openLabel === 'Ask reviewer' ? 'Queue question' : submitLabel;
+        assert(button(card, pendingLabel).disabled && !button(card, 'Cancel').disabled && input.value === 'Keep my draft',
+          `An already-open ${openLabel} editor must retain its draft while a response blocks submission`);
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+        button(card, pendingLabel).click(); await settle();
+        assert(writes === 0, `Neither keyboard nor button submission may ${submitLabel} while the reviewer is answering`);
+        setResponse(null);
+        assert(!button(card, submitLabel).disabled && input.value === 'Keep my draft', 'Completion must restore the retained draft');
+        button(card, 'Cancel').click(); await settle();
+      };
+      for (const [openLabel, submitLabel] of [['Ask reviewer', 'Ask reviewer'], ['Resolve', 'Resolve locally'],
+        ['Post comment now', 'Post now'], ...(projection === 'review' ? [['Request fix', 'Send to developer']] : [])]) {
+        await checkPendingEditor(openLabel, submitLabel);
+      }
+      review = { ...review, draft: { repo: review.repo, number: review.number, body: '', event: 'COMMENT', reviewPublication: null,
+        postedSummaryFindingIds: [], version: 1, updatedAt: finding.updatedAt, items: [{ id: 'outgoing-comment', source: 'AGENT_FINDING',
+          findingId: finding.id, findingRevision: finding.revision, path: finding.path, side: finding.side, line: finding.endLine,
+          startLine: finding.startLine, commitId: finding.validatedHeadSha, body: 'My saved comment', included: true, published: false, publication: null }] } };
       setResponse('RUNNING');
-      assert(button(card, 'Resolve locally').disabled && !button(card, 'Cancel').disabled && input.value === 'Keep my resolution reason',
-        'An already-open resolution must retain its reason while a response blocks submission');
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
-      button(card, 'Resolve locally').click(); await settle();
-      assert(writes === 0, 'Neither keyboard nor button submission may resolve while the reviewer is answering');
+      assert(button(card, 'Edit').disabled && button(card, 'Remove').disabled, 'Saved draft actions must also wait for the response');
+      button(card, 'Edit').click(); button(card, 'Remove').click(); await settle();
+      assert(writes === 0 && card.querySelector('textarea') === null, 'A pending response must block draft editing and removal');
       setResponse(null);
-      assert(!button(card, 'Resolve locally').disabled && input.value === 'Keep my resolution reason', 'Completion must restore the retained resolution');
-      button(card, 'Cancel').click(); await settle();
+      assert(!button(card, 'Remove').disabled, 'Completion must release draft removal');
+      await checkPendingEditor('Edit', 'Save');
       review = { ...review, findings: [{ ...finding, state: 'RESOLVED' }, other] };
       setResponse('RUNNING');
       assert(button(card, 'Reopen').disabled, 'Reopening must also wait for the finding’s response');

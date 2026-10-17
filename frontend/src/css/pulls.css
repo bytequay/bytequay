@@ -958,6 +958,7 @@
 .lrc__badge.is-danger { border-color: light-dark(#ff8182, var(--dark-red-border)); color: var(--fg-danger); }
 /* Each section under the header draws the rule above it, so a folded card shows none. */
 .lrc > :not(summary, .agr-thread):not(:first-child), .lrc > .agr-thread > .lrc-message { border-top: 1px solid var(--lrc-rule); }
+.lrc__code { display: grid; grid-template-columns: minmax(max-content, 1fr); overflow-x: auto; }
 .lrc__code .pr-commented-code-line { border-bottom: 0; }
 .lrc__code .pr-local-review__snapshot { border-bottom: 1px solid var(--lrc-rule); }
 .lrc-message { padding: 12px 16px 14px; }
@@ -1036,7 +1037,7 @@
 .pr-thread-draft__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--fg-muted); font-size: 12px; }
 .pr-thread-draft__badge { border: 1px solid light-dark(#d4a72c, var(--dark-amber)); border-radius: 10px; color: var(--fg-warning); padding: 0 8px; font-weight: 600; line-height: 18px; white-space: nowrap; }
 .pr-thread-draft__note { align-self: center; color: var(--fg-muted); font-size: 12px; }
-.pr-commented-code-line { display: grid; overflow-x: auto; grid-template-columns: 58px 24px minmax(max-content, 1fr); margin: 0; border-bottom: 1px solid light-dark(#d8dee4, var(--dark-border)); background: light-dark(#f6f8fa, var(--dark-subtle)); color: var(--fg-subtle); font-family: var(--font-mono); font-size: 13px; line-height: 1.9; }
+.pr-commented-code-line { display: grid; grid-template-columns: 58px 24px minmax(max-content, 1fr); margin: 0; border-bottom: 1px solid light-dark(#d8dee4, var(--dark-border)); background: light-dark(#f6f8fa, var(--dark-subtle)); color: var(--fg-subtle); font-family: var(--font-mono); font-size: 13px; line-height: 1.9; }
 .pr-commented-code-line.is-add { background: var(--bg-success); color: light-dark(#116329, var(--dark-green)); }
 .pr-commented-code-line.is-del { background: var(--bg-danger); color: light-dark(#a40e26, var(--dark-red)); }
 .pr-commented-code-line__number { padding-right: 8px; text-align: right; }

@@ -54,10 +54,17 @@ describe('finding suggestions', () => {
 
   it.each(['review', 'changes'] as const)('compares a suggestion with its exact reviewed range in %s', projection => {
     const html = render(finding, undefined, projection);
-    expect(html).toContain('<span class="pr-commented-code-line__number">118</span>');
-    expect(html).toContain('<span class="pr-commented-code-line__number">119</span>');
-    expect(html).toContain('<code>    Value result = input.get();</code>');
-    expect(html).toContain('<code>    return result;</code>');
+    if (projection === 'review') {
+      expect(html).toContain('<span class="pr-commented-code-line__number">118</span>');
+      expect(html).toContain('<span class="pr-commented-code-line__number">119</span>');
+      expect(html).toContain('<code>    Value result = input.get();</code>');
+      expect(html).toContain('<code>    return result;</code>');
+    }
+    else {
+      // The diff row above shows the code, as for GitHub threads there.
+      expect(html).not.toContain('lrc__code');
+      expect(html).toContain('<span class="lrc__title">Comment on lines <strong>R118–R119</strong></span>');
+    }
     expect(html.match(/class="md-suggestion"/g)).toHaveLength(1);
     expect(html).toContain('<td class="md-suggestion__number">118</td><td class="md-suggestion__code"><span>−</span>    Value result = input.get();</td>');
     expect(html).toContain('<td class="md-suggestion__number">119</td><td class="md-suggestion__code"><span>−</span>    return result;</td>');

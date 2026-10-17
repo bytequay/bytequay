@@ -486,8 +486,8 @@
 
 /* activity */
 
-/* the same finding card, mounted at its line in the diff */
-.pull-diff-code tr.is-review-finding > td { background: light-dark(#fcfcfd, var(--dark-subtle)); padding: 10px 12px 10px 84px; }
+/* the same finding card, mounted at its line in the diff on the review-thread row */
+.pull-diff-code tr.is-review-finding .agr-finding { margin-bottom: 0; }
 .pull-diff-code tr.is-review-target .is-line,
 .pull-diff-code tr.is-review-target .is-source { background: var(--bg-warning); }
 

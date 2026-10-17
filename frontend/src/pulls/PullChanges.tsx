@@ -1016,7 +1016,7 @@ function DiffFileCard({
           </td>
         </tr>
         {agentReview !== undefined && rowFindings.map(finding => (
-          <tr className="is-review-finding" key={`finding:${finding.id}`}><td colSpan={3}>
+          <tr className={`is-review-thread is-review-finding is-${displayRow.kind}`} key={`finding:${finding.id}`}><td colSpan={3}>
             <ReviewFindingCard
               review={agentReview.review}
               finding={finding}

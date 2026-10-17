@@ -53,8 +53,8 @@ function severityTone(severity: string | null): string {
  * One finding, with its evidence, its private discussion, and the two kinds of action it offers.
  *
  * The same card renders in the Agent review tab and at the finding's diff location in Changes:
- * one finding ID, one discussion, two projections. Only the navigation label differs, so the user
- * always has the way back to the other one.
+ * one finding ID, one discussion, two projections. The diff projection leaves out the code and path,
+ * and the navigation label always offers the way back to the other one.
  */
 export default function ReviewFindingCard({
   review,
@@ -98,6 +98,8 @@ export default function ReviewFindingCard({
     ? { startLine: lines.startLine, lines: finding.excerpt }
     : undefined;
   const withdrawn = finding.state === 'WITHDRAWN';
+  // The diff row above already shows the file and its lines, as for GitHub threads drawn there.
+  const inDiff = projection === 'changes';
   // Deleted ranges can omit intervening context; do not invent their individual line numbers.
   const completeExcerpt = lines !== null && finding.excerpt.length === lines.endLine - lines.startLine + 1;
   const evidenceLabel = finding.evidence.length === 1
@@ -171,11 +173,13 @@ export default function ReviewFindingCard({
       <LocalCard resolved={finding.state === 'RESOLVED'} outdated={finding.outdated} open={defaultOpen}
         title={lines === null
           ? <span className="lrc__title">Whole change</span>
-          : <code className="lrc__title" title={lines.path}>{shortPath(lines.path)} {lines.range}</code>}
+          : inDiff
+            ? <span className="lrc__title">Comment on {lines.startLine === lines.endLine ? 'line' : 'lines'} <strong>{lines.range}</strong></span>
+            : <code className="lrc__title" title={lines.path}>{shortPath(lines.path)} {lines.range}</code>}
         badges={<>{pill.text !== 'Private' && finding.state !== 'RESOLVED' && <span className={`lrc__badge is-${pill.tone}`}>{pill.text}</span>}
           {finding.severity !== null && <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>}
           <CopyLinkButton label="conversation" value={findingConversation(review, finding)} /></>}
-        code={lines !== null && finding.excerpt.length > 0 && <div className="lrc__code">
+        code={!inDiff && lines !== null && finding.excerpt.length > 0 && <div className="lrc__code">
           {finding.excerpt.map((text, index) => <CommentedCodeLine key={lines.startLine + index}
             line={{ lineNumber: completeExcerpt ? lines.startLine + index : null, prefix: lines.side === 'LEFT' ? '-' : ' ', text }} />)}
         </div>}

@@ -324,12 +324,12 @@ describe('DiffViewer', () => {
     const render = (agentReview = projection, displayedCommits = commits) => renderToStaticMarkup(
       <DiffViewer files={[file]} commits={displayedCommits} agentReview={agentReview} />);
 
-    expect(render()).toContain('class="is-review-finding"');
-    expect(render(projection, commits.slice(0, 2))).not.toContain('class="is-review-finding"');
-    expect(render({ ...projection, headSha: 'different-worktree-head' })).not.toContain('class="is-review-finding"');
+    expect(render()).toContain('is-review-finding');
+    expect(render(projection, commits.slice(0, 2))).not.toContain('is-review-finding');
+    expect(render({ ...projection, headSha: 'different-worktree-head' })).not.toContain('is-review-finding');
     expect(render({ ...projection, headSha: finding.validatedHeadSha }, commits.slice(0, 2)))
-      .toContain('class="is-review-finding"');
-    expect(render(projection, [])).toContain('class="is-review-finding"');
+      .toContain('is-review-finding');
+    expect(render(projection, [])).toContain('is-review-finding');
   });
 
   it('guards finding navigation and highlighting against a different published revision', () => {

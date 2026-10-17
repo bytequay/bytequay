@@ -113,7 +113,7 @@ public class GoalLessonService
     {
         GoalLesson lesson;
         synchronized (writes) {
-            lesson(goal(workspaceId, goalId), lessonId);
+            lesson(goals.get(workspaceId, goalId), lessonId);
             Optional<GoalLesson> existing = lessons.find(lessonId);
             if (existing.filter(found -> found.state() == GoalLesson.State.WRITING
                     || found.state() == GoalLesson.State.READY && !again && found.content().filter(GoalLesson.Content::beforeChapters).isEmpty()).isPresent()) {
@@ -143,7 +143,7 @@ public class GoalLessonService
     /** The lesson as it stands; a local read that never asks for one to be written. */
     public Optional<GoalLesson> find(String workspaceId, String goalId, String lessonId)
     {
-        lesson(goal(workspaceId, goalId), lessonId);
+        lesson(goals.get(workspaceId, goalId), lessonId);
         return lessons.find(lessonId);
     }
 
@@ -153,7 +153,7 @@ public class GoalLessonService
      */
     public GoalView finish(String workspaceId, String goalId, String lessonId, String operationId)
     {
-        WorkItemView item = lesson(goal(workspaceId, goalId), lessonId);
+        WorkItemView item = lesson(goals.get(workspaceId, goalId), lessonId);
         if (item.state() != WorkItem.State.DONE) {
             work.change(workspaceId, lessonId, new WorkItemCommand(operationId, item.revision(), WorkItemCommand.Action.ACCEPT, Optional.empty(), Optional.empty(),
                     Optional.empty(), Optional.empty(), "Finished the lesson.", Optional.empty(), Optional.empty(), false));
@@ -164,7 +164,7 @@ public class GoalLessonService
                             && (card.state() == GoalRecommendation.State.SHOWN || card.state() == GoalRecommendation.State.STARTED))
                     .forEach(card -> recommendations.save(card.done(clock.instant())));
         }
-        GoalView finished = goal(workspaceId, goalId);
+        GoalView finished = goals.get(workspaceId, goalId);
         conversations.ifAvailable(conversation -> conversation.tellDecision(workspaceId, goalId, "lesson:" + lessonId,
                 "The user finished the lesson \"" + item.title() + "\"." + completedPart(finished, lessonId)));
         return finished;
@@ -209,7 +209,7 @@ public class GoalLessonService
         Optional<String> model = Optional.empty();
         GoalLesson settled;
         try {
-            GoalView goal = goal(lesson.workspaceId(), lesson.goalId());
+            GoalView goal = goals.get(lesson.workspaceId(), lesson.goalId());
             WorkItemView item = lesson(goal, lesson.id());
             String part = goal.course().orElseThrow().parts().stream().filter(candidate -> candidate.lessons().contains(lesson.id()))
                     .map(GoalCourse.Part::title).findFirst().orElseThrow();
@@ -239,7 +239,7 @@ public class GoalLessonService
         }
         try {
             goals.mapCourse(goal.workspaceId(), goal.id(), course.exchangeId(), planner.courseMap(setting, goal, notes.list(goal.id())));
-            return goal(goal.workspaceId(), goal.id());
+            return goals.get(goal.workspaceId(), goal.id());
         }
         catch (RuntimeException failure) {
             if (Thread.currentThread().isInterrupted()) {
@@ -248,12 +248,6 @@ public class GoalLessonService
             log.warn("The course map of goal {} was not drawn: {}", goal.id(), failure.toString());
             return goal;
         }
-    }
-
-    private GoalView goal(String workspaceId, String goalId)
-    {
-        return goals.list(workspaceId).stream().filter(goal -> goal.id().equals(goalId)).findFirst()
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Goal not found"));
     }
 
     /** The Learn work item of a lesson in the goal's accepted course. */

@@ -118,7 +118,7 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
     assert(requests.at(-1)?.request.scope === 'UNCOMMITTED', 'Uncommitted selection must read the task working copy');
     picker.value = 'commit:commit123'; picker.dispatchEvent(new Event('change', { bubbles: true })); await settle();
     assert(requests.at(-1)?.request.commit === 'commit123', 'Clicking a local commit must read its changed files');
-    click('Code & Tests'); await settle();
+    click('Tears of time'); await settle();
     assert(host.querySelector('.pull-changes__toolbar') === null, 'Hidden Changes must not leave a toolbar in the header');
     const editor = host.querySelector<HTMLElement>('.ct-ide-surface');
     assert(editor !== null && desktop.opens === 1, 'Code must open one native editor without PR or review prerequisites');
@@ -160,11 +160,11 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
       click('View published commit'); await settle();
       assert(selectedCommits.join() === 'published-sha' && host.querySelector('.agt-panel .pull-diff-file')?.textContent?.includes('Published implementation'),
         'Summary commit links must select the published commit without reopening local Changes');
-      click('Code & Tests'); await settle();
+      click('Tears of time'); await settle();
       assert(host.querySelector('.ct-ide-surface') === editor && desktop.opens === 1,
         'Linking a PR and navigating its changes must preserve the task working-copy draft');
     }
-    if (keepMounted && !showChanges) { click('Code & Tests'); await settle(); }
+    if (keepMounted && !showChanges) { click('Tears of time'); await settle(); }
     if (keepMounted && zoomChanges) {
       const ZoomPreview = () => {
         const [toolbar, setToolbar] = useState<HTMLElement | null>(null);

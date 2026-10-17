@@ -140,7 +140,7 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
     </section>
     {discard !== null && <ConfirmDialog title={`Discard unsaved changes to ${unsaved.current} files?`} confirmLabel="Discard"
       onConfirm={() => { setDiscard(null); discard.act(); }} onCancel={() => setDiscard(null)}>
-      <p>Your edits in Code &amp; Tests were never saved to the worktree.</p>
+      <p>Your edits in Tears of time were never saved to the worktree.</p>
     </ConfirmDialog>}
   </div>;
 }

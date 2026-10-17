@@ -33,7 +33,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Task-owned Code and Tests reads, and the existing development-only edits, local runs and terminal, without Discard.
+ * Task-owned Tears of time reads, and the existing development-only edits, local runs and terminal, without Discard.
  */
 @RestController
 @RequestMapping({"/agent/tasks/{taskId}/code", "/api/agent-review/{reviewId}/code"})

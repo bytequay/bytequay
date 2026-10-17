@@ -415,7 +415,7 @@ it('delivers backend queries without a parent renderer and cancels removed queue
 it('binds execution metadata to the owning task and keeps cleanup-pending runs alive while hidden', async () => {
   const id = await invoke('ide:open', parent(), host);
   const start: ExecutionRequest = { operation: 'start', request: { scope: 'DEBUG', label: 'Example', path: null } };
-  await expect(invoke('ide:execution', child(), start)).rejects.toThrow('Open Code & Tests');
+  await expect(invoke('ide:execution', child(), start)).rejects.toThrow('Open Tears of time');
   invoke('ide:update', parent(), id, { host, task: null, review: null, detail: null });
   const run: LocalRunDto = { id: 'run-1', ordinal: 1, initiator: 'USER', scope: 'DEBUG', path: null, testClass: null, testMethod: null, module: null,
     command: 'Example', sourceHeadSha: 'a'.repeat(40), localPaths: [], sourceFingerprint: 'source', status: 'RUNNING',

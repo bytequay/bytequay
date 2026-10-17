@@ -38,7 +38,7 @@ const surfaces = [
   ['Home', 'home-page'], ['Workspaces', 'ws-card'], ['Pull requests', 'pulls-toolbar-button'],
   ['Recent', 'rc-menu'], ['Commits', 'cmt-root'], ['Agents', 'agt-compose'], ['Goals', 'goal-panel'],
   ['Epics', 'epic-view__sync'], ['Memory', 'mem-head'], ['Repository context', 'rcp'],
-  ['Code & Tests', 'ct'], ['Settings', 'setw-btn'], ['Jira', 'jira-btn'], ['Circles', 'cir-page'],
+  ['Tears of time', 'ct'], ['Settings', 'setw-btn'], ['Jira', 'jira-btn'], ['Circles', 'cir-page'],
   ['Cards', 'card'], ['Dialogs', 'bq-confirm-dialog'], ['Browser', 'inapp-browser__toolbar'],
 ];
 const states = ['agt-state is-running', 'agt-state is-completed', 'agt-state is-failed', 'rc-badge is-purple', 'rc-badge is-amber'];

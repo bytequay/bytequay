@@ -144,7 +144,7 @@ export async function loadAgentReviewContext(
 }
 
 /**
- * The development task whose worktree Code & Tests reads instead of any review: the interactive task that owns the pull
+ * The development task whose worktree Tears of time reads instead of any review: the interactive task that owns the pull
  * request and still has its worktree. Both reads are local.
  */
 export async function findCodeTask(bridge: Pick<Bridge, 'findPullRequestTask' | 'getAgentTask'>, workspaceId: string, repo: string, number: number) {
@@ -386,10 +386,10 @@ export default function PullsScreen({
   if (detailTab !== 'agents' && detailTab !== 'discussions') coveredAgentTab.current = detailTab;
   const [agentTabTarget, setAgentTabTarget] = useState<HTMLSpanElement | null>(null);
   const [agentBodyTarget, setAgentBodyTarget] = useState<HTMLDivElement | null>(null);
-  // Code & Tests stays mounted after its first visit so drafts, open files and runs survive tab switches.
+  // Tears of time stays mounted after its first visit so drafts, open files and runs survive tab switches.
   const [codeTabKey, setCodeTabKey] = useState<string | null>(null);
   const [summaryTabKey, setSummaryTabKey] = useState<string | null>(null);
-  // Unsaved Code & Tests drafts live only in that tab; leaving the PR or closing the pane asks first.
+  // Unsaved Tears of time drafts live only in that tab; leaving the PR or closing the pane asks first.
   const codeUnsaved = useRef(0);
   const [discardDrafts, setDiscardDrafts] = useState<{ files: number; act: () => void } | null>(null);
   const withCodeDrafts = useCallback((act: () => void) => {
@@ -831,7 +831,7 @@ export default function PullsScreen({
     ? null
     : `${scopedWorkspaceId ?? ''}:${selectedPrRepo.toLowerCase()}#${selectedPrNumber}:${requestedReviewId ?? ''}`;
   const currentReviewContext = reviewContext?.key === reviewKey ? reviewContext : null;
-  // The selection can change without pick() (history, Recent, a route); an open Code & Tests follows it to the new PR.
+  // The selection can change without pick() (history, Recent, a route); an open Tears of time follows it to the new PR.
   if (detailTab === 'code' && codeTabKey !== reviewKey) setCodeTabKey(reviewKey);
   if (detailTab === 'review' && summaryTabKey !== reviewKey) setSummaryTabKey(reviewKey);
   const workspaceId = currentReviewContext?.workspaceId;
@@ -864,12 +864,12 @@ export default function PullsScreen({
     return () => { cancelled = true; };
   }, [scopedWorkspaceId, selectedPrRepo, selectedPrNumber, reviewKey, reviewReload, requestedReviewId, authored]);
 
-  // The worktree is what Code & Tests binds to, so a development task wins however the pull request was opened.
+  // The worktree is what Tears of time binds to, so a development task wins however the pull request was opened.
   useEffect(() => {
     if (codeTaskKey === null || workspaceId === undefined || selectedPrRepo === undefined || selectedPrNumber === undefined) return;
     let cancelled = false;
     void findCodeTask(window.bridge, workspaceId, selectedPrRepo, selectedPrNumber)
-      // A failed lookup falls back to the review host; the task window still offers the task's own Code & Tests.
+      // A failed lookup falls back to the review host; the task window still offers the task's own Tears of time.
       .catch((): null => null)
       .then(task => {
         if (!cancelled) setCodeTaskLookup({ key: codeTaskKey, task });
@@ -886,7 +886,7 @@ export default function PullsScreen({
       : current);
   }, [reviewKey, selectedPrRepo, selectedPrNumber, codeTask]);
 
-  // Summary and Code & Tests each follow the review while shown. PR and Changes draw its findings and their
+  // Summary and Tears of time each follow the review while shown. PR and Changes draw its findings and their
   // threads too; main keeps one reader per review, so this one runs only while neither of those tabs is shown.
   const followedReviewId = reviewWorkspace === undefined && review?.state === 'OPEN' && (detailTab === 'overview' || detailTab === 'files') ? review.id : null;
   useEffect(() => {
@@ -1233,7 +1233,7 @@ export default function PullsScreen({
               )}
             </div>
           ) : detailTab === 'code' && codeTaskLoading ? (
-            // Waiting keeps Code & Tests from opening the review and then switching to the task's worktree.
+            // Waiting keeps Tears of time from opening the review and then switching to the task's worktree.
             <div className="pull-detail__body pull-detail__review">
               <div className="hp-loading" role="status">Loading working copy…</div>
             </div>
@@ -1338,7 +1338,7 @@ export default function PullsScreen({
           onConfirm={() => { const act = discardDrafts.act; setDiscardDrafts(null); act(); }}
           onCancel={() => setDiscardDrafts(null)}
         >
-          <p>Your edits in Code &amp; Tests were never saved to the worktree.</p>
+          <p>Your edits in Tears of time were never saved to the worktree.</p>
         </ConfirmDialog>
       )}
     </div>
@@ -1590,7 +1590,7 @@ export function PullDetailHeader({
             onClick={() => onTab(pr !== null ? 'files' : 'changes')}><Diff size={14} aria-hidden="true" /> Changes</button>
           <button type="button" className={tab === 'review' ? 'is-active' : ''} aria-pressed={tab === 'review'} onClick={() => onTab('review')}><CommentIcon /> Summary</button>
           <button type="button" className={tab === 'code' ? 'is-active' : ''} aria-pressed={tab === 'code'} onClick={() => onTab('code')} disabled={!codeAvailable}
-            title={codeAvailable ? undefined : 'Watch this repository to explore its code'}><Code size={14} aria-hidden="true" /> Code &amp; Tests</button>
+            title={codeAvailable ? undefined : 'Watch this repository to explore its code'}><Code size={14} aria-hidden="true" /> Tears of time</button>
         </nav>
         {tab === 'review' && <div className="pull-detail__summary-toolbar" ref={onSummaryToolbar} />}
         {changesSelected && <div className="pull-detail__changes-tools">

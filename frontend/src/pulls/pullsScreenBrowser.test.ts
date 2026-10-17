@@ -36,7 +36,7 @@ it('opens distinct development and review tasks from the same PR without duplica
   expect(result).toContain('Open distinct development and review task conversations');
 }, 30_000);
 
-it('allows watched PRs to open Code & Tests before a review or task exists', async () => {
+it('allows watched PRs to open Tears of time before a review or task exists', async () => {
   const result = await fixture.run<string>({
     body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runMainScreen(false, true)');",
   });

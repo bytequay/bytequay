@@ -74,7 +74,7 @@ export function terminalEnvironment(base: NodeJS.ProcessEnv, claudeConfigDirecto
 }
 
 /**
- * One login shell per Code & Tests host (`review:<id>` or `task:<id>`) per window. Renderers only attach and detach; the
+ * One login shell per Tears of time host (`review:<id>` or `task:<id>`) per window. Renderers only attach and detach; the
  * shell dies when it exits, when its host's worktree is about to go, when its window reloads or closes, and when the app quits.
  */
 export class CodeTerminals {

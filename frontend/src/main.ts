@@ -875,7 +875,7 @@ function registerIpc(): void {
       answers: answers ?? null,
     })).then((approval) => parseAgentApproval(approval)));
   ipcMain.handle('agent:tasks:complete', (_event, taskId: string, workspaceId: string, notes?: string) => {
-    // Completing removes the worktree a Code & Tests shell runs in, as review:end does for a review.
+    // Completing removes the worktree a Tears of time shell runs in, as review:end does for a review.
     codeTerminals.close(`task:${taskId}`);
     return backendJson(taskUrl(taskId, '/complete', { workspaceId }),
     jsonInit('POST', { notes: notes ?? null }))
@@ -981,7 +981,7 @@ function registerIpc(): void {
   ipcMain.handle('review:discussions:draft-reply', async (_event, reviewId: string, discussionId: string) =>
     parseDiscussionReplyDraft(await backendJson(reviewDiscussionUrl(reviewId, `/${encodeURIComponent(discussionId)}/reply-draft`),
       jsonInit('POST', {}))));
-  // Code & Tests reads a review's working copy through its review, and a development task's through the task and its PR.
+  // Tears of time reads a review's working copy through its review, and a development task's through the task and its PR.
   const codeUrl = (value: unknown, path: string, query: Record<string, string> = {}): string => {
     const host = parseCodeHost(value);
     if (host.kind === 'review') return reviewUrl(`/${encodeURIComponent(host.reviewId)}/code${path}`, query);

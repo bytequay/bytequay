@@ -171,7 +171,7 @@ export async function coordinateExecutions(api: typeof vscode, root: string, aut
   });
   api.debug.registerDebugConfigurationProvider('*', { resolveDebugConfigurationWithSubstitutedVariables: (_folder, configuration) => {
     if (configuration.request === 'attach') throw new Error('Choose a launch configuration; attaching to external processes is not supported');
-    if (!current) throw new Error('Start debugging from this task’s Code & Tests editor');
+    if (!current) throw new Error('Start debugging from this task’s Tears of time editor');
     return configuration;
   } });
   // Observe the workbench adapter boundary: local-host API trackers do not see remote Java/Go/Rust adapters.
@@ -179,7 +179,7 @@ export async function coordinateExecutions(api: typeof vscode, root: string, aut
   const createAdapter = adapters.createDebugAdapter.bind(adapters);
   replace(adapters, 'createDebugAdapter', session => {
     const live = current;
-    if (!live || session.configuration.request === 'attach') throw new Error('Start a launch configuration in Code & Tests');
+    if (!live || session.configuration.request === 'attach') throw new Error('Start a launch configuration in Tears of time');
     const adapter: IDebugAdapter | undefined = createAdapter(session);
     if (!adapter) return adapter;
     const onEvent = adapter.onEvent.bind(adapter);

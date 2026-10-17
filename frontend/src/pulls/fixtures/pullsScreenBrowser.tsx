@@ -111,13 +111,13 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     'A loaded PR must omit the visit label while its attention notification remains visible');
     button('WorkBench').click(); await settle();
     if (explore) {
-      assert(!button('Code & Tests').disabled, 'Watched repositories must offer exploration before any task or review exists');
-      button('Code & Tests').click(); await settle();
+      assert(!button('Tears of time').disabled, 'Watched repositories must offer exploration before any task or review exists');
+      button('Tears of time').click(); await settle();
       assert(button('Create worktree to explore') !== undefined && host.textContent?.includes('additional memory'),
-        'The Code & Tests tab must offer explicit worktree creation and disclose memory use');
+        'The Tears of time tab must offer explicit worktree creation and disclose memory use');
       return 'Watched PRs offer exploration before a review exists';
     }
-    assert(button('Code & Tests').disabled, 'Unwatched repositories must not offer local code exploration');
+    assert(button('Tears of time').disabled, 'Unwatched repositories must not offer local code exploration');
     const firstView = host.querySelector('[aria-label="WorkBench views"] button');
     assert(firstView?.textContent?.trim() === 'Changes' && firstView.getAttribute('aria-pressed') === 'true',
       'Opening WorkBench must select its leftmost Changes tab');
@@ -345,8 +345,8 @@ export async function runReviewWorkspace(local = false): Promise<string> {
     assert(pane.style.getPropertyValue('width') === '1600px' && conversation.getBoundingClientRect().width > 0
       && pane.getBoundingClientRect().right <= host.getBoundingClientRect().right + 1,
     'The shared maximum and CSS bounds must retain the conversation without overflowing the workspace');
-    const codeTab = [...pane.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Code & Tests'));
-    assert(codeTab !== undefined, 'A retained reviewer must offer Code & Tests');
+    const codeTab = [...pane.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Tears of time'));
+    assert(codeTab !== undefined, 'A retained reviewer must offer Tears of time');
     codeTab.click(); await settle();
     assert(codeSources.length > 0 && codeSources.every(source => source.kind === 'review' && source.reviewId === review.id),
       'A reviewer workspace must keep its exact review worktree even when a matching development task exists');
@@ -354,7 +354,7 @@ export async function runReviewWorkspace(local = false): Promise<string> {
     const fileList = files?.querySelector<HTMLElement>('.ct-files__list');
     assert(files !== null && fileList !== undefined && fileList !== null
       && fileList.getBoundingClientRect().top - files.getBoundingClientRect().top < 50,
-    'Ended reviews must keep file filters compact and start the file list at the top of Code & Tests');
+    'Ended reviews must keep file filters compact and start the file list at the top of Tears of time');
     assert(pane.querySelector('[aria-label="Review of development changes"]') === null,
       'A reviewer workspace must not mount the development Summary or replace its conversation stream');
     conversation.querySelector<HTMLButtonElement>('[aria-label="Back to tasks"]')?.click();

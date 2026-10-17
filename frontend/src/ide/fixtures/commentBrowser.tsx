@@ -34,7 +34,7 @@ export async function run() {
   let closed = false, failed = false, composed = false;
   const jumps: ReviewCommentTarget[] = [];
   const render = () => flushSync(() => root.render(<div className="ide-code-row">
-    <section className="ide-editor" style={{ padding: 20 }}><strong>Code &amp; Tests</strong><p>Select a review card to open its code.</p></section>
+    <section className="ide-editor" style={{ padding: 20 }}><strong>Tears of time</strong><p>Select a review card to open its code.</p></section>
     <ReviewComments cards={cards} selectedPath={selectedPath} repository="owner/repo" unavailable={false}
       onJump={async target => { if (failed) throw new Error('File no longer exists'); jumps.push(target); }}
       onComment={() => { composed = true; }} onClose={() => { closed = true; }} />

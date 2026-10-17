@@ -19,7 +19,7 @@ import type { ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
 import type { IdeRuntime } from './runtime';
 import JavaFileIcon from './JavaFileIcon';
 
-/** The same compact tree as today's Code & Tests, opening files through the shared IDE. */
+/** The same compact tree as today's Tears of time, opening files through the shared IDE. */
 export default function FileExplorer({ files, selected, runtime, onRefresh, onError, onHide }: {
   files: ReviewCodeFilesDto | null; selected: string | null; runtime: IdeRuntime;
   onRefresh: () => void; onError: (error: string) => void; onHide: () => void;

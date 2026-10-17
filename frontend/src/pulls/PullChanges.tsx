@@ -100,7 +100,7 @@ type ReviewOptions = {
   onDetailChange: (detail: PullRequestDetailDto) => void;
 };
 
-/** Changes and Code & Tests share the same GitHub thread source and refresh actions. */
+/** Changes and Tears of time share the same GitHub thread source and refresh actions. */
 export function pullReviewThreads(pr: PullRequestDto, detail: PullRequestDetailDto, workspaceId: string | undefined,
   onRefresh: ReviewThreads['onRefresh'], onDetailUpdate: PullDetailUpdater): ReviewThreads {
   return { activities: detail.recentActivity, pr, workspaceId,

@@ -79,7 +79,7 @@ pending. Monitoring alone does not start CI repair.
 
 ## Explore code and tests
 
-For a watched PR, open **WorkBench → Code & Tests → Create worktree to
+For a watched PR, open **WorkBench → Tears of time → Create worktree to
 explore**. A local editor uses memory, CPU, and disk; opening it does not start
 an agent.
 

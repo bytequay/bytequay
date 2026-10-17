@@ -141,7 +141,7 @@ function NoReview({ detail, workspaceId, bridge, onReviewChange, onOpenEnded }: 
   if (workspaceId === undefined) {
     return (
       <div className="ct-empty agr-empty">
-        <div className="agr-empty__title">Code &amp; Tests needs a watched repository</div>
+        <div className="agr-empty__title">Tears of time needs a watched repository</div>
         <p>Watch {detail.repo} in Workspaces to create a worktree and explore this pull request&apos;s code.</p>
       </div>
     );

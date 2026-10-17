@@ -405,7 +405,7 @@ it('routes review passage and comment discussions through their owning review', 
   }
 });
 
-it('routes Code & Tests reads and writes to the review or the development task that hosts the working copy', async () => {
+it('routes Tears of time reads and writes to the review or the development task that hosts the working copy', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
   const task = { kind: 'task', taskId: 'task/one', workspaceId: 'workspace/one' };
@@ -443,7 +443,7 @@ it('routes Code & Tests reads and writes to the review or the development task t
   expect(desktop.handlers.has('code:runs:start')).toBe(false);
 
   const calls = fetch.mock.calls.length;
-  await expect(handler('code:files')({ kind: 'task', taskId: 'task/one' })).rejects.toThrow('Malformed Code & Tests host');
+  await expect(handler('code:files')({ kind: 'task', taskId: 'task/one' })).rejects.toThrow('Malformed Tears of time host');
   expect(fetch).toHaveBeenCalledTimes(calls);
 });
 

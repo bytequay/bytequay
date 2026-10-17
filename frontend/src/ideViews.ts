@@ -172,7 +172,7 @@ export class IdeViews {
     });
     ipcMain.handle('ide:execution', async (event, value: unknown) => {
       const editor = child(event);
-      if (!editor.context) throw new Error('Open Code & Tests before running code');
+      if (!editor.context) throw new Error('Open Tears of time before running code');
       const request = parseExecutionRequest(value);
       const connection = editor.connection;
       if (request.operation === 'start') {
@@ -345,7 +345,7 @@ export class IdeViews {
       contents.on('will-navigate', event => event.preventDefault());
       contents.on('will-attach-webview', event => event.preventDefault());
       contents.on('render-process-gone', () => {
-        this.window()?.webContents.send('ide:event', { id, dirty: editor.dirty, busy: false, error: 'The editor stopped. Reopen Code & Tests to reconnect.' } satisfies IdeEvent);
+        this.window()?.webContents.send('ide:event', { id, dirty: editor.dirty, busy: false, error: 'The editor stopped. Reopen Tears of time to reconnect.' } satisfies IdeEvent);
         void this.close(id).catch(() => {});
       });
       view.setVisible(false);
@@ -444,7 +444,7 @@ export class IdeViews {
   private require(id: string): Editor {
     const editor = this.editors.get(id);
     if (!editor) throw new Error('The IDE session has ended');
-    if (editor.closing || editor.contents.isDestroyed()) throw new Error('The editor is closing; reopen Code & Tests');
+    if (editor.closing || editor.contents.isDestroyed()) throw new Error('The editor is closing; reopen Tears of time');
     return editor;
   }
 

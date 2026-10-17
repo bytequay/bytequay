@@ -26,7 +26,7 @@ and the resulting changes close enough to inspect together.
 | Cherry-pick | Select commits, inspect their destination and order, follow conflict resolution, and deliver the resulting branch. |
 | Goals (development experiment) | Clarify an objective, research or learn about the repository, and track accepted outcomes; unavailable in packaged releases. |
 | Epics | Group related work, break it into useful items, follow attempts, and review progress toward a shared result. |
-| Code and tests | Inspect and edit the task's working copy, run supported development tools, and examine their output. |
+| Tears of time | Inspect and edit the task's working copy, run supported development tools, and examine their output. |
 | Work items | Read GitHub issues, Jira tickets, and private local work together; retain their context through development and optional publication. |
 | Memory and specifications | Retain useful repository guidance and compare code with its intended behavior. |
 | Related workspaces and backports | Follow changes across related repositories and choose where they should be carried next. |

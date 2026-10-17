@@ -1852,7 +1852,7 @@ describe('the pane tab row', () => {
     const workbench = header('review', null);
     expect(workbench).toContain('Summary');
     expect(workbench).toContain('Changes');
-    expect(workbench).toContain('Code &amp; Tests');
+    expect(workbench).toContain('Tears of time');
     expect(workbench).not.toContain('Files changed');
   });
 

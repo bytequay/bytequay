@@ -1,4 +1,4 @@
-/* Code & Tests: whole-file reading, navigation and test runs in the Agent review working copy. */
+/* Tears of time: whole-file reading, navigation and test runs in the Agent review working copy. */
 
 .pull-detail__code { display: flex; width: 100%; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
 .pull-detail__code[hidden] { display: none; }

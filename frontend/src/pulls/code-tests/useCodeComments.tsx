@@ -41,7 +41,7 @@ export type CommentGesture =
   | { type: 'finish' }
   | { type: 'cancel' };
 
-/** What the pull-request screen shares with Code & Tests so comments land in the same review as on Changes. */
+/** What the pull-request screen shares with Tears of time so comments land in the same review as on Changes. */
 export type CodeCommentsOptions = {
   repo: string;
   number: number;

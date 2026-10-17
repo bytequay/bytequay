@@ -25,7 +25,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.function.ToIntFunction;
 
-/** The Code and Tests tab's HTTP shapes. Paths are repository-relative; only the terminal route returns a filesystem path. */
+/** The Tears of time tab's HTTP shapes. Paths are repository-relative; only the terminal route returns a filesystem path. */
 final class ReviewCodeHttpModels
 {
     private ReviewCodeHttpModels() {}

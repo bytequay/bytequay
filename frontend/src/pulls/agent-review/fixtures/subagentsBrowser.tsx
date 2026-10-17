@@ -185,11 +185,11 @@ export async function run(local = false): Promise<string> {
       'Back must show the existing active and completed agent lists');
     click('WorkBench'); await settle();
     assert(panel()?.hidden === true && tab() !== null, 'Switching back to WorkBench must retain the Subagents tab');
-    click('Code & Tests'); await settle();
+    click('Tears of time'); await settle();
     const code = host.querySelector('.pull-detail__code');
     chip('Abort contract', conversation).click(); await settle();
     assert(code !== null && code === host.querySelector('.pull-detail__code') && code.hasAttribute('hidden'),
-      'Opening an agent must keep the Code & Tests surface mounted');
+      'Opening an agent must keep the Tears of time surface mounted');
     host.querySelector<HTMLButtonElement>('[aria-label="Close Subagents"]')?.click(); await settle();
     assert(tab() === null && !code.hasAttribute('hidden'), 'Closing Subagents must restore the covered WorkBench view');
     finished.click(); await settle();
@@ -197,7 +197,7 @@ export async function run(local = false): Promise<string> {
     assert(input.value === 'Keep this unsent question' && window.location.hash === route && subscriptions === 1 && stops === 0,
       'Inspecting agents must preserve the draft and route and reuse exactly one review subscription');
     click('WorkBench'); await settle();
-    click('Code & Tests'); await settle();
+    click('Tears of time'); await settle();
     const answer = conversation.querySelector('.agt-answer .agt-md p');
     assert(answer?.firstChild !== null && answer?.firstChild !== undefined, 'Missing the root agent answer');
     const quote = 'releases the writer';

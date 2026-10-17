@@ -601,7 +601,7 @@ describe('agent task side panel', () => {
     capabilities: CAPABILITIES,
   };
 
-  it('offers Code & Tests for any task with a worktree, before or after a pull request exists', () => {
+  it('offers Tears of time for any task with a worktree, before or after a pull request exists', () => {
     const render = (extra: Partial<AgentTaskDto>, pulls: PullRequestDto[] = []) => renderToStaticMarkup(
       <AgentTaskBody
         state={{ ...state, task: { ...state.task, interactive: true, checkoutRemovedAt: null, ...extra } }}
@@ -609,10 +609,10 @@ describe('agent task side panel', () => {
         pullRequests={pulls}
         {...props}
       />);
-    expect(render({})).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Code &amp; Tests/);
-    expect(render({}, [pullRequest(482, 'Fix preview output limit')])).toContain('Code &amp; Tests');
-    expect(render({ checkoutRemovedAt: '2026-08-21T10:00:00Z' })).toMatch(/<button[^>]*disabled=""[^>]*>[^]*?Code &amp; Tests/);
-    expect(render({ interactive: false })).toContain('Code &amp; Tests');
+    expect(render({})).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Tears of time/);
+    expect(render({}, [pullRequest(482, 'Fix preview output limit')])).toContain('Tears of time');
+    expect(render({ checkoutRemovedAt: '2026-08-21T10:00:00Z' })).toMatch(/<button[^>]*disabled=""[^>]*>[^]*?Tears of time/);
+    expect(render({ interactive: false })).toContain('Tears of time');
   });
 
   it('lists private review comments as Summary findings, one round per pull request head they were written against', () => {
@@ -732,7 +732,7 @@ describe('agent task side panel', () => {
     expect(markup.match(/aria-label="Task destinations">([^]*?)<\/nav>/)?.[1]).toContain('aria-label="Close Subagents"');
     // Subagents is a destination of its own, so WorkBench steps back and its views are not shown.
     expect(markup.split('<button').find(part => part.includes('WorkBench'))).toContain('aria-pressed="false"');
-    expect(markup).not.toContain('Code &amp; Tests');
+    expect(markup).not.toContain('Tears of time');
     expect(markup).toContain('No active subagents');
     // The top-level PR destination has no number until a pull request exists.
     expect(markup).toContain(' PR<');

@@ -101,7 +101,7 @@ function fileCount(count: number): string {
   return `${count} changed ${count === 1 ? 'file' : 'files'}`;
 }
 
-/** Waits on a Code & Tests run the same way the review's own controls do. */
+/** Waits on a Tears of time run the same way the review's own controls do. */
 function blockedReason(review: AgentReviewDto): string | null {
   if (reviewRecoveryRequired(review)) return 'Recover the review runtime first';
   return review.task.mutationClaim === 'LOCAL_RUN' ? 'A run is using this working copy' : null;

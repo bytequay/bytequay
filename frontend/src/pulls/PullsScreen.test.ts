@@ -221,7 +221,7 @@ describe('findCodeTask', () => {
   }
   const task = { ...parseAgentTask(contracts.task), interactive: true };
 
-  it('binds Code & Tests to the owning task while its worktree is present', async () => {
+  it('binds Tears of time to the owning task while its worktree is present', async () => {
     const ports = bridge(task);
     await expect(findCodeTask(ports, 'workspace-1', 'trinodb/trino', 30304)).resolves.toEqual(task);
     expect(ports.findPullRequestTask).toHaveBeenCalledWith('workspace-1', 'trinodb/trino', 30304);

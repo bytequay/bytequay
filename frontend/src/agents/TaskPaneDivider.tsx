@@ -21,7 +21,7 @@ export default function TaskPaneDivider({ pane }: { pane: ReturnType<typeof useT
   return <div className={`agt-panel-resize${pane.resizing ? ' is-resizing' : ''}`}
     role="separator" aria-orientation="vertical" aria-label="Resize side panel" title="Drag to resize the panel"
     onMouseDown={event => {
-      // A panel kept mounted but hidden (Code & Tests) can come first; measure the one the user sees.
+      // A panel kept mounted but hidden (Tears of time) can come first; measure the one the user sees.
       let panel = event.currentTarget.nextElementSibling;
       while (panel instanceof HTMLElement && panel.hidden) panel = panel.nextElementSibling;
       // CSS can constrain the saved width; dragging starts at the divider the user sees.

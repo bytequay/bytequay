@@ -279,7 +279,7 @@ public class LocalRunService
         return SmartLifecycle.DEFAULT_PHASE - 4096;
     }
 
-    /** The availability rules the Code and Tests tab mirrors, checked under the review lock by runs and working-copy edits. */
+    /** The availability rules the Tears of time tab mirrors, checked under the review lock by runs and working-copy edits. */
     static void requireIdle(AgentTurnService turns, List<ReviewRun> reviewRuns, AgentReview review, AgentTask task)
     {
         requireIdle(turns, task, AGENT_WORKING, RECOVERY_NEEDED);

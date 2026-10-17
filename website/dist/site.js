@@ -4,7 +4,7 @@ const views = {
     source: "assets/app-development.jpg",
     title: "From a request to a reviewable change.",
     caption:
-      "Give an agent a task, follow the conversation, and inspect its code and tests in WorkBench. Keep the next decision in your hands.",
+      "Give an agent a task, follow the conversation, and inspect changes in WorkBench. Open Tears of time to explore code and run tests.",
     guide: "guide-agents.html#agent-tasks",
     alt: "ByteQuay in dark mode with a completed development task beside its code changes and regression tests.",
   },

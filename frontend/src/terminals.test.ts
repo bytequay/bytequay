@@ -98,7 +98,7 @@ describe('code terminals', () => {
 
     // The command carries the provider home, so the shell's own environment cannot redirect it.
     expect(commands).toEqual([command]);
-    // An interactive host shell still gets no command, so Code & Tests is unaffected.
+    // An interactive host shell still gets no command, so Tears of time is unaffected.
     await terminals.open(sender, 'review:r1', 80, 24, cwd);
     expect(commands).toEqual([command, undefined]);
 

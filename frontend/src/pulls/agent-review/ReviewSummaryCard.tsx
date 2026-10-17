@@ -179,7 +179,7 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
       ? <p className="agr-explanation__refresh-status lrc__error" role="alert">{currentRefreshError ?? refreshFailure}</p> : undefined;
   const summary = run?.summary;
   if (run === null && review.state === 'OPEN') {
-    return <p className="agr-card__empty">Your working copy is ready in Code &amp; Tests. Start review when you want an agent to review this pull request.</p>;
+    return <p className="agr-card__empty">Your working copy is ready in Tears of time. Start review when you want an agent to review this pull request.</p>;
   }
   if (run === null || summary == null) {
     return <p className="agr-card__empty">No summary was saved for this run. Open the review in the workspace to follow the agent conversation.</p>;

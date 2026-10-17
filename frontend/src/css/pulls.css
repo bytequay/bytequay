@@ -1271,9 +1271,9 @@
 .pull-diff-pending__badge { border: 1px solid light-dark(#bf8700, var(--dark-amber)); border-radius: 999px; color: var(--fg-warning); padding: 2px 8px; font-size: 10.5px; font-weight: 600; }
 .pull-diff-pending__actions { justify-content: flex-end; }
 .pull-diff-pending__actions button.is-destructive { color: var(--fg-danger); }
-/* Every review card hosted beside code — a diff row, the diff's thread list, or either Code & Tests host — gets the
+/* Every review card hosted beside code — a diff row, the diff's thread list, or either Tears of time host — gets the
    same box and the same type, so a finding reads identically wherever it is placed. Each host sets a different
-   inherited font: the diff table is monospace at 12px, the Code & Tests hosts sit inside the editor. */
+   inherited font: the diff table is monospace at 12px, the Tears of time hosts sit inside the editor. */
 :is(.pull-diff-code, .pull-diff-threads, .ct-inline-card, .ct-unplaced__card) :is(.lrc, .agr-finding) {
   max-width: 780px; margin-left: 0; font-family: var(--font-sans); font-size: var(--ui-font-size); line-height: 1.4;
 }

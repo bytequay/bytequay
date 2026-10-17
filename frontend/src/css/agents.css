@@ -4056,7 +4056,7 @@ button:is(.agt-type-chip, .agt-type-tile) {
 .agt-issue-attachment__source > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agt-issue-attachment__source:focus-visible { outline: 2px solid light-dark(#27845d, var(--dark-green)); outline-offset: 2px; border-radius: 3px; }
 
-/* The kept Code & Tests body in the task side panel; its flex display would otherwise override the hidden attribute. */
+/* The kept Tears of time body in the task side panel; its flex display would otherwise override the hidden attribute. */
 .agt-panel > [hidden] {
   display: none;
 }

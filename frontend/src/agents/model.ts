@@ -602,7 +602,7 @@ export function runtimeStatus(state: AgentTaskState): AgentRuntimeStatus {
   const claim = task.mutationClaim ?? null;
   if (claim === null) return turnActive ? 'running' : 'idle';
   if (claim.kind === 'COMPLETION') return 'closing';
-  // A Code & Tests run holds a review task's working copy; the provider is idle, not in recovery.
+  // A Tears of time run holds a review task's working copy; the provider is idle, not in recovery.
   if (claim.kind === 'LOCAL_RUN') return turnActive ? 'running' : 'idle';
   if (claim.kind === 'RECOVERY') return 'recovery';
   return turnActive ? 'running' : 'recovery';

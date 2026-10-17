@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/** Wire shapes for the Code & Tests tab, parsed in main before they reach the renderer. */
+/** Wire shapes for the Tears of time tab, parsed in main before they reach the renderer. */
 
 import type { DiffCommitDto, DiffFileDto } from '../../types';
 import { count, object, oneOf, optionalCount, optionalText, text } from '../wireParse';
@@ -33,7 +33,7 @@ export function parseCodeHost(value: unknown): CodeHostRef {
   if (source.kind === 'task' && typeof source.taskId === 'string' && typeof source.workspaceId === 'string') {
     return { kind: 'task', taskId: source.taskId, workspaceId: source.workspaceId };
   }
-  throw new Error('Malformed Code & Tests host');
+  throw new Error('Malformed Tears of time host');
 }
 
 export type ReviewCodeSource = 'WORKING_COPY' | 'REVISION';

@@ -113,7 +113,7 @@ stored by ByteQuay. No manual profile path or shell configuration is needed.
 Profiles stay in ByteQuay's application data directory, outside repositories
 and their worktrees, so Git cannot accidentally commit or clean them.
 
-Code & Tests terminals for Claude tasks start with that task's account profile,
+Tears of time terminals for Claude tasks start with that task's account profile,
 including terminals opened from the editor. Reopen an existing shell to pick up
 this setting; changing repository defaults does not switch an existing task's account.
 

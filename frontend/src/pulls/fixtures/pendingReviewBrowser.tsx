@@ -163,7 +163,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     button('PR #').click();
     await settle();
     button('WorkBench').click(); await settle();
-    button('Code & Tests').click();
+    button('Tears of time').click();
     for (let attempt = 0; attempt < 30 && host.querySelector('.pull-detail__code') === null; attempt++) await settle();
     button('WorkBench').click(); await settle();
     button('Changes').click(); await settle();

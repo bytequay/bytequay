@@ -169,7 +169,7 @@ export default function AgentReviewTab({
     && (focusReviewCard?.target.kind !== 'finding' || round === 'all'));
   const running = review !== null && reviewRunning(review);
   const recovery = review !== null && reviewRecoveryRequired(review);
-  // A Code & Tests run holds the working copy; agent work and head moves wait for it.
+  // A Tears of time run holds the working copy; agent work and head moves wait for it.
   const localRun = review?.state === 'OPEN' && review.task.mutationClaim === 'LOCAL_RUN';
   const localRunReason = localRun ? 'A run is using this working copy' : undefined;
   // The wait is a durable task fact; the fetched list only fills in the card, and a slow read
@@ -887,7 +887,7 @@ export default function AgentReviewTab({
 }
 
 function scrollToFinding(findingId: string) {
-  // Code & Tests keeps a hidden copy of a finding card earlier in the page, so look only inside this tab.
+  // Tears of time keeps a hidden copy of a finding card earlier in the page, so look only inside this tab.
   const element = document.querySelector(`.agr-summary [data-finding-id="${CSS.escape(findingId)}"]`);
   const card = element?.querySelector('details');
   if (card !== null && card !== undefined) card.open = true;

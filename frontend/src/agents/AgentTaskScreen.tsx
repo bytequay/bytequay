@@ -519,7 +519,7 @@ function PanelFrame({ label, tabs, width, flush = false, overview = false, kept 
   flush?: boolean;
   overview?: boolean;
   /**
-   * A body kept mounted once visited (Code & Tests, so its open files and drafts survive tab switches). It sits in the same
+   * A body kept mounted once visited (Tears of time, so its open files and drafts survive tab switches). It sits in the same
    * frame after the one header, so switching tabs never remounts the header or the frame the resize divider measures.
    */
   kept?: React.ReactNode;
@@ -567,7 +567,7 @@ function SidePanel({
   transcript: TranscriptTurn[];
   now: number;
   tab: PanelTab;
-  /** The task whose worktree Code & Tests reads. */
+  /** The task whose worktree Tears of time reads. */
   task?: AgentTaskDto | null;
   /** The pull request on this task's branch, or null while the branch has none. */
   pullRequest: PullRequestDto | null;
@@ -606,7 +606,7 @@ function SidePanel({
   /** Renders the Summary; a development task's reviewer comes with it, so it can sit in the Summary's own strip and timeline. */
   learning?: React.ReactNode | ((onSelectCommit: (sha: string) => void, review?: TaskReviewOptions) => React.ReactNode);
   reviewFocus?: ReviewCardFocus | null;
-  /** How many files hold unsaved Code & Tests drafts, so the screen can confirm before they are dropped. */
+  /** How many files hold unsaved Tears of time drafts, so the screen can confirm before they are dropped. */
   onCodeUnsavedChange?: (count: number) => void;
   width: number;
   showAgents: boolean;
@@ -619,7 +619,7 @@ function SidePanel({
 }): React.JSX.Element {
   const codeAvailable = workspaceId !== undefined && task !== null && task.checkoutRemovedAt === null;
   const tab = requestedTab === 'changes' && pullRequest !== null ? 'files' : requestedTab;
-  // Mounted on first visit and then kept, like the PR page's Code & Tests tab.
+  // Mounted on first visit and then kept, like the PR page's Tears of time tab.
   const [codeVisited, setCodeVisited] = useState(false);
   if (tab === 'code' && !codeVisited) setCodeVisited(true);
   const [changesVisited, setChangesVisited] = useState(false);
@@ -818,7 +818,7 @@ function SidePanel({
     </PanelFrame>;
   }
   if (tab === 'code' || tab === 'review' || tab === 'changes') return <PanelFrame
-    label={tab === 'code' ? 'Code & Tests' : tab === 'review' ? 'Summary' : 'Changes'} tabs={tabs} width={width} flush {...code} />;
+    label={tab === 'code' ? 'Tears of time' : tab === 'review' ? 'Summary' : 'Changes'} tabs={tabs} width={width} flush {...code} />;
   if (tab === 'pr') {
     return (
       <PanelFrame label={pullRequest === null ? 'Pull request' : `Pull request #${pullRequest.number}`} tabs={tabs} width={width} overview={pullRequest !== null} {...code}>
@@ -1554,14 +1554,14 @@ export default function AgentTaskScreen({
   const [planOpen, setPlanOpen] = useState(true);
   // A switch from the reviewer keeps its panel open on the same tab; only the conversation changes.
   const [panelChoice, setPanelChoice] = useState<boolean | null>(() => carriedPanelTab() === null ? null : true);
-  // Unsaved Code & Tests drafts in the side panel are dropped when the panel closes or the task screen is left.
+  // Unsaved Tears of time drafts in the side panel are dropped when the panel closes or the task screen is left.
   const codeUnsaved = useRef(0);
   const trackCodeUnsaved = useCallback((count: number) => { codeUnsaved.current = count; }, []);
   const withCodeDrafts = (act: () => void): void => {
     if (codeUnsaved.current === 0) { act(); return; }
     setAsk({
       title: `Discard unsaved changes to ${codeUnsaved.current} ${codeUnsaved.current === 1 ? 'file' : 'files'}?`,
-      body: <p>Your edits in Code &amp; Tests were never saved to the worktree.</p>,
+      body: <p>Your edits in Tears of time were never saved to the worktree.</p>,
       label: 'Discard',
       act,
     });

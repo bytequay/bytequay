@@ -79,9 +79,7 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 wait_for_backend() {
-  # 60s total — enough headroom for a cold mvn that still compiles + runs
-  # Error Prone on top of Spring Boot's own ~3s init. checkstyle and
-  # license-check are skipped below so they don't eat into this window.
+  # Give Spring Boot its own startup window after Maven finishes building.
   local deadline=$((SECONDS + 60))
   local delay=0.25
   local port response
@@ -151,11 +149,29 @@ fi
 node "$ROOT/scripts/ide-bundle.mjs"
 export BYTEQUAY_IDE_HOME="$ROOT/frontend/vendor/ide"
 
+echo "[dev] building backend..."
+# Keep compilation outside the readiness timeout and show Maven's progress.
+# A separate process group lets cleanup() stop the build on Ctrl+C.
+# Checkstyle and license checks remain enforced by CI and `mvn verify`.
+# Force the app JAR to rebuild when only a dependency module changed; otherwise
+# Maven may leave Spring Boot's repackaged JAR with old agent-cli classes.
+set -m
+( cd "$ROOT/backend" \
+    && exec mvn -B -ntp -pl app -am package \
+        -DskipTests \
+        -Dcheckstyle.skip=true \
+        -Dlicense.skip=true \
+        -Dmaven.jar.forceCreation=true ) &
+build_pid=$!
+set +m
+pids+=("$build_pid")
+if ! wait "$build_pid"; then
+  echo "[dev] error: backend build failed"
+  exit 1
+fi
+pids=()
+
 echo "[dev] starting backend (Spring Boot prefers :9527, then an available OS-assigned port)..."
-# Build the three-module reactor, then replace the background subshell with
-# the packaged JVM. The exec keeps the process-group cleanup above reliable,
-# while using the same JAR layout that Electron packages.
-#
 # The JVM runs in its own session, without this terminal as its controlling
 # terminal, as when Finder launches the app. Otherwise an interactive shell
 # started under it, such as `zsh -il`, takes the terminal's foreground and
@@ -163,23 +179,11 @@ echo "[dev] starting backend (Spring Boot prefers :9527, then an available OS-as
 # setsid needs a child that leads no process group, as one forked without job
 # control does; such a child also starts with INT and QUIT ignored, which perl
 # restores. The session makes the JVM a group leader for cleanup().
-#
-# -Dcheckstyle.skip + -Dlicense.skip drop the validate-phase plugins
-# bound in backend/pom.xml that otherwise run before every dev start
-# and routinely push mvn past the 60s readiness window above. CI and
-# `mvn verify` still enforce both — these are dev-only shortcuts.
-# Force the app JAR to rebuild when only a dependency module changed; otherwise
-# Maven may leave Spring Boot's repackaged JAR with old agent-cli classes.
 JVM_ARGS=(--enable-native-access=ALL-UNNAMED -Xmx2000m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -XX:+ExitOnOutOfMemoryError)
 # Maven replaces the target JAR during later builds. Keep the running JVM's
 # lazy-loaded classes on an unchanged copy until this dev session exits.
 backend_runtime_dir="$(mktemp -d "${TMPDIR:-/tmp}/bytequay-backend.XXXXXX")" || exit 1
 ( cd "$ROOT/backend" \
-    && mvn -q -pl app -am package \
-        -DskipTests \
-        -Dcheckstyle.skip=true \
-        -Dlicense.skip=true \
-        -Dmaven.jar.forceCreation=true \
     && cp app/target/bytequay-backend.jar "$backend_runtime_dir/bytequay-backend.jar" \
     && BYTEQUAY_BACKEND_PORT_FILE="$backend_runtime_dir/port" exec /usr/bin/perl -MPOSIX -e \
         '$SIG{$_} = "DEFAULT" for qw(INT QUIT); setsid; exec @ARGV or die "$ARGV[0]: $!\n"' \

@@ -61,6 +61,8 @@ nvm install
 ./dev.sh
 ```
 
+The dev launcher shows Maven's build progress and waits for the build to finish
+before starting the backend's 60-second readiness timeout.
 The dev backend runs a temporary copy of its built JAR so later Maven builds
 cannot overwrite classes used by the running JVM. Restart `./dev.sh` to load
 backend changes; the temporary copy is removed when that dev session exits.

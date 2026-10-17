@@ -38,7 +38,7 @@ import '../../css/issues.css';
 import '../../css/home.css';
 import '../../css/pulls.css';
 import '../../css/reference-card.css';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 
 function button(host: HTMLElement, label: string): HTMLButtonElement {
   const found = [...host.querySelectorAll<HTMLButtonElement>('button')]
@@ -55,10 +55,6 @@ function dialogSelect(host: HTMLElement, label: string): HTMLSelectElement {
 function choose(select: HTMLSelectElement, value: string): void {
   Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, value);
   select.dispatchEvent(new Event('change', { bubbles: true }));
-}
-function edit(input: HTMLTextAreaElement, value: string): void {
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, value);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 function fixture() {
   let issue: DevelopmentIssue = {
@@ -162,7 +158,7 @@ async function issueToTask(): Promise<void> {
     assert(f.created.length === 0 && document.querySelector('.ref-card')?.textContent?.includes('Preserve the existing upload API.') === true, 'Opening composer must preview context without starting');
     const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
     assert(input !== null && input.value === 'Implement Fix upload timeout', 'Existing composer must be prefilled');
-    edit(input, 'Keep the public API stable'); await settle();
+    changeInput(input, 'Keep the public API stable'); await settle();
     const send = button(host, 'Send — creates the task'); send.click(); send.click(); await settle();
     assert(Number(f.created.length) === 2 && f.created[0] === f.created[1], 'Lost response and double click must replay the same accepted request');
     const request = f.created[0];
@@ -207,7 +203,7 @@ async function refreshAndCancel(): Promise<void> {
     await settle();
     const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
     assert(input !== null, 'Composer input is available');
-    edit(input, 'Keep my additional instructions'); await settle();
+    changeInput(input, 'Keep my additional instructions'); await settle();
     f.issue = { ...f.issue, title: 'Updated issue title', body: 'Updated issue description', updatedAt: '2026-09-03T00:00:00Z' };
     button(host, 'Refresh issue').click(); await settle();
     button(host, 'Preview issue: upstream/app#7').focus(); await settle();

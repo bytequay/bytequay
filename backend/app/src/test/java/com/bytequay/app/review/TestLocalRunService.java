@@ -82,6 +82,7 @@ import java.util.OptionalLong;
 
 import static com.bytequay.app.git.GitTestSupport.git;
 import static com.bytequay.app.git.GitTestSupport.write;
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -402,24 +403,8 @@ class TestLocalRunService
 
     private AgentReview review(boolean followUpPaused)
     {
-        return new AgentReview(
-                REVIEW_ID,
-                WORKSPACE_ID,
-                REPOSITORY.fullName(),
-                OptionalInt.of(7),
-                OptionalLong.empty(),
-                worktree.taskId().toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                followUpPaused,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty());
+        return pullRequestReview(REVIEW_ID, WORKSPACE_ID, REPOSITORY.fullName(), 7, worktree.taskId().toString(), NOW)
+                .withFollowUpPaused(followUpPaused, NOW);
     }
 
     private ReviewRun reviewRun()

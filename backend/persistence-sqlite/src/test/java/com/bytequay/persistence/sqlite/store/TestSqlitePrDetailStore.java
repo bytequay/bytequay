@@ -524,13 +524,7 @@ class TestSqlitePrDetailStore
 
     private static StoredPrDetail detail(List<PrTimelineEvent> events)
     {
-        return new StoredPrDetail(
-                new PrRawDetail(null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 0,
-                        ImmutableList.of(), "a".repeat(40), "feature", null),
-                ImmutableList.of(),
-                events,
-                ImmutableList.of(),
-                ImmutableList.of());
+        return partial(ImmutableList.of(), ImmutableList.of(), events, ImmutableList.of());
     }
 
     private static PrReviewState review(long githubId, String login, String body)
@@ -540,24 +534,12 @@ class TestSqlitePrDetailStore
 
     private static StoredPrDetail detail(List<PrReviewState> reviews, List<PrCheckRunState> checkRuns)
     {
-        return new StoredPrDetail(
-                new PrRawDetail(null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 0,
-                        ImmutableList.of(), "a".repeat(40), "feature", null),
-                reviews,
-                ImmutableList.of(),
-                checkRuns,
-                ImmutableList.of());
+        return partial(reviews, checkRuns, ImmutableList.of(), ImmutableList.of());
     }
 
     private static StoredPrDetail detail(PrTimelineEvent event)
     {
-        return new StoredPrDetail(
-                new PrRawDetail(null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 0,
-                        ImmutableList.of(), "a".repeat(40), "feature", null),
-                ImmutableList.of(),
-                ImmutableList.of(event),
-                ImmutableList.of(),
-                ImmutableList.of());
+        return detail(ImmutableList.of(event));
     }
 
     private static StoredPrDetail withTimeline(StoredPrDetail detail, PrTimelineEvent event)

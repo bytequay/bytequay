@@ -54,10 +54,6 @@ function button(label: string): HTMLButtonElement {
   assert(found !== undefined, `Missing button ${label}`);
   return found;
 }
-function setInput(input: HTMLInputElement, value: string): void {
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-}
 function press(target: Element, key: string): void {
   target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 }
@@ -165,12 +161,12 @@ export async function run(): Promise<boolean> {
     element<HTMLButtonElement>('button.goal-panel__title').click(); await settle();
     let name = element<HTMLInputElement>('input.goal-panel__title');
     assert(document.activeElement === name && name.value === 'Iceberg connector expertise', 'Clicking the title edits it in place');
-    setInput(name, 'Trino Iceberg connector expert'); await settle();
+    changeInput(name, 'Trino Iceberg connector expert'); await settle();
     press(name, 'Escape'); await settle();
     assert(renamed.length === 0 && !pane.hidden && document.querySelector('input.goal-panel__title') === null, 'Escape keeps the name and the window');
     element<HTMLButtonElement>('button.goal-panel__title').click(); await settle();
     name = element<HTMLInputElement>('input.goal-panel__title');
-    setInput(name, 'Trino Iceberg connector expert'); await settle();
+    changeInput(name, 'Trino Iceberg connector expert'); await settle();
     press(name, 'Enter'); await settle(); await settle();
     assert(renamed.join() === 'Trino Iceberg connector expert' && document.querySelector('input.goal-panel__title') === null, 'Enter saves the new name once');
 
@@ -197,20 +193,20 @@ export async function run(): Promise<boolean> {
     assert(!pane.hidden && document.querySelector('dialog[open]') !== null, 'A confirmation is not dismissed by mouse leave');
     let confirmation = element<HTMLInputElement>('dialog input');
     for (const value of ['', 'Cancel', 'cance', ' cancel', 'cancel ']) {
-      setInput(confirmation, value); await settle();
+      changeInput(confirmation, value); await settle();
       const confirm = button('Confirm delete goal');
       assert(confirm.disabled, `Deletion stays disabled for ${JSON.stringify(value)}`);
       confirm.click(); await settle();
       assert(deleted.length === 0 && document.querySelector('dialog [role="alert"]') === null, 'Invalid confirmation never requests deletion');
     }
-    setInput(confirmation, 'cancel'); await settle();
+    changeInput(confirmation, 'cancel'); await settle();
     assert(!button('Confirm delete goal').disabled, 'Typing exactly cancel enables deletion');
     button('Keep goal').click(); await settle();
     assert(deleted.length === 0 && document.querySelector('dialog[open]') === null, 'Keep goal dismisses confirmation without deleting');
     button('Cancel goal').click(); await settle();
     confirmation = element<HTMLInputElement>('dialog input');
     assert(confirmation.value === '' && button('Confirm delete goal').disabled, 'Reopening requires a fresh confirmation');
-    setInput(confirmation, 'cancel'); await settle();
+    changeInput(confirmation, 'cancel'); await settle();
     button('Confirm delete goal').click(); await settle();
     assert(element('dialog [role="alert"]').textContent === 'Deletion unavailable' && !button('Confirm delete goal').disabled,
       'A failed deletion keeps the confirmation open for retry');

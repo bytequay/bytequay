@@ -60,6 +60,7 @@ import java.util.OptionalLong;
 
 import static com.bytequay.app.memory.MemoryFixtures.NOW;
 import static com.bytequay.app.memory.MemoryFixtures.rule;
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -125,24 +126,7 @@ class TestMemoryDelivery
         store.save(rule("m5", "workspace", "Iceberg rule", ImmutableList.of("plugin/trino-iceberg/")));
         AgentTask review = AgentTask.created(taskId, Optional.of("workspace"), false, "Review", new AgentLaneId("codex"), new RepositoryIdentity("trinodb", "trino"),
                 repository, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
-        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(new AgentReview(
-                "review",
-                "workspace",
-                "trinodb/trino",
-                OptionalInt.of(1),
-                OptionalLong.empty(),
-                taskId.toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty())));
+        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(pullRequestReview("review", "workspace", "trinodb/trino", 1, taskId.toString(), NOW)));
         when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run("plugin/trino-delta-lake/src/DeltaLakeWriter.java")));
 
         Reference reference = delivery.reference(review, turn(true));
@@ -234,8 +218,7 @@ class TestMemoryDelivery
         Memory recipe = rule("m4", "workspace", "Run the module's tests with ./mvnw test -pl plugin/trino-iceberg.", ImmutableList.of("plugin/trino-iceberg/"));
         store.save(new Memory(recipe.id(), recipe.workspaceId(), Memory.Kind.RECIPE, recipe.title(), recipe.text(), recipe.scope(), recipe.sources(), recipe.origin(),
                 recipe.version(), recipe.previous(), recipe.delivered(), recipe.cited(), recipe.reports(), recipe.createdAt(), recipe.updatedAt()));
-        AgentReview review = new AgentReview("review", "workspace", "trinodb/trino", OptionalInt.of(31244), OptionalLong.empty(), taskId.toString(), Optional.empty(),
-                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty(), Optional.empty());
+        AgentReview review = pullRequestReview("review", "workspace", "trinodb/trino", 31244, taskId.toString(), NOW);
 
         List<Memory> rules = delivery.rules(review, run("plugin/trino-iceberg/src/main/java/IcebergMetadata.java"));
 

@@ -15,29 +15,19 @@ package com.bytequay.app.cherrypick;
 
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
-import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetrics;
-import com.bytequay.agent.core.AgentQueuedInputDraft;
-import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
-import com.bytequay.agent.core.ArchiveAgentTaskCommand;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
-import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
-import com.bytequay.agent.core.DevelopmentTurnCompletion;
-import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
-import com.bytequay.agent.core.QueueAgentInputCommand;
-import com.bytequay.agent.core.QueuedAgentInput;
-import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
-import com.bytequay.agent.core.SteerAgentTurnCommand;
+import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
@@ -54,10 +44,15 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletionStage;
-import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 
 /**
  * A scripted agent: each turn runs one action against the worktree and ends in
@@ -67,9 +62,18 @@ import static java.util.Objects.requireNonNull;
  * what proves the service reads Git rather than the agent.
  */
 final class ScriptedCherryPickAgent
-        implements AgentTaskService, AgentTurnService, AgentCompletionService
 {
     private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
+
+    final AgentTaskService tasks = mock(AgentTaskService.class, invocation -> {
+        throw new UnsupportedOperationException("Unexpected task operation: " + invocation.getMethod().getName());
+    });
+    final AgentTurnService turns = mock(AgentTurnService.class, invocation -> {
+        throw new UnsupportedOperationException("Unexpected turn operation: " + invocation.getMethod().getName());
+    });
+    final AgentCompletionService completion = mock(AgentCompletionService.class, invocation -> {
+        throw new UnsupportedOperationException("Unexpected completion operation: " + invocation.getMethod().getName());
+    });
 
     private final WorktreeService worktrees;
     private final Deque<Turn> script = new ArrayDeque<>();
@@ -87,6 +91,26 @@ final class ScriptedCherryPickAgent
     ScriptedCherryPickAgent(WorktreeService worktrees)
     {
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
+        doAnswer(call -> prepare(call.getArgument(0))).when(tasks).create(any(CreateAgentTaskCommand.class));
+        doAnswer(call -> prepare(call.getArgument(0))).when(tasks).prepare(any(CreateAgentTaskCommand.class));
+        doAnswer(call -> get(call.<TaskId>getArgument(0))).when(tasks).get(any(TaskId.class));
+        doAnswer(call -> getInteractive(call.getArgument(0), call.getArgument(1))).when(tasks).getInteractive(anyString(), any(TaskId.class));
+        doAnswer(call -> updateDefaults(call.getArgument(0))).when(tasks).updateDefaults(any(UpdateAgentTaskDefaultsCommand.class));
+        doAnswer(call -> rename(call.getArgument(0))).when(tasks).rename(any(RenameAgentTaskCommand.class));
+        doAnswer(call -> list(call.getArgument(0), call.getArgument(1))).when(tasks).list(anyString(), anyInt());
+        doAnswer(call -> start(call.getArgument(0))).when(turns).start(any(StartAgentTurnCommand.class));
+        doAnswer(call -> get(call.<TurnId>getArgument(0))).when(turns).get(any(TurnId.class));
+        doAnswer(call -> started.getLast()).when(turns).cancel(any(TurnId.class));
+        doReturn(Optional.empty()).when(turns).findTurnByIdempotencyKey(any(TaskId.class), anyString());
+        doReturn(Optional.empty()).when(turns).findSteerByIdempotencyKey(any(TurnId.class), anyString());
+        doReturn(Optional.empty()).when(turns).findQueuedByIdempotencyKey(any(TaskId.class), anyString());
+        doReturn(false).when(turns).ownsDevelopmentContinuation(any(TaskId.class), any(TurnId.class));
+        doAnswer(call -> complete(call.getArgument(0))).when(completion).complete(any(CompleteAgentTaskCommand.class));
+        doAnswer(call -> {
+            cleanupWorktree(call.getArgument(0));
+            return null;
+        }).when(completion).cleanupWorktree(any(TaskId.class));
+        doNothing().when(completion).cleanup(any(TaskId.class));
     }
 
     /** Queues one turn: what it does to the worktree, and how it ends. */
@@ -142,50 +166,7 @@ final class ScriptedCherryPickAgent
         return this;
     }
 
-    @Override
-    public void synchronizeWorktree(TaskId taskId, long expectedVersion, Consumer<AgentTask> action)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public AgentTask claimLocalRun(TaskId taskId, String runId)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void releaseLocalRun(TaskId taskId, String runId)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public AgentTask createInteractive(CreateInteractiveAgentTaskCommand command)
-    {
-        throw new UnsupportedOperationException("interactive creation is not used by cherry-pick tests");
-    }
-
-    @Override
-    public AgentTask createInteractive(CreateInteractiveAgentTaskCommand command, Consumer<AgentTask> persistTask)
-    {
-        throw new UnsupportedOperationException("interactive creation is not used by cherry-pick tests");
-    }
-
-    @Override
-    public AgentTask create(CreateAgentTaskCommand command)
-    {
-        return prepare(command);
-    }
-
-    @Override
-    public AgentTask createShared(CreateAgentTaskCommand command, TaskId sourceTaskId)
-    {
-        throw new UnsupportedOperationException("shared creation is not used by cherry-pick tests");
-    }
-
-    @Override
-    public AgentTask prepare(CreateAgentTaskCommand command)
+    private AgentTask prepare(CreateAgentTaskCommand command)
     {
         TaskWorktree worktree = worktrees.provision(new ProvisionWorktreeCommand(
                 command.taskId(),
@@ -203,8 +184,7 @@ final class ScriptedCherryPickAgent
         return task;
     }
 
-    @Override
-    public AgentTask get(TaskId taskId)
+    AgentTask get(TaskId taskId)
     {
         if (task == null || !task.id().equals(taskId)) {
             throw new AgentTaskNotFoundException(taskId);
@@ -212,8 +192,7 @@ final class ScriptedCherryPickAgent
         return task;
     }
 
-    @Override
-    public AgentTask getInteractive(String workspaceId, TaskId taskId)
+    private AgentTask getInteractive(String workspaceId, TaskId taskId)
     {
         if (task == null || !task.interactive() || task.workspaceId().stream().noneMatch(workspaceId::equals)) {
             throw new AgentTaskNotFoundException(taskId);
@@ -221,8 +200,7 @@ final class ScriptedCherryPickAgent
         return task;
     }
 
-    @Override
-    public AgentTask updateDefaults(UpdateAgentTaskDefaultsCommand command)
+    private AgentTask updateDefaults(UpdateAgentTaskDefaultsCommand command)
     {
         if (task.version() != command.expectedVersion()) {
             throw new AgentConflictException("Task version changed: " + task.id());
@@ -231,8 +209,7 @@ final class ScriptedCherryPickAgent
         return task;
     }
 
-    @Override
-    public AgentTask rename(RenameAgentTaskCommand command)
+    private AgentTask rename(RenameAgentTaskCommand command)
     {
         if (task.version() != command.expectedVersion()) {
             throw new AgentConflictException("Task version changed: " + task.id());
@@ -241,140 +218,12 @@ final class ScriptedCherryPickAgent
         return task;
     }
 
-    @Override
-    public AgentTask archive(ArchiveAgentTaskCommand command)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public List<AgentTask> list(String workspaceId, int limit)
+    private List<AgentTask> list(String workspaceId, int limit)
     {
         return task != null && task.interactive() && task.workspaceId().stream().anyMatch(workspaceId::equals) ? ImmutableList.of(task) : ImmutableList.of();
     }
 
-    @Override
-    public AgentTurnSettings effectiveSettings(TaskId taskId)
-    {
-        throw new UnsupportedOperationException("this test never describes a turn before starting it");
-    }
-
-    @Override
-    public AgentRuntimeStopImpact stopImpact(TaskId taskId)
-    {
-        throw new UnsupportedOperationException("this test never stops a task runtime");
-    }
-
-    @Override
-    public AgentTask stopRuntime(TaskId taskId, String generation)
-    {
-        throw new UnsupportedOperationException("this test never stops a task runtime");
-    }
-
-    @Override
-    public AgentInputDelivery steer(SteerAgentTurnCommand command)
-    {
-        throw new UnsupportedOperationException("this test never steers or queues a turn");
-    }
-
-    @Override
-    public AgentInputDelivery steerQueued(TaskId taskId, TurnId turnId, QueuedInputId queuedInputId)
-    {
-        throw new UnsupportedOperationException("this test never steers or queues a turn");
-    }
-
-    @Override
-    public Optional<AgentInputDelivery> findSteerByIdempotencyKey(TurnId turnId, String idempotencyKey)
-    {
-        return Optional.empty();
-    }
-
-    @Override
-    public QueuedAgentInput enqueue(QueueAgentInputCommand command)
-    {
-        throw new UnsupportedOperationException("this test never steers or queues a turn");
-    }
-
-    @Override
-    public List<QueuedAgentInput> queued(TaskId taskId)
-    {
-        throw new UnsupportedOperationException("this test never steers or queues a turn");
-    }
-
-    @Override
-    public Optional<QueuedAgentInput> findQueuedByIdempotencyKey(TaskId taskId, String idempotencyKey)
-    {
-        return Optional.empty();
-    }
-
-    @Override
-    public QueuedAgentInput removeQueued(TaskId taskId, QueuedInputId queuedInputId)
-    {
-        throw new UnsupportedOperationException("this test never steers or queues a turn");
-    }
-
-    @Override
-    public AgentQueuedInputDraft editQueued(TaskId taskId, QueuedInputId queuedInputId)
-    {
-        throw new UnsupportedOperationException("this test never steers or queues a turn");
-    }
-
-    @Override
-    public AgentTurn resumeQueued(TaskId taskId)
-    {
-        throw new UnsupportedOperationException("this test never steers or queues a turn");
-    }
-
-    @Override
-    public CompletionStage<DevelopmentTurnCompletion> startGeneratedTurn(TaskId taskId, DevelopmentTurnOrigin origin, String message)
-    {
-        throw new UnsupportedOperationException("Development automation is not used by cherry-pick tests");
-    }
-
-    @Override
-    public boolean handoffDevelopmentContinuationToQueue(TaskId taskId, TurnId sourceTurnId)
-    {
-        throw new UnsupportedOperationException("Development automation is not used by cherry-pick tests");
-    }
-
-    @Override
-    public void finishDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId)
-    {
-        throw new UnsupportedOperationException("Development automation is not used by cherry-pick tests");
-    }
-
-    @Override
-    public AgentTask failDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason)
-    {
-        throw new UnsupportedOperationException("Development automation is not used by cherry-pick tests");
-    }
-
-    @Override
-    public AgentTask failLostDevelopmentContinuation(TaskId taskId)
-    {
-        throw new UnsupportedOperationException("Development automation is not used by cherry-pick tests");
-    }
-
-    @Override
-    public boolean ownsDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId)
-    {
-        return false;
-    }
-
-    @Override
-    public void executeDevelopmentAction(TaskId taskId, TurnId sourceTurnId, Runnable action)
-    {
-        throw new UnsupportedOperationException("this test never runs development automation");
-    }
-
-    @Override
-    public void reportDevelopmentProgress(TaskId taskId, TurnId sourceTurnId, String message)
-    {
-        throw new UnsupportedOperationException("this test never reports development progress");
-    }
-
-    @Override
-    public AgentTurn start(StartAgentTurnCommand command)
+    private AgentTurn start(StartAgentTurnCommand command)
     {
         prompts.add(command.message());
         Turn scripted = script.poll();
@@ -387,14 +236,7 @@ final class ScriptedCherryPickAgent
         return turn;
     }
 
-    @Override
-    public Optional<AgentTurn> findTurnByIdempotencyKey(TaskId taskId, String idempotencyKey)
-    {
-        return Optional.empty();
-    }
-
-    @Override
-    public com.bytequay.agent.core.TaskCompletion complete(CompleteAgentTaskCommand command)
+    private TaskCompletion complete(CompleteAgentTaskCommand command)
     {
         beforeNextCompletion.ifPresent(Runnable::run);
         beforeNextCompletion = Optional.empty();
@@ -410,14 +252,7 @@ final class ScriptedCherryPickAgent
         return null;
     }
 
-    @Override
-    public AgentTask abandon(TaskId taskId, String reason)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void cleanupWorktree(TaskId taskId)
+    private void cleanupWorktree(TaskId taskId)
     {
         beforeNextCleanup.ifPresent(Runnable::run);
         beforeNextCleanup = Optional.empty();
@@ -429,31 +264,13 @@ final class ScriptedCherryPickAgent
         worktrees.cleanup(task.taskWorktree().orElseThrow());
     }
 
-    @Override
-    public void cleanup(TaskId taskId)
-    {
-    }
-
-    @Override
-    public void delete(TaskId taskId)
-    {
-        throw new UnsupportedOperationException();
-    }
-
     /** True once the range closed the task it opened. */
     boolean taskCompleted()
     {
         return completed;
     }
 
-    @Override
-    public AgentTurn cancel(TurnId turnId)
-    {
-        return started.getLast();
-    }
-
-    @Override
-    public AgentTurn get(TurnId turnId)
+    private AgentTurn get(TurnId turnId)
     {
         return started.stream()
                 .filter(turn -> turn.id().equals(turnId))

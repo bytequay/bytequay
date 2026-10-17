@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
+import { workspaceFixture } from '../workspaces/fixtures/workspace';
 import AddRepoModal from '../AddRepoModal';
 import '../css/agent-review.css';
 import '../css/base.css';
@@ -34,13 +35,10 @@ const preview: WatchRepositoryPreviewDto = {
   defaultBranch: 'main', developmentBase: 'origin/main', pushRemote: 'origin', pushRepository: repository,
   pushWritable: true, forkRequired: false, pullRequestBase: repository, fingerprint: 'routing', existingWorkspaceId: null,
 };
-const workspace: WorkspaceDto = {
-  id: 'workspace', name: 'project', selectedRepositoryId: 1, selectedOwner: 'octocat', selectedRepo: 'project',
-  upstreamRepositoryId: null, upstreamOwner: null, upstreamRepo: null, monitoredRepositoryId: 1,
-  monitoredOwner: 'octocat', monitoredRepo: 'project', topology: 'DIRECT', defaultBranch: 'main',
-  upstreamDefaultBranch: null, localRepositoryPath: '/managed/project', lastCodeSyncAt: null,
-  lastMetadataSyncAt: null, displayOrder: 0,
-};
+const workspace = workspaceFixture({
+  id: 'workspace', name: 'project', selectedRepositoryId: 1, selectedOwner: 'octocat',
+  monitoredRepositoryId: 1, monitoredOwner: 'octocat', localRepositoryPath: '/managed/project',
+});
 
 export async function run(): Promise<string[]> {
   const otherRepository = { owner: 'octocat', repo: 'other' };

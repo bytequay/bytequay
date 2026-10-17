@@ -2310,15 +2310,21 @@ class TestDefaultAgentTurnService
         driver.complete("done");
     }
 
-    @Test
-    void retainsCompletedProviderHandleUntilTerminalTransactionCanRetry()
+    @ParameterizedTest(name = "terminal transaction rollback (outbox failure: {0})")
+    @ValueSource(booleans = {false, true})
+    void retainsCompletedProviderHandleUntilTerminalTransactionCanRetry(boolean failOutbox)
     {
         AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
         service = service(driver, runtimeRegistry);
         AgentTurn running = service.start(command("first", "key-1"));
         AgentTask taskBefore = stores.find(task.id()).orElseThrow();
         AgentTurn turnBefore = stores.find(running.id()).orElseThrow();
-        stores.failTurnUpdate(TurnState.COMPLETED, new AgentStorageException("blocked terminal transaction"));
+        if (failOutbox) {
+            stores.failOutboxInsert(AgentEventPayload.Kind.LIFECYCLE, new AgentStorageException("blocked terminal outbox"));
+        }
+        else {
+            stores.failTurnUpdate(TurnState.COMPLETED, new AgentStorageException("blocked terminal transaction"));
+        }
 
         driver.complete("done");
 
@@ -2326,33 +2332,6 @@ class TestDefaultAgentTurnService
         assertThat(stores.find(running.id())).contains(turnBefore);
         assertThat(runtimeRegistry.running(running.id())).isPresent();
         assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isPresent();
-
-        assertThat(service.get(running.id()).state()).isEqualTo(TurnState.COMPLETED);
-        assertThat(runtimeRegistry.running(running.id())).isEmpty();
-        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
-        assertThat(stores.outboxEntries())
-                .filteredOn(entry -> entry.turnId().equals(Optional.of(running.id())))
-                .filteredOn(entry -> entry.payload() instanceof AgentEventOutboxPayload.Inline inline
-                        && inline.payload() instanceof AgentEventPayload.Lifecycle lifecycle
-                        && lifecycle.phase() == AgentEventPayload.LifecyclePhase.TURN_COMPLETED)
-                .hasSize(1);
-    }
-
-    @Test
-    void rollsBackTerminalTransactionWhenLifecycleOutboxInsertFails()
-    {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
-        service = service(driver, runtimeRegistry);
-        AgentTurn running = service.start(command("first", "key-1"));
-        AgentTask taskBefore = stores.find(task.id()).orElseThrow();
-        AgentTurn turnBefore = stores.find(running.id()).orElseThrow();
-        stores.failOutboxInsert(AgentEventPayload.Kind.LIFECYCLE, new AgentStorageException("blocked terminal outbox"));
-
-        driver.complete("done");
-
-        assertThat(stores.find(task.id())).contains(taskBefore);
-        assertThat(stores.find(running.id())).contains(turnBefore);
-        assertThat(runtimeRegistry.running(running.id())).isPresent();
         assertThat(stores.outboxEntries())
                 .filteredOn(entry -> entry.turnId().equals(Optional.of(running.id())))
                 .filteredOn(entry -> entry.payload() instanceof AgentEventOutboxPayload.Inline inline

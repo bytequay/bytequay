@@ -29,7 +29,7 @@ import java.util.OptionalLong;
 import java.util.function.Predicate;
 
 /** A task log that keeps envelopes in memory, enough for tests that fold metrics from persisted events. */
-final class InMemoryTaskLogStore
+class InMemoryTaskLogStore
         implements TaskLogStore
 {
     private final List<AgentEventEnvelope> events = new ArrayList<>();

@@ -17,7 +17,6 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
-import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
@@ -48,7 +47,6 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
-import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSession;
@@ -60,11 +58,9 @@ import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -75,10 +71,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.function.Consumer;
-import java.util.function.Predicate;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -678,15 +672,14 @@ class TestDefaultAgentCompletionService
     }
 
     private static final class StaticTaskLog
-            implements TaskLogStore
+            extends InMemoryTaskLogStore
     {
-        private final List<AgentEventEnvelope> events = new ArrayList<>();
         private int failingAppends;
 
         private StaticTaskLog(TaskId taskId)
         {
-            events.add(event(taskId, 1, MessagePhase.PARTIAL, "partial"));
-            events.add(event(taskId, 2, MessagePhase.FINAL, "final response"));
+            append(event(taskId, 1, MessagePhase.PARTIAL, "partial"));
+            append(event(taskId, 2, MessagePhase.FINAL, "final response"));
         }
 
         @Override
@@ -696,52 +689,12 @@ class TestDefaultAgentCompletionService
                 failingAppends--;
                 throw new AgentStorageException("task log unavailable");
             }
-            events.add(envelope);
+            super.append(envelope);
         }
 
         private void failNextAppends(int count)
         {
             failingAppends = count;
-        }
-
-        @Override
-        public List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
-        {
-            return events.stream()
-                    .filter(event -> event.sequence() > afterSequence)
-                    .limit(limit)
-                    .collect(toImmutableList());
-        }
-
-        @Override
-        public AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
-        {
-            long latest = lastSequence(taskId);
-            return new AgentHistoryPage(readAfter(taskId, Math.max(0, latest - 1000), 1000), OptionalLong.empty(), OptionalLong.empty(), latest);
-        }
-
-        @Override
-        public Optional<AgentEventEnvelope> findLatest(TaskId taskId, Predicate<AgentEventEnvelope> matches, int maxRecords)
-        {
-            return Lists.reverse(events).stream().filter(event -> event.taskId().equals(taskId)).limit(maxRecords).filter(matches).findFirst();
-        }
-
-        @Override
-        public long lastSequence(TaskId taskId)
-        {
-            return events.getLast().sequence();
-        }
-
-        @Override
-        public BlobRef writeBlob(TaskId taskId, ByteBuffer content, String mediaType)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public ByteBuffer readBlob(TaskId taskId, BlobRef blobRef)
-        {
-            throw new UnsupportedOperationException();
         }
 
         private static AgentEventEnvelope event(TaskId taskId, long sequence, MessagePhase phase, String text)

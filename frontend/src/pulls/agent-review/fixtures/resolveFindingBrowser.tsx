@@ -20,7 +20,7 @@ import AgentReviewTab from '../AgentReviewTab';
 import type { AgentReviewDto } from '../contracts';
 import { mergeReviewFindings } from '../model';
 import { reviewFixture, runningReviewFixture } from './review';
-import { assert, settle } from '../../../fixtures/harness';
+import { assert, changeInput, settle } from '../../../fixtures/harness';
 
 
 export async function resolveFinding(projection: 'review' | 'changes'): Promise<void> {
@@ -103,8 +103,7 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
     return value;
   };
   const write = async (text: string) => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input(), text);
-    input().dispatchEvent(new Event('input', { bubbles: true }));
+    changeInput(input(), text);
     await settle();
   };
   const startRefresh = async () => {

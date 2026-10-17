@@ -13,6 +13,7 @@
  */
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
+import { workspaceFixture } from './workspace';
 import { RelatedWorkspaceNavigation, RelatedWorkspaceSettings } from '../RelatedWorkspaces';
 import App from '../../App';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
@@ -22,12 +23,10 @@ import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../index.css';
 import '../../css/settings-window.css';
 
-const workspace = (id: string, repositoryId: number, name: string): WorkspaceDto => ({
+const workspace = (id: string, repositoryId: number, name: string): WorkspaceDto => workspaceFixture({
   id, name, selectedOwner: 'owner', selectedRepo: id, monitoredOwner: 'apache', monitoredRepo: id,
   selectedRepositoryId: repositoryId, monitoredRepositoryId: repositoryId,
-  upstreamRepositoryId: null, upstreamOwner: null, upstreamRepo: null, topology: 'DIRECT', defaultBranch: 'main',
-  upstreamDefaultBranch: null, localRepositoryPath: `/managed/${id}`, lastCodeSyncAt: '2026-01-01T00:00:00Z',
-  lastMetadataSyncAt: null, displayOrder: 0,
+  localRepositoryPath: `/managed/${id}`, lastCodeSyncAt: '2026-01-01T00:00:00Z',
 });
 const trino = workspace('trino', 1, 'Trino');
 const iceberg = workspace('iceberg', 2, 'Apache Iceberg');

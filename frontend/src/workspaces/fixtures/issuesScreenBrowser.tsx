@@ -19,7 +19,7 @@ import type { WorkItemDecision, WorkItemDto } from '../../goals/contracts';
 import { issueEpicId, lendEpicWorkspace, takeEpicStart } from '../epics';
 import { workspaceRoute } from '../model';
 import WorkspaceIssuesScreen from '../WorkspaceIssuesScreen';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 import { handledEntry, issueAttentionItem, loadHandled, saveHandled, visibleAttention } from '../../home/attention';
 import { refreshSnoozedItem } from '../../home/useSnoozedAttention';
 import { LayerCovered } from '../../Zoom';
@@ -67,8 +67,7 @@ async function closeKeepsIssue(): Promise<void> {
   };
   const type = (value: string) => {
     const field = composer();
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(field, value);
-    field.dispatchEvent(new Event('input', { bubbles: true }));
+    changeInput(field, value);
   };
   const row = (number: number) => [...host.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')]
     .find(candidate => candidate.textContent?.includes(`#${number}`));
@@ -289,8 +288,7 @@ async function filtersLoadedIssues(): Promise<void> {
   const search = async (value: string) => {
     const field = host.querySelector<HTMLInputElement>('input[type="search"][aria-label="Search issues by title, number, or author"]');
     assert(field !== null, 'The issue list offers the same search terms as pull requests');
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, value);
-    field.dispatchEvent(new Event('input', { bubbles: true }));
+    changeInput(field, value);
     await settle();
   };
   const selectLabel = async (value: string) => {

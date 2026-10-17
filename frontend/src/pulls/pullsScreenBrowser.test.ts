@@ -22,48 +22,29 @@ beforeAll(async () => {
 }, 30_000);
 afterAll(() => fixture?.dispose());
 
-it('preserves review and merge sheet focus, dismissal, and in-flight guards', async () => {
+it.each([
+  ['preserves review and merge sheet focus, dismissal, and in-flight guards',
+    'runActionSheetDismissal()', 'preserve dismissal and busy behavior', {}],
+  ['shows merge queue removal details and opens failed jobs',
+    'runMergeQueueRemoval()', 'opens exact failed jobs', { width: 1280, height: 800 }],
+  ['opens distinct development and review tasks and finishes creation after leaving the PR',
+    'runAssignedPrActions()', 'Open distinct development and review task conversations', {}],
+  ['allows watched PRs to open Tears of time before a review or task exists',
+    'runMainScreen(false, true)', 'Watched PRs offer exploration', {}],
+  ['edits PR titles with cancellation, validation, retry, and selection isolation',
+    'runTitleEdit()', 'Inline title edits', { width: 650, height: 700 }],
+  ['acknowledges a viewed PR when leaving zoom without closing the regular detail pane',
+    'runMainScreen()', 'Main PR page', {}],
+  ['follows the review on Changes when a review opens over the task list',
+    'runOverlayChangesStream()', 'follows its review on Changes', { width: 1250, height: 850 }],
+  ['looks up exact PR numbers and shows newly discovered PRs without repeating list reads',
+    'runListSearch()', 'newly discovered PRs', {}],
+] as const)('%s', async (_name, scenario, expected, viewport) => {
   const result = await fixture.run<string>({
-    body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runActionSheetDismissal()');",
+    ...viewport,
+    body: `const results = await window.webContents.executeJavaScript('PullScreenTests.${scenario}');`,
   });
-  expect(result).toContain('preserve dismissal and busy behavior');
-}, 30_000);
-
-it('shows merge queue removal details and opens failed jobs', async () => {
-  const result = await fixture.run<string>({
-    width: 1280, height: 800,
-    body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runMergeQueueRemoval()');",
-  });
-  expect(result).toContain('opens exact failed jobs');
-}, 30_000);
-
-it('opens distinct development and review tasks and finishes creation after leaving the PR', async () => {
-  const result = await fixture.run<string>({
-    body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runAssignedPrActions()');",
-  });
-  expect(result).toContain('Open distinct development and review task conversations');
-}, 30_000);
-
-it('allows watched PRs to open Tears of time before a review or task exists', async () => {
-  const result = await fixture.run<string>({
-    body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runMainScreen(false, true)');",
-  });
-  expect(result).toContain('Watched PRs offer exploration');
-}, 30_000);
-
-it('edits PR titles with cancellation, validation, retry, and selection isolation', async () => {
-  const result = await fixture.run<string>({
-    width: 650, height: 700,
-    body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runTitleEdit()');",
-  });
-  expect(result).toContain('Inline title edits');
-}, 30_000);
-
-it('acknowledges a viewed PR when leaving zoom without closing the regular detail pane', async () => {
-  const result = await fixture.run<string>({
-    body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runMainScreen()');",
-  });
-  expect(result).toContain('Main PR page');
+  expect(result).toContain(expected);
 }, 30_000);
 
 it('opens Changes in local and linked review workspaces while keeping Summary independent', async () => {
@@ -72,21 +53,6 @@ it('opens Changes in local and linked review workspaces while keeping Summary in
     body: `const results = await window.webContents.executeJavaScript('(async () => [await PullScreenTests.runReviewWorkspace(), await PullScreenTests.runReviewWorkspace(true), await PullScreenTests.runOpenReviewWorkspaceStream()])()');`,
   });
   expect(results).toHaveLength(3);
-}, 30_000);
-
-it('follows the review on Changes when a review opens over the task list', async () => {
-  const result = await fixture.run<string>({
-    width: 1250, height: 850,
-    body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runOverlayChangesStream()');",
-  });
-  expect(result).toContain('follows its review on Changes');
-}, 30_000);
-
-it('looks up exact PR numbers and shows newly discovered PRs without repeating list reads', async () => {
-  const result = await fixture.run<string>({
-    body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runListSearch()');",
-  });
-  expect(result).toContain('newly discovered PRs');
 }, 30_000);
 
 it.each(['sync', 'attention'])('finishes initial PR loading when %s supersedes it and ignores stale workspace responses', async trigger => {

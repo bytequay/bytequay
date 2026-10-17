@@ -89,9 +89,7 @@ class TestPermissionBroker
             try (McpRegistration registration = broker.register(taskId, temporaryDirectory, temporaryDirectory, temporaryDirectory, policy, SessionAccess.FULL,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), SecretRedactor.fromEnvironment(ImmutableMap.of()),
                     graph, ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
-                JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
-                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                        """)).body().orElseThrow();
+                JsonNode listed = listTools(broker, registration.token());
                 assertThat(registration.toolNames()).as(taskId)
                         .containsExactlyElementsOf(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList().stream()
                                 .filter(name -> !name.equals("permission_prompt"))
@@ -118,10 +116,9 @@ class TestPermissionBroker
                 }
                 else {
                     try (McpRegistration tools = codex.orElseThrow()) {
-                        JsonNode codexListed = broker.handle(tools.token(), objectMapper.readTree("""
-                                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                                """)).body().orElseThrow();
-                        assertThat(codexListed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).as(taskId).containsExactlyElementsOf(registration.toolNames());
+                        JsonNode codexListed = listTools(broker, tools.token());
+                        assertThat(codexListed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList())
+                                .as(taskId).containsExactlyElementsOf(registration.toolNames());
                         assertThat(tools.instruction()).isEqualTo(registration.instruction());
                     }
                 }
@@ -173,18 +170,8 @@ class TestPermissionBroker
         AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
         String codexToken;
         String claudeToken;
-        try (McpRegistration codex = broker.registerTools(
-                "task-1",
-                temporaryDirectory,
-                AgentPermissionPolicy.AUTO,
-                approvals,
-                redactor,
-                Optional.empty(),
-                SessionAccess.FULL,
-                Optional.empty(),
-                ImmutableList.of()).orElseThrow();
-                McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
-                        SessionAccess.FULL, approvals, redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
+        try (McpRegistration codex = registerCodexTask(broker, approvals, redactor);
+                McpRegistration claude = registerClaudeTask(broker, approvals, redactor)) {
             codexToken = codex.token();
             claudeToken = claude.token();
             assertThat(codex.instruction()).hasValueSatisfying(value -> assertThat(value).contains(IssueContextBridge.INSTRUCTION));
@@ -192,10 +179,9 @@ class TestPermissionBroker
             assertThat(claude.toolNames()).containsExactly(IssueContextBridge.TOOL_NAME, "bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL);
             assertThat(reads).hasValue(0);
             for (String token : ImmutableList.of(codexToken, claudeToken)) {
-                JsonNode listed = broker.handle(token, objectMapper.readTree("""
-                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                        """)).body().orElseThrow();
-                assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).contains(IssueContextBridge.TOOL_NAME);
+                JsonNode listed = listTools(broker, token);
+                assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList())
+                        .contains(IssueContextBridge.TOOL_NAME);
                 JsonNode definition = listed.at("/result/tools").findParents("name").stream()
                         .filter(tool -> tool.path("name").asText().equals(IssueContextBridge.TOOL_NAME)).findFirst().orElseThrow();
                 assertThat(definition.at("/inputSchema/properties").isEmpty()).isTrue();
@@ -260,23 +246,11 @@ class TestPermissionBroker
                 .workItems(ignored -> Optional.of(bridge)).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
-        try (McpRegistration codex = broker.registerTools(
-                "task-1",
-                temporaryDirectory,
-                AgentPermissionPolicy.AUTO,
-                approvals,
-                redactor,
-                Optional.empty(),
-                SessionAccess.FULL,
-                Optional.empty(),
-                ImmutableList.of()).orElseThrow();
-                McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
-                        SessionAccess.FULL, approvals, redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
+        try (McpRegistration codex = registerCodexTask(broker, approvals, redactor);
+                McpRegistration claude = registerClaudeTask(broker, approvals, redactor)) {
             for (McpRegistration provider : ImmutableList.of(codex, claude)) {
                 assertThat(provider.instruction()).hasValueSatisfying(value -> assertThat(value).contains(WorkItemBridge.INSTRUCTION));
-                JsonNode listed = broker.handle(provider.token(), objectMapper.readTree("""
-                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                        """)).body().orElseThrow();
+                JsonNode listed = listTools(broker, provider.token());
                 JsonNode definition = listed.at("/result/tools").findParents("name").stream()
                         .filter(tool -> tool.path("name").asText().equals(WorkItemBridge.TOOL_NAME)).findFirst().orElseThrow();
                 assertThat(definition.at("/inputSchema/properties/action/enum").toString()).isEqualTo("[\"LIST\",\"READ\",\"CREATE\"]");
@@ -312,13 +286,10 @@ class TestPermissionBroker
                 .memories(taskId -> taskId.equals("task-1") ? Optional.of(bridge) : Optional.empty()).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
-        try (McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
-                SessionAccess.FULL, approvals, redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
+        try (McpRegistration claude = registerClaudeTask(broker, approvals, redactor)) {
             assertThat(claude.toolNames()).containsExactly(MemoryBridge.TOOL_NAME, "bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL);
             assertThat(claude.instruction()).hasValueSatisfying(value -> assertThat(value).contains(MemoryBridge.INSTRUCTION));
-            JsonNode listed = broker.handle(claude.token(), objectMapper.readTree("""
-                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                    """)).body().orElseThrow();
+            JsonNode listed = listTools(broker, claude.token());
             JsonNode definition = listed.at("/result/tools").findParents("name").stream()
                     .filter(tool -> tool.path("name").asText().equals(MemoryBridge.TOOL_NAME)).findFirst().orElseThrow();
             assertThat(definition.at("/inputSchema/properties/action/enum").toString()).isEqualTo("[\"SEARCH\",\"READ\",\"REPORT\",\"REMEMBER\"]");
@@ -375,20 +346,10 @@ class TestPermissionBroker
                         ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())) : Optional.empty())
                 .localReviews(taskId -> taskId.equals("task-1") && available.get() ? Optional.of(local) : Optional.empty()).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
+        AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
         String closedToken;
-        try (McpRegistration codex = broker.registerTools(
-                "task-1",
-                temporaryDirectory,
-                AgentPermissionPolicy.AUTO,
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                redactor,
-                Optional.empty(),
-                SessionAccess.FULL,
-                Optional.empty(),
-                ImmutableList.of()).orElseThrow();
-                McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
-                        SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor,
-                        Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
+        try (McpRegistration codex = registerCodexTask(broker, approvals, redactor);
+                McpRegistration claude = registerClaudeTask(broker, approvals, redactor)) {
             closedToken = codex.token();
             assertThat(codex.review()).isEmpty();
             assertThat(claude.review()).isEmpty();
@@ -396,9 +357,7 @@ class TestPermissionBroker
             assertThat(claude.development()).isPresent();
             assertThat(codex.instruction()).hasValueSatisfying(instruction -> assertThat(instruction).contains(LocalReviewBridge.INSTRUCTION, DevelopmentResultBridge.INSTRUCTION));
             for (String token : ImmutableList.of(codex.token(), claude.token())) {
-                JsonNode listed = broker.handle(token, objectMapper.readTree("""
-                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                        """)).body().orElseThrow();
+                JsonNode listed = listTools(broker, token);
                 assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList())
                         .contains(LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL, DevelopmentResultBridge.TOOL_NAME);
                 assertThat(localReviewCall(broker, token, LocalReviewBridge.LIST_TOOL, "{}").at("/result/content/0/text").textValue()).contains("comment-1");
@@ -506,19 +465,9 @@ class TestPermissionBroker
                             return "user/bytequay/" + branch;
                         })))).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
-        try (McpRegistration codex = broker.registerTools(
-                "task-1",
-                temporaryDirectory,
-                AgentPermissionPolicy.AUTO,
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                redactor,
-                Optional.empty(),
-                SessionAccess.FULL,
-                Optional.empty(),
-                ImmutableList.of()).orElseThrow();
-                McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
-                        SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor,
-                        Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
+        AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+        try (McpRegistration codex = registerCodexTask(broker, approvals, redactor);
+                McpRegistration claude = registerClaudeTask(broker, approvals, redactor)) {
             for (String token : ImmutableList.of(codex.token(), claude.token())) {
                 assertThat(localReviewCall(broker, token, DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME,
                         "{\"branch\":\"convert-parquet-time-millis-to-micro\"}").at("/result/content/0/text").asText())
@@ -548,23 +497,11 @@ class TestPermissionBroker
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
                 .developments(taskId -> taskId.equals("task-1") ? active.get() : Optional.empty()).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
-        try (McpRegistration codex = broker.registerTools(
-                "task-1",
-                temporaryDirectory,
-                AgentPermissionPolicy.AUTO,
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                redactor,
-                Optional.empty(),
-                SessionAccess.FULL,
-                Optional.empty(),
-                ImmutableList.of()).orElseThrow();
-                McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
-                        SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor,
-                        Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
+        AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+        try (McpRegistration codex = registerCodexTask(broker, approvals, redactor);
+                McpRegistration claude = registerClaudeTask(broker, approvals, redactor)) {
             for (String token : ImmutableList.of(codex.token(), claude.token())) {
-                JsonNode listed = broker.handle(token, objectMapper.readTree("""
-                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                        """)).body().orElseThrow();
+                JsonNode listed = listTools(broker, token);
                 assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).contains(DevelopmentResultBridge.TOOL_NAME);
                 for (JsonNode tool : listed.at("/result/tools")) {
                     if (tool.path("name").asText().equals(DevelopmentResultBridge.TOOL_NAME)) {
@@ -615,23 +552,11 @@ class TestPermissionBroker
             PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
                     .developments(taskId -> Optional.of(bridge)).build();
             SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
-            try (McpRegistration codex = broker.registerTools(
-                "task-1",
-                temporaryDirectory,
-                AgentPermissionPolicy.AUTO,
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                redactor,
-                Optional.empty(),
-                SessionAccess.FULL,
-                Optional.empty(),
-                ImmutableList.of()).orElseThrow();
-                    McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
-                            SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor,
-                            Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
+            AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+            try (McpRegistration codex = registerCodexTask(broker, approvals, redactor);
+                    McpRegistration claude = registerClaudeTask(broker, approvals, redactor)) {
                 for (String token : ImmutableList.of(codex.token(), claude.token())) {
-                    JsonNode listed = broker.handle(token, objectMapper.readTree("""
-                            {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                            """)).body().orElseThrow();
+                    JsonNode listed = listTools(broker, token);
                     for (JsonNode tool : listed.at("/result/tools")) {
                         if (tool.path("name").asText().equals(DevelopmentResultBridge.TOOL_NAME)) {
                             assertThat(tool.at("/inputSchema/properties").has("learningSummary")).isEqualTo(allowed);
@@ -671,13 +596,10 @@ class TestPermissionBroker
                     return "Pushed abc; created draft pull request https://github.com/owner/repo/pull/7 known-secret";
                 }).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
-        try (McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
-                SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty(),
-                ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
+        try (McpRegistration claude = registerClaudeTask(broker,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor)) {
             String token = claude.token();
-            JsonNode listed = broker.handle(token, objectMapper.readTree("""
-                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                    """)).body().orElseThrow();
+            JsonNode listed = listTools(broker, token);
             assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME);
 
             JsonNode created = publishCall(broker, token, """
@@ -737,9 +659,7 @@ class TestPermissionBroker
                 SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty(),
                 ImmutableMap.of(), Optional.empty(), ImmutableList.of());
 
-        JsonNode listed = broker.handle(bridged.token(), objectMapper.readTree("""
-                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                """)).body().orElseThrow();
+        JsonNode listed = listTools(broker, bridged.token());
         assertThat(listed.at("/result/tools")).hasSize(5);
         assertThat(listed.at("/result/tools/1/name").asText()).isEqualTo("code_query");
         assertThat(listed.at("/result/tools/1/inputSchema/required/0").asText()).isEqualTo("operation");
@@ -789,9 +709,7 @@ class TestPermissionBroker
                 "use the graph")), SessionAccess.FULL, Optional.empty(), ImmutableList.of()).orElseThrow();
         assertThat(registration.endpoint()).isEqualTo(URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"));
 
-        JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
-                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                """)).body().orElseThrow();
+        JsonNode listed = listTools(broker, registration.token());
         assertThat(listed.at("/result/tools")).hasSize(4);
         assertThat(listed.at("/result/tools/0/name").asText()).isEqualTo("code_query");
         JsonNode called = broker.handle(registration.token(), objectMapper.readTree("""
@@ -894,9 +812,7 @@ class TestPermissionBroker
                 SessionAccess.FULL,
                 Optional.empty(),
                 ImmutableList.of()).orElseThrow()) {
-            JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
-                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                    """)).body().orElseThrow();
+            JsonNode listed = listTools(broker, registration.token());
             assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsExactly(
                     "review_context",
                     "bytequay_list_tools",
@@ -944,9 +860,7 @@ class TestPermissionBroker
             assertThat(guarded.rootTools()).singleElement().satisfies(tool ->
                     assertThat(tool).containsEntry("type", "function")
                             .containsEntry("name", PermissionBroker.CALL_TOOL));
-            JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
-                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                    """)).body().orElseThrow();
+            JsonNode listed = listTools(broker, registration.token());
             assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsExactly(
                     "review_get_context",
                     "bytequay_list_tools",
@@ -1002,9 +916,7 @@ class TestPermissionBroker
                 ImmutableList.of()).orElseThrow()) {
             PermissionBroker.CodexRootTools guarded = broker.guardCodexRootTools(registration);
             assertThat(guarded.mcpNames()).containsExactly("review_get_context", MemoryBridge.TOOL_NAME, "bytequay_list_tools", "bytequay_get_tool");
-            JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
-                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                    """)).body().orElseThrow();
+            JsonNode listed = listTools(broker, registration.token());
             assertThat(listed.at("/result/tools/1/inputSchema/properties/action/enum")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("SEARCH", "READ")));
             assertThat(objectMapper.readTree(localReviewCall(broker, registration.token(), "bytequay_get_tool",
                     "{\"name\":\"repository_memory\"}").at("/result/content/0/text").asText()).at("/inputSchema/properties/action/enum"))
@@ -1750,6 +1662,26 @@ class TestPermissionBroker
             assertThat(gate(command, "not json")).isEqualTo(2);
         }
         assertThat(gate).doesNotExist();
+    }
+
+    private McpRegistration registerCodexTask(PermissionBroker broker, AgentApprovalHandler approvals, SecretRedactor redactor)
+    {
+        return broker.registerTools("task-1", temporaryDirectory, AgentPermissionPolicy.AUTO, approvals, redactor,
+                Optional.empty(), SessionAccess.FULL, Optional.empty(), ImmutableList.of()).orElseThrow();
+    }
+
+    private McpRegistration registerClaudeTask(PermissionBroker broker, AgentApprovalHandler approvals, SecretRedactor redactor)
+    {
+        return broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                SessionAccess.FULL, approvals, redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of());
+    }
+
+    private JsonNode listTools(PermissionBroker broker, String token)
+            throws Exception
+    {
+        return broker.handle(token, objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                """)).body().orElseThrow();
     }
 
     private static int gate(String hookCommand, String payload)

@@ -17,7 +17,7 @@ import { createRoot } from 'react-dom/client';
 import { parseAgentSkillInput } from '../../agents/contracts';
 import type { AgentSkillDto, AgentSkillInput, AgentSkillScope } from '../../types';
 import SkillsPage from '../SkillsPage';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 
 
 
@@ -80,9 +80,7 @@ function fixture(initial: AgentSkillDto[] = []) {
     async fill(selector: string, value: string) {
       const input = scope_().querySelector<HTMLInputElement | HTMLTextAreaElement>(selector);
       assert(input !== null, `Input ${selector} is missing`);
-      const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(input, value);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
+      changeInput(input, value);
       await settle();
     },
     scope(): AgentSkillScope {

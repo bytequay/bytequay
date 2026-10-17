@@ -13,8 +13,8 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { workspaceFixture } from './fixtures/workspace';
 import { setCached } from '../dataCache';
-import type { WorkspaceDto } from '../types';
 import WorkspacesPage from './WorkspacesPage';
 
 describe('workspaces page', () => {
@@ -34,25 +34,8 @@ describe('workspaces page', () => {
   });
 });
 
-function workspace(id: string): WorkspaceDto {
-  return {
-    id,
-    name: 'octocat/project',
-    selectedRepositoryId: 100,
-    selectedOwner: 'octocat',
-    selectedRepo: 'project',
-    upstreamRepositoryId: null,
-    upstreamOwner: null,
-    upstreamRepo: null,
-    monitoredRepositoryId: 100,
-    monitoredOwner: 'octocat',
-    monitoredRepo: 'project',
-    topology: 'DIRECT',
-    defaultBranch: 'main',
-    upstreamDefaultBranch: null,
-    localRepositoryPath: '/managed/project',
-    lastCodeSyncAt: null,
-    lastMetadataSyncAt: null,
-    displayOrder: 0,
-  };
+function workspace(id: string) {
+  return workspaceFixture({
+    id, name: 'octocat/project', selectedOwner: 'octocat', monitoredOwner: 'octocat', localRepositoryPath: '/managed/project',
+  });
 }

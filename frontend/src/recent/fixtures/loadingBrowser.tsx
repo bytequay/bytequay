@@ -21,7 +21,7 @@ import RecentPalette from '../RecentPalette';
 import { isoDay, parseDay, shiftDay } from '../model';
 import { recentItemTarget } from '../routes';
 import { useRecentTouch } from '../useRecentTouch';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 
 type DayPage = Awaited<ReturnType<Window['bridge']['fetchRecent']>>;
 type Pending = { query: RecentFilterQuery; resolve: (page: DayPage) => void; reject: (error: Error) => void };
@@ -193,8 +193,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     const input = view.host.querySelector<HTMLInputElement>('input[type="search"]');
     assert(input !== null, 'Search input is missing');
     for (const text of ['m', 'mem', ' memory ']) {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, text);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
+      changeInput(input, text);
       await delay(40);
     }
     assert(view.requestCount() === 1, 'Typing must not fetch before the debounce delay');

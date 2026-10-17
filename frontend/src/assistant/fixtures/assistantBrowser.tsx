@@ -14,6 +14,7 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import '../../index.css';
+import { changeInput } from '../../fixtures/harness';
 import AssistantPanel from '../AssistantPanel';
 import type { RunningTask } from '../../agents/runningTaskModel';
 import type { AppNotice } from '../../notices/contracts';
@@ -123,8 +124,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
 function type(host: HTMLElement, text: string): HTMLTextAreaElement {
   const input = host.querySelector<HTMLTextAreaElement>('.assistant-float textarea');
   assert(input !== null, 'The composer must show');
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, text);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
+  changeInput(input, text);
   return input;
 }
 

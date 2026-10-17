@@ -13,19 +13,17 @@
  */
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
+import { workspaceFixture } from '../../workspaces/fixtures/workspace';
 import { assert, changeInput, settle } from '../../fixtures/harness';
-import type { WorkspaceDto } from '../../types';
 import type { MemoryDto, MemoryPageDto, MemoryPullDto, StartMemoryHarvestRequest } from '../contracts';
 import type { ContextSpecCandidateDto, ContextSpecCheckDto } from '../../repository-context/contracts';
 import MemoryPage from '../MemoryPage';
 import '../../css/base.css';
 
-const workspace: WorkspaceDto = {
+const workspace = workspaceFixture({
   id: 'trino', name: 'Trino', selectedOwner: 'trinodb', selectedRepo: 'trino', monitoredOwner: 'trinodb', monitoredRepo: 'trino',
-  selectedRepositoryId: 1, monitoredRepositoryId: 1, upstreamRepositoryId: null, upstreamOwner: null, upstreamRepo: null,
-  topology: 'DIRECT', defaultBranch: 'main', upstreamDefaultBranch: null, localRepositoryPath: '/managed/trino',
-  lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0,
-};
+  selectedRepositoryId: 1, monitoredRepositoryId: 1, localRepositoryPath: '/managed/trino',
+});
 const page: MemoryPageDto = {
   memories: Array.from({ length: 18 }, (_, index): MemoryDto => ({
     id: `m${index}`, kind: index === 0 ? 'RECIPE' : 'RULE', title: index === 0 ? 'Run connector tests' : `Connector convention ${index}`,

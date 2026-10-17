@@ -20,7 +20,7 @@ import AppSidebar from '../../AppSidebar';
 import { JIRA_CHANGED, type JiraConnection, type JiraTokenRequest } from '../../jira/contracts';
 import type { AppPreferencesDto, Bridge, QuietHoursDto } from '../../types';
 import { settingsLocationFromRoute, settingsRoute, type SettingsSection } from '../routes';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/settings-window.css';
 
@@ -52,7 +52,6 @@ const button = (label: string, scope: ParentNode = document) => {
 };
 const row = (id: string) => { const value = document.querySelector(`[data-connection-id="${id}"]`); assert(value !== null, `Missing account: ${id}`); return value; };
 const input = (label: string) => { const element = [...document.querySelectorAll('label')].find(value => value.textContent === label); const result = document.getElementById(element?.htmlFor ?? ''); assert(result instanceof HTMLInputElement, `Missing input: ${label}`); return result; };
-function changeInput(label: string, value: string) { const element = input(label); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(element, value); element.dispatchEvent(new Event('input', { bubbles: true })); }
 async function settled() { await settle(); await settle(); }
 async function advancePoll(by?: number) {
   const entry = jobs.entries().next().value; assert(entry !== undefined, 'A pending sign-in should schedule a check');
@@ -175,7 +174,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(!document.body.textContent?.includes('Sign in with browser') && !document.body.textContent?.includes('not available in this installation'), 'Unavailable browser sign-in does not block token entry');
       assert(!button('Reconnect', row('work')).disabled, 'An existing OAuth account keeps its saved service');
       button('Add account').click(); await settled();
-      changeInput('Jira site', 'https://company.atlassian.net'); changeInput('Atlassian account email', 'alex@company.com'); changeInput('API token', 'fixture-token'); await settled();
+      changeInput(input('Jira site'), 'https://company.atlassian.net'); changeInput(input('Atlassian account email'), 'alex@company.com'); changeInput(input('API token'), 'fixture-token'); await settled();
       assert(input('API token').type === 'password' && !document.body.textContent?.includes('fixture-token'), 'Token is masked and absent from readable page text');
       const page = document.querySelector('.jira-settings'); assert(page instanceof HTMLElement && page.scrollWidth <= page.clientWidth, 'Token form fits the settings pane');
       let finish: ((value: JiraConnection) => void) | undefined; nextToken = () => new Promise(resolve => { finish = resolve; });
@@ -188,7 +187,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(!document.querySelector('input[type="password"]') && opened.length === 0 && refreshIds.length === 0 && jobs.size === 0, 'Connecting a token neither opens OAuth nor schedules refresh');
     },
     async 'clears a cancelled token and links directly to personal token creation'() {
-      await mountPreview([], false); button('Add account').click(); await settled(); changeInput('API token', 'cancelled-fixture-token'); await settled();
+      await mountPreview([], false); button('Add account').click(); await settled(); changeInput(input('API token'), 'cancelled-fixture-token'); await settled();
       button('Create API token').click(); await settled(); assert(opened[0] === 'https://id.atlassian.com/manage-profile/security/api-tokens', 'Creation opens the account token page');
       button('Cancel').click(); await settled(); button('Add account').click(); await settled();
       assert(input('API token').value === '' && tokenRequests.length === 0, 'Cancelling discards the secret without submitting it');
@@ -202,10 +201,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(input('Jira site').readOnly && input('Jira site').value === 'https://company.atlassian.net', 'Replacement keeps the bound site');
       assert(input('Atlassian account email').value === 'alex@company.com' && input('API token').value === '', 'Replacement prefills email but never retrieves the saved token');
       nextToken = async () => { throw new Error('The selected account did not match. Your original connection was kept.'); };
-      changeInput('API token', 'wrong-account-fixture-token'); await settled(); button('Save replacement').click(); await settled();
+      changeInput(input('API token'), 'wrong-account-fixture-token'); await settled(); button('Save replacement').click(); await settled();
       assert(tokenRequests[0].id === tokenConnected.id && input('API token').value === '' && !input('API token').disabled, 'Failed replacement clears its secret and keeps the form editable');
       assert(document.body.textContent?.includes('original connection was kept') && row('token-account').textContent?.includes('Connected') && removed.length === 0, 'Replacement failure retains the existing connection');
-      nextToken = async () => tokenConnected; changeInput('API token', 'replacement-fixture-token'); await settled(); button('Save replacement').click(); await settled();
+      nextToken = async () => tokenConnected; changeInput(input('API token'), 'replacement-fixture-token'); await settled(); button('Save replacement').click(); await settled();
       assert(tokenRequests.length === 2 && !document.querySelector('input[type="password"]') && accounts.length === 1, 'Retry replaces the same account without adding a duplicate');
     },
     async 'shares confirmed quiet hours through General from both integration pages'() {

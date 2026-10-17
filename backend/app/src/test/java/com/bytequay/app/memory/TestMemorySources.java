@@ -49,12 +49,12 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.function.Predicate;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.bytequay.app.memory.MemoryFixtures.NOW;
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -116,24 +116,7 @@ class TestMemorySources
     @Test
     void bindsAReviewRuleToTheDiscussionQuestionAndNeverToAReviewStep()
     {
-        AgentReview review = new AgentReview(
-                "review",
-                "workspace",
-                "trinodb/trino",
-                OptionalInt.of(7),
-                OptionalLong.empty(),
-                taskId.toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty());
+        AgentReview review = pullRequestReview("review", "workspace", "trinodb/trino", 7, taskId.toString(), NOW);
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         ReviewMessage question = new ReviewMessage("message-1", "review", Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.USER,
                 "We never log user input here; please don't suggest it.", 1, "run-1", Optional.empty(), Optional.empty(), 0, NOW);

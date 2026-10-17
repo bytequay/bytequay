@@ -14,6 +14,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { workspaceFixture } from '../workspaces/fixtures/workspace';
 import type { CommitRefreshStatusDto, WorkspaceDto, WorkspaceSettingsDto } from '../types';
 import CommitsTab, {
   CommitsBrowser,
@@ -245,26 +246,9 @@ function status(state: CommitRefreshStatusDto['state']): CommitRefreshStatusDto 
 }
 
 function workspace(): WorkspaceDto {
-  return {
-    id: 'workspace-id',
-    name: 'example/project',
-    localRepositoryPath: '/managed/workspace-id/repository',
-    defaultBranch: 'main',
-    upstreamDefaultBranch: null,
-    selectedRepositoryId: 100,
-    selectedOwner: 'example',
-    selectedRepo: 'project',
-    upstreamRepositoryId: null,
-    upstreamOwner: null,
-    upstreamRepo: null,
-    monitoredRepositoryId: 100,
-    monitoredOwner: 'example',
-    monitoredRepo: 'project',
-    topology: 'DIRECT',
-    lastCodeSyncAt: '2026-08-24T00:00:00Z',
-    lastMetadataSyncAt: null,
-    displayOrder: 0,
-  };
+  return workspaceFixture({
+    name: 'example/project', selectedOwner: 'example', monitoredOwner: 'example', lastCodeSyncAt: '2026-08-24T00:00:00Z',
+  });
 }
 
 describe('commits stylesheet', () => {

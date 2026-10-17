@@ -151,8 +151,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await settle();
     const input = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
     assert(input !== null, 'Selecting a line must open a composer');
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, 'Keep this pending review');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    changeInput(input, 'Keep this pending review');
     await settle();
     button('Add to review').click();
     await settle();

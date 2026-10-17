@@ -13,8 +13,9 @@
  */
 
 import { createRoot } from 'react-dom/client';
-import { assert, settle } from '../../fixtures/harness';
-import type { Bridge, WorkspaceDto } from '../../types';
+import { workspaceFixture } from '../../workspaces/fixtures/workspace';
+import { assert, changeInput, settle } from '../../fixtures/harness';
+import type { Bridge } from '../../types';
 import type { WorkItemDto } from '../../goals/contracts';
 import type { UnifiedWorkItem } from '../contracts';
 import { EPIC_START, takeEpicStart, type EpicStart } from '../../workspaces/epics';
@@ -24,12 +25,10 @@ import { workItemRoute } from '../contracts';
 import '../../css/base.css';
 import '../../css/pulls.css';
 
-const workspace: WorkspaceDto = {
+const workspace = workspaceFixture({
   id: 'workspace', name: 'ByteQuay', selectedOwner: 'bytequay', selectedRepo: 'bytequay', monitoredOwner: 'bytequay', monitoredRepo: 'bytequay',
-  selectedRepositoryId: 1, monitoredRepositoryId: 1, upstreamRepositoryId: null, upstreamOwner: null, upstreamRepo: null,
-  topology: 'DIRECT', defaultBranch: 'main', upstreamDefaultBranch: null, localRepositoryPath: '/managed/bytequay',
-  lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0,
-};
+  selectedRepositoryId: 1, monitoredRepositoryId: 1, localRepositoryPath: '/managed/bytequay',
+});
 const now = '2026-10-07T00:00:00Z';
 function local(id: string, title: string, body: string): WorkItemDto {
   return { id, workspaceId: workspace.id, goalId: null, title, acceptanceCriteria: body, kind: 'DEVELOP', completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0,
@@ -44,8 +43,7 @@ function button(text: string) {
 }
 function type(selector: string, text: string) {
   const input = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector); assert(input != null, `Missing ${selector}`);
-  const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-  Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(input, text); input.dispatchEvent(new Event('input', { bubbles: true }));
+  changeInput(input, text);
 }
 export async function run() {
   window.location.hash = '#/workspaces/workspace/issues';

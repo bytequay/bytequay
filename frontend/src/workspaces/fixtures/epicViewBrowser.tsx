@@ -19,7 +19,7 @@ import { useUnmarkEpic } from '../useUnmarkEpic';
 import type { CreateWorkItem, EpicChildDto, EpicRecordDto, GoalItemDto, WorkItemDecision, WorkItemDto } from '../../goals/contracts';
 import { issueAttentionItem } from '../../home/attention';
 import type { Bridge } from '../../types';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 
 const NOW = '2026-10-01T08:00:00Z';
@@ -52,10 +52,6 @@ function row(title: string): HTMLElement {
   const found = [...document.querySelectorAll<HTMLElement>('.epic-row')].find(value => value.querySelector('.item-row__title')?.textContent?.startsWith(title));
   assert(found !== undefined, `Missing row ${title}`);
   return found;
-}
-function type(input: HTMLInputElement, value: string): void {
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 async function wait(milliseconds: number): Promise<void> {
   await new Promise(resolve => window.setTimeout(resolve, milliseconds));
@@ -192,7 +188,7 @@ export async function run(): Promise<boolean> {
     button('Drop Benchmark warm cache').click(); await settle();
     const dialog = element<HTMLDialogElement>('dialog.bq-confirm-dialog');
     assert(dialog.open && dialog.textContent?.includes('Drop "Benchmark warm cache"?') === true, 'Dropping asks for a reason first');
-    type(element<HTMLInputElement>('input', dialog), 'Numbers came from the cache test');
+    changeInput(element<HTMLInputElement>('input', dialog), 'Numbers came from the cache test');
     button('Drop').click(); await settle();
     assert(calls.at(-1) === 'decide d DROP true', `Dropping releases what waited on it: ${calls.at(-1)}`);
     assert(element('.epic-view__dropped > summary').textContent === '2 dropped', 'Dropped work joins the folded list');
@@ -201,7 +197,7 @@ export async function run(): Promise<boolean> {
     assert(calls.at(-1) === 'remove a' && !rows().some(value => value.textContent?.includes('Cache table metadata')), 'Remove takes work out of the Epic');
 
     const input = element<HTMLInputElement>('.epic-view__new input');
-    type(input, '  Profile the reader  ');
+    changeInput(input, '  Profile the reader  ');
     element<HTMLFormElement>('.epic-view__new').requestSubmit(); await wait(20);
     assert(calls.at(-1) === 'create Profile the reader ISSUE:github.com:24918 null DEVELOP [] MERGED_DELIVERY', `Quick add takes a title: ${calls.at(-1)}`);
     assert(input.value === '' && rows().some(value => value.textContent?.includes('Profile the reader')), 'The new work joins the list and the field clears');

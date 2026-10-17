@@ -34,7 +34,6 @@ import com.bytequay.core.review.ReviewDraftStore;
 import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvestigation;
-import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewPublication;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
@@ -59,13 +58,16 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.stream.IntStream;
 
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -103,7 +105,7 @@ class TestReviewPublicationService
         drafts = new InMemoryReviewDraftStore();
         reviews = new InMemoryAgentReviewStore();
         pullRequests = mock(PullRequestService.class);
-        service = new ReviewPublicationService(drafts, reviews, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new ReviewPublicationService(drafts, reviews.service, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -830,7 +832,7 @@ class TestReviewPublicationService
         drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withReview("Was the review sent?", "APPROVE", NOW).withReviewPublication(Optional.of(reserved), NOW)
                 .withItems(ImmutableList.of(item), NOW));
 
-        ReviewDraft restarted = new ReviewPublicationService(drafts, reviews, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC)).draft(REPO, NUMBER);
+        ReviewDraft restarted = new ReviewPublicationService(drafts, reviews.service, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC)).draft(REPO, NUMBER);
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
 
         assertThat(restarted.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
@@ -1313,28 +1315,24 @@ class TestReviewPublicationService
 
     /** The publication service reads review acceptance and finding state without changing either. */
     private static final class InMemoryAgentReviewStore
-            implements AgentReviewStore
     {
+        private final AgentReviewStore service = mock(AgentReviewStore.class, invocation -> {
+            throw new UnsupportedOperationException("Unexpected review operation: " + invocation.getMethod().getName());
+        });
         private final Map<String, ReviewFinding> findings = new HashMap<>();
         private final List<ReviewRun> runs = new ArrayList<>(ImmutableList.of(run(ReviewRun.State.ACCEPTED)));
-        private final AgentReview review = new AgentReview(
-                REVIEW_ID,
-                "workspace-1",
-                REPO,
-                OptionalInt.of(NUMBER),
-                OptionalLong.of(PR_ID),
-                "task-1",
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.of(RUN_ID),
-                Optional.of(REVIEWED_HEAD),
-                Optional.of(REVIEWED_HEAD),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty());
+        private final AgentReview review = pullRequestReview(REVIEW_ID, "workspace-1", REPO, NUMBER, "task-1", NOW)
+                .withPullRequest(NUMBER, OptionalLong.of(PR_ID), NOW)
+                .withLatestCompletedRun(RUN_ID, NOW)
+                .withObservedHead(REVIEWED_HEAD, NOW)
+                .withWorktreeHead(REVIEWED_HEAD, NOW);
+
+        private InMemoryAgentReviewStore()
+        {
+            doAnswer(call -> findFinding(call.getArgument(0))).when(service).findFinding(anyString());
+            doAnswer(call -> findReview(call.getArgument(0))).when(service).findReview(anyString());
+            doAnswer(call -> listRuns(call.getArgument(0))).when(service).listRuns(anyString());
+        }
 
         void put(ReviewFinding finding)
         {
@@ -1347,53 +1345,14 @@ class TestReviewPublicationService
             runs.add(run);
         }
 
-        @Override
-        public Optional<ReviewFinding> findFinding(String findingId)
+        private Optional<ReviewFinding> findFinding(String findingId)
         {
             return Optional.ofNullable(findings.get(findingId));
         }
 
-        @Override
-        public AgentReview insertReview(AgentReview review) { throw new UnsupportedOperationException(); }
+        private Optional<AgentReview> findReview(String reviewId) { return REVIEW_ID.equals(reviewId) ? Optional.of(review) : Optional.empty(); }
 
-        @Override
-        public AgentReview updateReview(AgentReview review) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public Optional<AgentReview> findReview(String reviewId) { return REVIEW_ID.equals(reviewId) ? Optional.of(review) : Optional.empty(); }
-
-        @Override
-        public Optional<AgentReview> findOpenReview(String workspaceId, String repo, int number) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public Optional<AgentReview> findReviewByTask(String taskId) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public List<AgentReview> listOpenReviews() { throw new UnsupportedOperationException(); }
-
-        @Override
-        public List<AgentReview> listReviews(String workspaceId) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public ReviewRun insertRun(ReviewRun run) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public ReviewRun updateRun(ReviewRun run) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public void acceptRun(AgentReview review, ReviewRun run) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public ReviewFinding saveFinding(ReviewFinding finding, boolean insert, ReviewRun run) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public ReviewMessage insertMessage(ReviewMessage message, ReviewRun run) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public Optional<ReviewRun> findRun(String runId) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public List<ReviewRun> listRuns(String reviewId)
+        private List<ReviewRun> listRuns(String reviewId)
         {
             if (!REVIEW_ID.equals(reviewId)) {
                 return ImmutableList.of();
@@ -1411,29 +1370,5 @@ class TestReviewPublicationService
                 return run.withStep(ReviewStep.initial(), NOW).withStep(ReviewStep.initial().next(ReviewStep.Kind.VALIDATE).withValidation(validation), NOW);
             }).collect(toImmutableList());
         }
-
-        @Override
-        public ReviewFinding insertFinding(ReviewFinding finding) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public ReviewFinding updateFinding(ReviewFinding finding) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public List<ReviewFinding> listFindings(String reviewId) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public ReviewMessage insertMessage(ReviewMessage message) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public ReviewMessage updateMessage(ReviewMessage message) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public Optional<ReviewMessage> findMessage(String messageId) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public void deleteMessage(String messageId) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public List<ReviewMessage> listMessages(String reviewId) { throw new UnsupportedOperationException(); }
     }
 }

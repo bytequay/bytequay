@@ -14,6 +14,7 @@
 import { Children, isValidElement, type ButtonHTMLAttributes, type MouseEvent, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { workspaceFixture } from './fixtures/workspace';
 import { ZOOM_REFERENCE } from '../githubReference';
 import AppSidebar from '../AppSidebar';
 import WorkItemsScreen from '../workitems/WorkItemsScreen';
@@ -437,24 +438,13 @@ describe('watched repository workspace UI', () => {
 
 function workspace(topology: WorkspaceDto['topology']): WorkspaceDto {
   const linked = topology === 'FORK';
-  return {
-    id: 'workspace-id',
-    name: 'contributor/project',
-    localRepositoryPath: '/managed/workspace-id/repository',
-    defaultBranch: 'main',
-    upstreamDefaultBranch: linked ? 'main' : null,
-    selectedRepositoryId: 100,
-    selectedOwner: 'contributor',
-    selectedRepo: 'project',
+  return workspaceFixture({
+    topology,
     upstreamRepositoryId: linked ? 200 : null,
     upstreamOwner: linked ? 'upstream' : null,
     upstreamRepo: linked ? 'project' : null,
     monitoredRepositoryId: linked ? 200 : 100,
     monitoredOwner: linked ? 'upstream' : 'contributor',
-    monitoredRepo: 'project',
-    topology,
-    lastCodeSyncAt: null,
-    lastMetadataSyncAt: null,
-    displayOrder: 0,
-  };
+    upstreamDefaultBranch: linked ? 'main' : null,
+  });
 }

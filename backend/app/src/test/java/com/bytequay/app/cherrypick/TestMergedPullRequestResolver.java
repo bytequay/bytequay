@@ -243,7 +243,7 @@ class TestMergedPullRequestResolver
         when(drivers.require(AgentLaneId.CLAUDE_CLI)).thenReturn(driver);
         when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential("fixture", new UserProfile("test", "", "", "", 0, 0, 0, "", "", "", "")));
         var store = new InMemoryCherryPickExecutionStore();
-        var service = new CherryPickExecutionService(previews, store, new GitSequencerDriver(GIT), GIT, agent, agent, agent, drivers,
+        var service = new CherryPickExecutionService(previews, store, new GitSequencerDriver(GIT), GIT, agent.tasks, agent.turns, agent.completion, drivers,
                 credentials, workspaces, paths, Clock.systemUTC());
         var execution = service.start(new StartCherryPickExecutionCommand(preview.previewId(), preview.sourceBaseSha(), preview.sourceTipSha(), preview.targetSha(),
                 ImmutableList.of(), "claude", Optional.empty(), Optional.empty(), "landed-range",

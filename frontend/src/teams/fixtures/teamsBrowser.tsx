@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import AppSidebar, { type AppPage } from '../../AppSidebar';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 import { pr } from '../../pulls/fixtures/pullRequest';
 import CirclesGrid from '../../home/CirclesGrid';
 import type { Bridge, PullRequestDto } from '../../types';
@@ -100,9 +100,7 @@ const text = () => document.body.textContent ?? '';
 async function input(label: string, value: string): Promise<void> {
   const element = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[aria-label="${label}"]`);
   assert(element !== null, `Missing input: ${label}`);
-  const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-  Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, value);
-  element.dispatchEvent(new Event('input', { bubbles: true }));
+  changeInput(element, value);
   await settled();
 }
 

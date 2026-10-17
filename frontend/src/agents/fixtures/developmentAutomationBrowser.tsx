@@ -268,8 +268,7 @@ async function developerFeedback(): Promise<{ name: string; error?: string }[]> 
     const input = host.querySelector<HTMLTextAreaElement>('textarea');
     assert(input !== null && !input.disabled, 'Development keeps its composer available after feedback');
     const message = 'Push the reviewed changes and update the PR description';
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, message);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    changeInput(input, message);
     await settle();
     host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.click();
     await settle();
@@ -331,8 +330,7 @@ async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> 
     await settle();
     const input = host.querySelector<HTMLTextAreaElement>('textarea');
     assert(input !== null, 'An active task must allow drafting the next message');
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, 'Continue with the smaller change');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    changeInput(input, 'Continue with the smaller change');
     await settle();
     for (let attempt = 0; attempt < 2; attempt++) {
       const stop = attempt === 0 ? host.querySelector<HTMLButtonElement>('button[aria-label="Stop automation"]')
@@ -465,8 +463,7 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
     await settle();
     const input = host.querySelector<HTMLTextAreaElement>('textarea');
     assert(input !== null && !input.disabled, 'A reloaded owned task must keep its composer editable');
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, 'Use the smaller change');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    changeInput(input, 'Use the smaller change');
     await settle();
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await settle();
@@ -568,8 +565,7 @@ async function pullRequestLookupPolicy(initiallyRunning = false): Promise<{ name
     assert(settled > 0, 'A settled task must look up its branch pull requests once');
     const input = host.querySelector<HTMLTextAreaElement>('textarea');
     assert(input !== null, 'Composer must exist');
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, 'Keep this draft');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    changeInput(input, 'Keep this draft');
     task = { ...task, version: task.version + 1 };
     emit('DEVELOPMENT_AUTOMATION_UPDATED');
     await settle();

@@ -16,6 +16,7 @@ import { resolve } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { workspaceFixture } from '../workspaces/fixtures/workspace';
 import { parseAgentTask } from '../agents/contracts';
 import contracts from '../agents/fixtures/agent-contracts-v1.json';
 import type { Bridge, WorkspaceDto } from '../types';
@@ -38,27 +39,14 @@ import {
 } from './PullsScreen';
 
 function workspace(id: string, overrides: Partial<WorkspaceDto> = {}): WorkspaceDto {
-  return {
-    id,
-    name: 'my-fork/trino',
-    selectedRepositoryId: 1,
-    selectedOwner: 'my-fork',
-    selectedRepo: 'trino',
-    upstreamRepositoryId: 2,
-    upstreamOwner: 'trinodb',
-    upstreamRepo: 'trino',
-    monitoredRepositoryId: 2,
-    monitoredOwner: 'trinodb',
-    monitoredRepo: 'trino',
-    topology: 'FORK',
-    defaultBranch: 'master',
-    upstreamDefaultBranch: 'master',
-    localRepositoryPath: '/tmp/trino',
-    lastCodeSyncAt: null,
-    lastMetadataSyncAt: null,
-    displayOrder: 0,
+  return workspaceFixture({
+    id, name: 'my-fork/trino', localRepositoryPath: '/tmp/trino',
+    selectedRepositoryId: 1, selectedOwner: 'my-fork', selectedRepo: 'trino',
+    upstreamRepositoryId: 2, upstreamOwner: 'trinodb', upstreamRepo: 'trino',
+    monitoredRepositoryId: 2, monitoredOwner: 'trinodb', monitoredRepo: 'trino',
+    topology: 'FORK', defaultBranch: 'master', upstreamDefaultBranch: 'master',
     ...overrides,
-  };
+  });
 }
 
 describe('loadAgentReviewContext', () => {

@@ -585,8 +585,7 @@ export async function run(): Promise<boolean> {
     await nextRead();
     const title = document.querySelector<HTMLInputElement>('.goal-proposal input');
     assert(title !== null && title.value === 'Iceberg connector expert', 'The proposal offers its title for editing');
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(title, 'Trino Iceberg connector expert');
-    title.dispatchEvent(new Event('input', { bubbles: true })); await settle();
+    changeInput(title, 'Trino Iceberg connector expert'); await settle();
     button('Accept goal').click(); await settle(); await settle();
     assert(server.accepted.length === 1 && server.accepted[0] === 'Trino Iceberg connector expert', 'Accepting saves the edited title');
     assert(document.querySelector('.goal-proposal') === null && text().includes('Success means'), 'The accepted definition replaces the proposal');
@@ -667,8 +666,7 @@ export async function run(): Promise<boolean> {
     button('Cancel goal').click(); await settle();
     const confirmation = document.querySelector<HTMLInputElement>('dialog[open] input');
     assert(confirmation !== null && button('Confirm delete goal').disabled, 'Cancel goal requires typed confirmation');
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(confirmation, 'cancel');
-    confirmation.dispatchEvent(new Event('input', { bubbles: true })); await settle();
+    changeInput(confirmation, 'cancel'); await settle();
     button('Confirm delete goal').click();
     await settle(); await settle();
     assert(server.cancelled.join() === 'goal' && text().includes('What do you want to achieve?'), 'Cancel goal archives it and asks what the user wants next');

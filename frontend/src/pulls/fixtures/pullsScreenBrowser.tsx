@@ -14,7 +14,8 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullTimelinePayloadDto, WorkspaceDto } from '../../types';
+import { workspaceFixture } from '../../workspaces/fixtures/workspace';
+import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullTimelinePayloadDto } from '../../types';
 import { SUMMARY_REQUEST, type TaskDiscussionDto } from '../../agents/discussions/contracts';
 import PullOverview from '../PullOverview';
 import PullRequestTaskActions from '../PullRequestTaskActions';
@@ -153,8 +154,7 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     await settle();
     const input = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
     assert(input !== null, 'Comment selection must open a composer');
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, 'Keep this pending review');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    changeInput(input, 'Keep this pending review');
     await settle();
     button('Add to review').click();
     await settle();
@@ -865,8 +865,7 @@ export async function runListSearch(): Promise<string> {
   const type = async (value: string) => {
     const input = host.querySelector<HTMLInputElement>('.pulls-search input');
     assert(input !== null, 'The list must offer a search box');
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    changeInput(input, value);
     // The box debounces for 250ms before the filter runs.
     await new Promise(resolve => window.setTimeout(resolve, 320));
     await settle();
@@ -1386,8 +1385,7 @@ export async function runTitleEdit(): Promise<string> {
     return found;
   };
   const type = async (value: string) => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input(), value);
-    input().dispatchEvent(new Event('input', { bubbles: true }));
+    changeInput(input(), value);
     await settle();
   };
   try {
@@ -1563,13 +1561,10 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
     { actor: 'dave', eventType: 'commented', timestamp: null, body: 'Please check the next PR.', githubId: 8102, payload },
   ] };
   const repository = { owner: 'comment-tests', repo: mode };
-  const workspace: WorkspaceDto = {
+  const workspace = workspaceFixture({
     id: 'workspace-1', name: 'repo', selectedRepositoryId: 1, selectedOwner: repository.owner, selectedRepo: repository.repo,
-    upstreamRepositoryId: null, upstreamOwner: null, upstreamRepo: null, monitoredRepositoryId: 1,
-    monitoredOwner: repository.owner, monitoredRepo: repository.repo, topology: 'DIRECT', defaultBranch: 'main',
-    upstreamDefaultBranch: null, localRepositoryPath: '/managed/repo', lastCodeSyncAt: null,
-    lastMetadataSyncAt: null, displayOrder: 0,
-  };
+    monitoredRepositoryId: 1, monitoredOwner: repository.owner, monitoredRepo: repository.repo, localRepositoryPath: '/managed/repo',
+  });
   let watched = false;
   const cacheKey = `private-thread-drafts:${repo}#${number}`;
   const original = window.bridge;

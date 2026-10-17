@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import type { WorkspaceDto } from '../types';
+import { workspaceFixture } from './fixtures/workspace';
 import {
   commitsPerDay,
   metadataAgeDays,
@@ -61,7 +61,7 @@ describe('workspace model', () => {
   });
 
   it('walks a new workspace from queued through cloning to ready', () => {
-    const queued = dto('DIRECT');
+    const queued = workspaceFixture();
     const cloning = { ...queued, lastMetadataSyncAt: '2026-08-21T00:00:00Z' };
     const ready = { ...cloning, lastCodeSyncAt: '2026-08-21T00:01:00Z' };
     const now = Date.parse('2026-08-21T00:02:00Z');
@@ -75,7 +75,7 @@ describe('workspace model', () => {
 
   it('calls labels and people stale once the cached copy passes a week', () => {
     const workspace = {
-      ...dto('DIRECT'),
+      ...workspaceFixture(),
       lastCodeSyncAt: '2026-08-21T00:00:00Z',
       lastMetadataSyncAt: '2026-08-12T00:00:00Z',
     };
@@ -98,7 +98,7 @@ describe('workspace model', () => {
   });
 
   it('uses the last successful code sync to decide whether the checkout is readable', () => {
-    const workspace = dto('DIRECT');
+    const workspace = workspaceFixture();
 
     expect(workspaceHasReadableCode(workspace)).toBe(false);
     expect(workspaceHasReadableCode({
@@ -205,26 +205,3 @@ describe('workspace model', () => {
     expect(workspaceLocationFromRoute('#/workspaces/%/jira')).toBeNull();
   });
 });
-
-function dto(topology: WorkspaceDto['topology'], linked = topology === 'FORK'): WorkspaceDto {
-  return {
-    id: 'workspace-id',
-    name: 'contributor/project',
-    selectedRepositoryId: 100,
-    selectedOwner: 'contributor',
-    selectedRepo: 'project',
-    upstreamRepositoryId: linked ? 200 : null,
-    upstreamOwner: linked ? 'upstream' : null,
-    upstreamRepo: linked ? 'project' : null,
-    monitoredRepositoryId: linked ? 200 : 100,
-    monitoredOwner: linked ? 'upstream' : 'contributor',
-    monitoredRepo: 'project',
-    topology,
-    defaultBranch: 'main',
-    upstreamDefaultBranch: linked ? 'main' : null,
-    localRepositoryPath: '/managed/workspace-id/repository',
-    lastCodeSyncAt: null,
-    lastMetadataSyncAt: null,
-    displayOrder: 0,
-  };
-}

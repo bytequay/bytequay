@@ -62,9 +62,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.OptionalInt;
-import java.util.OptionalLong;
 
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -180,24 +179,7 @@ class TestRunningTaskReader
     {
         AgentTask task = task(false);
         AgentTurn finished = turn(task, NOW.minusSeconds(60)).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.minusSeconds(10));
-        AgentReview review = new AgentReview(
-                "review",
-                "workspace",
-                "owner/repo",
-                OptionalInt.of(42),
-                OptionalLong.empty(),
-                task.id().toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty());
+        AgentReview review = pullRequestReview("review", "workspace", "owner/repo", 42, task.id().toString(), NOW);
         when(reviews.findReviewByTask(task.id().toString())).thenReturn(Optional.of(review));
         ReviewRun run = new ReviewRun("run", review.id(), 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(), Optional.empty(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(finished.id().toString()), ReviewRun.State.RUNNING,

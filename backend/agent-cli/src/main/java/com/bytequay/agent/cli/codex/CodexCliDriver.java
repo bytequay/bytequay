@@ -161,7 +161,6 @@ public final class CodexCliDriver
     private static final Version REVIEW_CHILD_GATE_MINIMUM_RELEASE = Version.parse("0.156.1");
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration DEFAULT_QUIESCENCE_TIMEOUT = Duration.ofMinutes(2);
     private static final Duration QUIESCENCE_POLL = Duration.ofMillis(100);
@@ -411,39 +410,6 @@ public final class CodexCliDriver
     public AgentCapabilities capabilities()
     {
         return deepSeekSecret.isPresent() ? DEEPSEEK_CAPABILITIES : CAPABILITIES;
-    }
-
-    /** Upgrades older installations to the configured release; {@code codex update} selects latest. */
-    @Override
-    public synchronized Optional<String> update()
-    {
-        if (deepSeekSecret.isPresent()) {
-            return Optional.empty();
-        }
-        AgentProviderStatus before = probe();
-        OptionalInt comparison = before.version().map(this::compareVersion).orElse(OptionalInt.empty());
-        if (before.readiness() != AgentProviderStatus.Readiness.UNSUPPORTED || comparison.isEmpty() || comparison.getAsInt() >= 0) {
-            return Optional.empty();
-        }
-        try {
-            ProviderCli.Result result = run(UPDATE_TIMEOUT, "npm", "install", "--global", "@openai/codex@" + minimumVersion);
-            if (result.exitCode() != 0) {
-                throw new AgentUnavailableException("Codex CLI upgrade to " + minimumVersion + " failed: " + redactor.redact(result.combinedOutput()));
-            }
-            AgentProviderStatus after = probe();
-            OptionalInt upgraded = after.version().map(this::compareVersion).orElse(OptionalInt.empty());
-            if (upgraded.isEmpty() || upgraded.getAsInt() < 0) {
-                throw new AgentUnavailableException("Codex CLI installation completed, but " + executable + " does not report minimum version "
-                        + minimumVersion + ". Check the configured executable and npm installation path. " + after.diagnostic());
-            }
-            modelCatalog = null;
-            appServerVersion.set(null);
-            return Optional.of("Upgraded Codex CLI from " + before.version().orElseThrow() + " to " + after.version().orElseThrow());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new AgentUnavailableException("Codex CLI upgrade was interrupted", e);
-        }
     }
 
     @Override

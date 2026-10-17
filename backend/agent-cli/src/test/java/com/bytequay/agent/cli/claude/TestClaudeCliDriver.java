@@ -842,20 +842,6 @@ class TestClaudeCliDriver
     }
 
     @Test
-    void redactsFailedUpdateDiagnostics()
-    {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.updateFailure("known-secret stdout", "known-secret stderr", 1);
-        ClaudeCliDriver driver = driver(supervisor);
-
-        assertThatThrownBy(driver::update)
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("[REDACTED]")
-                .hasMessageNotContaining("known-secret");
-        driver.close();
-    }
-
-    @Test
     void inheritsTheFirstJavaHomeWithAnExecutableJava()
             throws IOException
     {
@@ -921,15 +907,13 @@ class TestClaudeCliDriver
     }
 
     @Test
-    void checksReadinessWithoutNetworkAccessAndUpdatesWithoutOpeningStoredLogin()
+    void checksReadinessWithoutNetworkAccess()
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         try (ClaudeCliDriver driver = driver(supervisor)) {
             assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
             assertThat(supervisor.specs()).isNotEmpty().allSatisfy(spec -> assertThat(spec.argv())
                     .startsWith("/usr/bin/sandbox-exec", "-p", "(version 1) (allow default) (deny network*)", "/fake/claude"));
-            driver.update();
-            assertThat(supervisor.specs().getLast().argv()).containsExactly("/fake/claude", "--bare", "update");
         }
     }
 
@@ -2162,9 +2146,6 @@ class TestClaudeCliDriver
         private boolean authenticationTruncated;
         private boolean probeTreeUnverifiable;
         private final List<String> acknowledgements = new CopyOnWriteArrayList<>();
-        private String updateStdout = "updated";
-        private String updateStderr = "";
-        private int updateExitCode;
         private String runtimeSecret = "";
         private boolean failNextPromptWrite;
         private boolean failNextPromptClose;
@@ -2263,11 +2244,6 @@ class TestClaudeCliDriver
                 }
                 return ImmediateProcess.exited(authenticationExitCode);
             }
-            if (spec.argv().contains("update")) {
-                output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(updateStdout));
-                output.onOutput(ProcessStream.STDERR, StandardCharsets.UTF_8.encode(updateStderr));
-                return ImmediateProcess.exited(updateExitCode);
-            }
             ScriptedTurn turn = new ScriptedTurn(spec, output, failNextPromptWrite, failNextPromptClose, runtimeSecret);
             failNextPromptWrite = false;
             failNextPromptClose = false;
@@ -2334,13 +2310,6 @@ class TestClaudeCliDriver
         private int authenticationProbes()
         {
             return authenticationProbes;
-        }
-
-        private void updateFailure(String stdout, String stderr, int exitCode)
-        {
-            updateStdout = stdout;
-            updateStderr = stderr;
-            updateExitCode = exitCode;
         }
 
         private void runtimeSecret(String secret)

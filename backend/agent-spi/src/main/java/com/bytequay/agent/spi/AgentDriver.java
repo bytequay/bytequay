@@ -102,19 +102,6 @@ public interface AgentDriver
     }
 
     /**
-     * Updates the CLI according to the driver's version policy. Blocking and
-     * potentially slow (it may download a release), so callers run it off hot
-     * paths and re-probe afterwards.
-     *
-     * @return updater output, or empty when the driver has no updater
-     * @throws AgentUnavailableException when the updater fails
-     */
-    default Optional<String> update()
-    {
-        return Optional.empty();
-    }
-
-    /**
      * Opens a new provider session or resumes the reference in the context.
      *
      * <p>The returned session is fixed to the supplied worktree and permission

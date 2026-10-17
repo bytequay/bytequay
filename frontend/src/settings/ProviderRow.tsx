@@ -34,6 +34,7 @@ export default function ProviderRow({ provider, checking, account = false, onSig
       <StatusDot tone={dotTone(status.tone)} />
       <span>{account && provider.readiness === 'AUTHENTICATION_REQUIRED' && provider.diagnostic ? provider.diagnostic : status.label}
         {(account || provider.id === 'claude') && available && provider.diagnostic ? ` · ${provider.diagnostic}` : ''}
+        {provider.readiness === 'UNSUPPORTED' && provider.diagnostic ? ` · ${provider.diagnostic}` : ''}
         {provider.version ? ` · v${provider.version}` : ''}</span>
     </span>
   }>

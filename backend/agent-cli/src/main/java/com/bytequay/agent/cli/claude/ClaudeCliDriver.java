@@ -114,7 +114,6 @@ public final class ClaudeCliDriver
     private static final Version STEERING_VERSION = Version.parse("2.1.295");
     private static final Duration INPUT_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
     private static final Duration SESSION_CLOSE_TIMEOUT = Duration.ofSeconds(30);
     private static final int MAX_STDERR_BYTES = 1024 * 1024;
@@ -291,22 +290,6 @@ public final class ClaudeCliDriver
     }
 
     @Override
-    public Optional<String> update()
-    {
-        try {
-            ProviderCli.Result result = run(UPDATE_TIMEOUT, executable, "--bare", "update");
-            if (result.exitCode() != 0) {
-                throw new AgentUnavailableException("Claude CLI update failed: " + redactor.redact(result.combinedOutput()));
-            }
-            return Optional.of(redactor.redact(result.combinedOutput()));
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new AgentUnavailableException("Claude CLI update was interrupted", e);
-        }
-    }
-
-    @Override
     public AgentCapabilities capabilities()
     {
         // Forwarded child messages identify the Agent invocation that owns their execution.
@@ -344,7 +327,7 @@ public final class ClaudeCliDriver
                 return status(
                         AgentProviderStatus.Readiness.UNSUPPORTED,
                         Optional.of(version.toString()),
-                        "Unsupported Claude CLI version; expected " + MINIMUM_VERSION + " or newer");
+                        "Unsupported Claude CLI version; expected " + MINIMUM_VERSION + " or newer. Run claude update, then check again.");
             }
 
             ProviderCli.Result help = run(executable, "--help");

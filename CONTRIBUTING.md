@@ -36,20 +36,18 @@ codex --version
 The release minimum is configured by `bytequay.agent.codex-minimum-version`
 in `backend/app/src/main/resources/application.properties`, currently
 `0.159.3`. Update that property when a later ByteQuay release requires a newer
-CLI. At startup, ByteQuay automatically upgrades an older installed CLI with
-`npm install --global @openai/codex@<configured minimum>`; it leaves equal or
-newer versions installed. It then checks the configured Codex executable
-again, so an npm installation that does not update that executable cannot
-bypass the minimum. Missing, failed, or unreadable version checks do not
-trigger installation. Restart ByteQuay after changing the installation
-manually. The App Server compatibility fixture is generated from that same
+CLI. ByteQuay never installs or updates the Codex or Claude CLI itself. An
+older Codex shows as Unsupported in Settings → Models with the
+`npm install --global @openai/codex@<configured minimum>` command to run; an
+older Claude CLI asks for `claude update`. Choose **Check** after upgrading.
+The App Server compatibility fixture is generated from that same
 release; when the minimum changes, re-pin `scripts/codex-app-server-compat.mjs`
 and regenerate the fixture with its `--update-bindings` option.
 
 The `0.159.3` minimum includes the GPT-6.1 Sol catalog added in Codex `0.159.1`.
 ByteQuay discovers available models through the CLI's `model/list` response;
-model names are not hard-coded in the picker. After the startup upgrade, model
-discovery refreshes automatically. Account availability still determines which
+model names are not hard-coded in the picker. Model discovery refreshes at
+startup and when a provider is checked again. Account availability still determines which
 models the CLI exposes.
 
 ## Quick start

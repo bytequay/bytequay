@@ -121,6 +121,14 @@ describe('models page', () => {
     expect(render()).not.toContain('>Sign in<');
   });
 
+  it('shows the upgrade command for a CLI below the minimum, since ByteQuay never upgrades it', () => {
+    const diagnostic = 'Codex CLI 0.150.0 is below the minimum version 0.159.3. Run npm install --global @openai/codex@0.159.3';
+    const outdated = { ...SETTINGS, providers: [{ ...SETTINGS.providers[0], readiness: 'UNSUPPORTED' as const, version: '0.150.0', diagnostic }] };
+    const html = renderToStaticMarkup(<ModelsPage settings={outdated} checkedAt="09:15" checking={false} error={null}
+      onCheck={vi.fn()} onChoose={vi.fn()} onInherit={vi.fn()} onAddKey={vi.fn()} onRemoveKey={vi.fn()} />);
+    expect(html).toContain('npm install --global @openai/codex@0.159.3');
+  });
+
   it('names both agent types and no longer offers a main model', () => {
     expect(markup).toContain('Development');
     expect(markup).toContain('Review');

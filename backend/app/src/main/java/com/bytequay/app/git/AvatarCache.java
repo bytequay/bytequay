@@ -24,7 +24,6 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -37,6 +36,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.regex.Pattern;
 
@@ -130,16 +132,21 @@ public class AvatarCache
                     .header("Accept", "image/*")
                     .GET()
                     .build();
-            HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            var download = client.sendAsync(request, HttpResponse.BodyHandlers.limiting(HttpResponse.BodyHandlers.ofByteArray(), MAX_BYTES));
+            HttpResponse<byte[]> response;
+            try {
+                response = download.get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            }
+            finally {
+                // The deadline includes the body; cancelling also releases a stalled connection.
+                download.cancel(true);
+            }
             Optional<ImageType> imageType = response.headers().firstValue("Content-Type")
                     .flatMap(AvatarCache::imageType);
-            byte[] bytes;
-            try (InputStream body = response.body()) {
-                if (response.statusCode() != 200 || imageType.isEmpty()) {
-                    return Optional.empty();
-                }
-                bytes = body.readNBytes(MAX_BYTES + 1);
+            if (response.statusCode() != 200 || imageType.isEmpty()) {
+                return Optional.empty();
             }
+            byte[] bytes = response.body();
             if (bytes.length == 0 || bytes.length > MAX_BYTES) {
                 return Optional.empty();
             }
@@ -163,7 +170,7 @@ public class AvatarCache
             Thread.currentThread().interrupt();
             return Optional.empty();
         }
-        catch (IOException | RuntimeException e) {
+        catch (IOException | ExecutionException | TimeoutException | RuntimeException e) {
             log.debug("Avatar cache write failed for {}: {}", source.getHost(), e.getMessage());
             return Optional.empty();
         }

@@ -16,9 +16,9 @@ package com.bytequay.app.git;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.ByteArrayInputStream;
 import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpResponse;
@@ -62,12 +62,12 @@ class TestAvatarCache
         assertThat(cache.cache(URL)).contains(key);
         assertThat(cache.find(key)).isPresent();
         assertThat(Files.readAllBytes(cache.find(key).orElseThrow().path())).containsExactly(1, 2, 3);
-        verify(client, times(1)).send(any(), any());
+        verify(client, times(1)).sendAsync(any(), any());
 
         HttpClient offline = mock(HttpClient.class);
         AvatarCache reloaded = new AvatarCache(root, offline);
         assertThat(reloaded.find(key)).isPresent();
-        verify(offline, never()).send(any(), any());
+        verify(offline, never()).sendAsync(any(), any());
     }
 
     @Test
@@ -97,6 +97,23 @@ class TestAvatarCache
     }
 
     @Test
+    @Timeout(25)
+    void cancelsADownloadWhoseBodyNeverCompletes()
+            throws Exception
+    {
+        HttpClient client = mock(HttpClient.class);
+        CompletableFuture<HttpResponse<byte[]>> stalledBody = new CompletableFuture<>();
+        doReturn(stalledBody).when(client).sendAsync(any(), any(HttpResponse.BodyHandler.class));
+
+        assertThat(new AvatarCache(root, client).cache(URL)).isEmpty();
+
+        assertThat(stalledBody).isCancelled();
+        try (var files = Files.list(root)) {
+            assertThat(files).isEmpty();
+        }
+    }
+
+    @Test
     void rejectsMalformedKeysAndUnsafeUrls()
     {
         AvatarCache cache = new AvatarCache(root, mock(HttpClient.class));
@@ -114,18 +131,18 @@ class TestAvatarCache
         HttpClient client = mock(HttpClient.class);
         AvatarCache cache = new AvatarCache(root, client);
         assertThat(cache.repository("TrinoDB", false)).isEmpty();
-        verify(client, never()).send(any(), any());
+        verify(client, never()).sendAsync(any(), any());
 
         response(client, 200, "image/png", new byte[] {1, 2, 3});
         Path file = cache.repository("TrinoDB", true).orElseThrow().path();
         assertThat(cache.repository("trinodb", true).orElseThrow().path()).isEqualTo(file);
-        verify(client, times(1)).send(any(), any());
+        verify(client, times(1)).sendAsync(any(), any());
 
         HttpClient offline = mock(HttpClient.class);
         AvatarCache reloaded = new AvatarCache(root, offline);
         assertThat(reloaded.repository("TRINODB", false).orElseThrow().path()).isEqualTo(file);
         assertThat(reloaded.repository("trinodb", true).orElseThrow().path()).isEqualTo(file);
-        verify(offline, never()).send(any(), any());
+        verify(offline, never()).sendAsync(any(), any());
     }
 
     @Test
@@ -145,8 +162,8 @@ class TestAvatarCache
         doAnswer(invocation -> {
             started.countDown();
             assertThat(finish.await(10, TimeUnit.SECONDS)).isTrue();
-            return refreshing.send(invocation.getArgument(0), invocation.getArgument(1));
-        }).when(client).send(any(), any());
+            return refreshing.sendAsync(invocation.getArgument(0), invocation.getArgument(1));
+        }).when(client).sendAsync(any(), any());
 
         CompletableFuture<?> refresh = CompletableFuture.supplyAsync(() -> cache.repository("trinodb", true));
         try {
@@ -193,10 +210,10 @@ class TestAvatarCache
     private static void response(HttpClient client, int status, String contentType, byte[] body)
             throws Exception
     {
-        HttpResponse<java.io.InputStream> response = mock(HttpResponse.class);
+        HttpResponse<byte[]> response = mock(HttpResponse.class);
         when(response.statusCode()).thenReturn(status);
         when(response.headers()).thenReturn(HttpHeaders.of(ImmutableMap.of("Content-Type", ImmutableList.of(contentType)), (name, value) -> true));
-        when(response.body()).thenReturn(new ByteArrayInputStream(body));
-        doReturn(response).when(client).send(any(), any(HttpResponse.BodyHandler.class));
+        when(response.body()).thenReturn(body);
+        doReturn(CompletableFuture.completedFuture(response)).when(client).sendAsync(any(), any(HttpResponse.BodyHandler.class));
     }
 }

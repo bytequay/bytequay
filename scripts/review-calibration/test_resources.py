@@ -19,6 +19,7 @@ import charts
 import cleanup
 import dashboard
 import digest
+import fixer
 import monitor
 import record
 import resources
@@ -269,6 +270,40 @@ class TestPage(Kept):
         page.button(key="risk_noted_1").click().run()
         self.assertEqual(digest.changes(self.folder), [{"day": date.today(), "what": "Watch the backend"}])
         self.assertIn(f"You noted this change on {suggest.said(date.today())}. No look since then yet.", said())
+
+    def test_a_risk_clean_up_does_not_carry_out_gets_a_plan_of_how_to_fix_it(self):
+        self.found()
+        self.assertTrue(self.page().button(key="advice_fix_1").disabled)  # no key
+        with mock.patch.object(batch, "has_key", return_value=True), mock.patch.object(fixer, "start") as started:
+            page = self.page()
+            self.assertEqual([button.key for button in page.button if button.key.startswith("advice_fix")], ["advice_fix_1"])  # Clean up carries out the other
+            page.button(key="advice_fix_1").click().run()
+        self.assertEqual(started.call_args_list, [mock.call(self.folder, "Watch the backend")])
+        patch = "--- a/dev.sh\n+++ b/dev.sh\n@@ -1 +1 @@\n-JVM_ARGS=-Xmx2g\n+JVM_ARGS=-Xmx4g\n"
+        saved.write(fixer.place(self.folder)["folder"] / fixer.PLANS, fixer.named("Watch the backend"), {
+            "version": 1, "state": "done", "title": "Watch the backend", "started": "2026-10-17T08:00:00Z", "ended": "2026-10-17T08:03:00Z", "model": "deepseek-v4-pro",
+            "commit": "0123456789abcdef", "steps": 7, "usage": None, "summary": "Give the backend 4 GB.", "files": [{"path": "dev.sh", "added": 1, "deleted": 1}],
+            "patch": patch, "test": "Run ./dev.sh.", "problem": None})
+        page = self.page()
+        self.assertEqual(page.button(key="advice_fix_1").label, "Plan again")
+        self.assertIn(patch.rstrip("\n"), [code.value for code in page.code])  # as the page shows it, without the last line's end
+        self.assertTrue({"Give the backend 4 GB.", "**Files.** `dev.sh` (+1 -1)", "**Test.** Run ./dev.sh."} <= {text.value for text in page.markdown})
+        self.assertTrue(any(caption.value.endswith("with deepseek-v4-pro, on commit 012345678: 7 model calls.") for caption in page.caption))
+
+    def test_a_running_plan_shows_how_far_it_got_and_one_that_failed_says_why(self):
+        self.found()
+        own = fixer.place(self.folder)
+        own["folder"].mkdir(parents=True)
+        held = batch.claim(own)
+        self.addCleanup(held.close)
+        saved.write(own["folder"], fixer.STATE, {"version": 1, "state": "running", "title": "Watch the backend", "steps": 2})
+        with mock.patch.object(batch, "has_key", return_value=True):
+            page = self.page()
+        self.assertIn('The agent is planning how to fix "Watch the backend": 2 model calls so far, 40 at most.', [note.value for note in page.info])
+        self.assertTrue(page.button(key="advice_fix_1").disabled)
+        held.close()
+        saved.write(own["folder"], fixer.STATE, {"version": 1, "state": "failed", "title": "Watch the backend", "steps": 2, "problem": "RuntimeError: the API is down"})
+        self.assertIn('The last plan, for "Watch the backend", failed: RuntimeError: the API is down', [note.value for note in self.page().warning])
 
     def test_a_look_that_failed_says_why(self):
         self.found(state="failed", problem="RuntimeError: the API is down", suggestions=[], summary=None)

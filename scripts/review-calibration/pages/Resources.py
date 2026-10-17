@@ -15,6 +15,7 @@ import batch
 import cleanup
 import dashboard
 import digest
+import fixer
 import monitor
 import record
 import resources
@@ -47,6 +48,51 @@ def looking(folder):
         st.info(f"The agent is looking: {activity.count(steps, 'model call')} so far, {advisor.STEPS} at most.", icon=":material/hourglass_top:")
 
 
+@st.fragment(run_every=2)
+def fixing(folder):
+    """How a fix plan goes, looked at again every two seconds. Once it ends the whole page runs again, with the plan."""
+    own = fixer.place(folder)
+    running = batch.runner(own) is not None
+    if st.session_state.get("fix_running") and not running:
+        st.session_state["fix_running"] = False
+        st.rerun(scope="app")
+    st.session_state["fix_running"] = running
+    try:
+        made = saved.read(own["folder"], fixer.STATE)
+    except (OSError, ValueError):
+        made = None
+    if made is None:
+        return
+    title = plain(made["title"])
+    if running:
+        st.info(f"The agent is planning how to fix \"{title}\": {activity.count(made['steps'], 'model call')} so far, {fixer.STEPS} at most.",
+                icon=":material/hourglass_top:")
+    elif made["state"] != "done":
+        st.warning(f"The last plan, for \"{title}\", " + {"failed": f"failed: {made['problem']}", "stopped": "was stopped before it finished."}.get(
+            made["state"], "ended before it finished."))
+
+
+def fix(folder, number, title, busy):
+    """The agent's last plan for a risk that Clean up does not carry out, and a button to ask for one."""
+    try:
+        made = fixer.kept(folder, title)
+    except (OSError, ValueError):
+        made = None
+        st.caption("The last plan for this risk could not be read.")
+    if made is not None:
+        with st.expander("How to fix it"):
+            st.caption(f"Planned {dashboard.when(made['ended'])} with {made['model']}, on commit {made['commit'][:9]}: {activity.count(made['steps'], 'model call')}.")
+            st.markdown(plain(made["summary"]))
+            if made["patch"]:
+                st.markdown("**Files.** " + "; ".join(f"`{one['path']}` (+{one['added']} -{one['deleted']})" for one in made["files"]))
+                st.code(made["patch"], language="diff")
+                st.caption("Save it as a file and apply it in the repository's top folder with `git apply`.")
+            st.markdown(f"**Test.** {plain(made['test'])}")
+    if st.button("Plan again" if made else "How to fix", key=f"advice_fix_{number}", disabled=busy):
+        fixer.start(folder, title)
+        st.rerun()
+
+
 def marks(folder, number, title, state):
     """The same marks as the lab's own suggestions, kept in the same record."""
     with st.container(horizontal=True):
@@ -76,6 +122,7 @@ def found(folder, last, earlier):
         noted, marked = [], {}
         st.caption("The marks in `record.json` or the changes in `changes.json` could not be read, so every risk is shown as open.")
     before = [look for look in earlier if look["started"] != last["started"]]
+    busy = batch.runner(fixer.place(folder)) is not None or not batch.has_key()
     left_out = 0
     for number, one in enumerate(last["suggestions"]):
         state, day, _ = record.standing(one["title"], marked, noted)
@@ -98,6 +145,8 @@ def found(folder, last, earlier):
             if one["action"] == "clean_up" and st.button("Clean up…", key=f"advice_clean_{number}"):
                 st.session_state["cleanup_confirm"] = True
                 st.caption("Confirm it under Clean up, at the end of the page.")
+            elif one["action"] == "none":
+                fix(folder, number, one["title"], busy)
             marks(folder, number, one["title"], state)
     if left_out:
         st.caption(f"{activity.count(left_out, 'risk')} you marked not wanted {'is' if left_out == 1 else 'are'} left out. "
@@ -112,6 +161,7 @@ def found(folder, last, earlier):
 def risks(folder):
     st.subheader("Risks")
     looking(folder)
+    fixing(folder)
     own = advisor.place(folder)
     running = batch.runner(own) is not None
     try:
@@ -133,7 +183,7 @@ def risks(folder):
         advisor.start(folder)
         st.rerun()
     st.caption("A look sends the monitor's counters and the titles of the last look's suggestions to DeepSeek's API, never a path, a command or a "
-               "task's title, and spends tokens on your key." if key
+               "task's title, and spends tokens on your key. How to fix sends the risk and the ByteQuay source files the agent reads, as last committed." if key
                else "The agent needs a DeepSeek key. Store it once with `uv run batch.py --store-key`")
 NUMBERS = {"memory MB": "%,.0f", "typical MB": "%,.0f", "peak MB": "%,.0f", "CPU cores": "%.2f", "typical CPU": "%.2f", "peak CPU": "%.2f", "threads": "%,.0f", "open files": "%,.0f"}
 

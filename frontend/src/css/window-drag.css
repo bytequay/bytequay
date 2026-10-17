@@ -29,8 +29,7 @@
   .cmt-prog-nav-head,
   .cmt-prog-head,
   .setw-page > h1,
-  .inapp-browser__toolbar,
-  .assistant-head
+  .inapp-browser__toolbar
 ) {
   -webkit-app-region: drag;
   user-select: none;
@@ -48,7 +47,6 @@ dialog::backdrop,
   summary,
   dialog,
   .app-shell [title],
-  .assistant-head [title],
   [contenteditable]:not([contenteditable="false"]),
   [role="button"],
   [role="link"],

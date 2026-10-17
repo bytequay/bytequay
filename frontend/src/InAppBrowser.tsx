@@ -40,8 +40,7 @@ export default function InAppBrowser({ tab, fullScreen, railExpanded, error, onE
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      // Escape in the Assistant panel beside the page closes the panel, not the page.
-      if (event.key === 'Escape' && !(event.target instanceof Element && event.target.closest('.assistant-panel') !== null)) {
+      if (event.key === 'Escape') {
         event.preventDefault();
         onBack();
       }

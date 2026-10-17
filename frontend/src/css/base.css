@@ -1059,7 +1059,7 @@ samp {
      below modals (200), which trap focus and should cover the bar. */
   z-index: 150;
   top: 10px;
-  right: calc(var(--assistant-panel-width, 0px) + 16px);
+  right: 16px;
   display: flex;
   align-items: center;
   gap: 4px;

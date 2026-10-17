@@ -1,6 +1,6 @@
 .inapp-browser-overlay {
   position: fixed;
-  inset: 0 var(--assistant-panel-width, 0px) 0 var(--browser-rail-width, 0px);
+  inset: 0 0 0 var(--browser-rail-width, 0px);
   z-index: 1100;
 }
 .inapp-browser-overlay.is-zoomed {
@@ -157,10 +157,9 @@
   .inapp-browser__popout .inapp-browser__action-label { display: none; }
 }
 
-/* The Assistant panel docks on the right as the rail does on the left: native views cannot be painted over, so pages make room. */
-.app-surfaces { margin-left: var(--browser-rail-width); margin-right: var(--assistant-panel-width, 0px); }
+.app-surfaces { margin-left: var(--browser-rail-width); }
 .browser-workspace.is-web-rail-hidden > .browser-rail { display: none; }
-.app-surfaces .modal-overlay { left: var(--browser-rail-width); right: var(--assistant-panel-width, 0px); }
+.app-surfaces .modal-overlay { left: var(--browser-rail-width); }
 .browser-rail {
   position: fixed;
   inset: 0 auto 0 0;

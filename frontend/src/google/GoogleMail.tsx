@@ -14,8 +14,8 @@
 import { useEffect, useState } from 'react';
 import { Archive, ArrowUpRight, CalendarDays, ChevronDown, ChevronRight, ChevronUp, CircleDot, ExternalLink, GitMerge, GitPullRequest, Inbox, LoaderCircle, MailOpen, PenLine, RefreshCw, Reply,
   Search, ShieldCheck, Sparkles, Check } from 'lucide-react';
-import { githubLink, gmailLink, type GoogleMail as Mail, type GoogleSnapshot, type GoogleStatus } from './contracts';
-import { githubNotification, mailGroups, mailParagraphs, mailSender, mailSource, mailSubject, mailTime, mergedNotice, type MailBlock, type MailSource } from './mailView';
+import { gmailLink, type GoogleMail as Mail, type GoogleSnapshot, type GoogleStatus } from './contracts';
+import { githubNotification, mailGroups, mailLinks, mailParagraphs, mailSender, mailSource, mailSubject, mailTime, mergedNotice, type MailBlock, type MailSource, type MailSubject } from './mailView';
 import GoogleMailComposer from './GoogleMailComposer';
 import { relativeTime } from '../relativeTime';
 
@@ -34,29 +34,30 @@ function SourceIcon({ source, size }: { source: MailSource; size: number }) {
   return <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.71 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.77-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.19c0 .21.15.46.55.38A8 8 0 0 0 8 0Z" /></svg>;
 }
 
-function Labels({ mail, source = null }: { mail: Mail; source?: MailSource }) {
+function Labels({ mail, source = null, open }: { mail: Mail; source?: MailSource; open?: (url: string) => void }) {
   const subject = mailSubject(mail.subject);
   const merged = subject.kind === 'PR' && mergedNotice(mail);
+  const href = mailLinks(`#${subject.number}`, subject).find(part => part.href)?.href;
+  const label = <>{merged ? <GitMerge size={11} aria-hidden="true" /> : subject.kind === 'PR' ? <GitPullRequest size={11} aria-hidden="true" /> : <CircleDot size={11} aria-hidden="true" />}
+    {merged ? 'Merged ' : ''}#{subject.number}</>;
   if (!source && !subject.repository) return null;
   return <span className="google-labels">
     {source && <span className="google-label"><SourceIcon source={source} size={12} />{SOURCES[source]}</span>}
     {subject.repository && <span className="google-label is-mono">{subject.repository}</span>}
-    {subject.kind && <span className={`google-label ${merged ? 'is-merged' : 'is-open'}`}>
-      {merged ? <GitMerge size={11} aria-hidden="true" /> : subject.kind === 'PR' ? <GitPullRequest size={11} aria-hidden="true" /> : <CircleDot size={11} aria-hidden="true" />}
-      {merged ? 'Merged ' : ''}#{subject.number}</span>}
+    {subject.kind && (open && href
+      ? <button type="button" className={`google-label google-link ${merged ? 'is-merged' : 'is-open'}`} onClick={() => open(href)}>{label}</button>
+      : <span className={`google-label ${merged ? 'is-merged' : 'is-open'}`}>{label}</span>)}
   </span>;
 }
 
-/** Mail text is untrusted: it renders as text, and only `#123` on a known repository becomes a GitHub link. */
-function Block({ block, repository, open }: { block: MailBlock; repository: string; open: (url: string) => void }) {
+/** Mail text stays escaped; only validated GitHub destinations become links. */
+function Block({ block, subject, open }: { block: MailBlock; subject: MailSubject; open: (url: string) => void }) {
   if ('lines' in block) return <div className="google-quote">
     {block.file && <div className="google-quote__file">{block.file}</div>}
     <div className="google-quote__lines" tabIndex={0} role="region" aria-label="Quoted code changes">{block.lines.map((line, index) => <div key={index} className={`is-${line.tone}`}><span>{line.sign}</span><code>{line.text || ' '}</code></div>)}</div>
   </div>;
-  const linked = (value: string) => value.split(/(#\d+\b)/).map((part, index) => {
-    const link = repository && /^#\d+$/.test(part) ? githubLink(`https://github.com/${repository}/issues/${part.slice(1)}`) : null;
-    return link ? <button type="button" key={index} className="google-link" onClick={() => open(link)}>{part}</button> : part;
-  });
+  const linked = (value: string) => mailLinks(value, subject).map(({ text, href }, index) =>
+    href ? <button type="button" key={index} className="google-link" onClick={() => open(href)}>{text}</button> : text);
   if ('items' in block) {
     const List = block.ordered ? 'ol' : 'ul';
     return <List start={block.start}>{block.items.map((item, index) => <li key={index}>{linked(item)}</li>)}</List>;
@@ -165,7 +166,7 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
             <button type="button" className="google-icon-btn" aria-label="Older" title="Older" disabled={position < 0 || position >= data.mail.length - 1} onClick={() => select(data.mail[position + 1].id)}><ChevronDown size={15} /></button>
           </div>
           <div className="google-reader__body">
-            <Labels mail={message} source={source} />
+            <Labels mail={message} source={source} open={open} />
             <h2>{subject.title}</h2>
             <div className="google-reader__from">
               <span className={`google-avatar is-large is-tone-${sender.tone}`} aria-hidden="true">{sender.initials}</span>
@@ -176,10 +177,10 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
             {details && <dl className="google-reader__details"><dt>From</dt><dd>{message.from}</dd><dt>To</dt><dd>{message.to}</dd><dt>Date</dt><dd>{message.date}</dd><dt>Message ID</dt><dd><code>{github?.messageId || message.id}</code></dd></dl>}
             {github && actor ? <div className="google-notice">
               <div className="google-notice__head"><span className={`google-avatar is-small is-tone-${actor.tone}`} aria-hidden="true">{actor.initials}</span><strong>{github.actor}</strong><span>{github.action}</span></div>
-              <div className="google-notice__body google-mail-text">{github.blocks.map((block, index) => <Block key={index} block={block} repository={subject.repository} open={open} />)}</div>
+              <div className="google-notice__body google-mail-text">{github.blocks.map((block, index) => <Block key={index} block={block} subject={subject} open={open} />)}</div>
               {(github.reason || github.link) && <div className="google-notice__foot"><span>{github.reason}</span>
                 {github.link && <button type="button" className="google-link" onClick={() => open(github.link ?? '')}>View on GitHub<ArrowUpRight size={13} aria-hidden="true" /></button>}</div>}
-            </div> : <div className="google-mail-text">{mailParagraphs(message).map((text, index) => <p key={index}>{text}</p>)}</div>}
+            </div> : <div className="google-mail-text">{mailParagraphs(message).map((text, index) => <Block key={index} block={{ text }} subject={subject} open={open} />)}</div>}
             {replying ? composer(message) : compose === null && <button type="button" className="google-quick-reply" disabled={busy} onClick={() => onCompose({ reply: message })}>
               <Reply size={15} aria-hidden="true" /><span>Reply to {sender.name}…</span><kbd>R</kbd></button>}
           </div>

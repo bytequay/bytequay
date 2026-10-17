@@ -16,6 +16,6 @@ import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixtu
 
 it('uses cached Google data and Gemini and manages account access in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-google-', entry: 'src/google/fixtures/googleBrowser.tsx', global: 'GoogleTests', styles: true, width: 1120, height: 820 });
-  expect(results).toHaveLength(12);
+  expect(results).toHaveLength(13);
   expect(results.filter(result => result.error)).toEqual([]);
 }, 30_000);

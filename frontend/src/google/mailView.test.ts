@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { GoogleMail } from './contracts';
-import { githubNotification, mailGroups, mailSender, mailSource, mailSubject, mergedNotice } from './mailView';
+import { githubNotification, mailGroups, mailLinks, mailSender, mailSource, mailSubject, mergedNotice } from './mailView';
 
 const mail = (fields: Partial<GoogleMail>): GoogleMail => ({ id: 'one', threadId: 'thread', subject: '', from: '', to: '', date: '', snippet: '', body: '', unread: false, ...fields });
 
@@ -33,6 +33,18 @@ describe('mail presentation', () => {
     expect(mailSubject('[a/b] Crash on start (Issue #7)')).toMatchObject({ title: 'Crash on start', kind: 'Issue', number: '7' });
     expect(mailSubject('Lunch (PR #1)')).toEqual({ title: 'Lunch (PR #1)', repository: '', number: '', kind: null });
     expect(mailSubject('')).toMatchObject({ title: '(No subject)' });
+  });
+
+  it('links PR numbers and full GitHub URLs without swallowing punctuation or trusting other hosts', () => {
+    const subject = mailSubject('[a/b] Update (PR #4)');
+    const text = '#4 and #5 (http://github.com/a/b/pull/6#discussion_r1). https://github.com.evil.test/x#7';
+    const parts = mailLinks(text, subject);
+    expect(parts.map(part => part.text).join('')).toBe(text);
+    expect(parts.filter(part => part.href).map(part => part.href)).toEqual([
+      'https://github.com/a/b/pull/4', 'https://github.com/a/b/issues/5', 'https://github.com/a/b/pull/6#discussion_r1',
+    ]);
+    expect(mailLinks('#4', mailSubject('Hello')).some(part => part.href)).toBe(false);
+    expect(mailLinks('#4', mailSubject('[a/b] Update (Issue #4)')).find(part => part.href)?.href).toBe('https://github.com/a/b/issues/4');
   });
 
   it('groups consecutive messages by local day', () => {

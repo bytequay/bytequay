@@ -17,6 +17,7 @@ import GooglePage from '../../settings/GooglePage';
 import AppSidebar from '../../AppSidebar';
 import { useGoogle } from '../useGoogle';
 import { GOOGLE_CHANGED, type GoogleChatState, type GoogleStatus } from '../contracts';
+import { ZOOM_REFERENCE, type ZoomedReference } from '../../githubReference';
 import type { Bridge } from '../../types';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../css/base.css';
@@ -26,6 +27,7 @@ let root: Root | null = null;
 let status: GoogleStatus;
 let searches: string[];
 let opened: string[];
+let browserOpened: string[];
 let chat: GoogleChatState;
 const profile = '00000000-0000-0000-0000-000000000001';
 // The calendar opens on today, so its fixture events are dated from today.
@@ -35,7 +37,7 @@ const at = (offset: number, hour: number) => new Date(`${day(offset)}T${String(h
 export async function mountPreview(settings = false) {
   root?.unmount();
   document.body.innerHTML = '<div id="root" style="height:100vh"></div>';
-  searches = []; opened = [];
+  searches = []; opened = []; browserOpened = [];
   chat = { messages: [], busy: false, activity: '', error: null, approval: null };
   status = { profile, accounts: [{ profile, accountId: 'people/one', email: 'alex@example.com', name: 'Alex Chen' }], installed: true, operation: '', error: null, snapshot: {
     accountId: 'people/one', name: 'Alex Chen', email: 'alex@example.com', agentAccess: false,
@@ -73,6 +75,8 @@ export async function mountPreview(settings = false) {
     connectGoogle: async () => structuredClone(status),
     installGoogleConnector: async () => structuredClone(status),
     cancelGoogleOperation: async () => { status.operation = ''; return structuredClone(status); },
+    listWorkspaces: async () => [],
+    openInAppBrowser: async url => { browserOpened.push(url); },
     openExternal: async url => { opened.push(url); },
   };
   window.bridge = bridge as Bridge;
@@ -179,7 +183,7 @@ export async function run() {
       const code = document.querySelector('.google-quote code');
       assert(code !== null && getComputedStyle(code).whiteSpace === 'pre', 'Code keeps its indentation');
       button('#40').click(); button('View on GitHub').click(); await settle();
-      assert(opened[0] === 'https://github.com/bytequay/bytequay/issues/40' && opened[1] === 'https://github.com/bytequay/bytequay/pull/42#discussion_r1', 'Links open on GitHub');
+      assert(browserOpened[0] === 'https://github.com/bytequay/bytequay/issues/40' && browserOpened[1] === 'https://github.com/bytequay/bytequay/pull/42#discussion_r1' && opened.length === 0, 'Unwatched links open in the internal browser');
       button('to bytequay/bytequay').click(); await settle();
       assert(document.querySelector('.google-reader__details')?.textContent?.includes('<bytequay/bytequay/pull/42/review/1@github.com>') === true, 'Details show the message ID');
       const press = (target: Element) => target.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', bubbles: true, cancelable: true }));
@@ -187,6 +191,36 @@ export async function run() {
       assert(document.querySelector('[aria-label="Reply to email"]') === null, 'Typing r in a field is only typing');
       press(document.body); await settle();
       assert(document.querySelector('[aria-label="Reply to email"]') !== null, 'R replies to the open message');
+    },
+    async 'opens mail PR numbers and URLs in the watched repository zoom'() {
+      await mountPreview();
+      window.bridge.listWorkspaces = async () => [{ id: 'workspace-1', monitoredOwner: 'ByteQuay', monitoredRepo: 'ByteQuay' }] as Awaited<ReturnType<Bridge['listWorkspaces']>>;
+      const message = status.snapshot?.mail[2];
+      assert(message !== undefined, 'GitHub notification exists');
+      message.body = '#42 entered the merge queue. See (https://github.com/bytequay/bytequay/pull/43#discussion_r1).';
+      window.dispatchEvent(new Event(GOOGLE_CHANGED)); await settle(); await settle();
+      document.querySelectorAll<HTMLButtonElement>('.google-mail__item')[2].click(); await settle();
+      const targets: ZoomedReference[] = [];
+      const zoom = (event: Event) => targets.push((event as CustomEvent<ZoomedReference>).detail);
+      window.addEventListener(ZOOM_REFERENCE, zoom);
+      try {
+        const number = document.querySelector<HTMLButtonElement>('.google-notice__body .google-link');
+        assert(number?.textContent === '#42', 'The notification number is clickable');
+        number?.click(); await settle();
+        button('https://github.com/bytequay/bytequay/pull/43#discussion_r1').click(); await settle();
+        document.querySelector<HTMLButtonElement>('.google-reader__body > .google-labels button')?.click(); await settle();
+        button('View on GitHub').click(); await settle();
+        assert(targets.length === 4 && targets.every(target => target.kind === 'pull' && target.repo === 'bytequay/bytequay'), 'Every entry point opens a PR zoom');
+        assert(targets[0].kind === 'pull' && targets[0].number === 42 && targets[1].kind === 'pull' && targets[1].number === 43, 'Numbers resolve to the intended PR');
+        assert(opened.length === 0 && browserOpened.length === 0, 'Watched PRs stay in the native view');
+        window.bridge.listWorkspaces = async () => [];
+        number?.click(); await settle();
+        assert(browserOpened[0] === 'https://github.com/bytequay/bytequay/pull/42', 'Unwatched PR number uses the internal browser');
+        window.bridge.openInAppBrowser = async () => { throw new Error('Browser unavailable'); };
+        number?.click(); await settle();
+        assert(document.querySelector('[role="alert"]')?.textContent?.includes('Browser unavailable'), 'Navigation failures remain visible');
+      }
+      finally { window.removeEventListener(ZOOM_REFERENCE, zoom); }
     },
     async 'recovers sign-in polling after a transient status failure'() {
       await mountPreview(true);

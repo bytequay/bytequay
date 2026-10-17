@@ -72,7 +72,7 @@ function trustedLink(raw: string, hosts: string[]): string | null {
 
 export const googleLink = (raw: string) => trustedLink(raw, ['calendar.google.com', 'www.google.com']);
 /** Mail bodies are untrusted, so a link taken from one opens only when it is GitHub's own. */
-export const githubLink = (raw: string) => trustedLink(raw, ['github.com']);
+export const githubLink = (raw: string) => trustedLink(raw.replace(/^http:/i, 'https:'), ['github.com']);
 
 export function gmailLink(mail: GoogleMail, email: string): string {
   return `https://mail.google.com/mail/?authuser=${encodeURIComponent(email)}#all/${encodeURIComponent(mail.threadId || mail.id)}`;

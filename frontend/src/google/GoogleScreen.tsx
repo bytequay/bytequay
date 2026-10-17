@@ -13,7 +13,8 @@
  */
 import { useEffect, useState } from 'react';
 import { CalendarDays, ChevronDown, Mail, Settings, UserPlus } from 'lucide-react';
-import { eventTime, type GoogleEvent, type GoogleMail as GoogleMessage } from './contracts';
+import { eventTime, githubLink, type GoogleEvent, type GoogleMail as GoogleMessage } from './contracts';
+import { openWatchedGitHubLink } from '../githubReference';
 import { useGoogle } from './useGoogle';
 import { settingsRoute } from '../settings/routes';
 import GoogleChat, { type ChatContext } from './GoogleChat';
@@ -31,7 +32,12 @@ export default function GoogleScreen() {
   const [linkError, setLinkError] = useState<string | null>(null);
   const data = status?.snapshot;
   useEffect(() => { setCompose(null); setContext(null); }, [status?.profile]);
-  const open = (url: string) => { setLinkError(null); void window.bridge.openExternal(url).catch(cause => setLinkError(cause instanceof Error ? cause.message : 'Unable to open Google.')); };
+  const open = (url: string) => {
+    setLinkError(null);
+    const github = githubLink(url);
+    void (github ? openWatchedGitHubLink(github) : window.bridge.openExternal(url))
+      .catch(cause => setLinkError(cause instanceof Error ? cause.message : 'Unable to open link.'));
+  };
   const unread = data?.mail.filter(item => item.unread).length ?? 0;
   const askMail = (mail: GoogleMessage) => setContext({ kind: 'mail', label: mail.subject || '(No subject)',
     detail: `About the email “${mail.subject || '(No subject)'}” from ${mail.from} (Gmail message ID ${mail.id}):` });

@@ -50,6 +50,19 @@ export function mailSubject(subject: string): MailSubject {
   return { title: title || '(No subject)', repository, number: reference?.[2] ?? '', kind: (reference?.[1] as 'PR' | 'Issue' | undefined) ?? null };
 }
 
+/** Consume whole URLs first so their fragments never become separate issue references. */
+export function mailLinks(text: string, subject: MailSubject): { text: string; href: string | null }[] {
+  return text.split(/(https?:\/\/[^\s<>"']+|#\d+\b)/i).flatMap(part => {
+    if (/^https?:\/\//i.test(part)) {
+      const url = part.replace(/[.,;:!?)\]]+$/, '');
+      return [{ text: url, href: githubLink(url) }, { text: part.slice(url.length), href: null }];
+    }
+    const kind = subject.kind === 'PR' && part === `#${subject.number}` ? 'pull' : 'issues';
+    const href = subject.repository && /^#\d+$/.test(part) ? githubLink(`https://github.com/${subject.repository}/${kind}/${part.slice(1)}`) : null;
+    return [{ text: part, href }];
+  });
+}
+
 export function mailDay(date: string, now = new Date()): string {
   const sent = new Date(date);
   if (Number.isNaN(sent.getTime())) return 'Earlier';

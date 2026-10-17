@@ -59,9 +59,9 @@ class TestPullRequestContextTool
                 Optional.empty(),
                 SessionAccess.FULL,
                 Optional.empty(),
-                Optional.empty()).orElseThrow();
+                ImmutableList.of()).orElseThrow();
                 McpRegistration claude = broker.register("assigned", directory, directory, directory.resolve("provider"), AgentPermissionPolicy.AUTO,
-                        SessionAccess.FULL, approvals, redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), Optional.empty())) {
+                        SessionAccess.FULL, approvals, redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
             closed = codex.token();
             for (McpRegistration registration : ImmutableList.of(codex, claude)) {
                 assertThat(registration.toolNames()).contains(PullRequestContextBridge.TOOL_NAME);
@@ -90,7 +90,7 @@ class TestPullRequestContextTool
                 Optional.empty(),
                 SessionAccess.READ_ONLY,
                 Optional.empty(),
-                Optional.empty())).isEmpty();
+                ImmutableList.of())).isEmpty();
         assertThat(broker.registerTools(
                 "other",
                 directory,
@@ -100,7 +100,7 @@ class TestPullRequestContextTool
                 Optional.empty(),
                 SessionAccess.FULL,
                 Optional.empty(),
-                Optional.empty())).isEmpty();
+                ImmutableList.of())).isEmpty();
     }
 
     private JsonNode call(PermissionBroker broker, String token, String name, String arguments)

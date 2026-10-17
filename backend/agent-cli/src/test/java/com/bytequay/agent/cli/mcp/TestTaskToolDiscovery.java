@@ -148,7 +148,7 @@ class TestTaskToolDiscovery
                 Optional.empty(),
                 SessionAccess.FULL,
                 Optional.empty(),
-                Optional.empty()).orElseThrow();
+                ImmutableList.of()).orElseThrow();
     }
 
     private JsonNode call(McpRegistration registration, String name, String arguments)

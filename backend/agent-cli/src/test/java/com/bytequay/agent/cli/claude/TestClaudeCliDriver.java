@@ -141,7 +141,7 @@ class TestClaudeCliDriver
         AgentSessionContext discussion = new AgentSessionContext(plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(),
                 plain.permissionPolicy(), plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), SessionAccess.READ_ONLY,
                 Optional.empty(), "Read the independent assignment.", Optional.empty(),
-                Optional.of(new ReviewTool("review_get_context", "Read captured context", ImmutableMap.of("type", "object"), query -> "saved context", true)));
+                ImmutableList.of(new ReviewTool("review_get_context", "Read captured context", ImmutableMap.of("type", "object"), query -> "saved context", true)));
         try (AgentSession session = driver.open(discussion, event -> {})) {
             assertThat(await(session.start(command("explain this"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
             ProcessSpec spec = supervisor.turns().getLast().spec();
@@ -169,6 +169,50 @@ class TestClaudeCliDriver
             assertThat(supervisor.turns().getLast().spec().owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
         }
         driver.close();
+    }
+
+    @Test
+    void toolsOnlySessionResumesWithOnlyItsByteQuayToolsAndNoChildren()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSessionContext plain = context(Optional.empty(), AgentPermissionPolicy.AUTO);
+        Path day = Files.createDirectories(runtimeDirectory().resolveSibling("assistant").resolve("2026-10-17"));
+        List<ReviewTool> tools = ImmutableList.of(
+                new ReviewTool("assistant_context", "Read the user's day", ImmutableMap.of("type", "object"), query -> "{}", true),
+                new ReviewTool("assistant_act", "Act on the user's words", ImmutableMap.of("type", "object"), query -> "{}", false));
+        AgentSessionRef reference;
+        try (AgentSession session = driver.open(toolsOnly(plain, day, Optional.empty(), tools), event -> {})) {
+            assertThat(await(session.start(command("what is waiting on me?"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            ProcessSpec spec = supervisor.turns().getLast().spec();
+            assertThat(spec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
+            assertThat(spec.workingDirectory().toRealPath()).isEqualTo(day.toRealPath());
+            assertThat(spec.argv()).contains("--tools=", "--disable-slash-commands").doesNotContain("--no-session-persistence");
+            assertThat(spec.argv()).containsSequence("--disallowedTools", "Agent,Task,Skill,Workflow,SendMessage");
+            assertThat(spec.argv().get(spec.argv().indexOf("--allowedTools") + 1).split(",")).contains("mcp__bytequay__assistant_context", "mcp__bytequay__assistant_act");
+            assertThat(spec.argv()).containsSequence("--session-id", session.reference().providerValue());
+            JsonNode settings = objectMapper.readTree(Files.readString(runtimeDirectory().resolve("provider/scratch/sandbox-settings.json")));
+            assertThat(settings.at("/permissions/deny").toString()).contains("\"Agent\"", "\"Task\"", "\"Skill\"", "\"Workflow\"", "\"SendMessage\"", "\"WebFetch\"");
+            assertThat(settings.at("/sandbox/filesystem/denyWrite").toString()).contains(day.toRealPath().toString());
+            assertThat(settings.has("hooks")).isFalse();
+            reference = session.reference();
+        }
+        try (AgentSession session = driver.open(toolsOnly(plain, day, Optional.of(reference), tools), event -> {})) {
+            assertThat(await(session.start(command("start it"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            assertThat(supervisor.turns().getLast().spec().argv()).containsSequence("--resume", reference.providerValue());
+        }
+        // Claude finds the conversation by its folder, so only a stable assistant folder outside the run's scratch may hold it.
+        assertThatThrownBy(() -> toolsOnly(plain, Files.createDirectories(runtimeDirectory().resolve("assistant/2026-10-17")), Optional.empty(), tools))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("tools-only worktree is not an assistant folder");
+        driver.close();
+    }
+
+    private static AgentSessionContext toolsOnly(AgentSessionContext plain, Path folder, Optional<AgentSessionRef> reference, List<ReviewTool> tools)
+    {
+        return new AgentSessionContext(plain.taskId(), folder, plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(), reference,
+                plain.approvals(), plain.model(), plain.effort(), SessionAccess.TOOLS_ONLY, Optional.empty(), "", Optional.empty(), tools);
     }
 
     @Test

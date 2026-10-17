@@ -121,9 +121,9 @@ class TestAgendaService
             AgentSessionContext context = call.getArgument(0);
             opened.set(context);
             // The agent reads its day before it answers; only refs a page names may be kept.
-            context.reviewContext().orElseThrow().call().apply("{\"kind\":\"tasks\"}");
-            context.reviewContext().orElseThrow().call().apply("{\"kind\":\"mine\"}");
-            context.reviewContext().orElseThrow().call().apply("{\"kind\":\"history\"}");
+            context.sessionTools().getFirst().call().apply("{\"kind\":\"tasks\"}");
+            context.sessionTools().getFirst().call().apply("{\"kind\":\"mine\"}");
+            context.sessionTools().getFirst().call().apply("{\"kind\":\"history\"}");
             return session;
         });
         when(session.reference()).thenReturn(new AgentSessionRef(LANE, 1, "session"));
@@ -199,7 +199,7 @@ class TestAgendaService
 
         AgentSessionContext context = opened.get();
         assertThat(context.access()).isEqualTo(SessionAccess.READ_ONLY);
-        assertThat(context.reviewContext().orElseThrow().name()).isEqualTo("agenda_context");
+        assertThat(context.sessionTools().getFirst().name()).isEqualTo("agenda_context");
         assertThat(context.worktree()).startsWith(temporaryDirectory);
 
         AgendaDay day = store.days.get(LocalDate.parse("2026-10-16"));

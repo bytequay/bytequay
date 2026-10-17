@@ -16,11 +16,13 @@ package com.bytequay.agent.spi;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 
 import static com.bytequay.core.domain.Checks.checkText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -35,8 +37,10 @@ public record ReviewTool(String name, String description, Map<String, Object> in
 {
     public static final String NAME_PREFIX = "review_";
     /** The reads a read-only one-shot session may carry: a review pass's captured context, or the user's day for an agenda. */
-    public static final Set<String> SESSION_CONTEXT_TOOLS = ImmutableSet.of("review_get_context", "agenda_context");
-    private static final Set<String> CONTEXT_TOOLS = Set.of(
+    private static final Set<String> SESSION_CONTEXT_TOOLS = ImmutableSet.of("review_get_context", "agenda_context");
+    /** The tools a tools-only session may carry: the assistant's read and its action. */
+    private static final Set<String> ASSISTANT_TOOLS = ImmutableSet.of("assistant_context", "assistant_act");
+    private static final Set<String> CONTEXT_TOOLS = ImmutableSet.of(
             "repository_context_read",
             "repository_context_spec_search",
             "repository_context_spec_candidates",
@@ -44,7 +48,9 @@ public record ReviewTool(String name, String description, Map<String, Object> in
             "repository_context_harvest_threads",
             "repository_context_harvest_save",
             "goal_knowledge_save",
-            "agenda_context");
+            "agenda_context",
+            "assistant_context",
+            "assistant_act");
 
     /** A tool only the root agent may call, which is every tool that saves or changes review state. */
     public ReviewTool(String name, String description, Map<String, Object> inputSchema, Function<String, String> call)
@@ -64,6 +70,23 @@ public record ReviewTool(String name, String description, Map<String, Object> in
         requireNonNull(call, "call is null");
         if (!name.startsWith(NAME_PREFIX) && !CONTEXT_TOOLS.contains(name)) {
             throw new IllegalArgumentException("Unknown review capability tool name: " + name);
+        }
+    }
+
+    /**
+     * Checks the tools a one-shot session carries. A read-only session may start exploration children, so it carries only
+     * context reads a child may also call; a tools-only session has no children, so only it may carry a root-only tool.
+     */
+    public static void checkSessionTools(SessionAccess access, List<ReviewTool> tools)
+    {
+        checkArgument(tools.isEmpty() || access == SessionAccess.READ_ONLY || access == SessionAccess.TOOLS_ONLY, "Session tools require a read-only or tools-only session");
+        for (ReviewTool tool : tools) {
+            if (access == SessionAccess.TOOLS_ONLY) {
+                checkArgument(ASSISTANT_TOOLS.contains(tool.name()), "Only assistant tools are allowed in a tools-only session");
+            }
+            else {
+                checkArgument(SESSION_CONTEXT_TOOLS.contains(tool.name()) && tool.childCallable(), "Only context reads are allowed");
+            }
         }
     }
 }

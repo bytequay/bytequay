@@ -464,6 +464,10 @@ public final class ClaudeCliDriver
         if (permissionScope.access() == SessionAccess.TEXT_ONLY) {
             argv.add("--tools=", "--disable-slash-commands", "--no-session-persistence");
         }
+        else if (permissionScope.access() == SessionAccess.TOOLS_ONLY) {
+            // Only its ByteQuay tools. Session persistence stays on: the day's conversation resumes from the same folder.
+            argv.add("--tools=", "--disable-slash-commands");
+        }
         else if (permissionScope.access() == SessionAccess.READ_ONLY || permissionScope.access() == SessionAccess.REVIEW_READ_ONLY) {
             // A read-only session reads the checkout and never edits it. Session persistence
             // stays on: a discussion resumes its own conversation for every later question.
@@ -475,8 +479,9 @@ public final class ClaudeCliDriver
             argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read,Edit,Write,NotebookEdit,WebFetch,WebSearch,TodoWrite,TaskOutput,TaskStop"
                     + (reviewChildAgents && !permissionScope.unattended() ? ",Agent" : ""));
         }
-        if (registration.toolNames().contains(RelatedWorkspaceBridge.TOOL_NAME) && !reviewChildAgents) {
+        if (permissionScope.access() == SessionAccess.TOOLS_ONLY || (registration.toolNames().contains(RelatedWorkspaceBridge.TOOL_NAME) && !reviewChildAgents)) {
             // Older releases lack verified child identity in hooks; keep the related-work tool with the only agent.
+            // A tools-only session starts no children at all: one would inherit its root-only tools.
             argv.add("--disallowedTools", "Agent,Task,Skill,Workflow,SendMessage");
         }
         if (!attachments.isEmpty()) {
@@ -515,8 +520,8 @@ public final class ClaudeCliDriver
     private static ProcessOwner.Kind ownerKind(AgentSessionContext context)
     {
         return switch (context.access()) {
-            case TEXT_ONLY -> ProcessOwner.Kind.CLI_PROBE;
-            // A scratch folder is no task's worktree, so startup recovery has no task to hold for it.
+            // A scratch or assistant folder is no task's worktree, so startup recovery has no task to hold for it.
+            case TEXT_ONLY, TOOLS_ONLY -> ProcessOwner.Kind.CLI_PROBE;
             case READ_ONLY -> context.scratchWorktree() ? ProcessOwner.Kind.CLI_PROBE : ProcessOwner.Kind.DISCUSSION;
             case FULL, REVIEW_READ_ONLY -> ProcessOwner.Kind.CLAUDE_TURN;
         };
@@ -733,7 +738,7 @@ public final class ClaudeCliDriver
                     ClaudeCliDriver.this.redactor,
                     context.codeQueries(),
                     environment,
-                    context.discussionContext(), context.reviewContext());
+                    context.discussionContext(), context.sessionTools());
             this.permissionScope = new AgentPermissionScope(context.permissionPolicy(), context.access(), registration.review().isPresent());
             // ByteQuay's own part of the instructions every turn's launch arguments carry; see argv.
             this.setup = ProviderInstructions.setup(permissionScope, PLAN_INSTRUCTION, Optional.of(registration.toolsDigest()), registration.instruction().orElse(""));

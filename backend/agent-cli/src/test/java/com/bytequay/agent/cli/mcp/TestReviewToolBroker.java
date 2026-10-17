@@ -91,10 +91,10 @@ class TestReviewToolBroker
                 Optional.empty(),
                 SessionAccess.FULL,
                 Optional.empty(),
-                Optional.empty()).orElseThrow();
+                ImmutableList.of()).orElseThrow();
                 McpRegistration claude = broker.register("check-task", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                         SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor,
-                        Optional.empty(), ImmutableMap.of(), Optional.empty(), Optional.empty())) {
+                        Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
             for (McpRegistration registration : ImmutableList.of(codex, claude)) {
                 assertThat(registration.toolNames()).containsAll(names);
                 JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
@@ -139,11 +139,11 @@ class TestReviewToolBroker
                 Optional.empty(),
                 SessionAccess.FULL,
                 Optional.empty(),
-                Optional.empty()).orElseThrow();
+                ImmutableList.of()).orElseThrow();
                 McpRegistration claude = broker.register("development-task", temporaryDirectory, temporaryDirectory, temporaryDirectory,
                         AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                         (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty())), redactor, Optional.empty(),
-                        ImmutableMap.of(), Optional.empty(), Optional.empty())) {
+                        ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
             assertThat(codex.review()).contains(review);
             assertThat(claude.review()).contains(review);
             assertThat(codex.instruction()).hasValueSatisfying(instruction -> assertThat(instruction).contains(review.instruction(), local.instruction()));
@@ -189,7 +189,7 @@ class TestReviewToolBroker
                 Optional.empty(),
                 SessionAccess.FULL,
                 Optional.empty(),
-                Optional.empty()).orElseThrow()) {
+                ImmutableList.of()).orElseThrow()) {
             assertThat(registration.review()).isPresent();
             assertThat(registration.instruction()).hasValueSatisfying(instruction -> assertThat(instruction).contains(LocalReviewBridge.INSTRUCTION));
             JsonNode reply = broker.handle(registration.token(), objectMapper.readTree("""
@@ -201,7 +201,7 @@ class TestReviewToolBroker
         }
         try (McpRegistration registration = broker.register("review-task", temporaryDirectory, temporaryDirectory, temporaryDirectory,
                 AgentPermissionPolicy.AUTO, SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), Optional.empty())) {
+                redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
             assertThat(registration.review()).isPresent();
             assertThat(registration.toolNames()).containsAll(ImmutableList.of(LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL));
         }
@@ -224,7 +224,7 @@ class TestReviewToolBroker
                 Optional.empty(),
                 SessionAccess.FULL,
                 Optional.empty(),
-                Optional.empty())).isEmpty();
+                ImmutableList.of())).isEmpty();
         McpRegistration registration = broker.registerTools(
                 "review-task",
                 temporaryDirectory,
@@ -234,7 +234,7 @@ class TestReviewToolBroker
                 Optional.empty(),
                 SessionAccess.FULL,
                 Optional.empty(),
-                Optional.empty()).orElseThrow();
+                ImmutableList.of()).orElseThrow();
         assertThat(registration.review()).isPresent();
         assertThat(registration.instruction()).hasValueSatisfying(value -> assertThat(value).contains("Review policy: report through the review tools."));
 
@@ -290,7 +290,7 @@ class TestReviewToolBroker
                 Optional.of(new CodeQueryBridge(query -> "graph", "use the graph")),
                 ImmutableMap.of(),
                 Optional.empty(),
-                Optional.empty());
+                ImmutableList.of());
         assertThat(registration.review()).isPresent();
         assertThat(registration.instruction()).hasValueSatisfying(value -> assertThat(value).contains("Review policy: report through the review tools.\n\nuse the graph"));
 
@@ -342,7 +342,7 @@ class TestReviewToolBroker
                     Optional.empty(),
                     ImmutableMap.of(),
                     Optional.empty(),
-                    Optional.empty())) {
+                    ImmutableList.of())) {
                 JsonNode deniedTools = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow())).at("/permissions/deny");
                 if (registration.review().isPresent()) {
                     // The child gate, not a blanket refusal, keeps review write tools with the root agent.

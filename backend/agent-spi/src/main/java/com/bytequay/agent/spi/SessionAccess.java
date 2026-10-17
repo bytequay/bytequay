@@ -36,7 +36,13 @@ public enum SessionAccess
      * No tools at all. Such a session has nothing to read a repository with, so
      * {@link AgentSessionContext} confines its worktree to the runtime directory.
      */
-    TEXT_ONLY;
+    TEXT_ONLY,
+    /**
+     * No file, shell or web tools: only the ByteQuay tools the session was given.
+     * The provider session persists, so a conversation can resume. Like TEXT_ONLY,
+     * it has no checkout; its folder is an empty one ByteQuay owns.
+     */
+    TOOLS_ONLY;
 
     /** Whether this level withholds the capability to change the worktree. */
     public boolean restricted()

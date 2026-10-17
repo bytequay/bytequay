@@ -13,7 +13,10 @@
  */
 package com.bytequay.agent.spi;
 
+import com.google.common.collect.ImmutableList;
+
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
@@ -34,7 +37,7 @@ public record AgentSessionContext(
         Optional<CodeQueryBridge> codeQueries,
         String managedInstructions,
         Optional<DiscussionContextBridge> discussionContext,
-        Optional<ReviewTool> reviewContext)
+        List<ReviewTool> sessionTools)
 {
     public AgentSessionContext(
             String taskId, Path worktree, Path runtimeDirectory, Path providerDirectory, AgentPermissionPolicy permissionPolicy,
@@ -51,7 +54,7 @@ public record AgentSessionContext(
             SessionAccess access, Optional<CodeQueryBridge> codeQueries, String managedInstructions, Optional<DiscussionContextBridge> discussionContext)
     {
         this(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, sessionReference, approvals, model, effort,
-                access, codeQueries, managedInstructions, discussionContext, Optional.empty());
+                access, codeQueries, managedInstructions, discussionContext, ImmutableList.of());
     }
 
     public AgentSessionContext
@@ -68,9 +71,8 @@ public record AgentSessionContext(
         requireNonNull(access, "access is null");
         requireNonNull(codeQueries, "codeQueries is null");
         requireNonNull(managedInstructions, "managedInstructions is null");
-        requireNonNull(reviewContext, "reviewContext is null");
-        checkArgument(reviewContext.isEmpty() || access == SessionAccess.READ_ONLY, "Review context requires a read-only session");
-        reviewContext.ifPresent(tool -> checkArgument(ReviewTool.SESSION_CONTEXT_TOOLS.contains(tool.name()) && tool.childCallable(), "Only context reads are allowed"));
+        sessionTools = ImmutableList.copyOf(sessionTools);
+        ReviewTool.checkSessionTools(access, sessionTools);
         requireNonNull(discussionContext, "discussionContext is null");
         checkArgument(discussionContext.isEmpty() || access == SessionAccess.READ_ONLY, "Discussion context requires a read-only session");
         checkArgument(model.isPresent() || effort.isEmpty(), "effort requires a model");
@@ -79,6 +81,11 @@ public record AgentSessionContext(
         checkArgument(providerDirectory.toAbsolutePath().normalize().startsWith(runtimeDirectory.toAbsolutePath().normalize()), "providerDirectory escapes runtimeDirectory");
         checkArgument(access != SessionAccess.TEXT_ONLY || worktree.toAbsolutePath().normalize().startsWith(runtimeDirectory.toAbsolutePath().normalize()),
                 "text-only worktree escapes runtimeDirectory");
+        // Claude finds a saved session by its working directory, so a tools-only folder outlives the run's own runtime directory:
+        // it is <runtime root>/assistant/<day>, beside the run's directory, which sits directly under the runtime root.
+        checkArgument(access != SessionAccess.TOOLS_ONLY
+                        || runtimeDirectory.toAbsolutePath().normalize().resolveSibling("assistant").equals(worktree.toAbsolutePath().normalize().getParent()),
+                "tools-only worktree is not an assistant folder");
     }
 
     /** Whether this session has no tools at all. */

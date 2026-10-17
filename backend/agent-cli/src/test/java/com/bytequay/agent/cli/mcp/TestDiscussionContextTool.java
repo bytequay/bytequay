@@ -59,10 +59,10 @@ class TestDiscussionContextTool
                 Optional.empty(),
                 SessionAccess.READ_ONLY,
                 Optional.of(new DiscussionContextBridge(query -> "first known-secret")),
-                Optional.empty()).orElseThrow();
+                ImmutableList.of()).orElseThrow();
                 McpRegistration claude = broker.register("same-task", directory, directory, directory.resolve("provider"), AgentPermissionPolicy.AUTO,
                         SessionAccess.READ_ONLY, approvals, redactor, Optional.empty(), ImmutableMap.of(),
-                        Optional.of(new DiscussionContextBridge(query -> "second")), Optional.empty())) {
+                        Optional.of(new DiscussionContextBridge(query -> "second")), ImmutableList.of())) {
             closed = codex.token();
             assertThat(codex.toolNames()).containsExactly(DiscussionContextBridge.TOOL_NAME, "bytequay_list_tools", "bytequay_get_tool", "bytequay_call_tool");
             assertThat(claude.toolNames()).isEqualTo(codex.toolNames());
@@ -94,7 +94,7 @@ class TestDiscussionContextTool
                 Optional.empty(),
                 SessionAccess.READ_ONLY,
                 Optional.empty(),
-                Optional.empty())).isEmpty();
+                ImmutableList.of())).isEmpty();
         assertThatThrownBy(() -> broker.registerTools(
                 "same-task",
                 directory,
@@ -104,7 +104,7 @@ class TestDiscussionContextTool
                 Optional.empty(),
                 SessionAccess.FULL,
                 Optional.of(new DiscussionContextBridge(query -> "context")),
-                Optional.empty()))
+                ImmutableList.of()))
                 .hasMessageContaining("read-only");
     }
 

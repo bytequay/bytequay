@@ -156,7 +156,7 @@ class TestCodexCliDriver
         AgentSessionContext discussion = new AgentSessionContext(plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(),
                 plain.permissionPolicy(), plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), SessionAccess.READ_ONLY,
                 Optional.empty(), "Read the independent assignment.", Optional.empty(),
-                Optional.of(new ReviewTool("review_get_context", "Read captured context", ImmutableMap.of("type", "object"), query -> "saved context", true)));
+                ImmutableList.of(new ReviewTool("review_get_context", "Read captured context", ImmutableMap.of("type", "object"), query -> "saved context", true)));
         try (AgentSession session = driver.open(discussion, event -> {})) {
             assertThat(supervisor.serverArgv().getLast()).anyMatch(argument -> argument.contains("review_get_context"));
             JsonNode thread = supervisor.server().threadRequests().getFirst();
@@ -187,6 +187,56 @@ class TestCodexCliDriver
         assertThat(supervisor.serverOwners()).containsExactly(
                 new ProcessOwner(ProcessOwner.Kind.DISCUSSION, "task-1"),
                 new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
+    }
+
+    @Test
+    void toolsOnlySessionKeepsItsThreadWithOnlyByteQuayTools()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        CodexCliDriver driver = driver(supervisor);
+        AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
+        Path runtime = worktree.resolve("task-runtime");
+        Path day = Files.createDirectories(worktree.resolve("assistant/2026-10-17"));
+        List<ReviewTool> tools = ImmutableList.of(
+                new ReviewTool("assistant_context", "Read the user's day", ImmutableMap.of("type", "object"), query -> "{}", true),
+                new ReviewTool("assistant_act", "Act on the user's words", ImmutableMap.of("type", "object"), query -> "{}", false));
+        AgentSessionContext toolsOnly = new AgentSessionContext(plain.taskId(), day, runtime, runtime.resolve("provider"), plain.permissionPolicy(), Optional.empty(),
+                plain.approvals(), plain.model(), plain.effort(), SessionAccess.TOOLS_ONLY, Optional.empty(), "", Optional.empty(), tools);
+        AgentSessionRef reference;
+        try (AgentSession session = driver.open(toolsOnly, event -> {})) {
+            assertThat(supervisor.serverOwners()).containsExactly(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
+            List<String> argv = supervisor.serverArgv().getFirst();
+            for (String feature : ImmutableList.of("shell_tool", "unified_exec", "code_mode", "js_repl", "shell_snapshot", "multi_agent", "multi_agent_v2")) {
+                assertThat(argv).containsSequence("--disable", feature);
+            }
+            assertThat(argv).contains("web_search=\"disabled\"", "approval_policy=\"never\"", "agents.enabled=false");
+            assertThat(argv).anyMatch(argument -> argument.startsWith("mcp_servers.bytequay.tools=") && argument.contains("\"assistant_context\"={approval_mode"));
+            assertThat(argv).anyMatch(argument -> argument.startsWith("mcp_servers.bytequay.tools=") && argument.contains("\"assistant_act\"={approval_mode"));
+            JsonNode thread = supervisor.server().threadRequests().getFirst();
+            assertThat(thread.path("ephemeral").asBoolean()).isFalse();
+            assertThat(thread.path("sandbox").asText()).isEqualTo("read-only");
+            assertThat(thread.path("approvalPolicy").asText()).isEqualTo("never");
+            RunningTurn turn = session.start(command("what is waiting on me?"));
+            JsonNode request = supervisor.server().turnRequests().getFirst();
+            assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
+            assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
+            supervisor.server().completeTurnWithSummary("[{\"type\":\"agentMessage\",\"id\":\"answer\",\"text\":\"Two cards wait.\",\"phase\":\"final_answer\"}]");
+            assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            // Unlike an ephemeral text-only thread, the kept thread still proves its current turn finished.
+            assertThat(supervisor.server().turnLists).hasPositiveValue();
+            reference = session.reference();
+        }
+
+        AgentSessionContext resumed = new AgentSessionContext(plain.taskId(), day, runtime, runtime.resolve("provider"), plain.permissionPolicy(), Optional.of(reference),
+                plain.approvals(), plain.model(), plain.effort(), SessionAccess.TOOLS_ONLY, Optional.empty(), "", Optional.empty(), tools);
+        driver.open(resumed, event -> {}).close();
+        JsonNode resume = supervisor.servers().getLast().threadRequests().getFirst();
+        assertThat(resume.path("threadId").asText()).isEqualTo(reference.providerValue());
+        assertThat(resume.path("excludeTurns").asBoolean()).isTrue();
+        assertThat(resume.path("cwd").asText()).isEqualTo(day.toRealPath().toString());
     }
 
     @Test
@@ -4224,6 +4274,7 @@ class TestCodexCliDriver
         private final List<String> interruptedThreads = new CopyOnWriteArrayList<>();
         private final List<String> backgroundTerminalThreads = new CopyOnWriteArrayList<>();
         private final List<JsonNode> historyRequests = new CopyOnWriteArrayList<>();
+        private final AtomicInteger turnLists = new AtomicInteger();
         private final ConcurrentMap<String, String> threadStatuses = new ConcurrentHashMap<>();
         private final ConcurrentMap<String, String> turnStatuses = new ConcurrentHashMap<>();
         private final ConcurrentMap<String, String> historyOverrides = new ConcurrentHashMap<>();
@@ -4547,7 +4598,8 @@ class TestCodexCliDriver
                     respond(id, response.toString());
                 }
                 case "thread/turns/list" -> {
-                    if (textOnlyProfile()) {
+                    turnLists.incrementAndGet();
+                    if (threadRequests.stream().anyMatch(request -> request.path("ephemeral").asBoolean())) {
                         emit("{\"id\":" + id + ",\"error\":{\"code\":-32600,\"message\":\"ephemeral threads do not support thread/turns/list\"}}");
                         return;
                     }

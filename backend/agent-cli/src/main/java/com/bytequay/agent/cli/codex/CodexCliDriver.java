@@ -310,11 +310,20 @@ public final class CodexCliDriver
     private static ProcessOwner.Kind ownerKind(AgentSessionContext context)
     {
         return switch (context.access()) {
-            case TEXT_ONLY -> ProcessOwner.Kind.CLI_PROBE;
-            // A scratch folder is no task's worktree, so startup recovery has no task to hold for it.
+            // A scratch or assistant folder is no task's worktree, so startup recovery has no task to hold for it.
+            case TEXT_ONLY, TOOLS_ONLY -> ProcessOwner.Kind.CLI_PROBE;
             case READ_ONLY -> context.scratchWorktree() ? ProcessOwner.Kind.CLI_PROBE : ProcessOwner.Kind.DISCUSSION;
             case FULL, REVIEW_READ_ONLY -> ProcessOwner.Kind.APP_SERVER;
         };
+    }
+
+    /**
+     * Whether the launch turns off the shell, code and web tools: a text-only session has no tools, and a tools-only one has only
+     * ByteQuay's. Only text-only is also ephemeral; a tools-only thread persists so its conversation can resume.
+     */
+    private static boolean shellOff(SessionAccess access)
+    {
+        return access == SessionAccess.TEXT_ONLY || access == SessionAccess.TOOLS_ONLY;
     }
 
     static CodexLaunchProfile.ChildProfile childProfile(CodexLaunchProfile.ChildProfile configured, boolean restricted, boolean review, String version)
@@ -366,9 +375,9 @@ public final class CodexCliDriver
                     supervisor,
                     new ProcessSpec(
                             owner,
-                            // TEXT_ONLY alone strips the shell and code tools: a read-only session must
+                            // Only sessions without a checkout strip the shell and code tools: a read-only session must
                             // keep them to read the checkout at all, and is contained by its sandbox.
-                            CodexLaunchProfile.arguments(executable, childProfile, tools, access == SessionAccess.TEXT_ONLY,
+                            CodexLaunchProfile.arguments(executable, childProfile, tools, shellOff(access),
                                     ciWritableRoots, allowGitHubCommands, review, deepSeek),
                             workingDirectory,
                             launchEnvironment,
@@ -624,9 +633,9 @@ public final class CodexCliDriver
         List<String> ciWritableRoots = context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX ? ciWritableRoots(context.worktree()) : ImmutableList.of();
         // A task tool token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
-        Optional<McpRegistration> codeQueries = context.restricted() && context.access() != SessionAccess.REVIEW_READ_ONLY && context.discussionContext().isEmpty() && context.reviewContext().isEmpty() ? Optional.empty() : permissions.registerTools(
+        Optional<McpRegistration> codeQueries = context.restricted() && context.access() != SessionAccess.REVIEW_READ_ONLY && context.discussionContext().isEmpty() && context.sessionTools().isEmpty() ? Optional.empty() : permissions.registerTools(
                 context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), toolRedactor,
-                deepSeekSecret.isPresent() ? Optional.empty() : context.codeQueries(), context.access(), context.discussionContext(), context.reviewContext());
+                deepSeekSecret.isPresent() ? Optional.empty() : context.codeQueries(), context.access(), context.discussionContext(), context.sessionTools());
         boolean review = codeQueries.flatMap(McpRegistration::review).isPresent();
         // Restricted research can carry a review boundary without any reporting tools.
         boolean reviewTools = codeQueries.flatMap(McpRegistration::review).filter(bridge -> !bridge.tools().isEmpty()).isPresent();
@@ -953,7 +962,7 @@ public final class CodexCliDriver
                     codexHome,
                     childProfile,
                     mcpEndpoint,
-                    context.textOnly(),
+                    shellOff(context.access()),
                     ciWritableRoots,
                     permissionScope.githubCommands(),
                     permissionScope.review(),
@@ -1028,7 +1037,7 @@ public final class CodexCliDriver
             Map<String, Object> config = CodexLaunchProfile.threadConfig(
                     childProfile,
                     codeQueries.isPresent(),
-                    context.textOnly(),
+                    shellOff(context.access()),
                     ciWritableRoots,
                     permissionScope.githubCommands(),
                     permissionScope.review(),

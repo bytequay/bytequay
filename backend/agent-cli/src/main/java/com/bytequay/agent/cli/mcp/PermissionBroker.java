@@ -217,7 +217,7 @@ public final class PermissionBroker
     public McpRegistration register(
             String taskId, Path worktree, Path runtimeDirectory, Path providerDirectory, AgentPermissionPolicy permissionPolicy,
             SessionAccess access, AgentApprovalHandler approvals, SecretRedactor redactor, Optional<CodeQueryBridge> codeQueries,
-            Map<String, String> environment, Optional<DiscussionContextBridge> discussionContext, Optional<ReviewTool> reviewContext)
+            Map<String, String> environment, Optional<DiscussionContextBridge> discussionContext, List<ReviewTool> sessionTools)
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(worktree, "worktree is null");
@@ -243,7 +243,7 @@ public final class PermissionBroker
                 true,
                 environment,
                 discussionContext,
-                reviewContext);
+                sessionTools);
         contexts.put(token, context);
         Optional<Path> childGate = (context.reviewChildren() || context.relatedWork().isPresent()) ? Optional.of(childGateFile) : Optional.empty();
         try {
@@ -297,7 +297,7 @@ public final class PermissionBroker
 
     public Optional<McpRegistration> registerTools(
             String taskId, Path worktree, AgentPermissionPolicy permissionPolicy, AgentApprovalHandler approvals, SecretRedactor redactor,
-            Optional<CodeQueryBridge> codeQueries, SessionAccess access, Optional<DiscussionContextBridge> discussionContext, Optional<ReviewTool> reviewContext)
+            Optional<CodeQueryBridge> codeQueries, SessionAccess access, Optional<DiscussionContextBridge> discussionContext, List<ReviewTool> sessionTools)
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(worktree, "worktree is null");
@@ -307,7 +307,7 @@ public final class PermissionBroker
         requireNonNull(codeQueries, "codeQueries is null");
         String token = token();
         PermissionContext context = resolveContext(
-                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeQueries, access, false, ImmutableMap.of(), discussionContext, reviewContext);
+                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeQueries, access, false, ImmutableMap.of(), discussionContext, sessionTools);
         // A policy-only review still needs registration to select the provider's review execution profile.
         if (context.review().isEmpty() && tools(context).isEmpty()) {
             return Optional.empty();
@@ -335,7 +335,7 @@ public final class PermissionBroker
             checkArgument(readable.contains("review_get_context"), "Review children need readable context");
         }
         else {
-            readable = tools(context).stream().map(ToolDefinition::name).filter(name -> !name.equals(RelatedWorkspaceBridge.TOOL_NAME)).collect(ImmutableSet.toImmutableSet());
+            readable = childReadable(context).collect(ImmutableSet.toImmutableSet());
         }
         Set<String> childTools = readable;
         // Memory reads use the shared MCP token; its mutating actions still require a root-bound dynamic call.
@@ -386,19 +386,17 @@ public final class PermissionBroker
             SessionAccess access,
             boolean permissionTools,
             Map<String, String> environment,
-            Optional<DiscussionContextBridge> discussionContext, Optional<ReviewTool> reviewContext)
+            Optional<DiscussionContextBridge> discussionContext, List<ReviewTool> sessionTools)
     {
-        requireNonNull(reviewContext, "reviewContext is null");
-        checkArgument(reviewContext.isEmpty() || access == SessionAccess.READ_ONLY, "Review context requires a read-only session");
-        reviewContext.ifPresent(tool -> checkArgument(ReviewTool.SESSION_CONTEXT_TOOLS.contains(tool.name()) && tool.childCallable(), "Only context reads are allowed"));
+        ReviewTool.checkSessionTools(access, sessionTools);
         requireNonNull(discussionContext, "discussionContext is null");
         checkArgument(discussionContext.isEmpty() || access == SessionAccess.READ_ONLY, "Discussion context requires a read-only session");
         boolean restricted = access.restricted();
         // A restricted session may carry a real task id, so every bridge is withheld by access
         // rather than by the caller having invented an id no bridge can resolve.
-        // Only the read-only axis withholds review: a text-only caller invents its own task id, and
+        // Only the read-only and tools-only axes withhold review: a text-only caller invents its own task id, and
         // changing what it resolves is not this axis's business.
-        Optional<ReviewBridge> review = access == SessionAccess.READ_ONLY ? Optional.empty() : reviews.resolve(taskId);
+        Optional<ReviewBridge> review = access == SessionAccess.READ_ONLY || access == SessionAccess.TOOLS_ONLY ? Optional.empty() : reviews.resolve(taskId);
         AgentPermissionScope scope = new AgentPermissionScope(permissionPolicy, access, review.isPresent());
         Optional<DevelopmentResultBridge> development = restricted || review.isPresent() ? Optional.empty() : developments.resolve(taskId);
         Optional<LocalReviewBridge> localReview = restricted ? Optional.empty() : localReviews.resolve(taskId);
@@ -416,7 +414,7 @@ public final class PermissionBroker
                 .map(home -> ImmutableMap.of("HOME", home)).orElse(ImmutableMap.of());
         return new PermissionContext(
                 taskId, worktree, scope, fileWriteEnvironment, approvals, redactor, permissionTools,
-                codeQueries, discussionContext, reviewContext, review, development, localReview, pullRequestCi, pullRequestContext, issueContext, memory, related, work,
+                codeQueries, discussionContext, sessionTools, review, development, localReview, pullRequestCi, pullRequestContext, issueContext, memory, related, work,
                 restricted || review.isPresent() ? Optional.empty() : googleWorkspace.resolve(taskId), reviewChildren, new AtomicReference<>());
     }
 
@@ -855,7 +853,7 @@ public final class PermissionBroker
     private McpHttpResponse reviewTool(JsonNode id, ToolCallParams params, PermissionContext context)
             throws JsonProcessingException
     {
-        Optional<ReviewTool> tool = context.reviewContext().filter(value -> value.name().equals(params.name()))
+        Optional<ReviewTool> tool = context.sessionTools().stream().filter(value -> value.name().equals(params.name())).findFirst()
                 .or(() -> context.review().flatMap(bridge -> bridge.tool(params.name())));
         if (tool.isEmpty()) {
             return error(id, -32602, "Unknown tool");
@@ -878,7 +876,11 @@ public final class PermissionBroker
     {
         PermissionArguments arguments = objectMapper.treeToValue(input, PermissionArguments.class);
         Optional<String> refused = Optional.empty();
-        if (context.review().isPresent()) {
+        if (context.scope().access() == SessionAccess.TOOLS_ONLY) {
+            // Its ByteQuay tools need no approval, and it has no others; whatever asks is outside what the session was given.
+            refused = Optional.of("This session has nothing to approve");
+        }
+        else if (context.review().isPresent()) {
             if (arguments.toolName().equalsIgnoreCase("Agent") || arguments.toolName().equalsIgnoreCase("Task")) {
                 boolean explore = Optional.ofNullable(arguments.input().get("subagent_type")).filter(JsonNode::isTextual).map(JsonNode::asText)
                         .filter("Explore"::equals).isPresent();
@@ -1193,7 +1195,7 @@ public final class PermissionBroker
         if (context.codeQueries().isPresent()) {
             tools.add(codeQueriesTool());
         }
-        context.reviewContext().ifPresent(tool -> tools.add(new ToolDefinition(tool.name(), tool.description(), tool.inputSchema())));
+        context.sessionTools().forEach(tool -> tools.add(new ToolDefinition(tool.name(), tool.description(), tool.inputSchema())));
         context.review().ifPresent(review -> review.tools().forEach(tool -> tools.add(new ToolDefinition(tool.name(), tool.description(), tool.inputSchema()))));
         context.issueContext().ifPresent(ignored -> tools.add(new ToolDefinition(
                 IssueContextBridge.TOOL_NAME,
@@ -1497,6 +1499,10 @@ public final class PermissionBroker
                 deny.add("Bash(git " + command + ")", "Bash(git " + command + ":*)");
             }
         }
+        if (access == SessionAccess.TOOLS_ONLY) {
+            // A child would inherit every ByteQuay tool this session holds, root-only ones included.
+            deny.add("Agent", "Task", "Skill", "Workflow", "SendMessage");
+        }
         boolean allowUnsandboxedRetry = access == SessionAccess.FULL
                 && (permissionPolicy == AgentPermissionPolicy.AUTO || permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX);
         ImmutableList.Builder<String> allowWrite = ImmutableList.builder();
@@ -1526,7 +1532,7 @@ public final class PermissionBroker
                         // auto-approved, so denying the worktree here is the whole containment
                         // boundary rather than a second line of defence. A text-only worktree is
                         // already inside the runtime directory, and need not exist on disk.
-                        "denyWrite", access == SessionAccess.READ_ONLY || access == SessionAccess.REVIEW_READ_ONLY
+                        "denyWrite", access == SessionAccess.READ_ONLY || access == SessionAccess.REVIEW_READ_ONLY || access == SessionAccess.TOOLS_ONLY
                                 ? ImmutableList.of(runtimeDirectory.toString(), worktree.toRealPath().toString())
                                 : ImmutableList.of(runtimeDirectory.toString())));
         if (scope.unattended() || access.restricted()) {
@@ -1574,12 +1580,18 @@ public final class PermissionBroker
                 .map(name -> "mcp__bytequay__" + name)
                 .collect(toImmutableList());
         if (context.review().isEmpty()) {
-            readable = tools(context).stream().map(ToolDefinition::name).filter(name -> !name.equals(RelatedWorkspaceBridge.TOOL_NAME))
-                    .filter(name -> SHELL_SAFE_TOOL_NAME.matcher(name).matches()).map(name -> "mcp__bytequay__" + name).collect(toImmutableList());
+            readable = childReadable(context).filter(name -> SHELL_SAFE_TOOL_NAME.matcher(name).matches()).map(name -> "mcp__bytequay__" + name).collect(toImmutableList());
         }
         readable = ImmutableList.<String>builder().addAll(readable).add("mcp__bytequay__" + LIST_TOOLS, "mcp__bytequay__" + GET_TOOL).build();
         return CHILD_GATE_SCRIPT.replace("@REVIEW_ONLY@", String.valueOf(context.review().isPresent()))
                 .replace("@CHILD_TOOLS@", readable.isEmpty() ? "mcp__bytequay__none" : String.join("|", readable));
+    }
+
+    /** Without a review, a child may call every tool but related work and a session tool kept for the root. */
+    private static Stream<String> childReadable(PermissionContext context)
+    {
+        Set<String> rootOnly = context.sessionTools().stream().filter(tool -> !tool.childCallable()).map(ReviewTool::name).collect(ImmutableSet.toImmutableSet());
+        return tools(context).stream().map(ToolDefinition::name).filter(name -> !name.equals(RelatedWorkspaceBridge.TOOL_NAME) && !rootOnly.contains(name));
     }
 
     private static String readChildGateScript()
@@ -1644,7 +1656,7 @@ public final class PermissionBroker
             boolean permissionTools,
             Optional<CodeQueryBridge> codeQueries,
             Optional<DiscussionContextBridge> discussionContext,
-            Optional<ReviewTool> reviewContext,
+            List<ReviewTool> sessionTools,
             Optional<ReviewBridge> review,
             Optional<DevelopmentResultBridge> development,
             Optional<LocalReviewBridge> localReview,
@@ -1668,7 +1680,7 @@ public final class PermissionBroker
             requireNonNull(redactor, "redactor is null");
             requireNonNull(codexReviewTools, "codexReviewTools is null");
             requireNonNull(codeQueries, "codeQueries is null");
-            requireNonNull(reviewContext, "reviewContext is null");
+            sessionTools = ImmutableList.copyOf(sessionTools);
             requireNonNull(discussionContext, "discussionContext is null");
             requireNonNull(review, "review is null");
             requireNonNull(development, "development is null");

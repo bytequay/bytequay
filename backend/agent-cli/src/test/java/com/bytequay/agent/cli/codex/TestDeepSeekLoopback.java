@@ -21,6 +21,7 @@ import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -133,7 +134,7 @@ class TestDeepSeekLoopback
                 Optional.empty(),
                 SessionAccess.FULL,
                 Optional.empty(),
-                Optional.empty()).orElseThrow()) {
+                ImmutableList.of()).orElseThrow()) {
             HttpClient client = HttpClient.newHttpClient();
             HttpRequest request;
             try (DeepSeekLoopback loopback = DeepSeekLoopback.start("fake-secret-for-test", UNREACHABLE, permissions, Optional.of(registration), mapper)) {
@@ -177,7 +178,7 @@ class TestDeepSeekLoopback
                 Optional.empty(),
                 SessionAccess.FULL,
                 Optional.empty(),
-                Optional.empty()).orElseThrow();
+                ImmutableList.of()).orElseThrow();
                 DeepSeekLoopback loopback = DeepSeekLoopback.start("fake-secret-for-test", UNREACHABLE, permissions, Optional.of(registration), mapper)) {
             HttpResponse<String> called = HttpClient.newHttpClient().send(post(loopback.mcpEndpoint(), """
                     {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{

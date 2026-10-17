@@ -16,6 +16,7 @@ package com.bytequay.agent.cli.mcp;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.SessionAccess;
@@ -29,8 +30,10 @@ import org.junit.jupiter.api.io.TempDir;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,9 +54,9 @@ class TestIndependentReviewContextTool
                 .reviews(task -> { throw new AssertionError("Independent reviews must not resolve task write capabilities"); }).build();
         String closed;
         try (McpRegistration codex = broker.registerTools("same-task", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
-                Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(), Optional.of(context("first known-secret"))).orElseThrow();
+                Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(), ImmutableList.of(context("first known-secret"))).orElseThrow();
                 McpRegistration claude = broker.register("same-task", directory, directory, directory.resolve("provider"), AgentPermissionPolicy.AUTO,
-                        SessionAccess.READ_ONLY, approvals, redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), Optional.of(context("second")))) {
+                        SessionAccess.READ_ONLY, approvals, redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of(context("second")))) {
             closed = codex.token();
             assertThat(codex.toolNames()).containsExactly("review_get_context", "bytequay_list_tools", "bytequay_get_tool", "bytequay_call_tool");
             assertThat(claude.toolNames()).isEqualTo(codex.toolNames());
@@ -72,10 +75,10 @@ class TestIndependentReviewContextTool
         }
         assertThat(broker.handle(closed, mapper.createObjectNode()).status()).isEqualTo(401);
         assertThatThrownBy(() -> broker.registerTools("same-task", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
-                Optional.empty(), SessionAccess.FULL, Optional.empty(), Optional.of(context("context")))).hasMessageContaining("read-only");
+                Optional.empty(), SessionAccess.FULL, Optional.empty(), ImmutableList.of(context("context")))).hasMessageContaining("read-only");
         assertThatThrownBy(() -> broker.registerTools("same-task", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
                 Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(),
-                Optional.of(new ReviewTool("review_save_finding", "Write", ImmutableMap.of(), query -> "", false))))
+                ImmutableList.of(new ReviewTool("review_save_finding", "Write", ImmutableMap.of(), query -> "", false))))
                 .hasMessageContaining("Only context reads");
     }
 
@@ -87,14 +90,61 @@ class TestIndependentReviewContextTool
                 .reviews(task -> { throw new AssertionError("An agenda run must not resolve task write capabilities"); }).build();
         ReviewTool agenda = new ReviewTool("agenda_context", "Read the user's day", ImmutableMap.of("type", "object"), query -> "today", true);
         try (McpRegistration codex = broker.registerTools("agenda-run", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
-                Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(), Optional.of(agenda)).orElseThrow()) {
+                Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(), ImmutableList.of(agenda)).orElseThrow()) {
             assertThat(codex.toolNames()).containsExactly("agenda_context", "bytequay_list_tools", "bytequay_get_tool", "bytequay_call_tool");
             assertThat(call(broker, codex.token(), "agenda_context", "{}").at("/result/content/0/text").asText()).isEqualTo("today");
         }
         assertThatThrownBy(() -> broker.registerTools("agenda-run", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
                 Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(),
-                Optional.of(new ReviewTool("agenda_context", "Read the user's day", ImmutableMap.of(), query -> "", false))))
+                ImmutableList.of(new ReviewTool("agenda_context", "Read the user's day", ImmutableMap.of(), query -> "", false))))
                 .hasMessageContaining("Only context reads");
+    }
+
+    @Test
+    void aToolsOnlySessionCarriesOnlyTheAssistantToolsAndApprovesNothing()
+            throws Exception
+    {
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/mcp"), mapper, (task, query) -> "")
+                .reviews(unresolved()).developments(unresolved()).localReviews(unresolved()).pullRequestChecks(unresolved()).issueContexts(unresolved())
+                .memories(unresolved()).relatedWork(unresolved()).workItems(unresolved()).googleWorkspace(unresolved()).pullRequestContexts(unresolved()).build();
+        AgentApprovalHandler noCards = (request, timeout) -> { throw new AssertionError("A tools-only session has nothing to approve"); };
+        List<String> acted = new CopyOnWriteArrayList<>();
+        ReviewTool read = new ReviewTool("assistant_context", "Read the user's day", ImmutableMap.of("type", "object"), query -> "today", true);
+        ReviewTool act = new ReviewTool("assistant_act", "Act on the user's words", ImmutableMap.of("type", "object"), query -> {
+            acted.add(query);
+            return "done";
+        }, false);
+        Path day = Files.createDirectories(directory.resolve("assistant/2026-10-17"));
+        try (McpRegistration codex = broker.registerTools("assistant-run", day, AgentPermissionPolicy.AUTO, noCards, redactor,
+                Optional.empty(), SessionAccess.TOOLS_ONLY, Optional.empty(), ImmutableList.of(read, act)).orElseThrow();
+                McpRegistration claude = broker.register("assistant-run", day, directory, directory.resolve("provider"), AgentPermissionPolicy.AUTO,
+                        SessionAccess.TOOLS_ONLY, noCards, redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of(read, act))) {
+            assertThat(codex.toolNames()).containsExactly("assistant_context", "assistant_act", "bytequay_list_tools", "bytequay_get_tool", "bytequay_call_tool");
+            assertThat(claude.toolNames()).isEqualTo(codex.toolNames());
+            assertThat(call(broker, codex.token(), "assistant_context", "{\"kind\":\"overview\"}").at("/result/content/0/text").asText()).isEqualTo("today");
+            assertThat(call(broker, claude.token(), "assistant_act", "{\"op\":\"reply_to_task\"}").at("/result/content/0/text").asText()).isEqualTo("done");
+            JsonNode refused = mapper.readTree(call(broker, claude.token(), "permission_prompt", "{\"tool_name\":\"Bash\",\"input\":{\"command\":\"ls\"}}")
+                    .at("/result/content/0/text").asText());
+            assertThat(refused.path("behavior").asText()).isEqualTo("deny");
+            assertThat(refused.path("message").asText()).isEqualTo("This session has nothing to approve");
+            JsonNode settings = mapper.readTree(Files.readString(claude.settingsFile().orElseThrow()));
+            assertThat(settings.at("/permissions/deny").toString()).contains("\"Agent\"", "\"Task\"", "\"Skill\"", "\"Workflow\"", "\"SendMessage\"", "\"WebSearch\"");
+            assertThat(settings.at("/sandbox/filesystem/denyWrite").toString()).contains(day.toRealPath().toString());
+            assertThat(settings.has("hooks")).isFalse();
+        }
+        assertThat(acted).containsExactly("{\"op\":\"reply_to_task\"}");
+        // The assistant's tools go only to a tools-only session, which has no children to hand a root-only tool to, and it holds no other tool.
+        assertThatThrownBy(() -> broker.registerTools("agenda-run", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
+                Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(), ImmutableList.of(read))).hasMessageContaining("Only context reads");
+        assertThatThrownBy(() -> broker.registerTools("assistant-run", day, AgentPermissionPolicy.AUTO, approvals, redactor,
+                Optional.empty(), SessionAccess.TOOLS_ONLY, Optional.empty(), ImmutableList.of(context("context")))).hasMessageContaining("Only assistant tools");
+        assertThatThrownBy(() -> broker.registerTools("assistant-run", day, AgentPermissionPolicy.AUTO, approvals, redactor,
+                Optional.empty(), SessionAccess.FULL, Optional.empty(), ImmutableList.of(read, act))).hasMessageContaining("read-only or tools-only");
+    }
+
+    private static <B> BridgeResolver<B> unresolved()
+    {
+        return task -> { throw new AssertionError("A tools-only session must not resolve task capabilities"); };
     }
 
     private static ReviewTool context(String text)

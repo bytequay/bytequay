@@ -254,7 +254,8 @@ public class AgendaService
             AgentTurnResult result = OneShotSession.run(resources, drivers.require(lane), (taskId, scratch) -> new AgentSessionContext(
                             taskId.toString(), OneShotSession.scratchWorktree(scratch, "agenda-worktree"), scratch.runtimeDirectory(), scratch.providerDirectory(),
                             AgentPermissionPolicy.AUTO, Optional.empty(), (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                            Optional.of(model.model()), model.effort(), SessionAccess.READ_ONLY, Optional.empty(), INSTRUCTIONS, Optional.empty(), Optional.of(session.tool())),
+                            Optional.of(model.model()), model.effort(), SessionAccess.READ_ONLY, Optional.empty(), INSTRUCTIONS, Optional.empty(),
+                            ImmutableList.of(session.tool())),
                     REPLY + (recapDay ? RECAP : ""), MAXIMUM_RUNTIME, turn -> {}).result();
             if (result.state() != AgentTurnResult.State.COMPLETED) {
                 throw new AgentUnavailableException(result.terminalReason().orElse("The agent stopped before it answered"));

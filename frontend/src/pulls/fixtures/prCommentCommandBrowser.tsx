@@ -13,7 +13,8 @@
  */
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { Bridge, DiffCommitDto, PullRequestDetailDto } from '../../types';
+import { prDetail } from './pullRequest';
+import type { Bridge, DiffCommitDto } from '../../types';
 import type { ReviewDraftDto } from '../agent-review/contracts';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import { DiscussionComposer } from '../PullOverview';
@@ -23,13 +24,11 @@ import '../../css/base.css';
 const command = '/test-with-secrets';
 const firstSha = 'b695e382a9c1750f5a9940d24bbcdc37a36da7d9';
 const commit = (sha: string): DiffCommitDto => ({ sha, parentSha: null, message: 'Commit', author: null, authoredAt: null });
-const detail: PullRequestDetailDto = {
-  id: 42, repo: 'owner/repo', number: 42, title: 'Command completion', htmlUrl: null, state: 'open', draft: false,
-  mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-  mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: '', labels: [], assignees: [], milestone: null,
-  reviewers: [], additions: 0, deletions: 0, changedFiles: 0, approvalCount: 0, ciStatus: null,
-  recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: true,
-};
+const detail = prDetail({
+  id: 42, repo: 'owner/repo', title: 'Command completion', htmlUrl: null,
+  mergeable: null, mergeableState: null, author: 'alice', updatedAt: null,
+  body: '', additions: 0, changedFiles: 0,
+});
 
 export async function run(): Promise<string> {
   const previous = window.bridge;

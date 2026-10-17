@@ -47,6 +47,7 @@ import java.util.OptionalLong;
 
 import static com.bytequay.app.memory.MemoryFixtures.NOW;
 import static com.bytequay.app.memory.MemoryFixtures.rule;
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -77,24 +78,7 @@ class TestMemoryBridgeResolverImpl
         assertThat(resolver.resolve(specCheck.id().toString())).isEmpty();
 
         AgentTask review = task(false, "workspace");
-        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(new AgentReview(
-                "review",
-                "workspace",
-                "trinodb/trino",
-                OptionalInt.of(1),
-                OptionalLong.empty(),
-                review.id().toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty())));
+        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(pullRequestReview("review", "workspace", "trinodb/trino", 1, review.id().toString(), NOW)));
         assertThat(resolver.resolve(review.id().toString())).isPresent();
 
         AgentTask elsewhere = task(true, "other");
@@ -112,24 +96,7 @@ class TestMemoryBridgeResolverImpl
         store.save(rule("m1", "workspace", "Keep refactors and behavior changes in separate commits.", ImmutableList.of()));
         AgentTask development = task(true, "workspace");
         AgentTask review = task(false, "workspace");
-        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(new AgentReview(
-                "review",
-                "workspace",
-                "trinodb/trino",
-                OptionalInt.of(1),
-                OptionalLong.empty(),
-                review.id().toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty())));
+        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(pullRequestReview("review", "workspace", "trinodb/trino", 1, review.id().toString(), NOW)));
 
         memories.saveSwitches("workspace", new MemorySwitches(true, false));
         assertThat(resolver.resolve(development.id().toString())).isEmpty();

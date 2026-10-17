@@ -13,19 +13,29 @@
  */
 package com.bytequay.app.review;
 
+import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewCandidate;
 import com.bytequay.core.review.ReviewPerspectiveAssessment;
 import com.google.common.collect.ImmutableList;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
 public final class ReviewTestData
 {
     private ReviewTestData() {}
+
+    public static AgentReview pullRequestReview(String id, String workspaceId, String repo, int number, String taskId, Instant now)
+    {
+        return new AgentReview(id, workspaceId, repo, OptionalInt.of(number), OptionalLong.empty(), taskId, Optional.empty(), AgentReview.State.OPEN,
+                false, Optional.empty(), Optional.empty(), Optional.empty(), 0, now, now, Optional.empty(), Optional.empty());
+    }
 
     public static ReviewCandidate discoveryCandidate(int number, String hypothesis)
     {

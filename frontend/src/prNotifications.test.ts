@@ -14,18 +14,16 @@
 import { describe, expect, it } from 'vitest';
 import { attentionCandidates, handledEntry } from './home/attention';
 import { notificationVersion, parsePrNotificationState, pendingPrNotifications, type PrNotificationState } from './prNotifications';
-import type { PullRequestDto } from './types';
+import { pr as pullRequest } from './pulls/fixtures/pullRequest';
 
 const baseline = '2026-09-06T10:00:00Z';
 const activity = '2026-09-06T10:01:00Z';
 const now = Date.parse(activity);
-const pr: PullRequestDto = {
-  id: 1, repo: 'owner/repo', number: 42, title: 'A monitored PR', author: 'someone', htmlUrl: '',
-  createdAt: baseline, updatedAt: baseline, origin: 'OTHER', labels: [], labelColors: null, draft: false,
-  viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [], ciStatus: 'FAILING',
-  additions: 0, deletions: 0, commentCount: 0, state: 'open', mergeable: false,
-  mergeableState: 'unstable', headPushedAt: null, headRef: 'branch', monitoredAt: baseline, activityAt: activity,
-};
+const pr = pullRequest({
+  repo: 'owner/repo', title: 'A monitored PR', author: 'someone', htmlUrl: '',
+  createdAt: baseline, updatedAt: baseline, origin: 'OTHER', ciStatus: 'FAILING', additions: 0, mergeable: false,
+  mergeableState: 'unstable', headRef: 'branch', monitoredAt: baseline, activityAt: activity,
+});
 const empty = (): PrNotificationState => ({ handled: {}, delivered: {} });
 
 describe('monitored PR notifications', () => {

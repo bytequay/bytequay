@@ -14,6 +14,7 @@
 package com.bytequay.app.review;
 
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.GitTestSupport;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewRun;
@@ -29,6 +30,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.app.git.GitTestSupport.head;
+import static com.bytequay.app.git.GitTestSupport.initRepository;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -48,7 +51,7 @@ class TestReviewScopeFiles
     void fullCoverageRetainsPublicationFilenames()
             throws IOException
     {
-        initialize();
+        initRepository(repository);
         Files.createDirectories(repository.resolve("old"));
         Files.writeString(repository.resolve("old/Table.java"), "source\n");
         String base = commit("Original source");
@@ -64,7 +67,7 @@ class TestReviewScopeFiles
     void incrementalScopeIncludesARevertedPathAbsentFromThePublicationDiff()
             throws IOException
     {
-        initialize();
+        initRepository(repository);
         Files.writeString(repository.resolve("metadata.bin"), "base\u0000bytes");
         String base = commit("Base source");
         Files.writeString(repository.resolve("metadata.bin"), "changed\u0000bytes");
@@ -101,26 +104,10 @@ class TestReviewScopeFiles
         }
     }
 
-    private void initialize()
-    {
-        git("init", "--quiet", "-b", "main");
-        git("config", "user.name", "ByteQuay Test");
-        git("config", "user.email", "bytequay@example.com");
-    }
-
     private String commit(String message)
     {
-        git("add", "-A");
-        git("commit", "--quiet", "-m", message);
-        return git("rev-parse", "HEAD").strip();
-    }
-
-    private String git(String... arguments)
-    {
-        GitCommandRunner.Result result = GIT.run(repository, arguments);
-        assertThat(result.successful()).as(result.output()).isTrue();
-        assertThat(result.truncated()).isFalse();
-        return result.output();
+        GitTestSupport.commit(repository, message);
+        return head(repository);
     }
 
     private static ReviewRun run(ReviewRun.Scope scope, String base, String head, List<DiffFile> diff)

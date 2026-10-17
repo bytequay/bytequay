@@ -23,7 +23,6 @@ import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.UserProfile;
@@ -37,6 +36,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -50,7 +51,12 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
+import static com.bytequay.app.workspace.WorkspaceIssueTestData.NOW;
+import static com.bytequay.app.workspace.WorkspaceIssueTestData.event;
+import static com.bytequay.app.workspace.WorkspaceIssueTestData.issue;
+import static com.bytequay.app.workspace.WorkspaceIssueTestData.workspace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -67,7 +73,6 @@ import static org.mockito.Mockito.when;
 
 class TestWorkspaceIssueRefresh
 {
-    private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
     private static final RepoRef DIRECT = RepoRef.of("owner", "project");
     private static final RepoRef UPSTREAM = RepoRef.of("upstream", "project");
 
@@ -332,77 +337,27 @@ class TestWorkspaceIssueRefresh
         verify(settings).put(key, NOW.toString());
     }
 
-    @Test
-    void authenticationFailureStopsTheRepositoryLoop()
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("repositoryFailures")
+    void authenticationOrRateLimitFailureStopsTheRepositoryLoopWithoutAdvancingCheckpoint(String reason, RuntimeException failure)
     {
         Workspace direct = workspace("direct", 100, DIRECT, Topology.DIRECT);
         Workspace upstream = workspace("upstream", 300, UPSTREAM, Topology.FORK);
         workspaces.put(direct.id(), direct);
         workspaces.put(upstream.id(), upstream);
         when(workspaceStore.findAll()).thenReturn(ImmutableList.of(direct, upstream));
-        ResponseStatusException failure = new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         when(gitHub.fetchChangedIssuesPage("token", DIRECT, NOW.minusSeconds(3600), 1)).thenThrow(failure);
 
-        assertThatThrownBy(service::refreshRecentIssues).isSameAs(failure);
+        assertThatThrownBy(service::refreshRecentIssues).as(reason).isSameAs(failure);
 
         verify(gitHub, never()).fetchChangedIssuesPage(eq("token"), eq(UPSTREAM), any(), org.mockito.ArgumentMatchers.anyInt());
         verify(settings, never()).put(anyString(), anyString());
     }
 
-    @Test
-    void aRecentRateLimitStopsFollowingRepositoriesWithoutAdvancingCheckpoint()
+    private static Stream<Arguments> repositoryFailures()
     {
-        Workspace direct = workspace("direct", 100, DIRECT, Topology.DIRECT);
-        Workspace upstream = workspace("upstream", 300, UPSTREAM, Topology.FORK);
-        workspaces.put(direct.id(), direct);
-        workspaces.put(upstream.id(), upstream);
-        when(workspaceStore.findAll()).thenReturn(ImmutableList.of(direct, upstream));
-        GitHubRateLimitException failure = new GitHubRateLimitException("core", NOW.plusSeconds(60).getEpochSecond());
-        when(gitHub.fetchChangedIssuesPage("token", DIRECT, NOW.minusSeconds(3600), 1)).thenThrow(failure);
-
-        assertThatThrownBy(service::refreshRecentIssues).isSameAs(failure);
-
-        verify(gitHub, never()).fetchChangedIssuesPage(eq("token"), eq(UPSTREAM), any(), org.mockito.ArgumentMatchers.anyInt());
-        verify(settings, never()).put(anyString(), anyString());
-    }
-
-    private static PrTimelineEvent event(long id, String type, Instant timestamp)
-    {
-        return new PrTimelineEvent(id, type, "alice", timestamp, null, Optional.empty());
-    }
-
-    private static RepositoryIssue issue(long id)
-    {
-        return new RepositoryIssue(
-                id, (int) id, "Issue " + id, "body", "alice", "avatar",
-                "https://github.com/owner/project/issues/" + id,
-                ImmutableList.of("bug"), ImmutableList.of("bob"), 1, NOW, NOW);
-    }
-
-    private static Workspace workspace(String id, long monitoredId, RepoRef monitored, Topology topology)
-    {
-        RepoRef selected = topology == Topology.DIRECT ? monitored : RepoRef.of(id, "project");
-        return new Workspace(
-                id,
-                id,
-                topology == Topology.DIRECT ? monitoredId : monitoredId + 1,
-                selected,
-                topology == Topology.FORK ? Optional.of(monitoredId) : Optional.empty(),
-                topology == Topology.FORK ? Optional.of(monitored) : Optional.empty(),
-                monitoredId,
-                monitored,
-                topology,
-                "main",
-                "https://github.com/" + selected.fullName() + ".git",
-                topology == Topology.FORK ? Optional.of("main") : Optional.empty(),
-                topology == Topology.FORK
-                        ? Optional.of("https://github.com/" + monitored.fullName() + ".git")
-                        : Optional.empty(),
-                "/tmp/" + id,
-                Optional.of(NOW),
-                Optional.of(NOW),
-                0,
-                NOW,
-                NOW);
+        return Stream.of(
+                Arguments.of("authentication failure", new ResponseStatusException(HttpStatus.UNAUTHORIZED)),
+                Arguments.of("rate limit", new GitHubRateLimitException("core", NOW.plusSeconds(60).getEpochSecond())));
     }
 }

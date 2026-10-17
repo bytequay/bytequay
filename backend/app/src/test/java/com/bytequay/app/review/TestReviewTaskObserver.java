@@ -32,6 +32,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -52,24 +53,7 @@ class TestReviewTaskObserver
         ObjectProvider<AgentReviewService> services = mock(ObjectProvider.class);
         when(services.getObject()).thenReturn(service);
         TaskId taskId = TaskId.random();
-        AgentReview review = new AgentReview(
-                "review-queue",
-                "workspace-1",
-                "acme/widgets",
-                OptionalInt.of(1),
-                OptionalLong.empty(),
-                taskId.toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                Instant.EPOCH,
-                Instant.EPOCH,
-                Optional.empty(),
-                Optional.empty());
+        AgentReview review = pullRequestReview("review-queue", "workspace-1", "acme/widgets", 1, taskId.toString(), Instant.EPOCH);
         when(events.readHistory(eq(taskId), any(), any())).thenReturn(new AgentHistoryPage(ImmutableList.of(), OptionalLong.empty(), OptionalLong.empty(), 0));
         when(events.subscribe(taskId, 0)).thenReturn(subscriber -> {
             subscriber.onSubscribe(mock(java.util.concurrent.Flow.Subscription.class));

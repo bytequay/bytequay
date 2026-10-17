@@ -13,7 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { PullRequestDetailDto } from '../types';
+import { prDetail } from './fixtures/pullRequest';
 import MarkdownBody, { changedSpan, CodeReferenceCard, linkIssueNumbers, markdownBlocks, parseGitHubCodePermalink, referenceCardItem, toggleMarkdownTask } from './MarkdownBody';
 
 describe('suggested changes', () => {
@@ -81,14 +81,12 @@ describe('suggested changes', () => {
   });
 });
 
-const pullRequestDetail: PullRequestDetailDto = {
-  id: 1, repo: 'trinodb/trino', number: 30611, title: 'Handle IPv6 zone ids in Web UI task URIs', htmlUrl: null,
-  state: 'open', draft: false, mergeable: null, mergeableState: null, author: 'wren-d', authorAvatarUrl: null,
-  createdAt: '2026-08-27T10:00:00Z', updatedAt: '2026-09-05T12:00:00Z', mergedAt: null, baseRef: 'master',
-  headRef: 'ipv6', headSha: 'head', body: 'Fixes the zone id.', labels: [], assignees: [], milestone: null, reviewers: [],
-  additions: 2, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
-  checkRuns: [], unavailableSections: [], viewerCanWrite: true,
-};
+const pullRequestDetail = prDetail({
+  repo: 'trinodb/trino', number: 30611, title: 'Handle IPv6 zone ids in Web UI task URIs', htmlUrl: null,
+  mergeable: null, mergeableState: null, author: 'wren-d', baseRef: 'master', headRef: 'ipv6',
+  createdAt: '2026-08-27T10:00:00Z', updatedAt: '2026-09-05T12:00:00Z',
+  body: 'Fixes the zone id.', additions: 2, deletions: 1,
+});
 
 describe('MarkdownBody', () => {
   it.each(['open', 'closed'])('maps an %s issue reference onto the shared card', state => {

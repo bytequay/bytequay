@@ -133,6 +133,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
@@ -809,7 +810,7 @@ class TestDefaultAgentTurnService
     @ValueSource(booleans = {false, true})
     void failedLocalRunRefreshDrainPreservesTheCommittedOwnershipAndCanReplay(boolean failRelease)
     {
-        FailLifecycleDrainEventService failing = new FailLifecycleDrainEventService(events, stores, AgentEventPayload.LifecyclePhase.WORKTREE_UPDATED, !failRelease);
+        FailOnceDrainEventService failing = failLifecycleDrain(AgentEventPayload.LifecyclePhase.WORKTREE_UPDATED, !failRelease);
         service = service(driver, runtimeRegistry, failing);
         AgentTask claimed = service.claimLocalRun(task.id(), "run-1");
         assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEqualTo(claimed.worktreeMutationClaim());
@@ -833,7 +834,7 @@ class TestDefaultAgentTurnService
     @Test
     void worktreeActionRetainsItsDurableClaimWhenTheRefreshCannotDrain()
     {
-        FailLifecycleDrainEventService failing = new FailLifecycleDrainEventService(events, stores, AgentEventPayload.LifecyclePhase.WORKTREE_UPDATED);
+        FailOnceDrainEventService failing = failLifecycleDrain(AgentEventPayload.LifecyclePhase.WORKTREE_UPDATED, true);
         service = service(driver, runtimeRegistry, failing);
         AtomicInteger writes = new AtomicInteger();
         service.synchronizeWorktree(task.id(), task.version(), claimed -> {
@@ -2508,7 +2509,7 @@ class TestDefaultAgentTurnService
     @Test
     void retainsTheClaimWhenAKnownUnsentSessionCannotBeVerifiedClosed()
     {
-        FailLifecycleDrainEventService failingEvents = new FailLifecycleDrainEventService(events, stores, AgentEventPayload.LifecyclePhase.TURN_STARTED);
+        FailOnceDrainEventService failingEvents = failLifecycleDrain(AgentEventPayload.LifecyclePhase.TURN_STARTED, true);
         service = service(driver, runtimeRegistry, failingEvents);
         driver.failNextCloseVerification();
 
@@ -3419,7 +3420,7 @@ class TestDefaultAgentTurnService
     @Test
     void keepsAnAcknowledgedQueuedTurnRunningWhenItsRefreshEventCannotDrain()
     {
-        FailLifecycleDrainEventService failingEvents = new FailLifecycleDrainEventService(events, stores, AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED);
+        FailOnceDrainEventService failingEvents = failLifecycleDrain(AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED, true);
         service = service(driver, runtimeRegistry, failingEvents);
         service.start(command("first", "key-1"));
         QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
@@ -3728,7 +3729,10 @@ class TestDefaultAgentTurnService
     @Test
     void pausesTheQueueHeadWhenItsOwnStartFailsBeforeSendingAndRetriesWithoutASecondMessage()
     {
-        service = service(driver, new AgentRuntimeRegistry(stores, ignored -> {}), new FailQueuedMessageDrainEventService(events, stores));
+        FailOnceDrainEventService failingEvents = new FailOnceDrainEventService(events, eventId -> stores.find(eventId)
+                .map(entry -> entry.payload() instanceof AgentEventOutboxPayload.UserMessageBlob blob && blob.deliveryKind() == AgentEventPayload.DeliveryKind.QUEUED)
+                .orElse(false), "blocked event log", true);
+        service = service(driver, new AgentRuntimeRegistry(stores, ignored -> {}), failingEvents);
         service.start(command("first", "key-1"));
         QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
 
@@ -3762,7 +3766,7 @@ class TestDefaultAgentTurnService
     @Test
     void keepsAQueuedInputRetryableWhenItsStartedLifecycleCannotPublish()
     {
-        FailLifecycleDrainEventService failingEvents = new FailLifecycleDrainEventService(events, stores, AgentEventPayload.LifecyclePhase.TURN_STARTED, false);
+        FailOnceDrainEventService failingEvents = failLifecycleDrain(AgentEventPayload.LifecyclePhase.TURN_STARTED, false);
         service = service(driver, runtimeRegistry, failingEvents);
         service.start(command("first", "key-1"));
         QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
@@ -3802,6 +3806,15 @@ class TestDefaultAgentTurnService
                 .hasMessageContaining("may already have been delivered");
         assertThat(service.removeQueued(task.id(), queued.id()).state()).isEqualTo(QueuedAgentInput.State.ABANDONED);
         assertThat(driver.commands()).hasSize(1);
+    }
+
+    private FailOnceDrainEventService failLifecycleDrain(AgentEventPayload.LifecyclePhase phase, boolean fail)
+    {
+        return new FailOnceDrainEventService(events, eventId -> stores.find(eventId)
+                .map(entry -> entry.payload() instanceof AgentEventOutboxPayload.Inline inline
+                        && inline.payload() instanceof AgentEventPayload.Lifecycle lifecycle
+                        && lifecycle.phase() == phase)
+                .orElse(false), "blocked lifecycle event", fail);
     }
 
     private DefaultAgentTurnService service(DeterministicAgentDriver configuredDriver, AgentRuntimeRegistry runtimeRegistry)
@@ -4043,134 +4056,13 @@ class TestDefaultAgentTurnService
         }
     }
 
-    /** Fails the first drain of a queued user message, which is the last step before the provider is reached. */
-    private static final class FailQueuedMessageDrainEventService
-            implements AgentEventService
-    {
-        private final AgentEventService delegate;
-        private final InMemoryAgentStores stores;
-        private boolean failed;
-
-        private FailQueuedMessageDrainEventService(AgentEventService delegate, InMemoryAgentStores stores)
-        {
-            this.delegate = delegate;
-            this.stores = stores;
-        }
-
-        @Override
-        public AgentEventEnvelope append(UnsequencedAgentEvent event)
-        {
-            return delegate.append(event);
-        }
-
-        @Override
-        public AgentEventEnvelope drain(EventId eventId)
-        {
-            boolean queuedMessage = stores.find(eventId)
-                    .map(entry -> entry.payload() instanceof AgentEventOutboxPayload.UserMessageBlob blob
-                            && blob.deliveryKind() == AgentEventPayload.DeliveryKind.QUEUED)
-                    .orElse(false);
-            if (queuedMessage && !failed) {
-                failed = true;
-                throw new AgentStorageException("blocked event log");
-            }
-            return delegate.drain(eventId);
-        }
-
-        @Override
-        public List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
-        {
-            return delegate.readAfter(taskId, afterSequence, limit);
-        }
-
-        @Override
-        public AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
-        {
-            return delegate.readHistory(taskId, before, after);
-        }
-
-        @Override
-        public Flow.Publisher<AgentEventEnvelope> subscribe(TaskId taskId, long afterSequence)
-        {
-            return delegate.subscribe(taskId, afterSequence);
-        }
-    }
-
-    private static final class FailLifecycleDrainEventService
-            implements AgentEventService
-    {
-        private final AgentEventService delegate;
-        private final InMemoryAgentStores stores;
-        private final AgentEventPayload.LifecyclePhase phase;
-        private boolean fail;
-
-        private FailLifecycleDrainEventService(AgentEventService delegate, InMemoryAgentStores stores, AgentEventPayload.LifecyclePhase phase)
-        {
-            this(delegate, stores, phase, true);
-        }
-
-        private FailLifecycleDrainEventService(AgentEventService delegate, InMemoryAgentStores stores, AgentEventPayload.LifecyclePhase phase, boolean fail)
-        {
-            this.delegate = delegate;
-            this.stores = stores;
-            this.phase = phase;
-            this.fail = fail;
-        }
-
-        private void failNextDrain()
-        {
-            fail = true;
-        }
-
-        @Override
-        public AgentEventEnvelope append(UnsequencedAgentEvent event)
-        {
-            return delegate.append(event);
-        }
-
-        @Override
-        public AgentEventEnvelope drain(EventId eventId)
-        {
-            boolean targetLifecycle = stores.find(eventId)
-                    .map(AgentEventOutboxEntry::payload)
-                    .filter(AgentEventOutboxPayload.Inline.class::isInstance)
-                    .map(AgentEventOutboxPayload.Inline.class::cast)
-                    .map(AgentEventOutboxPayload.Inline::payload)
-                    .filter(AgentEventPayload.Lifecycle.class::isInstance)
-                    .map(AgentEventPayload.Lifecycle.class::cast)
-                    .filter(lifecycle -> lifecycle.phase() == phase)
-                    .isPresent();
-            if (targetLifecycle && fail) {
-                fail = false;
-                throw new AgentStorageException("blocked lifecycle event");
-            }
-            return delegate.drain(eventId);
-        }
-
-        @Override
-        public List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
-        {
-            return delegate.readAfter(taskId, afterSequence, limit);
-        }
-
-        @Override
-        public AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
-        {
-            return delegate.readHistory(taskId, before, after);
-        }
-
-        @Override
-        public Flow.Publisher<AgentEventEnvelope> subscribe(TaskId taskId, long afterSequence)
-        {
-            return delegate.subscribe(taskId, afterSequence);
-        }
-    }
-
     private static final class FailOnceDrainEventService
             implements AgentEventService
     {
         private final AgentEventService delegate;
-        private boolean fail = true;
+        private final Predicate<EventId> matches;
+        private final String failureMessage;
+        private boolean fail;
 
         private FailOnceDrainEventService(AgentEventService delegate)
         {
@@ -4179,7 +4071,14 @@ class TestDefaultAgentTurnService
 
         private FailOnceDrainEventService(AgentEventService delegate, boolean fail)
         {
+            this(delegate, ignored -> true, "blocked event log", fail);
+        }
+
+        private FailOnceDrainEventService(AgentEventService delegate, Predicate<EventId> matches, String failureMessage, boolean fail)
+        {
             this.delegate = delegate;
+            this.matches = matches;
+            this.failureMessage = failureMessage;
             this.fail = fail;
         }
 
@@ -4197,9 +4096,9 @@ class TestDefaultAgentTurnService
         @Override
         public AgentEventEnvelope drain(EventId eventId)
         {
-            if (fail) {
+            if (fail && matches.test(eventId)) {
                 fail = false;
-                throw new AgentStorageException("blocked event log");
+                throw new AgentStorageException(failureMessage);
             }
             return delegate.drain(eventId);
         }

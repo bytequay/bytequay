@@ -40,6 +40,7 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 
+import static com.bytequay.app.git.GitTestSupport.git;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -443,13 +444,6 @@ class TestWorkspaceProvisioningService
         Files.writeString(executable, script, StandardCharsets.UTF_8);
         Files.setPosixFilePermissions(executable, PosixFilePermissions.fromString("rwx------"));
         return new GitCommandRunner(executable.toString());
-    }
-
-    private static String git(Path directory, String... arguments)
-    {
-        GitCommandRunner.Result result = new GitCommandRunner().run(directory, arguments);
-        assertThat(result.successful()).describedAs(result.output()).isTrue();
-        return result.output().strip();
     }
 
     private static Path directPath(Workspace workspace)

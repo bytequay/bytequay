@@ -13,8 +13,9 @@
  */
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
+import { prDetail } from './pullRequest';
 import type { ReactNode } from 'react';
-import type { Bridge, PullRequestDetailDto, PullTimelineCommentDto } from '../../types';
+import type { Bridge, PullTimelineCommentDto } from '../../types';
 import { assert, settle } from '../../fixtures/harness';
 import PullOverview from '../PullOverview';
 import { remotePullRequest } from '../PullsScreen';
@@ -43,11 +44,11 @@ const comment = (githubId: number, actor: string, actorBot: boolean, body: strin
   githubId, actor, actorBot, body, actorAvatarUrl: null, timestamp, htmlUrl: null, reviewId: 2,
   inReplyToId: githubId === 4 ? 3 : null, reactions: [],
 });
-const detail: PullRequestDetailDto = {
-  id: 1, repo: base.repo, number: base.number, title: 'Review nested field lookup', htmlUrl: null, state: 'open', draft: false,
-  mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: timestamp, updatedAt: timestamp,
-  mergedAt: null, baseRef: 'master', headRef: 'feature', headSha: 'head', body: 'Resolve nested fields safely.\n\n'.repeat(12), labels: [], assignees: [], milestone: null,
-  reviewers: [], additions: 12, deletions: 4, changedFiles: 1, approvalCount: 0, ciStatus: null, checkRuns: [], unavailableSections: [], viewerCanWrite: false,
+const detail = prDetail({
+  repo: base.repo, number: base.number, title: 'Review nested field lookup', htmlUrl: null,
+  mergeable: null, mergeableState: null, author: 'alice', createdAt: timestamp, updatedAt: timestamp,
+  baseRef: 'master', body: 'Resolve nested fields safely.\n\n'.repeat(12),
+  additions: 12, deletions: 4, viewerCanWrite: false,
   recentActivity: [
     { actor: 'alice', eventType: 'commented', timestamp, body: 'Please check the nested field lookup.', githubId: 1, payload: EMPTY_TIMELINE_PAYLOAD },
     { actor: 'reviewer[bot]', eventType: 'reviewed', timestamp, body: 'One issue needs attention.', githubId: 2,
@@ -56,7 +57,7 @@ const detail: PullRequestDetailDto = {
       payload: { ...EMPTY_TIMELINE_PAYLOAD, resolved: false, outdated: true, path: 'src/Example.java', line: 12, side: 'RIGHT',
         comments: [comment(3, 'reviewer[bot]', true, 'Preserve the leaf field ID.'), comment(4, 'alice', false, 'Fixed the lookup.')] } },
   ],
-};
+});
 const review = { ...base, findings: base.findings.map((finding, index) => ({ ...finding, state: index === 1 ? 'RESOLVED' as const : index === 2 ? 'WITHDRAWN' as const : 'OPEN' as const })),
   messages: base.messages.map(message => ({ ...message, findingId: base.findings[0].id })) };
 

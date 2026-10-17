@@ -33,20 +33,12 @@ it('opens Discussions from the conversation as a tab that closes in Chromium', a
   expect(result).toContain('closes back to the covered view');
 }, 30_000);
 
-it('keeps the panel tab when switching between a pull request\'s developer and reviewer in Chromium', async () => {
+it.each([
+  ["keeps the panel tab when switching between a pull request's developer and reviewer", ''],
+  ['keeps a PR-only reviewer visible after opening its developer conversation', 'true'],
+  ['keeps the destination panel and agent tabs open when switching from a utility', 'false, true'],
+])('%s in Chromium', async (_name, args) => {
   const result = await fixture.run<string>({
-    body: "const results = await window.webContents.executeJavaScript('WorkbenchTests.agentSwitch()');" });
-  expect(result).toContain('keeps the panel tab');
-}, 30_000);
-
-it('keeps a PR-only reviewer visible after opening its developer conversation in Chromium', async () => {
-  const result = await fixture.run<string>({
-    body: "const results = await window.webContents.executeJavaScript('WorkbenchTests.agentSwitch(true)');" });
-  expect(result).toContain('keeps the panel tab');
-}, 30_000);
-
-it('keeps the destination panel and agent tabs open when switching from a utility in Chromium', async () => {
-  const result = await fixture.run<string>({
-    body: "const results = await window.webContents.executeJavaScript('WorkbenchTests.agentSwitch(false, true)');" });
+    body: `const results = await window.webContents.executeJavaScript('WorkbenchTests.agentSwitch(${args})');` });
   expect(result).toContain('keeps the panel tab');
 }, 30_000);

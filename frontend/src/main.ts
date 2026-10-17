@@ -551,6 +551,15 @@ function prUrl(pathname: string, repo: string, number: number): URL {
   return url;
 }
 
+function prDiffUrl(pathname: string, repo: string, number: number, baseSha?: string, headSha?: string): URL {
+  const url = prUrl(pathname, repo, number);
+  if (baseSha && headSha) {
+    url.searchParams.set('base', baseSha);
+    url.searchParams.set('head', headSha);
+  }
+  return url;
+}
+
 let googleChat: GeminiChat | undefined;
 
 function registerIpc(): void {
@@ -1623,28 +1632,14 @@ function registerIpc(): void {
     number: number,
     baseSha?: string,
     headSha?: string,
-  ) => {
-    const url = prUrl('/prs/diffFiles', repo, number);
-    if (baseSha && headSha) {
-      url.searchParams.set('base', baseSha);
-      url.searchParams.set('head', headSha);
-    }
-    return backendJson(url);
-  });
+  ) => backendJson(prDiffUrl('/prs/diffFiles', repo, number, baseSha, headSha)));
   ipcMain.handle('prs:diff:refresh', (
     _event,
     repo: string,
     number: number,
     baseSha?: string,
     headSha?: string,
-  ) => {
-    const url = prUrl('/prs/diffFiles/refresh', repo, number);
-    if (baseSha && headSha) {
-      url.searchParams.set('base', baseSha);
-      url.searchParams.set('head', headSha);
-    }
-    return backendJson(url, { method: 'POST' });
-  });
+  ) => backendJson(prDiffUrl('/prs/diffFiles/refresh', repo, number, baseSha, headSha), { method: 'POST' }));
   ipcMain.handle('prs:diff-commits', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/diffCommits', repo, number)));
   ipcMain.handle('prs:diff-content:refresh', (
@@ -1655,12 +1650,8 @@ function registerIpc(): void {
     baseSha?: string,
     headSha?: string,
   ) => {
-    const url = prUrl('/prs/diffContent/refresh', repo, number);
+    const url = prDiffUrl('/prs/diffContent/refresh', repo, number, baseSha, headSha);
     url.searchParams.set('path', path);
-    if (baseSha && headSha) {
-      url.searchParams.set('base', baseSha);
-      url.searchParams.set('head', headSha);
-    }
     return backendJson(url, { method: 'POST' });
   });
   // Sent through the pending review under the comment box's key, so a retry after an unknown outcome meets the first send.

@@ -58,9 +58,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.OptionalInt;
-import java.util.OptionalLong;
 
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -182,24 +181,7 @@ class TestAppNoticeService
     {
         AgentTask reviewer = AgentTask.created(TaskId.random(), task.workspaceId(), false, "Review owner/repo#42", task.laneId(),
                 new RepositoryIdentity("fork-owner", "repo"), task.worktree(), task.defaults(), NOW);
-        AgentReview review = new AgentReview(
-                "review",
-                "workspace",
-                "owner/repo",
-                OptionalInt.of(42),
-                OptionalLong.empty(),
-                reviewer.id().toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty());
+        AgentReview review = pullRequestReview("review", "workspace", "owner/repo", 42, reviewer.id().toString(), NOW);
         when(reviews.listOpenReviews()).thenReturn(ImmutableList.of(review));
         PullRequest pullRequest = new PullRequest(123, "owner/repo", 42, "Improve  recovery\nfor interrupted tasks", "author", "https://github.com/owner/repo/pull/42",
                 NOW, NOW, PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 0, 0, 0,
@@ -237,24 +219,7 @@ class TestAppNoticeService
     @Test
     void summarizesTheLatestReviewScopeWithCommitFileAndLineCounts()
     {
-        AgentReview review = new AgentReview(
-                "review",
-                "workspace",
-                "owner/repo",
-                OptionalInt.of(42),
-                OptionalLong.empty(),
-                task.id().toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty());
+        AgentReview review = pullRequestReview("review", "workspace", "owner/repo", 42, task.id().toString(), NOW);
         when(reviews.listOpenReviews()).thenReturn(ImmutableList.of(review));
         AgentTurn done = turn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10));
         show(task, done);
@@ -277,24 +242,7 @@ class TestAppNoticeService
     @Test
     void waitsForTheReviewRunToSettleBetweenAutomaticTurns()
     {
-        AgentReview review = new AgentReview(
-                "review",
-                "workspace",
-                "owner/repo",
-                OptionalInt.of(42),
-                OptionalLong.empty(),
-                task.id().toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty());
+        AgentReview review = pullRequestReview("review", "workspace", "owner/repo", 42, task.id().toString(), NOW);
         when(reviews.listOpenReviews()).thenReturn(ImmutableList.of(review));
         AgentTurn investigation = turn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10));
         ReviewRun run = new ReviewRun("run", review.id(), 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(), Optional.empty(),

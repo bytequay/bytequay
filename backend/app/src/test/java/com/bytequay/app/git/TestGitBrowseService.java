@@ -22,12 +22,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import static com.bytequay.app.git.GitTestSupport.commit;
+import static com.bytequay.app.git.GitTestSupport.gitOutput;
+import static com.bytequay.app.git.GitTestSupport.head;
+import static com.bytequay.app.git.GitTestSupport.initRepository;
+import static com.bytequay.app.git.GitTestSupport.write;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -45,20 +47,16 @@ class TestGitBrowseService
     void setUp()
             throws IOException
     {
-        Path created = Files.createDirectories(temporaryDirectory.resolve("repo"));
-        git(temporaryDirectory, "init", "--quiet", "-b", "main", created.toString());
-        git(created, "config", "user.name", "ByteQuay Test");
-        git(created, "config", "user.email", "bytequay@example.com");
-        repository = created.toRealPath();
+        repository = initRepository(temporaryDirectory.resolve("repo"));
         service = new GitBrowseService(GIT);
     }
 
     @Test
     void logReportsTitleBodyAuthorPullRequestNumberAndDistinctDates()
     {
-        write("a.txt", "one\n");
-        git(repository, "add", "-A");
-        git(repository, "commit", "--quiet", "--date=2001-02-03T04:05:06Z", "-m", "First change (#412)", "-m", "Longer body\nwith two lines");
+        write(repository, "a.txt", "one\n");
+        gitOutput(repository, "add", "-A");
+        gitOutput(repository, "commit", "--quiet", "--date=2001-02-03T04:05:06Z", "-m", "First change (#412)", "-m", "Longer body\nwith two lines");
 
         List<Commit> commits = service.log(repository, "main", 10);
 
@@ -70,25 +68,25 @@ class TestGitBrowseService
         assertThat(commit.committer()).isEqualTo("ByteQuay Test");
         assertThat(commit.pullRequestNumber()).contains(412);
         assertThat(commit.authoredAt())
-                .isEqualTo(git(repository, "log", "-1", "--format=%aI").strip());
+                .isEqualTo(gitOutput(repository, "log", "-1", "--format=%aI").strip());
         assertThat(commit.committedAt())
-                .isEqualTo(git(repository, "log", "-1", "--format=%cI").strip())
+                .isEqualTo(gitOutput(repository, "log", "-1", "--format=%cI").strip())
                 .isNotEqualTo(commit.authoredAt());
     }
 
     @Test
     void diffSplitsPerFileWithStatusesAndCounts()
     {
-        write("kept.txt", "line\n");
-        write("gone.txt", "bye\n");
-        commit("Base");
-        String base = head();
-        write("kept.txt", "line\nmore\n");
-        write("fresh.txt", "hello\n");
-        git(repository, "rm", "--quiet", "gone.txt");
-        commit("Change");
+        write(repository, "kept.txt", "line\n");
+        write(repository, "gone.txt", "bye\n");
+        commit(repository, "Base");
+        String base = head(repository);
+        write(repository, "kept.txt", "line\nmore\n");
+        write(repository, "fresh.txt", "hello\n");
+        gitOutput(repository, "rm", "--quiet", "gone.txt");
+        commit(repository, "Change");
 
-        List<DiffFile> files = service.diff(repository, base, head());
+        List<DiffFile> files = service.diff(repository, base, head(repository));
 
         assertThat(files).extracting(DiffFile::path)
                 .containsExactlyInAnyOrder("kept.txt", "gone.txt", "fresh.txt");
@@ -105,13 +103,13 @@ class TestGitBrowseService
     @Test
     void diffHandlesPathsWithSpaces()
     {
-        write("seed.txt", "seed\n");
-        commit("Base");
-        String base = head();
-        write("docs/My Design File.html", "<html>\n");
-        commit("Add design");
+        write(repository, "seed.txt", "seed\n");
+        commit(repository, "Base");
+        String base = head(repository);
+        write(repository, "docs/My Design File.html", "<html>\n");
+        commit(repository, "Add design");
 
-        List<DiffFile> files = service.diff(repository, base, head());
+        List<DiffFile> files = service.diff(repository, base, head(repository));
 
         assertThat(files).hasSize(1);
         DiffFile file = files.getFirst();
@@ -123,13 +121,13 @@ class TestGitBrowseService
     @Test
     void diffFileContentReturnsBothRevisions()
     {
-        write("folder/file.txt", "before\n");
-        commit("Base");
-        String base = head();
-        write("folder/file.txt", "after\n");
-        commit("Change");
+        write(repository, "folder/file.txt", "before\n");
+        commit(repository, "Base");
+        String base = head(repository);
+        write(repository, "folder/file.txt", "after\n");
+        commit(repository, "Change");
 
-        FileContent content = service.diffFileContent(repository, base, head(), "folder/file.txt");
+        FileContent content = service.diffFileContent(repository, base, head(repository), "folder/file.txt");
 
         assertThat(content.oldContent()).contains("before\n");
         assertThat(content.newContent()).contains("after\n");
@@ -138,10 +136,10 @@ class TestGitBrowseService
     @Test
     void statusListsTrackedAndUntrackedChanges()
     {
-        write("tracked.txt", "one\n");
-        commit("Base");
-        write("tracked.txt", "one\ntwo\n");
-        write("untracked.txt", "new\n");
+        write(repository, "tracked.txt", "one\n");
+        commit(repository, "Base");
+        write(repository, "tracked.txt", "one\ntwo\n");
+        write(repository, "untracked.txt", "new\n");
 
         WorktreeStatus status = service.status(repository);
 
@@ -160,96 +158,64 @@ class TestGitBrowseService
     @Test
     void commitRecordsEverything()
     {
-        write("a.txt", "one\n");
+        write(repository, "a.txt", "one\n");
         String sha = service.commit(repository, "Add a", "With body");
 
-        assertThat(git(repository, "status", "--porcelain")).isBlank();
-        assertThat(git(repository, "log", "-1", "--format=%s%n%b")).startsWith("Add a\nWith body");
-        assertThat(head()).isEqualTo(sha);
+        assertThat(gitOutput(repository, "status", "--porcelain")).isBlank();
+        assertThat(gitOutput(repository, "log", "-1", "--format=%s%n%b")).startsWith("Add a\nWith body");
+        assertThat(head(repository)).isEqualTo(sha);
     }
 
     @Test
     void rewordRewritesAMidHistoryCommitAndKeepsDescendants()
     {
-        write("seed.txt", "seed\n");
-        commit("Seed");
-        write("a.txt", "one\n");
-        commit("First");
-        String first = head();
-        write("b.txt", "two\n");
-        commit("Second");
+        write(repository, "seed.txt", "seed\n");
+        commit(repository, "Seed");
+        write(repository, "a.txt", "one\n");
+        commit(repository, "First");
+        String first = head(repository);
+        write(repository, "b.txt", "two\n");
+        commit(repository, "Second");
 
         String rewritten = service.reword(repository, "main", first, "First, but better\n\nNow with a body");
 
-        assertThat(git(repository, "log", "--format=%s")).isEqualTo("Second\nFirst, but better\nSeed\n");
-        assertThat(git(repository, "log", "--format=%an", rewritten, "-1")).isEqualTo("ByteQuay Test\n");
-        assertThat(git(repository, "status", "--porcelain")).isBlank();
+        assertThat(gitOutput(repository, "log", "--format=%s")).isEqualTo("Second\nFirst, but better\nSeed\n");
+        assertThat(gitOutput(repository, "log", "--format=%an", rewritten, "-1")).isEqualTo("ByteQuay Test\n");
+        assertThat(gitOutput(repository, "status", "--porcelain")).isBlank();
     }
 
     @Test
     void squashCombinesASpanUnderOneMessage()
     {
-        write("a.txt", "one\n");
-        commit("Keep below");
-        write("b.txt", "two\n");
-        commit("Span start");
-        String base = head();
-        write("c.txt", "three\n");
-        commit("Span end");
-        String tip = head();
-        write("d.txt", "four\n");
-        commit("Keep above");
+        write(repository, "a.txt", "one\n");
+        commit(repository, "Keep below");
+        write(repository, "b.txt", "two\n");
+        commit(repository, "Span start");
+        String base = head(repository);
+        write(repository, "c.txt", "three\n");
+        commit(repository, "Span end");
+        String tip = head(repository);
+        write(repository, "d.txt", "four\n");
+        commit(repository, "Keep above");
 
         service.squash(repository, "main", base, tip, "Combined span");
 
-        assertThat(git(repository, "log", "--format=%s"))
+        assertThat(gitOutput(repository, "log", "--format=%s"))
                 .isEqualTo("Keep above\nCombined span\nKeep below\n");
-        assertThat(git(repository, "ls-tree", "--name-only", "HEAD"))
+        assertThat(gitOutput(repository, "ls-tree", "--name-only", "HEAD"))
                 .contains("a.txt", "b.txt", "c.txt", "d.txt");
     }
 
     @Test
     void rewritesRefuseADirtyWorktree()
     {
-        write("a.txt", "one\n");
-        commit("First");
-        String first = head();
-        write("a.txt", "changed\n");
+        write(repository, "a.txt", "one\n");
+        commit(repository, "First");
+        String first = head(repository);
+        write(repository, "a.txt", "changed\n");
 
         assertThatThrownBy(() -> service.reword(repository, "main", first, "New message"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("uncommitted changes");
-    }
-
-    private void write(String path, String content)
-    {
-        try {
-            Path target = repository.resolve(path);
-            Files.createDirectories(target.getParent());
-            Files.writeString(target, content, StandardCharsets.UTF_8);
-        }
-        catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
-    private void commit(String message)
-    {
-        git(repository, "add", "-A");
-        git(repository, "commit", "--quiet", "-m", message);
-    }
-
-    private String head()
-    {
-        return git(repository, "rev-parse", "HEAD").strip();
-    }
-
-    private static String git(Path directory, String... arguments)
-    {
-        GitCommandRunner.Result result = GIT.run(directory, arguments);
-        assertThat(result.successful())
-                .as("git %s: %s", String.join(" ", arguments), result.output())
-                .isTrue();
-        return result.output();
     }
 }

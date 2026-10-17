@@ -23,9 +23,8 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.Optional;
-import java.util.OptionalInt;
-import java.util.OptionalLong;
 
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
 import static com.bytequay.core.review.ReviewStep.Kind.EXPLAIN;
 import static com.bytequay.core.review.ReviewStep.Kind.INVESTIGATE;
@@ -127,24 +126,7 @@ class TestReviewPrompts
     @Test
     void theSecondReaderGetsItsAssignmentTheFrozenRangeAndOnlyTheReferenceItWasGiven()
     {
-        AgentReview review = new AgentReview(
-                "review",
-                "workspace",
-                "acme/widgets",
-                OptionalInt.of(42),
-                OptionalLong.empty(),
-                "task",
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                Instant.EPOCH,
-                Instant.EPOCH,
-                Optional.empty(),
-                Optional.empty());
+        AgentReview review = pullRequestReview("review", "workspace", "acme/widgets", 42, "task", Instant.EPOCH);
         ReviewRun run = new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", "base", "fork", "head", Optional.empty(), Optional.empty(),
                 ImmutableList.of(), ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, null)), ImmutableList.of(), ReviewRun.State.RUNNING,
                 Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(),

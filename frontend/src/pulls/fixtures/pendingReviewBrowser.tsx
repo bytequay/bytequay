@@ -13,6 +13,7 @@
  */
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
+import { prDetail } from './pullRequest';
 import type { Bridge, DiffCommitDto, DiffFileDto, PullRequestDetailDto } from '../../types';
 import PullsScreen, { remotePullRequest, ReviewDialog } from '../PullsScreen';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
@@ -24,16 +25,16 @@ import { EMPTY_TIMELINE_PAYLOAD } from '../model';
 import type { ReviewDraftDto, ReviewDraftItemDto } from '../agent-review/contracts';
 
 const review = reviewFixture({ id: 'pending-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z' });
-const stored: PullRequestDetailDto = {
-  id: 9001, repo: review.repo, number: review.number, title: 'Sort by nested fields', htmlUrl: null, state: 'open', draft: false,
-  mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: '2026-01-01T00:00:00Z',
-  mergedAt: null, baseRef: 'master', headRef: 'feature', headSha: 'head', body: 'Implementation', labels: [], assignees: [], milestone: null,
-  reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], additions: 1, deletions: 1, changedFiles: 1,
-  approvalCount: 0, ciStatus: null, recentActivity: [{ githubId: 61, eventType: 'review_thread', actor: 'alice', timestamp: null, body: 'Existing discussion',
+const stored = prDetail({
+  id: 9001, repo: review.repo, number: review.number, title: 'Sort by nested fields', htmlUrl: null,
+  mergeable: null, mergeableState: null, author: 'alice', updatedAt: '2026-01-01T00:00:00Z',
+  baseRef: 'master', body: 'Implementation',
+  reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], deletions: 1,
+  recentActivity: [{ githubId: 61, eventType: 'review_thread', actor: 'alice', timestamp: null, body: 'Existing discussion',
     payload: { ...EMPTY_TIMELINE_PAYLOAD, path: 'src/Example.java', line: 1, originalLine: 1, side: 'RIGHT',
       comments: [{ githubId: 61, actor: 'alice', actorAvatarUrl: null, actorBot: false, timestamp: null, body: 'Existing discussion',
-        htmlUrl: null, reviewId: 50, inReplyToId: null, reactions: [] }] } }], checkRuns: [], unavailableSections: [], viewerCanWrite: true,
-};
+        htmlUrl: null, reviewId: 50, inReplyToId: null, reactions: [] }] } }],
+});
 const files: DiffFileDto[] = [{ filename: 'src/Example.java', status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+new' }];
 const commits: DiffCommitDto[] = [
   { sha: 'one', parentSha: 'base', message: 'one', author: null, authoredAt: null },

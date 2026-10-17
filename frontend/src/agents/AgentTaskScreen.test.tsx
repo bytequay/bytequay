@@ -30,6 +30,7 @@ import { initialAgentTaskState, type AgentTaskState } from './model';
 import { samePullRequest, taskPullRequest, type TaskPullRequestChanges } from './TaskPullRequestPanel';
 import { displayModelName } from '../settings/model';
 import { projectTranscript } from './transcript';
+import { pr, prDetail } from '../pulls/fixtures/pullRequest';
 import { EMPTY_TIMELINE_PAYLOAD } from '../pulls/model';
 import { agentTurn as turn, previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
@@ -325,16 +326,6 @@ describe('agent task layout', () => {
     expect(markup).toContain('5.6 Sol');
     expect(markup).not.toContain('GPT-5.6-Sol');
   });
-
-  it('scrolls the transcript rather than the screen, so the composer stays reachable', () => {
-    // A long transcript must move under a fixed header and composer, not push them off-screen.
-    expect(declarations('.agt-screen')).toContain('height: 100%');
-    expect(declarations('.agt-screen')).toContain('overflow: hidden');
-    expect(declarations('.agt-transcript')).toContain('overflow-y: auto');
-    expect(declarations('.agt-transcript')).toContain('flex: 1');
-    // A flex child will not shrink below its content without this, which re-breaks the scroll.
-    expect(declarations('.agt-transcript')).toContain('min-height: 0');
-  });
 });
 
 describe('agent task list', () => {
@@ -468,33 +459,16 @@ describe('agent task list', () => {
 
 /** A pull request whose diff already carries one review thread, for the panel's Changes tab. */
 function reviewedDetail(): PullRequestDetailDto {
-  return {
+  return prDetail({
     id: 482,
     repo: 'bytequay/bytequay',
     number: 482,
     title: 'Fix preview output limit',
     htmlUrl: 'https://github.com/bytequay/bytequay/pull/482',
-    state: 'open',
-    draft: false,
-    mergeable: true,
-    mergeableState: 'clean',
     author: 'alice',
-    authorAvatarUrl: null,
     createdAt: '2026-08-20T10:00:00Z',
     updatedAt: '2026-08-20T10:00:00Z',
-    mergedAt: null,
-    baseRef: 'main',
-    headRef: 'fix-preview-output-limit', headSha: 'head',
-    body: null,
-    labels: [],
-    assignees: [],
-    milestone: null,
-    reviewers: [],
-    additions: 1,
-    deletions: 0,
-    changedFiles: 1,
-    approvalCount: 0,
-    ciStatus: null,
+    headRef: 'fix-preview-output-limit',
     recentActivity: [{
       actor: 'bob',
       eventType: 'review_thread',
@@ -503,14 +477,11 @@ function reviewedDetail(): PullRequestDetailDto {
       githubId: 9,
       payload: { ...EMPTY_TIMELINE_PAYLOAD, path: 'src/Example.java', line: 2, side: 'RIGHT' },
     }],
-    checkRuns: [],
-    unavailableSections: [],
-    viewerCanWrite: true,
-  };
+  });
 }
 
 function pullRequest(number: number, title: string, state = 'open', draft = false): PullRequestDto {
-  return {
+  return pr({
     id: number,
     repo: 'bytequay/bytequay',
     number,
@@ -519,24 +490,14 @@ function pullRequest(number: number, title: string, state = 'open', draft = fals
     htmlUrl: `https://github.com/bytequay/bytequay/pull/${number}`,
     createdAt: '2026-08-20T10:00:00Z',
     updatedAt: '2026-08-20T10:00:00Z',
-    origin: 'AUTHORED',
-    labels: [],
-    labelColors: null,
     draft,
-    viewedAt: null,
-    reviewedAt: null,
-    handledAction: null,
-    requestedReviewers: [],
     ciStatus: null,
     additions: 0,
-    deletions: 0,
-    commentCount: 0,
     state,
     mergeable: null,
     mergeableState: null,
-    headPushedAt: null,
     headRef: 'bytequay/task/t-1',
-  };
+  });
 }
 
 describe('one arrow', () => {

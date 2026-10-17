@@ -13,7 +13,8 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto, UserProfileDto } from '../types';
+import { pr as pullRequest } from './fixtures/pullRequest';
+import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullTimelinePayloadDto, UserProfileDto } from '../types';
 import { parseUnifiedDiff } from '../diffParse';
 import type { AgentReviewDto } from './agent-review/contracts';
 import { reviewFixture } from './agent-review/fixtures/review';
@@ -85,14 +86,11 @@ function reviewActivity(id: number, body: string, payload: Partial<PullTimelineP
 }
 
 function reviewThreads(activities: PullRequestDetailDto['recentActivity']): NonNullable<DiffViewerProps['reviewThreads']> {
-  const pr: PullRequestDto = {
-    id: 1, repo: 'owner/repo', number: 42, title: 'Example pull request', author: 'alice',
-    htmlUrl: 'https://github.com/owner/repo/pull/42', createdAt: '2026-08-25T09:00:00Z',
-    updatedAt: '2026-08-25T10:00:00Z', origin: 'AUTHORED', labels: [], labelColors: {}, draft: false,
-    viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [], ciStatus: 'PASSING',
-    additions: 1, deletions: 1, commentCount: activities.length, state: 'open',
-    mergeable: true, mergeableState: 'clean', headPushedAt: null, headRef: 'feature/review',
-  };
+  const pr = pullRequest({
+    repo: 'owner/repo', title: 'Example pull request', author: 'alice',
+    htmlUrl: 'https://github.com/owner/repo/pull/42', createdAt: '2026-08-25T09:00:00Z', updatedAt: '2026-08-25T10:00:00Z',
+    labelColors: {}, deletions: 1, commentCount: activities.length, headRef: 'feature/review',
+  });
   return { activities, pr, unavailable: false, onRefresh: async () => {}, onDetailUpdate: () => {} };
 }
 

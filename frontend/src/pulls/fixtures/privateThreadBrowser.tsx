@@ -13,6 +13,7 @@
  */
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
+import { prDetail } from './pullRequest';
 import '../../css/base.css';
 import '../../css/markdown-editor.css';
 import '../../css/pulls.css';
@@ -21,19 +22,17 @@ import { TaskPullRequestView } from '../../agents/TaskPullRequestPanel';
 import { privateThreadSource } from '../PrivateThread';
 import { useTaskDiscussions, type DiscussionBridgePort } from '../../agents/discussions/useTaskDiscussions';
 import { SUMMARY_REQUEST, type AskCommentDiscussionRequest, type TaskDiscussionDto } from '../../agents/discussions/contracts';
-import type { Bridge, PullRequestDetailDto } from '../../types';
+import type { Bridge } from '../../types';
 import { assert, settle } from '../../fixtures/harness';
 import { EMPTY_TIMELINE_PAYLOAD } from '../model';
 import { remotePullRequest } from '../PullsScreen';
 
 const AT = '2026-09-27T00:00:00Z';
 const ROOT = 61;
-const detail: PullRequestDetailDto = {
-  id: 7, repo: 'owner/repo', number: 7, title: 'Resolve owners', htmlUrl: null, state: 'open', draft: false,
-  mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: AT, updatedAt: AT,
-  mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: 'Resolves owners.', labels: [], assignees: [], milestone: null,
-  reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, checkRuns: [], unavailableSections: [],
-  viewerCanWrite: true,
+const detail = prDetail({
+  id: 7, repo: 'owner/repo', number: 7, title: 'Resolve owners', htmlUrl: null,
+  mergeable: null, mergeableState: null, author: 'alice', createdAt: AT, updatedAt: AT,
+  body: 'Resolves owners.', deletions: 1,
   recentActivity: [
     { actor: 'bob', eventType: 'reviewed', timestamp: AT, body: null, githubId: 50, payload: { ...EMPTY_TIMELINE_PAYLOAD, state: 'COMMENTED' } },
     { actor: 'bob', eventType: 'review_thread', timestamp: AT, body: null, githubId: 70, payload: { ...EMPTY_TIMELINE_PAYLOAD,
@@ -42,7 +41,7 @@ const detail: PullRequestDetailDto = {
         htmlUrl: null, reviewId: 50, inReplyToId: null, reactions: [] }] } },
     { actor: 'alice', eventType: 'commented', timestamp: AT, body: 'Thanks, renaming it now.', githubId: 80, payload: EMPTY_TIMELINE_PAYLOAD },
   ],
-};
+});
 const pr = remotePullRequest(detail, 'alice');
 const SUMMARY = JSON.stringify({ ask: 'Rename helper to resolveOwner.', valid: 'yes', why: 'The name hides what it does.',
   do: 'yes', plan: 'Rename it and its two callers.', size: 'trivial' });

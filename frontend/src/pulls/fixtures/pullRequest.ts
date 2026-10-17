@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import type { PullRequestDto } from '../../types';
+import type { PullRequestDetailDto, PullRequestDto } from '../../types';
 
 /** A pull request at rest; a test sets only the fields its case turns on. */
 export function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
@@ -42,6 +42,43 @@ export function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
     mergeableState: 'clean',
     headPushedAt: null,
     headRef: 'feature',
+    ...overrides,
+  };
+}
+
+export function prDetail(overrides: Partial<PullRequestDetailDto>): PullRequestDetailDto {
+  return {
+    id: 1,
+    repo: 'bytequay/app',
+    number: 42,
+    title: 'Keep PR details',
+    htmlUrl: 'https://github.com/bytequay/app/pull/42',
+    state: 'open',
+    draft: false,
+    mergeable: true,
+    mergeableState: 'clean',
+    author: 'jack',
+    authorAvatarUrl: null,
+    createdAt: null,
+    updatedAt: '2026-08-15T00:00:00Z',
+    mergedAt: null,
+    baseRef: 'main',
+    headRef: 'feature',
+    headSha: 'head',
+    body: null,
+    labels: [],
+    assignees: [],
+    milestone: null,
+    reviewers: [],
+    additions: 1,
+    deletions: 0,
+    changedFiles: 1,
+    approvalCount: 0,
+    ciStatus: null,
+    recentActivity: [],
+    checkRuns: [],
+    unavailableSections: [],
+    viewerCanWrite: true,
     ...overrides,
   };
 }

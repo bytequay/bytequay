@@ -169,6 +169,11 @@ async function longCommandConversation(): Promise<void> {
     const container = host.querySelector<HTMLElement>('.agt-transcript');
     assert(container !== null, 'The production task transcript is missing');
     assert(container.scrollHeight > container.clientHeight + 400, 'The production CSS must constrain and scroll the transcript');
+    const composer = host.querySelector<HTMLElement>('.agt-compose-dock');
+    assert(composer !== null, 'The production task composer is missing');
+    const composerTop = composer.getBoundingClientRect().top;
+    assert(composerTop >= host.getBoundingClientRect().top && composer.getBoundingClientRect().bottom <= host.getBoundingClientRect().bottom,
+      'A long transcript must leave the composer inside the task viewport');
     const paragraphs = [...container.querySelectorAll<HTMLElement>('.agt-text p, .agt-answer p')].map(element => element.textContent ?? '');
     assert(paragraphs.length === 20, `Expected ten readable messages, found ${paragraphs.length / 2}`);
     const wheel = async (deltaY: number): Promise<void> => {
@@ -207,6 +212,8 @@ async function longCommandConversation(): Promise<void> {
     const answer = container.querySelector<HTMLElement>('.agt-answer');
     assert(answer !== null && answer.getBoundingClientRect().bottom > container.getBoundingClientRect().top
       && answer.getBoundingClientRect().bottom <= container.getBoundingClientRect().bottom, 'Scrolling back down should reach the existing final answer');
+    assert(Math.abs(composer.getBoundingClientRect().top - composerTop) <= 1,
+      'Paging and scrolling the transcript must leave the composer in place');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }

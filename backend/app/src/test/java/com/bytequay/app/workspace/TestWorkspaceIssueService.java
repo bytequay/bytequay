@@ -22,7 +22,6 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.Workspace;
@@ -36,12 +35,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
-import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.app.workspace.WorkspaceIssueTestData.NOW;
+import static com.bytequay.app.workspace.WorkspaceIssueTestData.event;
+import static com.bytequay.app.workspace.WorkspaceIssueTestData.issue;
+import static com.bytequay.app.workspace.WorkspaceIssueTestData.workspace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -51,7 +53,6 @@ import static org.mockito.Mockito.when;
 
 class TestWorkspaceIssueService
 {
-    private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
     private static final RepoRef DIRECT = RepoRef.of("owner", "project");
     private static final RepoRef UPSTREAM = RepoRef.of("upstream", "project");
 
@@ -208,45 +209,5 @@ class TestWorkspaceIssueService
                 currentType,
                 ImmutableList.of("Task", "Bug"),
                 Optional.of(NOW));
-    }
-
-    private static PrTimelineEvent event(long id, String type, Instant timestamp)
-    {
-        return new PrTimelineEvent(id, type, "alice", timestamp, null, Optional.empty());
-    }
-
-    private static RepositoryIssue issue(long id)
-    {
-        return new RepositoryIssue(
-                id, (int) id, "Issue " + id, "body", "alice", "avatar",
-                "https://github.com/owner/project/issues/" + id,
-                ImmutableList.of("bug"), ImmutableList.of("bob"), 1, NOW, NOW);
-    }
-
-    private static Workspace workspace(String id, long monitoredId, RepoRef monitored, Topology topology)
-    {
-        RepoRef selected = topology == Topology.DIRECT ? monitored : RepoRef.of(id, "project");
-        return new Workspace(
-                id,
-                id,
-                topology == Topology.DIRECT ? monitoredId : monitoredId + 1,
-                selected,
-                topology == Topology.FORK ? Optional.of(monitoredId) : Optional.empty(),
-                topology == Topology.FORK ? Optional.of(monitored) : Optional.empty(),
-                monitoredId,
-                monitored,
-                topology,
-                "main",
-                "https://github.com/" + selected.fullName() + ".git",
-                topology == Topology.FORK ? Optional.of("main") : Optional.empty(),
-                topology == Topology.FORK
-                        ? Optional.of("https://github.com/" + monitored.fullName() + ".git")
-                        : Optional.empty(),
-                "/tmp/" + id,
-                Optional.of(NOW),
-                Optional.of(NOW),
-                0,
-                NOW,
-                NOW);
     }
 }

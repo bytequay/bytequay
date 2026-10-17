@@ -23,6 +23,7 @@ import { relativeTime } from '../relativeTime';
 import PullsScreen, { hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 import type { AgentReviewDto } from './agent-review/contracts';
 import { reviewFixture, runningReviewFixture } from './agent-review/fixtures/review';
+import { pr, prDetail } from './fixtures/pullRequest';
 import type { PrivateThreads } from './PrivateThread';
 
 /** New lines 41 (context) through 44, as GitHub records a thread's diff_hunk. */
@@ -1795,63 +1796,41 @@ function queuedDetail(): PullRequestDetailDto {
 }
 
 function pullRequest(): PullRequestDto {
-  return {
-    id: 1,
+  return pr({
     repo: 'owner/repo',
-    number: 42,
     title: 'Example pull request',
     author: 'alice',
     htmlUrl: 'https://github.com/owner/repo/pull/42',
     createdAt: '2026-08-20T09:00:00Z',
     updatedAt: '2026-08-20T10:00:00Z',
-    origin: 'AUTHORED',
     labels: ['docs'],
     labelColors: { docs: 'd4c5f9' },
-    draft: false,
-    viewedAt: null,
-    reviewedAt: null,
-    handledAction: null,
     requestedReviewers: ['bob'],
     ciStatus: 'FAILING',
     additions: 10,
     deletions: 2,
     commentCount: 2,
-    state: 'open',
-    mergeable: true,
-    mergeableState: 'clean',
-    headPushedAt: null,
     headRef: 'feature/overview',
-  };
+  });
 }
 
 function detail(): PullRequestDetailDto {
-  return {
+  return prDetail({
     id: 12,
     repo: 'owner/repo',
-    number: 42,
     title: 'Example pull request',
     htmlUrl: 'https://github.com/owner/repo/pull/42',
-    state: 'open',
-    draft: false,
-    mergeable: true,
-    mergeableState: 'clean',
     author: 'alice',
-    authorAvatarUrl: null,
     createdAt: '2026-08-20T09:00:00Z',
     updatedAt: '2026-08-20T10:00:00Z',
-    mergedAt: null,
-    baseRef: 'main',
     headRef: 'feature/overview',
     headSha: 'displayed-head',
     body: '# Description\n\nAdds the overview.',
     labels: [{ name: 'docs', color: 'd4c5f9' }],
-    assignees: [],
-    milestone: null,
     reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }],
     additions: 10,
     deletions: 2,
     changedFiles: 2,
-    approvalCount: 0,
     ciStatus: 'FAILING',
     recentActivity: [
       {
@@ -1875,9 +1854,8 @@ function detail(): PullRequestDetailDto {
       { githubId: 10, name: 'build', status: 'completed', conclusion: 'failure', detailsUrl: null, source: 'check_run', startedAt: null, completedAt: null, category: 'failing' },
       { githubId: 11, name: 'license', status: 'completed', conclusion: 'success', detailsUrl: null, source: 'status', startedAt: null, completedAt: null, category: 'successful' },
     ],
-    unavailableSections: [],
     viewerCanWrite: false,
-  };
+  });
 }
 
 function headerMarkup(props: Partial<ComponentProps<typeof PullDetailHeader>> = {}): string {

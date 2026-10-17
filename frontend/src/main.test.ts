@@ -145,6 +145,27 @@ it('carries the displayed head commit through the merge request', async () => {
     expect.objectContaining({ method: 'POST' }));
 });
 
+it.each([
+  ['prs:diff', '/prs/diffFiles', undefined, []],
+  ['prs:diff:refresh', '/prs/diffFiles/refresh', 'POST', []],
+  ['prs:diff-content:refresh', '/prs/diffContent/refresh', 'POST', ['src/A B.ts']],
+] as const)('preserves the method and complete revision pair for %s', async (channel, pathname, method, path) => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{}'));
+  vi.stubGlobal('fetch', fetch);
+  for (const [base, head, range] of [
+    ['base', 'head', '&base=base&head=head'],
+    [undefined, undefined, ''], ['base', undefined, ''], [undefined, 'head', ''], ['', 'head', ''], ['base', '', ''],
+  ] as const) {
+    await desktop.handlers.get(channel)?.({}, 'owner/repo', 7, ...path, base, head);
+    const expected = new URL(`http://127.0.0.1:9527${pathname}?repo=owner%2Frepo&number=7${range}`);
+    if (path.length > 0) expected.searchParams.set('path', path[0]);
+    expect(fetch).toHaveBeenLastCalledWith(expected, expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
+    expect(fetch.mock.calls.at(-1)?.[1]?.method).toBe(method);
+  }
+});
+
 it('forwards PR opening freshness separately from periodic and checks-only refreshes', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');

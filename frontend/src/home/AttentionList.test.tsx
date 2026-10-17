@@ -19,17 +19,17 @@ import { previewTask } from '../agents/fixtures/previewBridge';
 import { jiraAttentionItems } from '../jira/attention';
 import { jiraIssue } from '../jira/fixtures/jira';
 import { attentionCards, handledEntry, visibleAttention, type AttentionItem, type Handled } from './attention';
+import { pr } from '../pulls/fixtures/pullRequest';
 import type { PullRequestDto } from '../types';
 import * as teamHooks from '../teams/useTeams';
 
 function pullRequest(number: number, latestActivity: PullRequestDto['latestActivity'] = null): PullRequestDto {
-  return {
+  return pr({
     id: number, repo: 'trinodb/trino', number, title: `Change ${number}`, author: 'alice',
-    htmlUrl: `https://github.com/trinodb/trino/pull/${number}`, createdAt: null, updatedAt: '2026-08-28T00:00:00Z',
-    origin: 'REVIEW_REQUESTED', labels: [], labelColors: null, draft: false, viewedAt: null, reviewedAt: null,
-    handledAction: null, requestedReviewers: ['viewer'], ciStatus: null, additions: 0, deletions: 0, commentCount: 1,
-    state: 'open', mergeable: null, mergeableState: null, headPushedAt: null, headRef: 'branch', latestActivity,
-  };
+    htmlUrl: `https://github.com/trinodb/trino/pull/${number}`, updatedAt: '2026-08-28T00:00:00Z',
+    origin: 'REVIEW_REQUESTED', requestedReviewers: ['viewer'], ciStatus: null, additions: 0, commentCount: 1,
+    mergeable: null, mergeableState: null, headRef: 'branch', latestActivity,
+  });
 }
 
 function prItem(number: number, kind: AttentionItem['kind'] = 'review', latestActivity: PullRequestDto['latestActivity'] = null): AttentionItem {

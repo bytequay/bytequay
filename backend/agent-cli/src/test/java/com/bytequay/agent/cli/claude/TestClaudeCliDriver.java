@@ -1162,22 +1162,29 @@ class TestClaudeCliDriver
         driver.close();
     }
 
-    @Test
-    void rejectsTurnWhenPromptWriteFails()
+    @ParameterizedTest(name = "{0} failure rejects the turn")
+    @CsvSource({"write, Unable to write Claude prompt", "close, Unable to close Claude prompt input"})
+    void rejectsTurnWhenPromptInputFails(String operation, String message)
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.failNextPromptWrite();
+        boolean closeInput = operation.equals("close");
+        if (closeInput) {
+            supervisor.failNextPromptClose();
+        }
+        else {
+            supervisor.failNextPromptWrite();
+        }
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), ignored -> {});
 
-        assertThatThrownBy(() -> session.start(command("write-failure")))
+        assertThatThrownBy(() -> session.start(command(operation + "-failure")))
                 .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("Unable to write Claude prompt")
-                .hasRootCauseMessage("simulated prompt write failure");
+                .hasMessageContaining(message)
+                .hasRootCauseMessage("simulated prompt " + operation + " failure");
 
         assertThat(supervisor.turns()).singleElement().satisfies(turn -> {
             assertThat(turn.cancelled()).isTrue();
-            assertThat(turn.inputClosed()).isFalse();
+            assertThat(turn.inputClosed()).isEqualTo(closeInput);
         });
         session.close();
         driver.close();
@@ -1348,27 +1355,6 @@ class TestClaudeCliDriver
             next.cancel();
             await(next);
         }
-    }
-
-    @Test
-    void rejectsTurnWhenPromptInputCannotClose()
-    {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.failNextPromptClose();
-        ClaudeCliDriver driver = driver(supervisor);
-        AgentSession session = driver.open(context(Optional.empty()), ignored -> {});
-
-        assertThatThrownBy(() -> session.start(command("close-failure")))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("Unable to close Claude prompt input")
-                .hasRootCauseMessage("simulated prompt close failure");
-
-        assertThat(supervisor.turns()).singleElement().satisfies(turn -> {
-            assertThat(turn.cancelled()).isTrue();
-            assertThat(turn.inputClosed()).isTrue();
-        });
-        session.close();
-        driver.close();
     }
 
     @ParameterizedTest

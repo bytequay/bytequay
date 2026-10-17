@@ -29,7 +29,7 @@ import WorktreeChanges from '../../pulls/code-tests/WorktreeChanges';
 import { initialAgentTaskState } from '../model';
 import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from './previewBridge';
 import type { TaskDiscussionDto } from '../discussions/contracts';
-import type { AgentTaskDto, Bridge, PullRequestDto } from '../../types';
+import type { AgentTaskDto, Bridge } from '../../types';
 import type { CodeHostRef, WorktreeChangesDto, WorktreeChangesRequest } from '../../pulls/code-tests/contracts';
 import { assert, settle } from '../../fixtures/harness';
 import '../../css/base.css';
@@ -38,11 +38,10 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
   const desktop = installDesktopFixture();
   const task: AgentTaskDto = { ...previewTask('workspace-1', 'task-1'), interactive: true, checkoutRemovedAt: null, mutationClaim: null };
   const requests: { host: CodeHostRef; request: WorktreeChangesRequest }[] = [];
-  const publishedPr: PullRequestDto = { id: 7, repo: 'owner/repo', number: 7, title: 'Published implementation', author: 'developer',
-    htmlUrl: 'https://github.com/owner/repo/pull/7', createdAt: null, updatedAt: '2026-09-26T00:00:00Z', origin: 'AUTHORED',
-    labels: [], labelColors: null, draft: true, viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [],
-    ciStatus: null, additions: 1, deletions: 0, commentCount: 0, state: 'open', mergeable: null, mergeableState: null,
-    headPushedAt: null, headRef: 'feature' };
+  const publishedPr = pr({ id: 7, repo: 'owner/repo', number: 7, title: 'Published implementation', author: 'developer',
+    htmlUrl: 'https://github.com/owner/repo/pull/7', updatedAt: '2026-09-26T00:00:00Z',
+    draft: true, ciStatus: null, mergeable: null, mergeableState: null,
+  });
   const publishedFiles = [{ filename: 'published.txt', status: 'added', additions: 1, deletions: 0, patch: '@@ -0,0 +1 @@\n+Published implementation' }];
   const selectedCommits: string[] = [];
   let linkPullRequest = () => {};

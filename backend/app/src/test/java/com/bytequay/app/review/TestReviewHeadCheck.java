@@ -14,6 +14,7 @@
 package com.bytequay.app.review;
 
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.GitTestSupport;
 import com.bytequay.core.review.ReviewRun;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -22,11 +23,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.app.git.GitTestSupport.git;
+import static com.bytequay.app.git.GitTestSupport.head;
+import static com.bytequay.app.git.GitTestSupport.initRepository;
+import static com.bytequay.app.git.GitTestSupport.write;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestReviewHeadCheck
@@ -44,18 +48,16 @@ class TestReviewHeadCheck
     void repository()
             throws IOException
     {
-        git("init", "--quiet", "-b", "main");
-        git("config", "user.name", "ByteQuay Test");
-        git("config", "user.email", "bytequay@example.com");
-        write("README.md", "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n");
+        initRepository(repository);
+        write(repository, "README.md", "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n");
         reviewedBase = commit("Start");
-        git("checkout", "--quiet", "-b", "feature");
-        write("src/App.java", "class App {}\n");
+        git(repository, "checkout", "--quiet", "-b", "feature");
+        write(repository, "src/App.java", "class App {}\n");
         commit("Add the app");
-        write("src/App.java", "class App { int size; }\n");
+        write(repository, "src/App.java", "class App { int size; }\n");
         reviewedHead = commit("Count the size\n\nCallers need it before they allocate.");
-        git("checkout", "--quiet", "main");
-        write("docs/guide.md", "Guide\n");
+        git(repository, "checkout", "--quiet", "main");
+        write(repository, "docs/guide.md", "Guide\n");
         movedBase = commit("Add a guide");
     }
 
@@ -64,54 +66,52 @@ class TestReviewHeadCheck
     {
         assertThat(sameChange("main", reviewedBase, reviewedHead)).isTrue();
 
-        git("checkout", "--quiet", "-b", "rebased", "feature");
-        git("rebase", "--quiet", "main");
-        String rebased = git("rev-parse", "HEAD").strip();
+        git(repository, "checkout", "--quiet", "-b", "rebased", "feature");
+        git(repository, "rebase", "--quiet", "main");
+        String rebased = head(repository);
         assertThat(rebased).isNotEqualTo(reviewedHead);
         assertThat(sameChange("main", movedBase, rebased)).isTrue();
 
-        git("checkout", "--quiet", "-b", "merged", "feature");
-        git("merge", "--quiet", "--no-edit", "main");
-        assertThat(sameChange("main", movedBase, git("rev-parse", "HEAD").strip())).isTrue();
+        git(repository, "checkout", "--quiet", "-b", "merged", "feature");
+        git(repository, "merge", "--quiet", "--no-edit", "main");
+        assertThat(sameChange("main", movedBase, head(repository))).isTrue();
     }
 
     @Test
     void aChangedLineMessageOrBaseBranchIsADifferentChange()
-            throws IOException
     {
-        git("checkout", "--quiet", "-b", "rebased", "feature");
-        git("rebase", "--quiet", "main");
-        String rebased = git("rev-parse", "HEAD").strip();
+        git(repository, "checkout", "--quiet", "-b", "rebased", "feature");
+        git(repository, "rebase", "--quiet", "main");
+        String rebased = head(repository);
         assertThat(sameChange("release", movedBase, rebased)).isFalse();
 
-        git("commit", "--quiet", "--amend", "-m", "Count the size\n\nCallers need it before they allocate memory.");
-        assertThat(sameChange("main", movedBase, git("rev-parse", "HEAD").strip())).isFalse();
+        git(repository, "commit", "--quiet", "--amend", "-m", "Count the size\n\nCallers need it before they allocate memory.");
+        assertThat(sameChange("main", movedBase, head(repository))).isFalse();
 
-        git("checkout", "--quiet", "-B", "edited", rebased);
-        write("src/App.java", "class App { long size; }\n");
-        git("add", "-A");
-        git("commit", "--quiet", "--amend", "--no-edit");
-        assertThat(sameChange("main", movedBase, git("rev-parse", "HEAD").strip())).isFalse();
+        git(repository, "checkout", "--quiet", "-B", "edited", rebased);
+        write(repository, "src/App.java", "class App { long size; }\n");
+        git(repository, "add", "-A");
+        git(repository, "commit", "--quiet", "--amend", "--no-edit");
+        assertThat(sameChange("main", movedBase, head(repository))).isFalse();
     }
 
     @Test
     void aBaseThatChangedBesideAHunkOrAHeadThatCannotBeReadIsADifferentChange()
-            throws IOException
     {
         assertThat(sameChange("main", movedBase, "0".repeat(40))).isFalse();
         assertThat(AgentReviewService.sameChange(GIT, repository, run(reviewedBase, "0".repeat(40)), "main", reviewedBase, reviewedHead)).isFalse();
 
         // The reviewed branch edits one line of README.md, and the base then changes a line inside that hunk's context.
-        git("checkout", "--quiet", "-b", "nearby", reviewedBase);
-        write("README.md", "one\ntwo\nthree\nFOUR\nfive\nsix\nseven\neight\n");
+        git(repository, "checkout", "--quiet", "-b", "nearby", reviewedBase);
+        write(repository, "README.md", "one\ntwo\nthree\nFOUR\nfive\nsix\nseven\neight\n");
         String read = commit("Shout four");
-        git("checkout", "--quiet", "main");
-        write("README.md", "one\ntwo\nthree\nfour\nfive\nSIX\nseven\neight\n");
+        git(repository, "checkout", "--quiet", "main");
+        write(repository, "README.md", "one\ntwo\nthree\nfour\nfive\nSIX\nseven\neight\n");
         String base = commit("Shout six");
-        git("checkout", "--quiet", "nearby");
-        git("rebase", "--quiet", "main");
+        git(repository, "checkout", "--quiet", "nearby");
+        git(repository, "rebase", "--quiet", "main");
 
-        assertThat(AgentReviewService.sameChange(GIT, repository, run(reviewedBase, read), "main", base, git("rev-parse", "HEAD").strip())).isFalse();
+        assertThat(AgentReviewService.sameChange(GIT, repository, run(reviewedBase, read), "main", base, head(repository))).isFalse();
     }
 
     private boolean sameChange(String baseRef, String mergeBaseSha, String headSha)
@@ -129,23 +129,7 @@ class TestReviewHeadCheck
 
     private String commit(String message)
     {
-        git("add", "-A");
-        git("commit", "--quiet", "-m", message);
-        return git("rev-parse", "HEAD").strip();
-    }
-
-    private void write(String path, String content)
-            throws IOException
-    {
-        Path file = repository.resolve(path);
-        Files.createDirectories(file.getParent());
-        Files.writeString(file, content);
-    }
-
-    private String git(String... arguments)
-    {
-        GitCommandRunner.Result result = GIT.run(repository, arguments);
-        assertThat(result.successful()).as(result.output()).isTrue();
-        return result.output();
+        GitTestSupport.commit(repository, message);
+        return head(repository);
     }
 }

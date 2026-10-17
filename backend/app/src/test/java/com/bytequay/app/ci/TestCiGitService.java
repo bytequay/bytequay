@@ -29,7 +29,6 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.List;
 
 import static com.bytequay.app.ci.CiGitInspection.Outcome.INVALID;
 import static com.bytequay.app.ci.CiGitInspection.Outcome.NO_CHANGE;
@@ -39,6 +38,10 @@ import static com.bytequay.app.ci.CiPushResult.Outcome.REJECTED;
 import static com.bytequay.app.ci.CiPushResult.Outcome.RETRYABLE;
 import static com.bytequay.app.ci.CiPushResult.Outcome.STALE;
 import static com.bytequay.app.ci.FixupPositionCheck.Result.VALID;
+import static com.bytequay.app.git.GitTestSupport.commit;
+import static com.bytequay.app.git.GitTestSupport.git;
+import static com.bytequay.app.git.GitTestSupport.head;
+import static com.bytequay.app.git.GitTestSupport.write;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestCiGitService
@@ -565,61 +568,13 @@ class TestCiGitService
         return value.split("\\s+", 2)[0];
     }
 
-    private static void commit(Path worktree, String message)
-    {
-        git(worktree, "add", "-A");
-        git(worktree, "commit", "-m", message);
-    }
-
-    private static String head(Path worktree)
-    {
-        return git(worktree, "rev-parse", "HEAD");
-    }
-
-    private static void write(Path path, String value)
-            throws IOException
-    {
-        Files.createDirectories(path.getParent());
-        Files.writeString(path, value, StandardCharsets.UTF_8);
-    }
-
-    private static String git(Path worktree, String... arguments)
-    {
-        GitResult result = runGit(worktree, arguments);
-        assertThat(result.exitCode()).as("git %s: %s", String.join(" ", arguments), result.output()).isZero();
-        return result.output().strip();
-    }
-
     private static String gitFailure(Path worktree, String... arguments)
     {
-        GitResult result = runGit(worktree, arguments);
-        assertThat(result.exitCode()).as("git %s", String.join(" ", arguments)).isNotZero();
+        GitCommandRunner.Result result = new GitCommandRunner().run(worktree, arguments);
+        assertThat(result.exitCode()).as("git %s: %s", String.join(" ", arguments), result.output()).isPositive();
+        assertThat(result.truncated()).isFalse();
         return result.output().strip();
-    }
-
-    private static GitResult runGit(Path worktree, String... arguments)
-    {
-        List<String> command = ImmutableList.<String>builder()
-                .add("git", "-C", worktree.toString())
-                .add(arguments)
-                .build();
-        try {
-            ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
-            builder.environment().put("GIT_TERMINAL_PROMPT", "0");
-            Process process = builder.start();
-            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            return new GitResult(process.waitFor(), output);
-        }
-        catch (IOException e) {
-            throw new AssertionError("Cannot start Git", e);
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new AssertionError("Interrupted while waiting for Git", e);
-        }
     }
 
     private record Repository(Path worktree, Path remote, String baseSha, String inputSha) {}
-
-    private record GitResult(int exitCode, String output) {}
 }

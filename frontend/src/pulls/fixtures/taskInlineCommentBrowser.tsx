@@ -13,10 +13,11 @@
  */
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
+import { prDetail } from './pullRequest';
 import AgentTaskScreen from '../../agents/AgentTaskScreen';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import type { AgentEventEnvelope } from '../../agents/events';
-import type { AgentQueuedInputDto, AgentStreamMessage, AgentTaskDto, AgentTurnDto, Bridge, DiffCommitDto, DiffFileDto, PullRequestDetailDto } from '../../types';
+import type { AgentQueuedInputDto, AgentStreamMessage, AgentTaskDto, AgentTurnDto, Bridge, DiffCommitDto, DiffFileDto } from '../../types';
 import { remotePullRequest } from '../PullsScreen';
 import type { CreateLocalReviewRequest } from '../local-review/contracts';
 import type { LocalReviewMessageDto, LocalReviewThreadDto } from '../local-review/types';
@@ -33,13 +34,11 @@ const commits: DiffCommitDto[] = [
   { sha: '1111111', parentSha: '0000000', message: 'First', author: 'alice', authoredAt: null },
   { sha: '2222222', parentSha: '1111111', message: 'Second', author: 'alice', authoredAt: null },
 ];
-const detail: PullRequestDetailDto = {
-  id: 7, repo: 'owner/repo', number: 7, title: 'Implementation', htmlUrl: null, state: 'open', draft: true,
-  mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-  mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: null, labels: [], assignees: [], milestone: null,
-  reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
-  checkRuns: [], unavailableSections: [], viewerCanWrite: true,
-};
+const detail = prDetail({
+  id: 7, repo: 'owner/repo', number: 7, title: 'Implementation', htmlUrl: null, draft: true,
+  mergeable: null, mergeableState: null, author: 'alice', updatedAt: null,
+  deletions: 1,
+});
 
 const INTERNAL_PROMPT = 'INTERNAL_LOCAL_REVIEW_CONTEXT_NOT_A_USER_MESSAGE';
 const viewerAvatar = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="11" fill="blue"/></svg>')}`;

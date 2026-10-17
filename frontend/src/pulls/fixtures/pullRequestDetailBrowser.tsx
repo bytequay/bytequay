@@ -14,18 +14,19 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
+import { prDetail } from './pullRequest';
 import type { Bridge, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto } from '../../types';
 import { assert } from '../../fixtures/harness';
 import { ZOOM_REFERENCE } from '../../githubReference';
 import { usePullRequestDetail, type PullRequestDetailSource } from '../usePullRequestDetail';
 
-const cached: PullRequestDetailDto = {
-  id: 7, repo: 'owner/repo', number: 7, title: 'Cached PR', htmlUrl: null, state: 'open', draft: false,
-  mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: '2026-01-01T00:00:00Z',
-  mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: '', labels: [], assignees: [], milestone: null,
-  reviewers: [], additions: 1, deletions: 0, changedFiles: 1, approvalCount: 0, ciStatus: 'PENDING', recentActivity: [],
-  checkRuns: [], unavailableSections: [], viewerCanWrite: false,
-};
+const cached = prDetail({
+  id: 7, repo: 'owner/repo', number: 7, title: 'Cached PR', htmlUrl: null,
+  mergeable: null, mergeableState: null, author: 'alice', updatedAt: '2026-01-01T00:00:00Z',
+  body: '',
+  ciStatus: 'PENDING',
+  viewerCanWrite: false,
+});
 
 export async function run(): Promise<string> {
   const originalBridge = window.bridge;

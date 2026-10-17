@@ -14,6 +14,7 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
+import { pr as pullRequest, prDetail } from '../../pulls/fixtures/pullRequest';
 import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, RepoLabelDto, RepoUserDto } from '../../types';
 import AgentTaskScreen from '../AgentTaskScreen';
 import { DEFAULT_DEVELOPMENT_AUTOMATION } from '../developmentAutomation';
@@ -25,25 +26,23 @@ import { assert, changeInput, settle } from '../../fixtures/harness';
 
 /** The published pull request's detail, which the opened panel reads through the window bridge. */
 function publishedDetail(draft: boolean): PullRequestDetailDto {
-  return {
+  return prDetail({
     id: CI_PROJECTION.pullRequestNumber, repo: 'acme/demo', number: CI_PROJECTION.pullRequestNumber, title: 'Preserve the public API',
-    htmlUrl: CI_PROJECTION.pullRequestUrl, state: 'open', draft, mergeable: null, mergeableState: null, author: 'alice',
-    authorAvatarUrl: null, createdAt: '2026-01-01T12:10:00Z', updatedAt: '2026-01-01T12:10:00Z', mergedAt: null, baseRef: 'master',
-    headRef: CI_PROJECTION.headRef, headSha: 'head', body: 'Keeps the public API.', labels: [], assignees: [], milestone: null, reviewers: [],
-    additions: 3, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: 'NONE', recentActivity: [], checkRuns: [],
-    unavailableSections: [], viewerCanWrite: false,
-  };
+    htmlUrl: CI_PROJECTION.pullRequestUrl, draft, mergeable: null, mergeableState: null, author: 'alice',
+    createdAt: '2026-01-01T12:10:00Z', updatedAt: '2026-01-01T12:10:00Z', baseRef: 'master',
+    headRef: CI_PROJECTION.headRef, body: 'Keeps the public API.',
+    additions: 3, deletions: 1, ciStatus: 'NONE', viewerCanWrite: false,
+  });
 }
 
 /** The published pull request as the task's own list reports it, which is all the chip reads. */
 function publishedPullRequest(draft: boolean): PullRequestDto {
-  return {
+  return pullRequest({
     id: CI_PROJECTION.pullRequestNumber, repo: 'acme/demo', number: CI_PROJECTION.pullRequestNumber, title: 'Preserve the public API',
     author: 'alice', htmlUrl: CI_PROJECTION.pullRequestUrl, createdAt: '2026-01-01T12:10:00Z', updatedAt: '2026-01-01T12:10:00Z',
-    origin: 'AUTHORED', labels: [], labelColors: null, draft, viewedAt: null, reviewedAt: null, handledAction: null,
-    requestedReviewers: [], ciStatus: null, additions: 3, deletions: 1, commentCount: 0, state: 'open',
+    draft, ciStatus: null, additions: 3, deletions: 1,
     mergeable: null, mergeableState: null, headPushedAt: '2026-01-01T12:10:00Z', headRef: CI_PROJECTION.headRef,
-  };
+  });
 }
 
 /** Server projections exercise display/admission; they never launch providers or write to GitHub. */

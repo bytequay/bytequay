@@ -30,9 +30,15 @@ public final class GitTestSupport
 
     public static String git(Path directory, String... arguments)
     {
+        return gitOutput(directory, arguments).strip();
+    }
+
+    public static String gitOutput(Path directory, String... arguments)
+    {
         GitCommandRunner.Result result = GIT.run(directory, arguments);
         assertThat(result.exitCode()).as("git %s: %s", String.join(" ", arguments), result.output()).isZero();
-        return result.output().strip();
+        assertThat(result.truncated()).isFalse();
+        return result.output();
     }
 
     public static Path initRepository(Path root)
@@ -46,8 +52,12 @@ public final class GitTestSupport
 
     public static void write(Path repository, String path, String content)
     {
+        write(repository.resolve(path), content);
+    }
+
+    public static void write(Path file, String content)
+    {
         try {
-            Path file = repository.resolve(path);
             Files.createDirectories(file.getParent());
             Files.writeString(file, content, StandardCharsets.UTF_8);
         }

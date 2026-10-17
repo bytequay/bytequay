@@ -15,7 +15,6 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.goal.GoalGap;
-import com.bytequay.app.service.goal.GoalItemView;
 import com.bytequay.app.service.goal.GoalKnowledgeNoteView;
 import com.bytequay.app.service.goal.GoalLessonService;
 import com.bytequay.app.service.goal.GoalResearchService;
@@ -111,12 +110,6 @@ public class GoalController
     public GoalView removeItem(@PathVariable String workspaceId, @PathVariable String goalId, @RequestParam GoalItemKind kind, @RequestParam String key)
     {
         return goals.removeItem(workspaceId, goalId, kind, key);
-    }
-
-    @GetMapping("/candidates")
-    public List<GoalItemView> candidates(@PathVariable String workspaceId, @RequestParam(defaultValue = "") String q)
-    {
-        return goals.candidates(workspaceId, q);
     }
 
     /** Starts a goal from the user's answer to "What do you want to achieve?" and asks its agent. */

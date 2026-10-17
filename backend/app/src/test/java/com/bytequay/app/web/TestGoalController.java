@@ -320,16 +320,4 @@ class TestGoalController
                 .andExpect(jsonPath("$.topics").isArray());
         verify(conversations).correctTopic("workspace", "goal-1", "Manifests", GoalTopic.Level.LEARNING);
     }
-
-    @Test
-    void searchesStoredItemsForTheAddBox()
-            throws Exception
-    {
-        when(goals.candidates("workspace", "retry")).thenReturn(ImmutableList.of(new GoalItemView(MERGED.kind(), MERGED.key(), MERGED.label(), MERGED.title(),
-                MERGED.state(), MERGED.status(), false, MERGED.url(), MERGED.activity(), Optional.empty(), Optional.empty())));
-        mvc.perform(get("/api/workspaces/workspace/goals/candidates").param("q", "retry"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].key").value("trinodb/trino#30702"))
-                .andExpect(jsonPath("$[0].addedAt").value(nullValue()));
-    }
 }

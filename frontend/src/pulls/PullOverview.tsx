@@ -42,6 +42,7 @@ import UserAvatar from '../UserAvatar';
 import BetterWordsButton from './BetterWordsButton';
 import LocalReviewThreadCard from './local-review/LocalReviewThreadCard';
 import type { LocalReviewThreadDto, LocalReviewThreads } from './local-review/types';
+import MergeQueueRemoval from './MergeQueueRemoval';
 import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers, toggleMarkdownTask, type SuggestionBase } from './MarkdownBody';
 import MarkdownEditor from './MarkdownEditor';
 import { EMPTY_TIMELINE_PAYLOAD } from './model';
@@ -803,7 +804,7 @@ function TimelineItem({ activities, viewerLogin, privateThreads, pr, headRef, wo
       onDetailUpdate={onDetailUpdate} onQuote={onQuote} />;
   }
   if (activity.eventType === 'committed') return <CommitEvent activity={activity} />;
-  return <CompactEvent activities={activities} headRef={headRef} />;
+  return <CompactEvent activities={activities} headRef={headRef} pr={pr} />;
 }
 
 export function groupTimelineActivities(activities: Activity[]) {
@@ -1368,7 +1369,7 @@ export function CommentedCodeLine({ line }: { line: ReviewCommentLine }) {
   );
 }
 
-function CompactEvent({ activities, headRef }: { activities: Activity[]; headRef: string | null }) {
+function CompactEvent({ activities, headRef, pr }: { activities: Activity[]; headRef: string | null; pr: PullRequestDto }) {
   const activity = activities[0];
   const { payload } = activity;
   const actor = displayActor(activity.actor || 'github');
@@ -1412,6 +1413,7 @@ function CompactEvent({ activities, headRef }: { activities: Activity[]; headRef
         {payload.actorBot && <span className="pr-bot">Bot</span>}{' '}
         <span>{eventText(activity, activities, headRef)}</span>
         <time> · {relativeTime(activity.timestamp)}</time>
+        {activity.eventType === 'removed_from_merge_queue' && <MergeQueueRemoval activity={activity} repo={pr.repo} number={pr.number} />}
       </div>
     </div>
   );

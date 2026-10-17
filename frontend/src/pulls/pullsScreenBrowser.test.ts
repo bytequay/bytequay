@@ -29,6 +29,14 @@ it('preserves review and merge sheet focus, dismissal, and in-flight guards', as
   expect(result).toContain('preserve dismissal and busy behavior');
 }, 30_000);
 
+it('shows merge queue removal details and opens failed jobs', async () => {
+  const result = await fixture.run<string>({
+    width: 1280, height: 800,
+    body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runMergeQueueRemoval()');",
+  });
+  expect(result).toContain('opens exact failed jobs');
+}, 30_000);
+
 it('opens distinct development and review tasks from the same PR without duplicating agents', async () => {
   const result = await fixture.run<string>({
     body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runAssignedPrActions()');",

@@ -18,6 +18,7 @@ import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrMergeQueueRemoval;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrReviewState;
@@ -1059,10 +1060,20 @@ public class GitHubPullRequestReadClient
         // newest activity gets silently dropped — see #27922 where replies
         // continued weeks beyond the first page. Walk pages until we get a
         // short page or hit the safety cap.
-        List<PrTimelineEvent> timeline = paginator
-                .paginate(pat, "/repos/{owner}/{repo}/issues/{number}/timeline", new ParameterizedTypeReference<List<GitHubTimelineEvent>>() {}, pr.owner(), pr.repo(), pr.number())
-                .stream()
-                .map(event -> toTimelineEvent(event, pr.owner()))
+        List<GitHubTimelineEvent> events = paginator
+                .paginate(pat, "/repos/{owner}/{repo}/issues/{number}/timeline", new ParameterizedTypeReference<List<GitHubTimelineEvent>>() {}, pr.owner(), pr.repo(), pr.number());
+        Map<String, PrMergeQueueRemoval> removals = new GitHubMergeQueueTimeline(graphQlRestClient).read(pat, events.stream()
+                .filter(event -> "removed_from_merge_queue".equals(event.event()))
+                .map(GitHubTimelineEvent::nodeId).filter(Objects::nonNull).distinct().toList());
+        List<PrTimelineEvent> timeline = events.stream()
+                .map(event -> {
+                    PrTimelineEvent mapped = toTimelineEvent(event, pr.owner());
+                    if (!"removed_from_merge_queue".equals(event.event())) {
+                        return mapped;
+                    }
+                    return new PrTimelineEvent(mapped.githubId(), mapped.event(), mapped.actor(), mapped.timestamp(), mapped.body(),
+                            PrTimelinePayload.builder(mapped.payload()).mergeQueueRemoval(removals.get(event.nodeId())).build(), mapped.localEventKey());
+                })
                 .collect(toImmutableList());
         if (timeline.stream().noneMatch(event -> "reviewed".equals(event.event()))) {
             return timeline;
@@ -1719,6 +1730,7 @@ public class GitHubPullRequestReadClient
     /** GitHub timeline fields consumed by ByteQuay. */
     private record GitHubTimelineEvent(
             Long id,
+            @JsonProperty("node_id") String nodeId,
             String event,
             @JsonProperty("created_at") Instant createdAt,
             @JsonProperty("submitted_at") Instant submittedAt,

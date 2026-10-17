@@ -65,6 +65,7 @@ import { usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
 import PullChanges, { pullReviewThreads, updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
 import PullOverview, { CommentedCodeLine, commentedCodeLines, isQueued, mergePullRequestWriteDetail, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
 import PullRequestConflictFiles from './PullRequestConflictFiles';
+import MergeQueueRemoval from './MergeQueueRemoval';
 import { PullRequestStateIcon } from './PullRequestStateIcon';
 import PullRequestTaskActions from './PullRequestTaskActions';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
@@ -2105,6 +2106,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
   const canMarkReady = detail.draft && detail.state?.toLowerCase() === 'open'
     && (detail.viewerCanWrite || pr.origin === 'AUTHORED');
   const queued = isQueued(detail.recentActivity);
+  const lastRemoval = detail.recentActivity.filter(activity => activity.eventType === 'removed_from_merge_queue').at(-1);
   const canRemoveFromQueue = queued && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite;
   const canMerge = !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite && state === 'ready'
     && typeof mergeQueue === 'boolean' && !conflicts && !queued;
@@ -2185,6 +2187,10 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
         </div>
         {conflicts && !queued && <PullRequestConflictFiles key={`${detail.repo}#${detail.number}:${detail.baseRef}:${detail.updatedAt}`}
           repo={detail.repo} number={detail.number} />}
+        {!queued && lastRemoval && <section className="pr-merge-queue-removal" aria-label="Last merge queue removal">
+          <strong>Last removed from the merge queue</strong>
+          <MergeQueueRemoval activity={lastRemoval} repo={detail.repo} number={detail.number} />
+        </section>}
         <div className="pr-merge-status-card is-stacked">
           <div>
             {failing > 0
@@ -2199,7 +2205,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
               : pending > 0
                 ? 'Checks are running'
                 : checksReported
-                  ? 'All checks have passed'
+                  ? 'All pull-request checks have passed'
                   : 'No checks reported'}</strong>
           </div>
           <div className="pr-merge-status-card__groups">

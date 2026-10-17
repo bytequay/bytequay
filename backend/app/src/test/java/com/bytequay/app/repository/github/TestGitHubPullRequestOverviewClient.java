@@ -402,6 +402,102 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
+    void enrichesQueueRemovalsByNodeIdWithReasonsAndPaginatedFailedChecks()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"id":1,"node_id":"removed-1","event":"removed_from_merge_queue","actor":{"login":"github-merge-queue"}},
+                         {"id":2,"node_id":"added-2","event":"added_to_merge_queue"},
+                         {"id":3,"node_id":"removed-3","event":"removed_from_merge_queue"}]
+                        """, MediaType.APPLICATION_JSON));
+        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(content().json("""
+                        {"variables":{"ids":["removed-1","removed-3"]}}
+                        """))
+                .andRespond(withSuccess("""
+                        {"data":{"nodes":[
+                          {"id":"removed-3","reason":"merge_conflict","beforeCommit":null},
+                          {"id":"removed-1","reason":"failed_checks","beforeCommit":{
+                            "url":"https://github.com/owner/repo/commit/queue-sha","statusCheckRollup":{"contexts":{
+                              "nodes":[{"name":"integration","conclusion":"FAILURE","detailsUrl":"https://github.com/owner/repo/actions/runs/1/job/2"},
+                                {"name":"lint","conclusion":"SUCCESS","detailsUrl":"https://github.com/owner/repo/actions/runs/1/job/3"},
+                                {"name":"optional","conclusion":"SKIPPED"},
+                                {"context":"external-ci","state":"ERROR","targetUrl":"https://ci.example.com/build/4"}],
+                              "pageInfo":{"hasNextPage":true,"endCursor":"next"}}}}}]}}
+                        """, MediaType.APPLICATION_JSON));
+        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(content().json("""
+                        {"variables":{"ids":["removed-1"],"after":"next"}}
+                        """))
+                .andRespond(withSuccess("""
+                        {"data":{"nodes":[{"id":"removed-1","reason":"failed_checks","beforeCommit":{
+                          "url":"https://github.com/owner/repo/commit/queue-sha","statusCheckRollup":{"contexts":{
+                            "nodes":[{"name":"e2e","conclusion":"TIMED_OUT","detailsUrl":null}],
+                            "pageInfo":{"hasNextPage":false}}}}}]}}
+                        """, MediaType.APPLICATION_JSON));
+
+        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST);
+
+        assertThat(timeline).extracting(PrTimelineEvent::githubId).containsExactly(1L, 2L, 3L);
+        var failed = timeline.getFirst().payload().mergeQueueRemoval();
+        assertThat(failed.reason()).contains("failed_checks");
+        assertThat(failed.commitUrl()).contains("https://github.com/owner/repo/commit/queue-sha");
+        assertThat(failed.failedChecks()).extracting(check -> check.name()).containsExactly("integration", "external-ci", "e2e");
+        assertThat(failed.failedChecks().getFirst().url()).contains("https://github.com/owner/repo/actions/runs/1/job/2");
+        assertThat(failed.failedChecks().getLast().url()).isEmpty();
+        assertThat(timeline.get(1).payload().mergeQueueRemoval()).isNull();
+        var conflict = timeline.getLast().payload().mergeQueueRemoval();
+        assertThat(conflict.reason()).contains("merge_conflict");
+        assertThat(conflict.commitUrl()).isEmpty();
+        assertThat(conflict.failedChecks()).isEmpty();
+        fixture.verify();
+    }
+
+    @Test
+    void retainsQueueRemovalWhenGraphQlIsUnavailable()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"id":1,"node_id":"removed-1","event":"removed_from_merge_queue","actor":{"login":"github-merge-queue"}}]
+                        """, MediaType.APPLICATION_JSON));
+        fixture.graphQl().expect(requestTo("https://api.github.test/graphql")).andRespond(withStatus(HttpStatus.FORBIDDEN));
+
+        assertThat(fixture.client().fetchPrTimeline("pat", PULL_REQUEST)).singleElement().satisfies(event -> {
+            assertThat(event.githubId()).isEqualTo(1L);
+            assertThat(event.actor()).isEqualTo("github-merge-queue");
+            assertThat(event.payload().mergeQueueRemoval()).isNull();
+        });
+        fixture.verify();
+    }
+
+    @Test
+    void retainsQueueReasonAndCommitLinkWhenCheckPaginationFails()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"id":1,"node_id":"removed-1","event":"removed_from_merge_queue"}]
+                        """, MediaType.APPLICATION_JSON));
+        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("""
+                        {"data":{"nodes":[{"id":"removed-1","reason":"failed_checks","beforeCommit":{
+                          "url":"https://github.com/owner/repo/commit/queue-sha","statusCheckRollup":{"contexts":{
+                            "nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":"next"}}}}}]}}
+                        """, MediaType.APPLICATION_JSON));
+        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("""
+                        {"data":{"nodes":[null]},"errors":[{"message":"unavailable"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        var removal = fixture.client().fetchPrTimeline("pat", PULL_REQUEST).getFirst().payload().mergeQueueRemoval();
+        assertThat(removal.reason()).contains("failed_checks");
+        assertThat(removal.commitUrl()).contains("https://github.com/owner/repo/commit/queue-sha");
+        fixture.verify();
+    }
+
+    @Test
     void datesCommitEventsByCommitterTime()
     {
         Fixture fixture = fixture();

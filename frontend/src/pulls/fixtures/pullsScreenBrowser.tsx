@@ -506,6 +506,51 @@ export async function runOverlayChangesStream(): Promise<string> {
   }
 }
 
+export async function runMergeQueueRemoval(keepMounted = false): Promise<string> {
+  const detail: PullRequestDetailDto = { ...reviewDetail(reviewFixture()), draft: false, viewerCanWrite: true,
+    recentActivity: [{ actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: '2026-10-17T07:39:43Z',
+      body: null, githubId: 71, payload: { ...payload, mergeQueueRemoval: {
+        reason: 'failed_checks', commitUrl: 'https://github.com/owner/repo/commit/queue-sha',
+        failedChecks: [
+          { name: 'core-ci / run-ci-tests (integration-6, standard)', url: 'https://github.com/owner/repo/actions/runs/1/job/2' },
+          { name: 'run-e2e-test / e2e-tests', url: 'https://github.com/owner/repo/actions/runs/3/job/4' },
+        ],
+      } } }],
+    checkRuns: [{ githubId: 1, name: 'PR tests', status: 'completed', conclusion: 'success',
+      detailsUrl: null, source: 'check_run', startedAt: null, completedAt: null, category: 'successful' }],
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const originalBridge = window.bridge;
+  const opened: string[] = [];
+  Object.assign(window, { bridge: { ...originalBridge, openInAppBrowser: async (url: string) => { opened.push(url); } } });
+  try {
+    flushSync(() => root.render(<MergeDialog pr={remotePullRequest(detail, 'bob')} detail={detail} mergeQueue
+      onClose={() => {}} onRefresh={async () => {}} />));
+    await settle();
+    assert(host.textContent?.includes('Checks failed on the merge-queue commit.') === true, 'The merge dialog must explain the last queue removal');
+    assert(host.textContent?.includes('All pull-request checks have passed') === true, 'PR checks must be distinguished from queue checks');
+    const link = host.querySelector<HTMLAnchorElement>('.pr-queue-removal li a');
+    assert(link !== null, 'Failed checks must offer direct job links');
+    link.click();
+    await settle();
+    assert(opened[0] === detail.recentActivity[0].payload.mergeQueueRemoval?.failedChecks[0].url,
+      'Failed check links must open the exact merge-queue job in the embedded browser');
+    const header = host.querySelector('.pr-merge-sheet__header')?.getBoundingClientRect();
+    const close = host.querySelector('[aria-label="Close merge dialog"]')?.getBoundingClientRect();
+    assert(header !== undefined && close !== undefined && header.height < 100 && close.width === 32 && close.height === 32, 'The close button must stay compact beside the title');
+    return 'Merge queue removal shows reasons and opens exact failed jobs';
+  }
+  finally {
+    if (!keepMounted) {
+      flushSync(() => root.unmount());
+      host.remove();
+      Object.assign(window, { bridge: originalBridge });
+    }
+  }
+}
+
 export async function runActionSheetDismissal(): Promise<string> {
   const detail = { ...reviewDetail(reviewFixture()), draft: false, viewerCanWrite: true };
   const pr = remotePullRequest(detail, 'bob');
@@ -535,6 +580,10 @@ export async function runActionSheetDismissal(): Promise<string> {
       await settle();
       assert(document.activeElement === host.querySelector(kind === 'review' ? 'textarea' : '[aria-label="Close merge dialog"]'),
         'Each sheet must retain its initial focus target');
+      const header = host.querySelector(`.pr-${kind}-sheet__header`)?.getBoundingClientRect();
+      const closeButton = host.querySelector(`[aria-label="Close ${kind} dialog"]`)?.getBoundingClientRect();
+      assert(header !== undefined && closeButton !== undefined && header.height < 100 && closeButton.width <= 40 && closeButton.height <= 40,
+        'Sheet headers must keep the close button compact instead of stretching with the content');
       escape(true);
       host.querySelector('[role="dialog"]')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       assert(closes === 0, 'Handled Escape and presses inside the sheet must not dismiss it');

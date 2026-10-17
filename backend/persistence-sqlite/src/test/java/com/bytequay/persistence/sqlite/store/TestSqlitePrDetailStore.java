@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrCommitLine;
+import com.bytequay.core.domain.PrMergeQueueRemoval;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrReviewState;
@@ -399,8 +400,11 @@ class TestSqlitePrDetailStore
         PrTimelinePayload payload = new PrTimelinePayload(
                 "https://avatars/bot", true, null, "https://github/event", "reviewer", "assignee", "docs", "d4c5f9",
                 null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, false, false,
+                null, null, null, null, null, null, false, false,
                 ImmutableList.of(new PrReaction("+1", 2, true)), ImmutableList.of());
+        payload = PrTimelinePayload.builder(payload).mergeQueueRemoval(new PrMergeQueueRemoval(
+                Optional.of("failed_checks"), Optional.of("https://github.com/owner/repo/commit/queue"),
+                ImmutableList.of(new PrMergeQueueRemoval.FailedCheck("integration", Optional.of("https://github.com/owner/repo/actions/runs/1/job/2"))))).build();
         StoredPrDetail detail = new StoredPrDetail(
                 new PrRawDetail(
                         "Overview", "https://github/pr/42", "open", "alice", "https://avatars/alice",
@@ -422,6 +426,9 @@ class TestSqlitePrDetailStore
             assertThat(event.payload().requestedReviewer()).isEqualTo("reviewer");
             assertThat(event.payload().assignee()).isEqualTo("assignee");
             assertThat(event.payload().label()).isEqualTo("docs");
+            assertThat(event.payload().mergeQueueRemoval().reason()).contains("failed_checks");
+            assertThat(event.payload().mergeQueueRemoval().failedChecks()).singleElement()
+                    .satisfies(check -> assertThat(check.url()).contains("https://github.com/owner/repo/actions/runs/1/job/2"));
             assertThat(event.payload().reactions()).containsExactly(new PrReaction("+1", 2, true));
         });
         assertThat(restored.unavailableSections()).containsExactly("checks");
@@ -489,7 +496,7 @@ class TestSqlitePrDetailStore
                 new PrTimelinePayload(
                         null, false, null, null, null, null, null, null,
                         null, null, "c0ffee", null, null, null, null, null, null, null,
-                        null, null, null, null, null, false, false,
+                        null, null, null, null, null, null, false, false,
                         ImmutableList.of(), ImmutableList.of()),
                 Optional.empty());
         store.save(prId, detail(ImmutableList.of(comment, commit)));

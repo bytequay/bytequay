@@ -29,6 +29,40 @@ import type { PrivateThreads } from './PrivateThread';
 const COMMENTED_HUNK = '@@ -41,4 +41,18 @@ default long getMemoryUsage()\n {\n+    MemoryUsageTracker createTracker();\n+\n+    interface MemoryUsageTracker';
 
 describe('PullOverview', () => {
+  it('shows queue-removal reasons and failed check links in the timeline and merge dialog', () => {
+    const removal: PullRequestDetailDto['recentActivity'][number] = {
+      actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: '2026-08-20T09:10:00Z', body: null, githubId: 71,
+      payload: { ...emptyPayload, mergeQueueRemoval: { reason: 'failed_checks', commitUrl: 'https://github.com/owner/repo/commit/queue-sha',
+        failedChecks: [{ name: 'integration', url: 'https://github.com/owner/repo/actions/runs/1/job/2' }] } },
+    };
+    const value = { ...detail(), recentActivity: [removal] };
+    for (const element of [
+      <PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />,
+      <MergeDialog pr={pullRequest()} detail={value} mergeQueue onClose={() => {}} onRefresh={async () => {}} />,
+    ]) {
+      const html = renderToStaticMarkup(element);
+      expect(html).toContain('Checks failed on the merge-queue commit.');
+      expect(html).toContain('href="https://github.com/owner/repo/actions/runs/1/job/2"');
+      expect(html).toContain('href="https://github.com/owner/repo/commit/queue-sha/checks"');
+      expect(html).toContain('#event-71');
+    }
+    const queued = { ...value, recentActivity: [removal, { ...removal, githubId: 72, eventType: 'added_to_merge_queue' }] };
+    expect(renderToStaticMarkup(<MergeDialog pr={pullRequest()} detail={queued} mergeQueue onClose={() => {}} onRefresh={async () => {}} />))
+      .not.toContain('Last removed from the merge queue');
+  });
+
+  it.each([null, 'merge_conflict', 'new_reason'])('keeps queue-removal details useful without failed check links (%s)', reason => {
+    const value: PullRequestDetailDto = { ...detail(), recentActivity: [{
+      actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: null, body: null, githubId: 71,
+      payload: { ...emptyPayload, mergeQueueRemoval: reason ? { reason, commitUrl: null, failedChecks: [] } : null },
+    }] };
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+    expect(html).toContain(reason === null ? 'Removal reason unavailable.' : reason === 'merge_conflict'
+      ? 'conflicted with the target branch or another queued change' : 'GitHub reason: new reason');
+    expect(html).toContain('View removal on GitHub');
+    expect(html).not.toContain('View merge-queue checks');
+  });
+
   it('places private local review cards among GitHub activity without changing remote comments', () => {
     const pr = pullRequest();
     const local: LocalReviewThreadDto = {
@@ -114,7 +148,7 @@ describe('PullOverview', () => {
     expect(popup).toContain('Conflicts with target branch <code>main</code>');
     expect(popup).toContain('aria-label="Conflicted files" aria-busy="true"');
     expect(popup).toContain('Checking conflicted files…');
-    expect(popup).toContain('All checks have passed');
+    expect(popup).toContain('All pull-request checks have passed');
     expect(popup).not.toContain('Merge status unavailable');
     expect(popup).not.toContain('Loading merge status');
     expect(actions).toHaveLength(2);
@@ -638,7 +672,7 @@ describe('PullOverview', () => {
       onClose={() => {}}
       onRefresh={async () => {}} />);
 
-    expect(html).toContain('All checks have passed');
+    expect(html).toContain('All pull-request checks have passed');
     expect(html).toContain('class="pr-merge-success-icon"');
     expect(html).not.toContain('class="pr-merge-ready-icon"');
   });

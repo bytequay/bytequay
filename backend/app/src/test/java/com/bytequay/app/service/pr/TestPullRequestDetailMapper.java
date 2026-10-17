@@ -96,7 +96,7 @@ class TestPullRequestDetailMapper
         PrTimelinePayload label = new PrTimelinePayload(
                 "https://avatars/bot", true, null, null, null, null, "docs", "d4c5f9",
                 null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, false, false, ImmutableList.of(), ImmutableList.of());
+                null, null, null, null, null, null, false, false, ImmutableList.of(), ImmutableList.of());
         StoredPrDetail stored = new StoredPrDetail(
                 richRaw(),
                 ImmutableList.of(

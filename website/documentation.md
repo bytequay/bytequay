@@ -88,6 +88,11 @@ closed at that time, Today is made when you return.
 4. Inspect the header’s merge/check-status control when ready to merge. Use
    **Monitor PR** to follow updates.
 
+When GitHub removes a PR from the merge queue, its activity entry and merge
+dialog show the removal reason and links to failed checks when available.
+These checks belong to the merge-queue commit, so they can fail while the PR’s
+own checks pass. **View removal on GitHub** opens the original event.
+
 **Post now** and **Reply** publish immediately. **Add to review** keeps comments
 pending. Monitoring alone does not start CI repair.
 

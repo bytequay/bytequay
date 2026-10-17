@@ -261,7 +261,14 @@ export type PullTimelineCommentDto = {
   reactions: PullReactionDto[];
 };
 
+export type PullMergeQueueRemovalDto = {
+  reason: string | null;
+  commitUrl: string | null;
+  failedChecks: Array<{ name: string; url: string | null }>;
+};
+
 export type PullTimelinePayloadDto = {
+  mergeQueueRemoval?: PullMergeQueueRemovalDto | null;
   actorAvatarUrl: string | null;
   actorBot: boolean;
   state: string | null;

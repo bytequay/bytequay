@@ -41,6 +41,7 @@ public record PrTimelinePayload(
         String sourceUrl,
         Integer sourceNumber,
         String milestoneTitle,
+        PrMergeQueueRemoval mergeQueueRemoval,
         String path,
         String diffHunk,
         Integer line,

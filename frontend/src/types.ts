@@ -1486,6 +1486,8 @@ export type AssistantReceiptDto = {
   turnId: string | null;
   /** Settings holds the switch that is off; the card's buttons answer what words may not. */
   fix: 'SETTINGS' | 'BUTTONS' | null;
+  /** The user's words the assistant acted on, exactly as it passed them; none for a card's own button. */
+  words: string | null;
 };
 
 /** What the Assistant may do from the user's words; both start off. */

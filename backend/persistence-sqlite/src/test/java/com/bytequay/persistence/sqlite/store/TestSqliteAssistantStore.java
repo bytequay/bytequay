@@ -79,7 +79,7 @@ class TestSqliteAssistantStore
         AssistantItem reply = AssistantItem.reply(DAY, AT, "One card waits on task:t1.", ImmutableMap.of("task:t1", AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t1")));
         AssistantItem receipt = AssistantItem.receipt(DAY, AT, "Started “Expose snapshot id”", new AssistantReceipt(AssistantReceipt.Operation.START_TASK,
                 AssistantReceipt.Outcome.DONE, Optional.of("trinodb/trino · Claude Opus 5.5"), Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t2")),
-                Optional.of("turn-1"), Optional.empty()));
+                Optional.of("turn-1"), Optional.empty(), Optional.of("start the snapshot id one")));
         for (AssistantItem item : ImmutableList.of(message, failure, reply, receipt)) {
             store.add(item);
         }

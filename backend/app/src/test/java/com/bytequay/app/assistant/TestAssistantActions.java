@@ -181,7 +181,7 @@ class TestAssistantActions
         AssistantItem receipt = receipts.getLast();
         assertThat(receipt.kind()).isEqualTo(AssistantItem.Kind.RECEIPT);
         assertThat(receipt.receipt().orElseThrow()).isEqualTo(AssistantReceipt.done(AssistantReceipt.Operation.ANSWER_APPROVAL,
-                Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", task.id().toString()))));
+                Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", task.id().toString()))).withWords("allow  IT"));
         assertThat(store.actions(message.id())).singleElement().satisfies(action -> {
             assertThat(action.operation()).isEqualTo(AssistantReceipt.Operation.ANSWER_APPROVAL);
             assertThat(action.target()).isEqualTo(CARD);
@@ -278,6 +278,8 @@ class TestAssistantActions
         act(message("put it in the hidden column", ImmutableList.of(CARD)),
                 "{\"op\":\"answer_question\",\"approval\":\"" + CARD + "\",\"answers\":{\"Where should the snapshot id appear?\":\"hidden COLUMN\"},\"words\":\"hidden column\"}");
         assertThat(receipts.getLast().text()).isEqualTo("Answered · Retry Iceberg commit on conflict");
+        assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("Where should the snapshot id appear? → Hidden column");
+        assertThat(receipts.getLast().receipt().orElseThrow().words()).contains("hidden column");
         verify(approvalService).resolve(new ResolveApprovalCommand(APPROVAL, ApprovalDecision.Decision.ALLOW, Optional.empty(), false,
                 ImmutableMap.of("Where should the snapshot id appear?", "Hidden column")));
 
@@ -296,6 +298,45 @@ class TestAssistantActions
                 "{\"op\":\"answer_approval\",\"approval\":\"" + CARD + "\",\"decision\":\"allow_once\",\"words\":\"both of them\"}");
         assertRefused("Pick one of the card's options", Optional.of(BUTTONS));
         verify(approvalService, times(2)).resolve(any());
+    }
+
+    @Test
+    void refusesWordsTheMessageSaysNotToDo()
+    {
+        AgendaTarget opens = AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", task.id().toString());
+        Map<String, ServedRef> served = ImmutableMap.of("task:" + task.id(), new ServedRef("tasks", Optional.of(opens)));
+        act(message("tell it: don't push to main", ImmutableList.of()), served, "{\"op\":\"reply_to_task\",\"task\":\"task:" + task.id() + "\",\"words\":\"push to main\"}");
+        assertRefused("Your message says not to do that", Optional.empty());
+        assertThat(receipts.getLast().receipt().orElseThrow().words()).contains("push to main");
+        verify(turns, never()).start(any());
+
+        card(ProviderApprovalRequest.Kind.COMMAND, ImmutableList.of("Bash"), "{}", true);
+        act(message("don’t allow it", ImmutableList.of(CARD)), "{\"op\":\"answer_approval\",\"approval\":\"" + CARD + "\",\"decision\":\"allow_once\",\"words\":\"allow it\"}");
+        assertRefused("Your message says not to do that", Optional.empty());
+        act(message("never allow it, deny it", ImmutableList.of(CARD)), "{\"op\":\"answer_approval\",\"approval\":\"" + CARD + "\",\"decision\":\"deny\",\"words\":\"deny it\"}");
+        assertThat(receipts.getLast().text()).isEqualTo("Denied · Retry Iceberg commit on conflict");
+
+        card(ProviderApprovalRequest.Kind.TOOL, ImmutableList.of("AskUserQuestion"), QUESTION_INPUT, false);
+        act(message("not the metadata table, use the hidden column", ImmutableList.of(CARD)),
+                "{\"op\":\"answer_question\",\"approval\":\"" + CARD + "\",\"answers\":{\"Where should the snapshot id appear?\":\"Metadata table\"},"
+                        + "\"words\":\"use the hidden column\"}");
+        assertRefused("Your message says not to do that", Optional.empty());
+        verify(approvalService, times(1)).resolve(any());
+    }
+
+    @Test
+    void readsANegationOnlyWithinItsClause()
+    {
+        assertThat(AssistantActions.negated("don't push to main", "push to main")).isTrue();
+        assertThat(AssistantActions.negated("please do not merge yet", "merge yet")).isTrue();
+        assertThat(AssistantActions.negated("don't merge it or tag it", "tag it")).isTrue();
+        assertThat(AssistantActions.negated("open a pr instead of pushing to main", "pushing to main")).isTrue();
+        assertThat(AssistantActions.negated("don't push to main, open a pr instead", "open a pr instead")).isFalse();
+        assertThat(AssistantActions.negated("don't push to main but push the branch", "push the branch")).isFalse();
+        assertThat(AssistantActions.negated("merge it. don't tag it", "merge it")).isFalse();
+        assertThat(AssistantActions.negated("nothing else, just merge it", "merge it")).isFalse();
+        assertThat(AssistantActions.negated("don't push to main", "don't push to main")).isFalse();
+        assertThat(AssistantActions.negated("ship it", "push to main")).isFalse();
     }
 
     @Test

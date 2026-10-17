@@ -82,10 +82,13 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.bytequay.app.agenda.AgendaReader.clip;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 /**
  * The {@code assistant_act} tool: what the assistant may do for the user, and only in the run their own message started. A call passes
@@ -118,6 +121,12 @@ class AssistantActions
             Operation.ANSWER_QUESTION, ImmutableSet.of("op", "words", "approval", "answers"),
             Operation.REPLY_TO_TASK, ImmutableSet.of("op", "words", "task"));
     private static final Set<String> START_FROM = ImmutableSet.of("work", "issue", "jira");
+    // Words after one of these, in the same clause, are what the user said not to do: "push to main" in "don't push to main".
+    private static final Pattern NEGATION = Pattern.compile("\\b(?:not|never|don't|dont|doesn't|didn't|can't|cannot|won't|wouldn't|shouldn't|mustn't|isn't|aren't|wasn't"
+            + "|stop|avoid|without|neither|nor|except|instead of|rather than)\\b");
+    // ponytail: a comma or a contrast ends the clause, so "don't push, open a PR" allows the PR, but a list after a comma ("don't push, merge
+    // or tag") escapes; asking the user to confirm the words would close that.
+    private static final Pattern CLAUSE_END = Pattern.compile("[,.!?;:]|\\b(?:but|then|otherwise)\\b");
 
     private final AssistantStore store;
     private final AssistantSettings permissions;
@@ -300,10 +309,11 @@ class AssistantActions
             catch (RuntimeException failure) {
                 // The service's own rules said no, such as an item that cannot start now; the user reads why.
                 String reason = clip(Optional.ofNullable(failure.getMessage()).filter(text -> !text.isBlank()).orElse("ByteQuay could not do that"), REASON);
-                result = new Result(reason, new AssistantReceipt(request.operation(), Outcome.FAILED, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
-                        Optional.empty());
+                result = new Result(reason, new AssistantReceipt(request.operation(), Outcome.FAILED, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                        Optional.empty()), Optional.empty());
             }
-            AssistantReceipt receipt = result.receipt();
+            // The words go on every receipt, done or refused, so the user sees exactly what was taken as theirs.
+            AssistantReceipt receipt = result.receipt().withWords(request.words());
             Optional<String> reason = receipt.outcome() == Outcome.DONE ? Optional.empty() : Optional.of(result.line());
             store.addAction(AssistantAction.of(message, request.operation(), request.target(), request.words(), receipt.outcome(), reason, result.result(), clock.instant()));
             receipts.accept(AssistantItem.receipt(message.day(), clock.instant(), result.line(), receipt));
@@ -342,6 +352,9 @@ class AssistantActions
             if (!inMessage(request.words())) {
                 return Optional.of(Result.refused(operation, "Those words aren't in your message"));
             }
+            if (saysNot(request.words())) {
+                return Optional.of(Result.refused(operation, "Your message says not to do that"));
+            }
             if (!onScreen(request)) {
                 return Optional.of(Result.refused(operation, "That isn't on screen"));
             }
@@ -369,6 +382,12 @@ class AssistantActions
         {
             String said = normal(words);
             return said.length() >= 2 && normal(message.text()).contains(said);
+        }
+
+        /** Whether the message says not to do what the words say, wherever they appear in it. */
+        private boolean saysNot(String words)
+        {
+            return negated(normal(message.text()), normal(words));
         }
 
         /**
@@ -435,8 +454,13 @@ class AssistantActions
             for (Map.Entry<String, JsonNode> answer : request.body().path("answers").properties()) {
                 Optional<String> question = question(offered, answer.getKey());
                 String chosen = answer.getValue().asText("").strip();
-                if (question.isEmpty() || chosen.isEmpty() || !(option(offered.get(question.orElseThrow()), chosen).isPresent() || inMessage(chosen))) {
+                Optional<String> label = question.flatMap(asked -> option(offered.get(asked), chosen));
+                if (question.isEmpty() || chosen.isEmpty() || !(label.isPresent() || inMessage(chosen))) {
                     return Optional.of(Result.refused(request.operation(), "Pick one of the card's options", Fix.BUTTONS));
+                }
+                // An option the message turns down, such as "the metadata table" in "not the metadata table", is not the user's answer.
+                if (saysNot(label.orElse(chosen))) {
+                    return Optional.of(Result.refused(request.operation(), "Your message says not to do that"));
                 }
             }
             return Optional.empty();
@@ -492,7 +516,12 @@ class AssistantActions
                 answers.put(question, option(offered.get(question), chosen).orElse(chosen));
             }
             ApprovalDecision decided = approvalService.resolve(new ResolveApprovalCommand(id, ApprovalDecision.Decision.ALLOW, Optional.empty(), false, answers));
-            return decided(id, "Answered · ", request.operation(), decided);
+            Result result = decided(id, "Answered · ", request.operation(), decided);
+            // What the task was sent, beside the words it was taken from.
+            String sent = answers.entrySet().stream().map(answer -> clip(answer.getKey(), 60) + " → " + answer.getValue()).collect(joining(" · "));
+            AssistantReceipt receipt = result.receipt();
+            return new Result(result.line(), new AssistantReceipt(receipt.operation(), receipt.outcome(), Optional.of(clip(sent, REASON)), receipt.target(), receipt.turnId(),
+                    receipt.fix(), receipt.words()), result.result());
         }
 
         private Result decided(ApprovalId id, String verb, Operation operation, ApprovalDecision decided)
@@ -544,7 +573,7 @@ class AssistantActions
             }
             Optional<String> turnId = turns.findTurnByIdempotencyKey(task.id(), key).map(turn -> turn.id().toString());
             return new Result("Started “" + clip(task.title(), 80) + "”", new AssistantReceipt(Operation.START_TASK, Outcome.DONE, Optional.of(String.join(" · ", detail.build())),
-                    target, turnId, Optional.empty()), Optional.of(task.id().toString()));
+                    target, turnId, Optional.empty(), Optional.empty()), Optional.of(task.id().toString()));
         }
 
         private Start freeText(Request request)
@@ -676,6 +705,28 @@ class AssistantActions
 
     private static String normal(String text)
     {
-        return text.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").strip();
+        return text.toLowerCase(Locale.ROOT).replace('’', '\'').replaceAll("\\s+", " ").strip();
+    }
+
+    /**
+     * Whether the message says not to do what the words say: each place they appear follows a negation earlier in its clause. Both are
+     * normalized. Words that carry their own negation, such as "don't push", are not negated by it.
+     */
+    static boolean negated(String message, String words)
+    {
+        boolean found = false;
+        for (int at = message.indexOf(words); at >= 0; at = message.indexOf(words, at + 1)) {
+            found = true;
+            String before = message.substring(0, at);
+            Matcher end = CLAUSE_END.matcher(before);
+            int clause = 0;
+            while (end.find()) {
+                clause = end.end();
+            }
+            if (!NEGATION.matcher(before.substring(clause)).find()) {
+                return false;
+            }
+        }
+        return found;
     }
 }

@@ -213,10 +213,19 @@
 .assistant-receipt__text { flex: 1; min-width: 0; }
 
 .assistant-receipt__line,
+.assistant-receipt__words,
 .assistant-receipt__detail {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.assistant-receipt__words,
+.assistant-refusal__words {
+  color: var(--fg-default);
+  font-size: 12.5px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
 }
 
 .assistant-receipt__line { font-size: 13px; line-height: 19px; }
@@ -231,7 +240,6 @@
 .assistant-refusal {
   display: flex;
   align-items: baseline;
-  flex-wrap: wrap;
   gap: 6px;
   margin: 12px 0 0;
   color: var(--fg-muted);
@@ -241,10 +249,15 @@
 
 .assistant-refusal svg {
   flex: none;
-  align-self: center;
+  align-self: flex-start;
+  /* Centred on the first line of text, which is 19px high. */
+  margin-top: 3px;
 }
 
 .assistant-refusal.is-failed svg { color: var(--fg-warning); }
+/* The reason and its words wrap beside the icon; a Settings link stays at the end. */
+.assistant-refusal > span { flex: 1; min-width: 0; }
+.assistant-refusal > button { flex: none; }
 
 .assistant-receipt__action,
 .assistant-row__open {

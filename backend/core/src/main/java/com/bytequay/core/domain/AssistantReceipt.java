@@ -26,8 +26,10 @@ import static java.util.Objects.requireNonNull;
  * @param target where the receipt opens
  * @param turnId a started task's first turn, which Stop cancels
  * @param fix where a refused action can be done instead
+ * @param words the user's words the assistant acted on, exactly as it passed them; none for a button
  */
-public record AssistantReceipt(Operation operation, Outcome outcome, Optional<String> detail, Optional<AgendaTarget> target, Optional<String> turnId, Optional<Fix> fix)
+public record AssistantReceipt(Operation operation, Outcome outcome, Optional<String> detail, Optional<AgendaTarget> target, Optional<String> turnId, Optional<Fix> fix,
+        Optional<String> words)
 {
     public enum Operation
     {
@@ -53,15 +55,21 @@ public record AssistantReceipt(Operation operation, Outcome outcome, Optional<St
         requireNonNull(target, "target is null");
         checkOptionalText(turnId, "turnId");
         requireNonNull(fix, "fix is null");
+        requireNonNull(words, "words is null");
     }
 
     public static AssistantReceipt done(Operation operation, Optional<AgendaTarget> target)
     {
-        return new AssistantReceipt(operation, Outcome.DONE, Optional.empty(), target, Optional.empty(), Optional.empty());
+        return new AssistantReceipt(operation, Outcome.DONE, Optional.empty(), target, Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     public static AssistantReceipt refused(Operation operation, Optional<Fix> fix)
     {
-        return new AssistantReceipt(operation, Outcome.REFUSED, Optional.empty(), Optional.empty(), Optional.empty(), fix);
+        return new AssistantReceipt(operation, Outcome.REFUSED, Optional.empty(), Optional.empty(), Optional.empty(), fix, Optional.empty());
+    }
+
+    public AssistantReceipt withWords(String said)
+    {
+        return new AssistantReceipt(operation, outcome, detail, target, turnId, fix, Optional.of(said));
     }
 }

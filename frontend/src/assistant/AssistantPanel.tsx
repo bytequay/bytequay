@@ -213,7 +213,11 @@ function Entry({ item, retryable, onRetry, onSettings }: {
     return (
       <p className={`assistant-refusal${failed ? ' is-failed' : ''}`}>
         {failed ? <TriangleAlert size={13} aria-hidden="true" /> : <Hand size={13} aria-hidden="true" />}
-        <span>{item.text}{item.receipt?.fix === 'BUTTONS' ? ' ↓' : ''}</span>
+        <span>
+          {item.text}
+          {item.receipt?.words != null && <> <span className="assistant-refusal__words">“{item.receipt.words}”</span></>}
+          {item.receipt?.fix === 'BUTTONS' && <span aria-hidden="true"> ↓</span>}
+        </span>
         {item.receipt?.fix === 'SETTINGS' && <button type="button" className="assistant-link" onClick={() => onSettings('workflow')}>Open Settings</button>}
       </p>
     );
@@ -244,6 +248,8 @@ function Receipt({ item, onOpen }: { item: AssistantItemDto; onOpen: (target: Ag
     <div className="assistant-receipt">
       <div className="assistant-receipt__text">
         <div className="assistant-receipt__line" title={item.text}>{item.text}</div>
+        {/* Exactly what was taken as the user's: what a task was sent, or what the assistant acted on. */}
+        {receipt.words !== null && <div className="assistant-receipt__words" title={receipt.words}>“{receipt.words}”</div>}
         {(error ?? receipt.detail) !== null && <div className="assistant-receipt__detail" title={error ?? receipt.detail ?? undefined}>{error ?? receipt.detail}</div>}
       </div>
       {turnId !== null && (stop === 'stopped'

@@ -68,7 +68,7 @@ describe('linkRefs', () => {
 describe('entries', () => {
   const item = (id: string, kind: AssistantItemDto['kind'], outcome?: AssistantReceiptDto['outcome']): AssistantItemDto => ({
     id, day: '2026-10-17', at: '2026-10-17T07:00:00Z', kind, text: id, targets: {}, notReady: false,
-    receipt: outcome === undefined ? null : { operation: 'ANSWER_APPROVAL', outcome, detail: null, target: null, turnId: null, fix: null },
+    receipt: outcome === undefined ? null : { operation: 'ANSWER_APPROVAL', outcome, detail: null, target: null, turnId: null, fix: null, words: null },
   });
 
   it('groups a run of done receipts and leaves refusals and the rest on their own', () => {

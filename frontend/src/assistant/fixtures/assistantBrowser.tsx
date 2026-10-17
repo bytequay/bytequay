@@ -49,9 +49,9 @@ const VIEW: AssistantViewDto = {
       text: 'Start with [#31377](pr:trinodb/trino#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null },
     { id: 'c1', day: '2026-10-16', at: '2026-10-16T07:08:00Z', kind: 'RECEIPT', text: 'Started “Expose snapshot id in metadata”', targets: {}, notReady: false,
       receipt: { operation: 'START_TASK', outcome: 'DONE', detail: 'trinodb/trino · Claude Code Opus 5.5 · Auto draft PR', target: target('TASK', { id: 't9' }),
-        turnId: 'turn-9', fix: null } },
+        turnId: 'turn-9', fix: null, words: 'start the snapshot id one' } },
     { id: 'c2', day: '2026-10-16', at: '2026-10-16T07:08:01Z', kind: 'RECEIPT', text: 'Use the buttons: this one runs outside the sandbox', targets: {}, notReady: false,
-      receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, turnId: null, fix: 'BUTTONS' } },
+      receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, turnId: null, fix: 'BUTTONS', words: 'allow it' } },
   ],
 };
 
@@ -138,7 +138,8 @@ async function showsTheDayInOrder(): Promise<void> {
       .map(node => node.className.split(' ')[0]);
     assert(JSON.stringify(order) === JSON.stringify(['today', 'agt-user', 'assistant-reply', 'assistant-receipts', 'assistant-refusal', 'assistant-waiting']),
       `Agenda, conversation and receipts, then waiting cards: ${JSON.stringify(order)}`);
-    assert(panel.querySelector('.assistant-refusal')?.textContent === 'Use the buttons: this one runs outside the sandbox ↓', 'A refusal points down at the card');
+    assert(panel.querySelector('.assistant-refusal')?.textContent === 'Use the buttons: this one runs outside the sandbox “allow it” ↓',
+      `A refusal shows the words it refused and points down at the card: ${panel.querySelector('.assistant-refusal')?.textContent}`);
     assert(/^\d{1,2}:\d{2}$/.test(panel.querySelector('.assistant-time')?.textContent ?? ''), 'A message starts with its time');
     const opened: unknown[] = [];
     const listener = (event: Event) => { opened.push((event as CustomEvent).detail); };
@@ -153,6 +154,7 @@ async function showsTheDayInOrder(): Promise<void> {
     assert(window.location.hash === workspaceAgentTaskRoute('ws1', 't1'), `A task ref opens the task: ${window.location.hash}`);
     const receipt = panel.querySelector<HTMLElement>('.assistant-receipt');
     assert(receipt?.querySelector('.assistant-receipt__detail')?.textContent === 'trinodb/trino · Claude Code Opus 5.5 · Auto draft PR', 'A start says where it runs');
+    assert(receipt?.querySelector('.assistant-receipt__words')?.textContent === '“start the snapshot id one”', 'A receipt shows the exact words it acted on');
     const action = (name: string) => [...(receipt?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(button => button.textContent === name);
     action('Open')?.click();
     assert(window.location.hash === workspaceAgentTaskRoute('ws1', 't9'), `Open goes to the started task: ${window.location.hash}`);

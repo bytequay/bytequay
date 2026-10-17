@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Locale;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapReviewConstraint;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -70,7 +71,7 @@ public class SqliteReviewDraftStore
             throw new ReviewConflictException("Review draft version changed: " + draft.id(), e);
         }
         catch (DataAccessException e) {
-            throw new ReviewConflictException("Cannot save review draft " + draft.id(), e);
+            throw mapReviewConstraint("Cannot save review draft " + draft.id(), e);
         }
     }
 }

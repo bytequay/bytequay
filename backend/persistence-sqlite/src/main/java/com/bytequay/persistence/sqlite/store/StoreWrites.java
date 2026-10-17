@@ -31,6 +31,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.ToLongFunction;
 
+import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapConstraint;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -41,8 +42,10 @@ final class StoreWrites
 {
     static final Failures AGENT = new Failures(AgentConflictException::new, AgentConflictException::new, SqliteStoreExceptions::mapConstraint, AgentStorageException::new);
     static final Failures REVIEW = new Failures(ReviewConflictException::new, ReviewConflictException::new, SqliteStoreExceptions::mapReviewConstraint, StorageException::new);
-    static final Failures BRANCH_REBASE = new Failures(BranchRebaseException::new, BranchRebaseException::new, BranchRebaseException::new, StorageException::new);
-    static final Failures CHERRY_PICK = new Failures(CherryPickConflictException::new, CherryPickConflictException::new, CherryPickConflictException::new, StorageException::new);
+    static final Failures BRANCH_REBASE = new Failures(BranchRebaseException::new, BranchRebaseException::new,
+            (message, failure) -> mapConstraint(message, failure, BranchRebaseException::new, StorageException::new), StorageException::new);
+    static final Failures CHERRY_PICK = new Failures(CherryPickConflictException::new, CherryPickConflictException::new,
+            (message, failure) -> mapConstraint(message, failure, CherryPickConflictException::new, StorageException::new), StorageException::new);
 
     private StoreWrites() {}
 
@@ -75,7 +78,7 @@ final class StoreWrites
         }
         catch (DataAccessException e) {
             // A concurrent caller may have inserted the same key between the read and this write.
-            return existing.get().orElseThrow(() -> failures.causedConflict().apply(label + " conflicts with durable state: " + id, e));
+            return existing.get().orElseThrow(() -> failures.rejectedInsert().apply(label + " conflicts with durable state: " + id, e));
         }
     }
 

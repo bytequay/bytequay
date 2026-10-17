@@ -41,12 +41,6 @@ final class SqliteStoreExceptions
         }
     }
 
-    /** True when SQLite rejected the write, rather than the write failing for any other reason. */
-    public static boolean isConstraintViolation(Throwable failure)
-    {
-        return constraintDetail(failure) != null;
-    }
-
     /**
      * A duplicate or dangling key means durable state disagrees with the caller:
      * a conflict. A CHECK or NOT NULL failure means the row itself does not fit
@@ -63,7 +57,7 @@ final class SqliteStoreExceptions
         return mapConstraint(message, failure, ReviewConflictException::new, StorageException::new);
     }
 
-    private static RuntimeException mapConstraint(String message, DataAccessException failure,
+    static RuntimeException mapConstraint(String message, DataAccessException failure,
             BiFunction<String, Throwable, RuntimeException> conflict, BiFunction<String, Throwable, RuntimeException> storage)
     {
         String detail = constraintDetail(failure);

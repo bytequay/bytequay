@@ -21,6 +21,8 @@ import com.bytequay.app.jira.JiraActivityLog;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.localreview.LocalReviewService;
 import com.bytequay.app.notices.AppNoticeService;
+import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -36,6 +38,7 @@ import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
+import com.bytequay.core.store.RepositoryMetadataStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -55,6 +58,9 @@ import java.util.OptionalInt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestAgendaReader
@@ -66,6 +72,7 @@ class TestAgendaReader
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final CredentialService credentials = mock(CredentialService.class);
+    private final GitHubAccountClient github = mock(GitHubAccountClient.class);
     private final ObjectMapper mapper = AgendaFixtures.mapper();
 
     @Test
@@ -105,6 +112,16 @@ class TestAgendaReader
         assertThat(snapshot.overview().counts().mine()).isEqualTo(1);
     }
 
+    @Test
+    void readsCirclesWithoutAskingGitHubWhoTheUserIs()
+    {
+        // The assistant reads this inside a turn; on a cold cache, naming the account would be a request to GitHub.
+        reader().read(LocalDate.parse("2026-10-16"), SINCE, false, ImmutableList.of(), AgendaCalendar.of("off"));
+
+        verify(credentials, never()).resolveGitHubCredential();
+        verifyNoInteractions(github);
+    }
+
     private AgendaReader reader()
     {
         @SuppressWarnings("unchecked")
@@ -112,7 +129,7 @@ class TestAgendaReader
         return new AgendaReader(pullRequests, details, credentials, mock(WorkspaceStore.class), mock(AppNoticeService.class), mock(AgentTaskStore.class),
                 mock(TaskPullRequestOwnership.class), mock(LocalReviewService.class), mock(WorkItemStore.class), mock(WorkItemService.class), mock(EpicStore.class),
                 mock(IssueDevelopmentStore.class), mock(RepositoryIssueStore.class), mock(IssueDevelopmentService.class), jira, mock(JiraActivityLog.class),
-                mock(TeamService.class), mock(AgendaDone.class));
+                new TeamService(new InMemoryAppSettingsStore(), mapper, credentials, github, mock(RepositoryMetadataStore.class)), mock(AgendaDone.class));
     }
 
     private static PullRequest pullRequest(int number, String author, PullRequest.Origin origin, List<String> requested, String decision, int additions, int deletions)

@@ -38,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -223,10 +224,29 @@ class TestTeamService
         assertThat(store.get("teams.directory.1")).contains("invalid JSON");
     }
 
+    @Test
+    void cachedCirclesNeverAskGitHub()
+    {
+        assertThat(service.cachedCircles()).isEmpty();
+        verify(credentials, never()).resolveGitHubCredential();
+        verifyNoInteractions(github);
+
+        TeamCircle circle = service.create("Local", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of()).circles().getFirst();
+        clearInvocations(github, credentials);
+        assertThat(service.cachedCircles()).containsExactly(circle);
+        // Another token may belong to another account, which only GitHub can name.
+        account("bob", "token-b", 2);
+        assertThat(service.cachedCircles()).isEmpty();
+        verify(credentials, never()).resolveGitHubCredential();
+        verifyNoInteractions(github);
+    }
+
     private void account(String login, String token, long id)
     {
         UserProfile profile = new UserProfile(login, login, "", "", 0, 0, 0, "", "", "", "");
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential(token, profile));
+        GitHubCredential credential = new GitHubCredential(token, profile);
+        when(credentials.resolveGitHubCredential()).thenReturn(credential);
+        when(credentials.cachedCredential()).thenReturn(Optional.of(credential));
         when(github.fetchUserIdentity(token, Optional.empty())).thenReturn(identity(id, login));
     }
 

@@ -28,6 +28,7 @@ import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.team.TeamService;
 import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaDay;
 import com.bytequay.core.domain.AgendaItem;
@@ -107,6 +108,7 @@ public class AgendaService
     private final AgendaStore store;
     private final AgendaReader reader;
     private final AgendaCalendarReader calendars;
+    private final TeamService teams;
     private final AgendaDone done;
     private final AgendaSettings settings;
     private final AppSettingsService appSettings;
@@ -119,12 +121,13 @@ public class AgendaService
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile Optional<Failure> lastFailure = Optional.empty();
 
-    public AgendaService(AgendaStore store, AgendaReader reader, AgendaCalendarReader calendars, AgendaDone done, AgendaSettings settings,
+    public AgendaService(AgendaStore store, AgendaReader reader, AgendaCalendarReader calendars, TeamService teams, AgendaDone done, AgendaSettings settings,
             AppSettingsService appSettings, ModelSettingsService models, AgentDriverRegistry drivers, AgentResourceService resources, ObjectMapper mapper, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.reader = requireNonNull(reader, "reader is null");
         this.calendars = requireNonNull(calendars, "calendars is null");
+        this.teams = requireNonNull(teams, "teams is null");
         this.done = requireNonNull(done, "done is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
@@ -248,6 +251,7 @@ public class AgendaService
             WorkflowAgentTasks.requireReady(drivers, lane, AgentPermissionPolicy.AUTO, Optional.of(model.model()));
             AgendaCalendar busy = calendars.today(schedule, today);
             calendar = Optional.of(busy);
+            resolveCircleAccount();
             AgendaSnapshot snapshot = reader.read(today, since, recapDay, earlier, busy);
             AgendaPages session = new AgendaPages(snapshot, mapper);
             pages = Optional.of(session);
@@ -282,6 +286,20 @@ public class AgendaService
                     ImmutableList.of(), calendar, Optional.of(reason));
         }
         store.deleteBefore(today.minusDays(RETAINED_DAYS));
+    }
+
+    /**
+     * The reader takes only circles already read, because the assistant reads it inside a turn. This run may still ask GitHub which
+     * account owns them, before its turn starts, so an agenda made soon after a start keeps them.
+     */
+    private void resolveCircleAccount()
+    {
+        try {
+            teams.directory();
+        }
+        catch (RuntimeException unresolved) {
+            log.warn("Agenda could not resolve the account for circles: {}", unresolved.getMessage());
+        }
     }
 
     private void record(LocalDate today, Instant startedAt, AgendaDay.State state, AgendaRun.Trigger trigger, Optional<AgentModelSetting> model,

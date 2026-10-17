@@ -30,6 +30,7 @@ import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.team.TeamService;
 import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaDay;
 import com.bytequay.core.domain.AgendaRun;
@@ -40,6 +41,7 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.InOrder;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -62,6 +64,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -87,6 +90,7 @@ class TestAgendaService
     private final MemoryStore store = new MemoryStore();
     private final AgendaReader reader = mock(AgendaReader.class);
     private final AgendaCalendarReader calendars = mock(AgendaCalendarReader.class);
+    private final TeamService teams = mock(TeamService.class);
     private final AgendaDone done = mock(AgendaDone.class);
     private final AppSettingsService appSettings = mock(AppSettingsService.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
@@ -153,7 +157,7 @@ class TestAgendaService
                 return now.get();
             }
         };
-        agenda = new AgendaService(store, reader, calendars, done, new AgendaSettings(settings, AgendaFixtures.mapper()), appSettings, models, drivers, resources,
+        agenda = new AgendaService(store, reader, calendars, teams, done, new AgendaSettings(settings, AgendaFixtures.mapper()), appSettings, models, drivers, resources,
                 AgendaFixtures.mapper(), clock);
     }
 
@@ -195,8 +199,13 @@ class TestAgendaService
     void keepsWhatTheAgentReadAndLogsTheRun()
     {
         now.set(FRIDAY_MORNING);
+        when(teams.directory()).thenThrow(new IllegalStateException("GitHub is unreachable"));
         agenda.runIfDue(Optional.of(FRIDAY_MORNING));
 
+        // The account behind the circles is resolved before the snapshot, which reads only cached circles; failing costs only circles.
+        InOrder order = inOrder(teams, reader);
+        order.verify(teams).directory();
+        order.verify(reader).read(any(), any(), anyBoolean(), any(), any());
         AgentSessionContext context = opened.get();
         assertThat(context.access()).isEqualTo(SessionAccess.READ_ONLY);
         assertThat(context.sessionTools().getFirst().name()).isEqualTo("agenda_context");

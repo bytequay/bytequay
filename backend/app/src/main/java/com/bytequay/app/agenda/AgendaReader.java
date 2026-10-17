@@ -190,7 +190,7 @@ public class AgendaReader
         List<Workspace> watched = workspaces.findAll();
         Map<String, String> workspaceByRepo = new HashMap<>();
         watched.forEach(workspace -> workspaceByRepo.putIfAbsent(lower(workspace.monitoredRepository().fullName()), workspace.id()));
-        List<TeamCircle> circles = read("circles", () -> teams.directory().circles(), ImmutableList.of());
+        List<TeamCircle> circles = read("circles", teams::cachedCircles, ImmutableList.of());
 
         List<PullRequest> candidates = read("pull requests", pullRequests::listAttentionCandidates, ImmutableList.of());
         Set<Long> mentioned = read("mentions", () -> pullRequests.findMentioned(candidates), ImmutableSet.of());

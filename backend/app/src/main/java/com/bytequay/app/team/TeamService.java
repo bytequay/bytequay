@@ -70,6 +70,18 @@ public class TeamService
         return read(currentAccount());
     }
 
+    /**
+     * The circles of the account an earlier request already named, without contacting GitHub; none until one has, or after the token
+     * changed. Read paths that must answer offline use this instead of {@link #directory()}, which asks GitHub on a cold cache.
+     */
+    public List<TeamCircle> cachedCircles()
+    {
+        Optional<GitHubCredential> credential = credentials.cachedCredential();
+        return account.filter(value -> credential.filter(current -> current == value.credential()).isPresent())
+                .map(value -> read(value).circles())
+                .orElse(ImmutableList.of());
+    }
+
     /** Stable account namespace shared by the separately collected activity. */
     public long accountId()
     {

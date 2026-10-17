@@ -141,7 +141,7 @@ class TestGoalLessonService
     @Test
     void writeAgainRewritesAWrittenChapterButLeavesOneBeingWritten()
     {
-        when(goals.list("workspace")).thenReturn(ImmutableList.of(goalView(WorkItem.State.PLANNED, Optional.of(MAP))));
+        when(goals.get("workspace", "goal-1")).thenReturn(goalView(WorkItem.State.PLANNED, Optional.of(MAP)));
         assertThat(service.writeAgain("workspace", "goal-1", "lesson-1").state()).isEqualTo(GoalLesson.State.WRITING);
         assertThat(service.writeAgain("workspace", "goal-1", "lesson-1").state()).as("a chapter being written is left to finish").isEqualTo(GoalLesson.State.WRITING);
         assertThat(queued).hasSize(1);
@@ -160,8 +160,7 @@ class TestGoalLessonService
     void theFirstChapterDrawsTheCourseMapAndIsWrittenWithIt()
     {
         service.open("workspace", "goal-1", "lesson-1");
-        when(goals.list("workspace")).thenReturn(ImmutableList.of(goalView(WorkItem.State.PLANNED, Optional.empty())),
-                ImmutableList.of(goalView(WorkItem.State.PLANNED, Optional.of(MAP))));
+        when(goals.get("workspace", "goal-1")).thenReturn(goalView(WorkItem.State.PLANNED, Optional.empty()), goalView(WorkItem.State.PLANNED, Optional.of(MAP)));
         doReturn(MAP).when(planner).courseMap(any(), any(), any());
         doReturn(CONTENT).when(planner).lesson(any(), any(), any(), anyString(), any());
         queued.removeFirst().run();
@@ -173,7 +172,7 @@ class TestGoalLessonService
     @Test
     void aMappedCourseIsNotDrawnAgainAndAFailedMapStillWritesTheChapter()
     {
-        when(goals.list("workspace")).thenReturn(ImmutableList.of(goalView(WorkItem.State.PLANNED, Optional.of(MAP))));
+        when(goals.get("workspace", "goal-1")).thenReturn(goalView(WorkItem.State.PLANNED, Optional.of(MAP)));
         service.open("workspace", "goal-1", "lesson-1");
         doReturn(CONTENT).when(planner).lesson(any(), any(), any(), anyString(), any());
         queued.removeFirst().run();
@@ -235,10 +234,10 @@ class TestGoalLessonService
         WorkItemView next = new WorkItemView("lesson-2", "workspace", Optional.of("goal-1"), "Plan a scan", WorkItem.Kind.LEARN, "Explain splits",
                 WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.PLANNED, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 1,
                 ImmutableList.of(), Optional.empty(), 0);
-        when(goals.list("workspace")).thenReturn(ImmutableList.of(new GoalView("goal-1", "workspace", "Iceberg", "", true, Optional.empty(), Optional.empty(), 1,
+        when(goals.get("workspace", "goal-1")).thenReturn(new GoalView("goal-1", "workspace", "Iceberg", "", true, Optional.empty(), Optional.empty(), 1,
                 Optional.of(new GoalCourse("op-0", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1")),
                         new GoalCourse.Part("The connector", ImmutableList.of("lesson-2"))), NOW, Optional.empty())), false,
-                ImmutableList.of(lesson, next), ImmutableList.of(), ImmutableList.of(), NOW, NOW)));
+                ImmutableList.of(lesson, next), ImmutableList.of(), ImmutableList.of(), NOW, NOW));
         service.finish("workspace", "goal-1", "lesson-1", "op-done");
         verify(conversation).tellDecision("workspace", "goal-1", "lesson:lesson-1",
                 "The user finished the lesson \"What a table is\". That completes part 1, \"Iceberg tables\"; the next part is \"The connector\".");
@@ -246,7 +245,7 @@ class TestGoalLessonService
 
     private void goal(WorkItem.State state)
     {
-        when(goals.list("workspace")).thenReturn(ImmutableList.of(goalView(state, Optional.empty())));
+        when(goals.get("workspace", "goal-1")).thenReturn(goalView(state, Optional.empty()));
     }
 
     private static GoalView goalView(WorkItem.State state, Optional<GoalLesson.Diagram> map)

@@ -21,7 +21,6 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.time.Instant;
 import java.util.Comparator;
@@ -34,8 +33,6 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class PullRequestDetailMapper
 {
-    private static final java.util.Set<String> FAILED_CHECK_CONCLUSIONS = ImmutableSet.of("failure", "timed_out", "cancelled", "action_required", "startup_failure");
-
     private PullRequestDetailMapper() {}
 
     static PullRequestDetail toPullRequestDetail(long id, String repo, int number, StoredPrDetail stored, boolean viewerCanWrite)
@@ -100,7 +97,7 @@ final class PullRequestDetailMapper
     static List<String> failingCheckNames(List<PrCheckRunState> checkRuns)
     {
         return dedupeCheckRunsByName(checkRuns).stream()
-                .filter(checkRun -> checkRun.conclusion() != null && FAILED_CHECK_CONCLUSIONS.contains(checkRun.conclusion()))
+                .filter(checkRun -> checkCiStatus(checkRun) == PullRequestDetail.CiStatus.FAILING)
                 .map(PrCheckRunState::name)
                 .collect(toImmutableList());
     }
@@ -130,16 +127,14 @@ final class PullRequestDetailMapper
 
     static PullRequestDetail.CiStatus aggregateCiStatus(List<PrCheckRunState> checkRuns)
     {
-        List<PrCheckRunState> latest = dedupeCheckRunsByName(checkRuns);
+        List<PullRequestDetail.CiStatus> latest = dedupeCheckRunsByName(checkRuns).stream().map(PullRequestDetailMapper::checkCiStatus).collect(toImmutableList());
         if (latest.isEmpty()) {
             return PullRequestDetail.CiStatus.NONE;
         }
-        if (latest.stream().anyMatch(checkRun -> checkRun.conclusion() != null
-                && FAILED_CHECK_CONCLUSIONS.contains(checkRun.conclusion()))) {
+        if (latest.contains(PullRequestDetail.CiStatus.FAILING)) {
             return PullRequestDetail.CiStatus.FAILING;
         }
-        if (latest.stream().anyMatch(checkRun ->
-                "in_progress".equals(checkRun.status()) || "queued".equals(checkRun.status()))) {
+        if (latest.contains(PullRequestDetail.CiStatus.PENDING)) {
             return PullRequestDetail.CiStatus.PENDING;
         }
         return PullRequestDetail.CiStatus.PASSING;
@@ -208,6 +203,15 @@ final class PullRequestDetailMapper
             case "skipped" -> "skipped";
             case "neutral", "stale" -> "neutral";
             default -> "pending";
+        };
+    }
+
+    private static PullRequestDetail.CiStatus checkCiStatus(PrCheckRunState check)
+    {
+        return switch (checkCategory(check)) {
+            case "failing", "cancelled" -> PullRequestDetail.CiStatus.FAILING;
+            case "successful", "neutral", "skipped" -> PullRequestDetail.CiStatus.PASSING;
+            default -> PullRequestDetail.CiStatus.PENDING;
         };
     }
 

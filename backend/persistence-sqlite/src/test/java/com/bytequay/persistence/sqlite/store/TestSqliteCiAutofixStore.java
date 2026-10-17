@@ -41,17 +41,22 @@ import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.rebase.BranchRebaseStore;
 import com.bytequay.core.store.StorageException;
 import com.bytequay.persistence.sqlite.entity.CiAutofixAttemptEntity;
+import com.bytequay.persistence.sqlite.entity.CiAutofixRunEntity;
 import com.bytequay.persistence.sqlite.repository.CiAutofixAttemptJpaRepository;
 import com.bytequay.persistence.sqlite.repository.CiAutofixRunJpaRepository;
 import com.google.common.collect.ImmutableList;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -60,6 +65,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TestSqliteCiAutofixStore
         extends AbstractTestSqliteStore
@@ -93,6 +101,22 @@ class TestSqliteCiAutofixStore
     {
         // Match production startup: create fresh tables and their unique indexes through schema update.
         registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "update");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[SQLITE_BUSY] database is locked", "[SQLITE_CONSTRAINT_CHECK] invalid row"})
+    void storageFailuresRemainStorageFailuresForInsertsAndUpdates(String reason)
+    {
+        CiAutofixRunJpaRepository runs = mock(CiAutofixRunJpaRepository.class);
+        SqliteCiAutofixStore failing = new SqliteCiAutofixStore(runs, mock(CiAutofixAttemptJpaRepository.class));
+        CiAutofixRun run = newRun("storage-failure", "feature", NOW);
+        DataIntegrityViolationException failure = new DataIntegrityViolationException("Write failed", new SQLException(reason));
+        when(runs.saveAndFlush(any(CiAutofixRunEntity.class))).thenThrow(failure);
+
+        assertThatThrownBy(() -> failing.insert(run)).isInstanceOf(StorageException.class).hasCause(failure);
+
+        when(runs.findById(run.id().toString())).thenReturn(Optional.of(CiAutofixRunEntity.fromDomain(run)));
+        assertThatThrownBy(() -> failing.update(run)).isInstanceOf(StorageException.class).hasCause(failure);
     }
 
     @Test

@@ -913,7 +913,7 @@ class TestGoalConversationService
 
     private String title(String goalId)
     {
-        return goals.list("workspace").stream().filter(goal -> goal.id().equals(goalId)).findFirst().orElseThrow().title();
+        return goals.get("workspace", goalId).title();
     }
 
     @Test

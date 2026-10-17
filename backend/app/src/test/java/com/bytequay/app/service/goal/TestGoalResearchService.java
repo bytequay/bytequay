@@ -86,8 +86,8 @@ class TestGoalResearchService
     void setUp()
     {
         beans.registerSingleton("goalConversationService", conversation);
-        when(goals.list("workspace")).thenReturn(ImmutableList.of(new GoalView("goal-1", "workspace", "Iceberg connector expert", "Explain the connector", true,
-                Optional.empty(), Optional.empty(), 1, Optional.empty(), false, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), NOW, NOW)));
+        when(goals.get("workspace", "goal-1")).thenReturn(new GoalView("goal-1", "workspace", "Iceberg connector expert", "Explain the connector", true,
+                Optional.empty(), Optional.empty(), 1, Optional.empty(), false, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), NOW, NOW));
         when(builds.baseline("workspace")).thenReturn(Optional.of(new ContextBuildService.Baseline("main", HEAD)));
         when(builds.get("workspace")).thenReturn(new ContextBuildService.View(3, true, Optional.empty()));
         cards.save(CARD);

@@ -23,6 +23,8 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -46,6 +48,49 @@ class TestPullRequestDetailMapper
                 check("build", "completed", "success"),
                 check("test", "in_progress", null)))).isEqualTo(PullRequestDetail.CiStatus.PENDING);
         assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(check("build", "completed", "failure")))).isEqualTo(PullRequestDetail.CiStatus.FAILING);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "queued, failure, pending, PENDING",
+            "in_progress, cancelled, pending, PENDING",
+            "waiting, , pending, PENDING",
+            "requested, , pending, PENDING",
+            "pending, , pending, PENDING",
+            "completed, , pending, PENDING",
+            "completed, unknown, pending, PENDING",
+            "completed, success, successful, PASSING",
+            "completed, neutral, neutral, PASSING",
+            "completed, skipped, skipped, PASSING",
+            "completed, stale, neutral, PASSING",
+            "completed, failure, failing, FAILING",
+            "completed, timed_out, failing, FAILING",
+            "completed, action_required, failing, FAILING",
+            "completed, startup_failure, failing, FAILING",
+            "completed, cancelled, cancelled, FAILING"})
+    void keepsCheckRowsSummaryAndFailingNamesConsistent(String status, String conclusion, String category, PullRequestDetail.CiStatus expected)
+    {
+        var checks = ImmutableList.of(check("build", status, conclusion));
+        assertThat(PullRequestDetailMapper.toCheckRuns(checks)).extracting(PullRequestDetail.CheckRun::category).containsExactly(category);
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(checks)).isEqualTo(expected);
+        assertThat(PullRequestDetailMapper.failingCheckNames(checks)).isEqualTo(expected == PullRequestDetail.CiStatus.FAILING ? ImmutableList.of("build") : ImmutableList.of());
+    }
+
+    @Test
+    void keepsOtherFailuresVisibleWhileAWorkflowWaits()
+    {
+        PrCheckRunState waiting = check("deploy", "waiting", null);
+        PrCheckRunState failure = check("build", "completed", "failure");
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(waiting, failure))).isEqualTo(PullRequestDetail.CiStatus.FAILING);
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(failure, waiting))).isEqualTo(PullRequestDetail.CiStatus.FAILING);
+    }
+
+    @Test
+    void replacesAnOlderFailureWithItsWaitingRerun()
+    {
+        var checks = ImmutableList.of(check("build", "completed", "failure"), new PrCheckRunState(2L, "build", "waiting", null, null, "check_run", null, null));
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(checks)).isEqualTo(PullRequestDetail.CiStatus.PENDING);
+        assertThat(PullRequestDetailMapper.failingCheckNames(checks)).isEmpty();
     }
 
     @Test

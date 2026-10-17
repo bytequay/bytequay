@@ -38,7 +38,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.isConstraintViolation;
+import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapConstraint;
 import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.read;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -78,7 +78,7 @@ public class SqliteCiAutofixStore
                     .collect(toImmutableList()));
         }
         catch (DataAccessException e) {
-            throw mapWriteFailure("CI Autofix run conflicts with durable state: " + run.id(), e);
+            throw mapConstraint("CI Autofix run conflicts with durable state: " + run.id(), e, CiAutofixConflictException::new, StorageException::new);
         }
     }
 
@@ -181,7 +181,7 @@ public class SqliteCiAutofixStore
             throw new CiAutofixConflictException("CI Autofix run version changed: " + run.id(), e);
         }
         catch (DataAccessException e) {
-            throw mapWriteFailure("CI Autofix run conflicts with durable state: " + run.id(), e);
+            throw mapConstraint("CI Autofix run conflicts with durable state: " + run.id(), e, CiAutofixConflictException::new, StorageException::new);
         }
     }
 
@@ -214,11 +214,6 @@ public class SqliteCiAutofixStore
         catch (RuntimeException e) {
             throw new StorageException("Cannot reconstruct CI Autofix run " + entity.getId(), e);
         }
-    }
-
-    private static RuntimeException mapWriteFailure(String message, DataAccessException failure)
-    {
-        return isConstraintViolation(failure) ? new CiAutofixConflictException(message, failure) : new StorageException(message, failure);
     }
 
     private static void checkLimit(int limit)

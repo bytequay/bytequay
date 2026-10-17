@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapConstraint;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -33,7 +34,8 @@ public class SqliteBackportChainStore
         implements BackportChainStore
 {
     private static final StoreWrites.Failures FAILURES = new StoreWrites.Failures(
-            IllegalStateException::new, IllegalStateException::new, StorageException::new, StorageException::new);
+            IllegalStateException::new, IllegalStateException::new,
+            (message, failure) -> mapConstraint(message, failure, IllegalStateException::new, StorageException::new), StorageException::new);
     private final BackportChainJpaRepository repository;
 
     public SqliteBackportChainStore(BackportChainJpaRepository repository)

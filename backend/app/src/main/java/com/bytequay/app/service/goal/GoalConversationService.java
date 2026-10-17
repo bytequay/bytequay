@@ -168,28 +168,28 @@ public class GoalConversationService
     /** The goal's exchanges, oldest first. */
     public List<GoalExchange> list(String workspaceId, String goalId)
     {
-        goal(workspaceId, goalId);
+        goals.get(workspaceId, goalId);
         return exchanges.list(goalId);
     }
 
     /** The model the goal's agent answers and writes lessons with. */
     public AgentModelSetting model(String workspaceId, String goalId)
     {
-        goal(workspaceId, goalId);
+        goals.get(workspaceId, goalId);
         return models.goalModel(goalId, workspaceId);
     }
 
     /** Gives the goal its own model and effort in place of the workspace's Development model. */
     public AgentModelSetting chooseModel(String workspaceId, String goalId, String configId, String model, Optional<String> effort)
     {
-        goal(workspaceId, goalId);
+        goals.get(workspaceId, goalId);
         return models.setGoalModel(goalId, workspaceId, configId, model, effort);
     }
 
     /** Makes the goal follow its workspace's Development model again. */
     public AgentModelSetting followWorkspaceModel(String workspaceId, String goalId)
     {
-        goal(workspaceId, goalId);
+        goals.get(workspaceId, goalId);
         return models.clearGoalModel(goalId, workspaceId);
     }
 
@@ -201,7 +201,7 @@ public class GoalConversationService
             Optional<GoalExchange> existing = exchanges.find(operationId);
             if (existing.isPresent()) {
                 checkArgument(existing.get().workspaceId().equals(workspaceId), "The operation belongs to another workspace.");
-                return goal(workspaceId, existing.get().goalId());
+                return goals.get(workspaceId, existing.get().goalId());
             }
             String text = message(message);
             GoalView created = goals.create(workspaceId, title(text), "");
@@ -210,7 +210,7 @@ public class GoalConversationService
             exchanges.save(exchange);
         }
         dispatch(exchange);
-        return goal(workspaceId, exchange.goalId());
+        return goals.get(workspaceId, exchange.goalId());
     }
 
     /** Sends the agent a message; resending the same operation returns the conversation without asking again. */
@@ -251,7 +251,7 @@ public class GoalConversationService
             return false;
         }
         try {
-            return answered.orElseThrow().equals(planner.fingerprint(goal(workspaceId, goalId)));
+            return answered.orElseThrow().equals(planner.fingerprint(goals.get(workspaceId, goalId)));
         }
         catch (RuntimeException unreadable) {
             // A goal whose facts cannot be read now is asked about anyway.
@@ -264,7 +264,7 @@ public class GoalConversationService
     {
         GoalExchange exchange;
         synchronized (writes) {
-            GoalView goal = goal(workspaceId, goalId);
+            GoalView goal = goals.get(workspaceId, goalId);
             Optional<GoalExchange> existing = exchanges.find(operationId);
             if (existing.isPresent()) {
                 checkArgument(existing.get().goalId().equals(goalId), "The operation belongs to another goal.");
@@ -308,7 +308,7 @@ public class GoalConversationService
     private void hold(String goalId, Held event)
     {
         synchronized (writes) {
-            if (goal(event.workspaceId(), goalId).paused() || told.contains(event.operationId()) || exchanges.find(event.operationId()).isPresent()) {
+            if (goals.get(event.workspaceId(), goalId).paused() || told.contains(event.operationId()) || exchanges.find(event.operationId()).isPresent()) {
                 return;
             }
             List<Held> waiting = held.computeIfAbsent(goalId, key -> new ArrayList<>());
@@ -410,7 +410,7 @@ public class GoalConversationService
     {
         boolean stopped = false;
         synchronized (writes) {
-            goal(workspaceId, goalId);
+            goals.get(workspaceId, goalId);
             GoalExchange exchange = exchanges.find(exchangeId).filter(found -> found.goalId().equals(goalId))
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
             if (exchange.state() == GoalExchange.State.PENDING) {
@@ -430,7 +430,7 @@ public class GoalConversationService
     {
         GoalExchange retried;
         synchronized (writes) {
-            GoalView goal = goal(workspaceId, goalId);
+            GoalView goal = goals.get(workspaceId, goalId);
             List<GoalExchange> conversation = exchanges.list(goalId);
             GoalExchange exchange = conversation.stream().filter(candidate -> candidate.id().equals(exchangeId)).findFirst()
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
@@ -471,7 +471,7 @@ public class GoalConversationService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
         GoalCourse.Draft draft = exchange.reply().flatMap(GoalExchange.Reply::course)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "This answer proposes no course."));
-        GoalView goal = goal(workspaceId, goalId);
+        GoalView goal = goals.get(workspaceId, goalId);
         Optional<GoalCourse> accepted = goal.course().filter(course -> !course.exchangeId().equals(exchangeId));
         // A course proposed before the accepted one cannot replace it.
         if (accepted.flatMap(course -> exchanges.find(course.exchangeId())).filter(newer -> newer.askedAt().isAfter(exchange.askedAt())).isPresent()) {
@@ -510,7 +510,7 @@ public class GoalConversationService
             }
         }
         tellDecision(workspaceId, goalId, "course:" + exchangeId, accepted.isPresent() ? "The user accepted the revised course." : "The user accepted the course.");
-        return goal(workspaceId, goalId);
+        return goals.get(workspaceId, goalId);
     }
 
     /** Why a revision cannot replace the accepted course: it names a lesson the course does not hold, or leaves out a finished one. */
@@ -539,7 +539,7 @@ public class GoalConversationService
         if (exchanges.list(goalId).stream().anyMatch(other -> other.askedAt().isAfter(exchange.askedAt()) && other.reply().flatMap(GoalExchange.Reply::plan).isPresent())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "A newer plan change was proposed. Accept that one or ask again.");
         }
-        GoalView goal = goal(workspaceId, goalId);
+        GoalView goal = goals.get(workspaceId, goalId);
         // The work may have moved on since the agent proposed this.
         Optional<String> invalid = invalidPlan(goal, plan);
         if (invalid.isPresent()) {
@@ -590,7 +590,7 @@ public class GoalConversationService
             }
         }
         tellDecision(workspaceId, goalId, "plan:" + exchangeId, "The user accepted the plan change: " + plan.reason());
-        return goal(workspaceId, goalId);
+        return goals.get(workspaceId, goalId);
     }
 
     private void decide(String workspaceId, String id, Map<String, Long> revisions, String operationId, WorkItemCommand.Action action, Optional<String> criteria,
@@ -671,7 +671,7 @@ public class GoalConversationService
         requireShown(card);
         if (card.card().kind() == GoalRecommendation.Kind.WORK) {
             // The source may have closed or been taken since the card floated, so Start reads it again, outside the lock, before anything starts.
-            Optional<String> unready = candidates.read(goal(workspaceId, goalId), card.card()).unready();
+            Optional<String> unready = candidates.read(goals.get(workspaceId, goalId), card.card()).unready();
             if (unready.isPresent()) {
                 synchronized (writes) {
                     recommendations.find(recommendationId).filter(current -> current.state() == GoalRecommendation.State.SHOWN)
@@ -755,7 +755,7 @@ public class GoalConversationService
         if (decision.action() == WorkItemCommand.Action.REOPEN) {
             return "";
         }
-        GoalView goal = goal(decision.workspaceId(), decision.goalId());
+        GoalView goal = goals.get(decision.workspaceId(), decision.goalId());
         Set<String> finished = goal.items().stream().filter(item -> item.state() == WorkItem.State.DONE || item.state() == WorkItem.State.DROPPED)
                 .map(WorkItemView::id).collect(toImmutableSet());
         List<String> ready = goal.items().stream()
@@ -770,7 +770,7 @@ public class GoalConversationService
      */
     public void summarize(String workspaceId, String goalId, String workItemId)
     {
-        WorkItemView item = goal(workspaceId, goalId).items().stream().filter(found -> found.id().equals(workItemId)).findFirst()
+        WorkItemView item = goals.get(workspaceId, goalId).items().stream().filter(found -> found.id().equals(workItemId)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Work not found"));
         if (item.state() != WorkItem.State.DONE || item.kind() == WorkItem.Kind.LEARN) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only finished work other than a lesson has a summary.");
@@ -789,7 +789,7 @@ public class GoalConversationService
         }
         executor.execute(() -> {
             try {
-                GoalView goal = goal(workspaceId, goalId);
+                GoalView goal = goals.get(workspaceId, goalId);
                 WorkItemView item = goal.items().stream().filter(found -> found.id().equals(workItemId)).findFirst().orElseThrow();
                 if (item.history().stream().noneMatch(event -> event.operationId().equals(operationId))) {
                     work.summary(workspaceId, workItemId, operationId, planner.summary(models.goalModel(goalId, workspaceId), goal, item));
@@ -831,7 +831,7 @@ public class GoalConversationService
     public GoalRecommendation dismiss(String workspaceId, String goalId, String recommendationId)
     {
         synchronized (writes) {
-            goal(workspaceId, goalId);
+            goals.get(workspaceId, goalId);
             GoalRecommendation card = recommendations.find(recommendationId).filter(found -> found.goalId().equals(goalId))
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Card not found"));
             if (card.state() == GoalRecommendation.State.DISMISSED) {
@@ -869,7 +869,7 @@ public class GoalConversationService
         Optional<GoalView> read = Optional.empty();
         GoalExchange settled;
         try {
-            GoalView goal = goal(exchange.workspaceId(), exchange.goalId());
+            GoalView goal = goals.get(exchange.workspaceId(), exchange.goalId());
             read = Optional.of(goal);
             AgentModelSetting setting = models.goalModel(goal.id(), exchange.workspaceId());
             model = Optional.of(setting.configId() + "/" + setting.model());
@@ -997,12 +997,12 @@ public class GoalConversationService
     public GoalView correctTopic(String workspaceId, String goalId, String topic, GoalTopic.Level level)
     {
         synchronized (writes) {
-            GoalView goal = goal(workspaceId, goalId);
+            GoalView goal = goals.get(workspaceId, goalId);
             String id = GoalTopic.id(goalId, checkText(topic, "topic", 120));
             List<String> evidence = topics.find(id).map(GoalTopic::evidence).orElse(ImmutableList.of());
             topics.save(new GoalTopic(id, goalId, goal.workspaceId(), topic.strip(), level, evidence, true, clock.instant()));
         }
-        return goal(workspaceId, goalId);
+        return goals.get(workspaceId, goalId);
     }
 
     /**
@@ -1067,12 +1067,6 @@ public class GoalConversationService
                 running.remove(exchange.id());
             }
         });
-    }
-
-    private GoalView goal(String workspaceId, String goalId)
-    {
-        return goals.list(workspaceId).stream().filter(goal -> goal.id().equals(goalId)).findFirst()
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Goal not found"));
     }
 
     private static String message(String message)

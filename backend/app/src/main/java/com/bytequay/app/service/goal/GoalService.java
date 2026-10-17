@@ -78,6 +78,11 @@ public class GoalService
         return active(workspaceId).stream().map(goal -> view(goal, items, live(goal), topics.list(goal.id()))).collect(toImmutableList());
     }
 
+    public GoalView get(String workspaceId, String goalId)
+    {
+        return view(goal(workspaceId, goalId));
+    }
+
     /** A goal with no items; it is pinned when the workspace has no pinned goal yet. */
     public GoalView create(String workspaceId, String title, String description)
     {

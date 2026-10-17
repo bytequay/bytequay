@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
@@ -20,6 +21,7 @@ import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.GoalRecommendationStore;
 import com.bytequay.core.store.GoalTopicStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -35,7 +37,10 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
@@ -44,8 +49,10 @@ class TestGoalService
     private final InMemoryGoalStore store = new InMemoryGoalStore();
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final WorkItemService work = mock(WorkItemService.class);
-    private final GoalService service = new GoalService(store, workspaces, work, mock(GoalReferenceReader.class), new InMemoryGoalRecommendationStore(),
-            mock(GoalTopicStore.class), Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+    private final GoalRecommendationStore recommendations = mock(GoalRecommendationStore.class);
+    private final GoalTopicStore topics = mock(GoalTopicStore.class);
+    private final GoalService service = new GoalService(store, workspaces, work, mock(GoalReferenceReader.class), recommendations,
+            topics, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
     private final GoalSource source = new GoalSource(GoalItemKind.ISSUE, "org/repo#1");
 
     @BeforeEach
@@ -53,6 +60,32 @@ class TestGoalService
     {
         when(workspaces.findById("workspace")).thenReturn(Optional.of(mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE))));
         when(work.list("workspace")).thenReturn(ImmutableList.of());
+    }
+
+    @Test
+    void readsOnlyTheRequestedGoalsCardsAndTopics()
+    {
+        GoalView selected = service.create("workspace", "Iceberg", "");
+        service.create("workspace", "Delta Lake", "");
+        clearInvocations(recommendations, topics);
+
+        assertThat(service.get("workspace", selected.id())).isEqualTo(selected);
+        verify(recommendations).list(selected.id());
+        verify(topics).list(selected.id());
+        verifyNoMoreInteractions(recommendations, topics);
+    }
+
+    @Test
+    void directLookupRejectsMissingArchivedAndOtherWorkspaceGoals()
+    {
+        GoalView selected = service.create("workspace", "Iceberg", "");
+        when(workspaces.findById("other")).thenReturn(Optional.of(mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE))));
+
+        assertThatThrownBy(() -> service.get("missing", selected.id())).isInstanceOf(WorkspaceException.class).hasMessageContaining("Workspace not found");
+        assertThatThrownBy(() -> service.get("other", selected.id())).isInstanceOf(ResponseStatusException.class).hasMessageContaining("Goal not found");
+        assertThatThrownBy(() -> service.get("workspace", "missing")).isInstanceOf(ResponseStatusException.class).hasMessageContaining("Goal not found");
+        service.delete("workspace", selected.id());
+        assertThatThrownBy(() -> service.get("workspace", selected.id())).isInstanceOf(ResponseStatusException.class).hasMessageContaining("Goal not found");
     }
 
     @Test

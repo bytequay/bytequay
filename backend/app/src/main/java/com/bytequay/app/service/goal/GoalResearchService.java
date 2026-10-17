@@ -109,7 +109,7 @@ public class GoalResearchService
         if (card.state() != GoalRecommendation.State.SHOWN) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This card was already finished or dismissed.");
         }
-        GoalView goal = goal(workspaceId, goalId);
+        GoalView goal = goals.get(workspaceId, goalId);
         String head = builds.baseline(workspaceId).map(ContextBuildService.Baseline::sha)
                 .orElseThrow(() -> new IllegalArgumentException("The monitored branch is not readable yet; refresh the workspace first"));
         ContextBuild.Research research = new ContextBuild.Research(card.id(), goal.id(), goal.title(), goal.description(), card.card().scope(), card.card().pages(),
@@ -129,7 +129,7 @@ public class GoalResearchService
     /** The goal's knowledge notes, oldest first, each saying whether a file it cites moved since the research read it; a local read. */
     public List<GoalKnowledgeNoteView> notes(String workspaceId, String goalId)
     {
-        goal(workspaceId, goalId);
+        goals.get(workspaceId, goalId);
         List<GoalKnowledgeNote> saved = notes.list(goalId);
         Set<String> stale = stale(workspaceId, saved);
         Set<String> kept = memoryIds(workspaceId);
@@ -144,7 +144,7 @@ public class GoalResearchService
      */
     public synchronized GoalKnowledgeNoteView remember(String workspaceId, String goalId, String noteId)
     {
-        goal(workspaceId, goalId);
+        goals.get(workspaceId, goalId);
         GoalKnowledgeNote note = notes.list(goalId).stream().filter(found -> found.id().equals(noteId)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Note not found"));
         if (note.pages().isEmpty()) {
@@ -205,12 +205,6 @@ public class GoalResearchService
         catch (RuntimeException failure) {
             log.warn("Research run {} of goal {} was not settled", build.taskId(), research.goalId(), failure);
         }
-    }
-
-    private GoalView goal(String workspaceId, String goalId)
-    {
-        return goals.list(workspaceId).stream().filter(candidate -> candidate.id().equals(goalId)).findFirst()
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Goal not found"));
     }
 
     /** The checkouts of the workspaces this one depends on, at their monitored heads; one not checked out yet is left out. */

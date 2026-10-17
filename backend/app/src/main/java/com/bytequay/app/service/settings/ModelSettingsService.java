@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.settings;
 
+import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
@@ -258,6 +259,29 @@ public class ModelSettingsService
                 throw new IllegalArgumentException("unknown service tier for " + configId + ": " + value);
             }
         });
+    }
+
+    /**
+     * Refuses images for a model that does not advertise image input, so the catalog gates the
+     * turn the same way it gates the composer's attach button.
+     */
+    public void requireImageInput(AgentLaneId laneId, Optional<String> selectedModel, List<String> mediaTypes)
+    {
+        String model = selectedModel.orElse("");
+        boolean modelAccepted = get().providers().stream()
+                .filter(provider -> provider.id().equals(laneId.value()))
+                .flatMap(provider -> provider.models().stream())
+                .anyMatch(option -> option.id().equals(model) && option.acceptsImages());
+        if (!modelAccepted) {
+            throw new InvalidAgentRequestException("Model " + model + " does not accept images");
+        }
+        var supported = drivers.require(laneId).capabilities().attachmentMediaTypes();
+        mediaTypes.stream()
+                .filter(mediaType -> !supported.contains(mediaType))
+                .findFirst()
+                .ifPresent(mediaType -> {
+                    throw new InvalidAgentRequestException("Provider " + laneId + " does not accept " + mediaType + " attachments");
+                });
     }
 
     /**

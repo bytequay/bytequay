@@ -32,7 +32,6 @@ import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ArchiveAgentTaskCommand;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentAutomation;
-import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
@@ -54,12 +53,12 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.AgentTaskStartupProgress;
-import com.bytequay.app.agent.InteractiveAgentTaskCreator;
+import com.bytequay.app.agent.InteractiveAgentTaskStarter;
+import com.bytequay.app.agent.InteractiveTaskStart;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.context.ContextBuildService;
-import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -71,15 +70,11 @@ import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorktreeChanges;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
-import com.bytequay.core.domain.GitHubIssueSource;
-import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.hash.Hasher;
-import com.google.common.hash.Hashing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -101,14 +96,12 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
-import java.util.function.Consumer;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -127,7 +120,7 @@ public class AgentController
 
     private final AgentTaskService taskService;
     private final ContextBuildService contextBuilds;
-    private final InteractiveAgentTaskCreator taskCreator;
+    private final InteractiveAgentTaskStarter taskStarter;
     private final AgentStartupRecovery startupRecovery;
     private final AgentTurnService turnService;
     private final AgentEventService eventService;
@@ -148,12 +141,11 @@ public class AgentController
     private final AgentStreamRegistry streams;
     private final IssueDevelopmentService issueDevelopment;
     private final TaskPullRequestOwnership ownership;
-    private final WorkItemService workItems;
 
     public AgentController(
             AgentTaskService taskService,
             ContextBuildService contextBuilds,
-            InteractiveAgentTaskCreator taskCreator,
+            InteractiveAgentTaskStarter taskStarter,
             AgentStartupRecovery startupRecovery,
             AgentTurnService turnService,
             AgentEventService eventService,
@@ -173,12 +165,11 @@ public class AgentController
             AgentTaskStartupProgress startupProgress,
             AgentStreamRegistry streams,
             IssueDevelopmentService issueDevelopment,
-            TaskPullRequestOwnership ownership,
-            WorkItemService workItems)
+            TaskPullRequestOwnership ownership)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.contextBuilds = requireNonNull(contextBuilds, "contextBuilds is null");
-        this.taskCreator = requireNonNull(taskCreator, "taskCreator is null");
+        this.taskStarter = requireNonNull(taskStarter, "taskStarter is null");
         this.startupRecovery = requireNonNull(startupRecovery, "startupRecovery is null");
         this.turnService = requireNonNull(turnService, "turnService is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
@@ -199,7 +190,6 @@ public class AgentController
         this.streams = requireNonNull(streams, "streams is null");
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
-        this.workItems = requireNonNull(workItems, "workItems is null");
     }
 
     /**
@@ -247,99 +237,24 @@ public class AgentController
 
     private ResponseEntity<InteractiveAgentHttpContract.TaskResponse> createTask(InteractiveAgentHttpContract.CreateTaskRequest request, List<StoreAgentAttachmentCommand> uploads)
     {
-        issueDevelopment.requireAttachedSources(TaskId.valueOf(request.taskId()), request.issueSource(), request.jiraSource());
-        request.workItemId().ifPresent(id -> workItems.requireAttemptable(request.workspaceId(), id));
-        AgentTask task = request.issueSource()
-                .map(source -> issueDevelopment.start(request.workspaceId(), TaskId.valueOf(request.taskId()), source, request.message(),
-                        accepted -> createTask(request, uploads, Optional.of(accepted), Optional.empty())))
-                .or(() -> request.jiraSource().map(source -> issueDevelopment.start(request.workspaceId(), TaskId.valueOf(request.taskId()), source, request.message(),
-                        accepted -> createTask(request, uploads, Optional.empty(), Optional.of(accepted)))))
-                .orElseGet(() -> createTask(request, uploads, Optional.empty(), Optional.empty()));
+        AgentTask task = taskStarter.start(new InteractiveTaskStart(
+                TaskId.valueOf(request.taskId()),
+                request.workspaceId(),
+                request.message(),
+                new AgentLaneId(request.laneId()),
+                new AgentTaskDefaults(
+                        request.defaults().model(),
+                        request.defaults().effort(),
+                        AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()),
+                        request.defaults().serviceTier(),
+                        request.defaults().developmentAutomation().map(DevelopmentAutomationDto::toDomain)),
+                request.idempotencyKey(),
+                request.developmentAutomation().map(DevelopmentAutomationDto::toDomain),
+                request.issueSource(),
+                request.jiraSource(),
+                request.workItemId(),
+                uploads));
         return ResponseEntity.status(HttpStatus.CREATED).body(taskResponse(task));
-    }
-
-    private AgentTask createTask(
-            InteractiveAgentHttpContract.CreateTaskRequest request,
-            List<StoreAgentAttachmentCommand> uploads,
-            Optional<GitHubIssueSource> source,
-            Optional<JiraIssueSource> jiraSource)
-    {
-        String message = request.message();
-        AgentLaneId laneId = new AgentLaneId(request.laneId());
-        Optional<DevelopmentAutomation> requestedAutomation = request.developmentAutomation().map(DevelopmentAutomationDto::toDomain);
-        AgentTaskDefaults defaults = new AgentTaskDefaults(
-                request.defaults().model(),
-                request.defaults().effort(),
-                AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()),
-                request.defaults().serviceTier(),
-                request.defaults().developmentAutomation().map(DevelopmentAutomationDto::toDomain));
-        TaskId taskId = TaskId.valueOf(request.taskId());
-        try {
-            boolean replay = initialTurnExists(taskId, request.idempotencyKey());
-            if (!replay && !uploads.isEmpty()) {
-                uploads.forEach(resourceService::validateAttachment);
-                requireImageInput(laneId, defaults.model(), uploads.stream().map(StoreAgentAttachmentCommand::mediaType).collect(toImmutableList()));
-            }
-            taskCreator.create(
-                    taskId,
-                    request.workspaceId(),
-                    message,
-                    laneId,
-                    defaults,
-                    request.idempotencyKey(),
-                    uploads.isEmpty() ? Optional.empty() : Optional.of(attachmentDigest(uploads)),
-                    requestedAutomation,
-                    source,
-                    jiraSource,
-                    source.<Consumer<AgentTask>>map(accepted -> prepared -> issueDevelopment.persistTask(prepared, accepted, request.message()))
-                            .or(() -> jiraSource.map(accepted -> prepared -> issueDevelopment.persistTask(prepared, accepted, request.message())))
-                            .or(() -> request.workItemId().map(id -> prepared -> workItems.persistAttempt(prepared, id))));
-            if (!replay && !uploads.isEmpty()) {
-                startupProgress.record(taskId, AgentTaskStartupProgress.Phase.ATTACHMENTS);
-            }
-            List<AgentAttachment> attachments = replay ? ImmutableList.of() : uploads.stream()
-                    .map(resourceService::storeAttachment)
-                    .map(StoredAgentAttachment::input)
-                    .collect(toImmutableList());
-            startupProgress.record(taskId, AgentTaskStartupProgress.Phase.SESSION);
-            turnService.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
-                    taskId,
-                    message,
-                    attachments,
-                    request.idempotencyKey()).withDevelopmentAutomation(requestedAutomation));
-            AgentTask responseTask = taskService.get(taskId);
-            if (!replay) {
-                recordPrompt(taskId.toString(), request.idempotencyKey(), request.message());
-            }
-            return responseTask;
-        }
-        finally {
-            // The screen polling this is about to get the answer or the error; a phase must not outlive either.
-            startupProgress.clear(taskId);
-        }
-    }
-
-    private boolean initialTurnExists(TaskId taskId, String idempotencyKey)
-    {
-        try {
-            return turnService.findTurnByIdempotencyKey(taskId, idempotencyKey).isPresent();
-        }
-        catch (AgentTaskNotFoundException ignored) {
-            return false;
-        }
-    }
-
-    private static String attachmentDigest(List<StoreAgentAttachmentCommand> uploads)
-    {
-        Hasher digest = Hashing.sha256().newHasher();
-        for (StoreAgentAttachmentCommand upload : uploads) {
-            byte[] name = upload.name().getBytes(StandardCharsets.UTF_8);
-            byte[] mediaType = upload.mediaType().getBytes(StandardCharsets.UTF_8);
-            digest.putInt(name.length).putBytes(name);
-            digest.putInt(mediaType.length).putBytes(mediaType);
-            digest.putInt(upload.bytes().length).putBytes(upload.bytes());
-        }
-        return digest.hash().toString();
     }
 
     /** Which creation step an in-flight create request is in; the task may not exist yet, so no workspace scope applies. */
@@ -473,26 +388,7 @@ public class AgentController
      */
     private void requireImageInput(AgentTask task, Optional<String> selectedModel, List<AgentAttachment> attachments)
     {
-        requireImageInput(task.laneId(), selectedModel, attachments.stream().map(AgentAttachment::mediaType).collect(toImmutableList()));
-    }
-
-    private void requireImageInput(AgentLaneId laneId, Optional<String> selectedModel, List<String> mediaTypes)
-    {
-        String model = selectedModel.orElse("");
-        boolean modelAccepted = modelSettings.get().providers().stream()
-                .filter(provider -> provider.id().equals(laneId.value()))
-                .flatMap(provider -> provider.models().stream())
-                .anyMatch(option -> option.id().equals(model) && option.acceptsImages());
-        if (!modelAccepted) {
-            throw new InvalidAgentRequestException("Model " + model + " does not accept images");
-        }
-        var supported = driverRegistry.require(laneId).capabilities().attachmentMediaTypes();
-        mediaTypes.stream()
-                .filter(mediaType -> !supported.contains(mediaType))
-                .findFirst()
-                .ifPresent(mediaType -> {
-                    throw new InvalidAgentRequestException("Provider " + laneId + " does not accept " + mediaType + " attachments");
-                });
+        modelSettings.requireImageInput(task.laneId(), selectedModel, attachments.stream().map(AgentAttachment::mediaType).collect(toImmutableList()));
     }
 
     @PostMapping("/tasks/{taskId}/attachments")
@@ -706,7 +602,7 @@ public class AgentController
         QueuedInputId inputId = QueuedInputId.valueOf(queuedInputId);
         turnService.queued(id).stream().filter(input -> input.id().equals(inputId)).findFirst()
                 .filter(input -> !input.settings().attachments().isEmpty())
-                .ifPresent(input -> requireImageInput(task.laneId(), turn.settings().flatMap(settings -> settings.model()),
+                .ifPresent(input -> modelSettings.requireImageInput(task.laneId(), turn.settings().flatMap(settings -> settings.model()),
                         input.settings().attachments().stream().map(AgentAttachmentReference::mediaType).collect(toImmutableList())));
         return ResponseEntity.accepted().body(InteractiveAgentHttpContract.delivery(turnService.steerQueued(id, turn.id(), inputId)));
     }

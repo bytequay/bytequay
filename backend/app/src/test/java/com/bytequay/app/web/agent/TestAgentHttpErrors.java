@@ -52,6 +52,7 @@ import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.AgentTaskStartupProgress;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
+import com.bytequay.app.agent.InteractiveAgentTaskStarter;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
@@ -141,7 +142,7 @@ class TestAgentHttpErrors
         AgentController controller = new AgentController(
                 taskService,
                 contextBuilds,
-                new InteractiveAgentTaskCreator(
+                new InteractiveAgentTaskStarter(new InteractiveAgentTaskCreator(
                         taskService,
                         turnService,
                         driverRegistry,
@@ -154,6 +155,14 @@ class TestAgentHttpErrors
                         mock(com.bytequay.agent.core.AgentTaskTitleService.class),
                         mock(PullRequestStore.class),
                         mock(CredentialService.class)),
+                        mock(IssueDevelopmentService.class),
+                        mock(WorkItemService.class),
+                        taskService,
+                        turnService,
+                        mock(AgentResourceService.class),
+                        mock(ModelSettingsService.class),
+                        startupProgress,
+                        mock(RecentTouchRecorder.class)),
                 startupRecovery,
                 turnService,
                 mock(AgentEventService.class),
@@ -173,8 +182,7 @@ class TestAgentHttpErrors
                 startupProgress,
                 new AgentStreamRegistry(),
                 mock(IssueDevelopmentService.class),
-                mock(TaskPullRequestOwnership.class),
-                mock(WorkItemService.class));
+                mock(TaskPullRequestOwnership.class));
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

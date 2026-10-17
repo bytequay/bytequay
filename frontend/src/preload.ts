@@ -176,8 +176,8 @@ const bridge: Bridge = {
   rerunFailedPrChecks: (repo, number) => ipcRenderer.invoke('prs:checks:rerun-failed', repo, number),
   betterWords: (text, repository, workspaceId) =>
     ipcRenderer.invoke('agent:better-words', text, repository, workspaceId),
-  mergePr: (prId, repo, number, strategy) =>
-    ipcRenderer.invoke('prs:merge', prId, repo, number, strategy),
+  mergePr: (prId, repo, number, strategy, headSha) =>
+    ipcRenderer.invoke('prs:merge', prId, repo, number, strategy, headSha),
   removePrFromMergeQueue: (repo, number) => ipcRenderer.invoke('prs:merge-queue:remove', repo, number),
 
   searchRepositories: (query, limit) => ipcRenderer.invoke('workspaces:search', query, limit),

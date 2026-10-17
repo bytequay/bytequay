@@ -1259,6 +1259,7 @@ class TestReviewPublicationService
                 null,
                 "main",
                 "widget-cache",
+                "head",
                 "",
                 ImmutableList.of(),
                 ImmutableList.of(),

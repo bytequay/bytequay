@@ -73,6 +73,7 @@ class TestPullRequestDetailMapper
 
         assertThat(detail.repo()).isEqualTo("owner/repo");
         assertThat(detail.body()).isEqualTo("body");
+        assertThat(detail.headSha()).isEqualTo("head");
         assertThat(detail.mergeable()).isTrue();
         assertThat(detail.mergeableState()).isEqualTo("clean");
         assertThat(detail.approvalCount()).isEqualTo(1);

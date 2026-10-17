@@ -27,7 +27,7 @@ const review = reviewFixture({ id: 'pending-review', state: 'CLOSED', closedAt: 
 const stored: PullRequestDetailDto = {
   id: 9001, repo: review.repo, number: review.number, title: 'Sort by nested fields', htmlUrl: null, state: 'open', draft: false,
   mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: '2026-01-01T00:00:00Z',
-  mergedAt: null, baseRef: 'master', headRef: 'feature', body: 'Implementation', labels: [], assignees: [], milestone: null,
+  mergedAt: null, baseRef: 'master', headRef: 'feature', headSha: 'head', body: 'Implementation', labels: [], assignees: [], milestone: null,
   reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], additions: 1, deletions: 1, changedFiles: 1,
   approvalCount: 0, ciStatus: null, recentActivity: [{ githubId: 61, eventType: 'review_thread', actor: 'alice', timestamp: null, body: 'Existing discussion',
     payload: { ...EMPTY_TIMELINE_PAYLOAD, path: 'src/Example.java', line: 1, originalLine: 1, side: 'RIGHT',

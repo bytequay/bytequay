@@ -22,7 +22,7 @@ import { usePullRequestDetail, type PullRequestDetailSource } from '../usePullRe
 const cached: PullRequestDetailDto = {
   id: 7, repo: 'owner/repo', number: 7, title: 'Cached PR', htmlUrl: null, state: 'open', draft: false,
   mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: '2026-01-01T00:00:00Z',
-  mergedAt: null, baseRef: 'main', headRef: 'feature', body: '', labels: [], assignees: [], milestone: null,
+  mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: '', labels: [], assignees: [], milestone: null,
   reviewers: [], additions: 1, deletions: 0, changedFiles: 1, approvalCount: 0, ciStatus: 'PENDING', recentActivity: [],
   checkRuns: [], unavailableSections: [], viewerCanWrite: false,
 };

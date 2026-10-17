@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.InlineReviewComment;
+import com.bytequay.core.domain.MergePullRequestCommand;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
@@ -27,6 +28,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Optional;
 import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,6 +43,24 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class TestGitHubPullRequestWriteClient
 {
+    @Test
+    void sendsTheDisplayedHeadAndPropagatesAChangedHeadRejection()
+    {
+        RestClient.Builder rest = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(rest.build(), RestClient.create());
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/merge"))
+                .andExpect(method(HttpMethod.PUT))
+                .andExpect(content().json("{\"merge_method\":\"rebase\",\"sha\":\"displayed-head\"}", true))
+                .andRespond(withStatus(HttpStatus.CONFLICT).body("{\"message\":\"Head changed\"}").contentType(MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.mergePullRequest("pat", PullRequestRef.of("owner", "repo", 7),
+                new MergePullRequestCommand("rebase", Optional.empty(), Optional.empty(), Optional.of("displayed-head"))))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("409");
+        server.verify();
+    }
+
     @Test
     void submitsInlineCommentsAndThreadRepliesInOneReview()
     {

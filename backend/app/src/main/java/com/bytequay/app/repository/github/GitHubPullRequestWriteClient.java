@@ -452,11 +452,12 @@ public class GitHubPullRequestWriteClient
         return response.data().repository().pullRequest();
     }
 
-    public MergeResult enqueuePullRequest(String pat, String pullRequestNodeId)
+    public MergeResult enqueuePullRequest(String pat, String pullRequestNodeId, String headSha)
     {
-        String mutation = "mutation($id: ID!) {" + " enqueuePullRequest(input: { pullRequestId: $id }) {" + " mergeQueueEntry { position state } } }";
+        String mutation = "mutation($id: ID!, $head: GitObjectID!) { enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) {"
+                + " mergeQueueEntry { position state } } }";
         return translating(() -> {
-            EnqueueResponse response = graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("id", pullRequestNodeId))
+            EnqueueResponse response = graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("id", pullRequestNodeId, "head", headSha))
                     .body(EnqueueResponse.class);
             if (response != null && response.errors() != null && !response.errors().isEmpty()) {
                 throw new ResponseStatusException(HttpStatusCode.valueOf(422), "GitHub enqueuePullRequest failed: " + response.errors().getFirst().message());

@@ -282,7 +282,7 @@ class TestReviewSweep
     private static PullRequestDetail detail(String title, String body)
     {
         return new PullRequestDetail(12L, "owner/repo", 7, title, "https://github.test/owner/repo/pull/7", "open", false, true, "clean", "alice", null, NOW, NOW, null,
-                "main", "feature", body, ImmutableList.of(), ImmutableList.of(), null, ImmutableList.of(), 1, 0, 1, 0, PullRequestDetail.CiStatus.PASSING,
+                "main", "feature", "head", body, ImmutableList.of(), ImmutableList.of(), null, ImmutableList.of(), 1, 0, 1, 0, PullRequestDetail.CiStatus.PASSING,
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
     }
 }

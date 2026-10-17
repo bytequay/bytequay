@@ -1144,7 +1144,7 @@ class TestReviewCodeService
     private static PullRequestDetail pullRequestDetail(String baseRef)
     {
         return new PullRequestDetail(1, REPOSITORY.fullName(), 7, "Task", "https://github.com/owner/repo/pull/7", "open", false, true, "clean", "owner", null, NOW, NOW, null,
-                baseRef, "bytequay/task", "", ImmutableList.of(), ImmutableList.of(), null, ImmutableList.of(), 1, 1, 1, 0, PullRequestDetail.CiStatus.PASSING,
+                baseRef, "bytequay/task", "head", "", ImmutableList.of(), ImmutableList.of(), null, ImmutableList.of(), 1, 1, 1, 0, PullRequestDetail.CiStatus.PASSING,
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
     }
 

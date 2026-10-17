@@ -58,6 +58,7 @@ final class PullRequestDetailMapper
                 raw.mergedAt(),
                 raw.baseRef(),
                 raw.headRef(),
+                raw.headSha(),
                 raw.body(),
                 raw.labels().stream()
                         .map(label -> new PullRequestDetail.Label(label, raw.labelColors().get(label)))

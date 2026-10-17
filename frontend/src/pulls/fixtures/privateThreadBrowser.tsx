@@ -31,7 +31,7 @@ const ROOT = 61;
 const detail: PullRequestDetailDto = {
   id: 7, repo: 'owner/repo', number: 7, title: 'Resolve owners', htmlUrl: null, state: 'open', draft: false,
   mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: AT, updatedAt: AT,
-  mergedAt: null, baseRef: 'main', headRef: 'feature', body: 'Resolves owners.', labels: [], assignees: [], milestone: null,
+  mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: 'Resolves owners.', labels: [], assignees: [], milestone: null,
   reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, checkRuns: [], unavailableSections: [],
   viewerCanWrite: true,
   recentActivity: [

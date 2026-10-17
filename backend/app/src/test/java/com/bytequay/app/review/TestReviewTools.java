@@ -934,7 +934,7 @@ class TestReviewTools
     {
         return new PullRequestDetail(12, REPO, number, "Selected pull request " + number, "https://github.com/" + REPO + "/pull/" + number,
                 "merged", false, null, "unknown", "alice", "", NOW.minusSeconds(600), NOW.minusSeconds(30), NOW.minusSeconds(20),
-                "selected-base", "selected-head", body, ImmutableList.of(new PullRequestDetail.Label("bug", "ff0000")), ImmutableList.of(), null,
+                "selected-base", "selected-head", "head", body, ImmutableList.of(new PullRequestDetail.Label("bug", "ff0000")), ImmutableList.of(), null,
                 ImmutableList.of(), 3, 1, 2, 1, PullRequestDetail.CiStatus.PASSING, activity, checks, unavailable, false);
     }
 

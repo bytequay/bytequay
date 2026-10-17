@@ -38,6 +38,7 @@ public record PullRequestDetail(
         Instant mergedAt,
         String baseRef,
         String headRef,
+        String headSha,
         String body,
         List<Label> labels,
         List<String> assignees,

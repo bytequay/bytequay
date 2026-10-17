@@ -541,6 +541,7 @@ class TestPullRequestRefreshControllers
                 null,
                 "main",
                 "feature",
+                "head",
                 "body",
                 ImmutableList.of(),
                 ImmutableList.of(),

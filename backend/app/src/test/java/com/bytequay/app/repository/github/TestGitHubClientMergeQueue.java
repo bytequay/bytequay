@@ -48,11 +48,15 @@ class TestGitHubClientMergeQueue
     {
         Fixture fixture = fixture();
         fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(content().json("""
+                        {"query":"mutation($id: ID!, $head: GitObjectID!) { enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) { mergeQueueEntry { position state } } }",
+                         "variables":{"id":"PR_1","head":"displayed-head"}}
+                        """))
                 .andRespond(withSuccess("""
                         {"data":{"enqueuePullRequest":{"mergeQueueEntry":{"position":2,"state":"QUEUED"}}}}
                         """, MediaType.APPLICATION_JSON));
 
-        MergeResult result = fixture.client().enqueuePullRequest("pat", "PR_1");
+        MergeResult result = fixture.client().enqueuePullRequest("pat", "PR_1", "displayed-head");
 
         assertThat(result.queued()).isTrue();
         assertThat(result.message()).contains("position 2");

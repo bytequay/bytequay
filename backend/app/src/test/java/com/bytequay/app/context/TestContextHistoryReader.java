@@ -340,7 +340,7 @@ class TestContextHistoryReader
     private static PullRequestDetail detail(Instant mergedAt, Instant updatedAt, String body, List<PullRequestDetail.ActivityItem> activity)
     {
         return new PullRequestDetail(12, REPO.fullName(), NUMBER, "Historical PR", "https://github.com/owner/repo/pull/7", "closed", false, null, "unknown", "alice", "",
-                NOW.minusSeconds(600), updatedAt, mergedAt, "main", "topic", body, ImmutableList.of(), ImmutableList.of(), null, ImmutableList.of(),
+                NOW.minusSeconds(600), updatedAt, mergedAt, "main", "topic", "head", body, ImmutableList.of(), ImmutableList.of(), null, ImmutableList.of(),
                 1, 1, 1, 0, PullRequestDetail.CiStatus.NONE, activity, ImmutableList.of(), ImmutableList.of(), false);
     }
 

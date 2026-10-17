@@ -681,6 +681,17 @@ describe('PullOverview', () => {
     expect(html).not.toContain('class="pr-merge-ready-icon"');
   });
 
+  it('does not merge until the displayed head commit is known', () => {
+    const mergePr = vi.fn();
+    const value: PullRequestDetailDto = { ...detail(), viewerCanWrite: true, checkRuns: [], ciStatus: 'PASSING', headSha: '' };
+    vi.stubGlobal('window', { bridge: { mergePr } });
+    try {
+      captureMergeSubmit({ pr: pullRequest(), detail: value, mergeQueue: false, onClose: () => {}, onRefresh: async () => {} })();
+      expect(mergePr).not.toHaveBeenCalled();
+    }
+    finally { vi.unstubAllGlobals(); }
+  });
+
   it.each([true, false])('closes an accepted merge before the detail refresh finishes (queue: %s)', async mergeQueue => {
     const merge = Promise.withResolvers<void>();
     const refresh = Promise.withResolvers<void>();
@@ -695,7 +706,7 @@ describe('PullOverview', () => {
     vi.stubGlobal('window', { bridge: { mergePr } });
     try {
       submit();
-      expect(mergePr).toHaveBeenCalledWith(1, 'owner/repo', 42, mergeQueue ? 'queue' : 'rebase');
+      expect(mergePr).toHaveBeenCalledWith(1, 'owner/repo', 42, mergeQueue ? 'queue' : 'rebase', value.headSha);
       expect(onClose).not.toHaveBeenCalled();
       expect(onRefresh).not.toHaveBeenCalled();
 
@@ -1831,6 +1842,7 @@ function detail(): PullRequestDetailDto {
     mergedAt: null,
     baseRef: 'main',
     headRef: 'feature/overview',
+    headSha: 'displayed-head',
     body: '# Description\n\nAdds the overview.',
     labels: [{ name: 'docs', color: 'd4c5f9' }],
     assignees: [],

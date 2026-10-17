@@ -85,7 +85,7 @@ const pullRequestDetail: PullRequestDetailDto = {
   id: 1, repo: 'trinodb/trino', number: 30611, title: 'Handle IPv6 zone ids in Web UI task URIs', htmlUrl: null,
   state: 'open', draft: false, mergeable: null, mergeableState: null, author: 'wren-d', authorAvatarUrl: null,
   createdAt: '2026-08-27T10:00:00Z', updatedAt: '2026-09-05T12:00:00Z', mergedAt: null, baseRef: 'master',
-  headRef: 'ipv6', body: 'Fixes the zone id.', labels: [], assignees: [], milestone: null, reviewers: [],
+  headRef: 'ipv6', headSha: 'head', body: 'Fixes the zone id.', labels: [], assignees: [], milestone: null, reviewers: [],
   additions: 2, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
   checkRuns: [], unavailableSections: [], viewerCanWrite: true,
 };

@@ -2076,18 +2076,41 @@ class TestPullRequestService
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(writes.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
                 .thenReturn(new MergeResult("sha", true, "merged"));
 
-        MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash");
+        MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash", "displayed-head");
 
         assertThat(result.merged()).isTrue();
+        verify(writes).mergePullRequest("pat", ref, new MergePullRequestCommand("squash", Optional.empty(), Optional.empty(), Optional.of("displayed-head")));
         verify(store).setMonitored(12L, false);
-        verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.MERGED), eq("head"), any(Instant.class));
+        verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.MERGED), eq("displayed-head"), any(Instant.class));
         verify(detailStore).updateEtag(12L, Optional.empty());
         verify(detailStore, never()).deleteByPrIds(any());
         verifyNoInteractions(diffStore);
+    }
+
+    @Test
+    void rejectsMissingMergeHeadBeforeWriting()
+    {
+        assertThatThrownBy(() -> service.mergePullRequest("owner/repo", 7, 12L, "rebase", " "))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(writes);
+    }
+
+    @Test
+    void doesNotMarkReviewedOrEnqueueWhenTheMergeHeadChanged()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(writes.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
+                .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Head changed"));
+
+        assertThatThrownBy(() -> service.mergePullRequest("owner/repo", 7, 12L, "rebase", "displayed-head"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Head changed");
+        verify(writes).mergePullRequest("pat", ref, new MergePullRequestCommand("rebase", Optional.empty(), Optional.empty(), Optional.of("displayed-head")));
+        verifyNoMoreInteractions(writes);
+        verifyNoInteractions(viewStateStore, recent);
     }
 
     @Test
@@ -2098,9 +2121,9 @@ class TestPullRequestService
         when(writes.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
                 .thenThrow(new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED, "Merge queue is required"));
         when(writes.pullRequestNodeId("pat", ref)).thenReturn(Optional.of("PR_1"));
-        when(writes.enqueuePullRequest("pat", "PR_1")).thenReturn(MergeResult.enqueued("queued"));
+        when(writes.enqueuePullRequest("pat", "PR_1", "displayed-head")).thenReturn(MergeResult.enqueued("queued"));
 
-        MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash");
+        MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash", "displayed-head");
 
         assertThat(result.queued()).isTrue();
         verify(store, never()).setMonitored(anyLong(), anyBoolean());
@@ -2116,9 +2139,9 @@ class TestPullRequestService
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(writes.pullRequestNodeId("pat", ref)).thenReturn(Optional.of("PR_1"));
-        when(writes.enqueuePullRequest("pat", "PR_1")).thenReturn(MergeResult.enqueued("queued"));
+        when(writes.enqueuePullRequest("pat", "PR_1", "displayed-head")).thenReturn(MergeResult.enqueued("queued"));
 
-        MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "queue");
+        MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "queue", "displayed-head");
 
         assertThat(result.queued()).isTrue();
         verify(writes, never()).mergePullRequest(anyString(), any(), any());

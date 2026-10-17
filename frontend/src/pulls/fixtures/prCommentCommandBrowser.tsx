@@ -26,7 +26,7 @@ const commit = (sha: string): DiffCommitDto => ({ sha, parentSha: null, message:
 const detail: PullRequestDetailDto = {
   id: 42, repo: 'owner/repo', number: 42, title: 'Command completion', htmlUrl: null, state: 'open', draft: false,
   mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-  mergedAt: null, baseRef: 'main', headRef: 'feature', body: '', labels: [], assignees: [], milestone: null,
+  mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: '', labels: [], assignees: [], milestone: null,
   reviewers: [], additions: 0, deletions: 0, changedFiles: 0, approvalCount: 0, ciStatus: null,
   recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: true,
 };

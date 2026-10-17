@@ -46,7 +46,7 @@ const comment = (githubId: number, actor: string, actorBot: boolean, body: strin
 const detail: PullRequestDetailDto = {
   id: 1, repo: base.repo, number: base.number, title: 'Review nested field lookup', htmlUrl: null, state: 'open', draft: false,
   mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: timestamp, updatedAt: timestamp,
-  mergedAt: null, baseRef: 'master', headRef: 'feature', body: 'Resolve nested fields safely.\n\n'.repeat(12), labels: [], assignees: [], milestone: null,
+  mergedAt: null, baseRef: 'master', headRef: 'feature', headSha: 'head', body: 'Resolve nested fields safely.\n\n'.repeat(12), labels: [], assignees: [], milestone: null,
   reviewers: [], additions: 12, deletions: 4, changedFiles: 1, approvalCount: 0, ciStatus: null, checkRuns: [], unavailableSections: [], viewerCanWrite: false,
   recentActivity: [
     { actor: 'alice', eventType: 'commented', timestamp, body: 'Please check the nested field lookup.', githubId: 1, payload: EMPTY_TIMELINE_PAYLOAD },

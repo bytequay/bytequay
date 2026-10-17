@@ -1743,10 +1743,12 @@ function registerIpc(): void {
     repo: string,
     number: number,
     strategy: string,
+    headSha: string,
   ) => {
     const url = prUrl('/prs/merge', repo, number);
     url.searchParams.set('id', String(prId));
     url.searchParams.set('strategy', strategy);
+    url.searchParams.set('headSha', headSha);
     return backendJson(url, { method: 'POST' });
   });
 

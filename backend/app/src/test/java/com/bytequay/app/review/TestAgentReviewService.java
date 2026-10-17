@@ -3627,6 +3627,7 @@ class TestAgentReviewService
                 null,
                 "main",
                 "feature",
+                "head",
                 "Body",
                 ImmutableList.of(),
                 ImmutableList.of(),

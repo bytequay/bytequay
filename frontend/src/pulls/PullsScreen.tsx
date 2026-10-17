@@ -2109,7 +2109,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
   const lastRemoval = detail.recentActivity.filter(activity => activity.eventType === 'removed_from_merge_queue').at(-1);
   const canRemoveFromQueue = queued && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite;
   const canMerge = !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite && state === 'ready'
-    && typeof mergeQueue === 'boolean' && !conflicts && !queued;
+    && typeof mergeQueue === 'boolean' && !!detail.headSha && !conflicts && !queued;
 
   useEffect(() => {
     mounted.current = true;
@@ -2133,7 +2133,8 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
         await window.bridge.removePrFromMergeQueue(detail.repo, detail.number);
       }
       else {
-        await window.bridge.mergePr(pr.id, detail.repo, detail.number, mergeQueue ? 'queue' : 'rebase');
+        if (!detail.headSha) throw new Error('Refresh the pull request before merging.');
+        await window.bridge.mergePr(pr.id, detail.repo, detail.number, mergeQueue ? 'queue' : 'rebase', detail.headSha);
       }
       recordAttentionAction(`${detail.repo}#${detail.number}`, 'update');
       submitted.current = true;

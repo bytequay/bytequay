@@ -133,6 +133,18 @@ it('posts a single comment through the pending review under its comment box key'
     expect.objectContaining({ method: 'POST', body: JSON.stringify(comment), headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
 });
 
+it('carries the displayed head commit through the merge request', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response('{}'));
+  vi.stubGlobal('fetch', fetch);
+
+  await desktop.handlers.get('prs:merge')?.({}, 12, 'owner/repo', 7, 'rebase', 'displayed-head');
+
+  expect(fetch).toHaveBeenCalledWith(new URL('http://127.0.0.1:9527/prs/merge?repo=owner%2Frepo&number=7&id=12&strategy=rebase&headSha=displayed-head'),
+    expect.objectContaining({ method: 'POST' }));
+});
+
 it('forwards PR opening freshness separately from periodic and checks-only refreshes', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');

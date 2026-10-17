@@ -484,7 +484,7 @@ function reviewedDetail(): PullRequestDetailDto {
     updatedAt: '2026-08-20T10:00:00Z',
     mergedAt: null,
     baseRef: 'main',
-    headRef: 'fix-preview-output-limit',
+    headRef: 'fix-preview-output-limit', headSha: 'head',
     body: null,
     labels: [],
     assignees: [],

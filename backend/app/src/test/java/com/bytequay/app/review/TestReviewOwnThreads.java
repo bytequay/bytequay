@@ -82,7 +82,7 @@ class TestReviewOwnThreads
     {
         return new PullRequestDetail(12, "acme/widgets", 42, "Selected pull request", "https://github.com/acme/widgets/pull/42",
                 "open", false, null, "unknown", "author", "", NOW, NOW, NOW,
-                "main", "feature", "", ImmutableList.of(), ImmutableList.of(), null,
+                "main", "feature", "head", "", ImmutableList.of(), ImmutableList.of(), null,
                 ImmutableList.of(), 3, 1, 2, 1, PullRequestDetail.CiStatus.PASSING, ImmutableList.copyOf(activity), ImmutableList.of(), ImmutableList.of(), false);
     }
 

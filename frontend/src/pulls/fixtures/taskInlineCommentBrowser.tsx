@@ -36,7 +36,7 @@ const commits: DiffCommitDto[] = [
 const detail: PullRequestDetailDto = {
   id: 7, repo: 'owner/repo', number: 7, title: 'Implementation', htmlUrl: null, state: 'open', draft: true,
   mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-  mergedAt: null, baseRef: 'main', headRef: 'feature', body: null, labels: [], assignees: [], milestone: null,
+  mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: null, labels: [], assignees: [], milestone: null,
   reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
   checkRuns: [], unavailableSections: [], viewerCanWrite: true,
 };

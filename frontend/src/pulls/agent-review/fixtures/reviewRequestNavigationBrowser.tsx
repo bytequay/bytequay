@@ -81,7 +81,7 @@ input('turn-ordinary', 'Please keep my ordinary question visible.');
 const detail: PullRequestDetailDto = {
   id: 42, repo: review.repo, number: review.number, title: 'Resolve nested sort fields in Iceberg', htmlUrl: null, state: 'open', draft: true,
   mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-  mergedAt: null, baseRef: 'master', headRef: 'nested-fields', body: 'Support nested struct fields in the sort order.', labels: [], assignees: [], milestone: null,
+  mergedAt: null, baseRef: 'master', headRef: 'nested-fields', headSha: 'head', body: 'Support nested struct fields in the sort order.', labels: [], assignees: [], milestone: null,
   reviewers: [], additions: 12, deletions: 3, changedFiles: 2, approvalCount: 0, ciStatus: null, recentActivity: [],
   checkRuns: [], unavailableSections: [], viewerCanWrite: false,
 };

@@ -195,6 +195,7 @@ export type PullRequestDetailDto = {
   mergedAt: string | null;
   baseRef: string | null;
   headRef: string | null;
+  headSha: string | null;
   body: string | null;
   labels: Array<{ name: string; color: string | null }>;
   assignees: string[];
@@ -1619,7 +1620,7 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   getPrCheckLog: (repo: string, number: number, jobId: number) => Promise<{ text: string }>;
   rerunFailedPrChecks: (repo: string, number: number) => Promise<void>;
   betterWords: (text: string, repository?: string, workspaceId?: string) => Promise<string>;
-  mergePr: (prId: number, repo: string, number: number, strategy: string) => Promise<void>;
+  mergePr: (prId: number, repo: string, number: number, strategy: string, headSha: string) => Promise<void>;
   removePrFromMergeQueue: (repo: string, number: number) => Promise<void>;
 
   searchRepositories: (query: string, limit: number) => Promise<RepositorySearchResultDto[]>;

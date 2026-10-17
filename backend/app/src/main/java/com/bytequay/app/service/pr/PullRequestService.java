@@ -1450,28 +1450,29 @@ public class PullRequestService
         }
     }
     /** Merges directly, falling back to GitHub's merge queue when required. */
-    public MergeResult mergePullRequest(String repo, int number, long prId, String strategy)
+    public MergeResult mergePullRequest(String repo, int number, long prId, String strategy, String headSha)
     {
+        checkText(headSha, "pull request head commit");
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
         if ("queue".equalsIgnoreCase(strategy)) {
-            return enqueuePullRequest(pat, ref, repo, number);
+            return enqueuePullRequest(pat, ref, repo, number, headSha);
         }
-        MergePullRequestCommand command = strategyCommand(strategy);
+        MergePullRequestCommand command = strategyCommand(strategy, headSha);
         MergeResult result;
         try {
             result = pullRequestWrites.mergePullRequest(pat, ref, command);
         }
         catch (ResponseStatusException e) {
             if (requiresMergeQueue(e)) {
-                return enqueuePullRequest(pat, ref, repo, number);
+                return enqueuePullRequest(pat, ref, repo, number, headSha);
             }
             throw e;
         }
         if (result.merged()) {
             store.setMonitored(prId, false);
         }
-        viewStateStore.markReviewed(prId, HandledAction.MERGED, currentHeadSha(prId), Instant.now());
+        viewStateStore.markReviewed(prId, HandledAction.MERGED, headSha, Instant.now());
         recent.pullRequestAction(repo, number, RecentReason.MERGED, 0);
         invalidatePullRequestDetail(repo, number);
         return result;
@@ -1492,11 +1493,11 @@ public class PullRequestService
         }
     }
 
-    private MergeResult enqueuePullRequest(String pat, PullRequestRef ref, String repo, int number)
+    private MergeResult enqueuePullRequest(String pat, PullRequestRef ref, String repo, int number, String headSha)
     {
         String nodeId = pullRequestWrites.pullRequestNodeId(pat, ref)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
-        MergeResult result = pullRequestWrites.enqueuePullRequest(pat, nodeId);
+        MergeResult result = pullRequestWrites.enqueuePullRequest(pat, nodeId, headSha);
         // Queueing does not change the diff; retain it while the timeline refreshes.
         invalidatePullRequestDetail(repo, number);
         return result;
@@ -1511,16 +1512,14 @@ public class PullRequestService
                 && e.getReason().toLowerCase(Locale.ROOT).contains("merge queue");
     }
 
-    private static MergePullRequestCommand strategyCommand(String strategy)
+    private static MergePullRequestCommand strategyCommand(String strategy, String headSha)
     {
-        if (strategy == null) {
-            return MergePullRequestCommand.rebase();
-        }
-        return switch (strategy.toLowerCase(Locale.ROOT)) {
-            case "squash" -> MergePullRequestCommand.squash();
-            case "merge" -> MergePullRequestCommand.mergeCommit();
-            default -> MergePullRequestCommand.rebase();
+        String method = switch (strategy == null ? "rebase" : strategy.toLowerCase(Locale.ROOT)) {
+            case "squash" -> "squash";
+            case "merge" -> "merge";
+            default -> "rebase";
         };
+        return new MergePullRequestCommand(method, Optional.empty(), Optional.empty(), Optional.of(headSha));
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

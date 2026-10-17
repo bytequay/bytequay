@@ -349,8 +349,9 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestParam("id") long prId,
+            @RequestParam("headSha") String headSha,
             @RequestParam(value = "strategy", required = false) String strategy)
     {
-        return pullRequests.mergePullRequest(repo, number, prId, strategy);
+        return pullRequests.mergePullRequest(repo, number, prId, strategy, headSha);
     }
 }

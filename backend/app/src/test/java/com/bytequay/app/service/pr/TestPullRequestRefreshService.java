@@ -501,6 +501,7 @@ class TestPullRequestRefreshService
                 null,
                 "main",
                 "feature",
+                "head",
                 "Body",
                 ImmutableList.of(),
                 ImmutableList.of(),

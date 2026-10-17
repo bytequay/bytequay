@@ -29,7 +29,7 @@ function publishedDetail(draft: boolean): PullRequestDetailDto {
     id: CI_PROJECTION.pullRequestNumber, repo: 'acme/demo', number: CI_PROJECTION.pullRequestNumber, title: 'Preserve the public API',
     htmlUrl: CI_PROJECTION.pullRequestUrl, state: 'open', draft, mergeable: null, mergeableState: null, author: 'alice',
     authorAvatarUrl: null, createdAt: '2026-01-01T12:10:00Z', updatedAt: '2026-01-01T12:10:00Z', mergedAt: null, baseRef: 'master',
-    headRef: CI_PROJECTION.headRef, body: 'Keeps the public API.', labels: [], assignees: [], milestone: null, reviewers: [],
+    headRef: CI_PROJECTION.headRef, headSha: 'head', body: 'Keeps the public API.', labels: [], assignees: [], milestone: null, reviewers: [],
     additions: 3, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: 'NONE', recentActivity: [], checkRuns: [],
     unavailableSections: [], viewerCanWrite: false,
   };

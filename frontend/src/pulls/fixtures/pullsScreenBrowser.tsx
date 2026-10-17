@@ -41,7 +41,7 @@ const commits: DiffCommitDto[] = ['one', 'two'].map((sha, index): DiffCommitDto 
 const reviewDetail = (review: AgentReviewDto): PullRequestDetailDto => ({
   id: 42, repo: review.repo, number: review.number, title: 'Review this retained pull request', htmlUrl: null, state: 'open', draft: true,
   mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-  mergedAt: null, baseRef: 'main', headRef: 'feature', body: 'Pull request implementation', labels: [], assignees: [], milestone: null,
+  mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: 'Pull request implementation', labels: [], assignees: [], milestone: null,
   reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
   checkRuns: [], unavailableSections: [], viewerCanWrite: false,
 });
@@ -50,7 +50,7 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
   let detail: PullRequestDetailDto = {
     id: 7, repo: 'owner/repo', number: 7, title: 'Implementation', htmlUrl: null, state: 'open', draft: true,
     mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: '2026-01-01T00:00:00Z',
-    mergedAt: null, baseRef: 'main', headRef: 'feature', body: 'Original description', labels: [], assignees: [], milestone: null,
+    mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: 'Original description', labels: [], assignees: [], milestone: null,
     reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], additions: 1, deletions: 1, changedFiles: 1,
     approvalCount: 0, ciStatus: null, recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: false,
   };
@@ -631,7 +631,7 @@ export async function runReviewSheet(): Promise<string> {
   const detail: PullRequestDetailDto = {
     id: 9, repo: review.repo, number: review.number, title: 'Sheet', htmlUrl: null, state: 'open', draft: false,
     mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-    mergedAt: null, baseRef: 'main', headRef: 'feature', body: null, labels: [], assignees: [], milestone: null,
+    mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: null, labels: [], assignees: [], milestone: null,
     reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
     checkRuns: [], unavailableSections: [], viewerCanWrite: true,
   };
@@ -802,7 +802,7 @@ export async function runListSearch(): Promise<string> {
     id: number, repo: 'owner/repo', number, title, htmlUrl: null, state, draft: false,
     mergeable: null, mergeableState: null, author, authorAvatarUrl: null, createdAt: null,
     updatedAt: `2026-09-1${number % 9}T00:00:00Z`,
-    mergedAt: null, baseRef: 'main', headRef: 'feature', body: '', labels: [], assignees: [], milestone: null,
+    mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: '', labels: [], assignees: [], milestone: null,
     reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], additions: 1, deletions: 1, changedFiles: 1,
     approvalCount: 0, ciStatus: null, recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: false,
   });
@@ -1055,7 +1055,7 @@ export async function runSelectionStability(): Promise<string> {
   const detailFor = (number: number, title: string, updatedAt: string): PullRequestDetailDto => ({
     id: number, repo: 'owner/repo', number, title, htmlUrl: null, state: 'open', draft: false,
     mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt,
-    mergedAt: null, baseRef: 'main', headRef: 'feature', body: '', labels: [], assignees: [], milestone: null,
+    mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: '', labels: [], assignees: [], milestone: null,
     // The list opens on Review, so every row has to be one bob is asked to review.
     reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], additions: 1, deletions: 1, changedFiles: 1,
     approvalCount: 0, ciStatus: null, recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: false,
@@ -1465,7 +1465,7 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
   const detail: PullRequestDetailDto = {
     id: 8, repo: 'owner/repo', number: 8, title: 'Resolve owners', htmlUrl: null, state: 'open', draft: false,
     mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: at, updatedAt: at,
-    mergedAt: null, baseRef: 'main', headRef: 'feature', body: 'Resolves owners.', labels: [], assignees: [], milestone: null,
+    mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: 'Resolves owners.', labels: [], assignees: [], milestone: null,
     reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, checkRuns: [], unavailableSections: [],
     viewerCanWrite: true,
     recentActivity: [

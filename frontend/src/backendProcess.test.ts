@@ -15,9 +15,9 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ app: { isPackaged: true }, showErrorBox: vi.fn(), spawn: vi.fn(), existsSync: vi.fn() }));
+const mocks = vi.hoisted(() => ({ app: { isPackaged: true }, showErrorBox: vi.fn(), spawn: vi.fn(), execFileSync: vi.fn(), existsSync: vi.fn() }));
 vi.mock('electron', () => ({ app: mocks.app, dialog: { showErrorBox: mocks.showErrorBox } }));
-vi.mock('node:child_process', () => ({ spawn: mocks.spawn }));
+vi.mock('node:child_process', () => ({ spawn: mocks.spawn, execFileSync: mocks.execFileSync }));
 vi.mock('node:fs', () => ({ existsSync: mocks.existsSync }));
 
 const resourcesPath = Object.getOwnPropertyDescriptor(process, 'resourcesPath');
@@ -34,6 +34,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers();
   vi.stubEnv('BYTEQUAY_BACKEND_PORT', undefined);
+  // spawnBackend rewrites PATH; stubbing it restores the original after each test.
+  vi.stubEnv('PATH', process.env.PATH);
   mocks.app.isPackaged = true;
   mocks.existsSync.mockReturnValue(true);
   child = Object.assign(new EventEmitter(), {
@@ -60,6 +62,26 @@ describe('backend port discovery', () => {
     expect(mocks.existsSync).toHaveBeenCalledWith('/test/resources/jre/bin/java');
     expect(mocks.spawn).toHaveBeenCalledWith('/test/resources/jre/bin/java',
       expect.arrayContaining(['-jar', '/test/resources/bytequay-backend.jar']), expect.any(Object));
+  });
+
+  it('gives the backend the login shell PATH that a Finder launch lacks', async () => {
+    vi.stubEnv('SHELL', '/bin/zsh');
+    vi.stubEnv('PATH', '/usr/bin:/bin');
+    mocks.execFileSync.mockReturnValue('rc noise\n__BYTEQUAY_PATH__/Users/me/.nvm/bin:/usr/bin');
+    const backend = await import('./backendProcess');
+    backend.spawnBackend();
+    expect(mocks.execFileSync).toHaveBeenCalledWith('/bin/zsh', ['-ilc', expect.stringContaining('$PATH')], expect.objectContaining({ timeout: 5_000 }));
+    const path = String(mocks.spawn.mock.calls[0][2].env.PATH).split(':');
+    expect(path.slice(0, 3)).toEqual(['/Users/me/.nvm/bin', '/usr/bin', '/bin']);
+    expect(path).toContain('/opt/homebrew/bin');
+  });
+
+  it('still adds the usual tool folders when the login shell probe fails', async () => {
+    vi.stubEnv('PATH', '/usr/bin:/bin');
+    mocks.execFileSync.mockImplementation(() => { throw new Error('timed out'); });
+    const backend = await import('./backendProcess');
+    backend.spawnBackend();
+    expect(String(mocks.spawn.mock.calls[0][2].env.PATH).split(':')).toEqual(expect.arrayContaining(['/usr/bin', '/opt/homebrew/bin', '/usr/local/bin']));
   });
 
   it('reports an incomplete installation when the bundled runtime is missing', async () => {

@@ -12,9 +12,10 @@
  * limitations under the License.
  */
 import { app, dialog } from 'electron';
-import { ChildProcess, spawn } from 'node:child_process';
+import { ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -60,6 +61,50 @@ export function backendBase(): string {
 }
 
 /**
+ * Directories a developer's tools land in that a bare PATH never covers.
+ * Appended after the login shell's PATH as a backstop, so the probe below
+ * failing degrades to "most installs still work" rather than "nothing runs".
+ */
+const FALLBACK_BIN_DIRS = [
+  path.join(homedir(), '.local', 'bin'),
+  path.join(homedir(), '.bun', 'bin'),
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+];
+
+const PATH_MARKER = '__BYTEQUAY_PATH__';
+
+/**
+ * A Finder-launched .app inherits a bare PATH (/usr/bin:/bin:/usr/sbin:/sbin),
+ * while the codex, claude, npm, node and gh CLIs the backend runs live on the
+ * shell PATH. `-i` matters: zsh only reads .zshrc when interactive, and that is
+ * where nvm and similar version managers install themselves. The marker
+ * separates the answer from whatever the rc files print on startup.
+ */
+export function loginShellPath(): string | null {
+  const shell = process.env.SHELL;
+  if (!shell) return null;
+  try {
+    const out = execFileSync(shell, ['-ilc', `printf '%s%s' ${PATH_MARKER} "$PATH"`], {
+      encoding: 'utf8',
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const marker = out.lastIndexOf(PATH_MARKER);
+    if (marker < 0) return null;
+    return out.slice(marker + PATH_MARKER.length).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** The login shell's PATH, then the inherited one, then the fallback dirs, deduped in order. */
+export function mergedPath(shellPath: string | null, currentPath: string | undefined): string {
+  const entries = [...(shellPath ?? '').split(':'), ...(currentPath ?? '').split(':'), ...FALLBACK_BIN_DIRS];
+  return [...new Set(entries.filter((entry) => entry.length > 0))].join(':');
+}
+
+/**
  * Spawn the packaged Spring Boot JAR as a child process.
  * In dev mode, we skip this — run Spring Boot manually from IntelliJ
  * or via dev.sh.
@@ -71,6 +116,10 @@ export function backendBase(): string {
 export function spawnBackend(): void {
   if (!app.isPackaged) return;
   if (child) return;
+
+  // The backend inherits this PATH, and so does every CLI it spawns. Dev runs
+  // start from a shell that already has it, so only the packaged app probes.
+  process.env.PATH = mergedPath(loginShellPath(), process.env.PATH);
 
   const jar = path.join(process.resourcesPath, 'bytequay-backend.jar');
   const java = path.join(process.resourcesPath, 'jre', 'bin', 'java');

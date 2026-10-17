@@ -43,10 +43,13 @@ authenticated `/agent/notices` endpoint. Electron polls this local snapshot and
 keeps delivery deduplication and recent notices in memory for the session.
 Explicitly dismissed notice IDs are atomically saved in Electron's local app data
 before removing the card and restored before the first notice snapshot is applied.
-A separate sandboxed `WebContentsView` displays the bottom-right cards above browser and
-editor views. Its restricted bridge can read, dismiss, resize, and navigate to
-a validated task; it cannot approve or execute task actions. Recovery notices
-wait for ordinary shutdown cleanup to settle before announcing a block.
+The Assistant panel lists the current notices and answers approvals and questions
+with each task's own buttons. While the panel is closed, a separate sandboxed
+`WebContentsView` shows one short alert at the bottom right, above browser and
+editor views. Its restricted bridge can read, dismiss, resize, and open the panel
+at a notice or navigate to a validated task; it cannot approve or execute task
+actions. Recovery notices wait for ordinary shutdown cleanup to settle before
+announcing a block.
 
 ## Backend organization
 
@@ -174,8 +177,8 @@ provider-sandboxed tools have different execution boundaries.
 A development task's private-review tools also read the findings that reviews
 saved about that task's changes and its pull request, and record the agent's
 replies on them. The application selects those reviews from the task, so a later
-task on the same pull request reads them without a copy in its conversation. An
-agent cannot name another task or review. It resolves only a finding it fixed and
+task on the same pull request reads them without a copy in its conversation. A
+task's agent cannot name another task or review. It resolves only a finding it fixed and
 answered, the finding records which task did, and a resolution the user made is
 not an agent's to undo.
 
@@ -230,6 +233,20 @@ an item is done. Each run records its tool calls and refused items, so the pages
 can be judged against real mornings. Nothing in the session writes to GitHub,
 starts a task or changes work.
 
+The Assistant panel holds one conversation per local day with a tools-only
+session: it has no shell, file or web tools, only `assistant_context`, which reads
+the agenda's stored data plus what runs now and what is on screen, and
+`assistant_act`. It is the one agent that names other tasks, and only through
+`assistant_act`: in a run the user's own message started, on cards visible when
+that message was sent or on references handed out that day. A task it starts or
+replies to receives only the user's own words, beside the first message the app
+already builds for an item, and task automation comes from the user's saved
+settings. Words the message says not to do, such as "push to main" in "don't
+push to main", are refused, and each receipt shows the exact words acted on. By words it answers only Claude shell commands that stay in the
+sandbox, with Allow once or Deny, and question cards; everything else stays a
+button. Each call is logged and leaves a receipt in the conversation, and the
+two switches that let it act are off by default.
+
 ## Trust and external services
 
 Local-first means local application state and execution; it does not mean offline
@@ -247,7 +264,8 @@ runtime files and the database read-only.
 
 GitHub writes require a direct user action or an explicitly accepted automation
 scope. Repository content, model output, and a private discussion cannot grant
-that authority. Preview and execution must remain bound to the accepted target;
+that authority. An Assistant action counts as the user's direct action only within
+the bounds above: the user's own words, in the message that asked for it. Preview and execution must remain bound to the accepted target;
 uncertain remote outcomes are reconciled instead of blindly repeated.
 
 Provider login profiles live outside repositories. Named Claude profiles have

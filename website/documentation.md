@@ -75,6 +75,30 @@ closed at that time, Today is made when you return.
 - **Settings → General → Daily agenda** sets the time and working days, and can
   plan around your calendar's busy times (never event titles).
 
+## Talk to the assistant
+
+Press **⌘J** on any page, including web pages and the code editor, to open the
+Assistant beside it. It shows today's agenda, today's conversation, and the
+cards waiting on you. It never writes or runs code.
+
+- Ask about your day, what waits on you, or the page you are on. The **On
+  screen** chip sends that page with your message; remove it with its **×**.
+- Approval and question cards keep their task's own buttons. Other notices open
+  their task or clear with **×**. While the panel is closed, a new notice shows
+  as a short alert at the bottom right; **Answer** on an approval or question
+  opens the panel at that card.
+- To let it act on your words, turn on **Assistant can start tasks** or
+  **Assistant can answer tasks** in **Settings → Agents → Workflow**. It then
+  starts the task you ask for, allows once or denies a command that stays in the
+  sandbox, answers a question, or sends your reply to an idle task.
+- It acts only on your own words, and refuses words your message says not to
+  do, such as "push to main" in "don't push to main".
+- Every action leaves a receipt in the conversation with the exact words it
+  acted on: **Open** goes to its task, and a task it started also offers
+  **Stop**. Commands outside the sandbox, file
+  changes, and **Allow for this task** stay buttons; a refusal points you to
+  them.
+
 <a id="pull-requests"></a>
 
 ## Review a pull request

@@ -18,6 +18,8 @@ import com.bytequay.app.git.SequenceState.Kind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -206,24 +208,26 @@ class TestGitSequencerDriver
         assertThat(driver.cleanAndResolved(repository)).isFalse();
     }
 
-    @Test
-    void commitsTheConflictSnapshotWithItsCherryPickOrigin()
+    @ParameterizedTest
+    @ValueSource(strings = {"file.txt", "报告.txt", "quoted\"file.txt", "tab\tfile.txt", "line\nfile.txt"})
+    void commitsTheConflictSnapshotWithItsCherryPickOrigin(String filename)
     {
-        write("file.txt", "base\n");
+        write(filename, "base\n");
         commit("Base");
         String base = head();
 
         git(repository, "checkout", "--quiet", "-b", "source");
-        write("file.txt", "source\n");
+        write(filename, "source\n");
         commit("Conflicting change");
         String source = head();
 
         git(repository, "checkout", "--quiet", "-B", "main", base);
-        write("file.txt", "target\n");
+        write(filename, "target\n");
         commit("Target change");
         String target = head();
 
         SequenceState conflict = driver.beginCherryPick(repository, target, source);
+        assertThat(conflict.conflicts()).extracting(ConflictedPath::path).containsExactly(filename);
         SequenceState snapshot = driver.commitConflictSnapshot(repository, target, source, conflict.conflicts());
         assertThat(snapshot.kind()).isEqualTo(Kind.COMPLETED);
         assertThat(git(repository, "log", "-1", "--format=%B"))

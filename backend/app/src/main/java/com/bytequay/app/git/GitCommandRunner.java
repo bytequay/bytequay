@@ -279,12 +279,12 @@ public class GitCommandRunner
 
     public List<ConflictedPath> conflicts(Path worktree)
     {
-        Result unmerged = run(worktree, "ls-files", "-u");
+        Result unmerged = runStdout(worktree, "ls-files", "-u", "-z");
         if (!unmerged.successful() || unmerged.output().isBlank()) {
             return ImmutableList.of();
         }
         Map<String, List<IndexStage>> stages = new LinkedHashMap<>();
-        for (String line : unmerged.output().lines().collect(toImmutableList())) {
+        for (String line : unmerged.output().split("\0")) {
             int tab = line.indexOf('\t');
             if (tab < 0) {
                 continue;

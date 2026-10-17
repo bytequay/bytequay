@@ -586,6 +586,10 @@
 .pr-merge-queue-removal { border: 1px solid var(--line-default); border-radius: 12px; padding: 16px 20px; }
 .pr-queue-removal { margin-top: 8px; overflow-wrap: anywhere; color: var(--fg-muted); }
 .pr-queue-removal p { margin: 0 0 8px; }
+.pr-queue-removal__toggle { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-default); border-radius: 6px; background: var(--surface-canvas); color: var(--accent); padding: 4px 8px; font: inherit; cursor: pointer; }
+.pr-queue-removal__toggle:hover { background: var(--bg-base); }
+.pr-queue-removal__toggle[aria-expanded="true"] { margin-bottom: 8px; }
+.pr-queue-removal__toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
 .pr-queue-removal ul { margin: 0 0 8px; padding-left: 20px; }
 .pr-queue-removal__links { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .pr-queue-removal a { color: var(--accent); }
@@ -933,6 +937,7 @@
 .pr-event { display: grid; min-height: 35px; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 12px; padding-left: 18px; color: var(--fg-subtle); font-size: var(--ui-font-size); }
 .pr-event > .user-avatar-trigger { background: var(--surface-canvas); box-shadow: 0 0 0 4px var(--bg-base); }
 .pr-actor-event { grid-template-columns: max-content minmax(0, 1fr); gap: 5px; }
+.pr-actor-event:has(.pr-queue-removal) { align-items: start; }
 .pr-actor-event > .user-avatar-trigger { gap: 12px; }
 .pr-event strong { color: var(--fg-strong); font-size: var(--ui-font-size); font-weight: 500; }
 .pr-event time { color: var(--fg-subtle); }

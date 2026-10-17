@@ -529,14 +529,24 @@ export async function runMergeQueueRemoval(keepMounted = false): Promise<string>
     flushSync(() => root.render(<MergeDialog pr={remotePullRequest(detail, 'bob')} detail={detail} mergeQueue
       onClose={() => {}} onRefresh={async () => {}} />));
     await settle();
-    assert(host.textContent?.includes('Checks failed on the merge-queue commit.') === true, 'The merge dialog must explain the last queue removal');
+    assert(host.textContent?.includes('Checks failed on the merge-queue commit.') === false, 'Queue failures must not repeat the explanation above the failed checks');
     assert(host.textContent?.includes('All pull-request checks have passed') === true, 'PR checks must be distinguished from queue checks');
+    const toggle = host.querySelector<HTMLButtonElement>('.pr-queue-removal__toggle');
+    assert(toggle !== null && toggle.textContent?.trim() === 'View failed checks (2)', 'Queue failures must offer a compact button with the failed count');
     const link = host.querySelector<HTMLAnchorElement>('.pr-queue-removal li a');
     assert(link !== null, 'Failed checks must offer direct job links');
+    assert(!link.checkVisibility() && toggle.getAttribute('aria-expanded') === 'false', 'Failed checks must start collapsed');
+    toggle.click();
+    await settle();
+    assert(link.checkVisibility() && toggle.getAttribute('aria-expanded') === 'true', 'View failed checks must expand the job links');
+    assert(toggle.textContent?.trim() === 'Hide failed checks (2)', 'Expanded failures must offer a collapse action');
     link.click();
     await settle();
     assert(opened[0] === detail.recentActivity[0].payload.mergeQueueRemoval?.failedChecks[0].url,
       'Failed check links must open the exact merge-queue job in the embedded browser');
+    toggle.click();
+    await settle();
+    assert(!link.checkVisibility() && toggle.getAttribute('aria-expanded') === 'false', 'Failed checks must collapse again');
     const header = host.querySelector('.pr-merge-sheet__header')?.getBoundingClientRect();
     const close = host.querySelector('[aria-label="Close merge dialog"]')?.getBoundingClientRect();
     assert(header !== undefined && close !== undefined && header.height < 100 && close.width === 32 && close.height === 32, 'The close button must stay compact beside the title');

@@ -29,7 +29,7 @@ import type { PrivateThreads } from './PrivateThread';
 const COMMENTED_HUNK = '@@ -41,4 +41,18 @@ default long getMemoryUsage()\n {\n+    MemoryUsageTracker createTracker();\n+\n+    interface MemoryUsageTracker';
 
 describe('PullOverview', () => {
-  it('shows queue-removal reasons and failed check links in the timeline and merge dialog', () => {
+  it('shows queue-removal reasons with collapsed failed checks in the timeline and merge dialog', () => {
     const removal: PullRequestDetailDto['recentActivity'][number] = {
       actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: '2026-08-20T09:10:00Z', body: null, githubId: 71,
       payload: { ...emptyPayload, mergeQueueRemoval: { reason: 'failed_checks', commitUrl: 'https://github.com/owner/repo/commit/queue-sha',
@@ -41,7 +41,10 @@ describe('PullOverview', () => {
       <MergeDialog pr={pullRequest()} detail={value} mergeQueue onClose={() => {}} onRefresh={async () => {}} />,
     ]) {
       const html = renderToStaticMarkup(element);
-      expect(html).toContain('Checks failed on the merge-queue commit.');
+      expect(html).not.toContain('Checks failed on the merge-queue commit.');
+      expect(html).toContain('aria-expanded="false"');
+      expect(html).toContain('View failed checks (1)');
+      expect(html).toMatch(/<div id="[^"]+" hidden=""><ul>/);
       expect(html).toContain('href="https://github.com/owner/repo/actions/runs/1/job/2"');
       expect(html).toContain('href="https://github.com/owner/repo/commit/queue-sha/checks"');
       expect(html).toContain('#event-71');
@@ -61,6 +64,7 @@ describe('PullOverview', () => {
       ? 'conflicted with the target branch or another queued change' : 'GitHub reason: new reason');
     expect(html).toContain('View removal on GitHub');
     expect(html).not.toContain('View merge-queue checks');
+    expect(html).not.toContain('View failed checks');
   });
 
   it('places private local review cards among GitHub activity without changing remote comments', () => {

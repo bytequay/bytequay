@@ -330,7 +330,21 @@ public class RecentService
                 touch.htmlUrl(),
                 touch.subtitle(),
                 text.map(RecentText::body).orElse(null),
-                text.map(RecentText::id).orElse(null));
+                text.map(RecentText::id).orElse(null),
+                touch.type() == RecentItemType.PULL_REQUEST
+                        ? Optional.ofNullable(touch.prId()).flatMap(details::find).map(RecentService::pullRequestState)
+                        : Optional.empty());
+    }
+
+    private static RecentRow.PullRequestState pullRequestState(StoredPrDetail detail)
+    {
+        String state = detail.raw().mergedAt() != null ? "merged" : detail.raw().state();
+        boolean queued = "open".equals(state) && detail.timeline().stream()
+                .filter(event -> "added_to_merge_queue".equals(event.event()) || "removed_from_merge_queue".equals(event.event()))
+                .reduce((previous, latest) -> latest)
+                .map(event -> "added_to_merge_queue".equals(event.event()))
+                .orElse(false);
+        return new RecentRow.PullRequestState(state, detail.raw().draft(), queued);
     }
 
     private Optional<String> taskWorkspace(String itemKey)

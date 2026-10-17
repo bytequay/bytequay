@@ -32,6 +32,7 @@ const row: RecentRowDto = {
   subtitle: 'ezra-b',
   snippet: 'Nested field ordering is resolved per split here.',
   textId: 'pr:trinodb/trino#30835:comment:1',
+  pullRequest: { state: 'open', draft: false, queued: false },
 };
 
 function render(props: Partial<Parameters<typeof Row>[0]> = {}) {
@@ -49,11 +50,30 @@ describe('a stream row', () => {
     expect(markup).not.toMatch(/rc-row__text">[^<]*#30835/);
   });
 
-  it('tones the badge by the reason and colours the glyph by role', () => {
+  it('tones the badge by the action and the PR icon by status regardless of ownership', () => {
     const markup = render();
     expect(markup).toContain('rc-badge is-green">Pushed 2');
-    expect(markup).toContain('rc-glyph rc-row__glyph is-mine');
-    expect(render({ row: { ...row, mine: false } })).toContain('rc-glyph rc-row__glyph is-theirs');
+    expect(markup).toContain('agt-pr-icon is-open rc-glyph rc-row__glyph');
+    expect(render({ row: { ...row, mine: false } })).toContain('agt-pr-icon is-open rc-glyph rc-row__glyph');
+    expect(markup).toContain('yours');
+  });
+
+  it.each([
+    [{ state: 'open', draft: false, queued: true }, 'queued', 'In merge queue', 'git-pull-request'],
+    [{ state: 'open', draft: true, queued: false }, 'draft', 'Draft pull request', 'git-pull-request-draft'],
+    [{ state: 'closed', draft: false, queued: true }, 'closed', 'Closed pull request', 'git-pull-request-closed'],
+    [{ state: 'merged', draft: false, queued: true }, 'merged', 'Merged pull request', 'git-merge'],
+  ] as const)('renders the current PR status %j with its own icon and label', (pullRequest, state, label, icon) => {
+    const markup = render({ row: { ...row, pullRequest } });
+    expect(markup).toContain(`agt-pr-icon is-${state} rc-glyph rc-row__glyph`);
+    expect(markup).toContain(`aria-label="${label}"`);
+    expect(markup).toContain(`lucide-${icon}`);
+  });
+
+  it('keeps the icon neutral when cached PR status is unavailable', () => {
+    const markup = render({ row: { ...row, pullRequest: null, reason: 'MERGED', reasonLabel: 'Merged' } });
+    expect(markup).toContain('agt-pr-icon rc-glyph rc-row__glyph');
+    expect(markup).toContain('aria-label="Pull request status unknown"');
   });
 
   it('shows the repository owner and the author beside the metadata', () => {

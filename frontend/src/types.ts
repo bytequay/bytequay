@@ -1359,6 +1359,8 @@ export type RecentRowDto = {
   /** What the user wrote on this item, when there is any. */
   snippet: string | null;
   textId: string | null;
+  /** Current cached status, independent of who owns the PR or the recorded action. */
+  pullRequest: (Pick<PullRequestDto, 'state' | 'draft'> & { queued: boolean }) | null;
 };
 
 type RecentDayPageDto = {

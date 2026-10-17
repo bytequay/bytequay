@@ -47,6 +47,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -126,6 +128,45 @@ class TestRecentService
         assertThat(RecentService.reasonLabel(touch("a", TODAY, NOW, RecentReason.PUSHED, 2))).isEqualTo("Pushed 2");
         assertThat(RecentService.reasonLabel(touch("a", TODAY, NOW, RecentReason.PROMPTED, 0))).isEqualTo("You prompted");
         assertThat(RecentService.reasonLabel(touch("a", TODAY, NOW, RecentReason.MERGED, 0))).isEqualTo("Merged");
+    }
+
+    @Test
+    void readsCurrentQueueMembershipForTheStreamAndPaletteWithoutAnotherTouch()
+    {
+        store.put(touch("pr:o/r#1", TODAY, NOW, RecentReason.READ, 7));
+        List<PrTimelineEvent> timeline = new ArrayList<>();
+        for (String event : ImmutableList.of("added_to_merge_queue", "commented", "removed_from_merge_queue", "added_to_merge_queue")) {
+            timeline.add(new PrTimelineEvent((long) timeline.size() + 1, event, "me", NOW.plusSeconds(timeline.size()), null, Optional.empty()));
+            when(details.find(11L)).thenReturn(Optional.of(detailWith(timeline, ImmutableList.of(), ImmutableList.of())));
+            RecentRow.PullRequestState expected = new RecentRow.PullRequestState("open", false, !event.equals("removed_from_merge_queue"));
+            assertThat(service.stream(everything(), null).rows()).singleElement().satisfies(row -> {
+                assertThat(row.pullRequest()).contains(expected);
+                assertThat(row.reasonLabel()).isEqualTo("Read 7m");
+            });
+            assertThat(service.search("nested", 10)).singleElement().satisfies(row -> assertThat(row.pullRequest()).contains(expected));
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"open,false,false,open", "open,true,false,open", "closed,false,false,closed", "closed,false,true,merged", "merged,false,false,merged"})
+    void readsCurrentPrStateAndDoesNotQueueCompletedPullRequests(String state, boolean draft, boolean merged, String expectedState)
+    {
+        store.put(touch("pr:o/r#1", TODAY, NOW, RecentReason.READ, 0));
+        when(details.find(11L)).thenReturn(Optional.of(detailWith(state, draft, merged ? Optional.of(NOW) : Optional.empty(),
+                ImmutableList.of(new PrTimelineEvent(1L, "added_to_merge_queue", "me", NOW, null, Optional.empty())), ImmutableList.of(), ImmutableList.of())));
+
+        assertThat(service.stream(everything(), null).rows()).singleElement().satisfies(row ->
+                assertThat(row.pullRequest()).contains(new RecentRow.PullRequestState(expectedState, draft, expectedState.equals("open"))));
+    }
+
+    @Test
+    void leavesStatusUnknownWithoutCachedDetailsOrForOtherItemTypes()
+    {
+        store.put(touch("pr:o/r#1", TODAY, NOW, RecentReason.MERGED, 0));
+        store.put(elsewhere("pr:other/repo#9", TODAY, NOW.minusSeconds(60)));
+        store.put(issueTouch("issue:o/r#2", TODAY, NOW.minusSeconds(120)));
+
+        assertThat(service.stream(everything(), null).rows()).hasSize(3).allSatisfy(row -> assertThat(row.pullRequest()).isEmpty());
     }
 
     @Test
@@ -421,21 +462,27 @@ class TestRecentService
 
     private static StoredPrDetail detailWith(List<PrTimelineEvent> timeline, List<PrCheckRunState> checkRuns, List<String> requestedReviewers)
     {
+        return detailWith("open", false, Optional.empty(), timeline, checkRuns, requestedReviewers);
+    }
+
+    private static StoredPrDetail detailWith(String state, boolean draft, Optional<Instant> mergedAt,
+            List<PrTimelineEvent> timeline, List<PrCheckRunState> checkRuns, List<String> requestedReviewers)
+    {
         PrRawDetail raw = new PrRawDetail(
                 "Support sorted by nested fields in Iceberg",
                 "https://github.com/o/r/pull/1",
-                "open",
+                state,
                 "ezra-b",
                 "",
                 NOW.minusSeconds(86_400),
                 NOW,
-                null,
+                mergedAt.orElse(null),
                 "body",
                 ImmutableList.of(),
                 ImmutableMap.of(),
                 ImmutableList.of(),
                 null,
-                false,
+                draft,
                 true,
                 "clean",
                 1,

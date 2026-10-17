@@ -94,7 +94,7 @@ export function reasonTone(reason: RecentReason): 'green' | 'purple' | 'amber' |
   }
 }
 
-/** Glyph colour carries role: purple is mine, green is theirs. */
+/** Non-PR glyph colour carries role: purple is mine, green is theirs. */
 export function roleTone(row: Pick<RecentRowDto, 'type' | 'mine'>): 'mine' | 'theirs' | 'own' {
   if (row.type === 'COMMIT') return 'own';
   if (row.type === 'TASK' || row.type === 'JIRA') return 'mine';

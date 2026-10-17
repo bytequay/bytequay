@@ -16,12 +16,17 @@ import type { PullRequestDto } from '../types';
 
 /** Without a stored pull request, keep the mark neutral until its state is known. */
 export function PullRequestStateIcon({ pullRequest, size, className }: {
-  pullRequest: Pick<PullRequestDto, 'state' | 'draft'> | null;
+  pullRequest: (Pick<PullRequestDto, 'state' | 'draft'> & { queued?: boolean }) | null;
   size: number;
   className?: string;
 }) {
   const state = pullRequest === null ? null
-    : pullRequest.state === 'merged' ? 'merged' : pullRequest.state === 'closed' ? 'closed' : pullRequest.draft ? 'draft' : 'open';
+    : pullRequest.state === 'merged' ? 'merged' : pullRequest.state === 'closed' ? 'closed'
+      : pullRequest.draft ? 'draft' : pullRequest.queued ? 'queued' : 'open';
   const Icon = state === 'merged' ? GitMerge : state === 'closed' ? GitPullRequestClosed : state === 'draft' ? GitPullRequestDraft : GitPullRequest;
-  return <Icon className={['agt-pr-icon', state === null ? null : `is-${state}`, className].filter(Boolean).join(' ')} size={size} aria-hidden="true" />;
+  const label = state === null ? 'Pull request status unknown' : state === 'queued' ? 'In merge queue'
+    : `${state[0].toUpperCase()}${state.slice(1)} pull request`;
+  return <Icon className={['agt-pr-icon', state === null ? null : `is-${state}`, className].filter(Boolean).join(' ')} size={size} role="img" aria-label={label}>
+    <title>{label}</title>
+  </Icon>;
 }

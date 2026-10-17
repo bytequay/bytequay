@@ -15,6 +15,7 @@ import { Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '../css/recent.css';
 import { relativeTime } from '../relativeTime';
+import { PullRequestStateIcon } from '../pulls/PullRequestStateIcon';
 import type { RecentChangeDto, RecentRowDto, RecentWordHitDto } from '../types';
 import { useModalDialog } from '../useModalDialog';
 import { highlightParts, roleTone, rowMarkdown, TYPE_ICON } from './model';
@@ -231,7 +232,9 @@ function ItemRow({ row, change, active, onHover, onOpen }: {
     <button type="button" className={`rc-item${active ? ' is-active' : ''}`}
       onMouseMove={onHover} onClick={onOpen}>
       <span className="rc-item__line">
-        <Icon className={`rc-glyph is-${roleTone(row)}`} size={16} strokeWidth={1.7} aria-hidden="true" />
+        {row.type === 'PULL_REQUEST'
+          ? <PullRequestStateIcon pullRequest={row.pullRequest} size={16} className="rc-glyph" />
+          : <Icon className={`rc-glyph is-${roleTone(row)}`} size={16} strokeWidth={1.7} aria-hidden="true" />}
         <span className="rc-item__title">{row.title}</span>
         {dot && <span className={`rc-dot ${dot}`} aria-hidden="true" />}
       </span>

@@ -17,6 +17,7 @@ import com.bytequay.core.domain.RecentItemType;
 import com.bytequay.core.domain.RecentReason;
 
 import java.time.Instant;
+import java.util.Optional;
 
 /**
  * One line of the Recent stream.
@@ -42,4 +43,8 @@ public record RecentRow(
         String htmlUrl,
         String subtitle,
         String snippet,
-        String textId) {}
+        String textId,
+        Optional<PullRequestState> pullRequest)
+{
+    public record PullRequestState(String state, boolean draft, boolean queued) {}
+}

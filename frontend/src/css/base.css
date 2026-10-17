@@ -882,6 +882,7 @@ samp {
 
 /* Shared pull-request state colours in navigation, tasks and reviews. */
 .agt-pr-icon.is-open { color: var(--fg-success); }
+.agt-pr-icon.is-queued { color: light-dark(#9a6700, var(--dark-amber)); }
 .agt-pr-icon.is-draft { color: light-dark(#6e7781, var(--dark-muted)); }
 .agt-pr-icon.is-merged { color: var(--fg-purple); }
 .agt-pr-icon.is-closed { color: var(--fg-danger); }

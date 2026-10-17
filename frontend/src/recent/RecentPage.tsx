@@ -17,6 +17,7 @@ import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDot,
 import Avatar from '../Avatar';
 import RepoAvatar from '../RepoAvatar';
 import JiraIcon from '../jira/JiraIcon';
+import { PullRequestStateIcon } from '../pulls/PullRequestStateIcon';
 import type {
   RecentChangeDto,
   RecentItemType,
@@ -443,7 +444,9 @@ export function Row({ row, change, open, onToggle, onOpen }: {
         onClick={activate}
         onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } }}>
         <span className="rc-row__time">{clock(row.touchedAt)}</span>
-        <Icon className={`rc-glyph rc-row__glyph is-${roleTone(row)}`} size={16} strokeWidth={1.7} aria-hidden="true" />
+        {row.type === 'PULL_REQUEST'
+          ? <PullRequestStateIcon pullRequest={row.pullRequest} size={16} className="rc-glyph rc-row__glyph" />
+          : <Icon className={`rc-glyph rc-row__glyph is-${roleTone(row)}`} size={16} strokeWidth={1.7} aria-hidden="true" />}
         <span className="rc-row__main">
           <span className="rc-row__title">
             <span className="rc-row__text">{row.title}</span>

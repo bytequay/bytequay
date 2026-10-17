@@ -17,6 +17,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { RecentFilterQuery, RecentRowDto } from '../../types';
 import RecentPage from '../RecentPage';
+import RecentPalette from '../RecentPalette';
 import { isoDay, parseDay, shiftDay } from '../model';
 import { recentItemTarget } from '../routes';
 import { useRecentTouch } from '../useRecentTouch';
@@ -33,7 +34,7 @@ function dayPage(day: string, count = 20, nextCursor: string | null = null): Day
     id: `${day}-${index}`, itemKey: `pr:owner/repository#${index}`, type: 'PULL_REQUEST', number: index,
     title: `Activity ${day} item ${index}`, repo: 'owner/repository', workspaceId: null, mine: true,
     touchedAt: `${day}T12:00:00Z`, reason: 'READ', reasonLabel: 'Read', htmlUrl: null,
-    subtitle: null, snippet: null, textId: null,
+    subtitle: null, snippet: null, textId: null, pullRequest: { state: 'open', draft: false, queued: false },
   }));
   return { day, rows, nextCursor, endOfWindow: nextCursor === null, activeDays: nextCursor ? [day, nextCursor] : [day], retentionDays: 14 };
 }
@@ -81,6 +82,28 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
     finally { view.dispose(); }
   };
+  await check('shows the same distinct queue and merge states in the page and palette', async view => {
+    const page = dayPage(today, 3);
+    page.rows[0].pullRequest = { state: 'open', draft: false, queued: true };
+    page.rows[1].pullRequest = { state: 'merged', draft: false, queued: false };
+    await view.resolve(0, page);
+    Object.defineProperty(window, 'bridge', { value: { ...window.bridge, searchRecent: async () => page.rows }, configurable: true });
+    const host = document.createElement('div');
+    view.host.append(host);
+    const root = createRoot(host);
+    try {
+      flushSync(() => root.render(<RecentPalette onClose={() => {}} onOpenRow={() => {}} onOpenWordHit={() => {}} />));
+      await settle();
+      for (const selector of ['.rc-row', '.rc-item']) {
+        const queued = view.host.querySelector<SVGElement>(`${selector} [aria-label="In merge queue"]`);
+        const merged = view.host.querySelector<SVGElement>(`${selector} [aria-label="Merged pull request"]`);
+        const open = view.host.querySelector<SVGElement>(`${selector} [aria-label="Open pull request"]`);
+        assert(queued !== null && merged !== null && open !== null, 'Each surface must identify all three PR states');
+        assert(new Set([queued, merged, open].map(icon => getComputedStyle(icon).color)).size === 3, 'Queue, merged, and open icons need distinct colours');
+      }
+    }
+    finally { flushSync(() => root.unmount()); host.remove(); }
+  });
   await check('filters tickets and toggles back to all items', async view => {
     await view.resolve(0, dayPage(today, 1));
     await view.click('Tickets');

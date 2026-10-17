@@ -66,9 +66,9 @@ describe('badges and glyph colour', () => {
     expect(reasonTone('READ')).toBe('neutral');
   });
 
-  it('colours the glyph by role', () => {
-    expect(roleTone({ type: 'PULL_REQUEST', mine: true })).toBe('mine');
-    expect(roleTone({ type: 'PULL_REQUEST', mine: false })).toBe('theirs');
+  it('colours non-PR glyphs by role', () => {
+    expect(roleTone({ type: 'ISSUE', mine: true })).toBe('mine');
+    expect(roleTone({ type: 'ISSUE', mine: false })).toBe('theirs');
     expect(roleTone({ type: 'COMMIT', mine: true })).toBe('own');
   });
 });

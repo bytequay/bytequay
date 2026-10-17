@@ -745,7 +745,7 @@
 .pr-state.is-draft { background: light-dark(#6e7781, var(--dark-border-strong)); }
 .pr-state.is-queued { background: light-dark(#9a6700, #785b20); }
 .pr-overview__rule { height: 1px; margin: 16px 0; background: light-dark(#e6eaee, var(--dark-subtle)); }
-.pull-request-overview .pr-overview__rule { margin: 20px 0; }
+.pull-request-overview .pr-overview__rule { margin: 20px 0; background: var(--line-default); }
 
 .pr-meta { position: relative; z-index: 4; display: flex; min-height: 34px; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .pull-request-overview .pr-meta { margin-bottom: 20px; }

@@ -16,7 +16,7 @@ import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { RepositoryMetadataDto, WorkspaceIssueDetailDto, WorkspaceIssueTimelineEventDto } from '../types';
-import { appendIssuePage, IssueDevelopmentActions, IssueOverview, issueAssigneeOptions, issueParticipants, loadWorkspaceIssueDetail } from './WorkspaceIssuesScreen';
+import { appendIssuePage, IssueDevelopmentActions, keepSelectedIssue, IssueOverview, issueAssigneeOptions, issueParticipants, loadWorkspaceIssueDetail } from './WorkspaceIssuesScreen';
 import { EMPTY_TIMELINE_PAYLOAD as payload } from '../pulls/model';
 
 
@@ -205,5 +205,15 @@ describe('WorkspaceIssuesScreen', () => {
 
     expect(appendIssuePage(first, second).issues.map(value => value.id)).toEqual([7, 8]);
     expect(appendIssuePage(first, { ...second, page: 2 })).toBe(first);
+  });
+
+  it('keeps the issue being read when a reread no longer lists it', () => {
+    const other = { ...issue, id: 8, number: 8 };
+    const current = { repositoryId: 1, repository: { owner: 'owner', repo: 'repo' }, issues: [other, issue], page: 0, pageSize: 50, totalIssues: 2, hasMore: false, syncedAt: '2026-08-21T10:00:00Z' };
+    const fresh = { ...current, issues: [{ ...other, title: 'Renamed' }], totalIssues: 1 };
+
+    expect(keepSelectedIssue(current, fresh, 7).issues.map(value => [value.id, value.title])).toEqual([[8, 'Renamed'], [7, 'Example issue']]);
+    expect(keepSelectedIssue(current, fresh, 8)).toBe(fresh);
+    expect(keepSelectedIssue(current, fresh, null)).toBe(fresh);
   });
 });

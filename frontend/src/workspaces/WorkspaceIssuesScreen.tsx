@@ -73,6 +73,7 @@ const DETAIL_MIN = 680;
 const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 1120;
 const PAGE_SIZE = 50;
+const ISSUES_REREAD_MS = 30_000;
 const HIDDEN_EVENTS = new Set(['comment_deleted', 'mentioned', 'subscribed', 'unsubscribed']);
 
 type IssueDetailBridge = Pick<Bridge, 'fetchWorkspaceIssueDetail' | 'refreshWorkspaceIssueDetail'>;
@@ -135,6 +136,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const loadingMoreRequest = useRef(false);
   const openedInitialIssue = useRef<number | null>(null);
   const routingInitialIssue = useRef<number | null>(null);
+  const live = useRef({ snapshot, selectedId });
+  live.current = { snapshot, selectedId };
 
   const readPreview = useCallback(async (number: number): Promise<Issue & { state: string }> => {
     const [owner, repo] = repository.split('/');
@@ -326,6 +329,29 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     return () => { cancelled = true; };
   }, [apply, workspaceId]);
 
+  // The backend keeps the stored issues current; reread the loaded pages so the open list follows it.
+  useEffect(() => {
+    let cancelled = false;
+    const reread = () => {
+      const loaded = live.current.snapshot;
+      if (document.hidden || loaded === null || loadingMoreRequest.current) return;
+      void Promise.all(Array.from({ length: loaded.page + 1 }, (_, page) => window.bridge.fetchWorkspaceIssues(workspaceId, page, PAGE_SIZE)))
+        .then(pages => {
+          if (cancelled) return;
+          const fresh = pages.reduce(appendIssuePage);
+          setSnapshot(current => current === loaded ? keepSelectedIssue(current, fresh, live.current.selectedId) : current);
+        })
+        .catch(() => {});
+    };
+    const timer = window.setInterval(reread, ISSUES_REREAD_MS);
+    document.addEventListener('visibilitychange', reread);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', reread);
+    };
+  }, [workspaceId]);
+
   useEffect(() => {
     if (initialIssueNumber === null) {
       routingInitialIssue.current = null;
@@ -428,6 +454,16 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       setDetailLoading(false);
     }
   }, [loadDetail, selectedNumber, selectedId, previewIssue?.id]);
+
+  // A reread row that changed on GitHub brings its timeline up to date.
+  const selectedVersion = selected !== null && selected !== previewIssue ? `${selected.id}:${selected.updatedAt}` : null;
+  const seenVersion = useRef(selectedVersion);
+  useEffect(() => {
+    const previous = seenVersion.current;
+    seenVersion.current = selectedVersion;
+    if (selectedVersion === null || previous === null || previous === selectedVersion) return;
+    if (previous.split(':')[0] === selectedVersion.split(':')[0] && selectedNumber !== null) void loadDetail(selectedNumber, true);
+  }, [loadDetail, selectedNumber, selectedVersion]);
 
   const resizeDetail = (event: ReactMouseEvent) => startResize(event, event.currentTarget.parentElement?.getBoundingClientRect().width);
 
@@ -582,6 +618,17 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       {unmarkEpic.dialog}
     </div>
   );
+}
+
+/** A reread replaces the list, but the issue being read stays in its row even after the store dropped it. */
+export function keepSelectedIssue(
+  current: RepositoryIssueSnapshotDto,
+  fresh: RepositoryIssueSnapshotDto,
+  selectedId: number | null,
+): RepositoryIssueSnapshotDto {
+  const index = current.issues.findIndex(issue => issue.id === selectedId);
+  if (index < 0 || fresh.issues.some(issue => issue.id === selectedId)) return fresh;
+  return { ...fresh, issues: [...fresh.issues.slice(0, index), current.issues[index], ...fresh.issues.slice(index)] };
 }
 
 export function appendIssuePage(

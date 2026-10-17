@@ -24,7 +24,7 @@ import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
 import { findingLines } from './contracts';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
-import { askLabel, draftCommentCommit, draftItemFor, findingPill, findingPublication, findingReviewText, messagesFor, shortPath, shortSha } from './model';
+import { askLabel, draftCommentCommit, draftItemFor, findingPill, findingPublication, findingReviewText, messagesFor, queued, shortPath, shortSha } from './model';
 
 export type FindingActions = {
   onRequestFix?: (finding: ReviewFindingDto, instruction: string) => Promise<void>;
@@ -88,6 +88,11 @@ export default function ReviewFindingCard({
   const publication = findingPublication(review, finding);
   const awaitingConfirmation = publication.kind === 'sending' || publication.kind === 'uncertain';
   const messages = messagesFor(review, finding.id);
+  const responding = review.state === 'OPEN' && (review.activeTurn?.state === 'ACCEPTED' || review.activeTurn?.state === 'RUNNING')
+    && messages.some(message => message.author === 'USER' && message.turnId === review.activeTurn?.id && !queued(review, message));
+  const waitingReason = responding ? 'Agent responding'
+    : review.state === 'OPEN' && messages.some(message => message.author === 'USER' && queued(review, message)) ? 'Question queued' : null;
+  const responseBlocked = waitingReason !== null && (composer === 'ask' || composer === 'resolve');
   const item = draftItemFor(review.draft, finding.id);
   const itemCommit = item === null ? null : draftCommentCommit(item, review.findings);
   const reviewText = item === null && finding.path === null && review.draft?.body.includes(finding.body.trim()) ? review.draft.body : null;
@@ -120,7 +125,7 @@ export default function ReviewFindingCard({
   };
   const submit = async () => {
     const body = text.trim();
-    if (busy || (composer === 'post' && awaitingConfirmation)
+    if (busy || responseBlocked || (composer === 'post' && awaitingConfirmation)
       || (body === '' && !(composer === 'resolve' && !remember) && !(composer === 'draft' && reviewText !== null))) return;
     setError(null);
     try {
@@ -148,7 +153,7 @@ export default function ReviewFindingCard({
       suggestion={composer === 'post' ? suggestion : undefined}
       autoFocus
       busy={busy}
-      disabledReason={composer === 'post' && awaitingConfirmation ? 'Wait for delivery confirmation before sending again.' : null}
+      disabledReason={responseBlocked ? waitingReason : composer === 'post' && awaitingConfirmation ? 'Wait for delivery confirmation before sending again.' : null}
       allowEmpty={(composer === 'resolve' && !remember) || (composer === 'draft' && reviewText !== null)}
       extra={composer === 'resolve' && lines !== null && <label className="agr-remember" title="Saves your reason as a rule agents get for this file">
         <input type="checkbox" checked={remember} disabled={busy} onChange={event => setRemember(event.target.checked)} />
@@ -184,10 +189,11 @@ export default function ReviewFindingCard({
             line={{ lineNumber: completeExcerpt ? lines.startLine + index : null, prefix: lines.side === 'LEFT' ? '-' : ' ', text }} />)}
         </div>}
         controls={composer !== 'draft' && <footer className={`lrc__foot${composer === null ? '' : ' is-composing'}`}>
+          {responding && <span className="pr-local-review__progress" role="status"><span className="sr-only">Agent responding</span></span>}
           {editor}
 
           {composer === null && (
-            <button type="button" className="lrc__ask" disabled={busy || review.state === 'CLOSED'}
+            <button type="button" className="lrc__ask" disabled={busy || waitingReason !== null || review.state === 'CLOSED'} title={waitingReason ?? undefined}
               onClick={() => openComposer('ask', '')}>Ask reviewer</button>
           )}
           {composer === null && !withdrawn && <>
@@ -200,7 +206,7 @@ export default function ReviewFindingCard({
               </button>
             )}
             {finding.state === 'OPEN' && (
-              <button type="button" className="lrc__action" disabled={busy}
+              <button type="button" className="lrc__action" disabled={busy || waitingReason !== null} title={waitingReason ?? undefined}
                 onClick={() => openComposer('resolve', '')}>Resolve</button>
             )}
             {publication.kind === 'publishable' && (
@@ -269,7 +275,7 @@ export default function ReviewFindingCard({
                 {finding.stateReason ? ` · “${finding.stateReason}”` : ''}
                 {outgoingBody !== null ? ' · your saved review is unchanged' : ''}
               </span>
-              <button type="button" className="agr-action" disabled={busy}
+              <button type="button" className="agr-action" disabled={busy || waitingReason !== null} title={waitingReason ?? undefined}
                 onClick={() => { void actions.onReopen(finding); }}>Reopen</button>
             </div>
           )}

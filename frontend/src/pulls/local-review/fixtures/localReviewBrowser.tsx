@@ -768,6 +768,93 @@ async function pendingReviewerQuestion(): Promise<void> {
   }
 }
 
+async function pendingFindingResponse(): Promise<void> {
+  for (const projection of ['review', 'changes'] as const) {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const originalBridge = window.bridge;
+    let writes = 0;
+    const noWrite = async () => { writes++; throw new Error('An active discussion must not send or resolve'); };
+    Object.defineProperty(window, 'bridge', { configurable: true, value: {
+      ...originalBridge, askAgentReview: noWrite, resolveAgentReviewFinding: noWrite, reopenAgentReviewFinding: noWrite,
+    } });
+    const finding = { ...reviewFixture().findings[0], path: 'src/Example.java',
+      startLine: 2, endLine: 2, range: 'R2', excerpt: ['new code'] };
+    const other = { ...finding, id: 'finding-2', startLine: 4, endLine: 4, range: 'R4', excerpt: ['context'] };
+    let review = reviewFixture({ findings: [finding, other], messages: [{ ...reviewFixture().messages[0],
+      id: 'finding-question', findingId: finding.id, turnId: 'response-turn', queuedInputId: 'queued-question', body: 'Show me the code',
+    }] });
+    const render = () => flushSync(() => root.render(projection === 'changes'
+      ? <DiffViewer files={[{ filename: finding.path, status: 'modified', additions: 1, deletions: 1,
+          patch: '@@ -1,4 +1,4 @@\n context\n-old code\n+new code\n context\n context' }]}
+        agentReview={{ review, viewer: null, navigation: null, onReviewChange: () => {}, onOpenInReview: () => {} }} />
+      : <>{review.findings.map(value => <ReviewFindingCard key={value.id} review={review} finding={value} projection="review"
+        viewerLogin="me" viewerAvatarUrl={null} actions={{ onAsk: noWrite, onResolve: noWrite, onReopen: noWrite,
+          onAddToReview: noWrite, onPostNow: noWrite, onEditDraft: noWrite, onRemoveFromReview: noWrite }} />)}</>));
+    const setResponse = (state: string | null) => {
+      review = { ...review, queuedInputIds: state === 'QUEUED' ? ['queued-question'] : [],
+        activeTurn: state === null ? null : { id: state === 'QUEUED' ? 'other-turn' : 'response-turn', state: state === 'QUEUED' ? 'RUNNING' : state,
+          startedAt: null, cancellationRequestedAt: null } };
+      render();
+    };
+    try {
+      setResponse('ACCEPTED');
+      const card = host.querySelector<HTMLElement>(`[data-finding-id="${finding.id}"]`);
+      const unrelated = host.querySelector<HTMLElement>(`[data-finding-id="${other.id}"]`);
+      assert(card !== null && unrelated !== null, `Both reviewer findings must render in ${projection}`);
+      if (projection === 'changes') assert(card.closest('tr.is-review-finding') !== null, 'Exercise the actual inline Changes card');
+      for (const state of ['ACCEPTED', 'RUNNING', 'QUEUED']) {
+        setResponse(state);
+        assert(button(card, 'Resolve').disabled && button(card, 'Ask reviewer').disabled
+          && !button(unrelated, 'Resolve').disabled && !button(unrelated, 'Ask reviewer').disabled,
+        'Only the finding with a pending response must block asking and resolving');
+        button(card, 'Resolve').click(); button(card, 'Ask reviewer').click(); await settle();
+        assert(card.querySelector('textarea') === null && writes === 0, 'Blocked controls must not open an editor or perform a mutation');
+        const progress = card.querySelector<HTMLElement>('.pr-local-review__progress');
+        assert((progress !== null) === (state !== 'QUEUED') && unrelated.querySelector('.pr-local-review__progress') === null,
+          'The glow must follow this finding’s active turn, not queued questions or unrelated review work');
+        if (progress !== null) {
+          const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+          const style = getComputedStyle(progress, '::before');
+          const footer = card.querySelector<HTMLElement>('.lrc__foot');
+          assert(style.animationName === (reducedMotion ? 'none' : 'pr-local-review-sweep')
+            && (reducedMotion || style.animationDuration === '3.5s')
+            && progress.clientWidth === footer?.clientWidth && progress.clientHeight === footer?.clientHeight,
+          'Reviewer findings must use the same slow, full-footer glow and reduced-motion behavior');
+        }
+      }
+      for (const state of ['COMPLETED', 'FAILED', 'CANCELLED', null]) {
+        setResponse(state);
+        assert(!button(card, 'Resolve').disabled && !button(card, 'Ask reviewer').disabled && card.querySelector('.pr-local-review__progress') === null,
+          'Ending the response must release the finding controls and remove the glow');
+      }
+      button(card, 'Resolve').click(); await settle();
+      const input = card.querySelector('textarea');
+      assert(input !== null, 'An idle finding must still allow resolution');
+      changeInput(input, 'Keep my resolution reason'); await settle();
+      setResponse('RUNNING');
+      assert(button(card, 'Resolve locally').disabled && !button(card, 'Cancel').disabled && input.value === 'Keep my resolution reason',
+        'An already-open resolution must retain its reason while a response blocks submission');
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+      button(card, 'Resolve locally').click(); await settle();
+      assert(writes === 0, 'Neither keyboard nor button submission may resolve while the reviewer is answering');
+      setResponse(null);
+      assert(!button(card, 'Resolve locally').disabled && input.value === 'Keep my resolution reason', 'Completion must restore the retained resolution');
+      button(card, 'Cancel').click(); await settle();
+      review = { ...review, findings: [{ ...finding, state: 'RESOLVED' }, other] };
+      setResponse('RUNNING');
+      assert(button(card, 'Reopen').disabled, 'Reopening must also wait for the finding’s response');
+      setResponse(null);
+      assert(!button(card, 'Reopen').disabled, 'Reopening must become available when the response ends');
+    }
+    finally {
+      flushSync(() => root.unmount()); host.remove();
+      Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
+    }
+  }
+}
+
 async function editFindingInPlace(): Promise<void> {
   for (const projection of ['review', 'changes'] as const) {
     let review = reviewFixture({ messages: [] });
@@ -937,6 +1024,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['Development learning refreshes and retains source-bound discussions', developmentLearningRefresh],
     ['Review editor reuses diff presentation and preserves private and outgoing behavior', sharedReviewEditor],
     ['Slow reviewer questions clear the editor immediately and restore failed drafts', pendingReviewerQuestion],
+    ['Reviewer responses guard the finding in Summary and the real Changes diff', pendingFindingResponse],
     ['Outgoing finding comments edit in place in Summary and Changes', editFindingInPlace],
     ['Copy retains full private conversations and reports clipboard failures', copyConversations],
   ];

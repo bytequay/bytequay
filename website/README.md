@@ -12,11 +12,11 @@ From the repository root, preview with:
 python3 -m http.server 4173 --bind 127.0.0.1 --directory website/dist
 ```
 
-Open `http://127.0.0.1:4173/`. Check the landing page, Docs index, six topic
+Open `http://127.0.0.1:4173/`. Check the landing page, Docs index, seven topic
 guides, design page, and both Lab pages; also check screenshot switching and
 full-size image links, navigation, topic links, disclosures, and narrow layouts
 after edits. The user guide lives in [`documentation.md`](documentation.md) and
-is presented in the Docs index (`dist/documentation.html`) and six focused
+is presented in the Docs index (`dist/documentation.html`) and seven focused
 `dist/guide-*.html` pages. Keep their instructions consistent with the Markdown
 guide and current app controls. Prefer a short introduction and three or four
 steps per task; leave implementation contracts in source. The Docs index keeps
@@ -37,15 +37,17 @@ publish internal specifications, implementation notes, or unverified release
 claims.
 
 The seven `dist/assets/app-*.jpg` images show development tasks, PR review,
-cherry-pick, Goals, Epics, private review discussions, and link previews using
+cherry-pick, the Assistant, Epics, private review discussions, and link previews using
 the app's actual React components and dark palette. Each is captured at 2880 ×
 1800, rendering a 1440 × 900 workspace at 2× scale. The page offers
-full-resolution views with feature descriptions.
+full-resolution views with feature descriptions. Goals remains an experiment under
+implementation: keep only its status notice, not a showcase or usage guide.
 
 Capture through an isolated browser fixture with sample bridge data, blocked
 external images and connections, and no live provider or backend. Development
 uses `AgentTaskScreen` with WorkBench Changes; review uses `AgentReviewTab`;
-cherry-pick uses its confirmation view; Goals use `GoalPanel`; Epics use
+cherry-pick uses its confirmation view; the Assistant uses `AssistantPanel`
+with anonymous conversation, receipt, and waiting-card fixtures; Epics use
 `WorkspaceIssuesScreen` in its zoom overlay with `openOnWork`, over Workspace
 home. Keep the zoom controls and workspace backdrop visible in Epic captures.
 The focused review-discussion image uses `ReviewThreadCard`,

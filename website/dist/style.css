@@ -328,6 +328,9 @@ p {
   object-fit: cover;
   object-position: top;
 }
+.docs-content > .app-stage {
+  margin: 26px 0 36px;
+}
 .showcase-caption {
   display: flex;
   justify-content: space-between;
@@ -1104,7 +1107,7 @@ details p {
     font-size: 0.75rem;
   }
   .hero h1 {
-    font-size: clamp(2.7rem, 13vw, 3.35rem);
+    font-size: clamp(2.4rem, 12vw, 3.35rem);
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -93,8 +93,9 @@ Click a preview or title to open its guide, or
   </tr>
 </table>
 
-[Goals](https://bytequay.github.io/bytequay/guide-planning.html#goals) are a
-development-only experiment and are hidden in packaged releases.
+The [Goals experiment](https://bytequay.github.io/bytequay/guide-planning.html#goals)
+is still under implementation, is not a supported feature, and is hidden in
+packaged releases.
 
 ## ByteQuay Lab
 

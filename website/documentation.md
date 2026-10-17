@@ -3,6 +3,7 @@
 Set up a workspace, review a change, and build with an agent.
 
 - [Get started](#getting-started)
+- [Use the Assistant](#assistant)
 - [Review pull requests](#pull-requests)
 - [Work with agents](#agent-tasks)
 - [Plan and organize](#issues-and-jira)
@@ -75,34 +76,38 @@ closed at that time, Today is made when you return.
 - **Settings → General → Daily agenda** sets the time and working days, and can
   plan around your calendar's busy times (never event titles).
 
-## Talk to the assistant
+<a id="assistant"></a>
 
-Press **⌘J** on any page to open the Assistant over it; on a web page it first
-goes back to the app. Under its composer, pills group what waits on you:
-**Decision**, **Running**, and **Finished** cards, and **Today**'s agenda. It
-never writes or runs code.
+## Use the Assistant
 
-- Ask about your day, what waits on you, or the page you are on. The **On
-  screen** chip sends that page with your message; remove it with its **×**.
-  Today's conversation shows once you send.
-- **Tab** moves between the pills and **← →** page the cards. Up to three cards
-  show at once; **View all** lists the rest. **Esc** or a click outside closes
-  the Assistant.
-- Approval and question cards keep their task's own buttons. Other notices open
-  their task or clear with **×**. While the Assistant is closed, a new notice
-  shows as a short alert at the bottom right; **Answer** on an approval or
-  question opens the Assistant at that card.
-- To let it act on your words, turn on **Assistant can start tasks** or
-  **Assistant can answer tasks** in **Settings → Agents → Workflow**. It then
-  starts the task you ask for, allows once or denies a command that stays in the
-  sandbox, answers a question, or sends your reply to an idle task.
-- It acts only on your own words, and refuses words your message says not to
-  do, such as "push to main" in "don't push to main".
-- Every action leaves a receipt in the conversation with the exact words it
-  acted on: **Open** goes to its task, and a task it started also offers
-  **Stop**. Commands outside the sandbox, file
-  changes, and **Allow for this task** stay buttons; a refusal points you to
-  them.
+Bring your day and waiting tasks into one conversation. The Assistant uses your
+default Development model; configure a ready provider in **Settings → Agents →
+Models** first.
+
+1. Press **⌘J** to open the Assistant. From a web page, ByteQuay returns to the
+   app first.
+2. Ask what needs attention or about the item you are viewing. **On screen**
+   includes that item as context; remove its **×** to leave it out.
+3. Browse **Decision**, **Running**, **Finished**, or **Today**. Use **← →** to
+   page through cards, or **View all**. Answer approvals and questions on their
+   cards; **Esc** closes the panel.
+
+### Let it act when you ask
+
+In **Settings → Agents → Workflow**, optionally enable **Assistant can start
+tasks** or **Assistant can answer tasks**. Both are off by default.
+
+- **Start tasks:** ask it to start work on an item. The task uses your saved
+  automation settings.
+- **Answer tasks:** send your reply to an idle task or answer a question. For
+  supported command approvals inside the sandbox, allow once or deny; other
+  approvals require the card's buttons.
+- Each action leaves a receipt showing the words it acted on. **Open** takes
+  you to the task; **Stop** cancels the first turn of a task it started.
+
+The Assistant does not edit files or run code itself. Development work happens
+in the tasks it starts. Enable the optional daily agenda in **Settings → General
+→ Daily agenda** to populate **Today**; generating it uses a model session.
 
 <a id="pull-requests"></a>
 
@@ -296,21 +301,11 @@ dependencies.
 
 <a id="goals"></a>
 
-## Explore Goals
+## Goals — experiment under implementation
 
-**Development-only experiment.** Packaged releases hide Goals and automatic
-guidance.
-
-1. Open the floating **Goal** control or press **⌥G**. Describe the outcome in
-   **Guide**.
-2. Review the objective, success definition, and constraints before **Accept
-   goal**.
-3. Review recommendations and follow **Work → Next / Working / Blocked / Done**.
-   Use **Waits on** for dependencies.
-4. Add evidence and choose **Accept result** when the outcome is achieved.
-   Finishing a task alone does not complete the work item.
-
-Use **Pause guidance** to pause suggestions.
+Goals is still under implementation. It is not a supported feature and is hidden
+in packaged releases. Use the [Assistant](#assistant) for daily work and
+[Epics](#epics) to organize larger changes.
 
 <a id="memory-and-specs"></a>
 

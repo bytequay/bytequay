@@ -24,13 +24,13 @@ const views = {
     guide: "guide-agents.html#commits-and-backports",
     alt: "ByteQuay cherry-pick confirmation with five selected commits, destination branch, and conflict prediction.",
   },
-  goals: {
-    source: "assets/app-goals.jpg",
-    title: "Turn an objective into work that matters.",
+  assistant: {
+    source: "assets/app-assistant.jpg",
+    title: "Your day and waiting tasks, one shortcut away.",
     caption:
-      "A development-only experiment: clarify the result you want and track next steps, active work, blockers, and accepted outcomes.",
-    guide: "guide-planning.html#goals",
-    alt: "ByteQuay Goal work board with next steps, working items, blocked work, and completed outcomes.",
+      "Press ⌘J to ask about the work on screen and see what needs you. With task actions enabled, ask the Assistant to start work or pass along your reply.",
+    guide: "guide-assistant.html",
+    alt: "ByteQuay Assistant with on-screen context, a conversation, action receipts, and waiting task cards.",
   },
   epics: {
     source: "assets/app-epic-zoom.jpg",

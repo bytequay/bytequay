@@ -35,6 +35,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -143,7 +144,9 @@ class TestClaudeQuota
         assertThat(process.credentialRead.await(3, TimeUnit.SECONDS)).isTrue();
         assertThat(process.exit.isDone()).isFalse();
         Files.createDirectory(home.resolve(".oauth_refresh.lock"));
-        Files.writeString(credentials, "{\"claudeAiOauth\":{\"refreshToken\":\"fabricated-token\",\"expiresAt\":" + Instant.now().plus(Duration.ofHours(8)).toEpochMilli() + "}}");
+        // The shutdown poller may be reading the file right now; an in-place rewrite would let it see a torn file and give up.
+        Path saved = Files.writeString(home.resolve(".credentials.tmp"), "{\"claudeAiOauth\":{\"refreshToken\":\"fabricated-token\",\"expiresAt\":" + Instant.now().plus(Duration.ofHours(8)).toEpochMilli() + "}}");
+        Files.move(saved, credentials, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         assertThat(ClaudeCredentialRefresh.pending(process, spec(), mapper)).isTrue();
         Files.delete(home.resolve(".oauth_refresh.lock"));
         process.acknowledged.get(3, TimeUnit.SECONDS);

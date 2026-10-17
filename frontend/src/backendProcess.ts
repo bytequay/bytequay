@@ -143,7 +143,7 @@ export function spawnBackend(): void {
     '-XX:ReservedCodeCacheSize=128m',
     '-XX:+ExitOnOutOfMemoryError',
   ];
-  child = spawn(java, [...jvmArgs, '-jar', jar, '--bytequay.experiments.goals=false'], {
+  child = spawn(java, [...jvmArgs, '-jar', jar, '--bytequay.experiments.goals=false', '--bytequay.exit-with-launcher=true'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
     env: {

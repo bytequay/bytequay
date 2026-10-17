@@ -19,9 +19,16 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
+import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.WRITE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @ExtendWith(OutputCaptureExtension.class)
@@ -36,10 +43,30 @@ class TestDataDirectoryLock
     {
         long pid = ProcessHandle.current().pid();
 
-        assertThat(DataDirectoryLock.tryAcquire(directory)).isTrue();
+        assertThat(DataDirectoryLock.acquire(directory, Duration.ZERO)).isTrue();
         assertThat(Files.readString(directory.resolve("backend.lock"))).isEqualTo(Long.toString(pid));
 
-        assertThat(DataDirectoryLock.tryAcquire(directory)).isFalse();
+        assertThat(DataDirectoryLock.acquire(directory, Duration.ofMillis(300))).isFalse();
         assertThat(output.getErr()).contains("pid " + pid).contains(directory.toString());
+    }
+
+    @Test
+    void waitsForABackendThatIsStillShuttingDown()
+            throws Exception
+    {
+        FileChannel previous = FileChannel.open(directory.resolve("backend.lock"), CREATE, READ, WRITE);
+        FileLock lock = previous.lock();
+        Thread.ofVirtual().start(() -> {
+            try {
+                Thread.sleep(500);
+                lock.release();
+                previous.close();
+            }
+            catch (IOException | InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        assertThat(DataDirectoryLock.acquire(directory, Duration.ofSeconds(10))).isTrue();
     }
 }

@@ -23,6 +23,7 @@ import org.springframework.context.annotation.Import;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 
 @SpringBootApplication
 @Import(SqlitePersistenceConfiguration.class)
@@ -33,14 +34,15 @@ public final class ByteQuayApplication
     private ByteQuayApplication() {}
 
     public static void main(String[] args)
-            throws IOException
+            throws IOException, InterruptedException
     {
         // Create the app data directory before Spring Boot initialises SQLite.
         Path home = Path.of(System.getProperty("user.home"), "Library", "Application Support");
         Path dbDir = home.resolve("ByteQuay");
         Files.createDirectories(dbDir);
         log.debug("Database directory ready: {}", dbDir);
-        if (!DataDirectoryLock.tryAcquire(dbDir)) {
+        // The previous backend drains requests for at most spring.lifecycle.timeout-per-shutdown-phase after a quit.
+        if (!DataDirectoryLock.acquire(dbDir, Duration.ofSeconds(20))) {
             System.exit(1);
         }
         SpringApplication.run(ByteQuayApplication.class, args);

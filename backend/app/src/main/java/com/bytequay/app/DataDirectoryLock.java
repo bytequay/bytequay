@@ -19,6 +19,7 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Optional;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -40,6 +41,7 @@ import static java.nio.file.StandardOpenOption.WRITE;
 final class DataDirectoryLock
 {
     private static final String LOCK_FILENAME = "backend.lock";
+    private static final Duration RETRY_INTERVAL = Duration.ofMillis(250);
 
     // The lock lasts only as long as this channel stays open, so the reference has to
     // outlive main(); a local would be collected while the backend is still serving.
@@ -47,16 +49,19 @@ final class DataDirectoryLock
 
     private DataDirectoryLock() {}
 
-    static boolean tryAcquire(Path directory)
-            throws IOException
+    /**
+     * Waits up to {@code wait} for the holder to let go: reopening the app right after quitting it starts this backend while the
+     * previous one is still draining requests.
+     */
+    static boolean acquire(Path directory, Duration wait)
+            throws IOException, InterruptedException
     {
         FileChannel channel = FileChannel.open(directory.resolve(LOCK_FILENAME), CREATE, READ, WRITE);
-        FileLock lock;
-        try {
-            lock = channel.tryLock();
-        }
-        catch (OverlappingFileLockException e) {
-            lock = null;
+        long deadline = System.nanoTime() + wait.toNanos();
+        FileLock lock = tryLock(channel);
+        while (lock == null && System.nanoTime() < deadline) {
+            Thread.sleep(RETRY_INTERVAL);
+            lock = tryLock(channel);
         }
         if (lock == null) {
             String holder = readHolder(channel).orElse("unknown");
@@ -69,6 +74,17 @@ final class DataDirectoryLock
         writeHolder(channel);
         held = channel;
         return true;
+    }
+
+    private static FileLock tryLock(FileChannel channel)
+            throws IOException
+    {
+        try {
+            return channel.tryLock();
+        }
+        catch (OverlappingFileLockException e) {
+            return null;
+        }
     }
 
     private static Optional<String> readHolder(FileChannel channel)

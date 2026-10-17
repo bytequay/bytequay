@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-  <strong>Review is all you need.</strong><br>
-  Let agents build. Understand the change. Merge with confidence.
+  <strong>Don’t lose your understanding.</strong><br>
+  As your agents do more, your confidence should grow.
 </p>
 
 <p align="center">

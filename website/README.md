@@ -6,6 +6,19 @@ screenshots. They need no dependency installation or build step. The logo comes
 from the repository's `assets/logo.svg`; typography uses Google Fonts with
 system fallbacks. No analytics, account system, or application data is embedded.
 
+## Publish with GitHub Pages
+
+The public address is [bytequay.github.io/bytequay](https://bytequay.github.io/bytequay/).
+Enable it once in the repository's **Settings → Pages → Build and deployment**
+by selecting **GitHub Actions** as the source.
+
+The [Deploy website workflow](../.github/workflows/website.yml) publishes
+`website/dist/` when that directory or the workflow changes on `main`. It can
+also run manually from **Actions → Deploy website → Run workflow**. Wait for
+the deployment to succeed before opening the site. No app build is needed.
+
+## Preview and edit
+
 From the repository root, preview with:
 
 ```sh
@@ -18,7 +31,8 @@ full-size image links, navigation, topic links, disclosures, and narrow layouts
 after edits. The user guide lives in [`documentation.md`](documentation.md) and
 is presented in the Docs index (`dist/documentation.html`) and seven focused
 `dist/guide-*.html` pages. Keep their instructions consistent with the Markdown
-guide and current app controls. Prefer a short introduction and three or four
+guide and current app controls. Keep the repository README headline and summary
+aligned with the landing page. Prefer a short introduction and three or four
 steps per task; leave implementation contracts in source. The Docs index keeps
 old topic links working through `doc-links.js`; use direct guide links elsewhere
 on the website. `dist/lab.html` introduces the Lab; `dist/lab-guide.html`

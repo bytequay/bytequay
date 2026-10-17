@@ -142,8 +142,9 @@ export function spawnBackend(): void {
     '-XX:MaxMetaspaceSize=256m',
     '-XX:ReservedCodeCacheSize=128m',
     '-XX:+ExitOnOutOfMemoryError',
+    `-Dbytequay.launcher-pid=${process.pid}`,
   ];
-  child = spawn(java, [...jvmArgs, '-jar', jar, '--bytequay.experiments.goals=false', '--bytequay.exit-with-launcher=true'], {
+  child = spawn(java, [...jvmArgs, '-jar', jar, '--bytequay.experiments.goals=false'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
     env: {

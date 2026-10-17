@@ -61,7 +61,7 @@ describe('backend port discovery', () => {
     backend.spawnBackend();
     expect(mocks.existsSync).toHaveBeenCalledWith('/test/resources/jre/bin/java');
     expect(mocks.spawn).toHaveBeenCalledWith('/test/resources/jre/bin/java',
-      expect.arrayContaining(['-jar', '/test/resources/bytequay-backend.jar', '--bytequay.exit-with-launcher=true']), expect.any(Object));
+      expect.arrayContaining([`-Dbytequay.launcher-pid=${process.pid}`, '-jar', '/test/resources/bytequay-backend.jar']), expect.any(Object));
   });
 
   it('gives the backend the login shell PATH that a Finder launch lacks', async () => {

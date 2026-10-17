@@ -15,33 +15,32 @@ package com.bytequay.app;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.stereotype.Component;
 
 /**
  * Stops a packaged backend when the desktop app that launched it is gone. A Force Quit or crash skips the app's SIGTERM, and a
  * backend left running keeps backend.lock, so every later launch would fail.
  */
-@Component
-@ConditionalOnProperty(name = "bytequay.exit-with-launcher", havingValue = "true")
-class LauncherExitWatch
+final class LauncherExitWatch
 {
     private static final Logger log = LoggerFactory.getLogger(LauncherExitWatch.class);
 
-    @EventListener(ApplicationReadyEvent.class)
-    public void watchLauncher()
+    private LauncherExitWatch() {}
+
+    static void watchLauncher()
     {
-        ProcessHandle.current().parent().ifPresent(launcher -> exitWith(launcher, () -> {
-            log.info("The desktop app (pid {}) exited; stopping the backend", launcher.pid());
+        long launcherPid = Long.getLong("bytequay.launcher-pid", 0);
+        if (launcherPid == 0) {
+            return;
+        }
+        exitWith(launcherPid, () -> {
+            log.info("The desktop app (pid {}) exited; stopping the backend", launcherPid);
             System.exit(0);
-        }));
+        });
     }
 
     // ponytail: the JDK polls a non-child process every few seconds, so the backend can outlive the app by up to ~5s.
-    static void exitWith(ProcessHandle launcher, Runnable exit)
+    static void exitWith(long launcherPid, Runnable exit)
     {
-        launcher.onExit().thenRun(exit);
+        ProcessHandle.of(launcherPid).ifPresentOrElse(launcher -> launcher.onExit().thenRun(exit), exit);
     }
 }

@@ -36,6 +36,7 @@ public final class ByteQuayApplication
     public static void main(String[] args)
             throws IOException, InterruptedException
     {
+        LauncherExitWatch.watchLauncher();
         // Create the app data directory before Spring Boot initialises SQLite.
         Path home = Path.of(System.getProperty("user.home"), "Library", "Application Support");
         Path dbDir = home.resolve("ByteQuay");

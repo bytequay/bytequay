@@ -597,6 +597,8 @@ class TestDefaultProcessSupervisor
         }
         finally {
             assertThat(process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS)).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+            // Tree termination can finish before output delivery and the final marker write.
+            process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
         }
         assertThat(process.observedDescendants()).isEmpty();
     }

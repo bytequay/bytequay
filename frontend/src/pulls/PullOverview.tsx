@@ -1183,7 +1183,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
     <ReviewThreadCard title={<span className={`lrc__title${showCode ? ' is-path' : ''}`} title={showCode ? payload.path ?? undefined : undefined}>{location}</span>}
       resolved={resolved} outdated={payload.outdated}
       badges={pendingReplies.length > 0 && <span className="pull-diff-pending__badge">Pending</span>}
-      code={!resolved && commentedLines.length > 0 && <div className="lrc__code">
+      code={commentedLines.length > 0 && <div className="lrc__code">
         {commentedLines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}
       </div>} controls={controls}>
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}

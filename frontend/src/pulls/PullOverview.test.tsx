@@ -1194,6 +1194,18 @@ describe('PullOverview', () => {
     expect(html).not.toContain('src/Example.java');
   });
 
+  it.each([false, true])('shows the commented code in a timeline thread when resolved is %s', resolved => {
+    const html = renderToStaticMarkup(<ReviewThread pr={pullRequest()}
+      onRefresh={async () => {}} onDetailUpdate={() => {}} activity={{
+        actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-20T09:35:00Z', body: null, githubId: 4,
+        payload: { ...emptyPayload, path: 'src/Example.java', line: 11, originalLine: 11, side: 'RIGHT', resolved,
+          diffHunk: '@@ -10,2 +10,2 @@ class Example\n a\n+b' },
+      }} />);
+
+    expect(html).toContain('<div class="lrc__code">');
+    expect(html).toContain('<code>b</code>');
+  });
+
   it('reads a new-side thread suggestion base from its original hunk lines', () => {
     const diffHunk = '@@ -10,3 +10,4 @@ class Example\n a\n-b\n+c\n+d';
 

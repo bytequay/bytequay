@@ -54,7 +54,8 @@ export async function buildBrowserFixture(fixture: BrowserFixture) {
     await build({
       configFile: false, logLevel: 'silent', define: { 'process.env.NODE_ENV': '"production"' },
       esbuild: { jsx: 'automatic', jsxDev: false },
-      build: { outDir: bundle, emptyOutDir: false, lib: {
+      // Minified dependency names can collide with generated class-field helpers in these single-file bundles.
+      build: { minify: false, outDir: bundle, emptyOutDir: false, lib: {
         entry: resolve(fixture.entry), name: fixture.global, formats: ['iife'], fileName: () => 'renderer.js',
       } },
     });

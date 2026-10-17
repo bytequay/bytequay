@@ -171,6 +171,25 @@ class TestCodexCliDriver
     }
 
     @Test
+    void readOnlySessionInAScratchFolderLaunchesAsControlWork()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
+        Path runtime = worktree.resolve("task-runtime");
+        for (Path sessionWorktree : ImmutableList.of(worktree, Files.createDirectories(runtime.resolve("scratch-worktree")))) {
+            driver.open(new AgentSessionContext(plain.taskId(), sessionWorktree, runtime, runtime.resolve("provider"), plain.permissionPolicy(), plain.sessionReference(),
+                    plain.approvals(), plain.model(), plain.effort(), SessionAccess.READ_ONLY, Optional.empty(), ""), event -> {}).close();
+        }
+
+        // Only a session on a real worktree is held for its task at startup recovery; a scratch folder reaches no task worktree.
+        assertThat(supervisor.serverOwners()).containsExactly(
+                new ProcessOwner(ProcessOwner.Kind.DISCUSSION, "task-1"),
+                new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
+    }
+
+    @Test
     void deepSeekAdvertisesCiAutofix()
     {
         CodexCliDriver driver = CodexCliDriver.deepSeek(

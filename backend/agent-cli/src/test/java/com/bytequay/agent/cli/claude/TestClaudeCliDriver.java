@@ -154,6 +154,24 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void readOnlySessionInAScratchFolderLaunchesAsControlWork()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSessionContext plain = context(Optional.empty(), AgentPermissionPolicy.AUTO);
+        AgentSessionContext scratch = new AgentSessionContext(plain.taskId(), Files.createDirectories(runtimeDirectory().resolve("scratch-worktree")),
+                plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(), plain.sessionReference(), plain.approvals(), plain.model(),
+                plain.effort(), SessionAccess.READ_ONLY, Optional.empty(), "");
+        try (AgentSession session = driver.open(scratch, event -> {})) {
+            assertThat(await(session.start(command("plan the day"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            // It reaches no task worktree, so startup recovery keeps a leftover process as evidence instead of blocking every task.
+            assertThat(supervisor.turns().getLast().spec().owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
+        }
+        driver.close();
+    }
+
+    @Test
     void terminalClaudeReviewResolvesARealSupervisorObservationGapAndResumes()
             throws Exception
     {

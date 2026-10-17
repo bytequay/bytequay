@@ -307,11 +307,12 @@ public final class CodexCliDriver
      * @param workingDirectory directory the process runs in, which is also its sandbox root
      * @return the connection, which the caller must start and close
      */
-    private static ProcessOwner.Kind ownerKind(SessionAccess access)
+    private static ProcessOwner.Kind ownerKind(AgentSessionContext context)
     {
-        return switch (access) {
+        return switch (context.access()) {
             case TEXT_ONLY -> ProcessOwner.Kind.CLI_PROBE;
-            case READ_ONLY -> ProcessOwner.Kind.DISCUSSION;
+            // A scratch folder is no task's worktree, so startup recovery has no task to hold for it.
+            case READ_ONLY -> context.scratchWorktree() ? ProcessOwner.Kind.CLI_PROBE : ProcessOwner.Kind.DISCUSSION;
             case FULL, REVIEW_READ_ONLY -> ProcessOwner.Kind.APP_SERVER;
         };
     }
@@ -323,13 +324,13 @@ public final class CodexCliDriver
 
     private CodexAppServerClient appServerClient(String ownerId, Path workingDirectory, CodexLaunchProfile.ChildProfile childProfile)
     {
-        return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), SessionAccess.FULL,
+        return appServerClient(new ProcessOwner(ProcessOwner.Kind.APP_SERVER, ownerId), workingDirectory, childProfile, Optional.empty(), SessionAccess.FULL,
                 deepSeekSecret.flatMap(Supplier::get), ImmutableList.of(), false, false,
                 Optional.empty(), launchEnvironment()).client();
     }
 
     private ClientLaunch appServerClient(
-            String ownerId,
+            ProcessOwner owner,
             Path workingDirectory,
             CodexLaunchProfile.ChildProfile childProfile,
             Optional<McpRegistration> registration,
@@ -364,7 +365,7 @@ public final class CodexCliDriver
             return new ClientLaunch(new CodexAppServerClient(
                     supervisor,
                     new ProcessSpec(
-                            new ProcessOwner(ownerKind(access), ownerId),
+                            owner,
                             // TEXT_ONLY alone strips the shell and code tools: a read-only session must
                             // keep them to read the checkout at all, and is contained by its sandbox.
                             CodexLaunchProfile.arguments(executable, childProfile, tools, access == SessionAccess.TEXT_ONLY,
@@ -655,7 +656,7 @@ public final class CodexCliDriver
             guardedReviewTools = (dynamicReview || codeQueries.stream().anyMatch(registration -> registration.toolNames().contains(RelatedWorkspaceBridge.TOOL_NAME)))
                     ? codeQueries.map(permissions::guardCodexRootTools) : Optional.empty();
             launch = appServerClient(
-                    context.taskId(),
+                    new ProcessOwner(ownerKind(context), context.taskId()),
                     context.worktree(),
                     childProfile,
                     codeQueries,

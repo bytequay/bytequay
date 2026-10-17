@@ -92,4 +92,10 @@ public record AgentSessionContext(
     {
         return access.restricted();
     }
+
+    /** Whether the worktree is a scratch folder inside the runtime directory rather than a task's checkout. */
+    public boolean scratchWorktree()
+    {
+        return worktree.toAbsolutePath().normalize().startsWith(runtimeDirectory.toAbsolutePath().normalize());
+    }
 }

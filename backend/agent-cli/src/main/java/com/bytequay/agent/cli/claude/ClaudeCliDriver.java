@@ -512,11 +512,12 @@ public final class ClaudeCliDriver
         return argv.build();
     }
 
-    private static ProcessOwner.Kind ownerKind(SessionAccess access)
+    private static ProcessOwner.Kind ownerKind(AgentSessionContext context)
     {
-        return switch (access) {
+        return switch (context.access()) {
             case TEXT_ONLY -> ProcessOwner.Kind.CLI_PROBE;
-            case READ_ONLY -> ProcessOwner.Kind.DISCUSSION;
+            // A scratch folder is no task's worktree, so startup recovery has no task to hold for it.
+            case READ_ONLY -> context.scratchWorktree() ? ProcessOwner.Kind.CLI_PROBE : ProcessOwner.Kind.DISCUSSION;
             case FULL, REVIEW_READ_ONLY -> ProcessOwner.Kind.CLAUDE_TURN;
         };
     }
@@ -897,7 +898,7 @@ public final class ClaudeCliDriver
             streamingInput = steering && !session.context.restricted();
             List<AgentAttachment> attachments = attachments(session.context, command.attachments());
             ProcessSpec spec = processSpec(
-                    new ProcessOwner(ownerKind(session.context.access()), session.context.restricted() && session.context.access() != SessionAccess.REVIEW_READ_ONLY ? session.context.taskId() : command.turnId()),
+                    new ProcessOwner(ownerKind(session.context), session.context.restricted() && session.context.access() != SessionAccess.REVIEW_READ_ONLY ? session.context.taskId() : command.turnId()),
                     argv(
                             session.registration,
                             session.permissionScope,

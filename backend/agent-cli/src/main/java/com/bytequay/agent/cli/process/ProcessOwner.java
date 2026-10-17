@@ -42,7 +42,7 @@ public record ProcessOwner(Kind kind, String id)
         APP_SERVER,
         /** One Claude turn process. */
         CLAUDE_TURN,
-        /** One short-lived provider control command or isolated text-only helper. */
+        /** One short-lived provider control command, or an isolated one-shot session in a scratch folder. */
         CLI_PROBE,
         /**
          * One read-only discussion session, owned by its task. It reaches a real worktree, so

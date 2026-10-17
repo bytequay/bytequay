@@ -544,6 +544,32 @@ class TestAgentStartupRecovery
         assertThat(servingGate.isReady()).isFalse();
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void keepsTheGateClosedForADiscussionOwnerThatNamesNoTask(boolean markerSurvived)
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        // A one-shot session's scratch id parses as a task id, but no task row has it.
+        String scratchId = TaskId.random().toString();
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(markerSurvived
+                ? unverifiableForOwner("one-shot", ProcessOwner.Kind.DISCUSSION, scratchId)
+                : unverifiable("one-shot")));
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+
+        new AgentStartupRecovery(outboxStore, mock(AgentEventService.class), maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(launch("one-shot", LaunchOwnerKind.DISCUSSION, scratchId)), taskStore, turnStore, mock(AgentTurnService.class))
+                .afterSingletonsInstantiated();
+
+        // A discussion reads its task's worktree, so with no live task to hold, every agent operation stays unavailable.
+        assertThat(servingGate.isReady()).isFalse();
+        verify(taskStore, never()).update(any());
+        verify(supervisor, never()).acknowledge("one-shot");
+    }
+
     @Test
     void resolvesAnUnverifiableClaudeTurnToItsDurableTask()
     {

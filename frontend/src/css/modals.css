@@ -100,7 +100,6 @@
   font-size: 13px;
 }
 
-.modal-preview > .modal__progress { margin-top: 14px; }
 .modal__spinner { flex: none; animation: bq-spin 1s linear infinite; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -272,12 +271,22 @@
 
 .modal-preview__actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 16px;
 }
 
-.modal-preview__actions > button:first-child {
+.modal-preview__actions > .modal__progress {
+  min-width: 0;
+  margin-right: auto;
+  justify-content: flex-start;
+  overflow-wrap: anywhere;
+}
+
+.modal-preview__actions > button { flex: none; }
+
+.modal-preview__actions > button:first-of-type {
   padding: 6px 14px;
   border: 1px solid var(--line-default);
   border-radius: 6px;

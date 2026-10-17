@@ -131,6 +131,12 @@ export function WatchRepositoryConfirmation({ preview, topology, ready, adding, 
       </div>}
 
       <div className="modal-preview__actions">
+        {adding && (
+          <div className="modal__progress" role="status">
+            <LoaderCircle size={16} className="modal__spinner" aria-hidden="true" />
+            <span>{preview.forkRequired ? `Creating ${fullName(preview.pushRepository)} and saving your workspace…` : 'Saving your workspace…'}</span>
+          </div>
+        )}
         <button type="button" disabled={adding} onClick={onBack}>Back</button>
         <button
           className="modal-preview__confirm"
@@ -154,12 +160,6 @@ export function WatchRepositoryConfirmation({ preview, topology, ready, adding, 
               : preview.forkRequired ? 'Create fork and watch' : 'Watch repository'}
         </button>
       </div>
-      {adding && (
-        <div className="modal__progress" role="status">
-          <LoaderCircle size={16} className="modal__spinner" aria-hidden="true" />
-          <span>{preview.forkRequired ? `Creating ${fullName(preview.pushRepository)} and saving your workspace…` : 'Saving your workspace…'}</span>
-        </div>
-      )}
     </div>
   );
 }

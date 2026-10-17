@@ -55,8 +55,8 @@ function confirmation(overrides: Partial<WatchRepositoryPreviewDto> = {}, adding
     onBack,
     onOpenWorkspace,
     html: renderToStaticMarkup(view),
-    back: actions.props.children[0],
-    confirm: actions.props.children[1],
+    back: actions.props.children[1],
+    confirm: actions.props.children[2],
   };
 }
 

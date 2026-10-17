@@ -179,8 +179,8 @@ class Watch:
         for gone in self.programs.keys() - seen.keys():
             del self.programs[gone]
         for pid, (_, executable) in seen.items():
-            # A process can turn into another program and keep its pid: dev.sh's copy of itself runs the build and only then
-            # becomes the backend. The executable comes with the parent at no extra cost, so a change is noticed at once.
+            # A process can turn into another program and keep its pid: dev.sh's backend subshell becomes Java after copying
+            # the JAR. The executable comes with the parent at no extra cost, so a change is noticed at once.
             if pid not in self.programs or self.programs[pid][0] != executable:
                 self.programs[pid] = program(pid)
         parents = {pid: parent for pid, (parent, _) in seen.items()}

@@ -57,7 +57,7 @@ class TestParts(unittest.TestCase):
             403: "commands", 404: "commands", 405: "commands", 500: "app", 501: "backend"})
 
     def test_a_process_that_turns_into_another_program_is_read_again(self):
-        # dev.sh starts the backend as a copy of itself that first runs the build, then turns into Java with the same pid.
+        # dev.sh starts the backend as a copy of itself that copies the JAR, then turns into Java with the same pid.
         table = {10: (1, "/bin/sh", ["sh", "dev.sh"]), 11: (10, "/bin/sh", ["sh", "dev.sh"])}
         reads = []
 

@@ -322,8 +322,8 @@ checkout with `.` (a browser test's Electron runs a script of its own), and the
 backend by `bytequay-backend.jar`, and it counts everything they started. A
 process's program and arguments only tell the parts apart and are not kept.
 They are read again whenever a process turns into another program: `dev.sh`
-starts the backend as a copy of itself that runs the build first and only
-then becomes Java, with the same process id. It also counts, read-only from
+starts the backend as a copy of itself that copies the built JAR and then
+becomes Java, with the same process id. It also counts, read-only from
 ByteQuay's database, the turns running, the open tasks and the inputs waiting
 in their queues, with the states the backend itself counts as running and
 waiting (a test reads them from its source).

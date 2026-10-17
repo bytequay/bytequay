@@ -4,8 +4,13 @@ ByteQuay is a macOS desktop app for GitHub work and local coding agents. Its
 purpose is to keep repository context, implementation, review, and delivery in
 one workspace, so people can spend more time understanding and deciding.
 
-“Review is all you need” describes that direction. Agents help investigate and
-implement; the person keeps control of the goal, accepted work, and publication.
+As agents write more code, keeping up with the details and judging the next
+change can become harder. ByteQuay lets agents build and guide while the person
+chooses how deeply to explore. Any part of the work can become a discussion:
+understand the change and its assumptions, then merge with confidence.
+
+“Review is all you need” describes that direction. The person keeps control of
+the goal, accepted work, and publication.
 
 This document describes the product at a high level. [Architecture](architecture.md)
 explains the system boundaries. The [user guide](../website/documentation.md)
@@ -66,7 +71,8 @@ agent task does not by itself prove that the user's goal has been achieved.
 
 ### Keep work local
 
-Application state and working copies live on the Mac. Development tasks use separate local
+All ByteQuay app data is stored locally on the Mac, including conversations,
+reviews, settings, and working copies. Development tasks use separate local
 worktrees so their changes can be inspected independently. A task’s reviewer
 shares that task’s checkout and can inspect uncommitted changes. Its conversation
 and review permissions remain separate, and ending review preserves the checkout. GitHub, model

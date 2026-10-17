@@ -193,7 +193,8 @@ async function pendingThreadResponse(): Promise<void> {
   thread = { ...thread, messages: [...thread.messages, { ...thread.messages[0], id: 'follow-up', deliveryState: 'ACCEPTED' }] };
   const unrelated = { ...initialThread(), id: 'other-thread' };
   let replies = 0;
-  const actions = { onReply: async () => { replies++; }, onResolve: async () => {}, onRetry: async () => {} };
+  let resolutions = 0;
+  const actions = { onReply: async () => { replies++; }, onResolve: async () => { resolutions++; }, onRetry: async () => {} };
   const render = () => flushSync(() => root.render(<>
     <LocalReviewThreadCard thread={thread} {...actions} />
     <LocalReviewThreadCard thread={unrelated} {...actions} />
@@ -210,15 +211,32 @@ async function pendingThreadResponse(): Promise<void> {
     for (const state of ['ACCEPTED', 'RUNNING', 'QUEUED', 'STARTING']) {
       setDelivery(state);
       const reason = state === 'QUEUED' ? 'Your comment is queued. You can reply when the agent finishes.'
-        : 'The agent is working on a response. You can reply when it finishes.';
+        : 'Agent responding';
       const reply = button(card, 'Reply');
-      assert(reply.disabled && reply.title === reason && card.querySelector('[role="status"]')?.textContent === reason,
-        `${state} feedback must explain why another reply is unavailable`);
-      reply.click(); await settle();
-      assert(card.querySelector('textarea') === null && !button(other, 'Reply').disabled && !button(card, 'Resolve').disabled,
-        'Only the waiting discussion must block new replies; resolution remains available');
+      const resolve = button(card, 'Resolve');
+      assert(reply.disabled && reply.title === reason && resolve.disabled && resolve.title === reason
+        && card.querySelector('[role="status"]')?.textContent === reason,
+      `${state} feedback must explain why replying and resolving are unavailable`);
+      const progress = card.querySelector<HTMLElement>('.pr-local-review__progress');
+      if (state === 'QUEUED') assert(progress === null, 'Queued comments must not imply that the agent is already responding');
+      else {
+        assert(progress !== null && card.querySelector('.pr-local-review__note') === null,
+          'A running response must use a light sweep instead of the long status message');
+        const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const footer = card.querySelector<HTMLElement>('.lrc__foot');
+        assert(getComputedStyle(progress, '::before').animationName === (reducedMotion ? 'none' : 'pr-local-review-sweep')
+          && progress.clientWidth === footer?.clientWidth && progress.clientHeight === footer?.clientHeight,
+        'The response indicator must fill the footer background and respect reduced motion');
+      }
+      reply.click(); resolve.click(); await settle();
+      assert(card.querySelector('textarea') === null && resolutions === 0 && !button(other, 'Reply').disabled && !button(other, 'Resolve').disabled,
+        'Only the waiting discussion must block replying and resolving');
     }
     setDelivery('COMPLETED');
+    assert(!button(card, 'Resolve').disabled && card.querySelector('.pr-local-review__progress') === null,
+      'Completion must release resolution and remove the light sweep');
+    button(card, 'Resolve').click(); await settle();
+    assert(Number(resolutions) === 1, 'A completed response must allow resolution again');
     button(card, 'Reply').click(); await settle();
     const input = card.querySelector('textarea');
     assert(input !== null, 'Completion must make replies available again');
@@ -226,7 +244,8 @@ async function pendingThreadResponse(): Promise<void> {
     setDelivery('RUNNING');
     assert(input.disabled && input.value === 'Keep my follow-up draft' && button(card, 'Reply to agent').disabled
       && button(card, 'Better words').disabled && !button(card, 'Cancel').disabled
-      && card.querySelector('[role="status"]')?.textContent?.includes('working on a response') === true,
+      && card.querySelector('.pr-local-review__progress[role="status"]')?.textContent === 'Agent responding'
+      && card.querySelector('.pull-diff-review__status') === null,
     'A discussion becoming active must disable an already-open editor without discarding its draft');
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
     button(card, 'Reply to agent').click(); await settle();
@@ -234,7 +253,7 @@ async function pendingThreadResponse(): Promise<void> {
     for (const state of ['COMPLETED', 'FAILED', 'CANCELLED', 'INTERRUPTED', 'UNSENT', 'PAUSED', 'REMOVED', 'ABANDONED']) {
       setDelivery(state);
       assert(!input.disabled && input.value === 'Keep my follow-up draft' && !button(card, 'Reply to agent').disabled
-        && !card.querySelector('[role="status"]')?.textContent,
+        && !card.querySelector('[role="status"]')?.textContent && card.querySelector('.pr-local-review__progress') === null,
       `${state} feedback must release the editor and retain its draft`);
     }
   }

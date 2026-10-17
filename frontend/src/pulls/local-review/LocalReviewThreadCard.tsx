@@ -36,7 +36,7 @@ export default function LocalReviewThreadCard({ thread, viewer, onReply, onResol
   const working = thread.messages.some(message => message.author === 'USER'
     && (message.deliveryState === 'ACCEPTED' || message.deliveryState === 'RUNNING' || message.deliveryState === 'STARTING'));
   const queued = thread.messages.some(message => message.author === 'USER' && message.deliveryState === 'QUEUED');
-  const waitingReason = working ? 'The agent is working on a response. You can reply when it finishes.'
+  const waitingReason = working ? 'Agent responding'
     : queued ? 'Your comment is queued. You can reply when the agent finishes.' : null;
   const disabledReason = waitingReason ?? (learning !== null && learningDisabledReason !== undefined ? learningDisabledReason : codeDisabledReason);
   const [replying, setReplying] = useReviewDraft(`local:${thread.id}:replying`, false);
@@ -65,10 +65,12 @@ export default function LocalReviewThreadCard({ thread, viewer, onReply, onResol
     if (!body.trim() || disabledReason) return;
     void mutate('reply', () => onReply(thread.id, body.trim()));
   };
+  const progress = working && <span className="pr-local-review__progress" role="status"><span className="sr-only">Agent responding</span></span>;
   const controls = replying ? <footer className="lrc__foot is-composing">
+    {progress}
     <MarkdownEditor value={body} onChange={setBody} ariaLabel="Reply to local review" placeholder="Reply privately to this thread…"
       repository={thread.repo} preview={preview} onPreviewChange={setPreview} textareaRef={textareaRef} isPrivate
-      statusMessage={disabledReason}
+      statusMessage={working ? null : disabledReason}
       error={error} busy={busy || waitingReason !== null} autoFocus onSubmit={reply}
       // Escape must not throw away a half-written reply.
       onCancel={() => { if (!body.trim()) close(); }}>
@@ -79,11 +81,12 @@ export default function LocalReviewThreadCard({ thread, viewer, onReply, onResol
         onClick={reply}>{pending === 'reply' ? 'Replying…' : 'Reply to agent'}</button>
     </MarkdownEditor>
   </footer> : <footer className="lrc__foot">
+    {progress}
     <button className="lrc__ask" type="button" disabled={busy || Boolean(disabledReason)} title={disabledReason ?? undefined}
       onClick={() => { setError(null); setPreview(false); setReplying(true); }}>Reply</button>
     {error && <span className="lrc__error" role="alert">{error}</span>}
-    {disabledReason && <span className="pr-local-review__note" role="status">{disabledReason}</span>}
-    <button className="lrc__action" type="button" disabled={busy}
+    {!working && disabledReason && <span className="pr-local-review__note" role="status">{disabledReason}</span>}
+    <button className="lrc__action" type="button" disabled={busy || waitingReason !== null} title={waitingReason ?? undefined}
       onClick={() => { void mutate('resolve', () => onResolve(thread.id, !thread.resolved)); }}>
       {pending === 'resolve' ? 'Saving…' : thread.resolved ? 'Reopen' : 'Resolve'}
     </button>

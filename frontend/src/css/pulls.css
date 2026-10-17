@@ -1020,6 +1020,14 @@
 .pr-local-review__snapshot { margin: 0; padding: 9px 16px; color: var(--fg-subtle); font-size: 12px; }
 .pr-local-review__snapshot pre { max-height: 180px; overflow: auto; margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; }
 .pr-local-review__note { margin: 0; color: var(--fg-subtle); font-size: 12px; }
+.lrc__foot:has(> .pr-local-review__progress) { position: relative; isolation: isolate; }
+.pr-local-review__progress { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.pr-local-review__progress::before {
+  position: absolute; inset: 0; background: linear-gradient(90deg, transparent 25%, color-mix(in srgb, var(--lrc-icon) 16%, transparent) 50%, transparent 75%);
+  animation: pr-local-review-sweep 3.5s ease-in-out infinite; content: '';
+}
+@keyframes pr-local-review-sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .pr-local-review__progress::before { animation: none; } }
 .pr-local-review__delivery { text-transform: capitalize; font-size: 11px; }
 .pr-local-review__delivery-error { margin: 8px 0 0; color: var(--fg-danger); font-size: 12px; }
 .pr-local-review__retry { margin: 8px 0 0; }

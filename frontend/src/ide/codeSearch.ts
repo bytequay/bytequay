@@ -27,13 +27,13 @@ import { QueryBuilder } from '@codingame/monaco-vscode-api/vscode/vs/workbench/s
 import { resultIsMatch, isFileMatch, type IFileMatch } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/search/common/search';
 import { fileName, isTestFile } from '../pulls/code-tests/codeModel';
 
-export type SearchTab = 'All' | 'Classes' | 'Files' | 'Symbols' | 'Text';
+export type SearchTab = 'All' | 'Files' | 'Text';
 export type SearchRow = {
   id: string; uri: URI; range: IRange; name: string; detail: string;
   kind: 'class' | 'field' | 'symbol' | 'file' | 'text'; symbolKind?: SymbolKind;
   resolve?: (token: CancellationToken) => Promise<{ uri: URI; range: IRange }>;
 };
-export type SearchResults = { rows: SearchRow[]; messages: string[]; limited: boolean };
+export type SearchResults = { rows: SearchRow[]; messages: string[] };
 const limit = 30;
 // All searches the workbench's source languages; Text also searches data and logs.
 const sourcePattern = '**/*.{java,go,rs,js,jsx,ts,tsx,mjs,cjs,mts,cts}';
@@ -84,16 +84,14 @@ export async function searchCode(workspace: URI, query: string, tab: SearchTab, 
     || a.uri.path.localeCompare(b.uri.path) || a.range.startLineNumber - b.range.startLineNumber || a.range.startColumn - b.range.startColumn;
   const rows = new Map<string, SearchRow>();
   const messages = new Set<string>();
-  let limited = false;
   const emit = () => {
     if (parentToken.isCancellationRequested) return;
     const sorted = [...rows.values()].sort(compare);
-    publish({ rows: sorted.slice(0, limit), messages: [...messages], limited: limited || sorted.length > limit });
+    publish({ rows: sorted.slice(0, limit), messages: [...messages] });
   };
   const add = (row: Omit<SearchRow, 'id'>) => {
     if (token.isCancellationRequested || (!model && relativeSearchPath(workspace, row.uri) === undefined)) return;
-    if (tab === 'Classes' && row.kind !== 'class' || tab === 'Files' && row.kind !== 'file'
-      || tab === 'Symbols' && ['file', 'text'].includes(row.kind) || tab === 'Text' && row.kind !== 'text') return;
+    if (tab === 'Files' && row.kind !== 'file' || tab === 'Text' && row.kind !== 'text') return;
     // A source file and its namesake type share one result, upgraded to the type's declaration when available.
     const representsFile = row.kind === 'file' || row.kind === 'class' && row.name === fileName(row.uri.path).replace(/\.[^.]+$/, '');
     const id = representsFile ? `${row.uri}:file` : `${row.uri}:${row.kind}:${row.range.startLineNumber}:${row.kind === 'text' ? row.range.startColumn : row.name}`;
@@ -101,7 +99,6 @@ export async function searchCode(workspace: URI, query: string, tab: SearchTab, 
     if (previous?.kind === 'class' && row.kind === 'file') return;
     rows.set(id, { ...row, detail: previous?.kind === row.kind && previous.detail || row.detail, resolve: previous?.resolve ?? row.resolve, id });
     if (rows.size > limit) {
-      limited = true;
       const last = [...rows.values()].sort(compare).at(-1);
       if (last) rows.delete(last.id);
     }
@@ -109,11 +106,7 @@ export async function searchCode(workspace: URI, query: string, tab: SearchTab, 
   const attempt = async (name: string, work: (token: CancellationToken) => Promise<void>, budget?: number) => {
     if (token.isCancellationRequested) return;
     const task = new CancellationTokenSource(token);
-    const timer = budget === undefined ? undefined : setTimeout(() => {
-      limited = true;
-      messages.add(`${name} are still loading. Showing available matches; refine your query or try again.`);
-      task.cancel();
-    }, budget);
+    const timer = budget === undefined ? undefined : setTimeout(() => task.cancel(), budget);
     try { await raceCancellationError(work(task.token), task.token); }
     catch (error) { if (!task.token.isCancellationRequested) messages.add(`${name}: ${error instanceof Error ? error.message : String(error)}`); }
     finally { clearTimeout(timer); task.dispose(true); }
@@ -121,7 +114,6 @@ export async function searchCode(workspace: URI, query: string, tab: SearchTab, 
   };
   if (model) {
     const matches = model.findMatches(query, false, false, false, null, false, limit + 1);
-    limited = matches.length > limit;
     matches.slice(0, limit).forEach(match => add({ uri: model.uri, range: match.range, kind: 'text', name: model.getLineContent(match.range.startLineNumber).trim(),
       detail: `${fileName(model.uri.path)}:${match.range.startLineNumber}` }));
     emit(); return;
@@ -132,11 +124,7 @@ export async function searchCode(workspace: URI, query: string, tab: SearchTab, 
   if (token.isCancellationRequested) return;
   const source = new CancellationTokenSource(parentToken);
   token = source.token;
-  const timeout = setTimeout(() => {
-    limited = true;
-    messages.add('Search took too long. Showing available matches; refine your query or try again.');
-    source.cancel();
-  }, 5000);
+  const timeout = setTimeout(() => source.cancel(), 5000);
   try {
     const builder = instantiation.createInstance(QueryBuilder);
     const candidates = new Map<string, URI>();
@@ -144,7 +132,6 @@ export async function searchCode(workspace: URI, query: string, tab: SearchTab, 
     const jobs: Promise<void>[] = [];
     if (symbols) {
       const providers = WorkspaceSymbolProviderRegistry.all();
-      if (!providers.length) messages.add('Project symbols are not ready. File and text matches remain available while language tools load.');
       for (const provider of providers) jobs.push(attempt('Symbols', async token => {
         for (const symbol of await provider.provideWorkspaceSymbols(query, token) ?? []) {
           if (token.isCancellationRequested) return;
@@ -156,7 +143,6 @@ export async function searchCode(workspace: URI, query: string, tab: SearchTab, 
     }
     if (tab !== 'Text') jobs.push(attempt('Files', async token => {
       const result = await search.fileSearch(builder.file([workspace], { filePattern: query, maxResults: limit, sortByScore: true }), token);
-      limited ||= !!result.limitHit;
       for (const file of result.results) {
         if (token.isCancellationRequested) return;
         if (relativeSearchPath(workspace, file.resource) === undefined) continue;
@@ -176,7 +162,6 @@ export async function searchCode(workspace: URI, query: string, tab: SearchTab, 
         id: uri.toString(), uri, range: start, kind: 'file' as const, name: fileName(uri.path), detail: relativeSearchPath(workspace, uri) ?? '',
       })).sort(compare);
       const available = outlineLimit - examined.size;
-      limited ||= ranked.length > available;
       const remaining = ranked.slice(0, available).map(row => row.uri);
       await Promise.all(Array.from({ length: Math.min(4, remaining.length) }, async () => {
         while (remaining.length && !token.isCancellationRequested) {
@@ -230,7 +215,6 @@ export async function searchCode(workspace: URI, query: string, tab: SearchTab, 
       const result = await search.textSearch(builder.text({ pattern: query, isRegExp: false, isCaseSensitive: false }, [workspace],
         { maxResults: limit - rows.size, ...(tab === 'Text' ? {} : { includePattern: sourcePattern }), previewOptions: { matchLines: 1, charsPerLine: 500 } }), token,
         item => { if (isFileMatch(item)) collect(item); });
-      limited ||= !!result.limitHit;
       result.messages.forEach(message => messages.add(message.text));
     });
     await enrich();

@@ -28,7 +28,7 @@ import type { ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
 import { searchCode, searchModule, relativeSearchPath, type SearchTab, type SearchRow, type SearchResults } from './codeSearch';
 
 type Request = { id: number; scope: 'project' | 'file'; tab: SearchTab; query: string; editor: ICodeEditor | null; model: ITextModel | null };
-const tabs: SearchTab[] = ['All', 'Classes', 'Files', 'Symbols', 'Text'];
+const tabs: SearchTab[] = ['All', 'Files', 'Text'];
 
 export default function Search({ editors, workspace, files }: { editors: ICodeEditorService; workspace: URI; files: ReviewCodeFilesDto | null }) {
   const [request, setRequest] = useState<Request | null>(null);
@@ -87,7 +87,7 @@ function SearchResultsPopup({ request, workspace, files, onQuery, onClose }: {
   const [scope, setScope] = useState(request.scope);
   const [tab, setTab] = useState(request.tab);
   const [query, setQuery] = useState(request.query);
-  const [results, setResults] = useState<SearchResults>({ rows: [], messages: [], limited: false });
+  const [results, setResults] = useState<SearchResults>({ rows: [], messages: [] });
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState<string | undefined>();
@@ -112,7 +112,7 @@ function SearchResultsPopup({ request, workspace, files, onQuery, onClose }: {
   useEffect(() => {
     const source = new CancellationTokenSource();
     navigation.current?.dispose(true); setOpening(false);
-    setResults({ rows: [], messages: [], limited: false }); setSelected(undefined); setError('');
+    setResults({ rows: [], messages: [] }); setSelected(undefined); setError('');
     if (!query || scope === 'file' && !model) { setLoading(false); return () => source.dispose(true); }
     setLoading(true);
     const timer = setTimeout(() => {
@@ -164,14 +164,11 @@ function SearchResultsPopup({ request, workspace, files, onQuery, onClose }: {
         aria-expanded={true} aria-controls="ide-search-results" aria-activedescendant={row ? `ide-search-row-${index}` : undefined} aria-autocomplete="list"
         placeholder={scope === 'file' ? `Find in ${model ? fileName(model.uri.path) : 'current file'}` : 'Search classes, fields, files, and text'} value={query}
         onChange={event => { setQuery(event.target.value); onQuery(event.target.value); }} /></label>
-      <div className="ide-search-status" role="status">{opening ? 'Opening…' : loading ? 'Searching…' : query ? `${results.rows.length} results` : 'Type to search'}
-        {scope === 'file' && model && <span>{fileName(model.uri.path)}</span>}
-        {results.limited && <span>Showing a limited set of matches. Refine your search.</span>}</div>
       {error && <p role="alert">{error}</p>}
       {results.messages.map(message => <p key={message} role="status">{message}</p>)}
       {scope === 'file' && !model && <p>Open a source file to search within it.</p>}
       {!loading && query && !results.rows.length && !error && !results.messages.length && (scope === 'project' || model) && <p>No matches found.</p>}
-      <div id="ide-search-results" className="ide-search-results" role="listbox" aria-label="Search results" aria-busy={loading}>
+      <div id="ide-search-results" className="ide-search-results" role="listbox" aria-label="Search results" aria-busy={loading || opening}>
         {results.rows.map((row, at) => {
           const path = relativeSearchPath(workspace, row.uri) ?? row.uri.path;
           const test = isTestFile(path);

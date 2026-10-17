@@ -159,7 +159,8 @@ export async function verifySearch() {
     assert(!rows().some(row => row.dataset.kind === 'file' && row.title.endsWith('.java:1')), 'All merges namesake classes and files into one declaration result');
     assert(rows().some(row => row.querySelector('.ide-search-module')?.textContent === 'query-engine'), 'Java results show their Maven module');
     assert(rows().some(row => row.querySelector('.ide-search-module')?.textContent === 'tools') && rows().some(row => row.querySelector('.ide-search-module')?.textContent === 'rust'), 'Go and Rust results show their nearest module');
-    assert(popup()?.textContent?.includes('limited set'), 'Search result limits are explicit');
+    assert([...host.querySelectorAll('nav button')].map(button => button.textContent).join(',') === 'All,Files,Text', 'Classes and symbols are searched directly in All without separate categories');
+    assert(!host.querySelector('.ide-search-status') && !popup()?.textContent?.includes('limited set'), 'Results have no count or partial-result notice above them');
     for (const [name, mode] of [['ByteQuay Darcula', 'dark'], ['ByteQuay IDEA Light', 'light'], ['GitHub Light', 'github'], ['GitHub Dark', 'github-dark']] as const) {
       const dark = mode === 'dark' || mode === 'github-dark';
       const palette = (await theme.getColorThemes()).find(item => item.settingsId === name);
@@ -168,6 +169,18 @@ export async function verifySearch() {
       host.classList.toggle('is-dark', dark); host.style.colorScheme = dark ? 'dark' : 'light'; await settle();
       const testRows = rows().filter(row => row.classList.contains('is-test'));
       assert(testRows.length >= 3 && testRows.every(row => getComputedStyle(row).backgroundColor === (dark ? 'rgb(41, 56, 43)' : 'rgb(231, 242, 218)')), 'Test results are green in both themes');
+      const selectedColor = getComputedStyle(rows()[0]).backgroundColor;
+      assert(rows()[0].getAttribute('aria-selected') === 'true' && selectedColor !== 'rgba(0, 0, 0, 0)' && selectedColor !== getComputedStyle(testRows[0]).backgroundColor,
+        'The selected result has a distinct filled background in both themes');
+      key('ArrowDown'); await settle();
+      const selectedTest = rows()[1];
+      assert(selectedTest.classList.contains('is-test') && selectedTest.getAttribute('aria-selected') === 'true'
+        && getComputedStyle(selectedTest).backgroundColor === selectedColor && input().getAttribute('aria-activedescendant') === selectedTest.id,
+      'Keyboard selection moves the background and accessible cursor onto test results');
+      for (const text of selectedTest.querySelectorAll('.ide-search-kind, .ide-search-name small, .ide-search-name mark, .ide-search-module')) {
+        assert(getComputedStyle(text).color === getComputedStyle(selectedTest).color, 'Selected result details and matches remain readable on its background');
+      }
+      key('ArrowUp'); await settle();
       Object.assign(window, { searchCapture: mode });
       await until(() => (window as unknown as { searchCaptured: string }).searchCaptured === mode, 'Capture the search popup');
     }
@@ -199,7 +212,7 @@ export async function verifySearch() {
     slowSymbols = true; changeInput(input(), 'queryLimit');
     await until(() => releaseSymbols !== undefined, 'A slow symbol request starts');
     await until(() => idle() && rows().some(row => row.dataset.kind === 'field'), 'A stuck workspace provider cannot prevent outline fallback or completion');
-    assert(symbolsCancelled && popup()?.textContent?.includes('still loading'), 'Slow symbols are cancelled with an explicit partial result');
+    assert(symbolsCancelled && !popup()?.textContent?.includes('still loading') && !popup()?.textContent?.includes('Search took too long'), 'Slow symbols are cancelled quietly while available results remain visible');
     changeInput(input(), 'query');
     await until(() => idle() && rows().some(row => row.dataset.kind === 'class'), 'A new search completes before the old symbol provider returns');
     const freshResults = popup()?.textContent;
@@ -213,9 +226,7 @@ export async function verifySearch() {
     await until(() => stalledModel?.isDisposed() === true, 'Cancellation releases the temporary file model before the outline provider returns');
     releaseOutline?.(); await settle();
     assert(!rows().some(row => row.title.includes('Stalled.java')), 'Cancelled outlines cannot publish late results');
-    category('Classes'); await until(() => idle() && rows().length === 2, 'Classes filter contains only types');
-    category('Symbols'); await until(() => idle() && rows().some(row => row.dataset.kind === 'field'), 'Symbols filter includes fields');
-    assert(rows().every(row => !['text', 'file'].includes(row.dataset.kind ?? '')), 'Symbols exclude text and file matches');
+    category('All'); await until(() => idle() && rows().some(row => row.dataset.kind === 'field'), 'All searches symbols directly alongside files and text');
     category('Files'); await until(() => idle() && rows().length === 4, 'Files filter searches filenames');
     category('Text'); await until(() => idle() && rows().length > 0 && rows().every(row => row.dataset.kind === 'text'), 'Text filter has matching lines');
     const target = rows().find(row => row.title.endsWith('TestQueryService.java:2'));

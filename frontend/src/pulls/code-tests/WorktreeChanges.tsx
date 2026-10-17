@@ -17,6 +17,7 @@ import { DiffViewer } from '../PullChanges';
 import { remoteErrorMessage } from '../PullOverview';
 import type { ReviewNavigationTarget } from '../agent-review/AgentReviewTab';
 import type { AgentReviewDto } from '../agent-review/contracts';
+import { findingInResults } from '../agent-review/model';
 import { codeHostKey, type CodeHostRef, type WorktreeChangesDto, type WorktreeChangesRequest } from './contracts';
 import '../../css/workbench-changes.css';
 
@@ -44,7 +45,7 @@ export default function WorktreeChanges({ host, active = true, selection, review
   const selectionToken = selection?.token;
   const selectedHead = selection?.headSha;
   const selectedBase = selection?.baseSha;
-  const finding = review?.findings.find(item => item.id === reviewNavigation?.findingId);
+  const finding = review?.findings.find(item => item.id === reviewNavigation?.findingId && findingInResults(review, item));
   const findingRun = finding === undefined ? undefined : review?.runs.filter(run => run.headSha === finding.validatedHeadSha
     && (run.id === finding.runId || run.steps.some(step => step.validation?.candidates.some(candidate => candidate.outcome === 'SUPPORTED'
       && candidate.findingId === finding.id && candidate.findingRevision === finding.revision))))

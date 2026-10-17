@@ -955,6 +955,8 @@ export type AgentPendingApprovalDto = {
   detail: string;
   approvalKind: string;
   scope: string[];
+  /** Whether the action stays inside the provider's sandbox. */
+  sandboxed: boolean;
   availableDecisions: string[];
   actionable: boolean;
 };

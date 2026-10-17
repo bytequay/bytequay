@@ -132,10 +132,20 @@ describe('the unified review conversation', () => {
     const html = render({ events: [], pendingApprovals: [{
       approvalId: 'approval-outside-page', taskId: 'task-1', turnId: 'turn-1',
       source: events[0].source, occurredAt: '2026-09-06T16:03:10Z', title: 'Run verification',
-      detail: 'npm test', approvalKind: 'COMMAND', scope: [], availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
+      detail: 'npm test', approvalKind: 'COMMAND', scope: [], sandboxed: true, availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
     }] });
     expect(html).toContain('aria-label="Allow once: Run verification"');
     expect(html).toContain('>Waiting for approval</span>');
+  });
+
+  it('marks a pending command that runs outside the sandbox', () => {
+    const pending = (sandboxed: boolean) => render({ events: [], pendingApprovals: [{
+      approvalId: 'approval-outside-sandbox', taskId: 'task-1', turnId: 'turn-1',
+      source: events[0].source, occurredAt: '2026-09-06T16:03:10Z', title: 'Allow Codex command',
+      detail: 'mvn test', approvalKind: 'COMMAND', scope: [], sandboxed, availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
+    }] });
+    expect(pending(false)).toContain('aria-label="Runs outside the sandbox"');
+    expect(pending(true)).not.toContain('Runs outside the sandbox');
   });
 
   it('attributes the generated request without attributing the user’s steer to ByteQuay', () => {

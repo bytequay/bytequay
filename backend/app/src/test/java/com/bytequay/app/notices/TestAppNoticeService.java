@@ -350,7 +350,7 @@ class TestAppNoticeService
     private void approval(AgentTurn turn, ImmutableList<String> scope, String detail)
     {
         var request = new ProviderApprovalRequest(ProviderApprovalRequest.Kind.TOOL, "Permission needed", detail, scope,
-                ImmutableList.of(ProviderApprovalRequest.Decision.ALLOW_ONCE, ProviderApprovalRequest.Decision.DENY), ProviderAgentEventSource.root(), NOW);
+                ImmutableList.of(ProviderApprovalRequest.Decision.ALLOW_ONCE, ProviderApprovalRequest.Decision.DENY), false, ProviderAgentEventSource.root(), NOW);
         when(approvals.listPending()).thenReturn(ImmutableList.of(AgentApproval.pending(new ApprovalRequest(ApprovalId.random(), turn.taskId(), turn.id(), request, NOW))));
     }
 

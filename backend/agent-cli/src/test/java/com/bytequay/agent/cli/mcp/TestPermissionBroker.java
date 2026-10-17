@@ -1423,17 +1423,21 @@ class TestPermissionBroker
         assertThat(permission(broker, token, "FutureTool", "file_path", worktree.resolve("src/Main.java").toString()))
                 .isEqualTo("deny");
         assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.TOOL);
+        assertThat(approval.get().sandboxed()).isFalse();
         assertThat(permission(broker, token, "Write", "file_path", temporaryDirectory.resolve("outside.txt").toString()))
                 .isEqualTo("deny");
         assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.FILE_CHANGE);
+        assertThat(approval.get().sandboxed()).isFalse();
         String chain = "git status && gh pr view 42 && git push origin HEAD";
         assertThat(permission(broker, token, "Bash", "command", chain)).isEqualTo("deny");
         assertThat(approval.get().detail()).contains(chain);
+        assertThat(approval.get().sandboxed()).isTrue();
         ObjectNode retry = objectMapper.createObjectNode()
                 .put("command", "mvn test")
                 .put("dangerouslyDisableSandbox", true);
         assertThat(permission(broker, token, "Bash", retry)).isEqualTo("deny");
         assertThat(approval.get().title()).isEqualTo("Allow Claude unsandboxed command");
+        assertThat(approval.get().sandboxed()).isFalse();
         registration.close();
     }
 

@@ -144,7 +144,7 @@ class TestRunningTaskReader
         show(task, turn.finish(TurnState.CANCELLED, AgentMetrics.empty(), Optional.of("Stopped by user"), NOW));
         assertThat(reader.current()).singleElement().extracting(RunningTask::status).isEqualTo(Status.STOPPED);
         var providerRequest = new ProviderApprovalRequest(ProviderApprovalRequest.Kind.TOOL, "Permission needed", "Run tests", ImmutableList.of("test"),
-                ImmutableList.of(ProviderApprovalRequest.Decision.ALLOW_ONCE, ProviderApprovalRequest.Decision.DENY), ProviderAgentEventSource.root(), NOW);
+                ImmutableList.of(ProviderApprovalRequest.Decision.ALLOW_ONCE, ProviderApprovalRequest.Decision.DENY), false, ProviderAgentEventSource.root(), NOW);
         AgentApproval approval = AgentApproval.pending(new ApprovalRequest(ApprovalId.random(), task.id(), turn.id(), providerRequest, NOW));
         when(approvals.listPending()).thenReturn(ImmutableList.of(approval));
         show(task, turn);

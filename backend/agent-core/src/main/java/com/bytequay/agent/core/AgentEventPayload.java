@@ -176,6 +176,8 @@ public sealed interface AgentEventPayload
             String detail,
             /** What the provider asked to be allowed, so a decision is not made blind. */
             List<String> scope,
+            /** Whether the action stays inside the provider's sandbox; false on events stored before it existed. */
+            boolean sandboxed,
             boolean actionable,
             List<ApprovalOption> availableDecisions)
             implements AgentEventPayload

@@ -924,6 +924,8 @@ public final class PermissionBroker
                 detail,
                 ImmutableList.of(arguments.toolName()),
                 ImmutableList.of(ALLOW_ONCE, DENY),
+                // Claude's sandbox covers only its shell, and that sandbox fails closed rather than running unsandboxed.
+                arguments.toolName().equalsIgnoreCase("Bash") && !unsandboxed,
                 root(),
                 Instant.now());
         ProviderApprovalDecision decision;

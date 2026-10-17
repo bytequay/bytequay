@@ -47,6 +47,7 @@ const block: ApprovalBlock = {
   detail: JSON.stringify(QUESTIONS),
   approvalKind: 'TOOL',
   scope: ['AskUserQuestion'],
+  sandboxed: false,
   agent: 'root agent',
   decisions: ['ALLOW_ONCE', 'DENY'],
   actionable: true,

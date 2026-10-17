@@ -32,6 +32,8 @@ public record ProviderApprovalRequest(
         List<Decision> availableDecisions,
         /** The words a task-wide allow covers; present whenever {@link Decision#ALLOW_FOR_TASK} is offered. */
         Optional<String> taskScope,
+        /** Whether the action stays inside the provider's sandbox. Requests saved before this flag read as false. */
+        boolean sandboxed,
         ProviderAgentEventSource source,
         Instant requestedAt)
 {
@@ -58,10 +60,11 @@ public record ProviderApprovalRequest(
             String detail,
             List<String> requestedPermissions,
             List<Decision> availableDecisions,
+            boolean sandboxed,
             ProviderAgentEventSource source,
             Instant requestedAt)
     {
-        this(kind, title, detail, requestedPermissions, availableDecisions, Optional.empty(), source, requestedAt);
+        this(kind, title, detail, requestedPermissions, availableDecisions, Optional.empty(), sandboxed, source, requestedAt);
     }
 
     public enum Kind

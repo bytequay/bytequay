@@ -2213,6 +2213,8 @@ public final class CodexCliDriver
                     ImmutableList.of(detail),
                     availableDecisions,
                     Optional.empty(),
+                    // On-request approval asks only for what the sandbox would not allow.
+                    false,
                     new ProviderAgentEventSource(
                             Optional.of(serverRequest.threadId()),
                             lineage.parentOf(serverRequest.threadId()),

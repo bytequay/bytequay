@@ -96,6 +96,7 @@ export type ApprovalBlock = {
   detail: string;
   approvalKind: string;
   scope: string[];
+  sandboxed: boolean;
   agent: string;
   decisions: string[];
   actionable: boolean;
@@ -389,6 +390,7 @@ class TurnBuilder {
           detail: event.payload.detail,
           approvalKind: event.payload.approvalKind,
           scope: [...event.payload.scope],
+          sandboxed: event.payload.sandboxed,
           agent: agentName(event.source),
           decisions: [...event.payload.availableDecisions],
           actionable: event.payload.actionable,

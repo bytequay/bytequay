@@ -208,7 +208,7 @@ async function ciApprovalCard(): Promise<{ name: string; error?: string }> {
   const approval: AgentPendingApprovalDto = {
     approvalId: 'ci-approval', taskId: 'ci-task', turnId: 'ci-turn', source: event.source,
     occurredAt: event.occurredAt, title: 'Allow Codex command', detail: 'mvn test', approvalKind: 'COMMAND',
-    scope: ['run: mvn test'], availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
+    scope: ['run: mvn test'], sandboxed: false, availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
   };
   let parentTaskId = 'other-task';
   let ciApprovalReads = 0;

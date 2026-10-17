@@ -35,7 +35,7 @@ const approval: AgentPendingApprovalDto = {
   source: { providerThreadId: 'thread-1', parentProviderThreadId: null, logicalAgentPath: null,
     providerTurnId: 'ci-turn', providerItemId: 'ci-approval', providerEventId: null },
   title: 'Allow Codex command', detail: 'mvn test', approvalKind: 'COMMAND', scope: ['run: mvn test'],
-  availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
+  sandboxed: false, availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
 };
 
 const ciRun: CiAutofixRunDto = {

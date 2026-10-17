@@ -133,6 +133,8 @@ export type AgentEventEnvelope =
     detail: string;
     /** What the provider asked to be allowed. Empty on events stored before this field existed. */
     scope: string[];
+    /** Whether the action stays inside the provider's sandbox. False on events stored before this field existed. */
+    sandboxed: boolean;
     actionable: boolean;
     availableDecisions: Array<typeof APPROVAL_OPTIONS[number]>;
   }>
@@ -330,6 +332,9 @@ function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index
       if (payload.scope === undefined) payload.scope = [];
       arrayValue(payload.scope, 'approvalRequested.scope')
         .forEach((entry, scopeIndex) => stringValue(entry, `approvalRequested.scope[${scopeIndex}]`));
+      // Absent on events stored before approvals said where they run; reading them as outside is the cautious side.
+      if (payload.sandboxed === undefined) payload.sandboxed = false;
+      booleanValue(payload.sandboxed, 'approvalRequested.sandboxed');
       const actionable = booleanValue(payload.actionable, 'approvalRequested.actionable');
       const decisions = arrayValue(payload.availableDecisions, 'approvalRequested.availableDecisions');
       decisions.forEach((decision, decisionIndex) =>

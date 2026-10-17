@@ -359,6 +359,7 @@ class TestCodexCliDriver
                 assertThat(approvals.stream().filter(value -> value.source().providerItemId().equals(Optional.of("patch-scoped"))).toList())
                         .hasSize(attempt + 1)
                         .allSatisfy(value -> assertThat(value.kind()).isEqualTo(ProviderApprovalRequest.Kind.FILE_CHANGE));
+                assertThat(approvals).noneMatch(ProviderApprovalRequest::sandboxed);
                 server.completeTurn();
                 assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
                 reference = Optional.of(session.reference());

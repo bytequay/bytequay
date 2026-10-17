@@ -91,7 +91,7 @@ public final class AgentHttpModels
                     case COMMAND, FILE_CHANGE -> provider.kind().name();
                     case TOOL, OTHER -> "OTHER";
                 },
-                provider.requestedPermissions(), provider.availableDecisions().stream().map(Enum::name).collect(toImmutableList()), true);
+                provider.requestedPermissions(), provider.sandboxed(), provider.availableDecisions().stream().map(Enum::name).collect(toImmutableList()), true);
     }
 
     public static ProviderStatusResponse providerStatus(AgentProviderStatus status)
@@ -144,7 +144,7 @@ public final class AgentHttpModels
 
     public record PendingApprovalResponse(
             String approvalId, String taskId, String turnId, AgentEventSource source, Instant occurredAt,
-            String title, String detail, String approvalKind, List<String> scope, List<String> availableDecisions, boolean actionable) {}
+            String title, String detail, String approvalKind, List<String> scope, boolean sandboxed, List<String> availableDecisions, boolean actionable) {}
 
     public record ProviderStatusResponse(
             String laneId,

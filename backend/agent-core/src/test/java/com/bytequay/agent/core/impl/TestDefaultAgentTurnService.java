@@ -2653,6 +2653,7 @@ class TestDefaultAgentTurnService
                         "git status",
                         ImmutableList.of("command:git status"),
                         ImmutableList.of(DENY),
+                        false,
                         root(),
                         NOW),
                 Duration.ofSeconds(10)))
@@ -2817,6 +2818,7 @@ class TestDefaultAgentTurnService
                 "Run tests",
                 ImmutableList.of("command:run"),
                 ImmutableList.of(ALLOW_ONCE, DENY),
+                false,
                 root(),
                 NOW);
 
@@ -2846,6 +2848,7 @@ class TestDefaultAgentTurnService
                 "Run tests",
                 ImmutableList.of("command:run"),
                 ImmutableList.of(DENY),
+                false,
                 root(),
                 NOW), Duration.ofSeconds(10)))
                 .isInstanceOf(AgentConflictException.class)
@@ -3973,6 +3976,7 @@ class TestDefaultAgentTurnService
                 "git status",
                 ImmutableList.of("command:git status"),
                 ImmutableList.of(DENY),
+                false,
                 root(),
                 NOW);
     }

@@ -394,6 +394,7 @@ describe('projecting rows', () => {
       detail: 'd',
       approvalKind: 'COMMAND',
       scope: ['run: npm test'],
+      sandboxed: true,
       agent: 'root agent',
       decisions: ['ALLOW_ONCE', 'DENY'],
       actionable: true,

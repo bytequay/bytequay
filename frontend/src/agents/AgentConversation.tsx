@@ -16,7 +16,7 @@ import { clock } from '../displayText';
 import type { JiraTaskSource } from '../jira/contracts';
 import { BackportRequestHint } from './BackportRequestHint';
 import { JiraRequestCard } from '../jira/JiraSourceAttachment';
-import { BookMarked,BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Pencil,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,type LucideIcon } from 'lucide-react';
+import { BookMarked,BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,Globe,Hand,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Pencil,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,type LucideIcon } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
 import React,{ useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
@@ -434,7 +434,7 @@ function pendingApprovalBlock(approval: AgentPendingApprovalDto): ApprovalBlock 
   return {
     kind: 'approval', id: approval.approvalId, approvalId: approval.approvalId,
     title: approval.title, detail: approval.detail, approvalKind: approval.approvalKind,
-    scope: approval.scope, agent: approval.source.logicalAgentPath ?? 'agent',
+    scope: approval.scope, sandboxed: approval.sandboxed, agent: approval.source.logicalAgentPath ?? 'agent',
     decisions: approval.availableDecisions, actionable: approval.actionable,
     outcome: null, forTask: false, at: approval.occurredAt,
   };
@@ -551,6 +551,9 @@ function ApprovalView({ block, onDecide }: {
       <div className="agt-appr__head">
         <Glyph icon={ShieldCheck} className="is-warn" />
         <span className="agt-appr__chip">Approval needed</span>
+        {block.approvalKind === 'COMMAND' && !block.sandboxed && (
+          <span className="agt-icon" role="img" aria-label="Runs outside the sandbox" title="Runs outside the sandbox."><Hand /></span>
+        )}
         <span className="agt-appr__title">{block.title}</span>
         <span className="agt-spacer" />
         <span className="agt-mono agt-right">{agentDisplayName(block.agent)}</span>

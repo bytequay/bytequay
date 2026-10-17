@@ -410,6 +410,7 @@ public final class DefaultAgentApprovalService
                         providerRequest.title(),
                         providerRequest.detail(),
                         providerRequest.requestedPermissions(),
+                        providerRequest.sandboxed(),
                         true,
                         availableDecisions(providerRequest)),
                 request.requestedAt());

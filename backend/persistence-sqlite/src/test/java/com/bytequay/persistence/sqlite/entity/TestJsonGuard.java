@@ -57,6 +57,15 @@ class TestJsonGuard
     }
 
     @Test
+    void decodesAnApprovalStoredBeforeSandboxedExistedAsNotSandboxed()
+    {
+        ApprovalRequest request = request(ImmutableList.of(ALLOW_ONCE, DENY), Optional.empty());
+        String json = AGENT.write(request, "approval");
+        assertThat(json).contains(",\"sandboxed\":false");
+        assertThat(AGENT.read(json.replace(",\"sandboxed\":false", ""), ApprovalRequest.class, "approval")).isEqualTo(request);
+    }
+
+    @Test
     void decodesReviewRunsStoredWithLimitations()
     {
         ReviewSummary summary = REVIEW.read("""
@@ -96,6 +105,7 @@ class TestJsonGuard
                         ImmutableList.of("/bin/zsh -lc 'gh issue list --repo t/t'"),
                         decisions,
                         taskScope,
+                        false,
                         new ProviderAgentEventSource(Optional.of("thread-1"), Optional.empty(), Optional.empty(), Optional.of("turn-1"), Optional.of("item-1")),
                         NOW),
                 NOW);

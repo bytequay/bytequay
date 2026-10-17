@@ -227,6 +227,7 @@ class TestSqliteAgentApprovalStore
                         ImmutableList.of("command:" + scope),
                         ImmutableList.of(ALLOW_ONCE, ALLOW_FOR_TASK, DENY),
                         Optional.of(scope),
+                        false,
                         new ProviderAgentEventSource(Optional.of("thread-1"), Optional.empty(), Optional.empty(), Optional.of("turn-1"), Optional.of("item-1")),
                         NOW),
                 NOW));
@@ -244,6 +245,7 @@ class TestSqliteAgentApprovalStore
                         "git status",
                         ImmutableList.of("command:git status"),
                         ImmutableList.of(ALLOW_ONCE, DENY),
+                        false,
                         new ProviderAgentEventSource(Optional.of("thread-1"), Optional.empty(), Optional.empty(), Optional.of("turn-1"), Optional.of("item-1")),
                         requestedAt),
                 requestedAt));
@@ -268,6 +270,7 @@ class TestSqliteAgentApprovalStore
                         "Run command",
                         "git status",
                         ImmutableList.of("run: git status"),
+                        false,
                         true,
                         ImmutableList.of(AgentEventPayload.ApprovalOption.ALLOW_ONCE, AgentEventPayload.ApprovalOption.DENY))),
                 NOW,

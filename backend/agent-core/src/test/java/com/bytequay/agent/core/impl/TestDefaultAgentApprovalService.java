@@ -86,6 +86,7 @@ class TestDefaultAgentApprovalService
                 "git status",
                 ImmutableList.of("command:git status"),
                 ImmutableList.of(ALLOW_ONCE),
+                false,
                 root(),
                 NOW))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -585,6 +586,7 @@ class TestDefaultAgentApprovalService
                         ImmutableList.of("command:git status"),
                         availableDecisions,
                         taskScope,
+                        false,
                         new ProviderAgentEventSource(
                                 Optional.of("provider-thread"),
                                 Optional.empty(),

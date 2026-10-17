@@ -117,6 +117,7 @@ class TestFileTaskLogStore
                         "mvn verify",
                         ImmutableList.of("run: mvn verify"),
                         true,
+                        true,
                         ImmutableList.of(AgentEventPayload.ApprovalOption.ALLOW_ONCE, AgentEventPayload.ApprovalOption.DENY)),
                 new AgentEventPayload.ApprovalResolved("request-1", AgentEventPayload.ApprovalOutcome.ALLOWED, false),
                 new AgentEventPayload.UsageUpdated(AgentEventPayload.UsageSemantics.FINAL_FOR_INVOCATION, 10, 2, 4, Optional.empty()),
@@ -162,6 +163,26 @@ class TestFileTaskLogStore
         Files.writeString(eventsFile, Files.readString(eventsFile).replace("\"name\":\"OpenAI Docs skill\",", ""));
         AgentEventPayload.CommandActivity older = (AgentEventPayload.CommandActivity) store.readAfter(taskId, 0, 10).getFirst().payload();
         assertThat(older.actions().getFirst().name()).isEmpty();
+    }
+
+    @Test
+    void readsApprovalsStoredBeforeTheSandboxFlagAsNotSandboxed()
+            throws IOException
+    {
+        store.append(envelope(1, new AgentEventPayload.ApprovalRequested(
+                "request-1",
+                AgentEventPayload.ApprovalKind.COMMAND,
+                "Allow Claude Bash",
+                "mvn test",
+                ImmutableList.of("Bash"),
+                true,
+                true,
+                ImmutableList.of(AgentEventPayload.ApprovalOption.ALLOW_ONCE, AgentEventPayload.ApprovalOption.DENY))));
+
+        Path eventsFile = resources.require(taskId).eventsFile();
+        Files.writeString(eventsFile, Files.readString(eventsFile).replace("\"sandboxed\":true,", ""));
+        AgentEventPayload.ApprovalRequested older = (AgentEventPayload.ApprovalRequested) store.readAfter(taskId, 0, 10).getFirst().payload();
+        assertThat(older.sandboxed()).isFalse();
     }
 
     @Test

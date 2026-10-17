@@ -65,6 +65,15 @@ describe('agent event contract', () => {
     expect(() => parseAgentEventSequence([{ ...tool, payload: { ...tool.payload, description: 3 } }])).toThrow('tool.description');
   });
 
+  it('reads whether an approval stays in the sandbox, and outside for events stored before it said', () => {
+    const request = { ...fixture.events.find(event => event.type === 'approval_requested'), sequence: 1 };
+    const [older] = parseAgentEventSequence([request]);
+    expect(older.type === 'approval_requested' ? older.payload.sandboxed : undefined).toBe(false);
+    const [inside] = parseAgentEventSequence([{ ...request, payload: { ...request.payload, sandboxed: true } }]);
+    expect(inside.type === 'approval_requested' ? inside.payload.sandboxed : undefined).toBe(true);
+    expect(() => parseAgentEventSequence([{ ...request, payload: { ...request.payload, sandboxed: 'yes' } }])).toThrow('approvalRequested.sandboxed');
+  });
+
   it('accepts invocation-cumulative usage and preserves its counter scope', () => {
     const usage = { ...fixture.events[11], sequence: 1,
       payload: { ...fixture.events[11].payload, semantics: 'CUMULATIVE_FOR_INVOCATION' } };

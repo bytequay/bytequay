@@ -970,6 +970,7 @@ class TestAgentHttpApi
                         "git status",
                         ImmutableList.of("command:git status"),
                         ImmutableList.of(ProviderApprovalRequest.Decision.DENY),
+                        true,
                         new ProviderAgentEventSource(Optional.of("child-thread"), Optional.of("root-thread"), Optional.of("root/child"),
                                 Optional.of("provider-turn"), Optional.of("provider-item")),
                         requestedAt),
@@ -988,6 +989,7 @@ class TestAgentHttpApi
             assertThat(approval.required("source").required("providerThreadId").asText()).isEqualTo("child-thread");
             assertThat(approval.required("title").asText()).isEqualTo("Run command");
             assertThat(approval.required("approvalKind").asText()).isEqualTo("COMMAND");
+            assertThat(approval.required("sandboxed").asBoolean()).isTrue();
             assertThat(approval.required("availableDecisions").get(0).asText()).isEqualTo("DENY");
             assertThat(approval.required("actionable").asBoolean()).isTrue();
             assertThat(get("/agent/tasks/" + otherTaskId + "/pending-approvals?turnId=" + turnId).getStatusCode())

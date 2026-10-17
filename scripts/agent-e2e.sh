@@ -3,15 +3,20 @@
 set -euo pipefail
 
 interactive=false
-minimal_worktree=false
 provider=codex
+github_repository=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --interactive)
             interactive=true
             ;;
-        --minimal-worktree)
-            minimal_worktree=true
+        --repository)
+            shift
+            if [[ $# -eq 0 || ! "$1" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+                echo "--repository requires owner/name" >&2
+                exit 2
+            fi
+            github_repository="$1"
             ;;
         --provider)
             shift
@@ -22,11 +27,11 @@ while [[ $# -gt 0 ]]; do
             provider="$1"
             ;;
         --help)
-            echo "Usage: $0 --interactive [--provider codex|claude] [--minimal-worktree]"
+            echo "Usage: $0 --interactive --repository owner/name [--provider codex|claude]"
             exit 0
             ;;
         *)
-            echo "Usage: $0 --interactive [--provider codex|claude] [--minimal-worktree]" >&2
+            echo "Usage: $0 --interactive --repository owner/name [--provider codex|claude]" >&2
             exit 2
             ;;
     esac
@@ -35,7 +40,11 @@ done
 
 if [[ "$interactive" != true ]]; then
     echo "The deterministic shell mode was removed; pass --interactive with a real provider." >&2
-    echo "Usage: $0 --interactive [--provider codex|claude] [--minimal-worktree]" >&2
+    echo "Usage: $0 --interactive --repository owner/name [--provider codex|claude]" >&2
+    exit 2
+fi
+if [[ -z "$github_repository" ]]; then
+    echo "Pass --repository owner/name: a GitHub repository that a read-only token can clone." >&2
     exit 2
 fi
 
@@ -53,11 +62,9 @@ event_stream_pid=""
 event_stream_open=false
 interactive_started=false
 database="$temporary_directory/e2e.db"
-workspace_id=agent-e2e
-workspace_repository_id=1
+github_token=""
+workspace_id=""
 workspace_root="$temporary_directory/workspaces"
-workspace_directory="$workspace_root/$workspace_id"
-workspace_repository="$workspace_directory/repository"
 
 cleanup()
 {
@@ -88,7 +95,7 @@ collect_diagnostic_secrets()
     local name
     local second
     local value
-    diagnostic_secrets=("$session_token")
+    diagnostic_secrets=("$session_token" "$github_token")
     shopt -s nocasematch
     while IFS= read -r name; do
         case "$name" in
@@ -302,17 +309,20 @@ interactive_session()
     done
 }
 
-for command in curl git java jq mvn sqlite3 uuidgen; do
+for command in curl git java jq mvn uuidgen; do
     command -v "$command" >/dev/null || {
         echo "Missing required command: $command" >&2
         exit 1
     }
 done
-if [[ "$minimal_worktree" == false ]]; then
-    command -v rsync >/dev/null || {
-        echo "Missing required command: rsync" >&2
-        exit 1
-    }
+github_token="${BYTEQUAY_AGENT_E2E_GITHUB_TOKEN:-}"
+if [[ -z "$github_token" ]]; then
+    IFS= read -rs -p "Read-only GitHub token for $github_repository: " github_token || true
+    printf '\n'
+fi
+if [[ -z "$github_token" ]]; then
+    echo "A read-only GitHub token is required." >&2
+    exit 1
 fi
 session_token="bytequay-agent-$(uuidgen | tr '[:upper:]' '[:lower:]')"
 (
@@ -344,30 +354,15 @@ case "$provider" in
         ;;
 esac
 
-mkdir -p "$workspace_repository"
-if [[ "$minimal_worktree" == false ]]; then
-    git -C "$repository_root" ls-files -co --exclude-standard \
-        | rsync -a --files-from=- "$repository_root/" "$workspace_repository/"
-else
-    printf 'agent e2e\n' > "$workspace_repository/README.md"
-fi
-printf '%s\n%s\n' "$workspace_id" "$workspace_repository_id" \
-    > "$workspace_directory/.bytequay-workspace"
-git -C "$workspace_repository" init -q -b main
-git -C "$workspace_repository" config user.name "ByteQuay E2E"
-git -C "$workspace_repository" config user.email "e2e@bytequay.local"
-git -C "$workspace_repository" add .
-git -C "$workspace_repository" commit -q -m "Initial commit"
-git -C "$workspace_repository" remote add origin https://github.com/bytequay/agent-e2e.git
-git -C "$workspace_repository" update-ref refs/remotes/origin/main HEAD
-
 MAVEN_OPTS="${MAVEN_OPTS:+$MAVEN_OPTS }--sun-misc-unsafe-memory-access=allow" \
     mvn -q -f "$backend_root/pom.xml" -pl app -am -DskipTests package
 cp "$backend_root/app/target/bytequay-backend.jar" "$temporary_directory/bytequay-backend.jar"
 
 (
     export BYTEQUAY_DESKTOP_SESSION_TOKEN="$session_token"
-    exec java --enable-native-access=ALL-UNNAMED -jar "$temporary_directory/bytequay-backend.jar" \
+    # A scratch user.home moves the backend lock and credential key away from the installed
+    # app. HOME stays real, so Claude still finds its login in the macOS keychain.
+    exec java --enable-native-access=ALL-UNNAMED -Duser.home="$temporary_directory/home" -jar "$temporary_directory/bytequay-backend.jar" \
         --server.port="$port" \
         --server.shutdown=immediate \
         --spring.datasource.url="jdbc:sqlite:$database?journal_mode=WAL&busy_timeout=30000&foreign_keys=ON" \
@@ -408,53 +403,34 @@ curl -q -fsS --connect-timeout 2 --max-time 10 "$base_url/hello" >/dev/null || {
     exit 1
 }
 
-sqlite3 -cmd '.timeout 30000' "$database" \
-    "INSERT INTO watched_repo_workspaces (
-        display_order,
-        created_at,
-        last_code_sync_at,
-        last_metadata_sync_at,
-        monitored_repository_id,
-        selected_repository_id,
-        updated_at,
-        upstream_repository_id,
-        default_branch,
-        id,
-        local_repository_path,
-        monitored_owner,
-        monitored_repo,
-        name,
-        origin_clone_url,
-        selected_owner,
-        selected_repo,
-        topology,
-        upstream_clone_url,
-        upstream_default_branch,
-        upstream_owner,
-        upstream_repo)
-    VALUES (
-        0,
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP,
-        $workspace_repository_id,
-        $workspace_repository_id,
-        CURRENT_TIMESTAMP,
-        NULL,
-        'main',
-        '$workspace_id',
-        '$workspace_repository',
-        'bytequay',
-        'agent-e2e',
-        'Agent shell E2E',
-        'https://github.com/bytequay/agent-e2e.git',
-        'bytequay',
-        'agent-e2e',
-        'DIRECT',
-        NULL,
-        NULL,
-        NULL,
-        NULL);"
+# Watch the repository the way the app does, as a direct clone that never creates a fork.
+printf '%s' "$github_token" | jq -Rs '{value: .}' \
+    | curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 60 \
+    -H 'Content-Type: application/json' \
+    --data-binary @- \
+    "$base_url/api/auth/github/token" >/dev/null || {
+    echo "GitHub did not accept the token." >&2
+    exit 1
+}
+selected_repository_id="$(curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 60 -G \
+    --data-urlencode "q=$github_repository" \
+    "$base_url/api/repository-search" \
+    | jq -r --arg repository "$github_repository" \
+        '.[] | select((.fullName | ascii_downcase) == ($repository | ascii_downcase)) | .id')"
+if [[ -z "$selected_repository_id" ]]; then
+    echo "The token cannot read $github_repository." >&2
+    exit 1
+fi
+workspace_id="$(jq -n --argjson id "$selected_repository_id" '{selectedRepositoryId: $id, topology: "DIRECT"}' \
+    | curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 60 \
+    -H 'Content-Type: application/json' \
+    --data-binary @- \
+    "$base_url/api/workspaces/watch-preview" \
+    | jq '{selectedRepositoryId, topology, previewFingerprint: .fingerprint, allowForkCreation: false}' \
+    | curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 60 \
+    -H 'Content-Type: application/json' \
+    --data-binary @- \
+    "$base_url/api/workspaces" | jq -er '.id')"
 
 provider_status="$(curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 30 \
     "$base_url/agent/providers/status")"
@@ -501,6 +477,8 @@ while [[ "$first_message" =~ ^[[:space:]]*$ ]]; do
 done
 task_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 create_idempotency_key="agent-e2e-create-$task_id"
+# Automation stays off, so finished turns never push, open a draft pull request, or start a CI
+# fix. A fresh database would turn them on.
 task_request="$(jq -n \
     --arg taskId "$task_id" \
     --arg laneId "$provider" \
@@ -515,11 +493,13 @@ task_request="$(jq -n \
         laneId: $laneId,
         message: $message,
         idempotencyKey: $idempotencyKey,
-        defaults: ({model: $model, permissionPolicy: "AUTO"}
+        defaults: ({model: $model, permissionPolicy: "AUTO",
+                developmentAutomation: {autoDraftPr: false, autoCiFix: false, reviewSummary: false}}
             + if $effort == "" then {} else {effort: $effort} end)
     }')"
+# Creation waits for the first clone and the generated task name.
 created_task_id="$(printf '%s' "$task_request" \
-    | curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 30 \
+    | curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 600 \
     -H 'Content-Type: application/json' \
     --data-binary @- \
     "$base_url/agent/tasks" | jq -er '.id')"

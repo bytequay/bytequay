@@ -45,6 +45,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -54,7 +55,7 @@ public final class AgentStartupRecovery
         implements SmartInitializingSingleton
 {
     private static final Logger log = LoggerFactory.getLogger(AgentStartupRecovery.class);
-    private static final String CODEX_MODEL_CATALOG_OWNER = "codex-model-catalog";
+    private static final Set<String> CONTROL_APP_SERVER_OWNERS = ImmutableSet.of("codex-model-catalog", "codex-usage");
     private static final int OUTBOX_BATCH_SIZE = 100;
 
     private final AgentEventOutboxStore outboxStore;
@@ -222,8 +223,8 @@ public final class AgentStartupRecovery
      * <p>An unverifiable tree that can be attributed to one live task holds that task's worktree
      * mutation claim, so only that task is blocked. One that cannot be attributed blocks every
      * agent operation, because something may still be writing somewhere nobody can name. The only
-     * exception is a launch durably identified as non-worktree control work or the model-catalog
-     * App Server: none receives a task worktree, so its retained receipt cannot represent a stray writer.
+     * exception is a launch durably identified as non-worktree control work or the model-catalog or
+     * usage App Server: none receives a task worktree, so its retained receipt cannot represent a stray writer.
      * An unverifiable launch marker is never acknowledged, so the evidence survives a restart. A
      * control-only launch whose marker is gone is dropped, because nothing is left to verify.
      *
@@ -310,13 +311,13 @@ public final class AgentStartupRecovery
     private static boolean controlOnly(ProcessOwner owner)
     {
         return owner.kind() == ProcessOwner.Kind.CLI_PROBE
-                || owner.kind() == ProcessOwner.Kind.APP_SERVER && owner.id().equals(CODEX_MODEL_CATALOG_OWNER);
+                || owner.kind() == ProcessOwner.Kind.APP_SERVER && CONTROL_APP_SERVER_OWNERS.contains(owner.id());
     }
 
     private static boolean controlOnly(AgentProcessLaunch launch)
     {
         return launch.ownerKind() == LaunchOwnerKind.CLI_PROBE
-                || launch.ownerKind() == LaunchOwnerKind.APP_SERVER && launch.ownerId().equals(CODEX_MODEL_CATALOG_OWNER);
+                || launch.ownerKind() == LaunchOwnerKind.APP_SERVER && CONTROL_APP_SERVER_OWNERS.contains(launch.ownerId());
     }
 
     /**

@@ -334,7 +334,8 @@ class TestAgentStartupRecovery
         when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(
                 unverifiableForOwner("claude-probe", ProcessOwner.Kind.CLI_PROBE, "claude-cli"),
                 unverifiableForOwner("title-helper", ProcessOwner.Kind.CLI_PROBE, "task-title"),
-                unverifiableForOwner("model-catalog", ProcessOwner.Kind.APP_SERVER, "codex-model-catalog")));
+                unverifiableForOwner("model-catalog", ProcessOwner.Kind.APP_SERVER, "codex-model-catalog"),
+                unverifiableForOwner("usage", ProcessOwner.Kind.APP_SERVER, "codex-usage")));
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
@@ -345,6 +346,7 @@ class TestAgentStartupRecovery
         verify(supervisor, never()).acknowledge("claude-probe");
         verify(supervisor, never()).acknowledge("title-helper");
         verify(supervisor, never()).acknowledge("model-catalog");
+        verify(supervisor, never()).acknowledge("usage");
     }
 
     @Test
@@ -357,7 +359,8 @@ class TestAgentStartupRecovery
         AgentServingGate servingGate = new AgentServingGate();
         when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
-        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(unverifiable("claude-probe"), unverifiable("title-helper"), unverifiable("model-catalog")));
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(
+                unverifiable("claude-probe"), unverifiable("title-helper"), unverifiable("model-catalog"), unverifiable("usage")));
 
         new AgentStartupRecovery(
                 outboxStore,
@@ -368,7 +371,8 @@ class TestAgentStartupRecovery
                 launchStore(
                         launch("claude-probe", LaunchOwnerKind.CLI_PROBE, "claude-cli"),
                         launch("title-helper", LaunchOwnerKind.CLI_PROBE, "task-title"),
-                        launch("model-catalog", LaunchOwnerKind.APP_SERVER, "codex-model-catalog")),
+                        launch("model-catalog", LaunchOwnerKind.APP_SERVER, "codex-model-catalog"),
+                        launch("usage", LaunchOwnerKind.APP_SERVER, "codex-usage")),
                 taskStore,
                 turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
@@ -377,6 +381,7 @@ class TestAgentStartupRecovery
         verify(supervisor).acknowledge("claude-probe");
         verify(supervisor).acknowledge("title-helper");
         verify(supervisor).acknowledge("model-catalog");
+        verify(supervisor).acknowledge("usage");
     }
 
     @Test

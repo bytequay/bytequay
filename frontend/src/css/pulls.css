@@ -845,7 +845,9 @@
 .markdown-body th { font-weight: 600; }
 .markdown-body tbody tr:nth-child(even) { background: light-dark(#f6f8fa, var(--dark-subtle)); }
 .markdown-body code,
-.pr-event code { border-radius: 6px; background: light-dark(#eff2f4, var(--dark-subtle)); padding: 2px 5px; font-family: var(--font-mono); font-size: 0.9em; }
+.pr-event code { font-family: var(--font-mono); font-size: 0.9em; }
+.markdown-body :not(pre) > code,
+.pr-event :not(pre) > code { border: 1px solid var(--line-default); border-radius: 4px; background: var(--surface-inset); padding: 1px 5px; box-decoration-break: clone; }
 .md-code-block { overflow: hidden; margin: 14px 0; border: 1px solid light-dark(#e1e7eb, var(--dark-border-muted)); border-radius: 8px; background: light-dark(#f6f8fa, var(--dark-subtle)); }
 .md-code-block > span { display: block; padding: 13px 15px 0; color: var(--fg-subtle); font-size: 0.9em; }
 .markdown-body .md-code-block pre { overflow-x: auto; margin: 0; border: 0; border-radius: 0; background: transparent; padding: 13px 15px; }

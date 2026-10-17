@@ -1683,12 +1683,14 @@
   padding-left: 22px;
 }
 
-.agt-md code {
+.agt-md :not(pre) > code {
   font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
   font-size: 12px;
-  background: light-dark(#f6f8fa, var(--dark-subtle));
+  background: var(--surface-inset);
+  border: 1px solid var(--line-default);
   border-radius: 4px;
   padding: 1px 5px;
+  box-decoration-break: clone;
 }
 
 .agt-md pre {

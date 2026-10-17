@@ -1321,12 +1321,30 @@ export async function runAssignedPrActions(): Promise<string> {
     resolveAssignment?.({ workspaceId: 'workspace', taskId: 'old-selection' });
     await settle();
     assert(route === '', 'A late assignment cannot navigate away from a different PR');
+    for (const kind of ['development', 'review'] as const) {
+      let resolveLookup: ((value: null) => void) | undefined;
+      window.bridge.findPullRequestTask = () => new Promise(resolve => { resolveLookup = resolve; });
+      const previous = kind === 'development' ? assigned : reviewed;
+      render(true, 'workspace', null, `leave-before-${kind}-lookup`);
+      button(kind === 'development' ? 'Development task' : 'Review task').click();
+      route = '#/home';
+      flushSync(() => root.render(<div>Home</div>));
+      resolveLookup?.(null);
+      await settle();
+      assert((kind === 'development' ? assigned : reviewed) === previous + 1,
+        `Leaving the PR during lookup must still create the requested ${kind} task`);
+      if (kind === 'development') resolveAssignment?.({ workspaceId: 'workspace', taskId: 'background-task' });
+      await settle();
+      assert(route === '#/home' && host.textContent === 'Home', 'Background creation must not navigate away from the new page');
+    }
+    const previousReviews = reviewed;
     window.bridge.findPullRequestTask = async () => { throw new Error('Task lookup failed'); };
+    render(true, 'workspace', null, 'lookup-error');
     button('Review task').click();
     await settle();
     assert(host.querySelector('[role="alert"]')?.textContent === 'Task lookup failed' && !button('Review task').disabled,
       'A failed lookup reports the error and allows retry without starting a duplicate');
-    assert(Number(reviewed) === 2, 'Lookup errors must not create reviews');
+    assert(reviewed === previousReviews, 'Lookup errors must not create reviews');
     return 'Open distinct development and review task conversations';
   }
   finally {

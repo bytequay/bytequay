@@ -111,7 +111,9 @@ an agent.
   their results.
 
 On your own PR, **Development task** opens its conversation without sending a
-new prompt.
+new prompt. If none exists, it creates a task and local worktree, then waits
+for your message. Leaving the PR while creation is in progress does not cancel
+it or take you away from your new page when it finishes.
 
 <a id="private-review"></a>
 

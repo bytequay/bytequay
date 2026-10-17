@@ -49,8 +49,8 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
     const current = generation.current;
     try {
       let route: string;
+      // Leaving the PR suppresses navigation, not the task creation requested by the click.
       const link = await window.bridge.findPullRequestTask(workspaceId, repo, number);
-      if (current !== generation.current) return;
       if (kind === 'development') {
         const task = link ?? await window.bridge.assignPullRequestAgent(workspaceId, repo, number);
         route = workspaceAgentTaskRoute(task.workspaceId, task.taskId);
@@ -58,7 +58,6 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
       else {
         // A reviewer started before publication can be linked only to the development task.
         const linkedReview = await findConversationReview(window.bridge, workspaceId, link?.taskId, { repo, number });
-        if (current !== generation.current) return;
         const task = linkedReview ?? review ?? await window.bridge.startAgentReview(workspaceId, repo, number);
         route = workspaceReviewTaskRoute(task.workspaceId, task.id);
       }

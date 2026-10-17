@@ -37,7 +37,7 @@ it('shows merge queue removal details and opens failed jobs', async () => {
   expect(result).toContain('opens exact failed jobs');
 }, 30_000);
 
-it('opens distinct development and review tasks from the same PR without duplicating agents', async () => {
+it('opens distinct development and review tasks and finishes creation after leaving the PR', async () => {
   const result = await fixture.run<string>({
     body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runAssignedPrActions()');",
   });

@@ -67,7 +67,7 @@ public class PullRequestSyncJob
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    @Scheduled(fixedDelay = TICK_MILLIS)
+    @Scheduled(fixedDelay = TICK_MILLIS, scheduler = "repositorySyncScheduler")
     public void tick()
     {
         if (!credentials.isGitHubAccountConfigured()) {

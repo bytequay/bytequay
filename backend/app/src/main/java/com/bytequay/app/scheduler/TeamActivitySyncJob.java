@@ -39,7 +39,7 @@ public class TeamActivitySyncJob
         this.settings = requireNonNull(settings, "settings is null");
     }
 
-    @Scheduled(initialDelayString = "PT2M", fixedDelayString = "PT15M")
+    @Scheduled(initialDelayString = "PT2M", fixedDelayString = "PT15M", scheduler = "repositorySyncScheduler")
     public void tick()
     {
         if (!credentials.isGitHubAccountConfigured() || settings.inQuietHours()) {

@@ -50,7 +50,8 @@ public class IssueSyncJob
 
     @Scheduled(
             initialDelayString = "PT1M",
-            fixedDelayString = "PT30M")
+            fixedDelayString = "PT30M",
+            scheduler = "repositorySyncScheduler")
     public void tick()
     {
         if (!credentials.isGitHubAccountConfigured() || appSettings.inQuietHours()) {

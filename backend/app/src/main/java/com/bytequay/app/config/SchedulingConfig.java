@@ -32,6 +32,14 @@ class SchedulingConfig
         return scheduler;
     }
 
+    @Bean
+    ThreadPoolTaskScheduler repositorySyncScheduler()
+    {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setThreadNamePrefix("repository-sync-");
+        return scheduler;
+    }
+
     /** Slow repository and detail scans must not occupy the notification polling thread. */
     @Bean
     ThreadPoolTaskScheduler attentionScheduler()

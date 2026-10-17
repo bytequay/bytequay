@@ -445,8 +445,7 @@ input.goal-panel__title {
   font-weight: 600;
 }
 
-.goal-empty__text,
-.goal-none {
+.goal-empty__text {
   font-size: 12.5px;
   line-height: 18px;
   color: var(--fg-muted);
@@ -484,14 +483,12 @@ input.goal-panel__title {
 }
 
 .goal-progress > .is-finished,
-.goal-legend .is-finished,
-.goal-column__head .is-finished {
+.goal-legend .is-finished {
   background: light-dark(#1a7f37, #287a43);
 }
 
 .goal-progress > .is-working,
-.goal-legend .is-working,
-.goal-column__head .is-working {
+.goal-legend .is-working {
   background: light-dark(#0969da, #2867b8);
 }
 
@@ -500,8 +497,7 @@ input.goal-panel__title {
 }
 
 .goal-progress > .is-idle,
-.goal-legend .is-idle,
-.goal-column__head .is-idle {
+.goal-legend .is-idle {
   background: light-dark(#d8dee4, var(--dark-hover));
 }
 
@@ -520,8 +516,7 @@ input.goal-panel__title {
   gap: 5px;
 }
 
-.goal-legend i,
-.goal-column__head i {
+.goal-legend i {
   width: 7px;
   height: 7px;
   border-radius: 2px;
@@ -696,17 +691,6 @@ button.goal-tile:hover {
   font-size: 13px;
 }
 
-.goal-search__results {
-  padding: 4px;
-  border-top: 1px solid var(--surface-inset);
-}
-
-.goal-search__none {
-  padding: 8px;
-  font-size: 12.5px;
-  color: var(--fg-dim);
-}
-
 .goal-result {
   display: flex;
   align-items: center;
@@ -752,42 +736,6 @@ button.goal-tile:hover {
 .goal-group__count {
   font-size: 11px;
   color: var(--fg-dim);
-}
-
-.goal-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  margin: 0 -6px;
-  padding: 0 6px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.goal-row:hover {
-  background: light-dark(#f6f8fa, var(--dark-subtle));
-}
-
-.goal-row__title {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.goal-row.is-finished .goal-row__title {
-  color: var(--fg-muted);
-}
-
-.goal-needs {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--fg-orange);
 }
 
 .goal-activity {
@@ -841,65 +789,6 @@ button.goal-tile:hover {
   padding: 14px 16px 16px;
 }
 
-.goal-board__summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 18px;
-  font-size: 12.5px;
-}
-
-.goal-board__progress {
-  flex: 1;
-  min-width: 220px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.goal-board__progress .goal-progress {
-  flex: 1;
-  margin-top: 0;
-}
-
-.goal-board__summary .goal-muted {
-  font-size: 12.5px;
-  white-space: nowrap;
-}
-
-.goal-board__needs {
-  color: var(--fg-orange);
-  white-space: nowrap;
-}
-
-.goal-board__blocked {
-  color: var(--fg-danger);
-  white-space: nowrap;
-}
-
-.goal-board__search {
-  position: relative;
-}
-
-.goal-board__results {
-  position: absolute;
-  top: 38px;
-  right: 0;
-  left: 0;
-  z-index: 4;
-  padding: 4px;
-  border: 1px solid var(--line-default);
-  border-radius: 8px;
-  background: var(--surface-canvas);
-  box-shadow: 0 8px 24px light-dark(rgba(140, 149, 159, 0.25), rgb(0 0 0 / 45%));
-}
-
-.goal-board__done {
-  display: flex;
-  justify-content: flex-end;
-  padding: 4px 6px 2px;
-}
-
 .goal-columns {
   flex: 1;
   min-height: 0;
@@ -919,52 +808,11 @@ button.goal-tile:hover {
   background: light-dark(#f6f8fa, var(--dark-subtle));
 }
 
-.goal-column__head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 2px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  color: light-dark(#656d76, var(--dark-muted));
-}
-
-.goal-column__head i {
-  width: 8px;
-  height: 8px;
-}
-
 /* A board card's layout; the box is a compact .card, and its head fits the remove button it shows on hover. */
 .goal-card {
   gap: 4px;
   padding: 8px 10px;
 }
-
-.goal-card__head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-}
-
-.goal-card__title {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  font-size: 12.5px;
-  line-height: 17px;
-}
-
-.goal-card__sub {
-  font-size: 11.5px;
-  color: var(--fg-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 
 .goal-work-form { display: grid; gap: 12px; }
 .goal-work-form label { display: grid; gap: 5px; }

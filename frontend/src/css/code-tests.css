@@ -148,8 +148,6 @@
 .ct-run__summary.is-running { color: var(--accent); }
 .ct-run__summary.is-neutral { color: var(--fg-muted); }
 .ct-run__meta { overflow: hidden; min-width: 0; margin-left: 8px; color: var(--fg-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.ct-run__refusal { display: flex; flex: none; align-items: center; gap: 10px; border-bottom: 1px solid light-dark(#eed888, var(--dark-amber-border)); background: var(--bg-warning); color: light-dark(#7a5c00, var(--dark-amber)); padding: 6px 10px; font-size: 12px; }
-.ct-run__refusal span { flex: 1; }
 .ct-run__warning { flex: none; border-bottom: 1px solid light-dark(#f3c2bd, var(--dark-red-border)); background: var(--bg-danger); color: light-dark(#8b1c2b, var(--dark-red)); padding: 5px 10px; font-size: 12px; }
 .ct-run__empty { display: flex; min-height: 0; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; font-size: 12.5px; text-align: center; }
 .ct-run__empty p { max-width: 520px; margin: 0; color: var(--fg-muted); font-size: 11.5px; line-height: 1.5; }
@@ -164,9 +162,6 @@
 .ct-run__duration { flex: none; min-width: 38px; color: var(--fg-dim); font-size: 10.5px; text-align: right; }
 .ct-run__row { display: flex; align-items: center; gap: 3px; padding: 1px 9px 1px 22px; }
 .ct-run__row-label { display: flex; min-width: 0; flex: 1; align-items: center; gap: 5px; color: var(--text-1); padding: 1px 0; }
-.ct-run__row-rerun { display: inline-flex; width: 18px; height: 18px; flex: none; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--fg-success); cursor: pointer; padding: 0; }
-.ct-run__row-rerun:hover:not(:disabled) { border-color: var(--fg-success); background: var(--bg-success); }
-.ct-run__row-rerun:disabled { color: var(--fg-dim); cursor: not-allowed; }
 .ct-run__log { min-width: 0; min-height: 60px; flex: 1 1 0; overflow: auto; padding: 7px 11px 10px; }
 .ct-run__note { color: var(--fg-dim); padding-top: 6px; font-size: 11px; }
 .ct-run__details { display: grid; min-height: 0; flex: 1; grid-template-columns: 130px 1fr; align-content: start; overflow: auto; margin: 0; }

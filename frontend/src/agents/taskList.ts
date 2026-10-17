@@ -18,7 +18,7 @@ import { reviewStatus } from '../pulls/agent-review/model';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { laneLabel } from '../settings/model';
 import type { AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, CherryPickExecution, CiAutofixRunDto, ModelProviderDto } from '../types';
-import { changesLabel, taskArchived } from './AgentTasksView';
+import { changesLabel } from './AgentTasksView';
 import { taskCardState, taskLastMessage, taskLinks, type TaskCardState } from './attention';
 
 /** Every kind of work the Tasks page lists, each with its own colour and icon. */
@@ -173,11 +173,6 @@ export function ciFixItem(run: CiAutofixRunDto): TaskListItem {
     progress: null,
     run,
   };
-}
-
-/** Whether an item belongs on the Archived shelf; only agent tasks can be shelved. */
-export function itemArchived(item: TaskListItem): boolean {
-  return item.task !== null && taskArchived(item.task);
 }
 
 const STATE_ORDER: Record<TaskCardState['label'], number> = { 'Needs you': 0, Running: 1, Idle: 2, Failed: 3, Completed: 3, Finished: 3 };

@@ -798,6 +798,15 @@ function DiffFileCard({
       findingInResults(agentReview.review, finding) && finding.path === file.filename && finding.state !== 'WITHDRAWN' && !finding.outdated
         && (findingHeadSha === undefined || finding.validatedHeadSha === findingHeadSha))
     : []);
+  // Lines an open card below them comments on; resolved cards are folded, so their lines stay plain.
+  const commentedRanges = [
+    ...anchoredThreads.filter(({ payload }) => !payload.outdated && !payload.resolved && payload.line !== null)
+      .map(({ payload }) => ({ side: payload.side, start: payload.startLine ?? payload.line, end: payload.line })),
+    ...anchoredLocalThreads.filter(thread => !thread.resolved)
+      .map(thread => ({ side: thread.side, start: thread.startLine ?? thread.line, end: thread.line })),
+    ...fileFindings.filter(finding => finding.state === 'OPEN')
+      .map(finding => ({ side: finding.side, start: finding.startLine ?? finding.endLine, end: finding.endLine })),
+  ];
   const findingActions = useFindingActions({
     review: agentReview?.review ?? PLACEHOLDER_REVIEW,
     onReviewChange: agentReview?.onReviewChange ?? (() => {}),
@@ -955,6 +964,10 @@ function DiffFileCard({
       && navigation.side === rowSide
       && rowLine >= navigation.startLine
       && rowLine <= navigation.endLine;
+    const commented = commentedRanges.some(({ side, start, end }) => {
+      const line = side === 'LEFT' ? oldLine : newLine;
+      return line !== null && start !== null && end !== null && line >= start && line <= end;
+    });
     const rowThreads = anchoredThreads.filter(activity => !activity.payload.outdated
       && activity.payload.line !== null
       && (activity.payload.side === 'LEFT' ? activity.payload.line === oldLine
@@ -986,7 +999,7 @@ function DiffFileCard({
     return (
       <Fragment key={displayRow.key}>
         <tr
-          className={`is-${displayRow.kind}${rowSelected ? ' is-selected' : ''}${inNavigatedRange ? ' is-review-target' : ''}`}
+          className={`is-${displayRow.kind}${rowSelected ? ' is-selected' : ''}${inNavigatedRange ? ' is-review-target' : ''}${commented ? ' is-commented' : ''}`}
           data-diff-row={rowSide === null || rowLine === null ? undefined : `${file.filename}:${rowSide}:${rowLine}`}
           // Moves count too: an enter dropped inside the 3px press slop fires only once, so the row would otherwise stay unselected.
           onMouseEnter={selectingRange ? dragOverRow(oldLine, newLine, row) : undefined}

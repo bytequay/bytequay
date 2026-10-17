@@ -488,8 +488,8 @@
 
 /* the same finding card, mounted at its line in the diff on the review-thread row */
 .pull-diff-code tr.is-review-finding .agr-finding { margin-bottom: 0; }
-.pull-diff-code tr.is-review-target .is-line,
-.pull-diff-code tr.is-review-target .is-source { background: var(--bg-warning); }
+.pull-diff-code tr:is(.is-review-target, .is-commented) .is-line,
+.pull-diff-code tr:is(.is-review-target, .is-commented) .is-source { background: var(--bg-warning); }
 
 @media (max-width: 900px) {
   .agr-summary { padding: 14px 16px 32px; }

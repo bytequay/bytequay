@@ -648,6 +648,12 @@ describe('the same finding in Changes', () => {
     expect(changes(review, null)).not.toContain('is-review-target');
   });
 
+  it('tints the lines an open finding comments on, but not a resolved one', () => {
+    expect(changes(review, null).match(/ is-commented/g) ?? []).toHaveLength(14);
+    const resolved = reviewFixture({ findings: [{ ...review.findings[0], state: 'RESOLVED' }] });
+    expect(changes(resolved, null)).not.toContain('is-commented');
+  });
+
   it('draws nothing of its own when the pull request has no review', () => {
     const html = changes(null);
     expect(html).not.toContain('is-review-finding');

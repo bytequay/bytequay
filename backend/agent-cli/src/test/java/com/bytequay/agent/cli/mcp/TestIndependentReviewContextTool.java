@@ -119,10 +119,18 @@ class TestIndependentReviewContextTool
                 Optional.empty(), SessionAccess.TOOLS_ONLY, Optional.empty(), ImmutableList.of(read, act)).orElseThrow();
                 McpRegistration claude = broker.register("assistant-run", day, directory, directory.resolve("provider"), AgentPermissionPolicy.AUTO,
                         SessionAccess.TOOLS_ONLY, noCards, redactor, Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of(read, act))) {
-            assertThat(codex.toolNames()).containsExactly("assistant_context", "assistant_act", "bytequay_list_tools", "bytequay_get_tool", "bytequay_call_tool");
+            // It calls its two tools by name: no catalog, and no second way to reach assistant_act.
+            assertThat(codex.toolNames()).containsExactly("assistant_context", "assistant_act");
             assertThat(claude.toolNames()).isEqualTo(codex.toolNames());
+            assertThat(codex.instruction()).isEmpty();
+            assertThat(claude.instruction()).isEmpty();
             assertThat(call(broker, codex.token(), "assistant_context", "{\"kind\":\"overview\"}").at("/result/content/0/text").asText()).isEqualTo("today");
             assertThat(call(broker, claude.token(), "assistant_act", "{\"op\":\"reply_to_task\"}").at("/result/content/0/text").asText()).isEqualTo("done");
+            for (String token : ImmutableList.of(codex.token(), claude.token())) {
+                assertThat(call(broker, token, "bytequay_list_tools", "{}").at("/error/message").asText()).isEqualTo("Unknown tool");
+                assertThat(call(broker, token, "bytequay_get_tool", "{\"name\":\"assistant_act\"}").at("/error/message").asText()).isEqualTo("Unknown tool");
+                assertThat(call(broker, token, "bytequay_call_tool", "{\"name\":\"assistant_act\",\"arguments\":{}}").at("/error/message").asText()).isEqualTo("Unknown tool");
+            }
             JsonNode refused = mapper.readTree(call(broker, claude.token(), "permission_prompt", "{\"tool_name\":\"Bash\",\"input\":{\"command\":\"ls\"}}")
                     .at("/result/content/0/text").asText());
             assertThat(refused.path("behavior").asText()).isEqualTo("deny");

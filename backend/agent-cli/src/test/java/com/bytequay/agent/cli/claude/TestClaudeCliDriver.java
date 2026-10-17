@@ -190,7 +190,8 @@ class TestClaudeCliDriver
             assertThat(spec.workingDirectory().toRealPath()).isEqualTo(day.toRealPath());
             assertThat(spec.argv()).contains("--tools=", "--disable-slash-commands").doesNotContain("--no-session-persistence");
             assertThat(spec.argv()).containsSequence("--disallowedTools", "Agent,Task,Skill,Workflow,SendMessage");
-            assertThat(spec.argv().get(spec.argv().indexOf("--allowedTools") + 1).split(",")).contains("mcp__bytequay__assistant_context", "mcp__bytequay__assistant_act");
+            assertThat(spec.argv().get(spec.argv().indexOf("--allowedTools") + 1).split(",")).containsExactly("mcp__bytequay__assistant_context", "mcp__bytequay__assistant_act");
+            assertThat(spec.argv()).noneMatch(argument -> argument.contains("bytequay_list_tools"));
             assertThat(spec.argv()).containsSequence("--session-id", session.reference().providerValue());
             JsonNode settings = objectMapper.readTree(Files.readString(runtimeDirectory().resolve("provider/scratch/sandbox-settings.json")));
             assertThat(settings.at("/permissions/deny").toString()).contains("\"Agent\"", "\"Task\"", "\"Skill\"", "\"Workflow\"", "\"SendMessage\"", "\"WebFetch\"");

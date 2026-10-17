@@ -213,8 +213,9 @@ class TestCodexCliDriver
                 assertThat(argv).containsSequence("--disable", feature);
             }
             assertThat(argv).contains("web_search=\"disabled\"", "approval_policy=\"never\"", "agents.enabled=false");
-            assertThat(argv).anyMatch(argument -> argument.startsWith("mcp_servers.bytequay.tools=") && argument.contains("\"assistant_context\"={approval_mode"));
-            assertThat(argv).anyMatch(argument -> argument.startsWith("mcp_servers.bytequay.tools=") && argument.contains("\"assistant_act\"={approval_mode"));
+            assertThat(argv).filteredOn(argument -> argument.startsWith("mcp_servers.bytequay.tools="))
+                    .containsExactly("mcp_servers.bytequay.tools={\"assistant_context\"={approval_mode=\"approve\"},\"assistant_act\"={approval_mode=\"approve\"}}");
+            assertThat(argv).noneMatch(argument -> argument.contains("bytequay_list_tools"));
             JsonNode thread = supervisor.server().threadRequests().getFirst();
             assertThat(thread.path("ephemeral").asBoolean()).isFalse();
             assertThat(thread.path("sandbox").asText()).isEqualTo("read-only");

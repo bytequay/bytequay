@@ -422,7 +422,7 @@ public final class PermissionBroker
     private static Optional<String> managedInstruction(PermissionContext context)
     {
         String joined = Stream.of(
-                        tools(context).stream().anyMatch(tool -> !tool.name().equals("permission_prompt"))
+                        discovery(context) && tools(context).stream().anyMatch(tool -> !tool.name().equals("permission_prompt"))
                                 ? Optional.of(TOOL_DISCOVERY_INSTRUCTION) : Optional.<String>empty(),
                         context.review().map(ReviewBridge::instruction),
                         context.codeQueries().map(CodeQueryBridge::instruction),
@@ -494,8 +494,8 @@ public final class PermissionBroker
     {
         ToolCallParams params = objectMapper.treeToValue(request.params(), ToolCallParams.class);
         return switch (params.name()) {
-            case LIST_TOOLS, GET_TOOL -> describeTools(request.id(), params, context);
-            case CALL_TOOL -> callDiscoveredTool(request.id(), params.arguments(), context);
+            case LIST_TOOLS, GET_TOOL -> discovery(context) ? describeTools(request.id(), params, context) : error(request.id(), -32602, "Unknown tool");
+            case CALL_TOOL -> discovery(context) ? callDiscoveredTool(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
             case "permission_prompt" -> context.permissionTools() ? permission(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeQueryBridge.TOOL_NAME -> codeQueriesExplore(request.id(), params.arguments(), context);
@@ -1158,10 +1158,16 @@ public final class PermissionBroker
         }
     }
 
+    /** A tools-only session calls its few tools by name: the catalog would add two calls to each and a second way to reach them. */
+    private static boolean discovery(PermissionContext context)
+    {
+        return context.scope().access() != SessionAccess.TOOLS_ONLY;
+    }
+
     private static List<ToolDefinition> exposedTools(PermissionContext context)
     {
         List<ToolDefinition> available = tools(context);
-        if (available.stream().noneMatch(tool -> !tool.name().equals("permission_prompt"))) {
+        if (!discovery(context) || available.stream().noneMatch(tool -> !tool.name().equals("permission_prompt"))) {
             return available;
         }
         return ImmutableList.<ToolDefinition>builder().addAll(available)

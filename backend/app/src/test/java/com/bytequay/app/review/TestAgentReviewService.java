@@ -2016,8 +2016,9 @@ class TestAgentReviewService
         verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
     }
 
-    @Test
-    void changedFindingRevisionCannotReuseAnEarlierValidation()
+    @ParameterizedTest
+    @ValueSource(strings = {"revision", "withdrawn", "outdated", "head"})
+    void changedFindingCannotReuseAnEarlierValidation(String change)
     {
         Fixture fixture = new Fixture();
         ReviewRun validating = beginCandidateValidation(fixture);
@@ -2027,7 +2028,13 @@ class TestAgentReviewService
         ReviewValidation report = new ReviewValidation(1, ImmutableList.of(candidate), coverage(), ImmutableList.of(),
                 candidate.findingId().stream().collect(toImmutableList()), "Select the supported defect", ImmutableList.of());
         fixture.store.updateRun(validating.replaceCurrentStep(validating.currentStep().orElseThrow().withValidation(report), NOW).withCoverage(coverage(), NOW));
-        fixture.store.updateFinding(finding.revised("Different claim", "Different behavior", Optional.empty(), finding.anchor(), ImmutableList.of(), validating.headSha(), NOW));
+        fixture.store.updateFinding(switch (change) {
+            case "revision" -> finding.revised("Different claim", "Different behavior", Optional.empty(), finding.anchor(), ImmutableList.of(), validating.headSha(), NOW);
+            case "withdrawn" -> finding.withState(ReviewFinding.State.WITHDRAWN, Optional.of("The caller handles this case"), NOW);
+            case "outdated" -> finding.pendingReassessment(NOW);
+            case "head" -> finding.carried(finding.anchor(), NEW_HEAD, NOW);
+            default -> throw new IllegalArgumentException("Unknown finding change: " + change);
+        });
         settleCurrentTurn(fixture, validating);
 
         fixture.service.reconcile(validating.reviewId());

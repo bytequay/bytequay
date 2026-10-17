@@ -1024,6 +1024,9 @@ class TestReviewTools
         advance(VALIDATE);
         JsonNode saved = call("review_save_finding", finding("finding", "Unchecked input", "A2", ImmutableList.of(evidence("E1"), evidence(ref))));
         assertThat(saved.path("status").asText()).isEqualTo("accepted");
+        JsonNode uncited = call("review_finish", finish("missing-evidence", ImmutableList.of(supported(1, saved.path("findingId").asText(), 1))));
+        assertThat(uncited.at("/error/field").asText()).isEqualTo("evidenceRefs");
+        assertThat(uncited.at("/error/message").asText()).isEqualTo("assess all evidence cited by the supported finding");
         Map<String, Object> verdict = new LinkedHashMap<>(supported(1, saved.path("findingId").asText(), 1));
         verdict.put("evidenceRefs", refs);
         assertThat(call("review_finish", finish("finish", ImmutableList.of(verdict))).path("status").asText()).isEqualTo("accepted");
@@ -2642,7 +2645,9 @@ class TestReviewTools
                 .putAll(finding("revised", "Reachable unchecked input", "A2", ImmutableList.of(evidence("E1"))))
                 .put("findingId", findingId).put("expectedRevision", 1).buildOrThrow();
         assertThat(call("review_save_finding", revision).path("revision").asInt()).isEqualTo(2);
-        assertThat(call("review_finish", finish("stale-finding", ImmutableList.of(supported(1, findingId, 1)))).at("/error/field").asText()).isEqualTo("findingRevision");
+        JsonNode staleFinding = call("review_finish", finish("stale-finding", ImmutableList.of(supported(1, findingId, 1))));
+        assertThat(staleFinding.at("/error/field").asText()).isEqualTo("findingRevision");
+        assertThat(staleFinding.at("/error/message").asText()).isEqualTo("reassess the current finding revision 2");
         assertThat(call("review_finish", finish("current", ImmutableList.of(supported(1, findingId, 2)))).path("status").asText()).isEqualTo("accepted");
     }
 

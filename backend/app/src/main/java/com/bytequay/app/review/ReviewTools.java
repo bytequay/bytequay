@@ -1232,17 +1232,15 @@ public class ReviewTools
                 throw new ReviewInvalidRequestException("findingId: a carried hypothesis must assess its original finding");
             }
             findingId.ifPresent(id -> {
-                ReviewFinding finding = store.findFinding(id).filter(value -> value.reviewId().equals(call.review().id()))
-                        .orElseThrow(() -> new ReviewInvalidRequestException("findingId: must belong to this review"));
-                if (finding.state() == ReviewFinding.State.WITHDRAWN || finding.outdated() || !finding.validatedHeadSha().equals(call.run().sourceRevision())) {
-                    throw new ReviewInvalidRequestException("findingId: supported findings must be current and not withdrawn");
-                }
-                if (findingRevision.orElseThrow() != finding.revision()) {
-                    throw new ReviewConflictException("findingRevision: reassess the current finding revision " + finding.revision());
-                }
-                if (!refs.containsAll(finding.evidence().stream().map(ReviewEvidence::ref).collect(toImmutableList()))) {
-                    throw new ReviewInvalidRequestException("evidenceRefs: assess all evidence cited by the supported finding");
-                }
+                Optional<ReviewFinding> finding = store.findFinding(id);
+                ReviewValidationPolicy.findingProblem(call.run(), finding, findingRevision, refs).ifPresent(problem -> {
+                    throw switch (problem) {
+                        case MISSING_OR_FOREIGN -> new ReviewInvalidRequestException("findingId: must belong to this review");
+                        case NOT_CURRENT -> new ReviewInvalidRequestException("findingId: supported findings must be current and not withdrawn");
+                        case CHANGED_REVISION -> new ReviewConflictException("findingRevision: reassess the current finding revision " + finding.orElseThrow().revision());
+                        case MISSING_EVIDENCE -> new ReviewInvalidRequestException("evidenceRefs: assess all evidence cited by the supported finding");
+                    };
+                });
                 retained.add(id);
             });
             Optional<ReviewEvidenceRequest> request = Optional.empty();
@@ -1271,7 +1269,7 @@ public class ReviewTools
         for (String id : selected) {
             ReviewFinding finding = store.findFinding(id).filter(value -> value.reviewId().equals(call.review().id()))
                     .orElseThrow(() -> new ReviewInvalidRequestException("selectedFindingIds: unknown finding"));
-            if (!retained.contains(id) || !finding.runId().equals(call.run().id()) || finding.origin() != ReviewFinding.Origin.AUTOMATIC) {
+            if (!retained.contains(id) || !ReviewValidationPolicy.selectable(call.run(), finding)) {
                 throw new ReviewInvalidRequestException("selectedFindingIds: select only current-run automatic findings supported at their current revision");
             }
             // The title is all that marks a finding as a question.

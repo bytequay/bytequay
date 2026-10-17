@@ -70,7 +70,6 @@ import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewDraftStore;
-import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewInvestigation;
@@ -1255,17 +1254,13 @@ public class AgentReviewService
                     return false;
                 }
                 Optional<ReviewFinding> finding = candidate.findingId().flatMap(store::findFinding);
-                if (finding.isEmpty() || !finding.orElseThrow().reviewId().equals(run.reviewId()) || finding.orElseThrow().state() == ReviewFinding.State.WITHDRAWN
-                        || finding.orElseThrow().outdated() || !finding.orElseThrow().validatedHeadSha().equals(run.sourceRevision())
-                        || !candidate.findingRevision().equals(Optional.of(finding.orElseThrow().revision()))
-                        || !candidate.evidenceRefs().containsAll(finding.orElseThrow().evidence().stream().map(ReviewEvidence::ref).toList())) {
+                if (ReviewValidationPolicy.findingProblem(run, finding, candidate.findingRevision(), candidate.evidenceRefs()).isPresent()) {
                     return false;
                 }
             }
         }
         if (validation.selectedFindingIds().stream().anyMatch(id -> store.findFinding(id)
-                .filter(finding -> finding.reviewId().equals(run.reviewId()) && finding.runId().equals(run.id())
-                        && finding.origin() == ReviewFinding.Origin.AUTOMATIC)
+                .filter(finding -> ReviewValidationPolicy.selectable(run, finding))
                 .filter(finding -> validation.candidates().stream().anyMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED
                         && candidate.findingId().equals(Optional.of(id)) && candidate.findingRevision().equals(Optional.of(finding.revision()))))
                 .isEmpty())) {

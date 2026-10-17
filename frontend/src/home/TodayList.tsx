@@ -59,7 +59,12 @@ export function openTarget(target: AgendaTargetDto): void {
  * Today's agenda above Needs attention, in its row language: a header of counts, the agent's one-line summary on global Home, then
  * at most five rows that open where the work happens. A workspace Home shows only its own rows.
  */
-export default function TodayList({ today, scope }: { today: TodayAgenda; scope: TodayScope }): React.JSX.Element | null {
+export default function TodayList({ today, scope, onOpen = openTarget }: {
+  today: TodayAgenda;
+  scope: TodayScope;
+  /** The Assistant panel shows the app before opening, since it can sit beside an open web page. */
+  onOpen?: (target: AgendaTargetDto) => void;
+}): React.JSX.Element | null {
   const { agenda, error, makeAgain, mark, showHidden } = today;
   const [expanded, setExpanded] = useState(false);
   const [recapOpen, setRecapOpen] = useState(false);
@@ -133,7 +138,7 @@ export default function TodayList({ today, scope }: { today: TodayAgenda; scope:
         {agenda.state === 'READY' && items.length === 0 && <div className="today-line">Nothing pressing today</div>}
         {ready && rows.length > 0 && (
           <div className="item-list today-list" role="list">
-            {rows.map(item => <TodayRow key={item.ref} item={item} scope={scope} onMark={mark} />)}
+            {rows.map(item => <TodayRow key={item.ref} item={item} scope={scope} onMark={mark} onOpen={onOpen} />)}
             {global && agenda.recap !== null && (
               <div role="listitem">
                 <Clickable className="card-row today-recap" label="This week" onOpen={() => setRecapOpen(value => !value)}>
@@ -141,7 +146,7 @@ export default function TodayList({ today, scope }: { today: TodayAgenda; scope:
                   <span className="today-recap__title">This week</span>
                   {recapOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
                 </Clickable>
-                {recapOpen && <Recap recap={agenda.recap} />}
+                {recapOpen && <Recap recap={agenda.recap} onOpen={onOpen} />}
               </div>
             )}
           </div>
@@ -151,13 +156,18 @@ export default function TodayList({ today, scope }: { today: TodayAgenda; scope:
   );
 }
 
-function TodayRow({ item, scope, onMark }: { item: AgendaItemDto; scope: TodayScope; onMark: (ref: string, mark: 'DONE' | 'DISMISSED' | null) => void }) {
+function TodayRow({ item, scope, onMark, onOpen }: {
+  item: AgendaItemDto;
+  scope: TodayScope;
+  onMark: (ref: string, mark: 'DONE' | 'DISMISSED' | null) => void;
+  onOpen: (target: AgendaTargetDto) => void;
+}) {
   const Icon = ACTION_ICONS[item.action];
   const isDone = item.status === 'done';
   const where = whereText(item.target, scope, item.where);
   return (
     <div role="listitem">
-      <ItemRow className={`today-row${isDone ? ' is-done' : ''}`} label={`${item.title}: ${item.why}`} onOpen={() => openTarget(item.target)}
+      <ItemRow className={`today-row${isDone ? ' is-done' : ''}`} label={`${item.title}: ${item.why}`} onOpen={() => onOpen(item.target)}
         icon={<Icon size={15} className="today-row__icon" aria-hidden="true" />}
         title={item.title}
         meta={<>
@@ -190,7 +200,7 @@ function TodayRow({ item, scope, onMark }: { item: AgendaItemDto; scope: TodaySc
   );
 }
 
-function Recap({ recap }: { recap: NonNullable<AgendaDto['recap']> }) {
+function Recap({ recap, onOpen }: { recap: NonNullable<AgendaDto['recap']>; onOpen: (target: AgendaTargetDto) => void }) {
   const links = [...recap.merged, ...recap.slipped];
   return (
     <div className="today-recap__body">
@@ -199,7 +209,7 @@ function Recap({ recap }: { recap: NonNullable<AgendaDto['recap']> }) {
         <div key={name} className="today-recap__line">
           <span className="today-recap__name">{name}</span>
           {list.map(link => (
-            <button key={link.ref} type="button" className="today-chip" onClick={() => openTarget(link.target)}>{recapLabel(link, links)}</button>
+            <button key={link.ref} type="button" className="today-chip" onClick={() => onOpen(link.target)}>{recapLabel(link, links)}</button>
           ))}
         </div>
       ))}

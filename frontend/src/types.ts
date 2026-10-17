@@ -13,7 +13,7 @@
  */
 
 import type { WorkItemBridge } from './workitems/contracts';
-import type { AppNoticeBounds } from './notices/contracts';
+import type { AppNoticeBounds, NoticeSnapshot } from './notices/contracts';
 import type { RunningTask } from './agents/runningTaskModel';
 import type { GoogleBridge } from './google/contracts';
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
@@ -1460,6 +1460,22 @@ export type AgendaCalendarDto = {
   free: { from: string; to: string }[];
 };
 
+/** One entry in today's Assistant conversation. */
+export type AssistantItemDto = {
+  id: string;
+  day: string;
+  at: string;
+  kind: 'USER' | 'REPLY' | 'FAILURE';
+  /** The user's words, the reply's Markdown, or why the reply failed. */
+  text: string;
+  /** Where each ref a reply names opens; only refs the day served. */
+  targets: Record<string, AgendaTargetDto>;
+  /** Whether a failure is the model not being ready, which Settings fixes. */
+  notReady: boolean;
+};
+
+export type AssistantViewDto = { day: string; model: string | null; running: boolean; items: AssistantItemDto[] };
+
 export type AgendaDay = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY';
 
 export type AgendaScheduleDto = {
@@ -1502,6 +1518,16 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   onAppNoticeBounds: (callback: (bounds: AppNoticeBounds) => void) => () => void;
   onAppNoticeOpen: (callback: (target: { taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null }) => void) => () => void;
   setNoticeSource: (key: string, taskId: string | null) => Promise<void>;
+  /** The notices the bottom-right stack holds; the Assistant panel lists them too. */
+  readAppNotices: () => Promise<NoticeSnapshot>;
+  onAppNotices: (callback: (state: NoticeSnapshot) => void) => () => void;
+  openAppNotice: (id: string) => Promise<void>;
+  /** Clears a notice for good. */
+  removeAppNotice: (id: string) => Promise<void>;
+  /** The open panel lists every notice, so the bottom-right stack stays hidden meanwhile. */
+  setAssistantPanelOpen: (open: boolean) => void;
+  /** ⌘J from any page, browser tab or editor. */
+  onAssistantToggle: (callback: () => void) => () => void;
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
   fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number) => Promise<PullRequestPageDto>;
@@ -1898,6 +1924,12 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   markAgendaItem: (ref: string, mark: 'DONE' | 'DISMISSED' | null) => Promise<AgendaDto>;
   getAgendaSchedule: () => Promise<AgendaScheduleDto>;
   saveAgendaSchedule: (schedule: AgendaScheduleDto) => Promise<AgendaScheduleDto>;
+  getAssistantToday: () => Promise<AssistantViewDto>;
+  /** The reply runs in the background; the same key twice adds the message once. */
+  sendAssistantMessage: (text: string, visible: string[], onScreen: string | null, key: string) => Promise<{ itemId: string }>;
+  stopAssistant: () => Promise<void>;
+  /** Runs the last message again after a failed reply. */
+  retryAssistant: () => Promise<{ itemId: string }>;
 
   listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
   listRunningTasks: () => Promise<RunningTask[]>;

@@ -15,7 +15,7 @@ import { RelatedWorkspaceNavigation } from './workspaces/RelatedWorkspaces';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, FlaskConical, GitBranch, Globe, History, House, KeyRound,
-  LayoutDashboard, LayoutGrid, ListChecks, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
+  LayoutDashboard, LayoutGrid, ListChecks, MessageCircle, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Pin, Sparkles, Sun, Tags, TriangleAlert, Users,
 } from 'lucide-react';
 import UsageMeter from './usage/UsageMeter';
@@ -118,6 +118,7 @@ export default function AppSidebar({
   browserRailVisible,
   onToggleBrowserRail,
   settings,
+  assistant,
 }: {
   page: AppPage;
   onNavigate: (page: AppPage) => void;
@@ -135,6 +136,8 @@ export default function AppSidebar({
   onToggleBrowserRail: () => void;
   /** Present only while settings is open, when the sidebar becomes its category nav. */
   settings?: SettingsNav;
+  /** The Assistant panel's toggle; `waiting` counts the notices that need the user. */
+  assistant?: { open: boolean; waiting: number; onToggle: () => void };
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
@@ -158,28 +161,34 @@ export default function AppSidebar({
   );
 
   /** Every sidebar row, whichever shape renders it. */
-  const row = ({ key, label, icon, active, disabled, title, badge, onClick }: {
+  const row = ({ key, label, icon, active, pressed, disabled, title, hint, badge, onClick }: {
     key: string;
     label: string;
     icon: ReactNode;
     active: boolean;
+    /** A row that opens a panel instead of a page is a toggle. */
+    pressed?: boolean;
     disabled?: boolean;
     title?: string;
+    /** Dim text after the label, such as a shortcut. */
+    hint?: string;
     badge?: { count: number; label: string };
     onClick: () => void;
   }) => (
     <button
       key={key}
       type="button"
-      className={`app-sidebar__item${active ? ' is-active' : ''}`}
+      className={`app-sidebar__item${active || pressed ? ' is-active' : ''}`}
       aria-label={badge === undefined ? label : `${label}, ${badge.label}`}
       aria-current={active ? 'page' : undefined}
+      aria-pressed={pressed}
       title={title ?? label}
       disabled={disabled}
       onClick={onClick}
     >
       <span aria-hidden="true">{icon}</span>
       <span className="app-sidebar__label">{label}</span>
+      {hint !== undefined && <span className="app-sidebar__hint" aria-hidden="true">{hint}</span>}
       {badge !== undefined && <span className="app-sidebar__badge" aria-hidden="true">{badge.count}</span>}
     </button>
   );
@@ -319,6 +328,17 @@ export default function AppSidebar({
       {collapsed && historyControls}
       {settingsBody !== null ? settingsBody : <>
       <nav className="app-sidebar__nav" aria-label="Global navigation">
+        {assistant !== undefined && row({
+          key: 'assistant',
+          label: 'Assistant',
+          icon: <MessageCircle size={16} strokeWidth={1.7} aria-hidden="true" />,
+          active: false,
+          pressed: assistant.open,
+          title: 'Assistant (⌘J)',
+          hint: '⌘J',
+          badge: assistant.waiting > 0 ? { count: assistant.waiting, label: `${assistant.waiting} need you` } : undefined,
+          onClick: assistant.onToggle,
+        })}
         {GLOBAL_NAV_ITEMS.map(navItem)}
         <div className="app-sidebar__rule" />
       </nav>

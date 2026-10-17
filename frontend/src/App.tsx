@@ -13,6 +13,8 @@
  */
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import AppSidebar, { type AppPage } from './AppSidebar';
+import AssistantPanel from './assistant/AssistantPanel';
+import { screenRef } from './assistant/model';
 import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
 import GoogleScreen from './google/GoogleScreen';
@@ -57,6 +59,8 @@ import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
 import WorkspaceItemLayer from './workspaces/WorkspaceItemLayer';
 import { LayerCovered } from './Zoom';
+import { needsAction, type AppNotice } from './notices/contracts';
+import { useResizablePane } from './useResizablePane';
 import {
   workspaceIssueRoute,
   workspaceIssueTaskRoute,
@@ -76,6 +80,14 @@ function layerKey(layer: ZoomedReference): string {
   return layer.kind === 'jira'
     ? `jira:${layer.connectionId}/${layer.cloudId}/${layer.issueId}`
     : `${layer.kind}:${layer.workspaceId ?? ''}:${layer.repo}#${layer.number}`;
+}
+
+function storedAssistantWidth(): number {
+  try {
+    const width = Number(localStorage.getItem('bytequay.assistant-width'));
+    return width >= 320 && width <= 560 ? width : 380;
+  }
+  catch { return 380; }
 }
 
 function pageFromRoute(hash: string): AppPage {
@@ -113,6 +125,14 @@ export default function App() {
     try { return localStorage.getItem('bytequay.browser-rail-expanded') === 'true'; }
     catch { return false; }
   });
+  const [assistantOpen, setAssistantOpen] = useState(() => {
+    try { return localStorage.getItem('bytequay.assistant-open') === 'true'; }
+    catch { return false; }
+  });
+  const [initialAssistantWidth] = useState(storedAssistantWidth);
+  const assistantPane = useResizablePane(initialAssistantWidth, 320, 560, 'start');
+  const assistantShown = assistantOpen && status === 'ready';
+  const [notices, setNotices] = useState<AppNotice[]>([]);
   const browserTab = browser.tabs.find(tab => tab.id === browser.activeTabId) ?? null;
   const browserOpen = browserTab !== null;
   const browserAction = useCallback((action: Promise<void>) => {
@@ -192,6 +212,26 @@ export default function App() {
       zoomReference({ kind: 'pull', repo: reference.repo, number: reference.number });
     });
     return () => { stopAttention(); stopNotification(); };
+  }, []);
+
+  useEffect(() => window.bridge.onAssistantToggle?.(() => setAssistantOpen(open => !open)), []);
+
+  useEffect(() => {
+    try { localStorage.setItem('bytequay.assistant-open', String(assistantOpen)); } catch { /* preference is optional */ }
+  }, [assistantOpen]);
+
+  useEffect(() => window.bridge.setAssistantPanelOpen?.(assistantShown), [assistantShown]);
+
+  useEffect(() => {
+    if (assistantPane.resizing || assistantPane.width === null) return;
+    try { localStorage.setItem('bytequay.assistant-width', String(assistantPane.width)); } catch { /* preference is optional */ }
+  }, [assistantPane.resizing, assistantPane.width]);
+
+  useEffect(() => {
+    let received = false;
+    const stop = window.bridge.onAppNotices?.(state => { received = true; setNotices(state.notices); });
+    void window.bridge.readAppNotices?.().then(state => { if (!received) setNotices(state.notices); }).catch(() => {});
+    return () => { received = true; stop?.(); };
   }, []);
 
   useEffect(() => window.bridge.onAppNoticeOpen?.(target => {
@@ -445,6 +485,7 @@ export default function App() {
   };
 
   const inWorkspace = page === 'workspaces' && workspace !== null;
+  const onScreen = screenRef(layers.at(-1), window.location.hash, inWorkspace ? `${workspace.monitoredOwner}/${workspace.monitoredRepo}` : null);
   // Only the tasks tab swaps its whole page for a route-owned task, so clicking that tab with
   // one open returns to the task list instead of doing nothing.
   const taskPageOpen = workspaceTab === 'tasks'
@@ -461,7 +502,10 @@ export default function App() {
   };
 
   return (
-    <div className={`browser-workspace${railVisible ? '' : ' is-web-rail-hidden'}`} style={{ '--browser-rail-width': railVisible ? (railExpanded ? '220px' : '40px') : '0px' } as CSSProperties}>
+    <div className={`browser-workspace${railVisible ? '' : ' is-web-rail-hidden'}`} style={{
+      '--browser-rail-width': railVisible ? (railExpanded ? '220px' : '40px') : '0px',
+      '--assistant-panel-width': assistantShown ? `${assistantPane.width ?? 380}px` : '0px',
+    } as CSSProperties}>
       <BrowserRail state={browser} expanded={railExpanded} error={browserError}
         onToggle={() => setRailExpanded(value => {
           try { localStorage.setItem('bytequay.browser-rail-expanded', String(!value)); } catch { /* preference is optional */ }
@@ -514,6 +558,7 @@ export default function App() {
           workspaceTab={workspaceTab}
           relatedWorkspaceId={relatedWorkspaceId}
           onWorkspaceTab={selectWorkspaceTab}
+          assistant={{ open: assistantShown, waiting: notices.filter(needsAction).length, onToggle: () => setAssistantOpen(open => !open) }}
         />
         <main className="app-content">
           {page === 'home' && (
@@ -610,6 +655,8 @@ export default function App() {
       </div>
       {browserTab && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
         error={browserError} onError={setBrowserError} onBack={backToApp} />}
+      <AssistantPanel open={assistantShown} notices={notices} onScreen={onScreen} onClose={() => setAssistantOpen(false)}
+        onShowApp={() => { if (browserOpen) backToApp(); }} onResizeStart={assistantPane.startResize} />
     </div>
   );
 }

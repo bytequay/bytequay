@@ -53,7 +53,11 @@ import github from './githubLight.json';
 import githubDark from './githubDark.json';
 import type { IdeConnection } from './contracts';
 
+// Main takes ⌘J for the Assistant before the editor sees it; unbinding Toggle Panel keeps menus and tooltips from offering it.
+const assistantKey = { key: 'cmd+j', command: '-workbench.action.togglePanel' };
+
 const ideaKeys = [
+    assistantKey,
     { key: 'cmd+b', command: 'editor.action.revealDefinition', when: 'editorTextFocus' },
     { key: 'alt+f7', command: 'editor.action.referenceSearch.trigger', when: 'editorTextFocus' },
     { key: 'ctrl+alt+h', command: 'editor.showCallHierarchy', when: 'editorTextFocus' },
@@ -91,7 +95,7 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     'task.allowAutomaticTasks': 'off', 'task.reconnection': false,
     'git.enabled': false, 'scm.graph.pageSize': 100, 'terminal.integrated.enablePersistentSessions': false,
   }));
-  await initUserKeybindings(JSON.stringify(localStorage.getItem('bytequay.ide.keymap') === 'VS Code' ? [] : ideaKeys));
+  await initUserKeybindings(JSON.stringify(localStorage.getItem('bytequay.ide.keymap') === 'VS Code' ? [assistantKey] : ideaKeys));
   const extension = registerExtension({
     name: 'workbench', publisher: 'bytequay', version: '1.0.0', engines: { vscode: '*' }, enabledApiProposals: ['scmHistoryProvider'],
     contributes: { themes: [

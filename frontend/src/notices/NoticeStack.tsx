@@ -14,11 +14,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { ArrowLeft, ArrowRight, Bell, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { ago } from '../relativeTime';
-import { NOTICE_LABELS, NOTICE_WIDTH, needsAction, type AppNotice, type NoticeBridge, type NoticeSnapshot } from './contracts';
+import { NOTICE_ACTIONS as ACTIONS, NOTICE_WIDTH, needsAction, noticeLabel as label, type AppNotice, type NoticeBridge, type NoticeSnapshot } from './contracts';
 
-const ACTIONS = { TURN_FINISHED: 'View response', QUESTION: 'Reply', APPROVAL: 'Review request', FAILURE: 'View log', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue' };
-const label = (notice: AppNotice): string => notice.reviewId === null ? NOTICE_LABELS[notice.kind]
-  : notice.kind === 'TURN_FINISHED' ? 'Review finished' : notice.kind === 'FAILURE' ? 'Review failed' : NOTICE_LABELS[notice.kind];
 const describe = (notice: AppNotice): string => `${label(notice)}: ${notice.pullRequestTitle ?? notice.title}`;
 const count = (value: number, noun: string): string => `${value} ${noun}${value === 1 ? '' : 's'}`;
 

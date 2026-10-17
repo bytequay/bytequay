@@ -67,7 +67,7 @@ export async function run(): Promise<{ name: string }[]> {
   try {
     await until(() => jiraButton() !== null && document.querySelector('[aria-label="Recent"][aria-current="page"]') !== null);
     const globalLabels = [...document.querySelectorAll('[aria-label="Global navigation"] button')].map(button => button.getAttribute('aria-label'));
-    assert(JSON.stringify(globalLabels) === JSON.stringify(['Home', 'Workspaces', 'Circles', 'Recent']), 'Global navigation order is stable');
+    assert(JSON.stringify(globalLabels) === JSON.stringify(['Assistant', 'Home', 'Workspaces', 'Circles', 'Recent']), 'Global navigation order is stable');
     assert(jiraButton()?.closest('nav')?.getAttribute('aria-label') === 'Application navigation', 'Jira belongs below global navigation');
     const label = jiraButton()?.querySelector('.app-sidebar__label');
     assert(label !== null && label !== undefined && label.getBoundingClientRect().right <= (jiraButton()?.getBoundingClientRect().right ?? 0), 'The Jira label fits the expanded sidebar');

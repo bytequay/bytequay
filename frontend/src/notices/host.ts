@@ -26,6 +26,8 @@ export class NoticeHost {
   private width = NOTICE_WIDTH;
   private folded = false;
   private obscured = false;
+  private suppressed = false;
+  private mainNotices = '';
   private sources = new Map<string, string>();
 
   constructor(private readonly window: () => BrowserWindow | null, private readonly read: () => Promise<unknown>,
@@ -34,33 +36,43 @@ export class NoticeHost {
   }
 
   register(): void {
-    ipcMain.on('notices:obscured', (event, obscured: unknown) => {
+    const owner = (event: IpcMainInvokeEvent | IpcMainEvent): boolean => {
       const window = this.window();
-      if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Unknown notice owner');
+      return Boolean(window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame);
+    };
+    ipcMain.on('notices:obscured', (event, obscured: unknown) => {
+      if (!owner(event)) throw new Error('Unknown notice owner');
       if (typeof obscured !== 'boolean') return;
       this.obscured = obscured; this.publish();
     });
+    // Not `obscured`: that also pauses auto-dismiss and viewed-marking, while the open Assistant panel lists every notice.
+    ipcMain.on('notices:suppress', (event, suppressed: unknown) => {
+      if (!owner(event)) throw new Error('Unknown notice owner');
+      if (typeof suppressed !== 'boolean') return;
+      this.suppressed = suppressed; this.publish();
+    });
     ipcMain.on('notices:measure', event => {
-      const window = this.window();
-      if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Unknown notice owner');
+      if (!owner(event)) throw new Error('Unknown notice owner');
       this.layout();
     });
     const child = (event: IpcMainInvokeEvent | IpcMainEvent): void => {
       if (!this.view || event.sender !== this.view.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error('Unknown notice surface');
     };
-    ipcMain.handle('notices:read', event => { child(event); return this.snapshot(); });
+    // The Assistant panel lists the same notices, so the main window may read, open and remove them too.
+    const ownerOrChild = (event: IpcMainInvokeEvent): void => { if (!owner(event)) child(event); };
+    ipcMain.handle('notices:read', event => { ownerOrChild(event); return this.snapshot(); });
     ipcMain.handle('notices:dismiss', (event, id: unknown) => {
       child(event);
       if (typeof id !== 'string') throw new Error('Invalid notice');
       this.store.dismiss(id); this.publish();
     });
     ipcMain.handle('notices:remove', (event, id: unknown) => {
-      child(event);
+      ownerOrChild(event);
       if (typeof id !== 'string') throw new Error('Invalid notice');
       this.store.remove(id); this.publish();
     });
     ipcMain.handle('notices:open', async (event, id: unknown) => {
-      child(event);
+      ownerOrChild(event);
       if (typeof id !== 'string') throw new Error('Invalid notice');
       await this.refresh();
       const notice = this.snapshot().notices.find(item => item.id === id);
@@ -77,8 +89,7 @@ export class NoticeHost {
       this.height = Math.ceil(height); this.width = Math.ceil(width); this.folded = folded; this.layout();
     });
     ipcMain.handle('notices:source', (event, key: unknown, source: unknown) => {
-      const window = this.window();
-      if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Unknown notice owner');
+      if (!owner(event)) throw new Error('Unknown notice owner');
       if (typeof key !== 'string' || key.length > 200) throw new Error('Invalid notice source');
       if (source === null) this.sources.delete(key);
       else {
@@ -107,7 +118,7 @@ export class NoticeHost {
     window.webContents.on('did-start-navigation', ({ isSameDocument, isMainFrame }) => {
       // Hash navigation keeps React mounted, so visible tasks will not register again.
       if (isSameDocument || !isMainFrame) return;
-      this.sources.clear(); this.obscured = false; this.publish();
+      this.sources.clear(); this.obscured = false; this.suppressed = false; this.mainNotices = ''; this.publish();
     });
     this.publish();
   }
@@ -131,9 +142,10 @@ export class NoticeHost {
     const window = this.window();
     if (!window || window.isDestroyed()) return;
     let state = this.snapshot();
-    if (state.active) {
+    if (state.active || this.suppressed) {
       for (const notice of state.notices) {
-        if ([...this.sources.values()].includes(notice.taskId)) {
+        // The open panel shows every notice, so none pops up after it closes.
+        if (this.suppressed || [...this.sources.values()].includes(notice.taskId)) {
           this.store.markViewed(notice.id);
         }
       }
@@ -141,6 +153,9 @@ export class NoticeHost {
     }
     if (this.view === null) this.create(window);
     this.view?.webContents.send('notices:changed', state);
+    // Window events publish often; the panel needs only a changed list.
+    const notices = JSON.stringify(state.notices);
+    if (notices !== this.mainNotices) { this.mainNotices = notices; window.webContents.send('notices:changed', state); }
     this.layout();
   }
 
@@ -180,16 +195,18 @@ export class NoticeHost {
     const viewportHeight = Math.max(1, h);
     const right = this.folded ? 0 : 8;
     this.view.setBounds({ x: width - w - right, y: height - viewportHeight - 8, width: w, height: viewportHeight });
-    this.view.setVisible(h > 0 && !this.obscured);
+    const shown = h > 0 && !this.obscured && !this.suppressed;
+    this.view.setVisible(shown);
     const zoom = window.webContents.getZoomFactor();
-    window.webContents.send('notices:bounds', h > 0 && !this.obscured
+    window.webContents.send('notices:bounds', shown
       ? { x: (width - w - right) / zoom, y: (height - h - 8) / zoom, width: w / zoom, height: h / zoom } : null);
     this.raise();
   }
 
   releaseWindow(): void {
     if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.close();
-    this.view = null; this.height = 0; this.width = NOTICE_WIDTH; this.folded = false; this.obscured = false; this.sources.clear();
+    this.view = null; this.height = 0; this.width = NOTICE_WIDTH; this.folded = false; this.obscured = false; this.suppressed = false; this.mainNotices = '';
+    this.sources.clear();
   }
 
   stop(): void { clearInterval(this.timer); this.timer = undefined; this.releaseWindow(); }

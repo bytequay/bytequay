@@ -65,7 +65,8 @@ it('authenticates IPC, layers only the card rectangle, and rechecks requests bef
   const event = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
   expect(view.setBounds).toHaveBeenLastCalledWith({ x: 652, y: 611, width: 340, height: 1 });
   expect(view.setVisible).toHaveBeenLastCalledWith(false);
-  expect(() => desktop.handlers.get('notices:read')?.({ sender: window.webContents, senderFrame: window.webContents.mainFrame })).toThrow('Unknown notice surface');
+  expect(desktop.handlers.get('notices:read')?.({ sender: window.webContents, senderFrame: window.webContents.mainFrame })).toMatchObject({ notices: [notice] });
+  expect(() => desktop.handlers.get('notices:read')?.({ sender: window.webContents, senderFrame: {} })).toThrow('Unknown notice surface');
   expect(() => desktop.handlers.get('notices:read')?.({ sender: view.webContents, senderFrame: {} })).toThrow('Unknown notice surface');
   desktop.handlers.get('notices:resize')?.(event, 260, 340, false);
   expect(view.setBounds).toHaveBeenLastCalledWith({ x: 652, y: 352, width: 340, height: 260 });
@@ -127,7 +128,7 @@ it.each(['TURN_FINISHED', 'APPROVAL'] as const)('removes %s notices without rest
   const view = desktop.views[0] as { webContents: { mainFrame: object; send: ReturnType<typeof vi.fn> }; setVisible: ReturnType<typeof vi.fn> };
   const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
   const remove = desktop.handlers.get('notices:remove');
-  expect(() => remove?.({ sender: window.webContents, senderFrame: window.webContents.mainFrame }, current.id)).toThrow('Unknown notice surface');
+  expect(() => remove?.({ sender: window.webContents, senderFrame: {} }, current.id)).toThrow('Unknown notice surface');
   expect(() => remove?.({ sender: view.webContents, senderFrame: {} }, current.id)).toThrow('Unknown notice surface');
   expect(() => remove?.(child, null)).toThrow('Invalid notice');
   desktop.handlers.get('notices:resize')?.(child, 260, 340, false);
@@ -307,5 +308,37 @@ it('releases native input while a modal is open and restores pending notices aft
   desktop.handlers.get('notices:obscured')?.(owner, false);
   expect(view.setVisible).toHaveBeenLastCalledWith(true);
   expect(desktop.handlers.get('notices:read')?.(child)).toMatchObject({ active: true, notices: [notice] });
+  host.stop();
+});
+
+it('hides the stack while the Assistant panel lists the notices, and keeps them from popping up after', async () => {
+  const { host, read, open, window } = setup();
+  await host.refresh();
+  const view = desktop.views[0] as { webContents: { mainFrame: object }; setVisible: ReturnType<typeof vi.fn> };
+  const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
+  const owner = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
+  expect(() => desktop.handlers.get('notices:suppress')?.(child, true)).toThrow('Unknown notice owner');
+  desktop.handlers.get('notices:suppress')?.(owner, true);
+  const other = { ...notice, id: 'approval:two', taskId: 'other-task' };
+  read.mockResolvedValue([notice, other]); await host.refresh();
+  desktop.handlers.get('notices:resize')?.(child, 260, 340, false);
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  expect(window.webContents.send).toHaveBeenLastCalledWith('notices:bounds', null);
+  expect(window.webContents.send).toHaveBeenCalledWith('notices:changed', expect.objectContaining({ notices: [notice, other] }));
+  const changes = () => window.webContents.send.mock.calls.filter(([channel]) => channel === 'notices:changed').length;
+  const sent = changes();
+  window.emit('resize');
+  expect(changes()).toBe(sent);
+  desktop.handlers.get('notices:suppress')?.(owner, false);
+  expect(view.setVisible).toHaveBeenLastCalledWith(true);
+  expect(desktop.handlers.get('notices:read')?.(owner)).toMatchObject({ popupIds: [], viewedIds: [notice.id, other.id] });
+  await desktop.handlers.get('notices:open')?.(owner, notice.id);
+  expect(open).toHaveBeenCalledWith(notice);
+  await desktop.handlers.get('notices:remove')?.(owner, other.id);
+  expect(desktop.handlers.get('notices:read')?.(owner)).toMatchObject({ notices: [notice] });
+  desktop.handlers.get('notices:suppress')?.(owner, true);
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  window.webContents.emit('did-start-navigation', { isSameDocument: false, isMainFrame: true });
+  expect(view.setVisible).toHaveBeenLastCalledWith(true);
   host.stop();
 });

@@ -36,6 +36,12 @@ export const NOTICE_LABELS: Record<NoticeKind, string> = {
   TURN_FINISHED: 'Turn finished', QUESTION: 'Waiting for you', APPROVAL: 'Approval needed',
   FAILURE: 'Turn failed', RECOVERY: 'Task is blocked', QUEUE_PAUSED: 'Queued messages paused',
 };
+/** What opening a notice shows, as its button says, in the bottom-right stack and the Assistant panel alike. */
+export const NOTICE_ACTIONS: Record<NoticeKind, string> = {
+  TURN_FINISHED: 'View response', QUESTION: 'Reply', APPROVAL: 'Review request', FAILURE: 'View log', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue',
+};
+export const noticeLabel = (notice: AppNotice): string => notice.reviewId === null ? NOTICE_LABELS[notice.kind]
+  : notice.kind === 'TURN_FINISHED' ? 'Review finished' : notice.kind === 'FAILURE' ? 'Review failed' : NOTICE_LABELS[notice.kind];
 export function parseNotices(value: unknown): AppNotice[] {
   if (!Array.isArray(value)) throw new Error('Invalid notices');
   const ids = new Set<string>();

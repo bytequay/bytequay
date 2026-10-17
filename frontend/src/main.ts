@@ -23,6 +23,7 @@ import { spawn as spawnPty } from 'node-pty';
 import { IdeViews } from './ideViews';
 import { repositoryAvatar } from './repositoryAvatars';
 import { NoticeHost } from './notices/host';
+import { isAssistantShortcut } from './assistantShortcut';
 import { GeminiSetup } from './google/geminiSetup';
 import { GeminiChat } from './google/geminiChat';
 import type { GoogleStatus } from './google/contracts';
@@ -1502,6 +1503,11 @@ function registerIpc(): void {
   ipcMain.handle('agenda:again', () => backendJson(`${backendBase()}/api/agenda/today/run`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('agenda:mark', (_event, ref: unknown, mark: unknown) =>
     backendJson(`${backendBase()}/api/agenda/today/marks`, jsonInit('PUT', { ref, mark: mark === 'DONE' || mark === 'DISMISSED' ? mark : null }, agentHeaders())));
+  ipcMain.handle('assistant:today', () => backendJson(`${backendBase()}/api/assistant/today`, { headers: agentHeaders() }));
+  ipcMain.handle('assistant:send', (_event, text: unknown, visible: unknown, onScreen: unknown, key: unknown) =>
+    backendJson(`${backendBase()}/api/assistant/messages`, jsonInit('POST', { text, visible, onScreen, key }, agentHeaders())));
+  ipcMain.handle('assistant:stop', () => backendJson(`${backendBase()}/api/assistant/stop`, { method: 'POST', headers: agentHeaders() }));
+  ipcMain.handle('assistant:retry', () => backendJson(`${backendBase()}/api/assistant/retry`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('settings:agenda', () => backendJson(`${backendBase()}/api/settings/agenda`, { headers: agentHeaders() }));
   ipcMain.handle('settings:agenda:save', (_event, schedule: unknown) =>
     backendJson(`${backendBase()}/api/settings/agenda`, jsonInit('PUT', schedule, agentHeaders())));
@@ -2119,6 +2125,19 @@ app.on('ready', async () => {
   refreshDashboardInBackground();
   void pollPrNotifications();
   prNotificationTimer = setInterval(() => { void pollPrNotifications(); }, 5_000);
+});
+
+// A focused browser or editor view keeps its keys from the renderer, so ⌘J is caught before any page sees it.
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('before-input-event', (event, input) => {
+    const window = mainWindow;
+    if (!isAssistantShortcut(input) || !window || window.isDestroyed() || !window.isFocused()) return;
+    event.preventDefault();
+    if (input.isAutoRepeat) return;
+    // The composer can take focus only once the window's own page has it back from a native view.
+    if (contents !== window.webContents) window.webContents.focus();
+    window.webContents.send('assistant:toggle');
+  });
 });
 
 app.on('window-all-closed', () => {

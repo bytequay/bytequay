@@ -153,6 +153,23 @@ class TestCiLogExcerpt
     }
 
     @Test
+    void aJobThatStopsWithoutReportingAFailureShowsItsUnfinishedStep()
+    {
+        String checkout = "##[group]Run actions/checkout@v6.0.2\n##[endgroup]\n"
+                + " * [new branch] improve-error-handling -> origin/improve-error-handling\n"
+                + " * [new tag] release -> release\n".repeat(3000);
+        String tests = "##[group]Run ./mvnw test\n##[endgroup]\n"
+                + "WARN SQL failure: restart transaction\n"
+                + "[INFO] Running ExampleTest\n".repeat(2000)
+                + "INFO last line before the runner was lost\n";
+
+        CiLogExcerpt excerpt = CiLogExcerpt.from(checkout + tests, 32 * 1024, 1024 * 1024);
+
+        assertThat(excerpt.text()).contains("SQL failure", "last line before the runner was lost").doesNotContain("[new branch]", "[new tag]");
+        assertThat(excerpt.diagnosticsMatched()).isTrue();
+    }
+
+    @Test
     void preservesTheEntireFailedTestBeforeLaterPassingSummariesAndCleanup()
     {
         String failure = "[ERROR] ExampleTest.testQuery -- Time elapsed: 1 s <<< FAILURE!\n"

@@ -64,6 +64,7 @@ public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMa
         List<Integer> diagnostics = new ArrayList<>();
         Map<Integer, Integer> failedCommands = new HashMap<>();
         boolean commandHeader = false;
+        boolean failureReported = false;
         int commandOutputStart = -1;
         for (int index = 0; index < lines.size(); index++) {
             String line = normalized.get(index);
@@ -88,12 +89,21 @@ public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMa
                 commandOutputStart = -1;
                 continue;
             }
+            failureReported |= line.startsWith("##[error]");
             if (!PASSING_TEST.matcher(line).find() && !line.startsWith("##[end-action ") && ERROR.matcher(line).find()) {
                 diagnostics.add(index);
             }
         }
+        // A job that reports no failure, such as one whose runner was lost, stopped inside the step its log ends in.
+        boolean stopped = failedCommands.isEmpty() && !failureReported && commandOutputStart >= 0 && commandOutputStart < lines.size();
+        if (stopped) {
+            failedCommands.put(lines.size() - 1, commandOutputStart);
+        }
         if (!failedCommands.isEmpty()) {
             diagnostics.removeIf(index -> failedCommands.entrySet().stream().noneMatch(command -> index >= command.getValue() && index <= command.getKey()));
+        }
+        if (stopped && !diagnostics.isEmpty()) {
+            diagnostics.add(lines.size() - 1);
         }
         if (diagnostics.isEmpty()) {
             byte[] bytes = text.getBytes(UTF_8);

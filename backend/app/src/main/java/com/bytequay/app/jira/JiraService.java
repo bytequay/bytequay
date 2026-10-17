@@ -30,7 +30,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.MissingNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.util.concurrent.UncheckedExecutionException;
+import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -57,7 +58,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
-import static com.google.common.util.concurrent.Futures.getUnchecked;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
@@ -95,6 +95,12 @@ public class JiraService
         this.workItems = requireNonNull(workItems, "workItems is null");
         this.recent = requireNonNull(recent, "recent is null");
         this.work = requireNonNull(work, "work is null");
+    }
+
+    @PreDestroy
+    public void close()
+    {
+        reads.shutdownNow();
     }
 
     public List<JiraDtos.Board> boards(String connectionId, String cloudId, boolean refresh)
@@ -356,42 +362,52 @@ public class JiraService
         // These reads only need the ticket, so they run together. They must not take JiraIssueLocks: afterWrite waits for them while holding a stripe.
         String siteUrl = connections.site(connectionId, cloudId).url();
         Optional<String> account = connections.get(connectionId).account().map(JiraDtos.Account::accountId);
-        Future<PageItems<JiraDtos.Comment>> commentRead = reads.submit(() -> pageItems(connectionId, cloudId, path + "/comment", "comments",
+        FutureTask<PageItems<JiraDtos.Comment>> commentRead = new FutureTask<>(() -> pageItems(connectionId, cloudId, path + "/comment", "comments",
                 ImmutableMap.of("orderBy", "-created"), comment -> JiraMapping.comment(siteUrl, account, comment)));
-        Future<JsonNode> transitionRead = reads.submit(() -> get(connectionId, cloudId, path + "/transitions?expand=transitions.fields"));
-        Future<JsonNode> fieldRead = reads.submit(() -> get(connectionId, cloudId, path + "/editmeta"));
-        Future<JsonNode> assigneeRead = reads.submit(() -> get(connectionId, cloudId, query("/rest/api/3/user/assignable/search", ImmutableMap.of("issueKey", issue.key(),
+        FutureTask<JsonNode> transitionRead = new FutureTask<>(() -> get(connectionId, cloudId, path + "/transitions?expand=transitions.fields"));
+        FutureTask<JsonNode> fieldRead = new FutureTask<>(() -> get(connectionId, cloudId, path + "/editmeta"));
+        FutureTask<JsonNode> assigneeRead = new FutureTask<>(() -> get(connectionId, cloudId, query("/rest/api/3/user/assignable/search", ImmutableMap.of("issueKey", issue.key(),
                 "maxResults", 100))));
         // refreshIssue already asked Jira whether a ticket without subtasks has children, so only parents need the listing.
-        Future<JsonNode> childRead = reads.submit(() -> issue.hasChildren() ? get(connectionId, cloudId, query("/rest/api/3/search/jql", ImmutableMap.of(
+        FutureTask<JsonNode> childRead = new FutureTask<>(() -> issue.hasChildren() ? get(connectionId, cloudId, query("/rest/api/3/search/jql", ImmutableMap.of(
                 "jql", "parent = " + segment(issue.id()) + " ORDER BY created ASC", "maxResults", 100, "fields", "summary,issuetype,status,priority,assignee")))
                 : MissingNode.getInstance());
-        PageItems<JiraDtos.Comment> commentPage = join(commentRead);
-        List<JiraDtos.Comment> comments = commentPage.items().stream()
-                .sorted(java.util.Comparator.comparing(JiraDtos.Comment::created)).collect(toImmutableList());
-        List<JiraDtos.Transition> transitions = nodes(join(transitionRead).path("transitions")).stream()
-                .map(item -> new JiraDtos.Transition(item.path("id").asText(), item.path("name").asText(), JiraMapping.status(item.path("to")),
-                        JiraMapping.fields(item.path("fields")))).collect(toImmutableList());
-        List<JiraDtos.Field> fields = ImmutableList.of();
-        List<JiraDtos.Person> assignees = ImmutableList.of();
-        Optional<String> error = Optional.empty();
+        List<FutureTask<?>> pending = ImmutableList.of(commentRead, transitionRead, fieldRead, assigneeRead, childRead);
         try {
-            fields = JiraMapping.fields(join(fieldRead).path("fields"));
-            assignees = nodes(join(assigneeRead)).stream().map(JiraMapping::person).collect(toImmutableList());
+            pending.forEach(reads::execute);
+            PageItems<JiraDtos.Comment> commentPage = join(commentRead);
+            List<JiraDtos.Comment> comments = commentPage.items().stream()
+                    .sorted(java.util.Comparator.comparing(JiraDtos.Comment::created)).collect(toImmutableList());
+            List<JiraDtos.Transition> transitions = nodes(join(transitionRead).path("transitions")).stream()
+                    .map(item -> new JiraDtos.Transition(item.path("id").asText(), item.path("name").asText(), JiraMapping.status(item.path("to")),
+                            JiraMapping.fields(item.path("fields")))).collect(toImmutableList());
+            List<JiraDtos.Field> fields = ImmutableList.of();
+            List<JiraDtos.Person> assignees = ImmutableList.of();
+            Optional<String> error = Optional.empty();
+            try {
+                fields = JiraMapping.fields(join(fieldRead).path("fields"));
+                assignees = nodes(join(assigneeRead)).stream().map(JiraMapping::person).collect(toImmutableList());
+            }
+            catch (ResponseStatusException e) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw e;
+                }
+                error = Optional.of("Some editing options are unavailable. Open in Jira for additional fields or assignees.");
+            }
+            JsonNode children = join(childRead);
+            JiraIssue complete = saveIssue(issue.withComments(comments, commentPage.partial()), true, false);
+            JiraDtos.Detail detail = new JiraDtos.Detail(complete, complete.comments(), transitions, fields, assignees,
+                    Optional.of(Instant.now()), error, complete.commentsTruncated(), value.path("fields").path("issuetype").path("hierarchyLevel").asInt(),
+                    nodes(children.path("issues")).stream().map(JiraMapping::related).collect(toImmutableList()), JiraMapping.text(children, "nextPageToken").isPresent(),
+                    JiraMapping.links(value.path("fields").path("issuelinks")), JiraMapping.richTextFields(siteUrl, value),
+                    JiraMapping.text(value.path("fields").path("project"), "name"), JiraMapping.reporter(value),
+                    JiraMapping.peopleFields(value), JiraMapping.teamFields(value));
+            cache.write(issueKey(connectionId, cloudId, issueId) + ".detail", detail);
+            return detail;
         }
-        catch (ResponseStatusException e) {
-            error = Optional.of("Some editing options are unavailable. Open in Jira for additional fields or assignees.");
+        finally {
+            pending.forEach(read -> read.cancel(true));
         }
-        JsonNode children = join(childRead);
-        JiraIssue complete = saveIssue(issue.withComments(comments, commentPage.partial()), true, false);
-        JiraDtos.Detail detail = new JiraDtos.Detail(complete, complete.comments(), transitions, fields, assignees,
-                Optional.of(Instant.now()), error, complete.commentsTruncated(), value.path("fields").path("issuetype").path("hierarchyLevel").asInt(),
-                nodes(children.path("issues")).stream().map(JiraMapping::related).collect(toImmutableList()), JiraMapping.text(children, "nextPageToken").isPresent(),
-                JiraMapping.links(value.path("fields").path("issuelinks")), JiraMapping.richTextFields(siteUrl, value),
-                JiraMapping.text(value.path("fields").path("project"), "name"), JiraMapping.reporter(value),
-                JiraMapping.peopleFields(value), JiraMapping.teamFields(value));
-        cache.write(issueKey(connectionId, cloudId, issueId) + ".detail", detail);
-        return detail;
     }
 
     public boolean isEpic(String cloudId, String issueId)
@@ -784,11 +800,15 @@ public class JiraService
     private static <T> T join(Future<T> read)
     {
         try {
-            return getUnchecked(read);
+            return read.get();
         }
-        catch (UncheckedExecutionException e) {
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Jira request was interrupted.");
+        }
+        catch (ExecutionException e) {
             throwIfUnchecked(e.getCause());
-            throw e;
+            throw new IllegalStateException("Jira request failed", e.getCause());
         }
     }
 

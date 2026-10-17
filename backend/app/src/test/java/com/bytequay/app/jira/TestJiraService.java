@@ -32,6 +32,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -42,6 +43,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -51,7 +53,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -89,6 +93,12 @@ class TestJiraService
     private final ObjectProvider<WorkItemService> work = mock(ObjectProvider.class);
     private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider, new JiraActivityLog(cache), workItems, recent, work);
     private final Map<String, String> saved = new ConcurrentHashMap<>();
+
+    @AfterEach
+    void stopReads()
+    {
+        jira.close();
+    }
 
     @BeforeEach
     void setup()
@@ -941,6 +951,85 @@ class TestJiraService
         assertThat(detail.error()).get().asString().contains("Some editing options are unavailable");
         assertThat(detail.editableFields()).isEmpty();
         assertThat(detail.assignees()).isEmpty();
+    }
+
+    @Test
+    void aFailedDetailReadCancelsItsSiblings()
+            throws Exception
+    {
+        CountDownLatch started = new CountDownLatch(4);
+        CountDownLatch interrupted = new CountDownLatch(3);
+        doAnswer(call -> {
+            started.countDown();
+            try {
+                assertThat(started.await(5, SECONDS)).isTrue();
+                if (call.<String>getArgument(2).contains("/comment?")) {
+                    throw new ResponseStatusException(HttpStatus.BAD_GATEWAY);
+                }
+                new CountDownLatch(1).await();
+                return json("{}");
+            }
+            catch (InterruptedException failure) {
+                interrupted.countDown();
+                throw failure;
+            }
+        }).when(remote).request(eq("connection"), eq("cloud"), argThat(path -> path.startsWith("/rest/api/3/issue/1001/") || path.startsWith("/rest/api/3/user/")),
+                eq("GET"), any());
+
+        assertThatThrownBy(() -> jira.detail("connection", "cloud", "1001", true)).isInstanceOf(ResponseStatusException.class);
+        assertThat(interrupted.await(5, SECONDS)).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void detailReadsStopWhenTheCallerOrServiceStops(boolean shutdown)
+            throws Exception
+    {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        doAnswer(call -> {
+            started.countDown();
+            try {
+                new CountDownLatch(1).await();
+                return json("{}");
+            }
+            catch (InterruptedException failure) {
+                interrupted.countDown();
+                throw failure;
+            }
+        }).when(remote).request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/editmeta"), eq("GET"), any());
+        AtomicReference<RuntimeException> failure = new AtomicReference<>();
+        AtomicBoolean interruptRestored = new AtomicBoolean();
+        Thread caller = Thread.startVirtualThread(() -> {
+            try {
+                jira.detail("connection", "cloud", "1001", true);
+            }
+            catch (RuntimeException caught) {
+                failure.set(caught);
+                interruptRestored.set(Thread.currentThread().isInterrupted());
+            }
+        });
+        try {
+            assertThat(started.await(5, SECONDS)).isTrue();
+            if (shutdown) {
+                jira.close();
+            }
+            else {
+                caller.interrupt();
+            }
+            assertThat(caller.join(Duration.ofSeconds(5))).isTrue();
+            assertThat(failure).doesNotHaveNullValue();
+            if (!shutdown) {
+                assertThat(failure.get()).isInstanceOf(ResponseStatusException.class);
+                assertThat(interruptRestored).isTrue();
+            }
+            assertThat(interrupted.await(5, SECONDS)).isTrue();
+            assertThat(cache.read("connection.cloud.issue.1001.detail", JiraDtos.Detail.class)).isEmpty();
+        }
+        finally {
+            caller.interrupt();
+            jira.close();
+        }
     }
 
     @Test

@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableList;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -40,7 +41,10 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 
+import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.bytequay.core.domain.Checks.checkText;
@@ -62,11 +66,12 @@ public class IdeExecutions
     private final LocalRunStore runs;
     private final ReviewLocks locks;
     private final Clock clock;
+    private final Executor executor;
     private final Map<String, Live> live = new ConcurrentHashMap<>();
     private volatile boolean closing;
 
     public IdeExecutions(IdeRuntimeService runtime, ReviewCodeService code, AgentTurnService turns, AgentReviewService reviews,
-            AgentReviewStore reviewStore, LocalRunStore runs, ReviewLocks locks, Clock clock)
+            AgentReviewStore reviewStore, LocalRunStore runs, ReviewLocks locks, Clock clock, @Qualifier(IO_EXECUTOR) Executor executor)
     {
         this.runtime = requireNonNull(runtime, "runtime is null");
         this.code = requireNonNull(code, "code is null");
@@ -76,6 +81,7 @@ public class IdeExecutions
         this.runs = requireNonNull(runs, "runs is null");
         this.locks = requireNonNull(locks, "locks is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.executor = requireNonNull(executor, "executor is null");
     }
 
     public LocalRun start(TaskCodeHost host, Start request)
@@ -224,14 +230,21 @@ public class IdeExecutions
         turns.releaseLocalRun(TaskId.valueOf(run.taskId()), run.id());
         execution.run = runs.update(run.withTreeUnverified(false));
         live.remove(run.id(), execution);
-        Thread.ofVirtual().name("bytequay-ide-run-finished").start(() -> {
+        if (!closing) {
             try {
-                reviewStore.findReviewByTask(run.taskId()).ifPresent(review -> reviews.reconcile(review.id()));
+                executor.execute(() -> {
+                    try {
+                        reviewStore.findReviewByTask(run.taskId()).ifPresent(review -> reviews.reconcile(review.id()));
+                    }
+                    catch (RuntimeException failure) {
+                        log.debug("Cannot reconcile review after IDE execution {}", run.id(), failure);
+                    }
+                });
             }
-            catch (RuntimeException failure) {
-                log.debug("Cannot reconcile review after IDE execution {}", run.id(), failure);
+            catch (RejectedExecutionException failure) {
+                log.debug("Review reconciliation is closing after IDE execution {}", run.id(), failure);
             }
-        });
+        }
     }
 
     @Scheduled(fixedDelay = 1000)

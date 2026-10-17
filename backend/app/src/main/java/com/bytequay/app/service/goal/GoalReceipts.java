@@ -33,6 +33,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableMap;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -239,5 +240,11 @@ public class GoalReceipts
         catch (AgentStorageException unreadable) {
             return Optional.empty();
         }
+    }
+
+    @PreDestroy
+    public void close()
+    {
+        executor.shutdownNow();
     }
 }

@@ -87,6 +87,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -3067,6 +3068,60 @@ class TestCodexCliDriver
         assertThatThrownBy(() -> driver.open(context(Optional.of(outdated), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("outdated tool list", "Start a new task");
         assertThat(supervisor.servers()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void endingATurnInterruptsItsRunningRootTool(boolean cancel)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(
+                new ReviewTool("review_get_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "context", true),
+                new ReviewTool("review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> {
+                    entered.countDown();
+                    try {
+                        release.await();
+                        return "finished";
+                    }
+                    catch (InterruptedException failure) {
+                        Thread.currentThread().interrupt();
+                        interrupted.countDown();
+                        throw new AgentUnavailableException("Tool interrupted", failure);
+                    }
+                })), "Review privately");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                .reviews(taskId -> Optional.of(review)).build();
+        CodexHome.prepare(codexHome());
+        CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
+                ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
+        try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
+            RunningTurn turn = session.start(command("Review privately"));
+            AppServerProcess server = supervisor.servers().getLast();
+            server.emit("""
+                    {"id":201,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
+                    "callId":"root-write","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"review_finish","arguments":{}}}}
+                    """.formatted(server.activeTurn()));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            if (cancel) {
+                turn.cancel();
+            }
+            else {
+                server.completeTurn();
+            }
+
+            assertThat(interrupted.await(5, TimeUnit.SECONDS)).isTrue();
+        }
+        finally {
+            release.countDown();
+        }
     }
 
     @Test

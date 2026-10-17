@@ -30,8 +30,8 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -69,8 +69,8 @@ class AgendaCalendarReader
         Instant from = day.atStartOfDay(zone).toInstant();
         Instant to = day.plusDays(1).atStartOfDay(zone).toInstant();
         String account = schedule.calendarAccountId().orElseThrow();
-        // ponytail: a read that outlives the wait keeps running until the connector returns; the agenda goes on without it
-        CompletableFuture<List<GoogleBusyTime>> read = CompletableFuture.supplyAsync(() -> google.busyTimes(account, from, to), Thread::startVirtualThread);
+        FutureTask<List<GoogleBusyTime>> read = new FutureTask<>(() -> google.busyTimes(account, from, to));
+        Thread.startVirtualThread(read);
         try {
             return summarize(read.get(WAIT.toMillis(), TimeUnit.MILLISECONDS), day, zone);
         }
@@ -81,6 +81,9 @@ class AgendaCalendarReader
         catch (ExecutionException | TimeoutException | RuntimeException failure) {
             log.warn("The agenda could not read today's calendar: {}", failure.getMessage());
             return AgendaCalendar.of("unavailable");
+        }
+        finally {
+            read.cancel(true);
         }
     }
 

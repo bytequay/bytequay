@@ -45,6 +45,7 @@ import com.google.common.io.MoreFiles;
 import com.google.common.io.RecursiveDeleteOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -60,12 +61,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static com.bytequay.app.agenda.AgendaReader.clip;
+import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -110,11 +113,12 @@ public class AssistantService
     private final ObjectMapper mapper;
     private final Clock clock;
     private final Path folders;
+    private final ExecutorService executor;
     // ponytail: one reply at a time, held in memory; a restart drops it, so no running row is ever left behind.
     private final AtomicReference<Run> running = new AtomicReference<>();
 
     AssistantService(AssistantStore store, AssistantReader reader, AssistantActions actions, ModelSettingsService models, AgentDriverRegistry drivers,
-            AgentResourceService resources, AgentProperties properties, ObjectMapper mapper, Clock clock)
+            AgentResourceService resources, AgentProperties properties, ObjectMapper mapper, Clock clock, @Qualifier(IO_EXECUTOR) ExecutorService executor)
     {
         this.store = requireNonNull(store, "store is null");
         this.reader = requireNonNull(reader, "reader is null");
@@ -124,6 +128,7 @@ public class AssistantService
         this.resources = requireNonNull(resources, "resources is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.executor = requireNonNull(executor, "executor is null");
         this.folders = properties.runtimeRoot().toAbsolutePath().normalize().resolve("assistant");
     }
 
@@ -214,7 +219,7 @@ public class AssistantService
         }
         try {
             AssistantItem message = pick.get();
-            Thread.startVirtualThread(() -> {
+            executor.execute(() -> {
                 try {
                     reply(run, message);
                 }

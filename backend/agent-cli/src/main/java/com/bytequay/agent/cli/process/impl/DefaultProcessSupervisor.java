@@ -1013,7 +1013,8 @@ public final class DefaultProcessSupervisor
                     Thread.currentThread().interrupt();
                 }
                 closeInput();
-                inputExecutor.shutdownNow();
+                // Queued writes must run their closed-input guard so their completion stages settle.
+                inputExecutor.shutdown();
                 exit.complete(record(new ProcessExit(
                         launcher.exitValue(),
                         reason.get(),

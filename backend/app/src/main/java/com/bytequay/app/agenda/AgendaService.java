@@ -39,6 +39,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -56,9 +57,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.bytequay.app.agenda.AgendaReader.clip;
+import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -118,11 +121,13 @@ public class AgendaService
     private final ObjectMapper mapper;
     private final Clock clock;
     private final Instant started;
+    private final ExecutorService executor;
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile Optional<Failure> lastFailure = Optional.empty();
 
     public AgendaService(AgendaStore store, AgendaReader reader, AgendaCalendarReader calendars, TeamService teams, AgendaDone done, AgendaSettings settings,
-            AppSettingsService appSettings, ModelSettingsService models, AgentDriverRegistry drivers, AgentResourceService resources, ObjectMapper mapper, Clock clock)
+            AppSettingsService appSettings, ModelSettingsService models, AgentDriverRegistry drivers, AgentResourceService resources, ObjectMapper mapper, Clock clock,
+            @Qualifier(IO_EXECUTOR) ExecutorService executor)
     {
         this.store = requireNonNull(store, "store is null");
         this.reader = requireNonNull(reader, "reader is null");
@@ -137,6 +142,7 @@ public class AgendaService
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.started = clock.instant();
+        this.executor = requireNonNull(executor, "executor is null");
     }
 
     /** A ready agenda's failed Make again, which keeps the agenda it could not replace. */
@@ -172,14 +178,20 @@ public class AgendaService
         if (!running.compareAndSet(false, true)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Today's agenda is already being made");
         }
-        Thread.startVirtualThread(() -> {
-            try {
-                run(AgendaRun.Trigger.MAKE_AGAIN);
-            }
-            finally {
-                running.set(false);
-            }
-        });
+        try {
+            executor.execute(() -> {
+                try {
+                    run(AgendaRun.Trigger.MAKE_AGAIN);
+                }
+                finally {
+                    running.set(false);
+                }
+            });
+        }
+        catch (RuntimeException failure) {
+            running.set(false);
+            throw failure;
+        }
         return today(Optional.empty());
     }
 

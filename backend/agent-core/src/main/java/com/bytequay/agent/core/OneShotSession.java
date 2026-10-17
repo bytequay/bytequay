@@ -65,13 +65,16 @@ public final class OneShotSession
             String prompt, Duration maximumRuntime, Consumer<RunningTurn> started)
     {
         checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(), "One-shot sessions require a positive maximum runtime");
+        checkInterrupted();
         TaskId scratchId = TaskId.random();
         boolean processMayBeRunning = false;
         AgentSession session = null;
         try {
             AgentSessionContext sessionContext = context.apply(scratchId, resources.allocate(scratchId));
+            checkInterrupted();
             processMayBeRunning = true;
             session = driver.open(sessionContext, event -> {});
+            checkInterrupted();
             RunningTurn turn = session.start(new AgentTurnCommand(TaskId.random().toString(), prompt, ImmutableList.of(), maximumRuntime));
             started.accept(turn);
             AgentTurnResult result;
@@ -103,12 +106,19 @@ public final class OneShotSession
         }
         finally {
             if (session != null) {
+                // Provider close has bounded waits; let it verify shutdown before restoring cancellation.
+                boolean interrupted = Thread.interrupted();
                 try {
                     session.close();
                     processMayBeRunning = false;
                 }
                 catch (RuntimeException failure) {
                     log.log(System.Logger.Level.WARNING, "Could not verify one-shot provider shutdown for " + scratchId, failure);
+                }
+                finally {
+                    if (interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
             }
             if (processMayBeRunning) {
@@ -122,6 +132,13 @@ public final class OneShotSession
                     log.log(System.Logger.Level.WARNING, "Could not remove one-shot resources for " + scratchId, failure);
                 }
             }
+        }
+    }
+
+    private static void checkInterrupted()
+    {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new AgentUnavailableException("Interrupted before the model started");
         }
     }
 

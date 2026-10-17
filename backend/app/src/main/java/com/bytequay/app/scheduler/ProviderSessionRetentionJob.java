@@ -18,6 +18,7 @@ import com.bytequay.agent.cli.codex.CodexHome;
 import com.bytequay.app.agent.AgentProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -29,7 +30,9 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.ExecutorService;
 
+import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -46,12 +49,15 @@ public class ProviderSessionRetentionJob
 
     private final AgentProperties properties;
     private final Duration retention;
+    private final ExecutorService executor;
 
-    public ProviderSessionRetentionJob(AgentProperties properties, @Value("${bytequay.agent.session-retention-days:30}") int retentionDays)
+    public ProviderSessionRetentionJob(AgentProperties properties, @Value("${bytequay.agent.session-retention-days:30}") int retentionDays,
+            @Qualifier(IO_EXECUTOR) ExecutorService executor)
     {
         this.properties = requireNonNull(properties, "properties is null");
         checkArgument(retentionDays >= 1, "session-retention-days must be at least one day");
         this.retention = Duration.ofDays(retentionDays);
+        this.executor = requireNonNull(executor, "executor is null");
     }
 
     @Scheduled(
@@ -61,7 +67,7 @@ public class ProviderSessionRetentionJob
     {
         // Every @Scheduled job here shares the single agent approval thread, and this one walks and
         // deletes files. Off that thread, so a pending approval never waits on the disk.
-        Thread.startVirtualThread(this::sweep);
+        executor.execute(this::sweep);
     }
 
     private void sweep()

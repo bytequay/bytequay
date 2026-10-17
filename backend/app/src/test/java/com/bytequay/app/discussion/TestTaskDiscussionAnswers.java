@@ -96,6 +96,11 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -203,6 +208,32 @@ class TestTaskDiscussionAnswers
         assertThat(savedContext("discussion")).contains("why per thread?", "The pool is sized from CPU count.");
         assertThat(rows.get("d1").messages()).hasSize(4);
         assertThat(rows.get("d1").messages().getLast().body()).isEqualTo("Answered.");
+    }
+
+    @Test
+    void shutdownInterruptsTheAnswerAndDoesNotRestartItsSession()
+            throws InterruptedException
+    {
+        store(discussion(Optional.of(new DiscussionSession(1, "session-1")), ImmutableList.of()));
+        driver.waitForAnswer = true;
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        TaskDiscussionService background = service(executor);
+        try {
+            background.ask(new AskDiscussionCommand("w1", TASK.toString(), "d1", "why per thread?"));
+            assertThat(driver.answerStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+            background.close();
+
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(opened).hasSize(1);
+            assertThat(driver.closed).isEqualTo(1);
+            assertThat(rows.get("d1").messages().getLast().error()).isPresent();
+            assertThat(background.list("w1", TASK.toString()).getFirst().pending()).isFalse();
+        }
+        finally {
+            background.close();
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -909,6 +940,18 @@ class TestTaskDiscussionAnswers
 
     private TaskDiscussionService service()
     {
+        return service(job -> {
+            if (hold) {
+                held.add(job);
+            }
+            else {
+                job.run();
+            }
+        });
+    }
+
+    private TaskDiscussionService service(Executor executor)
+    {
         TaskDiscussionStore store = mock(TaskDiscussionStore.class);
         when(store.find(any())).thenAnswer(call -> Optional.ofNullable(rows.get(call.getArgument(0, String.class))));
         when(store.update(any())).thenAnswer(call -> {
@@ -964,14 +1007,7 @@ class TestTaskDiscussionAnswers
         PrDetailStore details = mock(PrDetailStore.class);
         when(details.find(12L)).thenReturn(Optional.of(detail()));
         return new TaskDiscussionService(store, tasks, resources, drivers, logStore, Clock.fixed(NOW, ZoneOffset.UTC), ownership,
-                new ReviewCommentReader(pullRequests, details), writer, reviews, job -> {
-                    if (hold) {
-                        held.add(job);
-                    }
-                    else {
-                        job.run();
-                    }
-                });
+                new ReviewCommentReader(pullRequests, details), writer, reviews, executor);
     }
 
     private void hostReview(AgentReview review)
@@ -1069,7 +1105,10 @@ class TestTaskDiscussionAnswers
             implements AgentDriver
     {
         private final Deque<String> answers = new ArrayDeque<>();
+        private final CountDownLatch answerStarted = new CountDownLatch(1);
         private boolean failResume;
+        private boolean waitForAnswer;
+        private int closed;
         private AgentSessionContext lastContext;
         private AgentTurnResult result = new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("Answered."), Optional.empty(), Duration.ZERO, true);
 
@@ -1138,6 +1177,10 @@ class TestTaskDiscussionAnswers
                     @Override
                     public CompletionStage<AgentTurnResult> completion()
                     {
+                        answerStarted.countDown();
+                        if (waitForAnswer) {
+                            return new CompletableFuture<>();
+                        }
                         return CompletableFuture.completedFuture(answer);
                     }
 
@@ -1147,7 +1190,10 @@ class TestTaskDiscussionAnswers
             }
 
             @Override
-            public void close() {}
+            public void close()
+            {
+                closed++;
+            }
         }
     }
 }

@@ -45,9 +45,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -182,7 +186,7 @@ class TestReviewSweep
     }
 
     @Test
-    void validationWaitsWhileTheReaderReadsAndCancellingStopsItsTurn()
+    void cancellingBeforeTheReaderStartsSkipsItsTurn()
     {
         when(git.runLocalBoundedStdout(eq(CHECKOUT), any(Duration.class), anyInt(), anyList())).thenReturn(new GitCommandRunner.Result(128, "", false));
         List<Runnable> queued = new ArrayList<>();
@@ -200,12 +204,59 @@ class TestReviewSweep
         sweep.cancel("review");
         verify(turn, never()).cancel();
 
-        // A reader cancelled before its turn started stops that turn as soon as it exists.
         queued.getFirst().run();
 
-        verify(turn).cancel();
+        verify(turn, never()).cancel();
+        verify(git, never()).runLocalBoundedStdout(any(), any(), anyInt(), anyList());
         assertThat(sweep.pending("review", "run")).isFalse();
         assertThat(settled).hasValue(1);
+    }
+
+    @Test
+    void closingInterruptsTheReaderAndCancelsItsTurn()
+            throws Exception
+    {
+        when(git.runLocalBoundedStdout(eq(CHECKOUT), any(Duration.class), anyInt(), anyList())).thenReturn(new GitCommandRunner.Result(128, "", false));
+        CountDownLatch entered = new CountDownLatch(1);
+        RunningTurn turn = mock(RunningTurn.class);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, executor, (task, prompt, context, started) -> {
+                started.accept(turn);
+                entered.countDown();
+                try {
+                    new CountDownLatch(1).await();
+                }
+                catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+                return Optional.of(ANSWER);
+            });
+            try {
+                sweep.start(review(Optional.empty()), run(), task(), settled::incrementAndGet);
+                assertThat(entered.await(5, SECONDS)).isTrue();
+            }
+            finally {
+                sweep.close();
+            }
+            assertThat(executor.awaitTermination(5, SECONDS)).isTrue();
+            verify(turn).cancel();
+            assertThat(sweep.pending("review", "run")).isFalse();
+            assertThat(sweep.take("review", "run")).isEmpty();
+            assertThat(settled).hasValue(0);
+        }
+    }
+
+    @Test
+    void aRejectedReaderStillSettlesValidation()
+    {
+        ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, command -> {
+            throw new RejectedExecutionException("closing");
+        }, (task, prompt, context, started) -> Optional.of(ANSWER));
+
+        sweep.start(review(Optional.empty()), run(), task(), settled::incrementAndGet);
+
+        assertThat(settled).hasValue(1);
+        assertThat(sweep.pending("review", "run")).isFalse();
     }
 
     @Test

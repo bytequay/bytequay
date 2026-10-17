@@ -28,11 +28,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.stubbing.Answer;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -43,6 +50,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.HttpStatus.BAD_GATEWAY;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
+import static org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE;
 
 @ExtendWith(MockitoExtension.class)
 class TestPullRequestDetailFetcher
@@ -138,6 +146,56 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrTimeline("pat", REF)).thenThrow(new GitHubRateLimitException("secondary", 60));
 
         assertThatThrownBy(() -> PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing()))).isInstanceOf(GitHubRateLimitException.class);
+    }
+
+    @Test
+    void interruptingTheRefreshCancelsItsSourceReads()
+            throws Exception
+    {
+        CountDownLatch started = new CountDownLatch(2);
+        CountDownLatch interrupted = new CountDownLatch(2);
+        Answer<?> blocked = invocation -> {
+            started.countDown();
+            try {
+                new CountDownLatch(1).await();
+            }
+            catch (InterruptedException failure) {
+                interrupted.countDown();
+                Thread.currentThread().interrupt();
+            }
+            return ImmutableList.of();
+        };
+        when(gitHub.fetchPrReviews("pat", REF)).thenAnswer(blocked);
+        when(gitHub.fetchPrTimeline("pat", REF)).thenAnswer(blocked);
+        var executor = Executors.newVirtualThreadPerTaskExecutor();
+        var discussion = new PullRequestDetailFetcher(gitHub, executor).fetchDiscussion("pat", REF, existing());
+        AtomicReference<RuntimeException> failure = new AtomicReference<>();
+        AtomicBoolean interruptRestored = new AtomicBoolean();
+        Thread caller = Thread.startVirtualThread(() -> {
+            try {
+                PullRequestDetailFetcher.await(discussion);
+            }
+            catch (RuntimeException caught) {
+                failure.set(caught);
+                interruptRestored.set(Thread.currentThread().isInterrupted());
+            }
+        });
+        try {
+            assertThat(started.await(5, SECONDS)).isTrue();
+            caller.interrupt();
+            assertThat(caller.join(Duration.ofSeconds(5))).isTrue();
+            assertThat(failure.get()).isInstanceOfSatisfying(ResponseStatusException.class,
+                    caught -> assertThat(caught.getStatusCode()).isEqualTo(SERVICE_UNAVAILABLE));
+            assertThat(interruptRestored).isTrue();
+            assertThat(discussion.isCancelled()).isTrue();
+            assertThat(interrupted.await(5, SECONDS)).isTrue();
+        }
+        finally {
+            discussion.cancel(true);
+            caller.interrupt();
+            executor.shutdownNow();
+            executor.close();
+        }
     }
 
     @Test

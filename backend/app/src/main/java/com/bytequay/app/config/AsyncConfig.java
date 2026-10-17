@@ -25,7 +25,7 @@ public class AsyncConfig
     public static final String IO_EXECUTOR = "ioExecutor";
 
     // Virtual threads let orchestration join its IO children without starving the executor.
-    @Bean(name = IO_EXECUTOR, destroyMethod = "close")
+    @Bean(name = IO_EXECUTOR, destroyMethod = "shutdownNow")
     public ExecutorService ioExecutor()
     {
         return Executors.newVirtualThreadPerTaskExecutor();

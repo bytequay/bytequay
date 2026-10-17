@@ -21,10 +21,15 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -79,6 +84,46 @@ class TestAgendaCalendarReader
 
         when(google.busyTimes(eq("people/one"), any(), any())).thenThrow(new IllegalStateException("A Google operation is already running."));
         assertThat(reader.today(ON, FRIDAY).state()).isEqualTo("unavailable");
+    }
+
+    @Test
+    void interruptingTheAgendaCancelsItsCalendarRead()
+            throws Exception
+    {
+        GoogleWorkspaceService google = mock(GoogleWorkspaceService.class);
+        when(google.status()).thenReturn(new GoogleSnapshot.Status(true, "", Optional.empty(), Optional.empty(), ImmutableList.of(), ""));
+        when(google.snapshot()).thenReturn(Optional.of(GoogleSnapshot.empty("people/one", "one@example.com", "One")));
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        when(google.busyTimes(eq("people/one"), any(), any())).thenAnswer(call -> {
+            started.countDown();
+            try {
+                new CountDownLatch(1).await();
+                return ImmutableList.of();
+            }
+            catch (InterruptedException failure) {
+                interrupted.countDown();
+                throw failure;
+            }
+        });
+        AgendaCalendarReader reader = new AgendaCalendarReader(google);
+        AtomicReference<AgendaCalendar> result = new AtomicReference<>();
+        AtomicBoolean interruptRestored = new AtomicBoolean();
+        Thread caller = Thread.startVirtualThread(() -> {
+            result.set(reader.today(ON, FRIDAY));
+            interruptRestored.set(Thread.currentThread().isInterrupted());
+        });
+        try {
+            assertThat(started.await(5, SECONDS)).isTrue();
+            caller.interrupt();
+            assertThat(caller.join(Duration.ofSeconds(5))).isTrue();
+            assertThat(result.get().state()).isEqualTo("unavailable");
+            assertThat(interruptRestored).isTrue();
+            assertThat(interrupted.await(5, SECONDS)).isTrue();
+        }
+        finally {
+            caller.interrupt();
+        }
     }
 
     private static GoogleBusyTime busy(String start, String end)

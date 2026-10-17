@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -47,7 +48,6 @@ import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.util.concurrent.Futures.getDone;
-import static com.google.common.util.concurrent.Futures.getUnchecked;
 import static com.google.common.util.concurrent.Futures.immediateFuture;
 import static com.google.common.util.concurrent.Futures.submit;
 import static com.google.common.util.concurrent.Futures.whenAllComplete;
@@ -126,11 +126,16 @@ class PullRequestDetailFetcher
     static <T> T await(ListenableFuture<T> future)
     {
         try {
-            return getUnchecked(future);
+            return future.get();
         }
-        catch (UncheckedExecutionException e) {
+        catch (InterruptedException e) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatusCode.valueOf(503), "GitHub PR discussion refresh was interrupted");
+        }
+        catch (ExecutionException e) {
             throwIfUnchecked(e.getCause());
-            throw e;
+            throw new UncheckedExecutionException(e.getCause());
         }
     }
 

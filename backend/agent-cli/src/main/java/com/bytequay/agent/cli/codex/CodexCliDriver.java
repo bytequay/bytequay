@@ -88,6 +88,9 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -2064,29 +2067,31 @@ public final class CodexCliDriver
 
         private CompletionStage<CodexProtocol.DynamicToolCallResponse> callReviewRootTool(CodexProtocol.DynamicToolCallRequest request, CodexRunningTurn expectedTurn)
         {
-            CompletableFuture<CodexProtocol.DynamicToolCallResponse> result = new CompletableFuture<>();
-            Thread.ofVirtual().name("codex-review-tool").start(() -> {
-                try {
-                    synchronized (this) {
-                        if (closed || running != expectedTurn || expectedTurn.cancellationRequested()
-                                || expectedTurn.completion().toCompletableFuture().isDone()) {
-                            result.complete(reviewToolResponse("Review turn is no longer active", false));
-                            return;
+            try {
+                return CompletableFuture.supplyAsync(() -> {
+                    try {
+                        synchronized (this) {
+                            if (closed || running != expectedTurn || expectedTurn.cancellationRequested()
+                                    || expectedTurn.completion().toCompletableFuture().isDone()) {
+                                return reviewToolResponse("Review turn is no longer active", false);
+                            }
                         }
+                        JsonNode body = permissions.callCodexRootTool(codeQueries.orElseThrow().token(), request.params().tool(), request.params().arguments()).body().orElseThrow();
+                        JsonNode tool = body.path("result");
+                        boolean success = !tool.isMissingNode() && !tool.path("isError").asBoolean(false);
+                        String message = success || !tool.isMissingNode()
+                                ? tool.path("content").path(0).path("text").asText("Tool returned no text")
+                                : body.path("error").path("message").asText("Task tool failed");
+                        return reviewToolResponse(sessionRedactor.redact(message), success);
                     }
-                    JsonNode body = permissions.callCodexRootTool(codeQueries.orElseThrow().token(), request.params().tool(), request.params().arguments()).body().orElseThrow();
-                    JsonNode tool = body.path("result");
-                    boolean success = !tool.isMissingNode() && !tool.path("isError").asBoolean(false);
-                    String message = success || !tool.isMissingNode()
-                            ? tool.path("content").path(0).path("text").asText("Tool returned no text")
-                            : body.path("error").path("message").asText("Task tool failed");
-                    result.complete(reviewToolResponse(sessionRedactor.redact(message), success));
-                }
-                catch (RuntimeException failure) {
-                    result.complete(reviewToolResponse("Task tool failed", false));
-                }
-            });
-            return result;
+                    catch (RuntimeException failure) {
+                        return reviewToolResponse("Task tool failed", false);
+                    }
+                }, expectedTurn.toolCalls);
+            }
+            catch (RejectedExecutionException closed) {
+                return CompletableFuture.completedFuture(reviewToolResponse("Review turn is no longer active", false));
+            }
         }
 
         private static CodexProtocol.DynamicToolCallResponse reviewToolResponse(String text, boolean success)
@@ -2350,6 +2355,7 @@ public final class CodexCliDriver
         private final BiFunction<String, List<AgentAttachment>, List<CodexProtocol.UserInput>> userInput;
         private final Instant startedAt = Instant.now();
         private final CompletableFuture<AgentTurnResult> completion = new CompletableFuture<>();
+        private final ExecutorService toolCalls = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("codex-review-tool-", 0).factory());
         private final AtomicBoolean cancellationRequested = new AtomicBoolean();
         private final AtomicBoolean settling = new AtomicBoolean();
         private volatile Optional<String> finalResponse = Optional.empty();
@@ -2370,6 +2376,7 @@ public final class CodexCliDriver
             this.reference = new ProviderTurnRef(turnId);
             this.setup = requireNonNull(setup, "setup is null");
             this.userInput = requireNonNull(userInput, "userInput is null");
+            completion.whenComplete((result, failure) -> toolCalls.shutdownNow());
         }
 
         @Override
@@ -2426,7 +2433,9 @@ public final class CodexCliDriver
         @Override
         public synchronized void cancel()
         {
-            if (!cancellationRequested.compareAndSet(false, true) || settling.get()) {
+            boolean firstCancellation = cancellationRequested.compareAndSet(false, true);
+            toolCalls.shutdownNow();
+            if (!firstCancellation || settling.get()) {
                 // Once the root has finished, the quiescence wait sees the request and stops what still runs.
                 return;
             }

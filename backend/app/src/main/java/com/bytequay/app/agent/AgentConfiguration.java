@@ -92,6 +92,7 @@ import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -107,9 +108,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Supplier;
+
+import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(AgentProperties.class)
@@ -329,7 +333,8 @@ public class AgentConfiguration
             PullRequestTaskStore pullRequestTasks,
             ObjectProvider<DevelopmentFollowupCoordinator> development,
             ObjectProvider<CiAutofixService> ci,
-            DevelopmentCiOwnership ciOwnership)
+            DevelopmentCiOwnership ciOwnership,
+            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         return new DefaultAgentTurnService(
                 taskStore,
@@ -383,7 +388,7 @@ public class AgentConfiguration
                 properties.maximumTurnRuntime(),
                 // A queued turn starts from whatever thread ended the last one, which may be the
                 // provider's own reader; it must not block that thread on a provider call.
-                command -> Thread.ofVirtual().name("bytequay-agent-queue").start(command),
+                ioExecutor,
                 task -> reviews.findReviewByTask(task.id().toString()).isEmpty(),
                 (task, turn) -> development.getObject().accepted(task, turn),
                 outcome -> development.getObject().completed(outcome),
@@ -393,10 +398,11 @@ public class AgentConfiguration
     @Bean
     public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
             CiAutofixService ci, GitHubActionsClient actions, CredentialService credentials, GitHubPullRequestReadClient pullRequests,
-            GitHubPullRequestWriteClient writes, Clock agentClock)
+            GitHubPullRequestWriteClient writes, Clock agentClock,
+            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         return new DevelopmentFollowupCoordinator(turns, turnStore, git,
-                command -> Thread.ofVirtual().name("bytequay-development-followup").start(command), ci, actions, credentials, pullRequests, writes, agentClock, () -> {
+                ioExecutor, ci, actions, credentials, pullRequests, writes, agentClock, () -> {
                     try {
                         Thread.sleep(Duration.ofSeconds(5));
                     }

@@ -44,6 +44,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -185,6 +186,25 @@ class TestGoalLessonService
         queued.removeFirst().run();
         verify(goals, never()).mapCourse(any(), any(), any(), any());
         assertThat(lessons.find("lesson-1")).flatMap(GoalLesson::content).contains(CONTENT);
+    }
+
+    @Test
+    void interruptingTheMapDoesNotStartWritingTheLesson()
+    {
+        service.open("workspace", "goal-1", "lesson-1");
+        doAnswer(call -> {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("The model was interrupted");
+        }).when(planner).courseMap(any(), any(), any());
+        try {
+            queued.removeFirst().run();
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+            verify(planner, never()).lesson(any(), any(), any(), anyString(), any());
+            assertThat(lessons.find("lesson-1")).map(GoalLesson::state).contains(GoalLesson.State.FAILED);
+        }
+        finally {
+            Thread.interrupted();
+        }
     }
 
     @Test

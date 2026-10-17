@@ -709,6 +709,7 @@ class TestGoalConversationService
         doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         assertThat(exchanges.list(goal.id()).getFirst().state()).as("the stopped turn's late answer is not saved").isEqualTo(GoalExchange.State.FAILED);
+        verify(planner, never()).answer(any(), any(), anyList(), any());
 
         service.stop("workspace", goal.id(), "op-1");
         verify(planner, times(1)).cancel("op-1");

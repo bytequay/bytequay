@@ -13,10 +13,14 @@
  */
 package com.bytequay.app.service.settings;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.util.concurrent.ExecutorService;
+
+import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -27,16 +31,18 @@ import static java.util.Objects.requireNonNull;
 public class ModelCatalogStartupJob
 {
     private final ModelSettingsService models;
+    private final ExecutorService executor;
 
-    public ModelCatalogStartupJob(ModelSettingsService models)
+    public ModelCatalogStartupJob(ModelSettingsService models, @Qualifier(IO_EXECUTOR) ExecutorService executor)
     {
         this.models = requireNonNull(models, "models is null");
+        this.executor = requireNonNull(executor, "executor is null");
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady()
     {
         models.seedCatalogs();
-        Thread.ofVirtual().name("bytequay-model-catalogs").start(models::refreshCatalogs);
+        executor.execute(models::refreshCatalogs);
     }
 }

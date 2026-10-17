@@ -462,10 +462,10 @@ final class CodexAppServerClient
                 }
                 acknowledgeVerifiedStop(current);
             }
-            disconnect(new AgentUnavailableException("Codex App Server closed"));
-            dispatcher.close();
         }
         finally {
+            disconnect(new AgentUnavailableException("Codex App Server closed"));
+            dispatcher.close();
             deepSeekLoopback.ifPresent(DeepSeekLoopback::close);
         }
     }

@@ -32,6 +32,7 @@ import com.bytequay.core.store.GoalTopicStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -58,6 +59,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -858,6 +860,11 @@ public class GoalConversationService
 
     void answer(GoalExchange exchange)
     {
+        synchronized (writes) {
+            if (exchanges.find(exchange.id()).filter(exchange::equals).isEmpty()) {
+                return;
+            }
+        }
         Optional<String> model = Optional.empty();
         Optional<GoalView> read = Optional.empty();
         GoalExchange settled;
@@ -1084,5 +1091,13 @@ public class GoalConversationService
         }
         int cut = line.lastIndexOf(' ', MAX_TITLE - 1);
         return line.substring(0, cut > MAX_TITLE / 2 ? cut : MAX_TITLE - 1) + "…";
+    }
+
+    @PreDestroy
+    public void close()
+    {
+        if (executor instanceof ExecutorService service) {
+            service.shutdownNow();
+        }
     }
 }

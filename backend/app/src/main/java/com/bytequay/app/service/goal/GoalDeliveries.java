@@ -29,6 +29,7 @@ import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -42,6 +43,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -221,5 +223,13 @@ public class GoalDeliveries
         return workspaces.findAll().stream().map(Workspace::id).flatMap(workspaceId -> work.getObject().list(workspaceId).stream())
                 .filter(item -> (item.goalId().isPresent() || item.epicId().isPresent()) && item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)
                 .collect(toImmutableList());
+    }
+
+    @PreDestroy
+    public void close()
+    {
+        if (executor instanceof ExecutorService service) {
+            service.shutdownNow();
+        }
     }
 }

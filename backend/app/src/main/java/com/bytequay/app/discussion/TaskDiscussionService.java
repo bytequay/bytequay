@@ -51,6 +51,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.util.RawValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,6 +69,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -732,7 +734,7 @@ public class TaskDiscussionService
             run(task, discussion, discussion.sessionReference(), history);
         }
         catch (RuntimeException failure) {
-            if (discussion.sessionReference().isEmpty()) {
+            if (discussion.sessionReference().isEmpty() || Thread.currentThread().isInterrupted()) {
                 log.warn("Discussion {} could not be answered", discussionId, failure);
                 fail(discussionId, reasonOf(failure));
                 return;
@@ -924,4 +926,12 @@ public class TaskDiscussionService
     private record Seeded(String text, String answer) {}
 
     private record Answered(AgentTurnResult result, AgentSessionRef reference) {}
+
+    @PreDestroy
+    public void close()
+    {
+        if (answers instanceof ExecutorService service) {
+            service.shutdownNow();
+        }
+    }
 }

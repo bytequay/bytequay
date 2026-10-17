@@ -26,6 +26,7 @@ import com.bytequay.app.context.ContextText;
 import com.bytequay.app.review.MavenCommands;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemorySource;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -137,5 +138,11 @@ public class RecipeChecks
         return envelope.payload() instanceof AgentEventPayload.CommandActivity command
                 && (command.state() == ProviderAgentEvent.ActivityState.COMPLETED || command.state() == ProviderAgentEvent.ActivityState.FAILED)
                 && command.exitCode().filter(code -> code != 0).isPresent() && !command.background();
+    }
+
+    @PreDestroy
+    public void close()
+    {
+        executor.shutdownNow();
     }
 }

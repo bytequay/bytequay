@@ -35,6 +35,7 @@ import com.bytequay.core.review.ReviewRun;
 import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,7 +51,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -82,6 +85,7 @@ public class ReviewSweep
     private final Reader reader;
     // One read per review: a review has one active run, and a new run's reader replaces the last one's.
     private final ConcurrentMap<String, Flight> flights = new ConcurrentHashMap<>();
+    private volatile boolean closing;
 
     @Autowired
     public ReviewSweep(AgentResourceService resources, AgentDriverRegistry drivers, GitCommandRunner git, PullRequestService pullRequests, MemoryDelivery memories)
@@ -117,33 +121,59 @@ public class ReviewSweep
         Flight flight = new Flight(run.id());
         Optional.ofNullable(flights.put(review.id(), flight)).ifPresent(Flight::cancel);
         try {
+            if (closing) {
+                throw new RejectedExecutionException("Review readers are closing");
+            }
             reads.execute(() -> read(review, run, task, flight, settled));
         }
         catch (RuntimeException rejected) {
             // Nothing will ever end this read, so validation must not wait for it.
             log.warn("The second reader of review {} could not start: {}", review.id(), rejected.toString());
-            flight.leads.complete(ImmutableList.of());
+            settled(review, flight, settled);
         }
     }
 
     private void read(AgentReview review, ReviewRun run, AgentTask task, Flight flight, Runnable settled)
     {
         try {
-            flight.leads.complete(read(review, run, task, flight));
+            if (!flight.cancelled && !closing) {
+                List<ReviewLead> leads = read(review, run, task, flight);
+                if (!flight.cancelled && !closing) {
+                    flight.leads.complete(leads);
+                }
+            }
         }
         catch (RuntimeException failure) {
             log.warn("The second reader of review {} produced no leads: {}", review.id(), failure.toString());
         }
         finally {
-            // However the read ended, validation must not wait for it any longer.
-            flight.leads.complete(ImmutableList.of());
-            try {
-                settled.run();
-            }
-            catch (RuntimeException failure) {
-                log.warn("Review {} could not continue after its second reader", review.id(), failure);
-            }
+            settled(review, flight, settled);
         }
+    }
+
+    private void settled(AgentReview review, Flight flight, Runnable settled)
+    {
+        // However the read ended, validation must not wait for it any longer.
+        flight.leads.complete(ImmutableList.of());
+        if (closing) {
+            return;
+        }
+        try {
+            settled.run();
+        }
+        catch (RuntimeException failure) {
+            log.warn("Review {} could not continue after its second reader", review.id(), failure);
+        }
+    }
+
+    @PreDestroy
+    public void close()
+    {
+        closing = true;
+        if (reads instanceof ExecutorService executor) {
+            executor.shutdownNow();
+        }
+        flights.values().forEach(Flight::cancel);
     }
 
     /** Whether the run's second reader is still reading. */
@@ -205,6 +235,9 @@ public class ReviewSweep
                         + "\nUse head-side line numbers. For commits or descriptions, leave path empty and omit line.",
                 "scope", scope, "pr", description, "facts", String.join("\n", facts), "rules", rules),
                 () -> flights.get(review.id()) == flight && !flight.cancelled && !flight.leads.isDone());
+        if (flight.cancelled || closing) {
+            return ImmutableList.of();
+        }
         return reader.read(task, ReviewPrompts.sweepRequest(review, run), context, flight::started).map(ReviewLead::parse).orElse(ImmutableList.of());
     }
 

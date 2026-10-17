@@ -38,6 +38,7 @@ import com.bytequay.core.store.AgendaStore;
 import com.bytequay.core.store.AppSettingsStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -58,10 +59,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.inOrder;
@@ -83,6 +88,8 @@ class TestAgendaService
               {"ref": "pr:made/up#1", "action": "review", "title": "Review a PR no page named", "why": "x"}],
              "recap": {"text": "Merged 3 PRs.", "merged": ["pr:trinodb/trino#31390"], "slipped": []}}
             """;
+
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     @TempDir
     private Path temporaryDirectory;
@@ -159,7 +166,14 @@ class TestAgendaService
             }
         };
         agenda = new AgendaService(store, reader, calendars, teams, done, new AgendaSettings(settings, AgendaFixtures.mapper()), appSettings, models, drivers, resources,
-                AgendaFixtures.mapper(), clock);
+                AgendaFixtures.mapper(), clock, executor);
+    }
+
+    @AfterEach
+    void stopWorkers()
+    {
+        executor.shutdownNow();
+        executor.close();
     }
 
     @Test
@@ -168,6 +182,15 @@ class TestAgendaService
         AppSettingsStore nothingSaved = mock(AppSettingsStore.class);
         when(nothingSaved.get(any())).thenReturn(Optional.empty());
         assertThat(new AgendaSettings(nothingSaved, AgendaFixtures.mapper()).schedule().enabled()).isFalse();
+    }
+
+    @Test
+    void rejectedWorkReleasesTheAgendaSlot()
+    {
+        executor.shutdownNow();
+
+        assertThatThrownBy(agenda::makeAgain).isInstanceOf(RejectedExecutionException.class);
+        assertThat(agenda.today(Optional.empty()).state()).isEqualTo("NONE");
     }
 
     @Test

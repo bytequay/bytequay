@@ -23,6 +23,7 @@ import com.bytequay.core.store.GoalKnowledgeNoteStore;
 import com.bytequay.core.store.GoalLessonStore;
 import com.bytequay.core.store.GoalRecommendationStore;
 import com.google.common.collect.ImmutableList;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -39,6 +40,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -240,6 +242,9 @@ public class GoalLessonService
             return goal(goal.workspaceId(), goal.id());
         }
         catch (RuntimeException failure) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw failure;
+            }
             log.warn("The course map of goal {} was not drawn: {}", goal.id(), failure.toString());
             return goal;
         }
@@ -257,5 +262,13 @@ public class GoalLessonService
         boolean inCourse = goal.course().stream().flatMap(course -> course.parts().stream()).anyMatch(part -> part.lessons().contains(lessonId));
         return goal.items().stream().filter(item -> inCourse && item.id().equals(lessonId)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Lesson not found"));
+    }
+
+    @PreDestroy
+    public void close()
+    {
+        if (executor instanceof ExecutorService service) {
+            service.shutdownNow();
+        }
     }
 }

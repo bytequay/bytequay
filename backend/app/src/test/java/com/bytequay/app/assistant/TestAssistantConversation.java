@@ -45,6 +45,7 @@ import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantReceipt;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -67,6 +68,8 @@ import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -97,6 +100,8 @@ class TestAssistantConversation
     private static final AgentLaneId LANE = new AgentLaneId("claude");
     private static final LocalDate DAY = LocalDate.parse("2026-10-17");
     private static final AgendaTarget TASK = AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t1");
+
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     @TempDir
     private Path temporaryDirectory;
@@ -175,7 +180,14 @@ class TestAssistantConversation
         };
         assistant = new AssistantService(store, reader, actions, models, drivers, resources,
                 new AgentProperties(runtime, Duration.ZERO, "", "codex", "0.159.3", temporaryDirectory.resolve("codex-home"), "claude", temporaryDirectory.resolve("claude-home")),
-                AgendaFixtures.mapper(), clock);
+                AgendaFixtures.mapper(), clock, executor);
+    }
+
+    @AfterEach
+    void stopWorkers()
+    {
+        executor.shutdownNow();
+        executor.close();
     }
 
     @Test

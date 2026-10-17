@@ -315,6 +315,41 @@ class TestDefaultProcessSupervisor
     }
 
     @Test
+    void completesQueuedWritesWhenTheProcessExitsDuringAnInputCallback()
+            throws Exception
+    {
+        CountDownLatch completingInput = new CountDownLatch(1);
+        CountDownLatch releaseInput = new CountDownLatch(1);
+        ManagedProcess process = supervisor.prepare(spec("exec sleep 20")).start((stream, bytes) -> {});
+        try {
+            CompletableFuture<Void> blockedInput = process.write(ByteBuffer.wrap(new byte[1024 * 1024])).toCompletableFuture();
+            blockedInput.whenComplete((ignored, failure) -> {
+                completingInput.countDown();
+                try {
+                    releaseInput.await();
+                }
+                catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            CompletableFuture<Void> queuedInput = process.write(ByteBuffer.wrap(new byte[] {1})).toCompletableFuture();
+            assertThatThrownBy(() -> blockedInput.get(200, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+
+            process.cancel();
+            assertThat(completingInput.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exit().toCompletableFuture().get(10, TimeUnit.SECONDS).reason()).isEqualTo(ProcessExit.Reason.CANCELLED);
+            releaseInput.countDown();
+
+            assertThatThrownBy(() -> blockedInput.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(AgentUnavailableException.class);
+            assertThatThrownBy(() -> queuedInput.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(AgentUnavailableException.class);
+        }
+        finally {
+            releaseInput.countDown();
+            process.close();
+        }
+    }
+
+    @Test
     void cancelsTheProcessTreeAndTimesOutLongRuns()
             throws Exception
     {

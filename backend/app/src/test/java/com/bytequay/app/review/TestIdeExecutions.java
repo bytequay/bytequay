@@ -104,7 +104,7 @@ class TestIdeExecutions
         });
         when(store.find(anyString())).thenAnswer(call -> Optional.ofNullable(rows.get(call.getArgument(0))));
         executions = new IdeExecutions(runtime, code, turns, mock(AgentReviewService.class), mock(AgentReviewStore.class), store, new ReviewLocks(),
-                Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+                Clock.fixed(Instant.EPOCH, ZoneOffset.UTC), Runnable::run);
     }
 
     @Test

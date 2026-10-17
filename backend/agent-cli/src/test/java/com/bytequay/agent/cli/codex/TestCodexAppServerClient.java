@@ -24,10 +24,12 @@ import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -43,9 +45,11 @@ import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestCodexAppServerClient
 {
@@ -81,6 +85,66 @@ class TestCodexAppServerClient
         ObjectMapper objectMapper = new ObjectMapper();
         RetryingProcess process = new RetryingProcess(objectMapper);
         List<String> acknowledged = new CopyOnWriteArrayList<>();
+        CodexAppServerClient client = client(objectMapper, process, acknowledged);
+        client.start();
+        assertThat(acknowledged).isEmpty();
+        if (exitBeforeStop) {
+            process.cancel();
+            assertThat(client.processTreeVerifiedStopped()).contains(false);
+        }
+
+        client.close();
+
+        assertThat(process.stopAttempts()).isOne();
+        assertThat(client.processTreeVerifiedStopped()).contains(true);
+        assertThat(acknowledged).containsExactly("retrying");
+    }
+
+    @Test
+    void stopsDispatchingWhenProcessShutdownCannotBeVerified()
+            throws Exception
+    {
+        ObjectMapper objectMapper = new ObjectMapper();
+        RetryingProcess process = new RetryingProcess(objectMapper);
+        process.verifyStop = false;
+        List<String> acknowledged = new CopyOnWriteArrayList<>();
+        CodexAppServerClient client = client(objectMapper, process, acknowledged);
+        CompletableFuture<Thread> disconnected = new CompletableFuture<>();
+        client.listen(new CodexMessageDispatcher.Listener()
+        {
+            @Override
+            public void onNotification(CodexProtocol.Notification notification) {}
+
+            @Override
+            public CompletionStage<?> onRequest(CodexProtocol.ServerRequest request)
+            {
+                return CompletableFuture.completedFuture(new Object());
+            }
+
+            @Override
+            public void onDisconnect(Throwable failure)
+            {
+                disconnected.complete(Thread.currentThread());
+            }
+        });
+        client.start();
+        try {
+            assertThatThrownBy(client::close).isInstanceOf(AgentUnavailableException.class);
+            Thread handler = disconnected.get(5, TimeUnit.SECONDS);
+            handler.join(5_000);
+            assertThat(handler.isAlive()).isFalse();
+            assertThat(client.processTreeVerifiedStopped()).contains(false);
+            assertThat(acknowledged).isEmpty();
+        }
+        finally {
+            process.verifyStop = true;
+            client.close();
+        }
+        assertThat(client.processTreeVerifiedStopped()).contains(true);
+    }
+
+    private CodexAppServerClient client(ObjectMapper objectMapper, RetryingProcess process, List<String> acknowledged)
+    {
         ProcessSupervisor supervisor = new ProcessSupervisor()
         {
             @Override
@@ -135,19 +199,7 @@ class TestCodexAppServerClient
                 1024,
                 Duration.ofMinutes(1),
                 Duration.ZERO);
-        CodexAppServerClient client = new CodexAppServerClient(supervisor, spec, objectMapper, SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty());
-        client.start();
-        assertThat(acknowledged).isEmpty();
-        if (exitBeforeStop) {
-            process.cancel();
-            assertThat(client.processTreeVerifiedStopped()).contains(false);
-        }
-
-        client.close();
-
-        assertThat(process.stopAttempts()).isOne();
-        assertThat(client.processTreeVerifiedStopped()).contains(true);
-        assertThat(acknowledged).containsExactly("retrying");
+        return new CodexAppServerClient(supervisor, spec, objectMapper, SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty());
     }
 
     private static final class RetryingProcess
@@ -169,6 +221,7 @@ class TestCodexAppServerClient
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
         private final AtomicInteger stopAttempts = new AtomicInteger();
         private ProcessOutputSink output;
+        private boolean verifyStop = true;
 
         private RetryingProcess(ObjectMapper objectMapper)
         {
@@ -232,7 +285,7 @@ class TestCodexAppServerClient
         public CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
         {
             stopAttempts.incrementAndGet();
-            return CompletableFuture.completedFuture(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+            return CompletableFuture.completedFuture(verifyStop ? ProcessExit.TreeTermination.VERIFIED_STOPPED : ProcessExit.TreeTermination.UNVERIFIABLE);
         }
 
         @Override

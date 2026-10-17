@@ -14,6 +14,7 @@
 package com.bytequay.app.agenda;
 
 import com.bytequay.app.review.PullRequestsRefreshed;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -21,8 +22,10 @@ import org.springframework.stereotype.Component;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static java.util.Objects.requireNonNull;
 
 /** Looks each minute whether today's agenda is due; a Mac that slept past the set time gets it on the first look after waking. */
@@ -31,12 +34,14 @@ public class AgendaJob
 {
     private final AgendaService agenda;
     private final Clock clock;
+    private final ExecutorService executor;
     private final AtomicReference<Instant> lastSync = new AtomicReference<>();
 
-    public AgendaJob(AgendaService agenda, Clock clock)
+    public AgendaJob(AgendaService agenda, Clock clock, @Qualifier(IO_EXECUTOR) ExecutorService executor)
     {
         this.agenda = requireNonNull(agenda, "agenda is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.executor = requireNonNull(executor, "executor is null");
     }
 
     @EventListener
@@ -49,6 +54,6 @@ public class AgendaJob
     public void tick()
     {
         // Every @Scheduled job shares the agent approval thread, and a run waits minutes on the model.
-        Thread.startVirtualThread(() -> agenda.runIfDue(Optional.ofNullable(lastSync.get())));
+        executor.execute(() -> agenda.runIfDue(Optional.ofNullable(lastSync.get())));
     }
 }

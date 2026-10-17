@@ -15,6 +15,8 @@ package com.bytequay.app.service.settings;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.Executors;
+
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -26,9 +28,11 @@ class TestModelCatalogStartupJob
     {
         ModelSettingsService models = mock(ModelSettingsService.class);
 
-        new ModelCatalogStartupJob(models).onApplicationReady();
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            new ModelCatalogStartupJob(models, executor).onApplicationReady();
 
-        verify(models).seedCatalogs();
-        verify(models, timeout(5_000)).refreshCatalogs();
+            verify(models).seedCatalogs();
+            verify(models, timeout(5_000)).refreshCatalogs();
+        }
     }
 }

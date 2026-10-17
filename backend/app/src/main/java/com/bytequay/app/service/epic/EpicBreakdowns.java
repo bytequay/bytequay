@@ -33,6 +33,7 @@ import com.bytequay.core.store.WorkItemStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,6 +48,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static com.bytequay.app.context.ContextText.unfence;
@@ -374,5 +376,13 @@ public class EpicBreakdowns
             throw new AgentUnavailableException("The model did not answer with work in the expected shape. Ask again.");
         }
         throw new AgentUnavailableException("The model did not answer with work in the expected shape. Ask again.");
+    }
+
+    @PreDestroy
+    public void close()
+    {
+        if (executor instanceof ExecutorService service) {
+            service.shutdownNow();
+        }
     }
 }

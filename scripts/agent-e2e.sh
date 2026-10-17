@@ -474,7 +474,7 @@ model="${BYTEQUAY_AGENT_E2E_MODEL:-}"
 effort="${BYTEQUAY_AGENT_E2E_EFFORT:-}"
 if [[ -z "$model" ]]; then
     for _ in {1..120}; do
-        model_settings="$(curl -q -fsS --connect-timeout 2 --max-time 30 \
+        model_settings="$(curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 30 \
             "$base_url/api/settings/models")"
         model="$(printf '%s\n' "$model_settings" | jq -r --arg provider "$provider" \
             '.providers[] | select(.id == $provider) | .selectedModel // empty')"

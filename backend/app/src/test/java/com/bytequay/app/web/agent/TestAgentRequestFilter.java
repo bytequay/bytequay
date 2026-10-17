@@ -208,15 +208,65 @@ class TestAgentRequestFilter
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/hello", "/prs", "/prs/detail"})
-    void leavesHealthAndPullRequestReadsAvailable(String path)
+    @CsvSource({
+            "GET, /prs",
+            "GET, /prs/detail",
+            "GET, /recent",
+            "POST, /api/settings/agent-skills",
+            "PUT, /api/settings/development-automation",
+            "POST, /api/settings/api-keys",
+            "POST, /api/settings/sync/trigger",
+            "POST, /api/workspaces/workspace-a/issues/7/comments",
+            "POST, /api/workspaces/workspace-a/issues/7/close",
+            "POST, /api/workspaces/workspace-a/work-items/item/publish",
+            "POST, /api/workspaces/workspace-a/remotes",
+            "GET, /api/repos/owner/repo/code-snippet",
+            "POST, /api/avatars/../settings/agent-skills",
+            "GET, /hello/../api/settings/app"})
+    void protectsEveryOtherRouteWithoutWaitingForAgentRecovery(String method, String path)
+            throws Exception
+    {
+        assertThat(filter(SESSION, request(method, path, null, null)).getStatus()).isEqualTo(401);
+        assertThat(filter(SESSION, request(method, path, SESSION, "https://example.com")).getStatus()).isEqualTo(403);
+
+        MockFilterChain chain = new MockFilterChain();
+        MockHttpServletRequest allowed = request(method, path, SESSION, null);
+        new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules(), new AgentServingGate())
+                .doFilter(allowed, new MockHttpServletResponse(), chain);
+        assertThat(chain.getRequest()).isSameAs(allowed);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "GET, /hello",
+            "HEAD, /hello",
+            "GET, /api/avatars/repositories/owner",
+            "POST, /internal/agent/claude/mcp"})
+    void leavesRequestsThatCannotCarryTheSessionOpen(String method, String path)
             throws Exception
     {
         MockFilterChain chain = new MockFilterChain();
-        MockHttpServletRequest request = request(path, null, "https://example.com");
-        new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules(), new AgentServingGate())
+        MockHttpServletRequest request = request(method, path, null, null);
+        new AgentRequestFilter(properties(""), new ObjectMapper().findAndRegisterModules(), new AgentServingGate())
                 .doFilter(request, new MockHttpServletResponse(), chain);
         assertThat(chain.getRequest()).isSameAs(request);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/hello", "/api/avatars/repositories/owner", "/prs", "/agent/tasks"})
+    void rejectsRequestsAddressedToAnotherHost(String path)
+            throws Exception
+    {
+        MockHttpServletRequest request = request(path, SESSION, null);
+        request.setServerName("rebound.example.com");
+        assertThat(filter(SESSION, request).getStatus()).isEqualTo(403);
+
+        MockFilterChain chain = new MockFilterChain();
+        MockHttpServletRequest loopback = request(path, SESSION, null);
+        loopback.setServerName("127.0.0.1");
+        new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules(), readyAgentServingGate())
+                .doFilter(loopback, new MockHttpServletResponse(), chain);
+        assertThat(chain.getRequest()).isSameAs(loopback);
     }
 
     private static MockHttpServletResponse filter(String configuredToken, MockHttpServletRequest request)

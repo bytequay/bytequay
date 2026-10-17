@@ -17,6 +17,7 @@ import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.web.ErrorResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,6 +33,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -39,6 +41,8 @@ import static java.util.Objects.requireNonNull;
 public final class AgentRequestFilter
         extends OncePerRequestFilter
 {
+    private static final Set<String> LOOPBACK_HOSTS = ImmutableSet.of("127.0.0.1", "localhost", "[::1]", "::1");
+
     private final AgentProperties properties;
     private final ObjectMapper objectMapper;
     private final AgentServingGate servingGate;
@@ -51,28 +55,18 @@ public final class AgentRequestFilter
     }
 
     @Override
-    protected boolean shouldNotFilter(HttpServletRequest request)
-    {
-        String path = requestPath(request);
-        return !isCredentialOrPullRequestWriteRequest(request)
-                && !path.startsWith("/agent")
-                && !path.startsWith("/api/agent-review")
-                && !(path.equals("/api/google") || path.startsWith("/api/google/"))
-                && !(path.equals("/api/jira") || path.startsWith("/api/jira/"))
-                && !(path.equals("/api/teams") || path.startsWith("/api/teams/"))
-                // A run spends the user's model account and the view shows their private work.
-                && !(path.equals("/api/agenda") || path.startsWith("/api/agenda/") || path.equals("/api/settings/agenda"))
-                && !(path.equals("/api/assistant") || path.startsWith("/api/assistant/") || path.equals("/api/settings/assistant"))
-                && !path.startsWith("/api/ci-autofix")
-                && !path.startsWith("/api/cherry-pick-ranges")
-                && !(path.startsWith("/api/workspaces/")
-                        && (path.contains("/git/") || path.contains("/cherry-pick/")));
-    }
-
-    @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException
     {
+        // A DNS-rebinding page reaches 127.0.0.1 under its own host name; the loopback names are the only ones this server answers to.
+        if (!LOOPBACK_HOSTS.contains(request.getServerName())) {
+            reject(request, response, HttpStatus.FORBIDDEN, "Requests must address this Mac's loopback interface");
+            return;
+        }
+        if (isOpenRequest(request)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         if (request.getHeader("Origin") != null) {
             reject(request, response, HttpStatus.FORBIDDEN, "Browser-originated desktop requests are forbidden");
             return;
@@ -89,19 +83,37 @@ public final class AgentRequestFilter
             reject(request, response, HttpStatus.UNAUTHORIZED, "Invalid desktop session");
             return;
         }
-        if (!servingGate.isReady() && !isProviderStatusRequest(request) && !isCredentialOrPullRequestWriteRequest(request)) {
+        if (!servingGate.isReady() && waitsForAgentRecovery(requestPath(request)) && !isProviderStatusRequest(request)) {
             reject(request, response, HttpStatus.SERVICE_UNAVAILABLE, "Agent startup recovery is not complete");
             return;
         }
         filterChain.doFilter(request, response);
     }
 
-    private static boolean isCredentialOrPullRequestWriteRequest(HttpServletRequest request)
+    /**
+     * Requests that cannot carry the session header. The renderer loads avatars as plain images, and Claude's permission MCP
+     * server authenticates each task with its own bearer token.
+     */
+    private static boolean isOpenRequest(HttpServletRequest request)
     {
         String path = requestPath(request);
-        return path.startsWith("/api/auth/")
-                || (path.startsWith("/api/workspaces/") && (path.endsWith("/github-token") || path.contains("/github-token/")))
-                || ((path.equals("/prs") || path.startsWith("/prs/")) && !request.getMethod().equals("GET") && !request.getMethod().equals("HEAD"));
+        boolean read = request.getMethod().equals("GET") || request.getMethod().equals("HEAD");
+        return (read && (path.equals("/hello") || path.startsWith("/api/avatars/")))
+                || (request.getMethod().equals("POST") && path.equals("/internal/agent/claude/mcp"));
+    }
+
+    private static boolean waitsForAgentRecovery(String path)
+    {
+        return path.startsWith("/agent")
+                || path.startsWith("/api/agent-review")
+                || path.equals("/api/google") || path.startsWith("/api/google/")
+                || path.equals("/api/jira") || path.startsWith("/api/jira/")
+                || path.equals("/api/teams") || path.startsWith("/api/teams/")
+                || path.equals("/api/agenda") || path.startsWith("/api/agenda/") || path.equals("/api/settings/agenda")
+                || path.equals("/api/assistant") || path.startsWith("/api/assistant/") || path.equals("/api/settings/assistant")
+                || path.startsWith("/api/ci-autofix")
+                || path.startsWith("/api/cherry-pick-ranges")
+                || (path.startsWith("/api/workspaces/") && (path.contains("/git/") || path.contains("/cherry-pick/")));
     }
 
     private static boolean isProviderStatusRequest(HttpServletRequest request)

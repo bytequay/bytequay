@@ -14,7 +14,7 @@
 
 export default function IdeCostNotice() {
   return <>
-    <p>The IDE starts a local code server and language tools on your Mac. They use additional memory and CPU,
+    <p>The IDE starts a local code server and language tools on your local. They use additional memory and CPU,
       and indexing takes time. Worktrees and index caches use disk space; usage depends on the repository and languages.</p>
     <p>Opening the IDE does not start an AI agent or use model tokens.</p>
   </>;

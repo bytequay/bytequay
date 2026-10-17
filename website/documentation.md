@@ -32,7 +32,8 @@ release notes for availability.
 1. Download ByteQuay from
    [GitHub Releases](https://github.com/bytequay/bytequay/releases). Open the
    DMG and drag the app to Applications. Follow your release’s requirements;
-   current builds need macOS 14+ and JDK 25.
+   current builds need macOS 14+ and include Java 25, so no separate JDK
+   installation is required.
 2. Choose **Use my GitHub CLI login** after running `gh auth login`, or
    **Connect with token →**. The app recommends a classic token with `repo` and
    `read:user` scopes.

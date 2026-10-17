@@ -249,6 +249,26 @@ Vitest runs at most four workers because browser suites each build a bundle and
 launch Electron. This keeps browser startup and shutdown from being starved by
 unrestricted parallel builds.
 
+Packaging uses JDK 25's `jlink` to create `frontend/vendor/jre` and includes it
+in the app's resources with its license notices. Build on a Mac of the target
+architecture (arm64 or x64), with `JAVA_HOME` pointing to a matching JDK 25;
+when unset, the build uses `/usr/libexec/java_home -v 25`. The runtime retains
+JDK modules for reflective loading and provider helpers, excluding the
+build-only `jdk.jlink` and `jdk.jpackage` modules so Temurin's runtime linking
+works without a `jmods` directory. It is rebuilt when the source JDK changes.
+Release CI uses the latest Temurin 25 patch; Java security updates reach users
+through new ByteQuay releases.
+
+Installed apps launch their bundled Java directly, so users do not need a
+separate JDK. Development still uses the tools listed above. Verify runtime
+packaging and start the packaged backend with an empty `PATH` and no
+`JAVA_HOME` from the repository root:
+
+```bash
+node --test scripts/java-runtime.test.mjs
+node scripts/test-packaged-backend.mjs
+```
+
 Electron 44 requires a code-signed macOS app to display native PR notifications.
 Unsigned development and packaged builds still show PR updates inside ByteQuay.
 

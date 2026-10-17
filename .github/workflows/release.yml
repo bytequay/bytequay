@@ -73,6 +73,9 @@ jobs:
           BYTEQUAY_JIRA_AUTH_URL: ${{ vars.BYTEQUAY_JIRA_AUTH_URL }}
         run: npm run make
 
+      - name: Start packaged backend without system Java
+        run: node scripts/test-packaged-backend.mjs
+
       # Surface what was produced before the upload step in case we
       # need to debug a missing asset.
       - name: List built artefacts

@@ -29,6 +29,11 @@ database, enforced by an operating-system lock. Desktop browser surfaces use
 Electron `WebContentsView`; external web sessions stay separate from the
 application's privileged bridge and backend credentials.
 
+Packaged apps own their Java runtime alongside the backend JAR. The release
+build creates it from JDK 25 for the target Mac architecture, and Electron
+starts that bundled executable directly. Installed system Java does not
+determine app startup; runtime updates ship with ByteQuay releases.
+
 Goals are a development-only experiment. Packaged renderers omit their controls,
 and the packaged sidecar disables Goal endpoints and automatic guidance. Shared
 work-item services and saved Goal data remain available for continuity.

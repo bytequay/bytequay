@@ -12,16 +12,15 @@
  * limitations under the License.
  */
 import { app, dialog } from 'electron';
-import { ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
+import { ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
 declare const __BYTEQUAY_JIRA_AUTH_URL__: string;
 
 const PORT_MESSAGE = 'BYTEQUAY_BACKEND_PORT=';
-
-const MIN_JAVA_VERSION = 25;
 
 /**
  * Shared secret for the backend's agent, CI Autofix, and cherry-pick endpoints.
@@ -61,51 +60,6 @@ export function backendBase(): string {
 }
 
 /**
- * `java` on a bare PATH is Apple's stub that fails unless a JDK is registered
- * under /Library/Java or ~/Library/Java. JDKs installed via Homebrew or SDKMAN
- * are only on the shell PATH, so we probe the usual homes explicitly.
- */
-function resolveJava(): string | null {
-  const candidates = [
-    process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME, 'bin', 'java') : null,
-    javaHomeTool(),
-    '/opt/homebrew/opt/openjdk/bin/java',
-    '/usr/bin/java',
-  ];
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    if (!candidate || seen.has(candidate)) continue;
-    seen.add(candidate);
-    const version = javaMajorVersion(candidate);
-    if (version !== null && version >= MIN_JAVA_VERSION) return candidate;
-  }
-  failure = `ByteQuay needs Java ${MIN_JAVA_VERSION} or newer on this Mac and couldn't find it.\n\n`
-    + `Install a JDK (e.g. "brew install openjdk@25") or set JAVA_HOME, then reopen ByteQuay.\n\n`
-    + `Looked in: ${[...seen].join(', ')}`;
-  return null;
-}
-
-function javaHomeTool(): string | null {
-  try {
-    const home = execFileSync('/usr/libexec/java_home', ['-v', `${MIN_JAVA_VERSION}+`], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    return home ? path.join(home, 'bin', 'java') : null;
-  } catch {
-    return null;
-  }
-}
-
-/** `java -version` prints to stderr; the stub prints an install prompt and exits non-zero. */
-function javaMajorVersion(javaBin: string): number | null {
-  const res = spawnSync(javaBin, ['-version'], { encoding: 'utf8' });
-  if (res.error || res.status !== 0) return null;
-  const match = /version "(\d+)/.exec(`${res.stderr}${res.stdout}`);
-  return match ? Number(match[1]) : null;
-}
-
-/**
  * Spawn the packaged Spring Boot JAR as a child process.
  * In dev mode, we skip this — run Spring Boot manually from IntelliJ
  * or via dev.sh.
@@ -119,6 +73,11 @@ export function spawnBackend(): void {
   if (child) return;
 
   const jar = path.join(process.resourcesPath, 'bytequay-backend.jar');
+  const java = path.join(process.resourcesPath, 'jre', 'bin', 'java');
+  if (!existsSync(java)) {
+    failure = 'ByteQuay’s bundled Java runtime is missing. Reinstall ByteQuay from the release package.';
+    return;
+  }
   // App-wide RAM budget is ~8 GB; the backend gets ~2 GB of that ceiling.
   // ExitOnOutOfMemoryError flips an OOM into a clean exit so Electron
   // can surface "backend crashed" instead of getting a wedged sidecar
@@ -135,9 +94,6 @@ export function spawnBackend(): void {
     '-XX:ReservedCodeCacheSize=128m',
     '-XX:+ExitOnOutOfMemoryError',
   ];
-  const java = resolveJava();
-  if (!java) return;
-
   child = spawn(java, [...jvmArgs, '-jar', jar, '--bytequay.experiments.goals=false'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
@@ -167,7 +123,7 @@ export function spawnBackend(): void {
     process.stderr.write(chunk);
   });
   child.on('error', (e) => {
-    failure = `Could not start the ByteQuay backend (${java}): ${e.message}`;
+    failure = `Could not start ByteQuay’s bundled Java runtime. Reinstall ByteQuay from the release package.\n\n${e.message}`;
     backendUrl = null;
     child = null;
   });

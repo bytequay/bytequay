@@ -17,7 +17,7 @@ import { MakerDMG } from '@electron-forge/maker-dmg';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -27,6 +27,7 @@ import { join } from 'node:path';
 // up from this config (frontend/forge.config.ts).
 const BACKEND_JAR = join(__dirname, '..', 'backend', 'app', 'target', 'bytequay-backend.jar');
 const IDE_BUNDLE = join(__dirname, 'vendor', 'ide');
+const JAVA_RUNTIME = join(__dirname, 'vendor', 'jre');
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -38,12 +39,15 @@ const config: ForgeConfig = {
     // App icon embedded in the .app bundle. Extension is omitted on
     // purpose — electron-packager appends .icns on macOS.
     icon: '../build/icon',
-    // Ship the backend JAR alongside the renderer. extraResource
+    // Ship the backend JAR and runtimes alongside the renderer. extraResource
     // copies the file into Contents/Resources/ on macOS (the same
     // path process.resourcesPath resolves to at runtime).
-    extraResource: [BACKEND_JAR, IDE_BUNDLE],
+    extraResource: [BACKEND_JAR, IDE_BUNDLE, JAVA_RUNTIME],
   },
   hooks: {
+    prePackage: async (_config, platform, arch) => {
+      execFileSync(process.execPath, ['scripts/java-runtime.mjs', `${platform}-${arch}`], { cwd: join(__dirname, '..'), stdio: 'inherit' });
+    },
     // The Vite plugin ships only its bundles, so the one runtime native module is copied in: its JS, license and
     // this platform's N-API prebuild, without sources or other platforms.
     packageAfterCopy: async (_config, buildPath, _electronVersion, platform, arch) => {
@@ -55,13 +59,11 @@ const config: ForgeConfig = {
       }
       chmodSync(join(target, prebuild, 'spawn-helper'), 0o755);
     },
-    // Build the Spring Boot JAR before Forge tries to copy it via
-    // extraResource. Skips Maven's gates here (`-DskipTests`) because
-    // CI already runs the full `mvn verify` — this hook just produces
-    // the artifact for packaging. Idempotent: if the JAR already
-    // exists, do nothing.
-    generateAssets: async () => {
-      execSync('node scripts/ide-bundle.mjs', { cwd: join(__dirname, '..'), stdio: 'inherit' });
+    // Prepare the IDE and backend before extraResource copies them. Reuse an existing JAR;
+    // CI runs the full backend gates separately, so a missing JAR is built here with tests skipped.
+    generateAssets: async (_config, platform, arch) => {
+      const root = join(__dirname, '..');
+      execFileSync(process.execPath, ['scripts/ide-bundle.mjs', `${platform}-${arch}`], { cwd: root, stdio: 'inherit' });
       if (existsSync(BACKEND_JAR)) {
         return;
       }

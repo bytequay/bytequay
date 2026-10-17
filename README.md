@@ -111,7 +111,8 @@ Download the latest `.dmg` from
 [GitHub Releases](https://github.com/bytequay/bytequay/releases), open it, and
 drag **ByteQuay.app** to **Applications**.
 
-Current builds require macOS 14+ and JDK 25 LTS.
+Current builds require macOS 14+. The app bundles Java 25; no separate JDK
+installation is required.
 
 Follow the [quickstart](https://bytequay.github.io/bytequay/guide-get-started.html#getting-started)
 to connect GitHub, watch a repository, and open your first PR.

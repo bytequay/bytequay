@@ -111,7 +111,7 @@ ByteQuay.md
 .agents
 AGENTS.md
 
-# Vendored IDE runtime, fetched by scripts/ide-bundle.mjs
+# IDE and Java runtimes prepared by the packaging scripts
 frontend/vendor/
 
 # Python tools under scripts/

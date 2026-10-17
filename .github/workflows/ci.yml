@@ -70,9 +70,13 @@ jobs:
       - name: Test
         working-directory: frontend
         run: npm test
+      - name: Test Java runtime packaging
+        run: node --test scripts/java-runtime.test.mjs
       - name: Package
         working-directory: frontend
         run: npm run package
+      - name: Start packaged backend without system Java
+        run: node scripts/test-packaged-backend.mjs
 
   scripts:
     runs-on: ubuntu-latest

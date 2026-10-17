@@ -15,13 +15,10 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ app: { isPackaged: true }, showErrorBox: vi.fn(), spawn: vi.fn() }));
+const mocks = vi.hoisted(() => ({ app: { isPackaged: true }, showErrorBox: vi.fn(), spawn: vi.fn(), existsSync: vi.fn() }));
 vi.mock('electron', () => ({ app: mocks.app, dialog: { showErrorBox: mocks.showErrorBox } }));
-vi.mock('node:child_process', () => ({
-  spawn: mocks.spawn,
-  execFileSync: () => '/test/java-home',
-  spawnSync: () => ({ status: 0, stderr: 'openjdk version "25"', stdout: '' }),
-}));
+vi.mock('node:child_process', () => ({ spawn: mocks.spawn }));
+vi.mock('node:fs', () => ({ existsSync: mocks.existsSync }));
 
 const resourcesPath = Object.getOwnPropertyDescriptor(process, 'resourcesPath');
 Object.defineProperty(process, 'resourcesPath', { configurable: true, value: '/test/resources' });
@@ -38,6 +35,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubEnv('BYTEQUAY_BACKEND_PORT', undefined);
   mocks.app.isPackaged = true;
+  mocks.existsSync.mockReturnValue(true);
   child = Object.assign(new EventEmitter(), {
     stdout: new PassThrough(), stderr: new PassThrough(), kill: vi.fn(),
   });
@@ -54,6 +52,36 @@ afterEach(() => {
 });
 
 describe('backend port discovery', () => {
+  it('launches the bundled runtime without a system Java installation', async () => {
+    vi.stubEnv('JAVA_HOME', '/missing/jdk');
+    vi.stubEnv('PATH', '/no-system-java');
+    const backend = await import('./backendProcess');
+    backend.spawnBackend();
+    expect(mocks.existsSync).toHaveBeenCalledWith('/test/resources/jre/bin/java');
+    expect(mocks.spawn).toHaveBeenCalledWith('/test/resources/jre/bin/java',
+      expect.arrayContaining(['-jar', '/test/resources/bytequay-backend.jar']), expect.any(Object));
+  });
+
+  it('reports an incomplete installation when the bundled runtime is missing', async () => {
+    mocks.existsSync.mockReturnValue(false);
+    const backend = await import('./backendProcess');
+    backend.spawnBackend();
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(await backend.waitForBackendReady()).toBe(false);
+    backend.reportBackendFailure();
+    expect(mocks.showErrorBox).toHaveBeenCalledWith('ByteQuay backend is not running', expect.stringContaining('Reinstall ByteQuay'));
+  });
+
+  it('reports an unusable bundled executable without falling back to system Java', async () => {
+    const backend = await import('./backendProcess');
+    backend.spawnBackend();
+    child.emit('error', new Error('permission denied'));
+    expect(await backend.waitForBackendReady()).toBe(false);
+    backend.reportBackendFailure();
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(mocks.showErrorBox).toHaveBeenCalledWith('ByteQuay backend is not running', expect.stringContaining('Reinstall ByteQuay'));
+  });
+
   it('disables the Goal experiment in packaged apps even when the environment enables it', async () => {
     vi.stubEnv('BYTEQUAY_EXPERIMENTS_GOALS', 'true');
     const backend = await import('./backendProcess');

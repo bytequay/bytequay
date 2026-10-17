@@ -119,6 +119,22 @@
   margin-top: 16px;
 }
 
+/* Room for the outline below when a card is scrolled into view. */
+.assistant-waiting__card { scroll-margin: 8px; }
+
+/* Only an alert's Answer focuses a card, and its fading outline below is the cue. */
+.assistant-waiting__card:focus-visible { outline: none; }
+
+/* Opened from its alert: a 2px accent outline that holds for 2 s, then fades. */
+.assistant-waiting__card.is-opened {
+  border-radius: 10px;
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  animation: assistant-opened 400ms ease-in 2s forwards;
+}
+
+@keyframes assistant-opened { to { outline-color: transparent; } }
+
 .assistant-wait {
   display: grid;
   gap: 6px;

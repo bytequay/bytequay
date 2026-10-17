@@ -13,7 +13,7 @@
  */
 import { ipcMain, WebContentsView, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
-import { NOTICE_WIDTH, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
+import { APPROVAL_NOTICE, NOTICE_WIDTH, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
 import { NoticeStore } from './store';
 
 /** One trusted app surface above native browser/editor views; its bridge cannot execute task actions. */
@@ -23,8 +23,6 @@ export class NoticeHost {
   private timer: ReturnType<typeof setInterval> | undefined;
   private reading: Promise<void> | null = null;
   private height = 0;
-  private width = NOTICE_WIDTH;
-  private folded = false;
   private obscured = false;
   private suppressed = false;
   private mainNotices = '';
@@ -58,7 +56,7 @@ export class NoticeHost {
     const child = (event: IpcMainInvokeEvent | IpcMainEvent): void => {
       if (!this.view || event.sender !== this.view.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error('Unknown notice surface');
     };
-    // The Assistant panel lists the same notices, so the main window may read, open and remove them too.
+    // The Assistant panel lists the same notices, so the main window may read and open them too.
     const ownerOrChild = (event: IpcMainInvokeEvent): void => { if (!owner(event)) child(event); };
     ipcMain.handle('notices:read', event => { ownerOrChild(event); return this.snapshot(); });
     ipcMain.handle('notices:dismiss', (event, id: unknown) => {
@@ -66,27 +64,34 @@ export class NoticeHost {
       if (typeof id !== 'string') throw new Error('Invalid notice');
       this.store.dismiss(id); this.publish();
     });
+    // Only the panel clears a notice for good; an alert's × just closes the alert.
     ipcMain.handle('notices:remove', (event, id: unknown) => {
-      ownerOrChild(event);
+      if (!owner(event)) throw new Error('Unknown notice owner');
       if (typeof id !== 'string') throw new Error('Invalid notice');
       this.store.remove(id); this.publish();
     });
     ipcMain.handle('notices:open', async (event, id: unknown) => {
       ownerOrChild(event);
       if (typeof id !== 'string') throw new Error('Invalid notice');
+      const fromAlert = !owner(event);
       await this.refresh();
       const notice = this.snapshot().notices.find(item => item.id === id);
       if (!notice) return;
-      await this.openNotice(notice);
+      const window = this.window();
+      // An alert's Answer opens the panel at the card, whose own buttons answer it; the panel's Open still opens the task.
+      if (fromAlert && notice.id.startsWith(APPROVAL_NOTICE) && window && !window.isDestroyed()) {
+        window.webContents.focus();
+        window.webContents.send('assistant:open-card', notice.id);
+      }
+      else await this.openNotice(notice);
       if (notice.kind === 'TURN_FINISHED') this.store.remove(id);
       else this.store.dismiss(id);
       this.publish();
     });
-    ipcMain.on('notices:resize', (event, height: unknown, width: unknown, folded: unknown) => {
+    ipcMain.on('notices:resize', (event, height: unknown) => {
       child(event);
-      if (typeof height !== 'number' || !Number.isFinite(height) || height < 0
-        || typeof width !== 'number' || !Number.isFinite(width) || width <= 0 || typeof folded !== 'boolean') return;
-      this.height = Math.ceil(height); this.width = Math.ceil(width); this.folded = folded; this.layout();
+      if (typeof height !== 'number' || !Number.isFinite(height) || height < 0) return;
+      this.height = Math.ceil(height); this.layout();
     });
     ipcMain.handle('notices:source', (event, key: unknown, source: unknown) => {
       if (!owner(event)) throw new Error('Unknown notice owner');
@@ -189,23 +194,22 @@ export class NoticeHost {
     const { width, height } = window.getContentBounds();
     // Renderer measurements are CSS pixels; native bounds are DIPs, including when the app is zoomed.
     const noticeZoom = this.view.webContents.getZoomFactor();
-    const w = Math.min(Math.max(1, width - 16), Math.ceil(Math.min(NOTICE_WIDTH, this.width) * noticeZoom));
+    const w = Math.min(Math.max(1, width - 16), Math.ceil(NOTICE_WIDTH * noticeZoom));
     const h = this.snapshot().notices.length ? Math.min(Math.max(0, height - 64), Math.ceil(this.height * noticeZoom)) : 0;
     // Bootstrap a one-pixel viewport so Chromium can measure before the first card resize.
     const viewportHeight = Math.max(1, h);
-    const right = this.folded ? 0 : 8;
-    this.view.setBounds({ x: width - w - right, y: height - viewportHeight - 8, width: w, height: viewportHeight });
+    this.view.setBounds({ x: width - w - 8, y: height - viewportHeight - 8, width: w, height: viewportHeight });
     const shown = h > 0 && !this.obscured && !this.suppressed;
     this.view.setVisible(shown);
     const zoom = window.webContents.getZoomFactor();
     window.webContents.send('notices:bounds', shown
-      ? { x: (width - w - right) / zoom, y: (height - h - 8) / zoom, width: w / zoom, height: h / zoom } : null);
+      ? { x: (width - w - 8) / zoom, y: (height - h - 8) / zoom, width: w / zoom, height: h / zoom } : null);
     this.raise();
   }
 
   releaseWindow(): void {
     if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.close();
-    this.view = null; this.height = 0; this.width = NOTICE_WIDTH; this.folded = false; this.obscured = false; this.suppressed = false; this.mainNotices = '';
+    this.view = null; this.height = 0; this.obscured = false; this.suppressed = false; this.mainNotices = '';
     this.sources.clear();
   }
 

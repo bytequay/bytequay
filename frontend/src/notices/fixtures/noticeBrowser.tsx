@@ -30,32 +30,30 @@ export async function run() {
   let listener: (value: NoticeSnapshot) => void = () => {};
   let rejectDismiss = false;
   let rejectOpen = false;
-  const opened: string[] = []; const dismissed: string[] = []; const sizes: { height: number; width: number; folded: boolean }[] = [];
+  const opened: string[] = []; const dismissed: string[] = []; const sizes: number[] = [];
   const bridge: NoticeBridge = {
     read: async () => state, subscribe: callback => { listener = callback; return () => {}; },
     dismiss: async id => {
       if (rejectDismiss) throw new Error('Dismiss failed');
       dismissed.push(id); state = { ...state, popupIds: state.popupIds.filter(key => key !== id) }; listener(state);
     },
-    remove: async id => {
-      if (rejectDismiss) throw new Error('Dismiss failed');
-      dismissed.push(id);
-      state = { ...state, notices: state.notices.filter(notice => notice.id !== id),
-        popupIds: state.popupIds.filter(key => key !== id), viewedIds: state.viewedIds.filter(key => key !== id) }; listener(state);
-    },
     open: async id => {
       if (rejectOpen) throw new Error('Open failed');
       opened.push(id);
-      if (state.notices.find(notice => notice.id === id)?.kind === 'TURN_FINISHED') await bridge.remove(id);
-      else await bridge.dismiss(id);
+      // As the host does: an opened completion leaves, and anything else only stops alerting.
+      const finished = state.notices.find(notice => notice.id === id)?.kind === 'TURN_FINISHED';
+      state = { ...state, notices: finished ? state.notices.filter(notice => notice.id !== id) : state.notices, popupIds: state.popupIds.filter(key => key !== id) };
+      listener(state);
     },
-    resize: (height, width, folded) => sizes.push({ height, width, folded }),
+    resize: height => sizes.push(height),
   };
-  const make = (id: string, kind: AppNotice['kind']): AppNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn', reviewId: null,
+  const make = (id: string, kind: AppNotice['kind'], minutesAgo = 0): AppNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn', reviewId: null,
     title: kind === 'QUESTION' ? 'Improve task recovery' : 'Review the settings screen',
     pullRequest: null, pullRequestTitle: null, changes: null,
     message: kind === 'QUESTION' ? 'Should interrupted tasks resume automatically?' : 'The latest response is ready to read.',
-    laneId: 'codex', repository: 'bytequay/bytequay', occurredAt: new Date().toISOString() });
+    laneId: 'codex', repository: 'bytequay/bytequay', occurredAt: new Date(Date.now() - minutesAgo * 60_000).toISOString() });
+  const alert = () => host.querySelector<HTMLElement>('.app-notice');
+  const action = () => alert()?.querySelector<HTMLButtonElement>('.app-notice__actions button') ?? null;
   const originalTimeout = window.setTimeout.bind(window);
   const originalClear = window.clearTimeout.bind(window);
   const originalNow = Date.now;
@@ -71,198 +69,102 @@ export async function run() {
   Date.now = () => clock;
   try {
     root.render(<NoticeStack bridge={bridge} />); await wait();
-    assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'Empty state hides the notice counter and releases its native hit area');
-    state = { ...state, notices: [make('done', 'TURN_FINISHED'), make('q', 'QUESTION'), make('approval', 'APPROVAL'), make('other', 'QUEUE_PAUSED')], popupIds: ['q', 'done', 'approval', 'other'] };
+    assert(!host.querySelector('.app-notices') && sizes.at(-1) === 0, 'Nothing new shows no alert and releases the native hit area');
+    const pullRequestTitle = 'Improve recovery when interrupted tasks resume with queued messages and pending approval requests across repositories';
+    state = { ...state, notices: [make('approval:a', 'APPROVAL', 1), make('approval:q', 'QUESTION', 2), make('question:t', 'QUESTION', 3),
+      make('other', 'QUEUE_PAUSED', 4), make('done', 'TURN_FINISHED')], popupIds: ['approval:a', 'approval:q', 'question:t', 'other', 'done'] };
     listener(state); await wait();
-    const launcher = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(launcher, 'New notices restore the counter');
-    assert(host.querySelectorAll('.app-notice').length === 2, 'At most two popups are visible');
-    const front = host.querySelector<HTMLElement>('.app-notice:not(.is-preview)');
-    const preview = host.querySelector<HTMLElement>('.app-notice.is-preview');
-    assert(front && preview && preview.inert, 'The covered preview has no hidden keyboard targets');
+    assert(host.querySelectorAll('.app-notice').length === 1, 'At most one alert shows');
+    let front = alert(); assert(front?.classList.contains('is-turn_finished'), 'The alert is the newest notice not seen yet, whatever its kind');
+    assert(!host.querySelector('.app-notices__launcher, .app-notices__header, .app-notices__pages, .app-notices__fold, .app-notices__edge, .is-preview')
+      && host.querySelectorAll('button').length === 2, 'No launcher, list, pages, fold tab or stacked preview: only the alert’s action and ×');
     assert(front.querySelector('h2')?.textContent === 'Review the settings screen' && !front.querySelector('.app-notice__changes'),
       'Tasks without PR context keep their title and omit change counts');
-    const pullRequestTitle = 'Improve recovery when interrupted tasks resume with queued messages and pending approval requests across repositories';
     assert(front.querySelector('.app-notice__head')?.textContent?.startsWith('Turn finished') && front.querySelector('.app-notice__time')?.textContent === 'just now'
       && !front.querySelector('.app-notice__message'), 'Completed tasks state the outcome and its age without a generic message');
-    assert(front.querySelector('.app-notice__actions span')?.textContent === 'bytequay/bytequay', 'The action row names the task repository');
-    state = { ...state, notices: [{ ...state.notices[0], title: 'Review bytequay/bytequay#42', reviewId: 'review', pullRequest: 'bytequay/bytequay#42', pullRequestTitle,
-      changes: { update: false, commits: 2, files: 3, additions: 42, deletions: 12 } }, ...state.notices.slice(1)] }; listener(state); await wait();
+    assert(action()?.textContent === 'View response' && front.querySelector('.app-notice__actions span')?.textContent === 'bytequay/bytequay',
+      'A completion opens its response, and the action row names the task repository');
+    state = { ...state, notices: state.notices.map(notice => notice.id !== 'done' ? notice : { ...notice, title: 'Review bytequay/bytequay#42', reviewId: 'review',
+      pullRequest: 'bytequay/bytequay#42', pullRequestTitle, changes: { update: false, commits: 2, files: 3, additions: 42, deletions: 12 } }) }; listener(state); await wait();
+    front = alert(); assert(front, 'Review alert missing');
     assert(front.querySelector('h2')?.textContent === pullRequestTitle && front.querySelector('.app-notice__ref')?.textContent === 'bytequay/bytequay#42',
-      'Review cards show both the PR title and its identity');
+      'Review alerts show both the PR title and its identity');
     assert(front.querySelector('.app-notice__head')?.textContent?.startsWith('Review finished'), 'Review completions name the review');
     const counts = [...front.querySelectorAll('.app-notice__changes span')];
-    assert(counts.map(span => span.textContent).join() === '2 commits,3 files,+42,−12', 'Review cards show compact change counts');
+    assert(counts.map(span => span.textContent).join() === '2 commits,3 files,+42,−12', 'Review alerts show compact change counts');
     assert(getComputedStyle(counts[2]).color !== getComputedStyle(counts[3]).color, 'Added and deleted lines use different colors');
     const heading = front.querySelector('h2'); assert(heading, 'Review title missing');
     assert(heading.title === pullRequestTitle && heading.getBoundingClientRect().height <= parseFloat(getComputedStyle(heading).lineHeight) * 2 + 1,
       'Long PR titles stay within two lines and retain the full title on hover');
-    assert(front.scrollWidth === front.clientWidth, 'Review context stays inside the narrow card');
-    const frontRect = front.getBoundingClientRect(); const previewRect = preview.getBoundingClientRect();
-    assert(frontRect.top > previewRect.top && frontRect.top < previewRect.bottom && previewRect.left > frontRect.left,
-      'The second card peeks out behind the front card');
-    assert(document.elementFromPoint(frontRect.left + frontRect.width / 2, frontRect.top + 5)?.closest('.app-notice') === front,
-      'The front card receives clicks in the overlap');
-    const stack = host.querySelector<HTMLElement>('.app-notices'); assert(stack, 'Stack missing');
-    assert(Math.abs(stack.getBoundingClientRect().bottom - launcher.getBoundingClientRect().bottom) < 1,
-      'The native surface ends at the counter without a transparent strip below it');
-    assert(timers.size === 1 && [...timers.values()][0].delay === 8000, 'Only completion has an eight-second timer');
-    const originalOrder = state.notices;
-    state = { ...state, notices: [originalOrder[1], originalOrder[0], ...originalOrder.slice(2)] }; listener(state); await wait();
-    assert(Number(timers.size) === 0, 'A covered completion does not expire before it can be read');
-    state = { ...state, notices: originalOrder }; listener(state); await wait();
-    const done = host.querySelector<HTMLElement>('.is-turn_finished'); assert(done, 'Completion card missing');
+    assert(front.scrollWidth === front.clientWidth, 'Review context stays inside the narrow alert');
+    const stack = host.querySelector<HTMLElement>('.app-notices'); assert(stack, 'Alert surface missing');
+    // The alert slides in, so measure where it settles.
+    await Promise.all(front.getAnimations().map(animation => animation.finished));
+    const surface = stack.getBoundingClientRect();
+    assert(Math.abs(surface.bottom - front.getBoundingClientRect().bottom) < 1 && surface.width <= window.innerWidth && surface.height <= 600,
+      `The native surface ends at the alert, without a transparent strip below it, and fits its view: ${JSON.stringify({ surface, alert: front.getBoundingClientRect() })}`);
+    assert(sizes.at(-1) === Math.ceil(surface.height) && surface.height > 100, 'The native host receives the alert’s measured height');
+    assert(timers.size === 1 && [...timers.values()][0].delay === 8000, 'A completion alert has an eight-second timer');
     clock += 3000;
-    done.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); await wait();
+    front.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); await wait();
     assert(Number(timers.size) === 0, 'Hover pauses expiry');
     clock += 20000;
-    done.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })); await wait();
+    front.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })); await wait();
     assert([...timers.values()][0]?.delay === 5000, 'Hover preserves remaining display time');
     state = { ...state, active: false }; listener(state); await wait();
     assert(Number(timers.size) === 0, 'Background windows do not consume display time');
     state = { ...state, active: true }; listener(state); await wait();
-    const action = done.querySelector<HTMLButtonElement>('.app-notice__actions button'); assert(action, 'Completion action missing');
+    const view = action(); assert(view, 'Completion action missing');
     // The fixture window is hidden, so deliver the focus events without asking macOS for focus.
-    action.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    view.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
     await wait(); assert(Number(timers.size) === 0, 'Keyboard focus pauses expiry');
-    action.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); await wait();
+    view.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); await wait();
     [...timers.values()][0].callback(); await wait();
-    assert(dismissed.includes('done') && host.querySelector('.is-turn_finished') === null, 'Completion expires');
-    assert(launcher.textContent?.includes('1 recent'), 'Timed-out completions stay in recent history');
-    launcher.click(); await wait();
-    const next = host.querySelector<HTMLButtonElement>('[aria-label="Next notices"]'); assert(next, 'Remaining notices have navigation');
-    assert(host.querySelectorAll('.app-notice').length === 2 && host.querySelector('.app-notices__pages')?.textContent?.includes('1 / 4'),
-      'Expanded notices still show at most two cards and advance one notice at a time');
-    next.click(); await wait();
-    const questionAction = host.querySelector<HTMLButtonElement>('.is-question .app-notice__actions button'); assert(questionAction, 'Question must remain reachable');
-    assert(host.querySelector('.is-question .app-notice__message')?.textContent === 'Should interrupted tasks resume automatically?'
-      && host.querySelector('.is-question .app-notice__head')?.textContent?.startsWith('Waiting for you'), 'Questions show what the agent asked');
-    assert(!questionAction.closest('.is-preview'), 'Paging brings the second card forward for interaction');
-    rejectOpen = true; questionAction.click(); await wait();
-    assert(host.querySelector('.is-question') && host.querySelector('[role="alert"]'), 'Failed navigation keeps the card available to retry');
-    rejectOpen = false; questionAction.click(); await wait(); assert(opened[0] === 'q', 'Card opens its own source');
-    assert(!host.querySelector('.is-question') && host.querySelector('.is-approval') && !host.querySelector('[role="alert"]'),
-      'Opening a task closes only its card and clears the navigation error');
-    const rect = host.querySelector<HTMLElement>('.app-notices')?.getBoundingClientRect();
-    assert(rect && rect.width <= window.innerWidth && rect.height <= 600, 'Cards fit their native surface');
-    assert(sizes.some(size => size.height > 100 && size.width === 340), 'Native host receives measured card height and full width');
-    state = { ...state, notices: [make('q', 'QUESTION')], popupIds: [] }; listener(state); await wait();
-    assert(!host.querySelector('.app-notice') && launcher.textContent?.includes('1 needs you'), 'An opened card stays closed after refresh and remains in the counter');
-    launcher.click(); await wait();
-    host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
-    assert(host.querySelectorAll('.app-notice').length === 1 && sizes.at(-1)?.width === 340, 'One pending card stays visible after popups are dismissed');
-    const lastClose = host.querySelector<HTMLButtonElement>('.app-notice__close'); assert(lastClose, 'The final visible card has a close button');
-    rejectDismiss = true; lastClose.click(); await wait();
-    assert(host.querySelector('.app-notice') && host.querySelector('[role="alert"]'), 'Failed dismissals keep the card visible');
-    rejectDismiss = false; lastClose.click(); await wait();
-    assert(!host.querySelector('.app-notices') && !host.querySelector('[role="alert"]') && sizes.at(-1)?.height === 0,
-      'Closing the last card removes its counter, clears any previous error, and releases the native hit area');
+    assert(dismissed.join() === 'done' && state.notices.some(notice => notice.id === 'done'), 'An expired completion only stops alerting; it stays for the panel');
+    front = alert();
+    assert(front?.classList.contains('is-approval') && host.querySelectorAll('.app-notice').length === 1, 'The next newest notice alerts once the last one closes');
+    assert(Number(timers.size) === 0, 'An alert that needs the user does not expire');
+    const answer = action(); assert(answer?.textContent === 'Answer', 'An approval alert answers in the Assistant panel');
+    rejectOpen = true; answer.click(); await wait();
+    assert(alert()?.classList.contains('is-approval') && host.querySelector('[role="alert"]')?.textContent === 'Unable to open this notice. Try again.',
+      'A failed Answer keeps the alert to try again');
+    rejectOpen = false; answer.click(); await wait();
+    assert(opened.join() === 'approval:a' && !host.querySelector('[role="alert"]'), 'Answer goes to the host, which opens the panel at the card');
+    front = alert();
+    assert(front?.classList.contains('is-question') && action()?.textContent === 'Answer'
+      && front.querySelector('.app-notice__message')?.textContent === 'Should interrupted tasks resume automatically?'
+      && front.querySelector('.app-notice__head')?.textContent?.startsWith('Waiting for you'), 'A question card alerts with what the agent asked and answers in the panel');
+    const close = front.querySelector<HTMLButtonElement>('.app-notice__close'); assert(close, 'The alert has a close button');
+    rejectDismiss = true; close.click(); await wait();
+    assert(alert()?.classList.contains('is-question') && action()?.textContent === 'Answer'
+      && host.querySelector('[role="alert"]')?.textContent === 'Unable to dismiss this notice.', 'A failed close keeps the alert');
+    rejectDismiss = false; close.click(); await wait();
+    assert(dismissed.at(-1) === 'approval:q' && state.notices.some(notice => notice.id === 'approval:q') && !opened.includes('approval:q')
+      && !host.querySelector('[role="alert"]'), '× only closes the alert; the notice stays for the panel');
+    assert(alert()?.classList.contains('is-question') && action()?.textContent === 'Reply', 'A task waiting for a reply keeps Reply');
+    action()?.click(); await wait();
+    assert(opened.at(-1) === 'question:t', 'Reply opens its task');
+    assert(alert()?.classList.contains('is-queue_paused') && action()?.textContent === 'View queue', 'Other kinds keep their own action');
+    alert()?.querySelector<HTMLButtonElement>('.app-notice__close')?.click(); await wait();
+    assert(!host.querySelector('.app-notices') && sizes.at(-1) === 0, 'With every notice seen no alert shows, and the native hit area is released');
     listener({ ...state }); await wait();
-    assert(!host.querySelector('.app-notices'), 'Removed cards stay absent across refreshes');
-    state = { ...state, notices: [make('last', 'TURN_FINISHED')], popupIds: ['last'] }; listener(state); await wait();
-    assert(host.querySelector('.is-turn_finished') && Number(timers.size) === 0, 'New notices appear after older cards were closed and the final completion does not expire');
-    state = { ...state, popupIds: [] }; listener(state); await wait();
-    assert(host.querySelector('.is-turn_finished'), 'Recent completions remain visible even without popup IDs');
-    rejectOpen = true;
-    host.querySelector<HTMLButtonElement>('.is-turn_finished .app-notice__actions button')?.click(); await wait();
-    assert(host.querySelector('.is-turn_finished') && host.querySelector('[role="alert"]')
-      && host.querySelector('.app-notices__launcher')?.textContent?.includes('1 recent'), 'Failed navigation preserves the completion card and its count');
-    rejectOpen = false;
-    host.querySelector<HTMLButtonElement>('.is-turn_finished .app-notice__actions button')?.click(); await wait();
-    assert(opened.includes('last') && !host.querySelector('.app-notices') && sizes.at(-1)?.height === 0,
-      'Opening the final completion removes its card and counter and releases the native hit area');
-    listener({ ...state }); await wait();
-    assert(!host.querySelector('.app-notices'), 'Opened completions stay absent across refreshes');
-    state = { ...state, notices: [make('first', 'TURN_FINISHED'), make('second', 'TURN_FINISHED')], popupIds: ['first', 'second'] }; listener(state); await wait();
-    host.querySelector<HTMLButtonElement>('.app-notices__launcher')?.click(); await wait();
-    host.querySelector<HTMLButtonElement>('.app-notice:not(.is-preview) .app-notice__actions button')?.click(); await wait();
-    assert(opened.includes('first') && host.querySelector('.app-notices__launcher')?.textContent?.includes('1 recent'),
-      'Opening a completion decreases the count without removing other notices');
-    host.querySelector<HTMLButtonElement>('.app-notices__launcher')?.click(); await wait();
-    assert(host.querySelectorAll('.app-notice').length === 1 && !host.querySelector('.app-notices__pages'), 'Reopening the list excludes the opened completion');
-    host.querySelector<HTMLButtonElement>('.app-notice__actions button')?.click(); await wait();
-    assert(!host.querySelector('.app-notices'), 'Opening the remaining completion clears the counter');
-    state = { ...state, notices: Array.from({ length: 10 }, (_, i) => make(`recent-${i}`, 'TURN_FINISHED')), popupIds: [] }; listener(state); await wait();
-    for (let remaining = 10; remaining > 0; remaining--) {
-      const counter = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(counter, 'Recent notices have a counter');
-      assert(counter.textContent?.includes(`${remaining} recent`), 'Each closed completion reduces the recent count');
-      counter.click(); await wait();
-      assert(host.querySelector('.app-notices__pages')?.textContent?.includes(`1 / ${remaining}`) || remaining === 1, 'Reopening shows only remaining notices');
-      host.querySelector<HTMLButtonElement>('.app-notice:not(.is-preview) .app-notice__close')?.click(); await wait();
-      host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
-    }
-    assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'All ten recent notices can be cleared');
-    state = { ...state, notices: [make('viewed', 'TURN_FINISHED')], viewedIds: ['viewed'] }; listener(state); await wait();
-    const viewedLauncher = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(viewedLauncher, 'Viewed notices remain in the counter');
-    assert(!host.querySelector('.app-notice') && (sizes.at(-1)?.width ?? 340) < 280, 'The visible task never falls back to a persistent card');
-    viewedLauncher.click(); await wait();
-    assert(host.querySelector('.is-turn_finished'), 'Viewed notices can be explicitly reopened from the counter');
-    host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
-    listener({ ...state }); await wait();
-    assert(!host.querySelector('.app-notice'), 'Viewed notices stay quiet after closing the list and refreshing');
+    assert(!host.querySelector('.app-notices'), 'Closed alerts stay closed across refreshes');
+    state = { ...state, notices: [make('viewed', 'TURN_FINISHED')], popupIds: [], viewedIds: ['viewed'] }; listener(state); await wait();
+    assert(!host.querySelector('.app-notice'), 'The visible task never alerts');
+    state = { ...state, notices: [...state.notices, make('earlier', 'QUESTION', 5)] }; listener(state); await wait();
+    assert(!host.querySelector('.app-notice'), 'A notice that was there before the app started waits in the panel');
     state = { ...state, notices: [...state.notices, make('unviewed', 'QUESTION')], popupIds: ['unviewed'] }; listener(state); await wait();
-    assert(host.querySelectorAll('.app-notice').length === 1 && host.querySelector('.is-question'), 'Other tasks still notify while the viewed task stays quiet');
-    state = { ...state, notices: [], popupIds: [], viewedIds: [] }; listener(state); await wait();
-    const canvas = document.createElement('canvas'); canvas.width = 1; canvas.height = 1;
-    const context = canvas.getContext('2d'); assert(context, 'Color sampling unavailable');
-    const color = (css: string) => { context.fillStyle = css; context.fillRect(0, 0, 1, 1); return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3); };
-    const luminance = (rgb: number[]) => rgb.map(channel => channel / 255).map(channel => channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4)
-      .reduce((sum, channel, i) => sum + channel * [.2126, .7152, .0722][i], 0);
-    const surface = document.createElement('span'); surface.style.backgroundColor = 'var(--bg-elevated)'; host.append(surface);
-    for (const theme of ['light', 'dark']) {
-      document.documentElement.style.colorScheme = theme;
-      let previousDistance = 0;
-      const neutral = color(getComputedStyle(surface).backgroundColor);
-      for (const count of [0, 1, 3, 9, 50]) {
-        state = { ...state, notices: Array.from({ length: count }, (_, i) => make(`question-${i}`, 'QUESTION')), popupIds: [] }; listener(state); await wait();
-        const counter = host.querySelector<HTMLButtonElement>('.app-notices__launcher');
-        if (count === 0) {
-          assert(!counter && sizes.at(-1)?.height === 0, `${theme}: empty notices hide the counter`);
-          continue;
-        }
-        assert(counter && counter.getAttribute('aria-expanded') === 'false' && (sizes.at(-1)?.height ?? 0) > 0, `${theme}: new notices restore the collapsed counter`);
-        const style = getComputedStyle(counter); const background = color(style.backgroundColor);
-        const distance = background.reduce((sum, value, i) => sum + Math.abs(value - neutral[i]), 0);
-        assert(distance > previousDistance || count === 50 && distance === previousDistance,
-          `${theme}: the launcher tint grows with the notice count`);
-        const foregroundLight = luminance(color(style.color)); const backgroundLight = luminance(background);
-        assert((Math.max(foregroundLight, backgroundLight) + .05) / (Math.min(foregroundLight, backgroundLight) + .05) >= 4.5,
-          `${theme}: counter text stays readable at ${count} notices`);
-        previousDistance = distance;
-        assert(host.querySelectorAll('.app-notice').length === Math.min(2, count), `${theme}: pending notices show up to two stacked cards`);
-      }
-      const counter = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(counter, 'Pending notices have a counter');
-      const amber = getComputedStyle(counter).backgroundColor;
-      state = { ...state, notices: Array.from({ length: 50 }, (_, i) => make(`done-${i}`, 'TURN_FINISHED')) }; listener(state); await wait();
-      assert(getComputedStyle(counter).backgroundColor !== amber, `${theme}: recent completions use a different tint from pending requests`);
-    }
-    const dismissalsBeforeFold = dismissed.length;
-    const fold = host.querySelector<HTMLButtonElement>('[aria-label="Fold notifications"]'); assert(fold, 'The stack has a fold arrow');
-    fold.click(); await wait();
-    const edge = host.querySelector<HTMLButtonElement>('.app-notices__edge'); assert(edge, 'Folded notices keep an edge tab');
-    assert(!host.querySelector('.app-notice') && edge.textContent === '50' && Number(timers.size) === 0, 'Folding hides all cards without expiring them');
-    const foldedSize = sizes.at(-1);
-    assert(foldedSize?.folded && foldedSize.width <= 40 && foldedSize.height <= 80, 'Folding releases the native input area except for the narrow tab');
-    assert(edge.getAttribute('aria-label') === 'Show 50 notifications' && document.activeElement === edge, 'Keyboard focus moves to the named reopen control');
-    state = { ...state, notices: [make('new-while-folded', 'QUESTION'), ...state.notices], popupIds: ['new-while-folded'] }; listener(state); await wait();
-    assert(!host.querySelector('.app-notice') && Number(edge.textContent) === 51, 'New arrivals update the count without covering the input again');
-    assert(dismissed.length === dismissalsBeforeFold, 'Folding does not dismiss notifications');
-    edge.click(); await wait();
-    assert(host.querySelector('.is-question:not(.is-preview)') && sizes.at(-1)?.width === 340 && !sizes.at(-1)?.folded, 'The edge tab restores the cards and navigation');
-    host.querySelector<HTMLButtonElement>('[aria-label="Fold notifications"]')?.click(); await wait();
-    assert(!host.querySelector('.app-notices__header') && !host.querySelector('.app-notices__pages'), 'Expanded navigation also folds completely');
-    state = { ...state, notices: [], popupIds: [] }; listener(state); await wait();
-    assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'An empty folded stack disappears');
-    state = { ...state, notices: [make('fresh-question', 'QUESTION')], popupIds: ['fresh-question'] };
-    listener(state); await wait();
-    assert(!host.querySelector('.app-notices__edge') && !sizes.at(-1)?.folded, 'A fresh batch appears normally after the folded stack empties');
-    const question = host.querySelector('.is-question'); assert(question, 'The new task card appears');
-    const openQuestion = question.querySelector<HTMLButtonElement>('.app-notice__actions button'); assert(openQuestion?.textContent === 'Reply', 'Questions navigate to their task');
-    openQuestion.click(); await wait();
-    assert(opened.includes('fresh-question') && !host.querySelector('.is-question'), 'Opening the task closes its card');
+    assert(host.querySelectorAll('.app-notice').length === 1 && host.querySelector('.is-question'), 'Other tasks still alert while the viewed task stays quiet');
+    state = { ...state, notices: [make('last', 'TURN_FINISHED')], popupIds: ['last'], viewedIds: [] }; listener(state); await wait();
+    rejectOpen = true; action()?.click(); await wait();
+    assert(alert()?.classList.contains('is-turn_finished') && host.querySelector('[role="alert"]'), 'Failed navigation keeps the completion alert');
+    rejectOpen = false; action()?.click(); await wait();
+    assert(opened.at(-1) === 'last' && !host.querySelector('.app-notices') && sizes.at(-1) === 0,
+      'Opening a completion closes its alert and releases the native hit area');
     state = { ...state, notices: [{ ...make('failed', 'FAILURE'), message: 'Rate limited by GitHub API' }], popupIds: ['failed'] }; listener(state); await wait();
-    const failed = host.querySelector<HTMLElement>('.is-failure'); assert(failed, 'Failure card missing');
-    assert(failed.querySelector('.app-notice__message')?.textContent === 'Rate limited by GitHub API'
-      && failed.querySelector('.app-notice__actions button')?.textContent === 'View log', 'Failures show their reason and open the task log');
+    const failed = host.querySelector<HTMLElement>('.is-failure'); assert(failed, 'Failure alert missing');
+    assert(failed.querySelector('.app-notice__message')?.textContent === 'Rate limited by GitHub API' && action()?.textContent === 'View log',
+      'Failures show their reason and open the task log');
     const occlusion: boolean[] = [];
     const stopOcclusion = observeNoticeOcclusion(value => occlusion.push(value));
     const modal = document.createElement('section'); modal.setAttribute('aria-modal', 'true'); modal.textContent = 'Submit review';
@@ -296,6 +198,6 @@ export async function run() {
     } finally { sourceRoot.unmount(); sourceHost.remove(); window.bridge = originalBridge; }
     return { passed: true, dismissed, opened };
   } finally {
-    root.unmount(); host.remove(); document.documentElement.style.colorScheme = ''; window.setTimeout = originalTimeout; window.clearTimeout = originalClear; Date.now = originalNow;
+    root.unmount(); host.remove(); window.setTimeout = originalTimeout; window.clearTimeout = originalClear; Date.now = originalNow;
   }
 }

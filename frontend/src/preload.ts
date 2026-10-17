@@ -61,6 +61,7 @@ const bridge: Bridge = {
   removeAppNotice: id => ipcRenderer.invoke('notices:remove', id),
   setAssistantPanelOpen: open => ipcRenderer.send('notices:suppress', open),
   onAssistantToggle: callback => subscribe('assistant:toggle', callback),
+  onAssistantOpenCard: callback => subscribe('assistant:open-card', callback),
   getGeminiSetupStatus: () => ipcRenderer.invoke('gemini:status'),
   saveGeminiSetupKey: key => ipcRenderer.invoke('gemini:save', key),
   removeGeminiSetupKey: () => ipcRenderer.invoke('gemini:remove'),

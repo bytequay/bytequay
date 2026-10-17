@@ -1518,16 +1518,18 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   onAppNoticeBounds: (callback: (bounds: AppNoticeBounds) => void) => () => void;
   onAppNoticeOpen: (callback: (target: { taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null }) => void) => () => void;
   setNoticeSource: (key: string, taskId: string | null) => Promise<void>;
-  /** The notices the bottom-right stack holds; the Assistant panel lists them too. */
+  /** The notices the Assistant panel lists; each new one also shows once as the bottom-right alert. */
   readAppNotices: () => Promise<NoticeSnapshot>;
   onAppNotices: (callback: (state: NoticeSnapshot) => void) => () => void;
   openAppNotice: (id: string) => Promise<void>;
   /** Clears a notice for good. */
   removeAppNotice: (id: string) => Promise<void>;
-  /** The open panel lists every notice, so the bottom-right stack stays hidden meanwhile. */
+  /** The open panel lists every notice, so no alert shows meanwhile. */
   setAssistantPanelOpen: (open: boolean) => void;
   /** ⌘J from any page, browser tab or editor. */
   onAssistantToggle: (callback: () => void) => () => void;
+  /** Answer on an approval or question alert: the notice whose card the panel opens at. */
+  onAssistantOpenCard: (callback: (id: string) => void) => () => void;
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
   fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number) => Promise<PullRequestPageDto>;

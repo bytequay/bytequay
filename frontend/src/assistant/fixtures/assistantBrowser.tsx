@@ -65,7 +65,9 @@ const APPROVAL: AgentPendingApprovalDto = {
 
 type Calls = { sent: unknown[][]; resolved: unknown[][]; opened: string[]; removed: string[]; stopped: number; closed: number; shown: number };
 
-function mount(view: AssistantViewDto = VIEW, failSends = 0): { host: HTMLElement; calls: Calls; dispose: () => void } {
+type Mounted = { host: HTMLElement; calls: Calls; render: (open: boolean, openCard?: { id: string }) => void; dispose: () => void };
+
+function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES): Mounted {
   const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, shown: 0 };
   let failures = failSends;
   window.bridge = {
@@ -88,14 +90,15 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0): { host: HTMLElemen
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  flushSync(() => root.render(
+  const render = (open: boolean, openCard?: { id: string }) => flushSync(() => root.render(
     <div className="browser-workspace" style={{ '--browser-rail-width': '0px', '--assistant-panel-width': '380px' } as CSSProperties}>
       <div className="app-surfaces"><main style={{ height: '100vh', padding: 24, color: 'var(--fg-muted)' }}>The page beside the panel</main></div>
-      <AssistantPanel open notices={NOTICES} onScreen="pr:trinodb/trino#31377" onClose={() => { calls.closed++; }} onShowApp={() => { calls.shown++; }}
-        onResizeStart={() => {}} />
+      <AssistantPanel open={open} notices={notices} openCard={openCard ?? null} onScreen="pr:trinodb/trino#31377" onClose={() => { calls.closed++; }}
+        onShowApp={() => { calls.shown++; }} onResizeStart={() => {}} />
     </div>,
   ));
-  return { host, calls, dispose: () => { flushSync(() => root.unmount()); host.remove(); } };
+  render(true);
+  return { host, calls, render, dispose: () => { flushSync(() => root.unmount()); host.remove(); } };
 }
 
 function type(host: HTMLElement, text: string): HTMLTextAreaElement {
@@ -189,6 +192,42 @@ async function sendsWithWhatIsShown(): Promise<void> {
   finally { view.dispose(); }
 }
 
+async function opensAtACardFromItsAlert(): Promise<void> {
+  // Enough rows after the approval that the end of the scroll leaves it out of view.
+  const rows = Array.from({ length: 12 }, (_, index) => notice(`finished:turn-${index + 3}`, 'TURN_FINISHED', `task-${index + 3}`, `Finished task ${index + 3}`));
+  const view = mount(VIEW, 0, [NOTICES[0], ...rows]);
+  try {
+    await settle();
+    view.render(false);
+    // The conversation grows after the panel opens, and that read scrolls it to the end.
+    window.bridge.getAssistantToday = async () => ({ ...VIEW, items: [...VIEW.items, { ...VIEW.items[0], id: 'u2', text: 'And the next one?' }] });
+    view.render(true, { id: 'approval:a1' });
+    const card = view.host.querySelector<HTMLElement>('[data-notice="approval:a1"]');
+    assert(card !== null && document.activeElement === card, `Focus goes to the card itself, not to one of its buttons: ${document.activeElement?.outerHTML.slice(0, 80)}`);
+    const accent = document.createElement('span');
+    accent.style.color = 'var(--accent)';
+    view.host.append(accent);
+    const style = getComputedStyle(card);
+    assert(card.classList.contains('is-opened') && style.outlineStyle === 'solid' && style.outlineWidth === '2px' && style.outlineColor === getComputedStyle(accent).color,
+      `The card gets a 2px accent outline: ${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`);
+    assert(style.animationName === 'assistant-opened' && style.animationDelay === '2s' && style.animationDuration === '0.4s', 'The outline holds for 2 s, then fades');
+    await settle();
+    await settle();
+    assert(view.host.querySelectorAll('.agt-user').length === 2 && view.host.querySelector('.today') !== null, 'The conversation and the agenda arrived after the panel opened');
+    const scroll = view.host.querySelector<HTMLElement>('.assistant-scroll');
+    assert(scroll !== null && scroll.scrollTop > 0 && scroll.scrollTop + scroll.clientHeight < scroll.scrollHeight - 1,
+      `The panel stops at the card, not at the end of the scroll: ${scroll?.scrollTop} + ${scroll?.clientHeight} of ${scroll?.scrollHeight}`);
+    const box = card.getBoundingClientRect();
+    const frame = scroll.getBoundingClientRect();
+    assert(box.top - 6 >= frame.top && box.bottom + 6 <= frame.bottom, `The card and its outline stay in view: ${JSON.stringify({ box, frame })}`);
+    assert(card.querySelector('button[aria-label="Allow once: Run the focused Maven test"]') !== null, 'The card shows the task’s own buttons');
+    await new Promise(resolve => setTimeout(resolve, 2500));
+    await settle();
+    assert(!card.classList.contains('is-opened') && document.activeElement === card, 'The outline is gone after it fades, and focus stays on the card');
+  }
+  finally { view.dispose(); }
+}
+
 async function stopsARunningReply(): Promise<void> {
   const view = mount({ ...VIEW, running: true });
   try {
@@ -205,7 +244,8 @@ async function stopsARunningReply(): Promise<void> {
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of [['shows the day in order', showsTheDayInOrder], ['answers with the task’s buttons', answersWithTheTasksButtons],
-    ['sends with what is shown', sendsWithWhatIsShown], ['stops a running reply', stopsARunningReply]] as const) {
+    ['sends with what is shown', sendsWithWhatIsShown], ['opens at a card from its alert', opensAtACardFromItsAlert],
+    ['stops a running reply', stopsARunningReply]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }

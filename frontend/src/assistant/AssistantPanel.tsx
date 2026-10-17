@@ -20,7 +20,7 @@ import { IconButton } from '../cards/Card';
 import TodayList, { openTarget } from '../home/TodayList';
 import { clockTime, dayText } from '../home/today';
 import { useTodayAgenda } from '../home/useTodayAgenda';
-import { NOTICE_ACTIONS, noticeLabel, type AppNotice } from '../notices/contracts';
+import { APPROVAL_NOTICE, NOTICE_ACTIONS, noticeLabel, type AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import { settingsRoute } from '../settings/routes';
 import type { AgendaTargetDto, AgentPendingApprovalDto, AssistantItemDto } from '../types';
@@ -28,15 +28,15 @@ import { linkRefs, refFromHref, refLabel } from './model';
 import { useAssistant } from './useAssistant';
 import '../css/assistant.css';
 
-const APPROVAL = 'approval:';
-
 /**
  * The Assistant beside every page: today's agenda, the day's conversation, then the notices waiting on the user with their own buttons.
  * It docks rather than floats, because a page can be a native browser or editor view that nothing can paint over.
  */
-export default function AssistantPanel({ open, notices, onScreen, onClose, onShowApp, onResizeStart }: {
+export default function AssistantPanel({ open, notices, openCard, onScreen, onClose, onShowApp, onResizeStart }: {
   open: boolean;
   notices: AppNotice[];
+  /** The waiting card an alert's Answer asked for; a new object each time. */
+  openCard: { id: string } | null;
   /** The ref of what the user is looking at, sent with a message unless they remove it. */
   onScreen: string | null;
   onClose: () => void;
@@ -49,9 +49,11 @@ export default function AssistantPanel({ open, notices, onScreen, onClose, onSho
   const [hiddenScreen, setHiddenScreen] = useState<string | null>(null);
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
   const [failure, setFailure] = useState<string | null>(null);
+  const [opened, setOpened] = useState<string | null>(null);
   const panel = useRef<HTMLElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   const returnFocus = useRef<Element | null>(null);
   const items = view?.items ?? [];
   const running = view?.running ?? false;
@@ -80,6 +82,21 @@ export default function AssistantPanel({ open, notices, onScreen, onClose, onSho
     const node = scroller.current;
     if (open && node) node.scrollTop = node.scrollHeight;
   }, [open, items.length, running, waiting.length]);
+
+  useLayoutEffect(() => {
+    const card = openCard === null ? null : scroller.current?.querySelector<HTMLElement>(`[data-notice="${CSS.escape(openCard.id)}"]`);
+    if (openCard === null || !card || !content.current) return;
+    card.scrollIntoView({ block: 'nearest' });
+    // The card itself, not one of its buttons, so a stray Enter cannot answer it.
+    card.focus({ preventScroll: true });
+    setOpened(openCard.id);
+    // The agenda, the conversation and the card's own approval are still being read; what they add must not push it out of view.
+    const observer = new ResizeObserver(() => card.scrollIntoView({ block: 'nearest' }));
+    observer.observe(content.current);
+    // The outline holds for 2 s, then fades for 0.4 s (assistant.css).
+    const timer = window.setTimeout(() => { observer.disconnect(); setOpened(null); }, 2400);
+    return () => { window.clearTimeout(timer); observer.disconnect(); setOpened(null); };
+  }, [openCard]);
 
   const show = (target: AgendaTargetDto) => { onShowApp(); openTarget(target); };
   const openSettings = () => { onShowApp(); window.location.hash = settingsRoute('models'); };
@@ -123,18 +140,24 @@ export default function AssistantPanel({ open, notices, onScreen, onClose, onSho
         <IconButton label="Close the Assistant" title="Close (⌘J)" onClick={onClose}><X size={15} aria-hidden="true" /></IconButton>
       </header>
       <div ref={scroller} className="assistant-scroll" onClickCapture={openLink} onAuxClickCapture={openLink}>
-        {open && <PanelAgenda onOpen={show} />}
-        {items.map((item, index) => <Entry key={item.id} item={item} retryable={!running && index === items.length - 1} onRetry={retry}
-          onSettings={openSettings} />)}
-        {running && <p className="assistant-thinking" role="status">Thinking…</p>}
-        {waiting.length > 0 && <section className="assistant-waiting" aria-label="Waiting on you">
-          {waiting.map(notice => notice.id.startsWith(APPROVAL)
-            ? <WaitingApproval key={notice.id} notice={notice} onAnswered={() => setAnswered(current => new Set(current).add(notice.id))}
-              onOpen={() => noticeAction(window.bridge.openAppNotice(notice.id), 'Unable to open this task.')}
-              onClear={() => noticeAction(window.bridge.removeAppNotice(notice.id), 'Unable to clear this notice.')} />
-            : <NoticeRow key={notice.id} notice={notice} onOpen={() => noticeAction(window.bridge.openAppNotice(notice.id), 'Unable to open this task.')}
-              onClear={() => noticeAction(window.bridge.removeAppNotice(notice.id), 'Unable to clear this notice.')} />)}
-        </section>}
+        <div ref={content}>
+          {open && <PanelAgenda onOpen={show} />}
+          {items.map((item, index) => <Entry key={item.id} item={item} retryable={!running && index === items.length - 1} onRetry={retry}
+            onSettings={openSettings} />)}
+          {running && <p className="assistant-thinking" role="status">Thinking…</p>}
+          {waiting.length > 0 && <section className="assistant-waiting" aria-label="Waiting on you">
+            {waiting.map(notice => (
+              <div key={notice.id} className={`assistant-waiting__card${opened === notice.id ? ' is-opened' : ''}`} data-notice={notice.id} tabIndex={-1}>
+                {notice.id.startsWith(APPROVAL_NOTICE)
+                  ? <WaitingApproval notice={notice} onAnswered={() => setAnswered(current => new Set(current).add(notice.id))}
+                    onOpen={() => noticeAction(window.bridge.openAppNotice(notice.id), 'Unable to open this task.')}
+                    onClear={() => noticeAction(window.bridge.removeAppNotice(notice.id), 'Unable to clear this notice.')} />
+                  : <NoticeRow notice={notice} onOpen={() => noticeAction(window.bridge.openAppNotice(notice.id), 'Unable to open this task.')}
+                    onClear={() => noticeAction(window.bridge.removeAppNotice(notice.id), 'Unable to clear this notice.')} />}
+              </div>
+            ))}
+          </section>}
+        </div>
       </div>
       <div className="assistant-compose">
         {(error ?? failure) !== null && <p className="assistant-error" role="alert">{error ?? failure}</p>}
@@ -191,7 +214,7 @@ function WaitingApproval({ notice, onAnswered, onOpen, onClear }: { notice: AppN
   const [approval, setApproval] = useState<AgentPendingApprovalDto | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const { taskId, turnId, reviewId } = notice;
-  const approvalId = notice.id.slice(APPROVAL.length);
+  const approvalId = notice.id.slice(APPROVAL_NOTICE.length);
 
   useEffect(() => {
     let live = true;

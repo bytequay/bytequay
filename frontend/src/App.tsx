@@ -132,6 +132,8 @@ export default function App() {
   const [initialAssistantWidth] = useState(storedAssistantWidth);
   const assistantPane = useResizablePane(initialAssistantWidth, 320, 560, 'start');
   const assistantShown = assistantOpen && status === 'ready';
+  // A new object for every Answer, so the panel shows the card again even when the same one was asked for last.
+  const [assistantCard, setAssistantCard] = useState<{ id: string } | null>(null);
   const [notices, setNotices] = useState<AppNotice[]>([]);
   const browserTab = browser.tabs.find(tab => tab.id === browser.activeTabId) ?? null;
   const browserOpen = browserTab !== null;
@@ -215,6 +217,11 @@ export default function App() {
   }, []);
 
   useEffect(() => window.bridge.onAssistantToggle?.(() => setAssistantOpen(open => !open)), []);
+
+  useEffect(() => window.bridge.onAssistantOpenCard?.(id => {
+    setAssistantOpen(true);
+    setAssistantCard({ id });
+  }), []);
 
   useEffect(() => {
     try { localStorage.setItem('bytequay.assistant-open', String(assistantOpen)); } catch { /* preference is optional */ }
@@ -655,7 +662,7 @@ export default function App() {
       </div>
       {browserTab && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
         error={browserError} onError={setBrowserError} onBack={backToApp} />}
-      <AssistantPanel open={assistantShown} notices={notices} onScreen={onScreen} onClose={() => setAssistantOpen(false)}
+      <AssistantPanel open={assistantShown} notices={notices} openCard={assistantCard} onScreen={onScreen} onClose={() => setAssistantOpen(false)}
         onShowApp={() => { if (browserOpen) backToApp(); }} onResizeStart={assistantPane.startResize} />
     </div>
   );

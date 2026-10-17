@@ -27,16 +27,17 @@ export type NoticeBridge = {
   read: () => Promise<NoticeSnapshot>;
   subscribe: (listener: (state: NoticeSnapshot) => void) => () => void;
   dismiss: (id: string) => Promise<void>;
-  remove: (id: string) => Promise<void>;
   open: (id: string) => Promise<void>;
-  resize: (height: number, width: number, folded: boolean) => void;
+  resize: (height: number) => void;
 };
+/** Approvals and AskUserQuestion cards; an alert's Answer opens the Assistant panel at the card, which has the task's own buttons. */
+export const APPROVAL_NOTICE = 'approval:';
 export const needsAction = (notice: AppNotice): boolean => notice.kind !== 'TURN_FINISHED';
 export const NOTICE_LABELS: Record<NoticeKind, string> = {
   TURN_FINISHED: 'Turn finished', QUESTION: 'Waiting for you', APPROVAL: 'Approval needed',
   FAILURE: 'Turn failed', RECOVERY: 'Task is blocked', QUEUE_PAUSED: 'Queued messages paused',
 };
-/** What opening a notice shows, as its button says, in the bottom-right stack and the Assistant panel alike. */
+/** What opening a notice shows, as its button says, on its alert and in the Assistant panel alike. */
 export const NOTICE_ACTIONS: Record<NoticeKind, string> = {
   TURN_FINISHED: 'View response', QUESTION: 'Reply', APPROVAL: 'Review request', FAILURE: 'View log', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue',
 };

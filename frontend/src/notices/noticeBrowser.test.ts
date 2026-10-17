@@ -14,7 +14,7 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture } from '../fixtures/browserFixture';
 
-it('keeps viewed tasks quiet and preserves other notices, folding, reopening, timers, and counter contrast in both themes', async () => {
+it('shows one alert at a time, answers approvals in the Assistant panel, closes with ×, and keeps viewed tasks quiet', async () => {
   const result = await runBrowserFixture<{ passed: boolean }>({ prefix: 'bytequay-notices-', entry: 'src/notices/fixtures/noticeBrowser.tsx',
     global: 'NoticeTests', styles: true, width: 340, height: 620 });
   expect(result.passed).toBe(true);

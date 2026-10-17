@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { Mic, Settings, TriangleAlert, X } from 'lucide-react';
+import { Hand, Mic, Settings, TriangleAlert, X } from 'lucide-react';
 import Composer from '../Composer';
 import { PendingApprovalCard, type ApprovalDecider } from '../agents/AgentConversation';
 import { renderMarkdown } from '../agents/markdown';
@@ -22,9 +22,9 @@ import { clockTime, dayText } from '../home/today';
 import { useTodayAgenda } from '../home/useTodayAgenda';
 import { APPROVAL_NOTICE, NOTICE_ACTIONS, noticeLabel, type AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../pulls/PullOverview';
-import { settingsRoute } from '../settings/routes';
+import { settingsRoute, type SettingsSection } from '../settings/routes';
 import type { AgendaTargetDto, AgentPendingApprovalDto, AssistantItemDto } from '../types';
-import { linkRefs, refFromHref, refLabel } from './model';
+import { entries, linkRefs, refFromHref, refLabel } from './model';
 import { useAssistant } from './useAssistant';
 import '../css/assistant.css';
 
@@ -44,7 +44,7 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
   onShowApp: () => void;
   onResizeStart: (event: ReactMouseEvent) => void;
 }) {
-  const { view, error, sending, send, stop, retry } = useAssistant(open);
+  const { view, error, sending, send, stop, retry, refresh } = useAssistant(open);
   const [draft, setDraft] = useState('');
   const [hiddenScreen, setHiddenScreen] = useState<string | null>(null);
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
@@ -99,7 +99,9 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
   }, [openCard]);
 
   const show = (target: AgendaTargetDto) => { onShowApp(); openTarget(target); };
-  const openSettings = () => { onShowApp(); window.location.hash = settingsRoute('models'); };
+  const openSettings = (section: SettingsSection) => { onShowApp(); window.location.hash = settingsRoute(section); };
+  // A receipt a card's button left after a failed reply does not end that exchange, so Retry stays on the failure.
+  const lastExchange = items.findLast(item => item.kind !== 'RECEIPT')?.id;
   const noticeAction = (action: Promise<void>, message: string) => {
     setFailure(null);
     void action.catch(() => setFailure(message));
@@ -136,20 +138,21 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
         <span className="assistant-head__title" title={view?.model ? `Model: ${view.model}` : undefined}>Assistant</span>
         {view !== null && <span className="assistant-head__date">{dayText(view.day)}</span>}
         <span className="assistant-spacer" />
-        <IconButton label="Settings" onClick={openSettings}><Settings size={15} aria-hidden="true" /></IconButton>
+        <IconButton label="Assistant settings" title="Settings" onClick={() => openSettings('workflow')}><Settings size={15} aria-hidden="true" /></IconButton>
         <IconButton label="Close the Assistant" title="Close (⌘J)" onClick={onClose}><X size={15} aria-hidden="true" /></IconButton>
       </header>
       <div ref={scroller} className="assistant-scroll" onClickCapture={openLink} onAuxClickCapture={openLink}>
         <div ref={content}>
           {open && <PanelAgenda onOpen={show} />}
-          {items.map((item, index) => <Entry key={item.id} item={item} retryable={!running && index === items.length - 1} onRetry={retry}
-            onSettings={openSettings} />)}
+          {entries(items).map(entry => Array.isArray(entry)
+            ? <div key={entry[0].id} className="assistant-receipts">{entry.map(item => <Receipt key={item.id} item={item} onOpen={show} />)}</div>
+            : <Entry key={entry.id} item={entry} retryable={!running && entry.id === lastExchange} onRetry={retry} onSettings={openSettings} />)}
           {running && <p className="assistant-thinking" role="status">Thinking…</p>}
           {waiting.length > 0 && <section className="assistant-waiting" aria-label="Waiting on you">
             {waiting.map(notice => (
               <div key={notice.id} className={`assistant-waiting__card${opened === notice.id ? ' is-opened' : ''}`} data-notice={notice.id} tabIndex={-1}>
                 {notice.id.startsWith(APPROVAL_NOTICE)
-                  ? <WaitingApproval notice={notice} onAnswered={() => setAnswered(current => new Set(current).add(notice.id))}
+                  ? <WaitingApproval notice={notice} onAnswered={() => { setAnswered(current => new Set(current).add(notice.id)); refresh(); }}
                     onOpen={() => noticeAction(window.bridge.openAppNotice(notice.id), 'Unable to open this task.')}
                     onClear={() => noticeAction(window.bridge.removeAppNotice(notice.id), 'Unable to clear this notice.')} />
                   : <NoticeRow notice={notice} onOpen={() => noticeAction(window.bridge.openAppNotice(notice.id), 'Unable to open this task.')}
@@ -161,7 +164,7 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
       </div>
       <div className="assistant-compose">
         {(error ?? failure) !== null && <p className="assistant-error" role="alert">{error ?? failure}</p>}
-        <Composer inputRef={input} aria-label="Message the Assistant" placeholder="Ask about your day…" value={draft} maxLength={16 * 1024}
+        <Composer inputRef={input} aria-label="Message the Assistant" placeholder="Ask, or tell it what to start…" value={draft} maxLength={16 * 1024}
           onChange={event => setDraft(event.target.value)} busy={sending} onSubmit={submit}
           submitEnabled={draft.trim() !== '' && !running && !sending} showSubmit={!running} submitLabel="Send to the Assistant" submitTitle="Send (Enter)"
           trailingActions={running && (
@@ -193,18 +196,60 @@ function PanelAgenda({ onOpen }: { onOpen: (target: AgendaTargetDto) => void }) 
   return today.agenda?.state === 'NONE' ? null : <TodayList today={today} scope="global" onOpen={onOpen} />;
 }
 
-function Entry({ item, retryable, onRetry, onSettings }: { item: AssistantItemDto; retryable: boolean; onRetry: () => void; onSettings: () => void }) {
+function Entry({ item, retryable, onRetry, onSettings }: {
+  item: AssistantItemDto;
+  retryable: boolean;
+  onRetry: () => void;
+  onSettings: (section: SettingsSection) => void;
+}) {
   if (item.kind === 'USER') return <>
     <div className="assistant-time">{clockTime(item.at)}</div>
     <div className="agt-user"><div className="agt-user__bubble">{item.text}</div></div>
   </>;
   if (item.kind === 'REPLY') return <div className="assistant-reply">{renderMarkdown(linkRefs(item.text, item.targets))}</div>;
+  if (item.kind === 'RECEIPT') {
+    // What was refused or failed: one muted line, pointing down at the card's buttons when they are the way to do it.
+    const failed = item.receipt?.outcome === 'FAILED';
+    return (
+      <p className={`assistant-refusal${failed ? ' is-failed' : ''}`}>
+        {failed ? <TriangleAlert size={13} aria-hidden="true" /> : <Hand size={13} aria-hidden="true" />}
+        <span>{item.text}{item.receipt?.fix === 'BUTTONS' ? ' ↓' : ''}</span>
+        {item.receipt?.fix === 'SETTINGS' && <button type="button" className="assistant-link" onClick={() => onSettings('workflow')}>Open Settings</button>}
+      </p>
+    );
+  }
   return (
     <div className="assistant-failure" role="status">
       <TriangleAlert size={14} aria-hidden="true" />
       <span>{item.text}</span>
-      {item.notReady && <button type="button" className="assistant-link" onClick={onSettings}>Open Settings</button>}
+      {item.notReady && <button type="button" className="assistant-link" onClick={() => onSettings('models')}>Open Settings</button>}
       {retryable && <button type="button" className="assistant-link" onClick={onRetry}>Retry</button>}
+    </div>
+  );
+}
+
+/** What an action did: Open goes where it acted, and Stop cancels the first turn of a task it started. */
+function Receipt({ item, onOpen }: { item: AssistantItemDto; onOpen: (target: AgendaTargetDto) => void }) {
+  const [stop, setStop] = useState<'idle' | 'stopping' | 'stopped'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const receipt = item.receipt;
+  if (receipt === null) return null;
+  const { target, turnId } = receipt;
+  const cancel = (turn: string) => {
+    setStop('stopping');
+    setError(null);
+    window.bridge.cancelAgentTurn(turn).then(() => setStop('stopped')).catch((cause: unknown) => { setStop('idle'); setError(remoteErrorMessage(cause)); });
+  };
+  return (
+    <div className="assistant-receipt">
+      <div className="assistant-receipt__text">
+        <div className="assistant-receipt__line" title={item.text}>{item.text}</div>
+        {(error ?? receipt.detail) !== null && <div className="assistant-receipt__detail" title={error ?? receipt.detail ?? undefined}>{error ?? receipt.detail}</div>}
+      </div>
+      {turnId !== null && (stop === 'stopped'
+        ? <span className="assistant-receipt__detail">Stopped</span>
+        : <button type="button" className="assistant-receipt__action" disabled={stop === 'stopping'} onClick={() => cancel(turnId)}>Stop</button>)}
+      {target !== null && <button type="button" className="assistant-receipt__action" onClick={() => onOpen(target)}>Open</button>}
     </div>
   );
 }
@@ -235,7 +280,9 @@ function WaitingApproval({ notice, onAnswered, onOpen, onClear }: { notice: AppN
     const resolved = reviewId === null
       ? window.bridge.resolveAgentApproval(id, decision, undefined, answers)
       : window.bridge.resolveAgentReviewApproval(reviewId, id, decision, answers);
-    void resolved.then(onAnswered).catch((cause: unknown) => setError(remoteErrorMessage(cause)));
+    // The answer stands whether or not its receipt is kept, so a lost receipt never brings the card back.
+    void resolved.then(() => window.bridge.recordAssistantAnswer(id).catch((): void => undefined)).then(onAnswered)
+      .catch((cause: unknown) => setError(remoteErrorMessage(cause)));
   };
   const heading = notice.pullRequestTitle ?? notice.title;
   return (

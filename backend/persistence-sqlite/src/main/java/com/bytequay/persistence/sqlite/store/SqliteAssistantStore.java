@@ -13,11 +13,14 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.domain.AssistantAction;
 import com.bytequay.core.domain.AssistantDay;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.store.AssistantStore;
+import com.bytequay.persistence.sqlite.entity.AssistantActionEntity;
 import com.bytequay.persistence.sqlite.entity.AssistantDayEntity;
 import com.bytequay.persistence.sqlite.entity.AssistantItemEntity;
+import com.bytequay.persistence.sqlite.repository.AssistantActionJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AssistantDayJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AssistantItemJpaRepository;
 import org.springframework.stereotype.Repository;
@@ -28,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Comparator.comparing;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -36,11 +40,13 @@ public class SqliteAssistantStore
 {
     private final AssistantDayJpaRepository days;
     private final AssistantItemJpaRepository items;
+    private final AssistantActionJpaRepository actions;
 
-    public SqliteAssistantStore(AssistantDayJpaRepository days, AssistantItemJpaRepository items)
+    public SqliteAssistantStore(AssistantDayJpaRepository days, AssistantItemJpaRepository items, AssistantActionJpaRepository actions)
     {
         this.days = requireNonNull(days, "days is null");
         this.items = requireNonNull(items, "items is null");
+        this.actions = requireNonNull(actions, "actions is null");
     }
 
     @Override
@@ -76,9 +82,24 @@ public class SqliteAssistantStore
 
     @Override
     @Transactional
+    public void addAction(AssistantAction action)
+    {
+        actions.save(new AssistantActionEntity(action));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AssistantAction> actions(String itemId)
+    {
+        return actions.findByItemId(itemId).stream().map(AssistantActionEntity::toDomain).sorted(comparing(AssistantAction::at)).collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional
     public void deleteBefore(LocalDate day)
     {
         days.deleteByIdLessThan(day.toString());
         items.deleteByDayLessThan(day.toString());
+        actions.deleteByDayLessThan(day.toString());
     }
 }

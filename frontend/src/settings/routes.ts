@@ -49,7 +49,8 @@ const GROUP_SLUGS: Record<SettingsGroup, string> = {
 };
 
 export const SETTINGS_ENTRIES: SettingsEntry[] = [
-  { section: 'workflow', group: 'Agents', label: 'Workflow', slug: 'workflow', rows: ['Development commits', 'Auto draft PR', 'Auto CI fix', 'Auto review summary', 'CI repair agent'] },
+  { section: 'workflow', group: 'Agents', label: 'Workflow', slug: 'workflow', rows: ['Development commits', 'Auto draft PR', 'Auto CI fix', 'Auto review summary', 'CI repair agent',
+    'Assistant can start tasks', 'Assistant can answer tasks'] },
   {
     section: 'general',
     group: 'Personal',

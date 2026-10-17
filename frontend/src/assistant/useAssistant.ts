@@ -28,6 +28,8 @@ export type Assistant = {
   send: (text: string, visible: string[], onScreen: string | null) => Promise<boolean>;
   stop: () => void;
   retry: () => void;
+  /** Reads the conversation again, such as after a card's button left a receipt. */
+  refresh: () => void;
 };
 
 /** Today's conversation while the panel is open: read on open and focus, and every second while a reply runs. */
@@ -88,6 +90,7 @@ export function useAssistant(open: boolean): Assistant {
 
   const stop = useCallback(() => { void act(() => window.bridge.stopAssistant()); }, [act]);
   const retry = useCallback(() => { void act(() => window.bridge.retryAssistant()); }, [act]);
+  const refresh = useCallback(() => { void load(); }, [load]);
 
-  return { view, error, sending, send, stop, retry };
+  return { view, error, sending, send, stop, retry, refresh };
 }

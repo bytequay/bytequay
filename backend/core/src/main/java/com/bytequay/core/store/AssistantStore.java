@@ -13,6 +13,7 @@
  */
 package com.bytequay.core.store;
 
+import com.bytequay.core.domain.AssistantAction;
 import com.bytequay.core.domain.AssistantDay;
 import com.bytequay.core.domain.AssistantItem;
 
@@ -31,6 +32,11 @@ public interface AssistantStore
 
     void add(AssistantItem item);
 
-    /** Removes the days and their items before {@code day}. */
+    void addAction(AssistantAction action);
+
+    /** The action tool's calls on one message, in the order they were made. */
+    List<AssistantAction> actions(String itemId);
+
+    /** Removes the days, their items and their actions before {@code day}. */
     void deleteBefore(LocalDate day);
 }

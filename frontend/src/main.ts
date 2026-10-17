@@ -1508,6 +1508,13 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/assistant/messages`, jsonInit('POST', { text, visible, onScreen, key }, agentHeaders())));
   ipcMain.handle('assistant:stop', () => backendJson(`${backendBase()}/api/assistant/stop`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('assistant:retry', () => backendJson(`${backendBase()}/api/assistant/retry`, { method: 'POST', headers: agentHeaders() }));
+  ipcMain.handle('assistant:answered', (_event, approvalId: unknown) =>
+    backendJson(`${backendBase()}/api/assistant/answers`, jsonInit('POST', { approvalId }, agentHeaders())));
+  ipcMain.handle('settings:assistant', () => backendJson(`${backendBase()}/api/settings/assistant`, { headers: agentHeaders() }));
+  ipcMain.handle('settings:assistant:save', (_event, permissions: unknown) => {
+    const value = permissions as Partial<Record<'startTasks' | 'answerTasks', unknown>> | null;
+    return backendJson(`${backendBase()}/api/settings/assistant`, jsonInit('PUT', { startTasks: value?.startTasks === true, answerTasks: value?.answerTasks === true }, agentHeaders()));
+  });
   ipcMain.handle('settings:agenda', () => backendJson(`${backendBase()}/api/settings/agenda`, { headers: agentHeaders() }));
   ipcMain.handle('settings:agenda:save', (_event, schedule: unknown) =>
     backendJson(`${backendBase()}/api/settings/agenda`, jsonInit('PUT', schedule, agentHeaders())));

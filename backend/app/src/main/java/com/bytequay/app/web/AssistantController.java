@@ -13,12 +13,15 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.assistant.AssistantPermissions;
 import com.bytequay.app.assistant.AssistantService;
+import com.bytequay.app.assistant.AssistantSettings;
 import com.bytequay.app.assistant.AssistantView;
 import com.google.common.collect.ImmutableList;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -33,26 +36,28 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @RestController
-@RequestMapping("/api/assistant")
+@RequestMapping("/api")
 public class AssistantController
 {
     private static final int REF = 200;
     private static final int VISIBLE = 100;
 
     private final AssistantService assistant;
+    private final AssistantSettings settings;
 
-    public AssistantController(AssistantService assistant)
+    public AssistantController(AssistantService assistant, AssistantSettings settings)
     {
         this.assistant = requireNonNull(assistant, "assistant is null");
+        this.settings = requireNonNull(settings, "settings is null");
     }
 
-    @GetMapping("/today")
+    @GetMapping("/assistant/today")
     public AssistantView today()
     {
         return assistant.today();
     }
 
-    @PostMapping("/messages")
+    @PostMapping("/assistant/messages")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Accepted send(@RequestBody MessageRequest request)
     {
@@ -66,18 +71,41 @@ public class AssistantController
         return new Accepted(assistant.send(request.text(), visible, request.onScreen(), request.key()));
     }
 
-    @PostMapping("/stop")
+    @PostMapping("/assistant/stop")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void stop()
     {
         assistant.stop();
     }
 
-    @PostMapping("/retry")
+    @PostMapping("/assistant/retry")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Accepted retry()
     {
         return new Accepted(assistant.retry());
+    }
+
+    /** A card the user answered with its own button in the panel; the conversation keeps its receipt. */
+    @PostMapping("/assistant/answers")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void answered(@RequestBody AnsweredRequest request)
+    {
+        checkArgument(request != null, "approvalId is required");
+        checkText(request.approvalId(), "approvalId", REF);
+        assistant.answered(request.approvalId());
+    }
+
+    @GetMapping("/settings/assistant")
+    public AssistantPermissions permissions()
+    {
+        return settings.permissions();
+    }
+
+    @PutMapping("/settings/assistant")
+    public AssistantPermissions savePermissions(@RequestBody AssistantPermissions permissions)
+    {
+        checkArgument(permissions != null, "permissions are required");
+        return settings.save(permissions);
     }
 
     /**
@@ -88,4 +116,6 @@ public class AssistantController
     public record MessageRequest(String text, List<String> visible, Optional<String> onScreen, String key) {}
 
     public record Accepted(String itemId) {}
+
+    public record AnsweredRequest(String approvalId) {}
 }

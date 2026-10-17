@@ -43,7 +43,7 @@ import static java.util.Objects.requireNonNull;
 
 /** Starts an interactive task: creates it from its source, then sends its first message as the first turn. */
 @Component
-public final class InteractiveAgentTaskStarter
+public class InteractiveAgentTaskStarter
 {
     private final InteractiveAgentTaskCreator taskCreator;
     private final IssueDevelopmentService issueDevelopment;

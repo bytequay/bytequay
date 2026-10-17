@@ -24,17 +24,19 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static com.bytequay.core.domain.Checks.checkText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * One entry in a day's assistant conversation: the user's message, the assistant's reply, or why a reply failed.
+ * One entry in a day's assistant conversation: the user's message, the assistant's reply, what an action left, or why a reply failed.
  *
- * @param text the user's words, the reply's Markdown, or the failure's reason
+ * @param text the user's words, the reply's Markdown, a receipt's line, or the failure's reason
  * @param visible a message's cards on screen when it was sent
  * @param onScreen a message's ref of the page the user was looking at
  * @param key a message's key from its sender, so sending it again adds nothing
  * @param targets where each ref a reply names opens; only refs the day served
  * @param notReady whether a failure is the model not being ready, which Settings fixes
+ * @param receipt what a receipt's action was, and what it opens; items saved before receipts read as empty
  */
 public record AssistantItem(
         String id,
@@ -46,11 +48,12 @@ public record AssistantItem(
         Optional<String> onScreen,
         Optional<String> key,
         Map<String, AgendaTarget> targets,
-        boolean notReady)
+        boolean notReady,
+        Optional<AssistantReceipt> receipt)
 {
     public enum Kind
     {
-        USER, REPLY, FAILURE
+        USER, REPLY, RECEIPT, FAILURE
     }
 
     public AssistantItem
@@ -64,20 +67,29 @@ public record AssistantItem(
         requireNonNull(onScreen, "onScreen is null");
         requireNonNull(key, "key is null");
         targets = ImmutableMap.copyOf(targets);
+        requireNonNull(receipt, "receipt is null");
+        checkArgument(receipt.isPresent() == (kind == Kind.RECEIPT), "only a receipt carries its action");
     }
 
     public static AssistantItem user(LocalDate day, Instant at, String text, List<String> visible, Optional<String> onScreen, String key)
     {
-        return new AssistantItem(UUID.randomUUID().toString(), day, at, Kind.USER, text, visible, onScreen, Optional.of(key), ImmutableMap.of(), false);
+        return new AssistantItem(UUID.randomUUID().toString(), day, at, Kind.USER, text, visible, onScreen, Optional.of(key), ImmutableMap.of(), false, Optional.empty());
     }
 
     public static AssistantItem reply(LocalDate day, Instant at, String text, Map<String, AgendaTarget> targets)
     {
-        return new AssistantItem(UUID.randomUUID().toString(), day, at, Kind.REPLY, text, ImmutableList.of(), Optional.empty(), Optional.empty(), targets, false);
+        return new AssistantItem(UUID.randomUUID().toString(), day, at, Kind.REPLY, text, ImmutableList.of(), Optional.empty(), Optional.empty(), targets, false, Optional.empty());
+    }
+
+    public static AssistantItem receipt(LocalDate day, Instant at, String text, AssistantReceipt receipt)
+    {
+        return new AssistantItem(UUID.randomUUID().toString(), day, at, Kind.RECEIPT, text, ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableMap.of(), false,
+                Optional.of(receipt));
     }
 
     public static AssistantItem failure(LocalDate day, Instant at, String reason, boolean notReady)
     {
-        return new AssistantItem(UUID.randomUUID().toString(), day, at, Kind.FAILURE, reason, ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableMap.of(), notReady);
+        return new AssistantItem(UUID.randomUUID().toString(), day, at, Kind.FAILURE, reason, ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableMap.of(), notReady,
+                Optional.empty());
     }
 }

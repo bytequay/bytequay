@@ -444,6 +444,9 @@ const bridge: Bridge = {
   sendAssistantMessage: (text, visible, onScreen, key) => ipcRenderer.invoke('assistant:send', text, visible, onScreen, key),
   stopAssistant: () => ipcRenderer.invoke('assistant:stop'),
   retryAssistant: () => ipcRenderer.invoke('assistant:retry'),
+  recordAssistantAnswer: approvalId => ipcRenderer.invoke('assistant:answered', approvalId),
+  getAssistantPermissions: () => ipcRenderer.invoke('settings:assistant'),
+  saveAssistantPermissions: permissions => ipcRenderer.invoke('settings:assistant:save', permissions),
 
   listAgentTasks: (workspaceId, limit) => ipcRenderer.invoke('agent:tasks:list', workspaceId, limit),
   listRunningTasks: () => ipcRenderer.invoke('agent:tasks:running'),

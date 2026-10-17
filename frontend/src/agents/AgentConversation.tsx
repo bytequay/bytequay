@@ -552,7 +552,8 @@ function ApprovalView({ block, onDecide }: {
         <Glyph icon={ShieldCheck} className="is-warn" />
         <span className="agt-appr__chip">Approval needed</span>
         {block.approvalKind === 'COMMAND' && !block.sandboxed && (
-          <span className="agt-icon" role="img" aria-label="Runs outside the sandbox" title="Runs outside the sandbox."><Hand /></span>
+          <span className="agt-icon" role="img" aria-label="Runs outside the sandbox"
+            title="Runs outside the sandbox. Answer with these buttons; it can't be allowed by words."><Hand /></span>
         )}
         <span className="agt-appr__title">{block.title}</span>
         <span className="agt-spacer" />

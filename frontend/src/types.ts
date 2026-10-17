@@ -1465,14 +1465,31 @@ export type AssistantItemDto = {
   id: string;
   day: string;
   at: string;
-  kind: 'USER' | 'REPLY' | 'FAILURE';
-  /** The user's words, the reply's Markdown, or why the reply failed. */
+  kind: 'USER' | 'REPLY' | 'RECEIPT' | 'FAILURE';
+  /** The user's words, the reply's Markdown, a receipt's line, or why the reply failed. */
   text: string;
   /** Where each ref a reply names opens; only refs the day served. */
   targets: Record<string, AgendaTargetDto>;
   /** Whether a failure is the model not being ready, which Settings fixes. */
   notReady: boolean;
+  receipt: AssistantReceiptDto | null;
 };
+
+/** What one action left, done or refused: by the assistant from the user's words, or by a card's own button. */
+export type AssistantReceiptDto = {
+  operation: 'START_TASK' | 'ANSWER_APPROVAL' | 'ANSWER_QUESTION' | 'REPLY_TO_TASK';
+  outcome: 'DONE' | 'REFUSED' | 'FAILED';
+  /** A second line, such as where a started task runs. */
+  detail: string | null;
+  target: AgendaTargetDto | null;
+  /** A started task's first turn, which Stop cancels. */
+  turnId: string | null;
+  /** Settings holds the switch that is off; the card's buttons answer what words may not. */
+  fix: 'SETTINGS' | 'BUTTONS' | null;
+};
+
+/** What the Assistant may do from the user's words; both start off. */
+export type AssistantPermissionsDto = { startTasks: boolean; answerTasks: boolean };
 
 export type AssistantViewDto = { day: string; model: string | null; running: boolean; items: AssistantItemDto[] };
 
@@ -1932,6 +1949,10 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   stopAssistant: () => Promise<void>;
   /** Runs the last message again after a failed reply. */
   retryAssistant: () => Promise<{ itemId: string }>;
+  /** Keeps a receipt for a card answered with its own button in the panel. */
+  recordAssistantAnswer: (approvalId: string) => Promise<void>;
+  getAssistantPermissions: () => Promise<AssistantPermissionsDto>;
+  saveAssistantPermissions: (permissions: AssistantPermissionsDto) => Promise<AssistantPermissionsDto>;
 
   listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
   listRunningTasks: () => Promise<RunningTask[]>;

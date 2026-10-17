@@ -194,6 +194,59 @@
 
 .assistant-row__text { flex: 1; min-width: 0; }
 
+/* Done receipts in a row read as one group, each with the actions that apply to it. */
+.assistant-receipts {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.assistant-receipt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 8px 7px 10px;
+}
+
+.assistant-receipt + .assistant-receipt { border-top: 1px solid var(--border); }
+.assistant-receipt__text { flex: 1; min-width: 0; }
+
+.assistant-receipt__line,
+.assistant-receipt__detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-receipt__line { font-size: 13px; line-height: 19px; }
+
+.assistant-receipt__detail {
+  flex: none;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.assistant-refusal {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.assistant-refusal svg {
+  flex: none;
+  align-self: center;
+}
+
+.assistant-refusal.is-failed svg { color: var(--fg-warning); }
+
+.assistant-receipt__action,
 .assistant-row__open {
   flex: none;
   padding: 2px 6px;
@@ -206,6 +259,7 @@
   cursor: pointer;
 }
 
+.assistant-receipt__action:hover:not(:disabled),
 .assistant-row__open:hover { background: var(--bg-hover); }
 
 .assistant-compose {

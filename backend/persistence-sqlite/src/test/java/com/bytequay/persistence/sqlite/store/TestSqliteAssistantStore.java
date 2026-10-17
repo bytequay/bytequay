@@ -15,8 +15,10 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.AgendaTarget;
+import com.bytequay.core.domain.AssistantAction;
 import com.bytequay.core.domain.AssistantDay;
 import com.bytequay.core.domain.AssistantItem;
+import com.bytequay.core.domain.AssistantReceipt;
 import com.bytequay.core.domain.ServedRef;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -75,14 +77,56 @@ class TestSqliteAssistantStore
         AssistantItem message = AssistantItem.user(DAY, AT, "what's waiting on me?", ImmutableList.of("approval:a1"), Optional.of("pr:trinodb/trino#31402"), "key-1");
         AssistantItem failure = AssistantItem.failure(DAY, AT, "Claude is signed out", true);
         AssistantItem reply = AssistantItem.reply(DAY, AT, "One card waits on task:t1.", ImmutableMap.of("task:t1", AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t1")));
-        for (AssistantItem item : ImmutableList.of(message, failure, reply)) {
+        AssistantItem receipt = AssistantItem.receipt(DAY, AT, "Started “Expose snapshot id”", new AssistantReceipt(AssistantReceipt.Operation.START_TASK,
+                AssistantReceipt.Outcome.DONE, Optional.of("trinodb/trino · Claude Opus 5.5"), Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t2")),
+                Optional.of("turn-1"), Optional.empty()));
+        for (AssistantItem item : ImmutableList.of(message, failure, reply, receipt)) {
             store.add(item);
         }
         store.add(AssistantItem.user(DAY.minusDays(1), AT, "yesterday", ImmutableList.of(), Optional.empty(), "key-0"));
         entities.flush();
         entities.clear();
 
-        assertThat(store.items(DAY)).containsExactly(message, failure, reply);
+        assertThat(store.items(DAY)).containsExactly(message, failure, reply, receipt);
+    }
+
+    @Test
+    void readsAnItemSavedBeforeReceiptsAsHavingNone()
+    {
+        entities.createNativeQuery("insert into assistant_item (id, day, ordinal, value) values ('old', '2026-10-17', 0, ?)")
+                .setParameter(1, "{\"id\":\"old\",\"day\":\"2026-10-17\",\"at\":\"2026-10-17T01:02:00Z\",\"kind\":\"REPLY\",\"text\":\"Answer task:t1 first.\",\"visible\":[],"
+                        + "\"onScreen\":null,\"key\":null,\"targets\":{},\"notReady\":false}")
+                .executeUpdate();
+        entities.clear();
+
+        assertThat(store.items(DAY)).singleElement().satisfies(item -> {
+            assertThat(item.kind()).isEqualTo(AssistantItem.Kind.REPLY);
+            assertThat(item.receipt()).isEmpty();
+        });
+    }
+
+    @Test
+    void keepsEachMessagesActionsInOrderAndDropsThemWithTheirDay()
+    {
+        AssistantItem message = AssistantItem.user(DAY, AT, "allow it, then start the snapshot one", ImmutableList.of("approval:a1"), Optional.empty(), "key-1");
+        AssistantAction allowed = AssistantAction.of(message, AssistantReceipt.Operation.ANSWER_APPROVAL, "approval:a1", "allow it", AssistantReceipt.Outcome.DONE,
+                Optional.empty(), Optional.of("ALLOW"), AT.plusSeconds(2));
+        AssistantAction refused = AssistantAction.of(message, AssistantReceipt.Operation.START_TASK, "work:w22", "start the snapshot one", AssistantReceipt.Outcome.REFUSED,
+                Optional.of("Starting tasks is off"), Optional.empty(), AT.plusSeconds(1));
+        AssistantItem yesterday = AssistantItem.user(DAY.minusDays(1), AT, "allow it", ImmutableList.of(), Optional.empty(), "key-0");
+        store.addAction(allowed);
+        store.addAction(refused);
+        store.addAction(AssistantAction.of(yesterday, AssistantReceipt.Operation.ANSWER_APPROVAL, "approval:a0", "allow it", AssistantReceipt.Outcome.DONE,
+                Optional.empty(), Optional.of("ALLOW"), AT));
+        entities.flush();
+        entities.clear();
+
+        assertThat(store.actions(message.id())).containsExactly(refused, allowed);
+        store.deleteBefore(DAY);
+        entities.flush();
+        entities.clear();
+        assertThat(store.actions(yesterday.id())).isEmpty();
+        assertThat(store.actions(message.id())).hasSize(2);
     }
 
     @Test

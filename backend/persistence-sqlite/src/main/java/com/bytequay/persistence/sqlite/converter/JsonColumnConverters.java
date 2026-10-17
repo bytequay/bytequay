@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.converter;
 
 import com.bytequay.core.backport.BackportChain;
+import com.bytequay.core.domain.AssistantAction;
 import com.bytequay.core.domain.AssistantDay;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.DiffCommit;
@@ -58,6 +59,16 @@ public final class JsonColumnConverters
         AssistantDayConverter()
         {
             super(new TypeReference<>() {}, "assistant day", null, null);
+        }
+    }
+
+    @Converter
+    public static class AssistantActionConverter
+            extends JsonColumnConverter<AssistantAction>
+    {
+        AssistantActionConverter()
+        {
+            super(new TypeReference<>() {}, "assistant action", null, null);
         }
     }
 

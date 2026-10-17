@@ -15,6 +15,7 @@ package com.bytequay.app.assistant;
 
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
@@ -27,6 +28,7 @@ import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.agenda.AgendaFixtures;
@@ -40,7 +42,7 @@ import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantDay;
 import com.bytequay.core.domain.AssistantItem;
-import com.bytequay.core.store.AssistantStore;
+import com.bytequay.core.domain.AssistantReceipt;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,8 +60,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -69,8 +69,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import static com.bytequay.core.domain.AssistantItem.Kind.FAILURE;
+import static com.bytequay.core.domain.AssistantItem.Kind.RECEIPT;
 import static com.bytequay.core.domain.AssistantItem.Kind.REPLY;
 import static com.bytequay.core.domain.AssistantItem.Kind.USER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -78,6 +80,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -98,8 +101,9 @@ class TestAssistantConversation
     @TempDir
     private Path temporaryDirectory;
 
-    private final MemoryStore store = new MemoryStore();
+    private final MemoryAssistantStore store = new MemoryAssistantStore();
     private final AssistantReader reader = mock(AssistantReader.class);
+    private final AssistantActions actions = mock(AssistantActions.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
     private final AgentDriver driver = mock(AgentDriver.class);
@@ -133,6 +137,7 @@ class TestAssistantConversation
                 ImmutableMap.of("task:t1", Optional.of(TASK), "ws:ws1", Optional.empty())));
         when(reader.cards(anyList())).thenAnswer(call -> call.<List<String>>getArgument(0).stream().map(ref -> ref + ": Retry Iceberg commit · Allow Claude Bash")
                 .collect(toImmutableList()));
+        when(actions.tool(any(), any(), any())).thenReturn(new ReviewTool("assistant_act", "Act", ImmutableMap.of("type", "object"), arguments -> "{}", false));
         when(driver.open(any(), any())).thenAnswer(call -> {
             AgentSessionContext context = call.getArgument(0);
             opened.add(context);
@@ -168,7 +173,7 @@ class TestAssistantConversation
                 return now.get();
             }
         };
-        assistant = new AssistantService(store, reader, models, drivers, resources,
+        assistant = new AssistantService(store, reader, actions, models, drivers, resources,
                 new AgentProperties(runtime, Duration.ZERO, "", "codex", "0.159.3", temporaryDirectory.resolve("codex-home"), "claude", temporaryDirectory.resolve("claude-home")),
                 AgendaFixtures.mapper(), clock);
     }
@@ -197,7 +202,7 @@ class TestAssistantConversation
         AgentSessionContext morning = opened.getFirst();
         assertThat(morning.access()).isEqualTo(SessionAccess.TOOLS_ONLY);
         assertThat(morning.managedInstructions()).isEqualTo(AssistantService.INSTRUCTIONS);
-        assertThat(morning.sessionTools()).extracting(tool -> tool.name()).containsExactly("assistant_context");
+        assertThat(morning.sessionTools()).extracting(tool -> tool.name()).containsExactly("assistant_context", "assistant_act");
         assertThat(morning.worktree()).isEqualTo(runtime.resolve("assistant").resolve("2026-10-17")).isDirectory();
         assertThat(morning.sessionReference()).isEmpty();
         assertThat(opened.get(1).sessionReference()).contains(new AgentSessionRef(LANE, 1, "session-1"));
@@ -226,7 +231,7 @@ class TestAssistantConversation
 
         assertThatThrownBy(() -> assistant.send("second", ImmutableList.of(), Optional.empty(), "key-2")).isInstanceOf(AgentConflictException.class);
         assertThatThrownBy(assistant::retry).isInstanceOf(AgentConflictException.class);
-        MockMvc http = standaloneSetup(new AssistantController(assistant)).setControllerAdvice(new GlobalExceptionHandler()).build();
+        MockMvc http = standaloneSetup(new AssistantController(assistant, mock(AssistantSettings.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
         http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content("{\"text\": \"second\", \"key\": \"key-2\"}"))
                 .andExpect(status().isConflict());
         // Sent again with its key, the first message is the same message, while its reply runs and after.
@@ -348,6 +353,38 @@ class TestAssistantConversation
     }
 
     @Test
+    void keepsReceiptsBetweenAMessageAndItsReplyAndRetriesPastAButtonsReceipt()
+    {
+        AssistantReceipt allowed = AssistantReceipt.done(AssistantReceipt.Operation.ANSWER_APPROVAL, Optional.of(TASK));
+        doAnswer(call -> {
+            AssistantItem message = call.getArgument(0);
+            Consumer<AssistantItem> receipts = call.getArgument(2);
+            return new ReviewTool("assistant_act", "Act", ImmutableMap.of("type", "object"), arguments -> {
+                receipts.accept(AssistantItem.receipt(message.day(), now.get(), "Allowed once · Retry Iceberg commit", allowed));
+                return "{\"outcome\":\"done\"}";
+            }, false);
+        }).when(actions).tool(any(), any(), any());
+        doAnswer(call -> {
+            AgentSessionContext context = call.getArgument(0);
+            opened.add(context);
+            context.sessionTools().getLast().call().apply("{}");
+            return session;
+        }).when(driver).open(any(), any());
+        results.add(CompletableFuture.completedFuture(new AgentTurnResult(AgentTurnResult.State.FAILED, Optional.empty(), Optional.of("Claude turn failed"),
+                Duration.ofSeconds(1), true)));
+        String message = assistant.send("allow it", ImmutableList.of("approval:a1"), Optional.empty(), "key-1");
+        waitForReply();
+        ApprovalId clicked = ApprovalId.random();
+        when(actions.buttonReceipt(clicked, DAY)).thenReturn(AssistantItem.receipt(DAY, now.get(), "Denied · Metadata cache", allowed));
+        assistant.answered(clicked.toString());
+
+        assertThat(assistant.retry()).isEqualTo(message);
+        waitForReply();
+        assertThat(store.items(DAY)).extracting(AssistantItem::kind).containsExactly(USER, RECEIPT, FAILURE, RECEIPT, RECEIPT, REPLY);
+        verify(actions, atLeastOnce()).tool(eq(store.items(DAY).getFirst()), any(), any());
+    }
+
+    @Test
     void stopCancelsTheRunningTurn()
     {
         CompletableFuture<AgentTurnResult> slow = new CompletableFuture<>();
@@ -407,43 +444,5 @@ class TestAssistantConversation
     private static Instant local(String dateTime)
     {
         return LocalDateTime.parse(dateTime).atZone(ZONE).toInstant();
-    }
-
-    private static final class MemoryStore
-            implements AssistantStore
-    {
-        private final Map<LocalDate, AssistantDay> days = new HashMap<>();
-        private final List<AssistantItem> items = new ArrayList<>();
-
-        @Override
-        public synchronized Optional<AssistantDay> find(LocalDate day)
-        {
-            return Optional.ofNullable(days.get(day));
-        }
-
-        @Override
-        public synchronized void save(AssistantDay day)
-        {
-            days.put(day.day(), day);
-        }
-
-        @Override
-        public synchronized List<AssistantItem> items(LocalDate day)
-        {
-            return items.stream().filter(item -> item.day().equals(day)).collect(toImmutableList());
-        }
-
-        @Override
-        public synchronized void add(AssistantItem item)
-        {
-            items.add(item);
-        }
-
-        @Override
-        public synchronized void deleteBefore(LocalDate day)
-        {
-            days.keySet().removeIf(value -> value.isBefore(day));
-            items.removeIf(item -> item.day().isBefore(day));
-        }
     }
 }

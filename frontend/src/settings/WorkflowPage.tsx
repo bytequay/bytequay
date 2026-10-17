@@ -14,6 +14,7 @@
 import type { DevelopmentAutomationDto, ModelProviderDto } from '../types';
 import { AUTOMATION_OPTIONS } from '../agents/developmentAutomation';
 import { CiProviderSelect } from '../agents/AutomationControl';
+import AssistantPermissionsCard from './AssistantPermissionsCard';
 import { SettingsCard, SettingsRow, Toggle } from './primitives';
 
 export default function WorkflowPage({ value, providers, busy, error, onChange }: {
@@ -37,6 +38,7 @@ export default function WorkflowPage({ value, providers, busy, error, onChange }
         </SettingsRow>
       </SettingsCard>
       <p className="setw-footnote">Defaults apply to new tasks, which can override them until they start. CI allows up to 3 repairs, 3 reruns per revision, and 8 hours.</p>
+      <AssistantPermissionsCard />
     </>}
   </div>;
 }

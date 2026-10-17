@@ -95,6 +95,12 @@ final class AssistantContext
         return ImmutableMap.copyOf(served);
     }
 
+    /** A ref an action handed out, such as the task it started, so a later message may name it. */
+    synchronized void serve(String ref, ServedRef value)
+    {
+        served.putIfAbsent(ref, value);
+    }
+
     synchronized String call(String arguments)
     {
         try {

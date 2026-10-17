@@ -44,9 +44,14 @@ const AGENDA: AgendaDto = {
 const VIEW: AssistantViewDto = {
   day: '2026-10-16', model: 'Claude Sonnet', running: false,
   items: [
-    { id: 'u1', day: '2026-10-16', at: '2026-10-16T07:06:00Z', kind: 'USER', text: 'What should I look at first?', targets: {}, notReady: false },
+    { id: 'u1', day: '2026-10-16', at: '2026-10-16T07:06:00Z', kind: 'USER', text: 'What should I look at first?', targets: {}, notReady: false, receipt: null },
     { id: 'r1', day: '2026-10-16', at: '2026-10-16T07:06:20Z', kind: 'REPLY', targets: { 'pr:trinodb/trino#31377': PULL, 'task:t1': target('TASK', { id: 't1' }) },
-      text: 'Start with [#31377](pr:trinodb/trino#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false },
+      text: 'Start with [#31377](pr:trinodb/trino#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null },
+    { id: 'c1', day: '2026-10-16', at: '2026-10-16T07:08:00Z', kind: 'RECEIPT', text: 'Started “Expose snapshot id in metadata”', targets: {}, notReady: false,
+      receipt: { operation: 'START_TASK', outcome: 'DONE', detail: 'trinodb/trino · Claude Code Opus 5.5 · Auto draft PR', target: target('TASK', { id: 't9' }),
+        turnId: 'turn-9', fix: null } },
+    { id: 'c2', day: '2026-10-16', at: '2026-10-16T07:08:01Z', kind: 'RECEIPT', text: 'Use the buttons: this one runs outside the sandbox', targets: {}, notReady: false,
+      receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, turnId: null, fix: 'BUTTONS' } },
   ],
 };
 
@@ -63,12 +68,14 @@ const APPROVAL: AgentPendingApprovalDto = {
   source: { providerThreadId: null, parentProviderThreadId: null, logicalAgentPath: null, providerTurnId: null, providerItemId: null, providerEventId: null },
 };
 
-type Calls = { sent: unknown[][]; resolved: unknown[][]; opened: string[]; removed: string[]; stopped: number; closed: number; shown: number };
+type Calls = {
+  sent: unknown[][]; resolved: unknown[][]; opened: string[]; removed: string[]; stopped: number; closed: number; shown: number; cancelled: string[]; answered: string[];
+};
 
 type Mounted = { host: HTMLElement; calls: Calls; render: (open: boolean, openCard?: { id: string }) => void; dispose: () => void };
 
 function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES): Mounted {
-  const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, shown: 0 };
+  const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, shown: 0, cancelled: [], answered: [] };
   let failures = failSends;
   window.bridge = {
     getAssistantToday: async () => view,
@@ -84,6 +91,8 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES):
     markAgendaItem: async () => AGENDA,
     readAgentPendingApprovals: async (taskId: string, turnId: string) => taskId === APPROVAL.taskId && turnId === APPROVAL.turnId ? [APPROVAL] : [],
     resolveAgentApproval: async (...args: unknown[]) => { calls.resolved.push(args); return {}; },
+    recordAssistantAnswer: async (id: string) => { calls.answered.push(id); },
+    cancelAgentTurn: async (turnId: string) => { calls.cancelled.push(turnId); return {}; },
     openAppNotice: async (id: string) => { calls.opened.push(id); },
     removeAppNotice: async (id: string) => { calls.removed.push(id); },
   } as unknown as Bridge;
@@ -125,8 +134,11 @@ async function showsTheDayInOrder(): Promise<void> {
     assert([...head.querySelectorAll('button, [title]')].every(node => region(node) === 'no-drag'), 'Header buttons and the model tooltip stay reachable');
     const page = view.host.querySelector<HTMLElement>('.app-surfaces')?.getBoundingClientRect();
     assert(page !== undefined && Math.round(page.right) === window.innerWidth - 380, `The page must make room: ${JSON.stringify(page)}`);
-    const order = [...panel.querySelectorAll('.today, .agt-user, .assistant-reply, .assistant-waiting')].map(node => node.className.split(' ')[0]);
-    assert(JSON.stringify(order) === JSON.stringify(['today', 'agt-user', 'assistant-reply', 'assistant-waiting']), `Agenda, conversation, then waiting cards: ${JSON.stringify(order)}`);
+    const order = [...panel.querySelectorAll('.today, .agt-user, .assistant-reply, .assistant-receipts, .assistant-refusal, .assistant-waiting')]
+      .map(node => node.className.split(' ')[0]);
+    assert(JSON.stringify(order) === JSON.stringify(['today', 'agt-user', 'assistant-reply', 'assistant-receipts', 'assistant-refusal', 'assistant-waiting']),
+      `Agenda, conversation and receipts, then waiting cards: ${JSON.stringify(order)}`);
+    assert(panel.querySelector('.assistant-refusal')?.textContent === 'Use the buttons: this one runs outside the sandbox ↓', 'A refusal points down at the card');
     assert(/^\d{1,2}:\d{2}$/.test(panel.querySelector('.assistant-time')?.textContent ?? ''), 'A message starts with its time');
     const opened: unknown[] = [];
     const listener = (event: Event) => { opened.push((event as CustomEvent).detail); };
@@ -139,6 +151,14 @@ async function showsTheDayInOrder(): Promise<void> {
     assert(JSON.stringify(links) === JSON.stringify(['#31377', 'task']), `Both refs link, bare or not: ${JSON.stringify(links)}`);
     panel.querySelectorAll<HTMLAnchorElement>('.assistant-reply a')[1].click();
     assert(window.location.hash === workspaceAgentTaskRoute('ws1', 't1'), `A task ref opens the task: ${window.location.hash}`);
+    const receipt = panel.querySelector<HTMLElement>('.assistant-receipt');
+    assert(receipt?.querySelector('.assistant-receipt__detail')?.textContent === 'trinodb/trino · Claude Code Opus 5.5 · Auto draft PR', 'A start says where it runs');
+    const action = (name: string) => [...(receipt?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(button => button.textContent === name);
+    action('Open')?.click();
+    assert(window.location.hash === workspaceAgentTaskRoute('ws1', 't9'), `Open goes to the started task: ${window.location.hash}`);
+    action('Stop')?.click();
+    await settle();
+    assert(JSON.stringify(view.calls.cancelled) === '["turn-9"]' && receipt?.textContent?.includes('Stopped') === true, 'Stop cancels the first turn');
   }
   finally { view.dispose(); }
 }
@@ -152,6 +172,7 @@ async function answersWithTheTasksButtons(): Promise<void> {
     allow.click();
     await settle();
     assert(JSON.stringify(view.calls.resolved) === JSON.stringify([['a1', 'ALLOW', null, null]]), `Allow once reaches the task: ${JSON.stringify(view.calls.resolved)}`);
+    assert(JSON.stringify(view.calls.answered) === '["a1"]', 'The answer leaves a receipt in the conversation');
     assert(view.host.querySelector('.agt-appr') === null, 'An answered card leaves');
     const rows = [...view.host.querySelectorAll('.assistant-row')].map(row => row.textContent);
     assert(rows.length === 1 && rows[0]?.includes('Retry commit on conflict') === true, `Other notices stay: ${JSON.stringify(rows)}`);

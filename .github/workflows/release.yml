@@ -71,6 +71,9 @@ jobs:
         working-directory: frontend
         env:
           BYTEQUAY_JIRA_AUTH_URL: ${{ vars.BYTEQUAY_JIRA_AUTH_URL }}
+          # The bundles build in one Node process that peaks near 4.7 GB; the runner's default
+          # 2 GB heap aborts it, and Forge still exits 0 with an incomplete app.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run make
 
       - name: Start packaged backend without system Java

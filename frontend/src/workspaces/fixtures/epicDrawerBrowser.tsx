@@ -174,20 +174,31 @@ export async function run(): Promise<boolean> {
     const title = cards[3].querySelector<HTMLElement>('.epic-card__title');
     assert(title !== null && title.getBoundingClientRect().height <= 2 * 13 * 1.35 + 1 && cards[3].title === LONG, 'Long titles clamp to two lines with the full title on hover');
 
-    // Leaving starts a grace period; coming back during it keeps the drawer.
+    // Leaving starts a grace period; coming back during it keeps the drawer. As above, timing comes from when each
+    // pointer move reached the page and when the class changed; a move that arrives too late cannot test its window.
+    let movedAt = 0;
+    let closedAt = 0;
+    const moved = (): void => { movedAt = performance.now(); };
+    window.addEventListener('pointermove', moved, true);
+    const closer = new MutationObserver(() => { if (!opened()) closedAt = performance.now(); });
+    closer.observe(element('.epic-drawer'), { attributes: true, attributeFilter: ['class'] });
     await mouse('mouseMove', pane.left + 600, pane.top + 500);
+    const leftAt = movedAt;
     await wait(150);
-    assert(opened(), 'The drawer waits after the pointer leaves');
+    assert(opened() || closedAt - leftAt >= 290, `The drawer waits after the pointer leaves (closed after ${Math.round(closedAt - leftAt)}ms)`);
     await mouse('mouseMove', out.left + 100, out.top + 100);
+    const backAt = movedAt;
     await wait(400);
-    assert(opened(), 'Coming back during the grace period keeps it open');
+    assert(opened() || backAt - leftAt >= 250, `Coming back during the grace period keeps it open (back after ${Math.round(backAt - leftAt)}ms)`);
     await mouse('mouseMove', pane.left + 600, pane.top + 500);
     await wait(320);
     assert(!opened(), 'The drawer retracts after the grace period');
     await mouse('mouseMove', at.left + 10, at.top + 30);
-    assert(opened(), 'Coming back during the retract reverses it at once');
+    assert(opened() || movedAt - closedAt >= 150, `Coming back during the retract reverses it at once (back after ${Math.round(movedAt - closedAt)}ms)`);
     await mouse('mouseMove', pane.left + 600, pane.top + 500);
     await wait(320); await still();
+    closer.disconnect();
+    window.removeEventListener('pointermove', moved, true);
     assert(!opened() && getComputedStyle(panel()).visibility === 'hidden', 'The retracted drawer hides again');
 
     // A click opens at once and pins it until a click outside.

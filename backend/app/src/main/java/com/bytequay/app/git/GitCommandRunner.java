@@ -78,9 +78,12 @@ public class GitCommandRunner
             trap stop_group EXIT
             trap 'exit 143' HUP INT TERM
             set -m
-            exec -- "$@" <&0 &
+            # Silence the shell first: a command that ends before the next line would otherwise
+            # add bash's "[1]+ Done" notice to an output merged with stderr.
+            exec 3>&2 2>/dev/null
+            exec -- "$@" <&0 2>&3 3>&- &
             bq_pid=$!
-            exec 2>/dev/null
+            exec 3>&-
             wait "$bq_pid"
             exit "$?"
             """;

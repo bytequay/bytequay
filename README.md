@@ -13,11 +13,8 @@
 </p>
 
 <p align="center">
-  <a href="https://bytequay.github.io/bytequay/">Website</a> ·
-  <a href="https://bytequay.github.io/bytequay/documentation.html">Docs</a> ·
-  <a href="https://bytequay.github.io/bytequay/lab.html">ByteQuay Lab</a> ·
-  <a href="https://bytequay.github.io/bytequay/design.html">Design</a> ·
-  <a href="https://github.com/bytequay/bytequay/releases">Download</a>
+  <a href="https://bytequay.github.io/bytequay/"><strong>Explore ByteQuay →</strong></a><br>
+  Built for macOS · Open source · Pre-1.0
 </p>
 
 <p align="center">
@@ -25,66 +22,50 @@
   <a href="https://github.com/bytequay/bytequay/actions/workflows/ci.yml"><img src="https://github.com/bytequay/bytequay/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
 
-ByteQuay is a desktop app that brings GitHub reviews and local coding agents
-together. Let agents build and guide you, choose how much detail to explore,
-and discuss any part of the work before you merge.
+ByteQuay brings GitHub work and coding agents into one desktop workspace.
+Let agents build. Explore the intent, code, and tests as deeply as you need.
+Ask questions along the way, then merge with confidence.
 
-macOS is the first supported platform, with Linux support planned.
+[![ByteQuay development task with an agent conversation beside code changes and tests — explore ByteQuay](website/dist/assets/app-development.jpg)](https://bytequay.github.io/bytequay/)
 
-App data stays on your computer. GitHub and model requests use the services you
-connect; publishing requires your action or explicitly accepted automation.
+<p align="center">
+  <a href="https://bytequay.github.io/bytequay/"><strong>See ByteQuay in action →</strong></a>
+</p>
 
-ByteQuay is open source and pre-1.0. The guides cover the development version;
-check your release notes for feature availability.
+Use Codex, Claude Code, or your agent API, such as DeepSeek. Keep Claude Code
+accounts isolated and choose the account for each repository.
 
-## What you can do
+## One workspace. The whole picture.
 
-Click a preview or title to open its guide, or
-[take the full app tour →](https://bytequay.github.io/bytequay/#the-app)
+Click any preview to explore the ByteQuay website.
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <a href="https://bytequay.github.io/bytequay/guide-agents.html#agent-tasks">
-        <img src="website/dist/assets/app-development.jpg" alt="Agent conversation and worktree changes in ByteQuay" width="440"><br>
-        <strong>Build with agents →</strong>
-      </a><br>
-      Use Codex, Claude Code, or your agent API, such as DeepSeek. Guide the work and inspect the result.
-    </td>
-    <td width="50%" valign="top">
-      <a href="https://bytequay.github.io/bytequay/guide-reviews.html#private-review">
-        <img src="website/dist/assets/app-review.jpg" alt="Private review summary and a code finding" width="440"><br>
+      <a href="https://bytequay.github.io/bytequay/">
+        <img src="website/dist/assets/app-review.jpg" alt="Private review summary and a code finding in ByteQuay" width="440"><br>
         <strong>Review with context →</strong>
       </a><br>
-      Read the reasoning and findings before deciding what to publish.
+      Inspect findings, ask an agent from a review card, and choose what to publish.
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://bytequay.github.io/bytequay/">
+        <img src="website/dist/assets/app-assistant.jpg" alt="ByteQuay Assistant with a conversation and tasks waiting for attention" width="440"><br>
+        <strong>Your next step, one shortcut away →</strong>
+      </a><br>
+      Open the Assistant with ⌘J to ask about your work and see what needs you.
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <a href="https://bytequay.github.io/bytequay/guide-reviews.html#ask-from-review">
-        <img src="website/dist/assets/app-ask-agent.jpg" alt="Private agent discussion opened from a review card" width="440"><br>
-        <strong>Ask from a review card →</strong>
-      </a><br>
-      Discuss a comment and draft a reply privately before posting.
-    </td>
-    <td width="50%" valign="top">
-      <a href="https://bytequay.github.io/bytequay/guide-reviews.html#link-previews">
-        <img src="website/dist/assets/app-link-preview.jpg" alt="Pull request hover card with its status and description" width="440"><br>
-        <strong>Preview PR and issue links →</strong>
-      </a><br>
-      Follow the context without losing your place.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <a href="https://bytequay.github.io/bytequay/guide-agents.html#commits-and-backports">
+      <a href="https://bytequay.github.io/bytequay/">
         <img src="website/dist/assets/app-cherry-pick.jpg" alt="Cherry-pick plan with selected commits and predicted conflicts" width="440"><br>
         <strong>Carry changes across branches →</strong>
       </a><br>
       Plan cherry-picks, inspect conflicts, and review before delivery.
     </td>
     <td width="50%" valign="top">
-      <a href="https://bytequay.github.io/bytequay/guide-planning.html#epics">
+      <a href="https://bytequay.github.io/bytequay/">
         <img src="website/dist/assets/app-epic-zoom.jpg" alt="Epic zoom window showing related work and progress" width="440"><br>
         <strong>Keep larger work connected →</strong>
       </a><br>
@@ -93,57 +74,19 @@ Click a preview or title to open its guide, or
   </tr>
 </table>
 
-The [Goals experiment](https://bytequay.github.io/bytequay/guide-planning.html#goals)
-is still under implementation, is not a supported feature, and is hidden in
-packaged releases.
+PR and issue previews keep context close wherever you work. ByteQuay Lab helps
+you measure resource use and compare whether skills, guidance, and context help.
 
-## ByteQuay Lab
+## Your work, on your Mac.
 
-ByteQuay Lab is a separate Python toolkit for measuring resource use, testing
-skills and review guidance, and examining context and memory use. Compare
-results before and after a change to understand which features help.
+Conversations, reviews, settings, and working copies stay on your computer.
+GitHub and model requests go to the services you connect.
 
-[![ByteQuay Lab resource dashboard illustration with sample memory and agent activity data](website/dist/assets/lab-resources.svg)](https://bytequay.github.io/bytequay/lab.html)
+**[Visit the ByteQuay website →](https://bytequay.github.io/bytequay/)**
 
-[Explore the Lab →](https://bytequay.github.io/bytequay/lab.html) ·
-[Run the Lab →](https://bytequay.github.io/bytequay/lab-guide.html)
+Explore the app tour, downloads, Lab, and guides from the home page.
 
-## Install
+---
 
-Download the latest `.dmg` from
-[GitHub Releases](https://github.com/bytequay/bytequay/releases), open it, and
-drag **ByteQuay.app** to **Applications**.
-
-Current macOS builds require macOS 14+. The app bundles Java 25; no separate JDK
-installation is required.
-
-Follow the [quickstart](https://bytequay.github.io/bytequay/guide-get-started.html#getting-started)
-to connect GitHub, watch a repository, and open your first PR.
-For common problems, see [Get help](https://bytequay.github.io/bytequay/guide-help.html).
-
-Current releases are not notarized. If macOS reports that ByteQuay is damaged
-after downloading it from the official Releases page, run:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/ByteQuay.app
-```
-
-## Develop
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for prerequisites, setup, and verification.
-
-```sh
-git clone https://github.com/bytequay/bytequay.git
-cd bytequay
-nvm install
-./dev.sh
-```
-
-Read the [design overview](https://bytequay.github.io/bytequay/design.html),
-[product design](docs/design.md), and [architecture](docs/architecture.md)
-for product intent and system boundaries. The [website source](website/README.md)
-and [Markdown user guide](website/documentation.md) live in this repository.
-
-## License
-
-ByteQuay is released under the [Apache License 2.0](LICENSE).
+Building from source or contributing? See [CONTRIBUTING.md](CONTRIBUTING.md).
+Released under the [Apache License 2.0](LICENSE).

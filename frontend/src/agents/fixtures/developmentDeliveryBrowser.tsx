@@ -21,7 +21,7 @@ import { DEFAULT_DEVELOPMENT_AUTOMATION } from '../developmentAutomation';
 import type { AgentEventEnvelope } from '../events';
 import { CI_PROJECTION } from './ciAutofix';
 import { createPreviewBridge } from './previewBridge';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, until } from '../../fixtures/harness';
 
 
 /** The published pull request's detail, which the opened panel reads through the window bridge. */
@@ -83,8 +83,7 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
     history.push({ ...event, taskId: task.id, turnId: turn.id, eventId: `input-${kind}`, sequence: ++sequence,
       payload: { text: kind === 'AUTO_COMMIT' ? 'Commit the finished change' : 'Push the revision and create its draft', attachments: [], deliveryKind: 'TURN' } });
     emit('TURN_STARTED');
-    await settle();
-    assert(host.textContent?.includes(kind === 'AUTO_COMMIT' ? 'Committing' : 'Creating draft PR') === true, 'Generated activity must be visible');
+    await until(() => host.textContent?.includes(kind === 'AUTO_COMMIT' ? 'Committing' : 'Creating draft PR') === true, 'Generated activity must be visible');
   };
   const finishTurn = async () => {
     turn = { ...turn, state: 'COMPLETED', endedAt: `2026-01-01T12:0${sequence % 10}:00Z`,
@@ -120,17 +119,16 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
   const render = () => flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   render();
   try {
-    await settle();
-    let input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
+    const composer = () => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
+    await until(() => composer()?.placeholder === 'Waiting for your response…', 'A durable question must ask for its answer before any delivery');
+    let input = composer();
     assert(input !== null, 'Normal answer composer must exist');
-    assert(input.placeholder === 'Waiting for your response…', 'A durable question must ask for its answer before any delivery');
     assert(host.querySelector('.agt-pr-chip') === null, 'A branch without a pull request must offer no chip');
     assert(submitted === 0, 'Opening a questioning task must not launch delivery');
     changeInput(input, 'Preserve the public API');
     await settle();
     host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.click();
-    await settle();
-    assert(Number(submitted) === 1 && host.querySelector<HTMLTextAreaElement>('.agt-compose__input')?.placeholder === "Let's ship something",
+    await until(() => Number(submitted) === 1 && host.querySelector<HTMLTextAreaElement>('.agt-compose__input')?.placeholder === "Let's ship something",
       'Accepted answer must clear the old question');
     changeInput(input, 'Keep my next development request');
     await settle();
@@ -144,50 +142,44 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
     if (!automation.autoCiFix) {
       task = { ...task, version: task.version + 1, developmentContinuationUnfinished: false };
       emit('DEVELOPMENT_AUTOMATION_UPDATED', 'Development automation settled');
-      await settle();
+      await until(() => host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === false, 'Publication must release the source when CI is disabled');
       assert(host.querySelector('.agt-pr-chip')?.textContent?.includes('#17') === true, 'The published pull request must reach the composer chip');
       assert(host.querySelector('.agt-pr-chip .agt-pr-icon.is-draft') !== null, 'Disabling Auto CI fix must leave the published PR draft');
       assert(!host.textContent?.includes('Fixing CI') && !host.textContent?.includes('CI passed'), 'Draft-only delivery must not claim CI work');
-      assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === false, 'Publication must release the source when CI is disabled');
       flushSync(() => root.unmount());
       root = createRoot(host);
       render();
-      await settle();
-      assert(host.querySelector('.agt-pr-chip .agt-pr-icon.is-draft') !== null && Number(submitted) === 1, 'Reopening draft-only delivery must retain the result without starting work');
+      await until(() => host.querySelector('.agt-pr-chip .agt-pr-icon.is-draft') !== null, 'Reopening draft-only delivery must retain the result without starting work');
+      assert(Number(submitted) === 1, 'Reopening draft-only delivery must retain the result without starting work');
       return { name };
     }
     task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'FIXING', canMessage: false } };
     emit('DEVELOPMENT_AUTOMATION_UPDATED');
-    await settle();
-    assert(host.textContent?.includes('Fixing CI 1/3') === true, 'CI repair must be visible on the source');
+    await until(() => host.textContent?.includes('Fixing CI 1/3') === true, 'CI repair must be visible on the source');
     task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, status: 'FINISHED', finishReason: 'GREEN', canMessage: false } };
     emit('DEVELOPMENT_AUTOMATION_UPDATED');
-    await settle();
+    await until(() => !host.textContent?.includes('Fixing CI'), 'Green must end the CI repair');
     assert(host.querySelector('.agt-automation-progress__pill')?.textContent === 'Automation active'
       && !host.textContent?.includes('Ready for review'), 'Green alone must not imply promotion');
     assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled !== false
       && host.querySelector('button[aria-label="Stop automation"]') !== null, 'Green must retain ownership until source synchronization and final checks finish');
     const checkWait = 'Waiting for PR checks: required external build has not reported a result';
     emit('DEVELOPMENT_AUTOMATION_UPDATED', checkWait);
-    await settle();
-    assert(host.querySelector('.agt-barrier')?.textContent?.includes(checkWait) === true, 'Post-green missing checks must stay visible');
+    await until(() => host.querySelector('.agt-barrier')?.textContent?.includes(checkWait) === true, 'Post-green missing checks must stay visible');
     flushSync(() => root.unmount());
     root = createRoot(host);
     render();
-    await settle();
-    assert(host.querySelector('.agt-barrier')?.textContent?.includes(checkWait) === true, 'Opening a running task must recover the coordinator reason from history');
+    await until(() => host.querySelector('.agt-barrier')?.textContent?.includes(checkWait) === true, 'Opening a running task must recover the coordinator reason from history');
     input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
     assert(input !== null, 'Reloaded source must keep the composer available for drafting');
     changeInput(input, 'Keep my next development request');
     await settle();
 
     notify({ subscriptionId: 'delivery', taskId: task.id, kind: 'state', state: 'reconnecting' });
-    await settle();
-    assert(host.textContent?.includes('Reconnecting') === true, 'Connection loss must remain visible');
+    await until(() => host.textContent?.includes('Reconnecting') === true, 'Connection loss must remain visible');
     assert(host.querySelector('.agt-barrier')?.textContent?.includes(checkWait) === true, 'Reconnect must retain the last coordinator check-wait reason');
     emit('DEVELOPMENT_AUTOMATION_UPDATED', 'Synchronizing source worktree');
-    await settle();
-    assert(host.querySelector('.agt-barrier')?.textContent?.includes('Synchronizing source worktree') === true, 'Fresh progress must replace the older check wait');
+    await until(() => host.querySelector('.agt-barrier')?.textContent?.includes('Synchronizing source worktree') === true, 'Fresh progress must replace the older check wait');
     const beforeReleasePrReads = prReads;
     pullRequests = [publishedPullRequest(outcome !== 'ready')];
     publish(publishedDetail(outcome !== 'ready'));
@@ -197,34 +189,30 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
       : 'Development automation settled');
     await settle();
     notify({ subscriptionId: 'delivery', taskId: task.id, kind: 'state', state: 'open' });
-    await settle();
-    const chip = host.querySelector('.agt-pr-chip');
-    assert(chip?.textContent?.includes('#17') === true, 'Settled delivery must name its pull request on the composer');
-    assert(prReads > beforeReleasePrReads, 'Final release/reconnect must refresh the task PR list');
-    assert(!host.querySelector('.agt-barrier')?.textContent?.includes('Synchronizing source worktree'), 'Marker release must hide stale coordinator progress');
-    assert(chip?.querySelector(outcome === 'ready' ? '.agt-pr-icon.is-open' : '.agt-pr-icon.is-draft') !== null,
+    await until(() => prReads > beforeReleasePrReads, 'Final release/reconnect must refresh the task PR list');
+    await until(() => !host.querySelector('.agt-barrier')?.textContent?.includes('Synchronizing source worktree'), 'Marker release must hide stale coordinator progress');
+    await until(() => host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === false, 'Settled delivery must keep the source task open');
+    await until(() => host.querySelector(`.agt-pr-chip ${outcome === 'ready' ? '.agt-pr-icon.is-open' : '.agt-pr-icon.is-draft'}`) !== null,
       'The observed draft state must determine the chip mark');
+    assert(host.querySelector('.agt-pr-chip')?.textContent?.includes('#17') === true, 'Settled delivery must name its pull request on the composer');
     assert(host.querySelector('.agt-panel') !== null, 'A task that published a pull request must open on it');
     if (outcome === 'sync failure') {
       assert(!host.textContent?.includes('Resume delivery'), 'Failed delivery must not offer a recovery continuation');
       assert(!host.textContent?.includes('Delete task'), 'A stopped continuation must not require deleting the task');
     }
     assert(input.value === 'Keep my next development request', 'Settling the continuation must preserve the source draft');
-    assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === false, 'Settled delivery must keep the source task open');
     assert(host.querySelector<HTMLButtonElement>('button[aria-label="Mark it complete"]')?.disabled === false, 'Delivery must leave task closure explicit');
     flushSync(() => root.unmount());
     root = createRoot(host);
     render();
-    await settle();
-    assert(Number(submitted) === 1, 'Reopening final results must never send development or publication again');
-    assert(host.innerText.includes('ByteQuay · Auto commit') && host.innerText.includes('Open draft pull request') && host.innerText.includes(task.generatedBranch)
+    await until(() => host.innerText.includes('ByteQuay · Auto commit') && host.innerText.includes('Open draft pull request') && host.innerText.includes(task.generatedBranch)
       && !host.innerText.includes('Push the revision and create its draft'), 'Replay must retain the commit label and fold the exact publication prompt');
+    assert(Number(submitted) === 1, 'Reopening final results must never send development or publication again');
     if (outcome === 'ready') {
       turn = { ...turn, id: 'later-question', developmentOrigin: null, developmentResult: { readyForDelivery: false, message: question } };
       recordTurn();
       emit('TURN_COMPLETED');
-      await settle();
-      assert(host.querySelector('.agt-status')?.textContent?.startsWith('Waiting for your response') === true, 'A later question must take precedence over prior green/ready results');
+      await until(() => host.querySelector('.agt-status')?.textContent?.startsWith('Waiting for your response') === true, 'A later question must take precedence over prior green/ready results');
       assert(host.querySelector<HTMLTextAreaElement>('.agt-compose__input')?.placeholder === 'Waiting for your response…',
         'A later question must ask for the answer in the composer');
     }

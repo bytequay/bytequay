@@ -27,6 +27,12 @@ export function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+/** Settles until the condition holds: a load that chains requests and effects can outlast one settle on a slow machine. */
+export async function until(condition: () => boolean, message: string): Promise<void> {
+  for (let frame = 0; frame < 120 && !condition(); frame++) await settle();
+  assert(condition(), message);
+}
+
 /** Sets a controlled textarea or input the way a user would, so React sees the change. */
 export function changeInput(input: HTMLTextAreaElement | HTMLInputElement, value: string): void {
   Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set?.call(input, value);

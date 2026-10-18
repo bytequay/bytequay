@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 it('zooms, drags, resizes and dismisses Goals without moving the page or losing drafts', async () => {
   expect(await runBrowserFixture<boolean>({
@@ -23,4 +23,4 @@ it('zooms, drags, resizes and dismisses Goals without moving the page or losing 
       contextBridge.exposeInMainWorld('goalMouse', (event) => ipcRenderer.invoke('goal-mouse', event));`,
     setup: `ipcMain.handle('goal-mouse', (_event, input) => window.webContents.sendInputEvent(input));`,
   })).toBe(true);
-}, 90_000);
+}, deadline(90_000));

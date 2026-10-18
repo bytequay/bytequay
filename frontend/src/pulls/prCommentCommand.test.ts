@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 import { activePrCommentCommand } from './usePrCommentCommand';
 
 it('matches command prefixes on their own lines without altering prose, arguments or code', () => {
@@ -33,4 +33,4 @@ it('completes PR commands with the latest full SHA in both comment composers in 
     prefix: 'bytequay-pr-command-', entry: 'src/pulls/fixtures/prCommentCommandBrowser.tsx', global: 'PrCommandTests',
     styles: true, charset: true,
   })).toBe('PR command completion passed');
-}, 40_000);
+}, deadline(40_000));

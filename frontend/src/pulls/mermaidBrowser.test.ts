@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 it('renders Mermaid in collapsed Markdown, follows the theme, and recovers from invalid source in Chromium', async () => {
   const result = await runBrowserFixture<{ passed: boolean }>({
@@ -22,4 +22,4 @@ it('renders Mermaid in collapsed Markdown, follows the theme, and recovers from 
       if (process.env.BYTEQUAY_MERMAID_CAPTURE) require('fs').writeFileSync(process.env.BYTEQUAY_MERMAID_CAPTURE, (await window.webContents.capturePage()).toPNG());`,
   });
   expect(result).toEqual({ passed: true });
-}, 60_000);
+}, deadline(60_000));

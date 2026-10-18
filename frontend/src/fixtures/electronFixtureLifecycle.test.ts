@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import electron from 'electron';
 import { expect, it, vi } from 'vitest';
-import { buildBrowserFixture, runBrowserFixture } from './browserFixture';
+import { buildBrowserFixture, runBrowserFixture, deadline } from './browserFixture';
 import { electronFixtureLifecycle } from './electronFixtureLifecycle';
 
 it('returns results and exits when several fixtures finish together', async () => {
@@ -37,7 +37,7 @@ it('returns results and exits when several fixtures finish together', async () =
     finally { await fixture.dispose(); }
   }
   finally { await rm(directory, { recursive: true, force: true }); }
-}, 20_000);
+}, deadline(20_000));
 
 it.each(['parent exit', 'deadline'])('exits a real Electron fixture after %s', async (reason) => {
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-fixture-cleanup-'));
@@ -82,7 +82,7 @@ it.each(['parent exit', 'deadline'])('exits a real Electron fixture after %s', a
     if (fixturePid) forceExit(fixturePid);
     await rm(directory, { recursive: true, force: true });
   }
-}, 20_000);
+}, deadline(20_000));
 
 it('force-closes a fixture whose main thread cannot handle graceful shutdown', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-fixture-stall-'));
@@ -95,7 +95,7 @@ it('force-closes a fixture whose main thread cannot handle graceful shutdown', a
     })).rejects.toMatchObject({ killed: true, signal: 'SIGKILL' });
   }
   finally { await rm(directory, { recursive: true, force: true }); }
-}, 20_000);
+}, deadline(20_000));
 
 function forceExit(pid: number): void {
   try { process.kill(pid, 'SIGKILL'); }

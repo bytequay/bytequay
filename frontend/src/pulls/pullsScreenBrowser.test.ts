@@ -12,14 +12,14 @@
  * limitations under the License.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { buildBrowserFixture } from '../fixtures/browserFixture';
+import { buildBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
 beforeAll(async () => {
   fixture = await buildBrowserFixture({
     prefix: 'bytequay-pullsScreen-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'PullScreenTests', styles: true,
   });
-}, 30_000);
+}, deadline(30_000));
 afterAll(() => fixture?.dispose());
 
 it.each([
@@ -45,7 +45,7 @@ it.each([
     body: `const results = await window.webContents.executeJavaScript('PullScreenTests.${scenario}');`,
   });
   expect(result).toContain(expected);
-}, 30_000);
+}, deadline(30_000));
 
 it('opens Changes in local and linked review workspaces while keeping Summary independent', async () => {
   const results = await fixture.run<string[]>({
@@ -53,14 +53,14 @@ it('opens Changes in local and linked review workspaces while keeping Summary in
     body: `const results = await window.webContents.executeJavaScript('(async () => [await PullScreenTests.runReviewWorkspace(), await PullScreenTests.runReviewWorkspace(true), await PullScreenTests.runOpenReviewWorkspaceStream()])()');`,
   });
   expect(results).toHaveLength(3);
-}, 30_000);
+}, deadline(30_000));
 
 it.each(['sync', 'attention'])('finishes initial PR loading when %s supersedes it and ignores stale workspace responses', async trigger => {
   const result = await fixture.run<string>({
     body: `const results = await window.webContents.executeJavaScript('PullScreenTests.runListLoadingRace("${trigger}")');`,
   });
   expect(result).toBe('Latest list reads finish loading, recover from failure and isolate workspaces');
-}, 30_000);
+}, deadline(30_000));
 
 it('hosts a task’s or a review’s private threads on the pull-request page for other people’s comments', async () => {
   const results = await fixture.run<string[]>({
@@ -68,7 +68,7 @@ it('hosts a task’s or a review’s private threads on the pull-request page fo
     body: `const results = await window.webContents.executeJavaScript('(async () => [await PullScreenTests.runPrivateThreads(), await PullScreenTests.runPrivateThreads("review")])()');`,
   });
   expect(results).toHaveLength(2);
-}, 30_000);
+}, deadline(30_000));
 
 it('prepares comment context on send, preserves setup drafts and isolates late results', async () => {
   const results = await fixture.run<string[]>({
@@ -76,7 +76,7 @@ it('prepares comment context on send, preserves setup drafts and isolates late r
     body: `const results = await window.webContents.executeJavaScript('(async () => { const results = []; for (const mode of ["ready", "failure", "model", "workspace", "switch"]) results.push(await PullScreenTests.runPreparePrivateThreads(mode)); return results; })()');`,
   });
   expect(results).toHaveLength(5);
-}, 30_000);
+}, deadline(30_000));
 
 it.each([
   ['loads, retries and isolates check logs', 'runCheckLogs', 'Open failed CI in the browser, load and retry inline logs, and discard stale attempts'],
@@ -89,4 +89,4 @@ it.each([
       const results = await window.webContents.executeJavaScript('PullScreenTests.${scenario}()');`,
   });
   expect(result).toBe(expected);
-}, 30_000);
+}, deadline(30_000));

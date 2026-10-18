@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { anchorPanel, clampCardOrigin, previewMarkdown, stateChip } from './ReferenceCard';
-import { runBrowserFixture } from './fixtures/browserFixture';
+import { runBrowserFixture, deadline } from './fixtures/browserFixture';
 
 describe('clampCardOrigin', () => {
   const card = { width: 480, height: 400 };
@@ -97,4 +97,4 @@ it('shows a short hover card beside its link and resolves a pull-shaped issue li
     width: 900,
     height: 800,
   });
-}, 30_000);
+}, deadline(30_000));

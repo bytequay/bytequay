@@ -13,11 +13,11 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('retains outcome evidence and retry identity through the work-item panel in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-work-items-', entry: 'src/goals/fixtures/workItemsBrowser.tsx',
     global: 'WorkItemTests', styles: true, charset: true, width: 420, height: 900 });
   expect(results).toHaveLength(5);
   expect(results.filter((result) => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

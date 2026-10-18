@@ -12,25 +12,25 @@
  * limitations under the License.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { buildBrowserFixture } from '../fixtures/browserFixture';
+import { buildBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
 beforeAll(async () => {
   fixture = await buildBrowserFixture({
     prefix: 'bytequay-goalGuide-', entry: 'src/goals/fixtures/goalGuideBrowser.tsx', global: 'GoalGuideTests', styles: true, width: 1200, height: 900,
   });
-}, 30_000);
+}, deadline(30_000));
 afterAll(() => fixture?.dispose());
 
 it('colors numbers, resolves inline titles, and previews and zooms Goal references', async () => {
   expect(await fixture.run<boolean>({
     body: "const results = await window.webContents.executeJavaScript('GoalGuideTests.references()');",
   })).toBe(true);
-}, 30_000);
+}, deadline(30_000));
 
 it('clarifies a goal from free text and a suggested answer to an accepted definition', async () => {
   expect(await fixture.run<boolean>()).toBe(true);
-}, 30_000);
+}, deadline(30_000));
 
 it('guides an unsure user by suggested answers alone, by keyboard, in a narrow window', async () => {
   expect(await fixture.run<boolean>({ width: 380, height: 760,
@@ -45,10 +45,10 @@ it('guides an unsure user by suggested answers alone, by keyboard, in a narrow w
     });`,
     body: "const results = await window.webContents.executeJavaScript('GoalGuideTests.unsure()');",
   })).toBe(true);
-}, 30_000);
+}, deadline(30_000));
 
 it('walks the reference journey from a vague Iceberg goal to a merged pull request on its work', async () => {
   expect(await fixture.run<boolean>({
     body: "const results = await window.webContents.executeJavaScript('GoalGuideTests.reference()');",
   })).toBe(true);
-}, 60_000);
+}, deadline(60_000));

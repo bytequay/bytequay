@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 it('reveals, pins and dismisses the Epic drawer at the sidebar edge without moving the page', async () => {
   expect(await runBrowserFixture<boolean>({
@@ -23,4 +23,4 @@ it('reveals, pins and dismisses the Epic drawer at the sidebar edge without movi
       contextBridge.exposeInMainWorld('epicInput', (event) => ipcRenderer.invoke('epic-input', event));`,
     setup: `ipcMain.handle('epic-input', (_event, input) => window.webContents.sendInputEvent(input));`,
   })).toBe(true);
-}, 30_000);
+}, deadline(30_000));

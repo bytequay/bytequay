@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('preserves Recent across navigation and loads pages without redundant requests in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
@@ -26,4 +26,4 @@ it('preserves Recent across navigation and loads pages without redundant request
   });
   expect(results).toHaveLength(11);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

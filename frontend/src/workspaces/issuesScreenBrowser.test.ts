@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('filters loaded issues, keeps a closed issue in view and zooms a named issue in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
@@ -24,4 +24,4 @@ it('filters loaded issues, keeps a closed issue in view and zooms a named issue 
   });
   expect(results).toHaveLength(5);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

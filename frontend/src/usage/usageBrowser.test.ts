@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 it('opens usage on demand, switches accounts, handles missing limits and supports Escape in both themes', async () => {
   const results = await runBrowserFixture<{ abovePace: boolean; belowPace: boolean; unavailable: boolean; apiAlias: boolean; closed: boolean }>({
@@ -30,4 +30,4 @@ it('opens usage on demand, switches accounts, handles missing limits and support
       results.closed = await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => resolve(UsageTests.checkClosed())))');`,
   });
   expect(results).toMatchObject({ abovePace: true, belowPace: true, unavailable: true, apiAlias: true, closed: true });
-}, 30_000);
+}, deadline(30_000));

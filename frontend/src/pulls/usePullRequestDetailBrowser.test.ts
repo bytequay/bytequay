@@ -13,10 +13,10 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 it('refreshes opened PR groups without overlap or hidden-window polling', async () => {
   const result = await runBrowserFixture<string>({ prefix: 'bytequay-pr-poll-',
     entry: 'src/pulls/fixtures/pullRequestDetailBrowser.tsx', global: 'PullDetailTests' });
   expect(result).toContain('no overlap');
-}, 30_000);
+}, deadline(30_000));

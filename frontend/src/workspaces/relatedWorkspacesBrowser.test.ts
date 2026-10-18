@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('edits workspace relationships and opens their folded navigation within the current workspace', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-related-',
@@ -21,4 +21,4 @@ it('edits workspace relationships and opens their folded navigation within the c
     setup: "window.webContents.on('console-message', event => { if (event.level === 'error') console.error(event.message); });" });
   expect(results).toHaveLength(2);
   expect(results.filter(result => result.error)).toEqual([]);
-}, 120_000);
+}, deadline(120_000));

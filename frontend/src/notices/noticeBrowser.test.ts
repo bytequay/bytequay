@@ -12,10 +12,10 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 it('shows one alert at a time, answers approvals in the Assistant panel, closes with ×, and keeps viewed tasks quiet', async () => {
   const result = await runBrowserFixture<{ passed: boolean }>({ prefix: 'bytequay-notices-', entry: 'src/notices/fixtures/noticeBrowser.tsx',
     global: 'NoticeTests', styles: true, width: 340, height: 620 });
   expect(result.passed).toBe(true);
-}, 30_000);
+}, deadline(30_000));

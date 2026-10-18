@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 const SCREENSHOTS = process.env.BYTEQUAY_TODAY_SCREENSHOTS !== undefined;
 
@@ -49,4 +49,4 @@ it('opens, marks, folds and suns the Today rows in Chromium', async () => {
   });
   expect(results).toHaveLength(4);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, SCREENSHOTS ? 120_000 : 30_000);
+}, deadline(SCREENSHOTS ? 120_000 : 30_000));

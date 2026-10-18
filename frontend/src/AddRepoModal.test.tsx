@@ -16,7 +16,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import AddRepoModal, { WatchRepositoryConfirmation } from './AddRepoModal';
 import type { WatchRepositoryPreviewDto } from './types';
-import { runBrowserFixture } from './fixtures/browserFixture';
+import { runBrowserFixture, deadline } from './fixtures/browserFixture';
 
 const upstream = { owner: 'trinodb', repo: 'trino' };
 const fork = { owner: 'octocat', repo: 'trino' };
@@ -181,4 +181,4 @@ it('preserves watch progress on background clicks and keeps explicit cancellatio
   expect(results).toEqual(['background clicks preserve progress', 'explicit cancellation discards a late preview', 'preview caches belong to each repository and dialog',
     'watch from review confirms and refreshes',
     'workflow switching reuses pending and completed previews', 'workflow switching ignores stale previews', 'workflow errors recover without changing consent']);
-}, 30_000);
+}, deadline(30_000));

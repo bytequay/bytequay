@@ -13,14 +13,14 @@
  */
 
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { buildBrowserFixture } from '../fixtures/browserFixture';
+import { buildBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
 beforeAll(async () => {
   fixture = await buildBrowserFixture({
     prefix: 'bytequay-reviewRequestCard-', entry: 'src/agents/fixtures/reviewRequestCardBrowser.tsx', global: 'ReviewRequestTests', styles: true,
   });
-}, 30_000);
+}, deadline(30_000));
 afterAll(() => fixture?.dispose());
 
 it('folds saved developer fix prompts and opens their original findings, including queued steering', async () => {
@@ -38,7 +38,7 @@ it('folds saved developer fix prompts and opens their original findings, includi
     `,
   });
   expect(results).toEqual([760, 320].flatMap(width => ['TURN', 'STEER'].flatMap(delivery => [false, true].map(snapshot => ({ width, delivery, snapshot })))));
-}, 30_000);
+}, deadline(30_000));
 
 it('discloses complete review requests with keyboard and pointer without overflow or side effects in Chromium', async () => {
   const results = await fixture.run<{ width: number; open: boolean }[]>({
@@ -75,7 +75,7 @@ it('discloses complete review requests with keyboard and pointer without overflo
   });
   expect(results.map(result => result.width)).toEqual([760, 320]);
   expect(results.every(result => result.open)).toBe(true);
-}, 30_000);
+}, deadline(30_000));
 
 it('keeps development follow-ups compact with their authorization scope and exact prompts available on demand', async () => {
   const results = await fixture.run<{ width: number; kind: string; snapshot: boolean; existing: boolean }[]>({
@@ -95,7 +95,7 @@ it('keeps development follow-ups compact with their authorization scope and exac
   });
   expect(results).toEqual([760, 320].flatMap(width => ['AUTO_COMMIT', 'REFINE_SUMMARY', 'CREATE_DRAFT_PR'].flatMap(kind =>
     [false, true].flatMap(snapshot => (kind === 'CREATE_DRAFT_PR' ? [false, true] : [false]).map(existing => ({ width, kind, snapshot, existing }))))));
-}, 30_000);
+}, deadline(30_000));
 
 it('keeps current and historical review prompts behind a separate disclosure', async () => {
   const results = await fixture.run<{ width: number; snapshot: boolean }[]>({
@@ -110,7 +110,7 @@ it('keeps current and historical review prompts behind a separate disclosure', a
     `,
   });
   expect(results).toEqual([760, 320].flatMap(width => [false, true].map(snapshot => ({ width, snapshot }))));
-}, 30_000);
+}, deadline(30_000));
 
 it('keeps current and historical CI requests compact while preserving the exact prompt and user steering', async () => {
   const results = await fixture.run<{ width: number; snapshot: boolean }[]>({
@@ -125,7 +125,7 @@ it('keeps current and historical CI requests compact while preserving the exact 
     `,
   });
   expect(results).toEqual([760, 320].flatMap(width => [false, true].map(snapshot => ({ width, snapshot }))));
-}, 30_000);
+}, deadline(30_000));
 
 it('keeps private code and learning discussions compact with their exact sent prompts available on demand', async () => {
   const results = await fixture.run<{ width: number; learning: boolean; snapshot: boolean }[]>({
@@ -142,4 +142,4 @@ it('keeps private code and learning discussions compact with their exact sent pr
     `,
   });
   expect(results).toEqual([760, 320].flatMap(width => [false, true].flatMap(learning => [false, true].map(snapshot => ({ width, learning, snapshot })))));
-}, 30_000);
+}, deadline(30_000));

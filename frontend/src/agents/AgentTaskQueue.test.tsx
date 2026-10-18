@@ -20,7 +20,7 @@ import { initialAgentTaskState, type AgentTaskState } from './model';
 import { agentTurn, previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type { AgentProviderStatus, AgentQueuedInputDto, AgentTurnDto, ModelOptionDto } from '../types';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 // The fixture's open approval would put the header on 'waiting on you'; the count needs a plain running turn.
 const events = parseAgentEventSequence(fixture.events).filter((event) => event.type !== 'approval_requested');
@@ -65,7 +65,7 @@ describe('the queue behind a running turn', () => {
       global: 'QueueTests', styles: true, charset: true, width: 1280, height: 800, timeoutMs: 30_000 });
     expect(result).toContain('queued steering preserves drafts');
     expect(result).toContain('queued editing restores full drafts');
-  }, 45_000);
+  }, deadline(45_000));
   it('lists queued messages under the composer with their settings', () => {
     const markup = body({
       turn: turn('RUNNING'),

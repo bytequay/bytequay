@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../../fixtures/browserFixture';
 
 it('keeps the compact Summary interactive and readable at narrow widths', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-summary-layout-',
     entry: 'src/pulls/agent-review/fixtures/summaryLayoutBrowser.tsx', global: 'SummaryLayout', styles: true, charset: true, width: 1200, height: 1000 });
   expect(results).toHaveLength(1);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

@@ -13,24 +13,24 @@
  */
 
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { buildBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { buildBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
 beforeAll(async () => {
   fixture = await buildBrowserFixture({
     prefix: 'bytequay-pendingReview-', entry: 'src/pulls/fixtures/pendingReviewBrowser.tsx', global: 'PendingReviewTests', styles: true,
   });
-}, 30_000);
+}, deadline(30_000));
 afterAll(() => fixture?.dispose());
 
 it('keeps and edits staged review comments across panel tabs in Chromium', async () => {
   const results = await fixture.run<ScenarioResult[]>();
   expect(results).toEqual([{ name: 'A staged review lasts as long as the pull request page' }]);
-}, 40_000);
+}, deadline(40_000));
 
 it('edits saved review comments and retries unconfirmed delivery only after confirmation in Chromium', async () => {
   const result = await fixture.run<string>({
     body: "const results = await window.webContents.executeJavaScript('PendingReviewTests.runDraftCommentEdit()');",
   });
   expect(result).toContain('Saved draft comments support editing');
-}, 40_000);
+}, deadline(40_000));

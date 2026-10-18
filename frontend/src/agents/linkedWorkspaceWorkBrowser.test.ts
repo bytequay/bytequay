@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('shows linked work by state with source, destination, revision and guarded Stop', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-linked-',
@@ -20,4 +20,4 @@ it('shows linked work by state with source, destination, revision and guarded St
     width: 1100, height: 950 });
   expect(results.filter(result => result.error)).toEqual([]);
   expect(results).toHaveLength(1);
-}, 30_000);
+}, deadline(30_000));

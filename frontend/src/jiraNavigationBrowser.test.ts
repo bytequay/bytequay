@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from './fixtures/browserFixture';
+import { runBrowserFixture, deadline } from './fixtures/browserFixture';
 
 it('updates Jira navigation from connected sites in the running app', async () => {
   const results = await runBrowserFixture<{ name: string }[]>({
@@ -24,4 +24,4 @@ it('updates Jira navigation from connected sites in the running app', async () =
     height: 700,
   });
   expect(results).toHaveLength(1);
-}, 30_000);
+}, deadline(30_000));

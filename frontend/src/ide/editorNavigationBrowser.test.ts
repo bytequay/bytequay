@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it, vi } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 // Exercise the real React lifecycle with the fixture's editor; code-preview creation is outside this regression.
 vi.mock('vite', async importOriginal => {
@@ -30,4 +30,4 @@ it('keeps blame installed across cloned context updates and invalidates it for c
     prefix: 'bytequay-blame-', entry: 'src/ide/fixtures/editorNavigationBrowser.tsx', global: 'BlameTests',
   });
   expect(result).toEqual({ contextUpdates: 20, reads: 4 });
-}, 30_000);
+}, deadline(30_000));

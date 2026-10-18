@@ -16,7 +16,7 @@ import { createServer, resolveConfig } from 'vite';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
-import { runBrowserFixture } from './fixtures/browserFixture';
+import { runBrowserFixture, deadline } from './fixtures/browserFixture';
 
 it('loads the editor with separate app and IDE dependency caches in development', async () => {
   const configs = await Promise.all(['vite.renderer.config.ts', 'vite.ide.config.ts'].map(configFile => resolveConfig({ configFile }, 'serve')));
@@ -50,4 +50,4 @@ it('loads the editor with separate app and IDE dependency caches in development'
     await Promise.all(servers.map(server => server.close()));
     await rm(directory, { recursive: true, force: true });
   }
-}, 90_000);
+}, deadline(90_000));

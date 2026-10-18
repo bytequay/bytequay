@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('serializes workspace polling and recovers failed reads without discarding reviews', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-work-poll-',
     entry: 'src/agents/fixtures/workspaceWorkBrowser.tsx', global: 'WorkspaceWorkTests' });
   expect(results.filter(result => result.error)).toEqual([]);
   expect(results).toHaveLength(1);
-}, 30_000);
+}, deadline(30_000));

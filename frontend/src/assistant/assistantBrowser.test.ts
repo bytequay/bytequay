@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 const SCREENSHOTS = process.env.BYTEQUAY_ASSISTANT_SCREENSHOTS !== undefined;
 
@@ -44,4 +44,4 @@ it('floats the Assistant over the page, pages its cards by keyboard, answers the
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
   expect(results).toHaveLength(7);
-}, SCREENSHOTS ? 120_000 : 30_000);
+}, deadline(SCREENSHOTS ? 120_000 : 30_000));

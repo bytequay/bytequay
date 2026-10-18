@@ -13,10 +13,10 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 it('does not load or expose Goals in a production renderer while continuing to load work items', async () => {
   expect(await runBrowserFixture<boolean>({
     prefix: 'bytequay-goals-release-', entry: 'src/goals/fixtures/goalsExperimentBrowser.tsx', global: 'GoalsExperimentTests', timeoutMs: 60_000,
   })).toBe(true);
-}, 90_000);
+}, deadline(90_000));

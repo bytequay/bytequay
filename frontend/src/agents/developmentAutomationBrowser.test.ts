@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('preserves accepted automation and continuation admission in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
@@ -24,4 +24,4 @@ it('preserves accepted automation and continuation admission in Chromium', async
   });
   expect(results).toHaveLength(23);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

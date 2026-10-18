@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('preserves task reading position in Chromium while paging and following', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
@@ -33,4 +33,4 @@ it('preserves task reading position in Chromium while paging and following', asy
   });
   expect(results).toHaveLength(12);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

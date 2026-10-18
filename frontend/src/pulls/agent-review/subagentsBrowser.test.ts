@@ -12,14 +12,14 @@
  * limitations under the License.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { buildBrowserFixture } from '../../fixtures/browserFixture';
+import { buildBrowserFixture, deadline } from '../../fixtures/browserFixture';
 
 let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
 beforeAll(async () => {
   fixture = await buildBrowserFixture({
     prefix: 'bytequay-subagents-', entry: 'src/pulls/agent-review/fixtures/subagentsBrowser.tsx', global: 'SubagentsTests', styles: true, width: 1550, height: 950,
   });
-}, 30_000);
+}, deadline(30_000));
 afterAll(() => fixture?.dispose());
 
 it.each([false, true])('opens review subagents and passage discussions in the shared right panel in Chromium (local: %s)', async local => {
@@ -27,4 +27,4 @@ it.each([false, true])('opens review subagents and passage discussions in the sh
     body: `const results = await window.webContents.executeJavaScript('SubagentsTests.run(${local})');` });
   expect(result).toContain('live, completed and nested subagents');
   expect(result).toContain('selected answers open reusable discussions');
-}, 30_000);
+}, deadline(30_000));

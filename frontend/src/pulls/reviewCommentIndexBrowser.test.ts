@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 import { commentIndexTarget } from './ReviewCommentIndex';
 
 it('bounds previews to 20 words or 240 characters without splitting Unicode characters', () => {
@@ -32,4 +32,4 @@ it('indexes human and agent comments in PR and Summary, opening the right filter
   });
   expect(results).toHaveLength(4);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

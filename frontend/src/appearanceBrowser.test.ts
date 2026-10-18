@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from './fixtures/browserFixture';
+import { runBrowserFixture, deadline } from './fixtures/browserFixture';
 
 it('switches every app surface, status and terminal through Appearance and follows the native scheme', async () => {
   const results = await runBrowserFixture<{ dark: boolean; checked: number }[]>({
@@ -34,4 +34,4 @@ it('switches every app surface, status and terminal through Appearance and follo
   expect(results[0].dark).toBe(true);
   expect(results[1].dark).toBe(false);
   expect(results.every(value => value.checked >= 25)).toBe(true);
-}, 30_000);
+}, deadline(30_000));

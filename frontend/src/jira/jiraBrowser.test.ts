@@ -14,7 +14,7 @@
 
 import { expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('assigns Jira workspaces, opens ticket modals and starts a source-bound task in Chromium', async () => {
   const richDescription = readFileSync('../backend/app/src/test/resources/jira/rich-description.md', 'utf8');
@@ -33,4 +33,4 @@ it('assigns Jira workspaces, opens ticket modals and starts a source-bound task 
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
   expect(results).toHaveLength(26);
-}, 30_000);
+}, deadline(30_000));

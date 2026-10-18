@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('renders saved models during refresh and discovers new choices in Chromium', async () => {
   const result = await runBrowserFixture<ScenarioResult[]>({
@@ -21,4 +21,4 @@ it('renders saved models during refresh and discovers new choices in Chromium', 
   });
   expect(result.filter(value => value.error)).toEqual([]);
   expect(result).toHaveLength(7);
-}, 30_000);
+}, deadline(30_000));

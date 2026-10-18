@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('renders persistent private review cards and safe diff anchors in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
@@ -30,4 +30,4 @@ it('renders persistent private review cards and safe diff anchors in Chromium', 
   });
   expect(results).toHaveLength(15);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

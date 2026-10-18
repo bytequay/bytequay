@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('keeps private threads local until the user posts a drafted reply, in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
@@ -27,4 +27,4 @@ it('keeps private threads local until the user posts a drafted reply, in Chromiu
   });
   expect(results).toHaveLength(8);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

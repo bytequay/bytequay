@@ -12,10 +12,10 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 it('updates the running sidebar through completion, expiry, failures, navigation and another run', async () => {
   expect(await runBrowserFixture<boolean>({
     prefix: 'bytequay-running-', entry: 'src/agents/fixtures/runningTasksBrowser.tsx', global: 'RunningTasksTests', styles: true,
   })).toBe(true);
-}, 30_000);
+}, deadline(30_000));

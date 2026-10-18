@@ -12,10 +12,10 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 it('writes a lesson, answers a question about it and records it done', async () => {
   expect(await runBrowserFixture<boolean>({
     prefix: 'bytequay-goal-lesson-', entry: 'src/goals/fixtures/goalLessonBrowser.tsx', global: 'GoalLessonTests', styles: true, charset: true, width: 1200, height: 900,
   })).toBe(true);
-}, 30_000);
+}, deadline(30_000));

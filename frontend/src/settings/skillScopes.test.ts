@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('saves and edits user skill scopes through the Settings controls in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
@@ -23,4 +23,4 @@ it('saves and edits user skill scopes through the Settings controls in Chromium'
   });
   expect(results).toHaveLength(2);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

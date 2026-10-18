@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from './fixtures/browserFixture';
+import { runBrowserFixture, deadline } from './fixtures/browserFixture';
 
 it('gives every page a stationary window handle without blocking its controls', async () => {
   expect(await runBrowserFixture<boolean>({
@@ -21,4 +21,4 @@ it('gives every page a stationary window handle without blocking its controls', 
     global: 'WindowDragTests',
     styles: true,
   })).toBe(true);
-}, 30_000);
+}, deadline(30_000));

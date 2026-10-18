@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('moves diff controls into the header and retains file-tree choices per layout in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
@@ -22,4 +22,4 @@ it('moves diff controls into the header and retains file-tree choices per layout
   });
   expect(results).toHaveLength(1);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../../fixtures/browserFixture';
 
 it('refreshes explanations independently and preserves the prior text until success in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-summary-refresh-',
     entry: 'src/pulls/agent-review/fixtures/summaryRefreshBrowser.tsx', global: 'SummaryRefresh', styles: true, charset: true });
   expect(results).toHaveLength(1);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

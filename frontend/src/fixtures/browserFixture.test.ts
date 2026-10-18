@@ -15,7 +15,7 @@ import { access, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { expect, it } from 'vitest';
-import { buildBrowserFixture } from './browserFixture';
+import { buildBrowserFixture, deadline } from './browserFixture';
 
 it('reuses a bundle while isolating browser state and cleaning up successful and failed runs', async () => {
   const source = await mkdtemp(join(tmpdir(), 'bytequay-fixture-source-'));
@@ -48,7 +48,7 @@ it('reuses a bundle while isolating browser state and cleaning up successful and
     await fixture?.dispose();
     await rm(source, { recursive: true, force: true });
   }
-}, 20_000);
+}, deadline(20_000));
 
 it('removes an incomplete bundle when compilation fails', async () => {
   const source = await mkdtemp(join(tmpdir(), 'bytequay-fixture-invalid-'));

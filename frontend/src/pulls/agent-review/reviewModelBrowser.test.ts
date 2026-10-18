@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../../fixtures/browserFixture';
 
 it('changes the next review provider and model in the shared conversation composer', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
@@ -20,4 +20,4 @@ it('changes the next review provider and model in the shared conversation compos
   });
   expect(results).toHaveLength(1);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 120_000);
+}, deadline(120_000));

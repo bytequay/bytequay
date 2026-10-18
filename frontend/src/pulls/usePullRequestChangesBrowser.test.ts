@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 it('loads selected PR commits and rejects stale comparison responses in Chromium', async () => {
   const results = await runBrowserFixture<string[]>({
@@ -39,4 +39,4 @@ it('loads selected PR commits and rejects stale comparison responses in Chromium
     'Refresh clears unavailable published commit selection',
     'Show commit messages without changing the selection',
   ]);
-}, 30_000);
+}, deadline(30_000));

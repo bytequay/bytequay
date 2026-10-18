@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from './fixtures/browserFixture';
+import { runBrowserFixture, deadline } from './fixtures/browserFixture';
 
 it('shows cached repository avatars before refresh and recovers missing images without stale owner updates', async () => {
   const results = await runBrowserFixture<string[]>({
     prefix: 'bytequay-repository-avatar-', entry: 'src/fixtures/repositoryAvatarBrowser.tsx', global: 'AvatarTests', timeoutMs: 45_000,
   });
   expect(results).toEqual(['cached before refresh', 'background update', 'owner changed', 'offline fallback', 'online recovery']);
-}, 60_000);
+}, deadline(60_000));

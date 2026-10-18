@@ -17,7 +17,7 @@ import type { IdeRuntime } from './runtime';
 import type { ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
 import { reviewFixture } from '../pulls/agent-review/fixtures/review';
 import { openReviewComment, reviewCommentCards } from './reviewCommentModel';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 const review = reviewFixture();
 const comments: NonNullable<IdeContext['comments']> = {
@@ -101,5 +101,5 @@ describe('review comment browser', () => {
       body: `const results = await window.webContents.executeJavaScript('CommentBrowserTests.run()');
         if (process.env.BYTEQUAY_COMMENT_CAPTURE) require('fs').writeFileSync(process.env.BYTEQUAY_COMMENT_CAPTURE, (await window.webContents.capturePage()).toPNG());`,
     })).toBe(true);
-  }, 30_000);
+  }, deadline(30_000));
 });

@@ -13,10 +13,10 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 it('loads conflict paths on demand, retries errors and ignores an old PR response', async () => {
   const result = await runBrowserFixture<string>({ prefix: 'bytequay-conflict-files-',
     entry: 'src/pulls/fixtures/conflictFilesBrowser.tsx', global: 'ConflictFilesTests', styles: true, width: 480 });
   expect(result).toBe('conflict files, unavailable, retry, empty, stale response');
-}, 30_000);
+}, deadline(30_000));

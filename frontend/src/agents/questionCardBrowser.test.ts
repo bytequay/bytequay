@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 type Answered = {
   single: { picked: string[]; disabled: boolean };
@@ -52,4 +52,4 @@ it('answers a question card by choosing options in Chromium', async () => {
       'Which checks should run before the pull request?': 'Lint, Tests',
     },
   });
-}, 30_000);
+}, deadline(30_000));

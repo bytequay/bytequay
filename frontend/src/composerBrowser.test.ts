@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from './fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from './fixtures/browserFixture';
 
 it('shares safe keyboard submission across message composers', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
@@ -20,4 +20,4 @@ it('shares safe keyboard submission across message composers', async () => {
   });
   expect(results).toHaveLength(3);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 120_000);
+}, deadline(120_000));

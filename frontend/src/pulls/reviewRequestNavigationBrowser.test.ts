@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('opens saved review requests in the matching Summary card in the real PR workspace', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
@@ -31,4 +31,4 @@ it('opens saved review requests in the matching Summary card in the real PR work
     timeoutMs: 30_000,
   });
   expect(results).toHaveLength(5);
-}, 40_000);
+}, deadline(40_000));

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from './fixtures/browserFixture';
+import { runBrowserFixture, deadline } from './fixtures/browserFixture';
 
 it('draws the most recently opened ticket, issue or web page on top in the running app', async () => {
   const results = await runBrowserFixture<{ name: string; error?: string }[]>({
@@ -25,4 +25,4 @@ it('draws the most recently opened ticket, issue or web page on top in the runni
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
   expect(results).toHaveLength(3);
-}, 30_000);
+}, deadline(30_000));

@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('shows standalone CI approvals and confirmed fork retry in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
@@ -24,4 +24,4 @@ it('shows standalone CI approvals and confirmed fork retry in Chromium', async (
   });
   expect(results).toHaveLength(3);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 20_000);
+}, deadline(20_000));

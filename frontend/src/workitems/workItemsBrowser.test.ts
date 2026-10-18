@@ -13,7 +13,7 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
 it('keeps the original source screens under three tabs and creates work locally', async () => {
   const result = await runBrowserFixture({ prefix: 'bytequay-unified-work-', entry: 'src/workitems/fixtures/workItemsBrowser.tsx', global: 'UnifiedWorkTests',
@@ -21,4 +21,4 @@ it('keeps the original source screens under three tabs and creates work locally'
     body: `const results = await window.webContents.executeJavaScript('UnifiedWorkTests.run()');
       require('node:fs').writeFileSync('/tmp/bytequay-unified-work.png', (await window.webContents.capturePage()).toPNG());` });
   expect(result).toEqual({ sources: 3, publications: 1, count: 4 });
-}, 30_000);
+}, deadline(30_000));

@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../../fixtures/browserFixture';
 
 it('reviews local work, routes questions and fixes, and inspects changing worktree history in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-workbench-',
     entry: 'src/pulls/agent-review/fixtures/workbenchBrowser.tsx', global: 'WorkbenchTests', styles: true, charset: true, width: 700, height: 800 });
   expect(results).toHaveLength(7);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

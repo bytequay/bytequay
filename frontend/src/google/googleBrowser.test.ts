@@ -12,10 +12,10 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('uses cached Google data and Gemini and manages account access in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-google-', entry: 'src/google/fixtures/googleBrowser.tsx', global: 'GoogleTests', styles: true, width: 1120, height: 820 });
   expect(results).toHaveLength(13);
   expect(results.filter(result => result.error)).toEqual([]);
-}, 30_000);
+}, deadline(30_000));

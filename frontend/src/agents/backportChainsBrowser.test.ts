@@ -12,30 +12,30 @@
  * limitations under the License.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { buildBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { buildBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
 
 let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
 beforeAll(async () => {
   fixture = await buildBrowserFixture({
     prefix: 'bytequay-backportChains-', entry: 'src/agents/fixtures/backportChainsBrowser.tsx', global: 'BackportChainsTests', styles: true,
   });
-}, 30_000);
+}, deadline(30_000));
 afterAll(() => fixture?.dispose());
 
 it('shows the saved route and operates existing chain controls', async () => {
   const results = await fixture.run<ScenarioResult[]>({
     width: 1100, height: 950 });
   expect(results).toEqual([{ name: 'backport chain groups, navigation, selection, Stop and Resume' }]);
-}, 30_000);
+}, deadline(30_000));
 
 it('completes backport requests on workspace Home and Tasks without sending', async () => {
   const results = await fixture.run<ScenarioResult[]>({
     width: 1100, height: 950, body: 'const results = await window.webContents.executeJavaScript("BackportChainsTests.runComposer()");' });
   expect(results).toEqual([{ name: 'Backport discovery, completion and shortcuts on Home and Tasks only' }]);
-}, 30_000);
+}, deadline(30_000));
 
 it('inherits Development settings and permits explicit provider changes and drafting before setup', async () => {
   const results = await fixture.run<ScenarioResult[]>({
     body: 'const results = await window.webContents.executeJavaScript("BackportChainsTests.runProviderChoice()");' });
   expect(results).toEqual([{ name: 'Optional provider accounts and editable Backport drafts on Home and Tasks' }]);
-}, 30_000);
+}, deadline(30_000));

@@ -1757,6 +1757,7 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   getGitHubCliAvailable: () => Promise<{ available: boolean }>;
   importGitHubCliToken: () => Promise<{ login: string }>;
 
+  openLab: () => Promise<string>;
   openInAppBrowser: (url: string) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   getInAppBrowserState: () => Promise<InAppBrowserState>;

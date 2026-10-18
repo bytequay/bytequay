@@ -35,7 +35,7 @@ import PinButton from './home/PinButton';
 import { useMemoryNeeds } from './memory/needs';
 import { useTasksWaiting } from './agents/attention';
 import { openPinned, usePinnedItems } from './home/pinned';
-import { useLabLink } from './labLink';
+import { openLab, useLabLaunch, useLabLink } from './labLink';
 import RunningTasks from './agents/RunningTasks';
 
 /** What the sidebar needs to be the settings window's nav. Absent on every other page. */
@@ -145,6 +145,7 @@ export default function AppSidebar({
   const [pinsExpanded, setPinsExpanded] = useState(true);
   const pinnedItems = usePinnedItems();
   const lab = useLabLink();
+  const labLaunch = useLabLaunch();
   const pickerMenu = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (pickerOpen) pickerMenu.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -396,10 +397,12 @@ export default function AppSidebar({
         {lab.enabled && row({
           key: 'lab',
           label: 'Lab',
-          title: 'Open the lab dashboard',
+          title: labLaunch.opening ? 'Starting the dashboard and refreshing its data…' : 'Open the lab dashboard',
           icon: <LabIcon />,
           active: false,
-          onClick: () => { void window.bridge.openInAppBrowser(lab.address); },
+          disabled: labLaunch.opening,
+          hint: labLaunch.opening ? 'Opening…' : undefined,
+          onClick: () => { void openLab(); },
         })}
         <button type="button" className={`app-sidebar__item${browserRailVisible ? ' is-active' : ''}`}
           aria-label="Web pages" aria-pressed={browserRailVisible} aria-controls="browser-rail"

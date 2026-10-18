@@ -382,7 +382,11 @@ Drafts before retrying.
 
 ## Measure with ByteQuay Lab
 
-Use the separate Python dashboard to inspect resources, test review guidance,
+Choose **Settings → Integrations → Lab → Open Lab**. ByteQuay refreshes the local
+statistics and opens the dashboard automatically. Turn on **Show the Lab** for
+a sidebar shortcut. No terminal commands or Python installation are needed.
+
+Use the dashboard to inspect resources, test review guidance,
 and understand context costs. Record a change and check the results.
 
 [Explore the Lab](dist/lab.html) · [Start the Lab](dist/lab-guide.html)

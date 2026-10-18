@@ -50,7 +50,7 @@ describe('settings routes', () => {
   it('keeps the optional Lab link under Integrations and finds it by its settings', () => {
     expect(settingsRoute('lab')).toBe('#/settings/integrations/lab');
     expect(entryFor('lab')).toMatchObject({ label: 'Lab', group: 'Integrations' });
-    expect(matchesSearch(entryFor('lab'), 'dashboard address')).toBe(true);
+    expect(matchesSearch(entryFor('lab'), 'open lab')).toBe(true);
   });
 
   it('carries the workspace a link names, so a link can edit one the app is not showing', () => {

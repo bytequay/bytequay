@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { backendJson } from './backendJson';
+import { openLab, stopLab } from './labProcess';
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
 import { parseUnifiedWorkItem, type Publication } from './workitems/contracts';
@@ -2099,6 +2100,13 @@ function registerIpc(): void {
   ipcMain.handle('external:open', async (_event, url: string) => {
     if (/^https?:/i.test(url)) await shell.openExternal(url);
   });
+  ipcMain.handle('lab:open', async event => {
+    if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Lab can only be opened from ByteQuay.');
+    const address = await openLab();
+    const existing = browserTabs.getState().tabs.find(tab => tab.url.startsWith(address));
+    if (existing) browserTabs.reload(existing.id);
+    return existing?.url ?? address;
+  });
   registerBrowserTabIpc(browserTabs, () => mainWindow);
   appNotices.register();
   ideViews.register();
@@ -2144,6 +2152,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 app.on('before-quit', () => {
+  stopLab();
   appNotices.stop();
   googleChat?.dispose();
   clearInterval(prNotificationTimer);

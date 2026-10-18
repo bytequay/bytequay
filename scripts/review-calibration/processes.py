@@ -13,7 +13,9 @@ import batch
 import dashboard
 import monitor
 
-PYTHON = Path(__file__).resolve().parent / ".venv"  # every lab program runs on the lab's own Python, however it was started
+PYTHON = Path(__file__).resolve().parent / ".venv"
+BUNDLED_PYTHON = Path(__file__).resolve().parents[1] / "python"
+DEVELOPMENT_PYTHON = Path(__file__).resolve().parents[2] / "frontend/vendor/lab/python"
 
 
 def what(arguments):
@@ -26,7 +28,7 @@ def what(arguments):
         return f"Page on port {rest[rest.index('--port') + 1] if '--port' in rest[:-1] else dashboard.PORT}"
     if name == "batch.py":
         return "Nightly rounds" if "--due" in rest else "Experiment " + next((word for word in rest if not word.startswith("-")), "")
-    return {"monitor.py": "Monitor", "run.py": "Review run"}.get(name, name)
+    return {"monitor.py": "Monitor", "run.py": "Review run", "desktop.py": "Refresh data"}.get(name, name)
 
 
 def running():
@@ -34,7 +36,7 @@ def running():
     made = []
     for process in psutil.process_iter(["cmdline", "create_time", "memory_info"]):
         arguments, memory = process.info["cmdline"] or [], process.info["memory_info"]
-        if arguments and Path(arguments[0]).is_relative_to(PYTHON):
+        if arguments and any(Path(arguments[0]).is_relative_to(python) for python in (PYTHON, BUNDLED_PYTHON, DEVELOPMENT_PYTHON)):
             made.append({"pid": process.pid, "what": what(arguments), "started": process.info["create_time"], "memory": memory and memory.rss})
     return sorted(made, key=lambda row: row["started"])
 

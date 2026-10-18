@@ -34,7 +34,8 @@ def programs(folder):
         if action.button("Stop", key=f"stop-{row['pid']}"):
             processes.stop(row["pid"])
             st.rerun()
-    st.caption("Stopping the page you are on closes it. Start it again in the lab's folder with `uv run dashboard.py`")
+    st.caption("Stopping the page you are on closes it. " + ("Choose Open Lab in ByteQuay to start it again." if os.environ.get("BYTEQUAY_LAB_PARENT_PID") else
+                                                           "Start it again in the lab's folder with `uv run dashboard.py`"))
     st.subheader("Kept running")
     try:
         if processes.loaded(monitor.AGENT):

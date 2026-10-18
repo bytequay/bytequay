@@ -6,10 +6,13 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime, timedelta
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import threading
+import time as clock
 
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
@@ -21,6 +24,7 @@ import batch
 import charts
 import digest
 import labels
+import monitor
 import ranges
 import record
 import saved
@@ -481,21 +485,23 @@ if get_script_run_ctx(suppress_warning=True):
     read_logs = st.cache_data(ttl=300, show_spinner=False)(read_logs)
 
 
-def refresh(folder, runtime):
-    """A button that reads the task logs and ByteQuay's database again and saves the tables, as SAVE does in a terminal."""
+def refresh(folder, runtime, database):
+    """Read the same statistics as Open Lab, without starting a monitor or model run."""
     with st.sidebar:
-        if not st.button("Read the logs again", key="refresh", help=f"Saves the tables again from the task logs and ByteQuay's records, as `{SAVE}` does"):
+        if not st.button("Refresh data", key="refresh", help="Refreshes activity, reviews, tuning, context and memory from ByteQuay's local records"):
             return
-        with st.spinner("Reading the logs"):
+        with st.spinner("Refreshing Lab data"):
             try:
-                done = subprocess.run([sys.executable, str(Path(__file__).with_name("activity.py")), "--save", str(folder), "--runtime", str(runtime)],
+                done = subprocess.run([sys.executable, "-B", str(Path(__file__).with_name("desktop.py")), "--folder", str(folder), "--runtime", str(runtime), "--database", str(database)],
                                       capture_output=True, text=True, timeout=600)
                 problem = (done.stderr.strip().splitlines() or ["it gave no reason"])[-1] if done.returncode else None
+            except OSError as error:
+                problem = str(error)
             except subprocess.TimeoutExpired:
                 problem = "it took more than ten minutes"
         read_logs.clear()
         if problem:
-            st.error(f"The logs could not be read again: {problem}")
+            st.error(f"The data could not be refreshed: {problem}")
 
 
 def suggestions(made, table, folder, runtime):
@@ -645,10 +651,10 @@ def timed(tab, logged, *more):
         st.info("No turn of this choice has a log.")
 
 
-def page(folder, runtime):
+def page(folder, runtime, database):
     start_page()
     st.title("ByteQuay Lab")
-    refresh(folder, runtime)
+    refresh(folder, runtime, database)
     try:
         table = saved.read(folder, "turns.json")
         made = None if table is None else charts.frames(table)
@@ -659,6 +665,9 @@ def page(folder, runtime):
     if made is None:
         st.info(f"Nothing saved yet. Save the turn table with `{SAVE}`")
         return
+    if st.session_state.get("read_logs_saved_at") != table["savedAt"]:
+        read_logs.clear()
+        st.session_state["read_logs_saved_at"] = table["savedAt"]
     if made["turns"].empty:
         st.info("The saved turn table holds no turn.")
         return
@@ -691,19 +700,35 @@ def page(folder, runtime):
         scored_reviews(folder, mode)
 
 
+def stop_with_parent():
+    """A managed dashboard must not keep running after the desktop crashes."""
+    if configured := os.environ.get("BYTEQUAY_LAB_PARENT_PID"):
+        parent = int(configured)
+        def watch():
+            while os.getppid() == parent:
+                clock.sleep(1)
+            os._exit(0)
+        threading.Thread(target=watch, daemon=True).start()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER, help="Folder with the saved results")
     parser.add_argument("--port", type=int, default=PORT, help="Port on this machine to show the page on")
+    parser.add_argument("--base-path", default="", help="Path under the local server used by the desktop's managed dashboard")
     parser.add_argument("--runtime", type=Path, default=activity.RUNTIME, help="Folder with the task logs: read for the approvals, and by the button that saves again")
+    parser.add_argument("--database", type=Path, help="ByteQuay's database, read only (default: beside the runtime folder)")
     args = parser.parse_args()
+    database = args.database or args.runtime.parent / monitor.DATABASE.name
     if get_script_run_ctx(suppress_warning=True) is None:
         # Started as a plain script: hand over to Streamlit, with the page shown to this machine only.
         from streamlit.web import cli
+        stop_with_parent()
         sys.argv = ["streamlit", "run", __file__, "--server.address", HOST, "--server.port", str(args.port), "--server.headless", "true",
-                    "--browser.gatherUsageStats", "false", "--client.toolbarMode", "minimal", "--", str(args.folder), "--runtime", str(args.runtime)]
+                    "--server.baseUrlPath", args.base_path, "--browser.gatherUsageStats", "false", "--client.toolbarMode", "minimal",
+                    "--", str(args.folder), "--runtime", str(args.runtime), "--database", str(database)]
         sys.exit(cli.main())
-    page(args.folder, args.runtime)
+    page(args.folder, args.runtime, database)
 
 
 if __name__ == "__main__":

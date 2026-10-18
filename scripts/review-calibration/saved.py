@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import tempfile
 
 # A folder of the lab's own, beside the application's data and not inside it.
 FOLDER = Path.home() / "Library/Application Support/ByteQuay Lab"
@@ -16,9 +17,15 @@ def stamp(moment):
 def write_text(directory, name, text):
     """Replace a saved file in one step, so a reader never sees half of it."""
     directory.mkdir(parents=True, exist_ok=True)
-    partial = directory / (name + ".partial")
-    partial.write_text(text)
-    partial.replace(directory / name)
+    # Open Lab, the dashboard and the optional monitor can save the same table at once.
+    temporary = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory, prefix=f".{name}.", suffix=".partial", delete=False)
+    partial = Path(temporary.name)
+    try:
+        with temporary:
+            temporary.write(text)
+        partial.replace(directory / name)
+    finally:
+        partial.unlink(missing_ok=True)
     return directory / name
 
 

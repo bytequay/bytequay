@@ -28,6 +28,7 @@ import { join } from 'node:path';
 const BACKEND_JAR = join(__dirname, '..', 'backend', 'app', 'target', 'bytequay-backend.jar');
 const IDE_BUNDLE = join(__dirname, 'vendor', 'ide');
 const JAVA_RUNTIME = join(__dirname, 'vendor', 'jre');
+const LAB_RUNTIME = join(__dirname, 'vendor', 'lab');
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -42,7 +43,7 @@ const config: ForgeConfig = {
     // Ship the backend JAR and runtimes alongside the renderer. extraResource
     // copies the file into Contents/Resources/ on macOS (the same
     // path process.resourcesPath resolves to at runtime).
-    extraResource: [BACKEND_JAR, IDE_BUNDLE, JAVA_RUNTIME],
+    extraResource: [BACKEND_JAR, IDE_BUNDLE, JAVA_RUNTIME, LAB_RUNTIME],
   },
   hooks: {
     prePackage: async (_config, platform, arch) => {
@@ -64,6 +65,7 @@ const config: ForgeConfig = {
     generateAssets: async (_config, platform, arch) => {
       const root = join(__dirname, '..');
       execFileSync(process.execPath, ['scripts/ide-bundle.mjs', `${platform}-${arch}`], { cwd: root, stdio: 'inherit' });
+      execFileSync(process.execPath, ['scripts/lab-runtime.mjs', `${platform}-${arch}`], { cwd: root, stdio: 'inherit' });
       if (existsSync(BACKEND_JAR)) {
         return;
       }

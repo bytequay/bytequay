@@ -20,6 +20,7 @@ import dashboard
 import suggest
 from test_activity import command, in_order
 from test_approvals import CODEX, asked, ended
+from test_desktop import database
 import test_suggest
 
 EXAMPLE = Path(__file__).with_name("fixture") / "saved-turns.json"
@@ -590,12 +591,30 @@ class Page(unittest.TestCase):
         self.save()
         page = self.page()
         page.button(key="refresh").click().run()
-        self.assertEqual([note.value for note in page.error], [f"The logs could not be read again: activity.py: error: No task log matches under {self.runtime}"])
+        self.assertEqual([note.value for note in page.error], [f"The data could not be refreshed: Lab statistics could not be refreshed: {self.folder / 'bytequay-1.0.db'} is not there"])
+        database(self.folder / "bytequay-1.0.db")
         self.write_log(ended(43200, 43800))
         page.button(key="refresh").click().run()
         self.assertEqual((list(page.error), list(page.exception)), ([], []))
         self.assertEqual([(row["task"], row["seconds"]) for row in json.loads((self.folder / "turns.json").read_text())["turns"]], [("task-1", 600)])
         self.assertIn("1 of 1 turns. Days are in your own time zone.", captions(page))  # the page shows what it just saved
+        self.assertTrue(all((self.folder / name).is_file() for name in ("reviews.json", "tuning.json", "context.json", "memory.json")))
+
+    def test_external_refresh_invalidates_cached_logs_without_waiting_five_minutes(self):
+        self.save_turns(test_suggest.row("2026-01-01T12:00:00Z"))
+        first = asked(43201, 43501, CODEX, "/bin/zsh -lc 'git status'")
+        self.write_log(ended(43200, 44000), first)
+        page = self.page()
+        asks = lambda: next(tile.value for tile in page.metric if tile.label == "Asks")
+        self.assertEqual(asks(), "1")
+        self.write_log(ended(43200, 44000), first, asked(43502, 43562, CODEX, "/bin/zsh -lc 'git diff'", key="a2"))
+        page.run()
+        self.assertEqual(asks(), "1")
+        made = json.loads((self.folder / "turns.json").read_text())
+        self.save(json.dumps(made | {"savedAt": "2026-01-02T01:00:00Z"}))
+        page.run()
+        self.assertEqual(list(page.exception), [])
+        self.assertEqual(asks(), "2")
 
     def test_approvals_tab_shows_the_asks_and_what_the_rules_picked_would_answer(self):
         self.save_turns(test_suggest.row("2026-01-01T12:00:00Z"))
@@ -637,28 +656,48 @@ class TestSource(unittest.TestCase):
 class TestStart(unittest.TestCase):
     def test_plain_start_hands_over_to_streamlit_and_keeps_the_page_on_this_machine(self):
         seen = []
-        with mock.patch.object(sys, "argv", ["dashboard.py", "/some/folder", "--port", "9000"]), mock.patch.object(dashboard, "get_script_run_ctx", return_value=None), \
+        with mock.patch.object(sys, "argv", ["dashboard.py", "/some/folder", "--port", "9000", "--base-path", "lab-session"]), mock.patch.object(dashboard, "get_script_run_ctx", return_value=None), \
                 mock.patch("streamlit.web.cli.main", side_effect=lambda: seen.extend(sys.argv) or 7), self.assertRaises(SystemExit) as stopped:
             dashboard.main()
         self.assertEqual(stopped.exception.code, 7)  # the page's start ends as Streamlit ends
         self.assertEqual(seen[:3], ["streamlit", "run", dashboard.__file__])
-        options = dict(zip(seen[3:-4:2], seen[4:-4:2]))
+        separator = seen.index("--")
+        options = dict(zip(seen[3:separator:2], seen[4:separator:2]))
         self.assertEqual((options["--server.address"], options["--server.port"], options["--server.headless"], options["--browser.gatherUsageStats"]),
                          ("127.0.0.1", "9000", "true", "false"))
-        self.assertEqual(seen[-4:], ["--", "/some/folder", "--runtime", str(activity.RUNTIME)])  # the folder and the logs go to the page, not to Streamlit
+        self.assertEqual(options["--server.baseUrlPath"], "lab-session")
+        self.assertEqual(seen[separator:], ["--", "/some/folder", "--runtime", str(activity.RUNTIME), "--database", str(activity.RUNTIME.parent / dashboard.monitor.DATABASE.name)])
 
-    def test_bytequay_starts_from_the_address_the_page_is_served_at(self):
-        link = Path(__file__).resolve().parents[2] / "frontend/src/labLink.ts"
-        if not link.is_file():
-            self.skipTest("the application's source is not beside the lab")
-        self.assertIn(f"DEFAULT_LAB_ADDRESS = 'http://{dashboard.HOST}:{dashboard.PORT}/'", link.read_text())
+    def test_explicit_database_and_runtime_are_forwarded_to_every_page(self):
+        seen = []
+        with mock.patch.object(sys, "argv", ["dashboard.py", "/lab", "--runtime", "/logs", "--database", "/db"]), \
+                mock.patch.object(dashboard, "get_script_run_ctx", return_value=None), \
+                mock.patch("streamlit.web.cli.main", side_effect=lambda: seen.extend(sys.argv) or 0), self.assertRaises(SystemExit):
+            dashboard.main()
+        self.assertEqual(seen[seen.index("--"):], ["--", "/lab", "--runtime", "/logs", "--database", "/db"])
+
+    def test_managed_dashboard_exits_when_its_parent_disappears(self):
+        with mock.patch.dict(os.environ, {"BYTEQUAY_LAB_PARENT_PID": "321"}), mock.patch.object(dashboard.threading, "Thread") as thread:
+            dashboard.stop_with_parent()
+        with mock.patch.object(os, "getppid", side_effect=[321, 1]), mock.patch.object(dashboard.clock, "sleep") as sleep, mock.patch.object(os, "_exit") as exit:
+            thread.call_args.kwargs["target"]()
+        self.assertTrue(thread.call_args.kwargs["daemon"])
+        sleep.assert_called_once_with(1)
+        exit.assert_called_once_with(0)
+
+    def test_manual_dashboard_has_no_parent_watch(self):
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(dashboard.threading, "Thread") as thread:
+            dashboard.stop_with_parent()
+        thread.assert_not_called()
 
     def test_default_folder_and_port_are_the_labs_own(self):
         seen = []
         with mock.patch.object(sys, "argv", ["dashboard.py"]), mock.patch.object(dashboard, "get_script_run_ctx", return_value=None), \
                 mock.patch("streamlit.web.cli.main", side_effect=lambda: seen.extend(sys.argv) or 0), self.assertRaises(SystemExit):
             dashboard.main()
-        self.assertEqual((seen[seen.index("--server.port") + 1], seen[-3], seen[-1]), (str(dashboard.PORT), str(dashboard.saved.FOLDER), str(activity.RUNTIME)))
+        self.assertEqual((seen[seen.index("--server.port") + 1], seen[seen.index("--") + 1], seen[seen.index("--runtime") + 1]),
+                         (str(dashboard.PORT), str(dashboard.saved.FOLDER), str(activity.RUNTIME)))
+        self.assertEqual(seen[seen.index("--server.baseUrlPath") + 1], "")
 
 
 if __name__ == "__main__":

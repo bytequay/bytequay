@@ -11,45 +11,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
-import { labAddress, saveLabLink, useLabLink } from '../labLink';
+import { openLab, saveLabLink, useLabLaunch, useLabLink } from '../labLink';
 import { SettingsCard, SettingsRow, Toggle } from './primitives';
 
 export default function LabPage() {
   const link = useLabLink();
-  /** What is being typed; null while the saved address is shown. */
-  const [typed, setTyped] = useState<string | null>(null);
-  const shown = typed ?? link.address;
-  const address = labAddress(shown);
+  const { opening, error } = useLabLaunch();
 
   return (
     <div className="setw-page">
       <h1>Lab</h1>
-      <p className="setw-footnote">The Lab appears in the sidebar while it is turned on.</p>
+      <p className="setw-footnote">Explore how ByteQuay and its agents work. Opening the Lab starts its local dashboard and refreshes its data.</p>
+      {error !== null && <div className="setw-error" role="alert">Could not open the Lab: {error}</div>}
       <SettingsCard>
-        <SettingsRow title="Show the Lab" subtitle="Adds a Lab item that opens the lab's dashboard as a web page.">
+        <SettingsRow title="Show the Lab" subtitle="Adds a Lab shortcut to the sidebar.">
           <Toggle on={link.enabled} label="Show the Lab" onChange={enabled => saveLabLink({ enabled })} />
         </SettingsRow>
         <SettingsRow
-          title="Dashboard address"
-          subtitle={address === null ? 'Use an address on this Mac, such as http://127.0.0.1:8517' : 'Where the lab serves its dashboard on this Mac.'}
+          title="Open Lab"
+          subtitle={opening ? 'Starting the dashboard and refreshing its data…' : 'Refreshes activity, context, tuning, and memory statistics on this Mac.'}
         >
-          <input
-            className="setw-input setw-mono"
-            aria-label="Dashboard address"
-            aria-invalid={address === null}
-            spellCheck={false}
-            size={26}
-            value={shown}
-            onChange={event => setTyped(event.target.value)}
-          />
           <button
             type="button"
             className="setw-btn-primary"
-            disabled={address === null || address === link.address}
-            onClick={() => { saveLabLink({ address }); setTyped(null); }}
+            disabled={opening}
+            aria-busy={opening}
+            onClick={() => { void openLab(); }}
           >
-            Save
+            {opening ? 'Opening Lab…' : error !== null ? 'Retry' : 'Open Lab'}
           </button>
         </SettingsRow>
       </SettingsCard>

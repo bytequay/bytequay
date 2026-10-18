@@ -44,6 +44,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -78,6 +79,8 @@ jobs:
 
       - name: Start packaged backend without system Java
         run: node scripts/test-packaged-backend.mjs
+      - name: Start packaged Lab without system Python
+        run: node scripts/test-packaged-lab.mjs
 
       # Surface what was produced before the upload step in case we
       # need to debug a missing asset.

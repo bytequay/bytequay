@@ -14,7 +14,7 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
 
-it('turns the Lab on in Settings and opens its dashboard from the sidebar, in the running app', async () => {
+it('starts and refreshes the Lab from Settings and the sidebar with shared progress and retry', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
     prefix: 'bytequay-lab-settings-',
     entry: 'src/settings/fixtures/labSettingsBrowser.tsx',

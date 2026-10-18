@@ -20,6 +20,7 @@ service within the documented architecture and explicitly approved product scope
 | Maven | 3.9+ | Used for the local backend. |
 | Node | 24.21.0 | Latest Node LTS; pinned in `.nvmrc` and used by CI. |
 | npm | 11.19+ | Node 24.21.0 ships with npm 11.19.0. |
+| uv | Current | Prepares the pinned Python runtime and dependencies bundled with Lab. |
 | macOS | 14+ | Required for the packaged desktop app. |
 
 No Docker or PostgreSQL installation is required. Runtime data is stored in a
@@ -267,6 +268,18 @@ packaging and start the packaged backend with an empty `PATH` and no
 node --test scripts/java-runtime.test.mjs
 node scripts/test-packaged-backend.mjs
 ```
+
+Forge also prepares `frontend/vendor/lab` for development and packaging, using
+`scripts/lab-runtime.mjs`. It bundles pinned standalone Python and the Lab's
+locked dependencies, with their license notices, so installed users need no
+Python or uv. The build checks that imports work after relocating the runtime
+with an empty `PATH`. Run `node --test scripts/lab-runtime.test.mjs` to check
+packaging behavior. Changes to Lab sources or its dependency lock rebuild the
+bundle on the next start or package.
+
+Choose **Settings → Integrations → Lab → Open Lab** to refresh the local
+statistics and start its dashboard. Electron owns that process, chooses an
+available loopback port, reuses it on later opens, and stops it on quit.
 
 Electron 44 requires a code-signed macOS app to display native PR notifications.
 Unsigned development and packaged builds still show PR updates inside ByteQuay.

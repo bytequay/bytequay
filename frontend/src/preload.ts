@@ -284,6 +284,7 @@ const bridge: Bridge = {
   getGitHubCliAvailable: () => ipcRenderer.invoke('github:cli-available'),
   importGitHubCliToken: () => ipcRenderer.invoke('github:cli-import'),
 
+  openLab: () => ipcRenderer.invoke('lab:open'),
   openInAppBrowser: url => ipcRenderer.invoke('inapp:open', url),
   openExternal: url => ipcRenderer.invoke('external:open', url),
   getInAppBrowserState: () => ipcRenderer.invoke('inapp:state'),

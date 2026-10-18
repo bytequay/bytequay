@@ -5,9 +5,13 @@ its agents work: where turn time goes, which tools and commands they call and
 how often those fail, what each model and effort costs, how well reviews hold
 up, how much a person had to step in, and what the app takes from this Mac.
 A change to the product is chosen from these numbers and then checked against
-them. The Lab runs outside the shipped app: it reads ByteQuay's task logs and
-database without writing, keeps its results in its own folder, and serves its
-dashboard to this machine only.
+them. The Lab reads ByteQuay's task logs and database without writing, keeps
+its results in its own folder, and serves its dashboard to this machine only.
+The desktop app bundles its Python runtime and dependencies. **Settings →
+Integrations → Lab → Open Lab** refreshes the statistics and starts or reuses
+the dashboard automatically; **Show the Lab** adds the same action to the
+sidebar. Installed users need no terminal setup. The commands below remain
+available for development and controlled experiments.
 
 ## Review discovery calibration
 
@@ -746,8 +750,8 @@ uv run dashboard.py FOLDER --port 8600 --runtime RUNTIME
 `http://127.0.0.1:8517`. Most tabs read the folder and nothing else. The
 Suggestions and Approvals tabs also read the task logs, in this process
 only, to match approval rules against command lines that are never shown or
-saved. "Read the logs again" in the side bar saves the tables again, as
-`uv run activity.py --save` does, and the page then shows them. Pick the days
+saved. **Refresh data** in the sidebar refreshes activity, reviews, tuning,
+context and memory through `desktop.py`, and the page then shows them. Pick the days
 in the side bar; days are in the reader's own time zone, while `--since`
 counts in UTC. A model and effort and a repository can be picked there too,
 and every tab follows except Suggestions, which picks its own days, and
@@ -867,12 +871,15 @@ network, so the page then shows one line saying how to start it and nothing
 else. A saved file that is missing, cut off or in another shape is named as
 such and never drawn as zeros.
 
-ByteQuay can link to the page. Turn on **Settings → Integrations → Lab** and a
-Lab item in its sidebar opens the dashboard as a web page. ByteQuay does not
-start the dashboard and reads nothing of the lab, so start it first. The
-address in Settings starts as `http://127.0.0.1:8517/`; change it there when
-the dashboard runs on another `--port`. Only an address on this machine is
-accepted.
+ByteQuay's **Open Lab** first runs `desktop.py --folder FOLDER --runtime
+RUNTIME --database DATABASE` to refresh all five snapshots, then starts
+`dashboard.py` on an available loopback port. Concurrent opens share the work;
+later opens refresh the data and reload the existing dashboard page. Refresh
+failure leaves the previous snapshots and reports an error with Retry. Empty
+datasets replace old snapshots. The managed dashboard exits on app quit or
+when its parent disappears. Opening it does not install a LaunchAgent, start
+resource sampling, or call a model. The standalone command still defaults to
+port 8517 and supports a chosen `--port` for developers.
 
 `charts.py` turns the table into pandas frames and Plotly figures and can be
 tested without a page; `test_dashboard.py` runs the whole page without a

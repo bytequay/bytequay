@@ -1,0 +1,30 @@
+{
+  "cpython-3.14.8-darwin-aarch64-none": {
+    "name": "cpython",
+    "arch": { "family": "aarch64", "variant": null },
+    "os": "darwin",
+    "libc": "none",
+    "major": 3,
+    "minor": 14,
+    "patch": 8,
+    "prerelease": "",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8%2B20261009-aarch64-apple-darwin-install_only_stripped.tar.gz",
+    "sha256": "936217c0e6893f51af939474bee18ecf5e6fe47b986d2c163f19b57c682e4a83",
+    "variant": null,
+    "build": "20261009"
+  },
+  "cpython-3.14.8-darwin-x86_64-none": {
+    "name": "cpython",
+    "arch": { "family": "x86_64", "variant": null },
+    "os": "darwin",
+    "libc": "none",
+    "major": 3,
+    "minor": 14,
+    "patch": 8,
+    "prerelease": "",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8%2B20261009-x86_64-apple-darwin-install_only_stripped.tar.gz",
+    "sha256": "0fe0c68a7f90458abd13b50a3d8f5f0cb5b2f0a1f33b6ef1445751cf2dc8b36e",
+    "variant": null,
+    "build": "20261009"
+  }
+}

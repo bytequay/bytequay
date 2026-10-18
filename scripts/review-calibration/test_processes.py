@@ -55,6 +55,20 @@ class TestProcesses(unittest.TestCase):
         self.assertEqual((keep.call_args_list, kill.call_args_list),
                          ([mock.call(monitor.AGENT, None)], [mock.call(11, signal.SIGTERM), mock.call(10, signal.SIGTERM)]))
 
+    def test_bundled_dashboard_and_refresh_are_listed_without_including_other_python_programs(self):
+        for directory in (processes.BUNDLED_PYTHON, processes.DEVELOPMENT_PYTHON):
+            with self.subTest(directory=directory):
+                python = str(directory / "bin" / "python3")
+                rows = [process(20, python, "-B", "-s", "/bundle/app/dashboard.py", "--port", "42123", started=1.0),
+                        process(21, python, "-B", "-s", "/bundle/app/desktop.py", started=2.0),
+                        process(22, "/usr/bin/python3", "dashboard.py")]
+                with mock.patch.object(processes.psutil, "process_iter", return_value=rows):
+                    self.assertEqual([(row["pid"], row["what"]) for row in processes.running()], [(20, "Page on port 42123"), (21, "Refresh data")])
+                    with mock.patch.object(processes.os, "kill") as kill:
+                        processes.stop(20)
+                        processes.stop(22)
+                    kill.assert_called_once_with(20, signal.SIGTERM)
+
 
 class TestPage(unittest.TestCase):
     def setUp(self):

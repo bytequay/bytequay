@@ -15,16 +15,17 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import App from '../../App';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, settle } from '../../fixtures/harness';
 import type { Bridge } from '../../types';
 import { settingsRoute } from '../routes';
 import '../../index.css';
 
 /** Starts the whole app on a route. Every web page it asks for is added to `opened` instead of being loaded. */
-export function start(route: string, opened: string[] = []): () => void {
+export function start(route: string, opened: string[] = [], openLab: () => Promise<string> = async () => 'http://127.0.0.1:42311/'): () => void {
   const bridge = {
     ...createPreviewBridge('workspace'),
     hasPat: async () => true,
+    openLab,
     getInAppBrowserState: async () => ({ tabs: [], activeTabId: null }),
     onInAppBrowserState: () => () => {},
     openInAppBrowser: async (url: string) => { opened.push(url); },
@@ -58,81 +59,108 @@ export function start(route: string, opened: string[] = []): () => void {
 
 const labItem = () => document.querySelector<HTMLButtonElement>('.app-sidebar [aria-label="Application settings"] [aria-label="Lab"]');
 const toggle = () => document.querySelector<HTMLButtonElement>('.setw-page [role="switch"][aria-label="Show the Lab"]');
-const address = () => document.querySelector<HTMLInputElement>('.setw-page input[aria-label="Dashboard address"]');
-const save = () => [...document.querySelectorAll<HTMLButtonElement>('.setw-page button')].find(button => button.textContent?.trim() === 'Save');
-const hint = () => address()?.closest('.setw-row')?.querySelector('.setw-row-sub')?.textContent ?? '';
+const openButton = () => document.querySelector<HTMLButtonElement>('.setw-page .setw-btn-primary');
+const errorText = () => document.querySelector('.setw-page [role="alert"]')?.textContent ?? '';
+const DASHBOARD = 'http://127.0.0.1:42311/';
 
 async function until(condition: () => boolean, message: string) {
   for (let i = 0; i < 120 && !condition(); i++) await settle();
   assert(condition(), message);
 }
 
-/** Clicks the Lab item and waits for the web page it asks for. */
-async function opens(opened: string[], expected: string, message: string) {
-  const before = opened.length;
-  labItem()?.click();
-  await until(() => opened.length === before + 1, `${message}: the Lab item opened nothing`);
-  assert(opened.at(-1) === expected, `${message}, got ${opened.at(-1)}`);
-}
-
 export async function run(): Promise<{ name: string; error?: string }[]> {
   window.localStorage.removeItem('bytequay.lab-link');
   const opened: string[] = [];
-  let stop = start(settingsRoute('lab'), opened);
+  let launches = 0;
+  let failNext = false;
+  let ready: ((url: string) => void) | undefined;
+  const openLab = async () => {
+    launches++;
+    ready = undefined;
+    if (failNext) {
+      failNext = false;
+      throw new Error('Dashboard could not start');
+    }
+    return new Promise<string>(resolve => { ready = resolve; });
+  };
+  const finishOpening = async () => {
+    const before = opened.length;
+    assert(ready !== undefined, 'The app requested dashboard startup');
+    ready(DASHBOARD);
+    await until(() => opened.length === before + 1 && !openButton()?.disabled && !labItem()?.disabled, 'The ready dashboard opens and launch buttons recover');
+    assert(opened.at(-1) === DASHBOARD, 'The browser opens the address returned by the managed dashboard');
+  };
+  let stop = start(settingsRoute('lab'), opened, openLab);
   const results: { name: string; error?: string }[] = [];
   const step = async (name: string, body: () => Promise<void>) => {
     try { await body(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   };
   try {
-    await step('The Lab is off until it is turned on in Settings', async () => {
+    await step('Settings offers Open Lab without requiring a sidebar shortcut or an address', async () => {
       await until(() => toggle() !== null, 'Settings shows the Lab page');
       assert(document.querySelector('[aria-label="Settings navigation"] [aria-label="Lab"][aria-current="page"]') !== null, 'Lab is a page under Settings');
-      assert(toggle()?.getAttribute('aria-checked') === 'false' && labItem() === null, 'The Lab starts turned off, with no item in the sidebar');
-      assert(address()?.value === 'http://127.0.0.1:8517/' && save()?.disabled === true, 'The usual address is filled in and there is nothing to save');
+      assert(toggle()?.getAttribute('aria-checked') === 'false' && labItem() === null, 'The shortcut starts turned off');
+      assert(document.querySelector('[aria-label="Dashboard address"]') === null, 'The dashboard address is managed by the app');
+      assert(openButton()?.textContent?.trim() === 'Open Lab', 'Settings offers Open Lab');
+      assert(launches === 0, 'Visiting Settings does not start the dashboard');
+      openButton()?.click();
+      await until(() => openButton()?.disabled === true, 'Opening shows a disabled button');
+      assert(openButton()?.getAttribute('aria-busy') === 'true' && openButton()?.textContent?.includes('Opening Lab'), 'The launch is visibly in progress');
+      assert(opened.length === 0, 'No web page opens before the dashboard is ready');
+      await finishOpening();
+      assert(toggle()?.getAttribute('aria-checked') === 'false', 'Opening the Lab does not change sidebar visibility');
     });
 
-    await step('Turning it on adds a Lab item that opens the dashboard as a web page', async () => {
+    await step('The sidebar starts and refreshes the dashboard and prevents concurrent launches', async () => {
       toggle()?.click();
       await until(() => labItem() !== null && toggle()?.getAttribute('aria-checked') === 'true', 'The switch shows on and the Lab item appears');
       const labels = [...document.querySelectorAll('[aria-label="Application settings"] button')].map(button => button.getAttribute('aria-label'));
       assert(labels[labels.indexOf('Lab') + 1] === 'Web pages', 'Lab sits just above Web pages');
-      await opens(opened, 'http://127.0.0.1:8517/', 'Lab opens the dashboard address');
+      labItem()?.click();
+      labItem()?.click();
+      openButton()?.click();
+      await until(() => labItem()?.disabled === true && openButton()?.disabled === true, 'Both entry points share launch progress');
+      assert(launches === 2 && opened.length === 1, 'Repeated clicks start just one refresh and wait to open');
+      await finishOpening();
+      assert(Number(opened.length) === 2, 'The sidebar opens one page after readiness');
     });
 
-    await step('Only an address on this Mac can be saved', async () => {
-      const field = address();
-      assert(field !== null, 'The address field is there');
-      changeInput(field, 'http://example.com:8517');
-      await until(() => address()?.getAttribute('aria-invalid') === 'true', 'An address elsewhere is marked as not usable');
-      assert(save()?.disabled === true, 'An address elsewhere cannot be saved');
-      assert(hint().includes('Use an address on this Mac'), 'The row says what kind of address it takes');
-      await opens(opened, 'http://127.0.0.1:8517/', 'A typed address is not used before it is saved');
-
-      changeInput(field, 'localhost:8600');
-      await until(() => save()?.disabled === false && address()?.getAttribute('aria-invalid') === 'false', 'An address on this Mac can be saved');
-      save()?.click();
-      await until(() => address()?.value === 'http://localhost:8600/' && save()?.disabled === true, 'The saved address is shown in full and nothing is left to save');
-      assert(toggle()?.getAttribute('aria-checked') === 'true', 'Saving the address leaves the switch on');
-      await opens(opened, 'http://localhost:8600/', 'Lab opens the saved address');
+    await step('A sidebar failure opens Lab Settings with the error and a working Retry button', async () => {
+      window.location.hash = '#/recent';
+      await until(() => document.querySelector('[aria-label="Recent"][aria-current="page"]') !== null, 'The app navigates to Recent');
+      failNext = true;
+      labItem()?.click();
+      await until(() => errorText().includes('Dashboard could not start'), 'The failure is visible in Lab Settings');
+      assert(window.location.hash === settingsRoute('lab'), 'A sidebar failure opens Lab Settings');
+      assert(openButton()?.textContent?.trim() === 'Retry' && openButton()?.disabled === false, 'The failed launch can be retried');
+      assert(opened.length === 2, 'Startup failure does not open a broken web page');
+      openButton()?.click();
+      await until(() => openButton()?.disabled === true, 'Retry starts another launch');
+      assert(errorText() === '', 'Retry clears the previous error');
+      await finishOpening();
+      assert(launches === 4, 'Retry starts exactly one additional refresh');
     });
 
-    await step('The choice stays on this Mac and the item is on every page', async () => {
+    await step('Sidebar visibility survives restart and opening from another page refreshes again', async () => {
       stop();
-      stop = start('#/recent', opened);
+      stop = start('#/recent', opened, openLab);
       await until(() => document.querySelector('[aria-label="Recent"][aria-current="page"]') !== null, 'The app starts again on Recent');
-      assert(labItem() !== null, 'The Lab item is still there after the app starts again');
-      await opens(opened, 'http://localhost:8600/', 'It still opens the saved address');
-      assert(opened.length === 4, 'Every click opened one page');
+      assert(labItem() !== null, 'The Lab shortcut is still there');
+      assert(launches === 4, 'The visible shortcut does not launch the dashboard by itself');
+      labItem()?.click();
+      await until(() => labItem()?.disabled === true, 'The sidebar shows startup progress');
+      await finishOpening();
+      assert(Number(launches) === 5 && opened.length === 4, 'Every open asks for fresh data');
     });
 
-    await step('Turning it off takes the item away', async () => {
+    await step('Turning off the shortcut leaves Open Lab available in Settings', async () => {
       window.location.hash = settingsRoute('lab');
       await until(() => toggle() !== null, 'Settings shows the Lab page again');
-      assert(toggle()?.getAttribute('aria-checked') === 'true', 'The switch is still on');
       toggle()?.click();
       await until(() => labItem() === null, 'The Lab item goes away');
-      assert(address()?.value === 'http://localhost:8600/', 'The address is kept for the next time');
+      assert(openButton()?.textContent?.trim() === 'Open Lab' && openButton()?.disabled === false, 'Open Lab remains available');
+      assert(JSON.stringify(JSON.parse(window.localStorage.getItem('bytequay.lab-link') ?? '{}')) === '{"enabled":false}', 'Only shortcut visibility is saved');
     });
     return results;
   }

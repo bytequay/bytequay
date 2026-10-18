@@ -607,6 +607,7 @@ export type DevelopmentAutomationDto = {
   ciLaneId: string | null;
   /** Task-level: the review summary watcher reads it from task defaults only. */
   reviewSummary: boolean;
+  reviewReply: boolean;
 };
 
 export type AgentTaskDefaultsDto = {
@@ -1288,8 +1289,14 @@ export type AgentSkillDto = AgentSkillInput & {
 };
 
 
-/** Dark has no palette yet; the picker offers System and Light. */
 export type AppThemeDto = 'SYSTEM' | 'LIGHT' | 'DARK';
+
+export type SetupStep = 'APPEARANCE' | 'GITHUB' | 'AGENT' | 'DEFAULTS' | 'AUTOMATION' | 'FEATURES' | 'COMPLETE';
+
+export type SetupPreferencesDto = {
+  step: SetupStep;
+  assistantEnabled: boolean;
+};
 
 export type AppPreferencesDto = {
   taskRetentionDays: number;
@@ -1872,6 +1879,8 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   saveDevelopmentAutomation: (settings: DevelopmentAutomationDto) => Promise<DevelopmentAutomationDto>;
   getAppPreferences: () => Promise<AppPreferencesDto>;
   saveAppPreferences: (preferences: AppPreferencesDto) => Promise<AppPreferencesDto>;
+  getSetupPreferences: () => Promise<SetupPreferencesDto>;
+  saveSetupPreferences: (preferences: SetupPreferencesDto) => Promise<SetupPreferencesDto>;
   getGitHubAccount: () => Promise<GitHubAccountDto>;
   /** Copies the stored token to the clipboard in the main process; the renderer never sees it. */
   copyGitHubToken: () => Promise<boolean>;

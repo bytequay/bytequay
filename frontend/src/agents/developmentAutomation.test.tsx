@@ -28,31 +28,43 @@ import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import { AgentTaskBody } from './AgentTaskScreen';
 
-const defaults = DEFAULT_DEVELOPMENT_AUTOMATION;
+const defaults = { ...DEFAULT_DEVELOPMENT_AUTOMATION, autoDraftPr: true, autoCiFix: true };
 const report = { readyForDelivery: false, message: 'Which implementation should I use?' };
 const task: AgentTaskDto = { ...parseAgentTask(contracts.task), interactive: true, mutationClaim: null, state: 'OPEN' };
 const turn = { ...parseAgentTurn(contracts.turn), state: 'COMPLETED', developmentResult: report };
 const state = { ...initialAgentTaskState(), task, turn, latestTurnId: turn.id, connection: 'open' as const };
 
+it('starts optional automation off for new installs', () => {
+  expect(DEFAULT_DEVELOPMENT_AUTOMATION).toEqual({ autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false, reviewReply: false });
+});
+
 it('keeps commits local for one submission without changing saved defaults', () => {
   const local = automationForSubmission(defaults, true);
-  expect(local).toEqual({ autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false });
+  expect(local).toEqual({ autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false, reviewReply: false });
   expect(defaults.autoDraftPr).toBe(true);
   expect(automationForSubmission(defaults, false)).toBe(defaults);
   expect(automationSummary(local)).toBe('Local commits');
 });
 
 it('keeps the review summary when commits stay local, because it is not delivery', () => {
-  const summarized = { ...defaults, reviewSummary: true };
-  expect(automationForSubmission(summarized, true)).toEqual({ autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: true });
+  const summarized = { ...defaults, reviewSummary: true, reviewReply: false };
+  expect(automationForSubmission(summarized, true)).toEqual({ autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: true, reviewReply: false });
   expect(automationSummary(summarized)).toBe('draft PR · CI fix · review summary');
   expect(automationSummary(automationForSubmission(summarized, true))).toBe('Local commits · review summary');
   const composer = renderToStaticMarkup(<AutomationControl value={summarized} providers={[]} localOnly onChange={() => {}} onLocalOnlyChange={() => {}} />);
   const boxes = [...composer.matchAll(/<input type="checkbox"[^>]*>([^<]*)/g)];
   expect(boxes.map(box => [box[1], box[0].includes('disabled')])).toEqual([
-    ['Auto draft PR', true], ['Auto CI fix', true], ['Auto review summary', false], ['Keep commits local for this turn', false],
+    ['Auto draft PR', true], ['Auto CI fix', true], ['Auto review summary', false], ['Auto draft review replies', false], ['Keep commits local for this turn', false],
   ]);
   expect(composer).toContain('<span class="agt-picker__effort">Local commits · review summary</span>');
+});
+
+it('keeps private reply drafts independent from summary-only and publication settings', () => {
+  const replies = { ...DEFAULT_DEVELOPMENT_AUTOMATION, reviewReply: true };
+  expect(automationForSubmission(replies, true)).toEqual(replies);
+  expect(parseDevelopmentAutomation(replies).reviewReply).toBe(true);
+  expect(() => parseDevelopmentAutomation({ ...replies, reviewReply: 'true' })).toThrow();
+  expect(automationSummary(replies)).toBe('Local commits · draft review replies');
 });
 
 it('changes request identity when automation or its first-turn override changes', () => {
@@ -72,7 +84,7 @@ it('validates and narrows automation and durable readiness at the bridge', () =>
   expect(parseDevelopmentAutomation(defaults).ciLaneId).toBeNull();
   expect(parseDevelopmentAutomation({ ...defaults, ciLaneId: 'claude' }).ciLaneId).toBe('claude');
   expect(() => parseDevelopmentAutomation({ ...defaults, autoDraftPr: 'true' })).toThrow();
-  expect(parseDevelopmentAutomation({ ...defaults, reviewSummary: true }).reviewSummary).toBe(true);
+  expect(parseDevelopmentAutomation({ ...defaults, reviewSummary: true, reviewReply: false }).reviewSummary).toBe(true);
   expect(() => parseDevelopmentAutomation({ ...defaults, reviewSummary: 'false' })).toThrow();
   expect(() => parseDevelopmentAutomation({ autoDraftPr: true, autoCiFix: true, ciLaneId: null })).toThrow();
   expect(parseDevelopmentResult(report)).toEqual(report);
@@ -187,7 +199,7 @@ it('shows publication switches and explains mandatory development commits', () =
   expect(composer).not.toContain('<small>');
   expect(composer).not.toMatch(/<(input|select)[^>]*disabled/);
   const started = renderToStaticMarkup(<AutomationControl value={defaults} providers={[]} disabled />);
-  expect(started.match(/<(input|select)[^>]*disabled=""/g)).toHaveLength(5);
+  expect(started.match(/<(input|select)[^>]*disabled=""/g)).toHaveLength(6);
 });
 
 it('offers inherited CI repair by default and supported Codex or Claude overrides', () => {

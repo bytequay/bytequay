@@ -75,7 +75,7 @@ export function usePullCommentThreads({ pr, workspaceId, review, task, loading, 
     disabledReason: threadReview?.state === 'CLOSED' ? 'This review has ended, so its threads are read-only' : null,
   });
   const source = pr === null ? undefined : privateThreadSource(discussions, pr,
-    threadReview === null ? undefined : 'The agent is answering another question on this review');
+    threadReview === null ? undefined : 'The agent is answering another question on this review', workspaceId);
   const sendDisabledReason = loading ? 'Loading PR context…' : error !== null ? `PR context unavailable: ${error}`
     : host === null && workspaceId === undefined && pr !== null ? `Watch ${pr.repo} to ask the agent about its code.` : null;
   const preparedSource: PrivateThreadSource | undefined = pr === null || scope === null || source === undefined

@@ -66,6 +66,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   modelScopeRef.current = modelWorkspaceId;
   const [modelsScope, setModelsScope] = useState<string | undefined>(undefined);
   const [models, setModels] = useState<ModelSettingsDto | null>(null);
+  useEffect(() => { if (models !== null) window.dispatchEvent(new Event('bytequay:models-changed')); }, [models]);
   const [checking, setChecking] = useState(false);
   const checkedAt = models?.checkedAt ? clock(new Date(models.checkedAt)) : null;
   const modelRequest = useRef(0);
@@ -160,7 +161,10 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
     const id = workspaceRef.current;
     if (id === null) return;
     window.bridge.getWorkspaceSettings(id)
-      .then(value => { if (workspaceRef.current === id) setWsSettings(value); })
+      .then(value => {
+        if (workspaceRef.current === id) setWsSettings(value);
+        window.dispatchEvent(new Event('bytequay:models-changed'));
+      })
       .catch(report);
   }, [report]);
 

@@ -1214,7 +1214,7 @@ class TestDefaultAgentTurnService
     {
         AgentTask development = interactiveTask("Development");
         service.start(new StartAgentTurnCommand(development.id(), "Make the change but skip CI", ImmutableList.of(), "development")
-                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.DEFAULT)));
+                .withDevelopmentAutomation(Optional.of(new DevelopmentAutomation(true, true, true, Optional.empty()))));
 
         assertThat(driver.openedContexts().getFirst().managedInstructions())
                 .contains("Commit finished development work: true", "Auto draft PR: true", "Auto CI fix: true",

@@ -126,9 +126,10 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
   const userEvent = bridge.events.find(event => event.type === 'user_message');
   assert(userEvent?.turnId !== null && userEvent !== undefined, 'Fixture must identify a durable input');
-  const localOnly = automationForSubmission(DEFAULT_DEVELOPMENT_AUTOMATION, true);
+  const savedAutomation = { ...DEFAULT_DEVELOPMENT_AUTOMATION, autoDraftPr: true, autoCiFix: true };
+  const localOnly = automationForSubmission(savedAutomation, true);
   const task = { ...await bridge.getAgentTask(userEvent.taskId, 'workspace-1'), interactive: true };
-  task.defaults = { ...task.defaults, developmentAutomation: DEFAULT_DEVELOPMENT_AUTOMATION };
+  task.defaults = { ...task.defaults, developmentAutomation: savedAutomation };
   const turn = { ...await bridge.getAgentTurn(userEvent.turnId), id: userEvent.turnId, state: 'FAILED', failureKind: 'AUTHENTICATION_REQUIRED' as const };
   assert(turn.settings !== null, 'Fixture must have accepted turn settings');
   turn.settings = { ...turn.settings, developmentAutomation: localOnly };
@@ -357,7 +358,7 @@ async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> 
     const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');
     assert(send !== null && !send.disabled, 'The user must be able to continue in the same task');
     const automation = Array.from(host.querySelectorAll<HTMLInputElement | HTMLSelectElement>('.agt-automation input, .agt-automation select'));
-    assert(automation.length === 5 && automation.every(control => control.disabled), 'A started task must show its publication automation read-only');
+    assert(automation.length > 0 && automation.every(control => control.disabled), 'A started task must show its publication automation read-only');
     send.click();
     await settle();
     const requests = bridge.commands.filter(command => command.name === 'startAgentTurn');

@@ -62,7 +62,9 @@ public record TaskDiscussion(
         boolean resolved,
         Instant createdAt,
         Instant updatedAt,
-        long version)
+        long version,
+        Optional<String> replyDraft,
+        Optional<String> replyDraftError)
 {
     /**
      * Bounds the retained snapshot, which the discussion reads in pages rather than loading into
@@ -85,6 +87,10 @@ public record TaskDiscussion(
         requireNonNull(sessionReference, "sessionReference is null");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
+        requireNonNull(replyDraft, "replyDraft is null");
+        requireNonNull(replyDraftError, "replyDraftError is null");
+        checkArgument(comment.isPresent() || (replyDraft.isEmpty() && replyDraftError.isEmpty()), "Only comment threads have reply drafts");
+        checkArgument(replyDraft.isEmpty() || replyDraftError.isEmpty(), "A reply draft cannot also have an error");
         checkArgument(id.matches("[A-Za-z0-9._:-]{1,100}"), "Invalid discussion id");
         checkArgument(!taskId.isBlank() && taskId.length() <= 100, "Invalid discussion task id");
         checkArgument(!providerLane.isBlank() && providerLane.length() <= 50, "Invalid discussion lane");
@@ -99,12 +105,20 @@ public record TaskDiscussion(
     /** Restates the stored version after a read, which the entity owns rather than the payload. */
     public TaskDiscussion withVersion(long value)
     {
-        return new TaskDiscussion(id, taskId, anchor, comment, seed, providerLane, providerModel, sessionReference, messages, resolved, createdAt, updatedAt, value);
+        return new TaskDiscussion(id, taskId, anchor, comment, seed, providerLane, providerModel, sessionReference, messages, resolved,
+                createdAt, updatedAt, value, replyDraft, replyDraftError);
+    }
+
+    public TaskDiscussion withReplyDraft(Optional<String> text, Optional<String> error, Instant now)
+    {
+        return new TaskDiscussion(id, taskId, anchor, comment, seed, providerLane, providerModel, sessionReference, messages, resolved,
+                createdAt, now, version, text, error);
     }
 
     /** Replaces the mutable half of the aggregate: its messages, its resolution and its session. */
     public TaskDiscussion update(boolean nextResolved, List<DiscussionMessage> nextMessages, Optional<DiscussionSession> nextSession, Instant now)
     {
-        return new TaskDiscussion(id, taskId, anchor, comment, seed, providerLane, providerModel, nextSession, nextMessages, nextResolved, createdAt, now, version);
+        return new TaskDiscussion(id, taskId, anchor, comment, seed, providerLane, providerModel, nextSession, nextMessages, nextResolved,
+                createdAt, now, version, replyDraft, replyDraftError);
     }
 }

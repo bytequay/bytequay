@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { renderToStaticMarkup } from 'react-dom/server';
+import { AgentAvailabilityProvider } from '../agents/availability';
 import { describe, expect, it } from 'vitest';
 import { ANSWERING_ELSEWHERE, isSummaryRequest, parseCommentSummary, SUMMARY_REQUEST, type DiscussionMessageDto, type TaskDiscussionDto } from '../agents/discussions/contracts';
 import type { TaskDiscussions } from '../agents/discussions/useTaskDiscussions';
@@ -32,7 +33,7 @@ function message(id: string, author: 'USER' | 'AGENT', body: string, error: stri
 function thread(over: Partial<TaskDiscussionDto> = {}): TaskDiscussionDto {
   return {
     id: 't1', taskId: 'task', turnId: 'review-comment', quote: KEY, occurrence: 1, resolved: false, pending: false,
-    providerLane: 'codex', version: 1, createdAt: AT, updatedAt: AT, comment: { repo: 'o/r', number: 12, key: KEY },
+    providerLane: 'codex', version: 1, createdAt: AT, updatedAt: AT, comment: { repo: 'o/r', number: 12, key: KEY }, replyDraft: null, replyDraftError: null,
     messages: [message('m1', 'USER', 'Is this right?'), message('m2', 'AGENT', 'Yes.'), message('m3', 'USER', 'Sure?'), message('m4', 'AGENT', 'Sure.')],
     ...over,
   };
@@ -110,11 +111,12 @@ describe('private thread helpers', () => {
 describe('private thread surfaces', () => {
   it('keeps a second conversation on the same comment readable', () => {
     const earlier = thread({ id: 'earlier', messages: [message('old-question', 'USER', 'Could another connector be affected?'),
-      message('old-answer', 'AGENT', 'Check the shared connector test.')] });
+      message('old-answer', 'AGENT', 'Check the shared connector test.')], replyDraft: 'I will add the shared test.' });
     const html = forward(threads({ earlierThreads: new Map([[KEY, [earlier]]]) }));
     expect(html).toContain('Other saved conversation · 1 reply');
     expect(html).toContain('Could another connector be affected?');
     expect(html).toContain('Check the shared connector test.');
+    expect(html).toContain('I will add the shared test.');
     expect(html).toContain('Sure?');
   });
 
@@ -126,6 +128,44 @@ describe('private thread surfaces', () => {
     expect(html).toContain('Sure?');
     expect(html).toContain('This review has ended');
     expect(html).not.toContain('Private question to the agent');
+  });
+
+  it('keeps history and saved drafts usable while agent readiness is unavailable', () => {
+    const saved = threads({}, thread({ replyDraft: 'I will rename it.' }));
+    const html = renderToStaticMarkup(<AgentAvailabilityProvider>
+      <PrivateThreadControls threads={saved} threadKey={KEY} own={false} />
+      <PrivateThreadForward threads={saved} threadKey={KEY} author="bob" avatarUrl={null} timestamp={AT} body="Rename it."
+        repository="o/r" onDraftReply={() => {}} />
+    </AgentAvailabilityProvider>);
+    expect(html).not.toContain('class="pr-ask-agent"');
+    expect(html).not.toContain('Private question to the agent');
+    expect(html).toContain('Local · 2 replies');
+    expect(html).toContain('I will rename it.');
+    expect(html).toContain('Use draft');
+    expect(html).toContain('Connect an agent');
+  });
+
+  it('shows a prepared reply as a private draft that can be used after the task stops', () => {
+    const html = forward(threads({ disabledReason: 'Task completed' }, thread({ replyDraft: 'Thanks, I will rename it.' })), true);
+    expect(html).toContain('Thanks, I will rename it.');
+    expect(html).toContain('Private draft · review and edit before posting.');
+    expect(html).toContain('Use draft');
+    expect(html).not.toMatch(/class="pr-private-draft" disabled/);
+  });
+
+  it('explains a failed automatic draft and keeps manual drafting available', () => {
+    const html = forward(threads({}, thread({ replyDraftError: 'Account unavailable' })), true);
+    expect(html).toContain('Reply draft could not be prepared: Account unavailable');
+    expect(html).toContain('Choose Draft with agent to retry.');
+  });
+
+  it('disables generation while the automatic reply is still pending', () => {
+    const html = forward(threads({ busy: true }, thread({ pending: true })), true);
+    expect(html).toMatch(/class="pr-private-draft" disabled/);
+    expect(html).toContain('Draft with agent');
+    const saved = forward(threads({ busy: true }, thread({ pending: true, replyDraft: 'Already prepared.' })), true);
+    expect(saved).not.toMatch(/class="pr-private-draft" disabled/);
+    expect(saved).toContain('Use draft');
   });
 
   it('shows a thread behind its comment as a chip and a tab, before Ask agent', () => {

@@ -191,7 +191,7 @@ class TestTaskDiscussionService
                 false,
                 NOW,
                 NOW,
-                0);
+                0, Optional.empty(), Optional.empty());
     }
 
     private static AgentTask withoutWorktree()

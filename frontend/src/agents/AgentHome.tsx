@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { useAgentAvailability } from './availability';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CircleDot, Eye, EyeOff, ListChecks, Pencil, SquareCheck, Sun, type LucideIcon } from 'lucide-react';
 import RepoAvatar from '../RepoAvatar';
@@ -251,6 +252,7 @@ export function AgentHomeView({
   /** Today's agenda for this workspace; without it the page draws no Today section or chips. */
   today?: TodayAgenda;
 }): React.JSX.Element {
+  const availability = useAgentAvailability(workspaceId);
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction }} />;
   const [owner, repo = ''] = repository.split('/');
   const onToday = todayKeys(today?.agenda ?? null);
@@ -322,7 +324,7 @@ export function AgentHomeView({
             })}
           </div>
         </section>
-        <ComposerDock repository={repository} chips={<>
+        {availability.any && <ComposerDock repository={repository} chips={<>
           {startHere.length > 0 && <>
             <span className="today-start-label"><Sun size={13} aria-hidden="true" />Today</span>
             {startHere.map(item => {
@@ -349,6 +351,7 @@ export function AgentHomeView({
         </>}>
           {error !== null && <div className="cmt-error" role="alert">{error}</div>}
           <TaskComposer
+            workspaceId={workspaceId}
             backport
             automation={automation}
             draft={draft}
@@ -369,7 +372,7 @@ export function AgentHomeView({
             onCreate={onCreate}
             onOpenSettings={onOpenSettings}
           />
-        </ComposerDock>
+        </ComposerDock>}
       </div>
     </div>
   );

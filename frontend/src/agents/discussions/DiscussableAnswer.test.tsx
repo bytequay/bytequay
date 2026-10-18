@@ -35,7 +35,7 @@ const ANSWER = [
 function discussion(over: Partial<TaskDiscussionDto> = {}): TaskDiscussionDto {
   return {
     id: 'd1', taskId: 't1', turnId: 'turn-10', quote: 'INVALID_TABLE_PROPERTY', occurrence: 1,
-    resolved: false, pending: false, providerLane: 'claude', version: 0, comment: null,
+    resolved: false, pending: false, providerLane: 'claude', version: 0, comment: null, replyDraft: null, replyDraftError: null,
     createdAt: '2026-09-21T00:00:00Z', updatedAt: '2026-09-21T00:00:00Z',
     messages: [{ id: 'm1', author: 'USER', body: 'why?', createdAt: '2026-09-21T00:00:00Z', error: null }],
     ...over,

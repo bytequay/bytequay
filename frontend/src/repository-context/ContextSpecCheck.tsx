@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { remoteErrorMessage } from '../remoteError';
 import { settingsRoute } from '../settings/routes';
@@ -47,6 +48,7 @@ export function RunLine({ children, blocked = false, workspaceId }: { children: 
 export function SpecCheckDrawer({ data, actions, busy, directory, prefill, onClose }: {
   data: SpecCheckData; actions: SpecCheckActions; busy: boolean; directory: string | null; prefill?: SpecCheckRequest['prefill']; onClose: () => void;
 }) {
+  const availability = useAgentAvailability(data.workspaceId);
   const [chosen, setChosen] = useState<string | null>(directory);
   const check = chosen === null ? null : data.checks.find(value => value.directory === chosen) ?? null;
   const running = activeCheck(data.checks);
@@ -60,9 +62,10 @@ export function SpecCheckDrawer({ data, actions, busy, directory, prefill, onClo
     </div>
       <div className="rcp-drawer__sub">Compares a directory’s code with the specifications it implements. Only a gap whose test fails is reported.</div></div>
     <div className="rcp-drawer__body">
-      {chosen === null && <ChooseDirectory workspaceId={data.workspaceId} onChoose={setChosen} />}
+      {!availability.development && <AgentSetupNotice workspaceId={data.workspaceId} />}
+      {chosen === null && availability.development && <ChooseDirectory workspaceId={data.workspaceId} onChoose={setChosen} />}
       {check !== null && <Report data={data} check={check} />}
-      {chosen !== null && running === null && <StartCheck key={chosen} data={data} actions={actions} busy={busy} directory={chosen} previous={check}
+      {chosen !== null && running === null && availability.development && <StartCheck key={chosen} data={data} actions={actions} busy={busy} directory={chosen} previous={check}
         prefill={chosen === directory ? prefill : undefined} />}
       {chosen !== null && running !== null && running.id !== check?.id && <div className="rcp-note-caption">The check of {running.directory} is running.
         A new check can start when it ends.</div>}

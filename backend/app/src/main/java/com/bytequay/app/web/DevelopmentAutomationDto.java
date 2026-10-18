@@ -21,24 +21,26 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /** The shared settings and task-submission representation; missing toggles are invalid. */
-public record DevelopmentAutomationDto(Boolean autoDraftPr, Boolean autoCiFix, Optional<String> ciLaneId, Boolean reviewSummary)
+public record DevelopmentAutomationDto(Boolean autoDraftPr, Boolean autoCiFix, Optional<String> ciLaneId, Boolean reviewSummary, Boolean reviewReply)
 {
     public DevelopmentAutomationDto
     {
         requireNonNull(autoDraftPr, "autoDraftPr is null");
         requireNonNull(autoCiFix, "autoCiFix is null");
         requireNonNull(reviewSummary, "reviewSummary is null");
+        requireNonNull(reviewReply, "reviewReply is null");
         requireNonNull(ciLaneId, "ciLaneId is null");
         ciLaneId.ifPresent(AgentLaneId::new);
     }
 
     public static DevelopmentAutomationDto from(DevelopmentAutomation automation)
     {
-        return new DevelopmentAutomationDto(automation.autoDraftPr(), automation.autoCiFix(), automation.ciLaneId().map(AgentLaneId::value), automation.reviewSummary());
+        return new DevelopmentAutomationDto(automation.autoDraftPr(), automation.autoCiFix(), automation.ciLaneId().map(AgentLaneId::value),
+                automation.reviewSummary(), automation.reviewReply());
     }
 
     public DevelopmentAutomation toDomain()
     {
-        return new DevelopmentAutomation(true, autoDraftPr, autoCiFix, ciLaneId.map(AgentLaneId::new), reviewSummary);
+        return new DevelopmentAutomation(true, autoDraftPr, autoCiFix, ciLaneId.map(AgentLaneId::new), reviewSummary, reviewReply);
     }
 }

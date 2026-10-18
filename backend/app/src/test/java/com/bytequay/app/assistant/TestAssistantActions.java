@@ -152,7 +152,7 @@ class TestAssistantActions
                         provider("codex", "Codex", AgentProviderStatus.Readiness.READY, "gpt-6.1-sol", ""),
                         provider("gemini", "Gemini", AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED, "flash", "")),
                 ImmutableList.of(), ImmutableList.of(), Optional.empty()));
-        when(settings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, true, false, Optional.empty(), false));
+        when(settings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, true, false, Optional.empty(), false, false));
         when(starter.start(any())).thenAnswer(call -> {
             InteractiveTaskStart start = call.getArgument(0);
             return AgentTask.created(start.taskId(), Optional.of(start.workspaceId()), true, "Expose snapshot id in metadata", start.laneId(),
@@ -368,8 +368,8 @@ class TestAssistantActions
         assertThat(start.workspaceId()).isEqualTo("ws1");
         assertThat(start.laneId()).isEqualTo(new AgentLaneId("claude"));
         assertThat(start.defaults()).isEqualTo(new AgentTaskDefaults(Optional.of("opus"), Optional.of("high"), AgentPermissionPolicy.AUTO, Optional.empty(),
-                Optional.of(new DevelopmentAutomation(true, true, false, Optional.empty(), false))));
-        assertThat(start.initialAutomation()).contains(new DevelopmentAutomation(true, true, false, Optional.empty(), false));
+                Optional.of(new DevelopmentAutomation(true, true, false, Optional.empty(), false, false))));
+        assertThat(start.initialAutomation()).contains(new DevelopmentAutomation(true, true, false, Optional.empty(), false, false));
         assertThat(start.workItemId()).isEmpty();
         AssistantReceipt receipt = receipts.getLast().receipt().orElseThrow();
         assertThat(receipts.getLast().text()).isEqualTo("Started “Expose snapshot id in metadata”");

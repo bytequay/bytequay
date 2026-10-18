@@ -19,6 +19,7 @@ type Props = {
   /** Called once auth successfully stores a token, so App
    *  can flip into the ready state and route to the home view. */
   onSaved: () => void;
+  embedded?: boolean;
 };
 
 /** Only fine-grained tokens carry a repo-selection ceiling. Classic ones are
@@ -29,7 +30,7 @@ const FINE_GRAINED_PREFIX = 'github_pat_';
 /**
  * First-run onboarding through an existing GitHub CLI login or a PAT.
  */
-export default function OnboardingScreen({ onSaved }: Props) {
+export default function OnboardingScreen({ onSaved, embedded = false }: Props) {
   const [token, setToken] = useState('');
   const [patState, setPatState] = useState<'idle' | 'saving' | 'error'>('idle');
   const [patError, setPatError] = useState<string | null>(null);
@@ -106,10 +107,10 @@ export default function OnboardingScreen({ onSaved }: Props) {
   };
 
   return (
-    <div className="onboarding">
-      <main className="onboarding__card" role="main" aria-labelledby="onboarding-title">
-        <LogoLoading size={130} label="ByteQuay" variant="onboarding" />
-        <h1 id="onboarding-title" className="onboarding__title">Welcome to ByteQuay</h1>
+    <div className={`onboarding${embedded ? ' onboarding--embedded' : ''}`}>
+      <section className="onboarding__card" aria-label="Connect GitHub">
+        {!embedded && <><LogoLoading size={130} label="ByteQuay" variant="onboarding" />
+          <h1 id="onboarding-title" className="onboarding__title">Welcome to ByteQuay</h1></>}
         <p className="onboarding__lede">
           Connect your GitHub account to start. We'll surface mentions, reviews,
           and CI failures — never the noise.
@@ -196,7 +197,7 @@ export default function OnboardingScreen({ onSaved }: Props) {
             {patState === 'saving' ? 'Connecting…' : 'Connect with token →'}
           </button>
         </form>
-      </main>
+      </section>
     </div>
   );
 }

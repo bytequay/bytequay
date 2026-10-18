@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAgentAvailability } from '../agents/availability';
 import { useEffect, useMemo, useState } from 'react';
 import type { CherryPickExecution } from '../types';
 import {
@@ -66,6 +67,7 @@ export default function TasksView({ workspaceId, onOpenTask, onNewCherryPick }: 
   onOpenTask: (execution: CherryPickExecution) => void;
   onNewCherryPick: () => void;
 }) {
+  const availability = useAgentAvailability(workspaceId);
   const [tasks, setTasks] = useState<CherryPickExecution[]>([]);
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [shown, setShown] = useState(PAGE_SIZE);
@@ -100,9 +102,9 @@ export default function TasksView({ workspaceId, onOpenTask, onNewCherryPick }: 
           {openCount} running or paused · {tasks.length - openCount} finished
         </span>
         <div className="cmt-tasks-spacer" />
-        <button type="button" className="cmt-btn-green" onClick={onNewCherryPick}>
+        {availability.any && <button type="button" className="cmt-btn-green" onClick={onNewCherryPick}>
           + New cherry-pick
-        </button>
+        </button>}
         <div className="cmt-seg">
           {([['all', 'All'], ['open', 'Not done'], ['done', 'Done']] as const).map(([key, label]) => (
             <button

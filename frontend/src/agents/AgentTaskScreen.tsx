@@ -718,7 +718,7 @@ function SidePanel({
       .then(value => setReview(current => (current === shown ? value : current)), () => {});
   }, [activeTurn]);
   const privateThreads = discussions === undefined || pullRequest === null || task?.interactive !== true ? undefined
-    : privateThreadSource(discussions, pullRequest);
+    : privateThreadSource(discussions, pullRequest, undefined, workspaceId);
   const agentCount = agents.length + expiredChildren.length;
   const shownUtilities = utilityTabs.filter(utility => (utility === 'agents' ? showAgents : discussions !== undefined));
   const agentTab = shownUtilities.map(utility => <ConversationUtilityTab key={utility} tab={utility}
@@ -2571,7 +2571,7 @@ export default function AgentTaskScreen({
     const attachmentIds = input.attachments.map((attachment) => attachment.id);
     // Retrying the accepted input retains its publication choices, which may differ from the task defaults.
     const developmentAutomation = task.interactive
-      ? current.turn.settings?.developmentAutomation ?? { autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false }
+      ? current.turn.settings?.developmentAutomation ?? { autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false, reviewReply: false }
       : undefined;
     // The failed turn's key is never reused. The tracker retains this new key only if this reply is
     // ambiguous, so a second confirmed click cannot create a duplicate retry turn.

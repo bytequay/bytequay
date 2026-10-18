@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAgentAvailability } from '../agents/availability';
 import { useState } from 'react';
 import {
   ArrowUpRight, CalendarCheck, Check, ChevronDown, ChevronRight, Clock, Eye, EyeOff, GitMerge, ListChecks, LoaderCircle, MessageCircleQuestion,
@@ -65,10 +66,11 @@ export default function TodayList({ today, scope, onOpen = openTarget }: {
   /** The Assistant panel shows the app before opening, since it can sit beside an open web page. */
   onOpen?: (target: AgendaTargetDto) => void;
 }): React.JSX.Element | null {
+  const availability = useAgentAvailability();
   const { agenda, error, makeAgain, mark, showHidden } = today;
   const [expanded, setExpanded] = useState(false);
   const [recapOpen, setRecapOpen] = useState(false);
-  if (!showsToday(agenda, scope)) return null;
+  if (!showsToday(agenda, scope) || !availability.development && agenda.items.length === 0) return null;
 
   const items = agenda.items;
   const rows = todayRows(items);
@@ -117,7 +119,7 @@ export default function TodayList({ today, scope, onOpen = openTarget }: {
           {before && <span className="today-fact">at {minuteText(agenda.at)}</span>}
           {making
             ? <span className="today-fact today-fact--icon" title="Making today's agenda"><LoaderCircle className="today-spin" aria-hidden="true" /></span>
-            : (
+            : availability.development && (
               <IconButton label={before ? 'Make now' : 'Make again'} onClick={makeAgain}>
                 <RotateCw size={13} aria-hidden="true" />
               </IconButton>
@@ -125,6 +127,7 @@ export default function TodayList({ today, scope, onOpen = openTarget }: {
         </span>
       </div>
 
+      {!availability.development && <p className="today-line">Reconnect your agent in Settings to update Today.</p>}
       {!collapsed && <>
         {global && ready && agenda.summary && <p className="today-summary">{agenda.summary}</p>}
         {making && items.length === 0 && <div className="today-line">Making today&apos;s agenda…</div>}
@@ -132,7 +135,7 @@ export default function TodayList({ today, scope, onOpen = openTarget }: {
           <div className="today-failed" role="status">
             <TriangleAlert size={14} aria-hidden="true" />
             <span>{failure}</span>
-            {!making && <button type="button" className="today-link" onClick={makeAgain}>Make again</button>}
+            {!making && availability.development && <button type="button" className="today-link" onClick={makeAgain}>Make again</button>}
           </div>
         )}
         {agenda.state === 'READY' && items.length === 0 && <div className="today-line">Nothing pressing today</div>}

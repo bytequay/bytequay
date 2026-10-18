@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAgentAvailability } from '../agents/availability';
 import { useState } from 'react';
 import { History } from 'lucide-react';
 import Toast from '../Toast';
@@ -19,6 +20,7 @@ import '../css/memory.css';
 
 /** Replay review: Agent Review twice on a merged pull request at the head its maintainers first reviewed, with memory and without. Nothing is posted. */
 export default function ReplayReviewButton({ workspaceId, repo, number }: { workspaceId: string; repo: string; number: number }) {
+  const availability = useAgentAvailability(workspaceId);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const replay = async (): Promise<void> => {
@@ -34,6 +36,7 @@ export default function ReplayReviewButton({ workspaceId, repo, number }: { work
       setBusy(false);
     }
   };
+  if (!availability.review) return null;
   return <>
     <button type="button" className="pr-learn" disabled={busy} onClick={() => void replay()}
       title={`Starts 2 reviews of #${number} at the head its maintainers first reviewed, with memory and without · nothing is posted`}>

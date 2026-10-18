@@ -259,7 +259,7 @@ class AssistantReader
         List<Agent> agents = models.get().providers().stream().filter(provider -> provider.readiness() == AgentProviderStatus.Readiness.READY)
                 .map(provider -> new Agent(provider.id(), provider.label())).collect(toImmutableList());
         DevelopmentAutomation saved = settings.developmentAutomation();
-        Automation automation = new Automation(saved.autoDraftPr(), saved.autoCiFix(), saved.reviewSummary());
+        Automation automation = new Automation(saved.autoDraftPr(), saved.autoCiFix(), saved.reviewSummary(), saved.reviewReply());
         return new Page(new StartOptions("start_options", repositories.build(), agents, automation), refs);
     }
 
@@ -413,5 +413,5 @@ class AssistantReader
 
     record Agent(String id, String label) {}
 
-    record Automation(boolean autoDraftPr, boolean autoCiFix, boolean reviewSummary) {}
+    record Automation(boolean autoDraftPr, boolean autoCiFix, boolean reviewSummary, boolean reviewReply) {}
 }

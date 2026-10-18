@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAgentAvailability } from '../agents/availability';
 import { useEffect, useRef, useState } from 'react';
 import { Bot, Eye, LoaderCircle, RefreshCw } from 'lucide-react';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
@@ -29,6 +30,8 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
   onNavigate: (route: string) => void;
   onRetryContext: () => void;
 }) {
+  const availability = useAgentAvailability(workspaceId);
+  const [existingTask, setExistingTask] = useState(false);
   const [busy, setBusy] = useState<'development' | 'review' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const operation = useRef(false);
@@ -41,6 +44,16 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
     return () => { generation.current = current + 1; };
   }, [authored, workspaceId, repo, number]);
 
+  useEffect(() => {
+    let active = true;
+    setExistingTask(false);
+    if (workspaceId !== undefined && !availability.development) {
+      void window.bridge.findPullRequestTask(workspaceId, repo, number)
+        .then(link => { if (active) setExistingTask(link !== null); }).catch(() => {});
+    }
+    return () => { active = false; };
+  }, [availability.development, workspaceId, repo, number]);
+
   const open = async (kind: 'development' | 'review') => {
     if (workspaceId === undefined || operation.current) return;
     operation.current = true;
@@ -52,12 +65,14 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
       // Leaving the PR suppresses navigation, not the task creation requested by the click.
       const link = await window.bridge.findPullRequestTask(workspaceId, repo, number);
       if (kind === 'development') {
+        if (link === null && !availability.development) return;
         const task = link ?? await window.bridge.assignPullRequestAgent(workspaceId, repo, number);
         route = workspaceAgentTaskRoute(task.workspaceId, task.taskId);
       }
       else {
         // A reviewer started before publication can be linked only to the development task.
         const linkedReview = await findConversationReview(window.bridge, workspaceId, link?.taskId, { repo, number });
+        if (linkedReview === null && review === null && !availability.review) return;
         const task = linkedReview ?? review ?? await window.bridge.startAgentReview(workspaceId, repo, number);
         route = workspaceReviewTaskRoute(task.workspaceId, task.id);
       }
@@ -76,16 +91,16 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
   const blocked = loading ? 'Loading workspace…' : contextError !== null ? `Workspace unavailable: ${contextError}`
     : workspaceId === undefined ? 'Add a workspace for this repository to use agent tasks' : null;
   return <>
-    {authored && <button type="button" className="pr-task-action" aria-label="Development task" title={blocked ?? 'Open or create the development task'}
+    {authored && (availability.development || existingTask) && <button type="button" className="pr-task-action" aria-label="Development task" title={blocked ?? 'Open or create the development task'}
       disabled={blocked !== null || busy !== null} onClick={() => { void open('development'); }}>
       {busy === 'development' ? <LoaderCircle className="pr-task-spinner" size={16} aria-hidden="true" /> : <Bot size={16} aria-hidden="true" />}
       Development task
     </button>}
-    <button type="button" className="pr-task-action" aria-label="Review task" title={blocked ?? 'Open the review task, or start a review if none exists'}
+    {(availability.review || review !== null) && <button type="button" className="pr-task-action" aria-label="Review task" title={blocked ?? 'Open the review task, or start a review if none exists'}
       disabled={blocked !== null || busy !== null} onClick={() => { void open('review'); }}>
       {busy === 'review' ? <LoaderCircle className="pr-task-spinner" size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
       Review task
-    </button>
+    </button>}
     {busy !== null && <span className="pr-task-message" role="status">{busy === 'development' ? 'Opening development task…' : 'Opening review task…'}</span>}
     {contextError !== null && <span className="pr-task-message" role="alert">{contextError}
       <button type="button" aria-label="Retry workspace lookup" title="Retry workspace lookup" onClick={onRetryContext}>

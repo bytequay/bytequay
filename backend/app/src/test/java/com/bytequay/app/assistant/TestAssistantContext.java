@@ -166,7 +166,7 @@ class TestAssistantContext
                 ImmutableList.of(provider("claude", "Claude Code", AgentProviderStatus.Readiness.READY),
                         provider("codex", "Codex", AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED)),
                 ImmutableList.of(), ImmutableList.of(), Optional.empty()));
-        when(settings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, true, false, Optional.empty(), false));
+        when(settings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, true, false, Optional.empty(), false, false));
     }
 
     @Test
@@ -223,7 +223,7 @@ class TestAssistantContext
         assertThat(options.path("repositories").path(0).path("ref").asText()).isEqualTo("ws:ws1");
         // Only an agent that is ready now can start a task.
         assertThat(options.path("agents").toString()).isEqualTo("[{\"id\":\"claude\",\"label\":\"Claude Code\"}]");
-        assertThat(keys(options.path("automation"))).isEqualTo(ImmutableSet.of("autoDraftPr", "autoCiFix", "reviewSummary"));
+        assertThat(keys(options.path("automation"))).isEqualTo(ImmutableSet.of("autoDraftPr", "autoCiFix", "reviewSummary", "reviewReply"));
     }
 
     @Test

@@ -283,12 +283,12 @@ class TestInteractiveAgentHttpContract
                 {"taskId":"11111111-1111-1111-1111-111111111111","workspaceId":"workspace-1",
                 "message":"Task","laneId":"codex","idempotencyKey":"create-key",
                 "defaults":{"model":"model-a","permissionPolicy":"AUTO","developmentAutomation":
-                {"autoDraftPr":true,"autoCiFix":true,"ciLaneId":"claude","reviewSummary":true}},
-                "developmentAutomation":{"autoDraftPr":false,"autoCiFix":false,"ciLaneId":null,"reviewSummary":false}}
+                {"autoDraftPr":true,"autoCiFix":true,"ciLaneId":"claude","reviewSummary":true,"reviewReply":false}},
+                "developmentAutomation":{"autoDraftPr":false,"autoCiFix":false,"ciLaneId":null,"reviewSummary":false,"reviewReply":false}}
                 """, InteractiveAgentHttpContract.CreateTaskRequest.class);
 
         assertThat(request.defaults().developmentAutomation().orElseThrow().toDomain())
-                .isEqualTo(new DevelopmentAutomation(true, true, true, Optional.of(new AgentLaneId("claude")), true));
+                .isEqualTo(new DevelopmentAutomation(true, true, true, Optional.of(new AgentLaneId("claude")), true, false));
         assertThat(request.developmentAutomation().orElseThrow().toDomain()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
         // The option is required like its siblings, so a client that omits it is refused rather than defaulted.
         assertThatThrownBy(() -> objectMapper.readValue("""

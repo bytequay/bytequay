@@ -28,11 +28,18 @@ class TestDevelopmentAutomationConverter
     @Test
     void requiresEveryFieldAndRoundTripsCurrentSettings()
     {
-        DevelopmentAutomation automation = new DevelopmentAutomation(true, false, true, Optional.empty(), true);
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, false, true, Optional.empty(), true, true);
         assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(automation))).isEqualTo(automation);
         assertThatThrownBy(() -> converter.convertToEntityAttribute("{\"autoCommit\":true,\"autoDraftPr\":true,\"ciLaneId\":null}"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> converter.convertToEntityAttribute("{\"autoCommit\":true,\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":null,\"reviewSummary\":null}"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void savedAutomationKeepsItsChoicesWithoutEnablingReplyDrafts()
+    {
+        assertThat(converter.convertToEntityAttribute("{\"autoCommit\":true,\"autoDraftPr\":true,\"autoCiFix\":false,\"ciLaneId\":null,\"reviewSummary\":true}"))
+                .isEqualTo(new DevelopmentAutomation(true, true, false, Optional.empty(), true, false));
     }
 }

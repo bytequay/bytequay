@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
 import { BookOpen, Bot, ChevronRight, FileText, GitPullRequest, Globe, Quote, SquareTerminal, TriangleAlert, User } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -60,6 +61,7 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
   onSpecShown?: () => void;
 }) {
   const workspaceId = workspace.id;
+  const availability = useAgentAvailability(workspaceId);
   const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
   const [page, setPage] = useState<MemoryPageDto | null>(null);
   const [checks, setChecks] = useState<ContextSpecCheckDto[] | null>(null);
@@ -243,10 +245,10 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
                 <Chip icon={<TriangleAlert size={14} />} count={needs.length} title="need you" warn />
               </div>
             </div>
-            <div className="rcp-head__actions">
+            {availability.development && <div className="rcp-head__actions">
               <button type="button" className="rcp-btn rcp-btn--primary" onClick={() => open({ kind: 'spec', directory: null })}><Icon name="bolt" size={13} />
                 Check against spec</button>
-            </div>
+            </div>}
           </div>
           <div className="mem-switches" role="group" aria-label="Agents that get memory">
             <span className="mem-muted">Agents use memory in</span>
@@ -492,6 +494,7 @@ export function LearnCard({ page, data, busy, onLearn, onSearch, onStop, onDelet
   page: MemoryPageDto; data: SpecCheckData; busy: boolean; onLearn: (pull: number | null) => void; onSearch: (query: string) => Promise<MemoryPullDto[]>;
   onStop: (taskId: string) => void; onDelete: (id: string) => void; onOpen: (id: string) => void;
 }) {
+  const availability = useAgentAvailability(data.workspaceId);
   const run = data.build.build;
   const last = page.harvest.last;
   const cursor = page.harvest.cursor;
@@ -514,11 +517,12 @@ export function LearnCard({ page, data, busy, onLearn, onSearch, onStop, onDelet
           ? 'Reads the newest closed pull requests you wrote or reviewed, up to 30, and saves the rules their maintainers asked for.'
           : `Learned through #${cursor.number}. The next run reads the pull requests you wrote or reviewed that closed after it, up to 30.`}</div>
         {last !== null && last.outcome !== 'RUNNING' && <LastRun last={last} saved={saved} busy={busy} onDelete={onDelete} onOpen={onOpen} />}
-        <div className="rcp-actions"><button type="button" className="rcp-btn rcp-btn--primary" disabled={busy || !data.build.canStart || blocked}
+        {availability.development && <><div className="rcp-actions"><button type="button" className="rcp-btn rcp-btn--primary" disabled={busy || !data.build.canStart || blocked}
           onClick={() => onLearn(null)}><Icon name="bolt" size={13} />Learn from my PRs</button></div>
         <RunLine workspaceId={data.workspaceId} blocked={blocked}>{data.model.blocker
           ?? `Starts 1 run · reads the maintainer threads it finds and saves rules · ${data.model.label}`}</RunLine>
-        <PullSearch disabled={busy || !data.build.canStart || blocked} onSearch={onSearch} onLearn={onLearn} />
+        <PullSearch disabled={busy || !data.build.canStart || blocked} onSearch={onSearch} onLearn={onLearn} /></>}
+        {!availability.development && <AgentSetupNotice workspaceId={data.workspaceId} />}
       </>}
     </div>
   </section>;

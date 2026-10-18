@@ -1143,7 +1143,7 @@ class TestDevelopmentFollowupCoordinator
     @ValueSource(booleans = {false, true})
     void ciUsesTheDevelopmentAgentUnlessExplicitlyOverridden(boolean explicitCiAgent)
     {
-        preparePublished(explicitCiAgent ? FULL : DevelopmentAutomation.DEFAULT);
+        preparePublished(explicitCiAgent ? FULL : new DevelopmentAutomation(true, true, true, Optional.empty()));
         advance();
         ArgumentCaptor<StartCiAutofixCommand> command = ArgumentCaptor.forClass(StartCiAutofixCommand.class);
         verify(ci).startDevelopment(command.capture(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));

@@ -63,7 +63,7 @@ export function AutomationControl({ value, providers, disabled, localOnly = fals
       <strong>Automation</strong>
       <p>Finished development work is committed automatically. Review experiments stay uncommitted.</p>
       {AUTOMATION_OPTIONS.map(option => <label key={option.key} className="agt-automation-option">
-        <input type="checkbox" checked={value[option.key]} disabled={disabled || (localOnly && option.key !== 'reviewSummary')}
+        <input type="checkbox" checked={value[option.key]} disabled={disabled || (localOnly && option.key !== 'reviewSummary' && option.key !== 'reviewReply')}
           onChange={event => onChange?.({ ...value, [option.key]: event.target.checked })} />
         {option.title}
       </label>)}

@@ -155,7 +155,7 @@ class TestInteractiveAgentTaskCreator
         when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspace(repository));
         when(git.run(repository, "rev-parse", "--verify", START_COMMIT + "^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, START_COMMIT + "\n", false));
-        var automation = new DevelopmentAutomation(true, false, false, Optional.empty(), false);
+        var automation = new DevelopmentAutomation(true, false, false, Optional.empty(), false, false);
         var defaults = new AgentTaskDefaults(Optional.of("model-a"), Optional.empty(), AgentPermissionPolicy.AUTO).withDevelopmentAutomation(automation);
         creator.createRelated(TASK_ID, "workspace-1", "Investigate", AgentLaneId.CODEX_CLI, defaults, "request-1", Optional.of(START_COMMIT));
         var command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);

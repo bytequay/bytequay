@@ -162,7 +162,7 @@ class TestRelatedWorkspaceWork
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("iceberg"))).thenReturn(new AgentModelSetting(
                 AgentModelType.DEVELOPMENT, true, "claude", "Claude", "destination-model", "Destination model", Optional.of("high")));
-        when(appSettings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, true, true, Optional.empty(), true));
+        when(appSettings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, true, true, Optional.empty(), true, false));
         var driver = mock(AgentDriver.class);
         when(drivers.require(AgentLaneId.CLAUDE_CLI)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(AgentCapabilities.none());
@@ -248,7 +248,7 @@ class TestRelatedWorkspaceWork
             assertThat(value.workspaceId()).isEqualTo("iceberg");
             assertThat(value.laneId()).isEqualTo(AgentLaneId.CLAUDE_CLI);
             assertThat(value.defaults().model()).contains("destination-model");
-            assertThat(value.defaults().developmentAutomation()).contains(new DevelopmentAutomation(true, false, false, Optional.empty(), false));
+            assertThat(value.defaults().developmentAutomation()).contains(new DevelopmentAutomation(true, false, false, Optional.empty(), false, false));
             assertThat(value.message()).contains("Check API behavior", "commands and limitations").doesNotContain("Secret source title", "trino");
         });
         ArgumentCaptor<StartAgentTurnCommand> initial = ArgumentCaptor.forClass(StartAgentTurnCommand.class);

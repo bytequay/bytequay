@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAgentAvailability } from '../agents/availability';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { pollVisible } from '../ide/pollVisible';
 import type { AgendaDto } from '../types';
@@ -32,6 +33,7 @@ export type TodayAgenda = {
 
 /** Today's agenda for one Home: read on open and focus, after pull request refreshes, and every few seconds while it is being made. */
 export function useTodayAgenda(workspaceId?: string): TodayAgenda {
+  const availability = useAgentAvailability();
   const [agenda, setAgenda] = useState<AgendaDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const request = useRef(0);
@@ -79,7 +81,7 @@ export function useTodayAgenda(workspaceId?: string): TodayAgenda {
     });
   }, [load]);
 
-  const makeAgain = useCallback(() => act(() => window.bridge.makeAgendaAgain()), [act]);
+  const makeAgain = useCallback(() => { if (availability.development) act(() => window.bridge.makeAgendaAgain()); }, [act, availability.development]);
   const mark = useCallback((ref: string, value: 'DONE' | 'DISMISSED' | null) => act(() => window.bridge.markAgendaItem(ref, value)), [act]);
   const showHidden = useCallback(() => {
     const hidden = agenda?.items.filter(item => item.status === 'dismissed').map(item => item.ref) ?? [];

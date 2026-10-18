@@ -30,8 +30,9 @@ import '../css/assistant.css';
  * The Assistant over every page, opened with ⌘J: the composer, the day's conversation once the user talks, then what waits on them.
  * It floats, and nothing paints over a native view, so the app leaves a web page before it opens and the editor hides under any dialog.
  */
-export default function AssistantPanel({ open, notices, openCard, onScreen, onClose }: {
+export default function AssistantPanel({ open, chatEnabled = true, notices, openCard, onScreen, onClose }: {
   open: boolean;
+  chatEnabled?: boolean;
   notices: AppNotice[];
   /** The waiting card an alert's Answer asked for; a new object each time. */
   openCard: { id: string } | null;
@@ -94,6 +95,7 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
   // A receipt a card's button left after a failed reply does not end that exchange, so Retry stays on the failure.
   const lastExchange = items.findLast(item => item.kind !== 'RECEIPT')?.id;
   const submit = () => {
+    if (!chatEnabled) return;
     const text = draft.trim();
     void send(text, visible.current, screen).then(sent => {
       if (!sent) return;
@@ -121,7 +123,7 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
     <div ref={scroller} className="assistant-sheet assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
       {entries(items).map(entry => Array.isArray(entry)
         ? <div key={entry[0].id} className="assistant-receipts">{entry.map(item => <Receipt key={item.id} item={item} onOpen={show} />)}</div>
-        : <Entry key={entry.id} item={entry} retryable={!running && entry.id === lastExchange} onRetry={retry} onSettings={openSettings} />)}
+        : <Entry key={entry.id} item={entry} retryable={chatEnabled && !running && entry.id === lastExchange} onRetry={retry} onSettings={openSettings} />)}
       {running && <p className="assistant-thinking" role="status">Thinking…</p>}
     </div>
   );
@@ -135,7 +137,7 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
           event.preventDefault();
           onClose();
         }}>
-        <Composer inputRef={input} aria-label="Message the Assistant" placeholder="Ask, or tell it what to start" value={draft} maxLength={16 * 1024}
+        {chatEnabled ? <Composer inputRef={input} aria-label="Message the Assistant" placeholder="Ask, or tell it what to start" value={draft} maxLength={16 * 1024}
           onChange={event => setDraft(event.target.value)} busy={sending} onSubmit={submit}
           onKeyDown={event => {
             if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey) return;
@@ -164,7 +166,11 @@ export default function AssistantPanel({ open, notices, openCard, onScreen, onCl
           <span className="assistant-mic" role="img" aria-label="Voice comes later" title="Voice comes later. macOS Dictation already types here.">
             <Mic size={15} aria-hidden="true" />
           </span>
-        </Composer>
+        </Composer> : <div className="assistant-sheet">
+          <p>Task notices and your conversation are still available.</p>
+          <button type="button" className="assistant-link" onClick={() => openSettings('workflow')}>Set up Assistant in Settings</button>
+          {running && <button type="button" className="assistant-link" onClick={stop}>Stop the reply</button>}
+        </div>}
         <WaitingStack notices={waiting} talk={talk} request={request} onRequestDone={requestDone} visible={visible} input={input} onLeave={onClose}
           onAnswered={id => { setAnswered(current => new Set(current).add(id)); refresh(); }}
           onOpenNotice={id => noticeAction(window.bridge.openAppNotice(id), 'Unable to open this task.', onClose)}

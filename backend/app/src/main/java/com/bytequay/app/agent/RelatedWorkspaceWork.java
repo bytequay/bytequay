@@ -68,7 +68,7 @@ public class RelatedWorkspaceWork
 {
     private static final String PREFIX = "workspace.linked-work.";
     private static final String SOURCE = "linked-work.source.";
-    private static final DevelopmentAutomation INVESTIGATION = new DevelopmentAutomation(true, false, false, Optional.empty(), false);
+    private static final DevelopmentAutomation INVESTIGATION = new DevelopmentAutomation(true, false, false, Optional.empty(), false, false);
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
     private final WorkspaceRelationships relationships;

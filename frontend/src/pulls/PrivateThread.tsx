@@ -24,9 +24,11 @@ import ReviewComposer from './agent-review/ReviewComposer';
 import MarkdownBody from './MarkdownBody';
 import { remoteErrorMessage } from '../remoteError';
 import LocalCard, { LocalCardMessage } from './local-review/LocalCard';
+import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
 
 /** What the conversation's host supplies; absent where the pull request has none, so nothing here renders there. */
 export type PrivateThreadSource = {
+  workspaceId?: string;
   /** This pull request's comment threads, by comment key. */
   threads: ReadonlyMap<string, TaskDiscussionDto>;
   /** Other retained conversations on a comment, when more than one task answered it. */
@@ -73,8 +75,9 @@ export function hiddenThreadCount(threads: PrivateThreads): number {
 
 /** The host task's private threads on one pull request's comments, keyed by comment. */
 export function privateThreadSource(discussions: TaskDiscussions, pr: Pick<PullRequestDto, 'repo' | 'number'>,
-  busyReason = ANSWERING_ELSEWHERE): PrivateThreadSource {
+  busyReason = ANSWERING_ELSEWHERE, workspaceId?: string): PrivateThreadSource {
   return {
+    workspaceId,
     threads: new Map(discussions.commentThreads.flatMap(thread => thread.comment !== null
       && thread.comment.repo.toLowerCase() === pr.repo.toLowerCase() && thread.comment.number === pr.number
       ? [[thread.comment.key, thread] as const] : [])),
@@ -179,6 +182,7 @@ export function PrivateThreadsToggle({ threads }: { threads: PrivateThreads }) {
  */
 export function PrivateThreadControls({ threads, threadKey, own }: { threads: PrivateThreads; threadKey: string; own: boolean }) {
   threads = { ...threads, ...threads.statusFor?.(threadKey) };
+  const available = useAgentAvailability(threads.workspaceId);
   const thread = held(threads, threadKey);
   const failed = thread !== null && !thread.pending && retryTarget(thread) !== null;
   return <>
@@ -195,7 +199,7 @@ export function PrivateThreadControls({ threads, threadKey, own }: { threads: Pr
               : `Local · ${replies(thread)} ↑`}
       </button>
     )}
-    {!own && <button type="button" className="pr-ask-agent" disabled={threads.disabledReason !== null}
+    {!own && available.any && <button type="button" className="pr-ask-agent" disabled={threads.disabledReason !== null}
       title={threads.disabledReason ?? 'Ask the agent about this comment. Private.'} onClick={() => threads.setForward(threadKey)}>
       Ask agent
     </button>}
@@ -251,6 +255,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
   onDraftReply?: (thread: TaskDiscussionDto) => void;
 }) {
   threads = { ...threads, ...threads.statusFor?.(threadKey) };
+  const available = useAgentAvailability(threads.workspaceId);
   const [unfolded, setUnfolded] = useState(true);
   const draft = threads.drafts.get(threadKey) ?? '';
   const setDraft = (value: string): void => threads.setDraft(threadKey, value);
@@ -276,7 +281,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
     }
   };
   const send = async (): Promise<void> => {
-    if (sending || threads.busy || threads.sendDisabledReason || (started && draft.trim() === '')) return;
+    if (!available.any || sending || threads.busy || threads.sendDisabledReason || (started && draft.trim() === '')) return;
     if (await run(() => threads.ask(threadKey, draft.trim()))) threads.setDraft(threadKey, '', draft);
   };
   const cancel = (): void => {
@@ -285,7 +290,9 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
   };
 
   const errorNote = error !== null && <span className="pr-thread-reply__error" role="alert">{error}</span>;
-  const controls = threads.disabledReason !== null
+  const controls = !available.any
+    ? <footer className="lrc__foot"><AgentSetupNotice workspaceId={threads.workspaceId} /></footer>
+    : threads.disabledReason !== null
     ? <footer className="lrc__foot"><span className="pr-local-review__note" role="status">{threads.disabledReason}</span></footer>
     : thread?.resolved === true
       ? <footer className="lrc__foot pr-private-resolved">
@@ -341,6 +348,10 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
                 {summary !== null ? <CommentSummary summary={summary} /> : <MarkdownBody body={message.body} repository={repository} />}
               </LocalCardMessage>;
             })}
+            {earlier.replyDraft && <LocalCardMessage timestamp={earlier.updatedAt} author="Reply draft"
+              avatar={<Avatar login="Agent" size={22} allowGitHubFallback={false} />}>
+              <MarkdownBody body={earlier.replyDraft} repository={repository} />
+            </LocalCardMessage>}
           </details>)}
           {thread?.messages.filter(message => !isSummaryRequest(message)).map(message => {
             const agent = message.author === 'AGENT';
@@ -349,20 +360,29 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
               avatar={agent
                 ? <Avatar login="Agent" size={22} allowGitHubFallback={false} />
                 : <Avatar login={viewerLogin ?? 'You'} size={22} allowGitHubFallback={viewerLogin !== undefined} className="pr-private-you" />}
-              menu={onDraftReply !== undefined && thread !== undefined && (
-                <button type="button" className="pr-private-draft" disabled={threads.disabledReason !== null || replyCount(thread) === 0}
-                  title="Agent drafts a GitHub reply from this thread. Nothing is posted." onClick={() => onDraftReply(thread)}>
-                  Draft with agent
+              menu={onDraftReply !== undefined && thread !== undefined && (available.development || thread.replyDraft) && (
+                <button type="button" className="pr-private-draft"
+                  disabled={!thread.replyDraft && (threads.busy || thread.pending || threads.disabledReason !== null || replyCount(thread) === 0)}
+                  title={thread.replyDraft ? 'Open the prepared draft in the reply editor. Nothing is posted.' : 'Agent drafts a GitHub reply from this thread. Nothing is posted.'} onClick={() => onDraftReply(thread)}>
+                  {thread.replyDraft ? 'Use draft' : 'Draft with agent'}
                 </button>)}>
               {summary !== null ? <CommentSummary summary={summary} /> : <MarkdownBody body={message.body} repository={repository} />}
             </LocalCardMessage>;
           })}
+          {thread?.replyDraft && <LocalCardMessage timestamp={thread.updatedAt} author="Reply draft"
+            avatar={<Avatar login="Agent" size={22} allowGitHubFallback={false} />}>
+            <MarkdownBody body={thread.replyDraft} repository={repository} />
+            <p className="pr-local-review__note">Private draft · review and edit before posting.</p>
+          </LocalCardMessage>}
+          {thread?.replyDraftError && <p className="pr-thread-reply__error" role="alert">
+            Reply draft could not be prepared: {thread.replyDraftError}. Choose Draft with agent to retry.
+          </p>}
           {failure !== null && thread !== undefined && (
             <div className="pr-private-retry" role="alert">
               <span>{failure.error ?? (isSummaryRequest(failure) ? 'The summary was interrupted.' : 'The answer was interrupted.')}</span>
-              <button type="button" disabled={threads.busy || sending || threads.disabledReason !== null}
+              {available.any && <button type="button" disabled={threads.busy || sending || threads.disabledReason !== null}
                 title={threads.busy ? threads.busyReason : undefined}
-                onClick={() => { void run(() => threads.retry(thread, failure.id)); }}>Retry</button>
+                onClick={() => { void run(() => threads.retry(thread, failure.id)); }}>Retry</button>}
             </div>
           )}
           {thread?.pending === true && (

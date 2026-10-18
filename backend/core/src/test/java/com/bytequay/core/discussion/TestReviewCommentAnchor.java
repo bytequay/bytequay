@@ -76,6 +76,7 @@ class TestReviewCommentAnchor
 
     private static TaskDiscussion discussion(DiscussionAnchor anchor, Optional<ReviewCommentAnchor> comment, Optional<String> seed)
     {
-        return new TaskDiscussion("d1", "task-1", anchor, comment, seed, "claude", Optional.empty(), Optional.empty(), ImmutableList.of(), false, NOW, NOW, 0);
+        return new TaskDiscussion("d1", "task-1", anchor, comment, seed, "claude", Optional.empty(), Optional.empty(), ImmutableList.of(), false,
+                NOW, NOW, 0, Optional.empty(), Optional.empty());
     }
 }

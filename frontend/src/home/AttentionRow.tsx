@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAgentAvailability } from '../agents/availability';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowRight, ArrowUpRight, Check, CircleX, Clock3, MessageSquare, Play, Sun } from 'lucide-react';
 import Avatar from '../Avatar';
@@ -114,6 +115,7 @@ function latestAt(item: AttentionItem, summary: AttentionSummary): string | null
 export default function AttentionRow({
   item, viewerLogin, showRepo, showState = true, circle = null, age, onOpen, onAcknowledge, onSnooze, onStart, inGoal = false, onToday = false, onToggleGoal,
 }: Props) {
+  const availability = useAgentAvailability(item.workspaceId ?? undefined);
   const hover = useHoverCard(PREVIEW_OPEN_MS, PREVIEW_CLOSE_MS);
   const status = useAttentionStatus(item.key);
   const source = attentionSource(item);
@@ -132,7 +134,7 @@ export default function AttentionRow({
   const closing = (run: () => void) => (): void => { hover.close(); run(); };
   const open = closing(onOpen);
   const acknowledge = onAcknowledge === undefined ? undefined : closing(onAcknowledge);
-  const start = onStart === undefined ? undefined : closing(onStart);
+  const start = onStart === undefined || !availability.any ? undefined : closing(onStart);
   const snooze = (button: HTMLElement): void => { hover.close(); onSnooze(button.getBoundingClientRect()); };
 
   const name = person === null ? null : <>

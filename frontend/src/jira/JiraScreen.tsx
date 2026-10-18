@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { useAgentAvailability } from '../agents/availability';
 import { workItemRoute } from '../workitems/contracts';
 import { Fragment, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Bookmark, Bug, Check, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ClipboardList, Columns3, CornerDownRight, Equal, ExternalLink, Flag, FolderGit2, List, LoaderCircle, Minus, Pencil, Play, RefreshCw, Reply, Search, UserRound, UsersRound, X, Zap } from 'lucide-react';
@@ -99,10 +100,11 @@ function useJiraTasks(issues: JiraIssue[], version: string | null): Record<strin
 
 /** Epic and Start development: icons on a card, labelled buttons on a ticket. Without a workspace, Epic asks for one first. */
 export function JiraIssueActions({ issue, busy = false, labelled = false, onEpic, onStart, onAssigned }: { issue: JiraIssue; busy?: boolean; labelled?: boolean; onEpic: () => void; onStart: () => void; onAssigned?: (detail: JiraIssueDetail) => void }) {
+  const availability = useAgentAvailability(issue.workspace?.id);
   const [assigning, setAssigning] = useState(false);
   const task = issue.task;
   const done = issue.status.category === 'done';
-  const canStart = task === null && !issue.isEpic && !issue.hasChildren && !done;
+  const canStart = availability.any && task === null && !issue.isEpic && !issue.hasChildren && !done;
   const epicLabel = `${issue.isEpic ? 'Unmark' : 'Mark'} ${issue.key} as Epic`;
   const epicHint = `${epicLabel} in ByteQuay. Its Jira issue type stays unchanged.`;
   const unmark = useUnmarkEpic();

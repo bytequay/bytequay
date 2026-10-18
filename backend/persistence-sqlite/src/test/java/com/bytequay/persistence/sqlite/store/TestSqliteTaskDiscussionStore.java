@@ -101,12 +101,19 @@ class TestSqliteTaskDiscussionStore
         assertThat(stored.seed()).isEmpty();
         assertThat(stored.comment()).contains(comment);
         assertThat(store.listByTask("task-2")).extracting(TaskDiscussion::id).containsExactly("c1");
+
+        store.update(stored.withReplyDraft(Optional.of("Thanks, I will rename it."), Optional.empty(), NOW.plusSeconds(1)));
+        TaskDiscussion drafted = store.find("c1").orElseThrow();
+        assertThat(drafted.replyDraft()).contains("Thanks, I will rename it.");
+        assertThat(drafted.replyDraftError()).isEmpty();
+        store.update(drafted.update(true, drafted.messages(), drafted.sessionReference(), NOW.plusSeconds(2)));
+        assertThat(store.find("c1").orElseThrow().replyDraft()).isEqualTo(drafted.replyDraft());
     }
 
     private static TaskDiscussion commentThread(String id, ReviewCommentAnchor comment)
     {
         return new TaskDiscussion(id, "task-2", comment.anchor(), Optional.of(comment), Optional.empty(), "claude", Optional.of("opus"), Optional.empty(),
-                ImmutableList.of(), false, NOW, NOW, 0);
+                ImmutableList.of(), false, NOW, NOW, 0, Optional.empty(), Optional.empty());
     }
 
     private static TaskDiscussion discussion(String id, String taskId, String turnId, String quoteHash)
@@ -124,6 +131,6 @@ class TestSqliteTaskDiscussionStore
                 false,
                 NOW,
                 NOW,
-                0);
+                0, Optional.empty(), Optional.empty());
     }
 }

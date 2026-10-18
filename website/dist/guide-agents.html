@@ -59,15 +59,26 @@
             <h2>Choose your model</h2>
             <p>Open <strong>Settings → Agents → Models</strong>.</p>
             <ul>
-              <li><strong>Codex or Claude Code:</strong> install the CLI, sign in,
-                then choose <strong>Check</strong>.</li>
+              <li><strong>Codex or Claude Code:</strong> use <strong>Sign in</strong>
+                to connect your account. If the CLI is missing or too old,
+                copy the displayed install or upgrade command, run it in your
+                terminal, then choose <strong>Check</strong>. ByteQuay does not
+                install or update these CLIs itself.</li>
               <li><strong>Your agent API:</strong> choose <strong>Add API key</strong>,
                 select a supported provider, such as DeepSeek, enter a label and key,
-                then <strong>Add key</strong>. DeepSeek tasks require Codex CLI.</li>
+                then <strong>Add key</strong>. DeepSeek tasks require Codex CLI,
+                but not a Codex account.</li>
               <li>Once <strong>Ready</strong>, choose your Development and Review
                 models. Use repository <strong>Model overrides</strong> for a different choice.</li>
             </ul>
-            <p>Keys are stored encrypted on your Mac. Saved OpenAI keys cannot run agent tasks yet.</p>
+            <p>Keys are stored encrypted on your Mac. Saved OpenAI keys cannot run
+              agent tasks yet. Installing a CLI or saving a key alone is not
+              enough: the CLI must meet the required version, and the selected
+              account or key must have an available model. Today and Assistant use the
+              global Development selection; an account available only to one
+              repository cannot enable them.</p>
+            <p>New agent actions stay hidden until the selected agent and model
+              are usable. Existing tasks, reviews, and notices remain available.</p>
           </section>
           <section id="claude-accounts">
             <h2>Keep Claude Code accounts separate</h2>
@@ -104,15 +115,27 @@
             <h2>Deliver changes and repair CI</h2>
             <p>Review <strong>Automation</strong> before starting:</p>
             <ul>
-              <li><strong>Auto draft PR:</strong> pushes commits and creates or updates a PR. On by default.</li>
-              <li><strong>Auto CI fix:</strong> repairs supported failures and can mark a draft ready. On by default; can write to GitHub.</li>
-              <li><strong>Auto review summary:</strong> adds private notes. Off by default.</li>
+              <li><strong>Auto draft PR:</strong> pushes commits and creates or updates a PR.</li>
+              <li><strong>Auto CI fix:</strong> repairs supported failures, reruns
+                CI, and can mark a draft ready. It can write to GitHub.
+                <strong>CI repair agent</strong> follows Development unless you
+                choose another supported agent.</li>
+              <li><strong>Auto review summary:</strong> adds private analysis and
+                a suggested plan for new review comments on the task’s PR.</li>
+              <li><strong>Auto draft review replies:</strong> analyzes new review
+                comments and prepares private replies. Choose <strong>Use draft</strong>,
+                edit the reply, then <strong>Comment</strong> to publish it.
+                Generated replies are never posted automatically.</li>
               <li><strong>Keep commits local for this turn:</strong> skips publication and CI follow-up.</li>
             </ul>
-            <p>Completed development work is committed automatically. Change defaults
-              in <strong>Settings → Agents → Workflow</strong>. Use
-              <strong>Stop automation and continue…</strong> to resume development.
-              You review and merge the PR.</p>
+            <p>These automation options start off on a fresh installation;
+              existing choices are preserved. Completed development work is
+              committed automatically. Change defaults for new tasks during
+              setup or in <strong>Settings → Agents → Workflow</strong>, and
+              review each task’s choices before sending. Automatic analysis
+              and repairs use your model allowance. Use
+              <strong>Stop automation and continue…</strong> to resume
+              development. You review and merge the PR.</p>
           </section>
           <section id="commits-and-backports">
             <h2>Cherry-pick and backport</h2>

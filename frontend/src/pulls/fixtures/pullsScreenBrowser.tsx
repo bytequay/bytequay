@@ -1473,7 +1473,7 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history
     createdAt: '2026-10-02T00:00:00Z' });
   const asked: { taskId: string; reviewId: string | null; key: string; question: string }[] = [];
   const pending = (taskId: string, key: string): TaskDiscussionDto => ({ id: 'thread-1', taskId, turnId: 'review-comment', quote: key, occurrence: 1,
-    resolved: false, pending: true, providerLane: 'codex', version: 1, createdAt: at, updatedAt: at, comment: { repo: 'owner/repo', number: 8, key },
+    resolved: false, pending: true, providerLane: 'codex', version: 1, createdAt: at, updatedAt: at, comment: { repo: 'owner/repo', number: 8, key }, replyDraft: null, replyDraftError: null,
     messages: [{ id: 'hidden', author: 'USER', body: SUMMARY_REQUEST, createdAt: at, error: null }] });
   const history: TaskDiscussionDto[] = retained ? [{ ...pending(review.task.id, 'issue_comment:81'), pending: false,
     messages: [
@@ -1532,7 +1532,7 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history
     flushSync(() => root.render(taskPanel
       ? <TaskPullRequestView pr={remotePullRequest(detail, 'alice')} workspaceId="workspace-1" detail={detail}
         loading={false} error={null} onRefresh={async () => {}} onDetailUpdate={() => {}} onDetailChange={() => {}}
-        privateThreads={{ threads: new Map(), busy: false, busyReason: '', disabledReason: null,
+        privateThreads={{ workspaceId: task.workspaceId, threads: new Map(), busy: false, busyReason: '', disabledReason: null,
           ask: async (key, question) => { asked.push({ taskId: task.id, reviewId: null, key, question }); },
           resolve: async () => {}, retry: async () => {}, draftReply: async () => '' }} />
       : <PullsScreen initialPr={{ repo: 'owner/repo', number: 8 }}
@@ -1657,7 +1657,7 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
       const at = '2026-10-01T00:00:00Z';
       const thread: TaskDiscussionDto = { id: 'prepared-thread', taskId: review.task.id, turnId: 'review-comment', quote: key,
         occurrence: 1, resolved: false, pending: false, providerLane: 'codex', version: asked.length, createdAt: at, updatedAt: at,
-        comment: { repo, number, key }, messages: [...(saved[0]?.messages ?? []),
+        comment: { repo, number, key }, replyDraft: null, replyDraftError: null, messages: [...(saved[0]?.messages ?? []),
           { id: `q${asked.length}`, author: 'USER', body: question, createdAt: at, error: null },
           { id: `a${asked.length}`, author: 'AGENT', body: 'The exception is handled by the caller.', createdAt: at, error: null }] };
       saved.splice(0, saved.length, thread);

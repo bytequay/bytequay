@@ -60,10 +60,11 @@ public class AppSettingsService
     {
         return store.get(DEVELOPMENT_AUTOMATION_KEY).map(value -> {
             try {
-                // Settings saved before the review summary option existed read as off; every other field stays required.
+                // Newly added private follow-up options read as off; saved publication choices stay required.
                 JsonNode saved = mapper.readTree(value);
                 if (saved instanceof ObjectNode object) {
                     object.putIfAbsent("reviewSummary", BooleanNode.FALSE);
+                    object.putIfAbsent("reviewReply", BooleanNode.FALSE);
                 }
                 return requireNonNull(mapper.readerFor(DevelopmentAutomation.class)
                         .with(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES)
@@ -74,6 +75,16 @@ public class AppSettingsService
                 throw new IllegalStateException("Saved development automation could not be read", failure);
             }
         }).orElse(DevelopmentAutomation.DEFAULT).forDevelopment();
+    }
+
+    /** Capture the previous fallback once so existing installations retain their accepted choices. */
+    public void initializeAutomation(boolean existingInstall)
+    {
+        if (store.get(DEVELOPMENT_AUTOMATION_KEY).isEmpty()) {
+            saveDevelopmentAutomation(existingInstall
+                    ? new DevelopmentAutomation(true, true, true, Optional.empty())
+                    : DevelopmentAutomation.DEFAULT);
+        }
     }
 
     public DevelopmentAutomation saveDevelopmentAutomation(DevelopmentAutomation automation)

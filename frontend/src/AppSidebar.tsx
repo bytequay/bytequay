@@ -137,7 +137,7 @@ export default function AppSidebar({
   /** Present only while settings is open, when the sidebar becomes its category nav. */
   settings?: SettingsNav;
   /** The Assistant panel's toggle; `waiting` counts the notices that need the user. */
-  assistant?: { open: boolean; waiting: number; onToggle: () => void };
+  assistant?: { open: boolean; waiting: number; label?: string; onToggle: () => void };
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
@@ -331,11 +331,11 @@ export default function AppSidebar({
       <nav className="app-sidebar__nav" aria-label="Global navigation">
         {assistant !== undefined && row({
           key: 'assistant',
-          label: 'Assistant',
+          label: assistant.label ?? 'Assistant',
           icon: <MessageCircle size={16} strokeWidth={1.7} aria-hidden="true" />,
           active: false,
           pressed: assistant.open,
-          title: 'Assistant (⌘J)',
+          title: `${assistant.label ?? 'Assistant'} (⌘J)`,
           hint: '⌘J',
           badge: assistant.waiting > 0 ? { count: assistant.waiting, label: `${assistant.waiting} need you` } : undefined,
           onClick: assistant.onToggle,

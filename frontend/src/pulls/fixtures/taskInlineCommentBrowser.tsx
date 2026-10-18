@@ -49,7 +49,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
   assert(original !== undefined && original.turnId !== null, 'Fixture must retain one completed turn');
   const event: AgentEventEnvelope = { ...original, payload: { ...original.payload, attachments: [] } };
   const history: AgentEventEnvelope[] = [event];
-  const savedAutomation = { autoDraftPr: false, autoCiFix: false, ciLaneId: 'codex', reviewSummary: false };
+  const savedAutomation = { autoDraftPr: false, autoCiFix: false, ciLaneId: 'codex', reviewSummary: false, reviewReply: false };
   let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, mutationClaim: null,
     defaults: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO', developmentAutomation: savedAutomation } };
   const fixtureTurn = await bridge.getAgentTurn(original.turnId);

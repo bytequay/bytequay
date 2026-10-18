@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { useAgentAvailability } from '../agents/availability';
 import React, { useCallback, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpRight, Check, ChevronRight, Circle, CircleCheck, CircleDotDashed, CircleSlash, ListTree, LoaderCircle, LockKeyhole, Play, Plus,
   RotateCcw, Search, Sparkles, SquareTerminal, X } from 'lucide-react';
@@ -102,6 +103,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
   /** Shows the Epic's issue or ticket, in the tab beside this one. */
   onShowSource: () => void;
 }): React.JSX.Element {
+  const availability = useAgentAvailability(workspaceId);
   const epicId = epicIdentity(epic);
   const local = 'acceptanceCriteria' in epic ? epic : null;
   const source = 'acceptanceCriteria' in epic ? null : epic;
@@ -273,7 +275,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
         <button type="button" className={`epic-view__tool${adding ? ' is-active' : ''}`} aria-expanded={adding} onClick={() => setAdding((value) => !value)}>
           <Search size={13} aria-hidden="true" />Add existing
         </button>
-        {record !== null && (
+        {record !== null && availability.development && (
           <button type="button" className="epic-view__tool is-suggest" disabled={busy || record.breakingDown} onClick={() => { setPicked([]); void run(children.propose); }}>
             <Sparkles size={13} aria-hidden="true" />{record.breakingDown ? 'Suggesting…' : 'Suggest work'}
           </button>
@@ -317,7 +319,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
       <div className="item-list" role="list" aria-label="Work">
         {listed.map((item) => (
           <div role="listitem" key={item.id}>
-            <WorkRow item={item} items={items} upstream={upstreamOf(item, record)} needsYou={needsYou} workspaceId={workspaceId} busy={busy} onRun={starter(item)}
+            <WorkRow item={item} items={items} upstream={upstreamOf(item, record)} needsYou={needsYou} workspaceId={workspaceId} busy={busy} onRun={availability.development ? starter(item) : null}
               // Work keeps its place in the whole Epic, so it moves only while all of it is listed.
               first={filter !== 'ALL' || item === shown[0]}
               last={filter !== 'ALL' || item === shown[shown.length - 1]} onOpenTask={onOpenTask} onDecide={(decision) => decide(item, decision)}

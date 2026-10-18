@@ -289,7 +289,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     flushSync(() => createRoot(marked).render(
       <DiscussableAnswer turnId="turn-10" text={ANSWER} onOpen={id => opened.push(id)} discussions={[{
         id: 'd1', taskId: 't1', turnId: 'turn-10', quote: 'descendant whose name matches the leaf', occurrence: 1,
-        resolved: false, pending: false, providerLane: 'claude', version: 0, comment: null,
+        resolved: false, pending: false, providerLane: 'claude', version: 0, comment: null, replyDraft: null, replyDraftError: null,
         createdAt: '2026-09-22T00:00:00Z', updatedAt: '2026-09-22T00:00:00Z', messages: [],
       }]} />));
     await settle();
@@ -319,7 +319,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     flushSync(() => createRoot(scroller.querySelector('.agt-answer') as HTMLElement).render(
       <DiscussableAnswer turnId="turn-10" text={ANSWER} discussions={[{
         id: 'd2', taskId: 't1', turnId: 'turn-10', quote: 'descendant whose name matches the leaf', occurrence: 1,
-        resolved: false, pending: false, providerLane: 'claude', version: 0, comment: null,
+        resolved: false, pending: false, providerLane: 'claude', version: 0, comment: null, replyDraft: null, replyDraftError: null,
         createdAt: '2026-09-22T00:00:00Z', updatedAt: '2026-09-22T00:00:00Z', messages: [],
       }]} />));
     await settle();

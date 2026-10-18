@@ -28,10 +28,8 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.agent.AgentProperties;
-import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.service.settings.AgentModelSetting;
-import com.bytequay.app.service.settings.AgentModelType;
-import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.service.settings.SetupSettingsService;
 import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantDay;
@@ -107,7 +105,7 @@ public class AssistantService
     private final AssistantStore store;
     private final AssistantReader reader;
     private final AssistantActions actions;
-    private final ModelSettingsService models;
+    private final SetupSettingsService setup;
     private final AgentDriverRegistry drivers;
     private final AgentResourceService resources;
     private final ObjectMapper mapper;
@@ -117,13 +115,13 @@ public class AssistantService
     // ponytail: one reply at a time, held in memory; a restart drops it, so no running row is ever left behind.
     private final AtomicReference<Run> running = new AtomicReference<>();
 
-    AssistantService(AssistantStore store, AssistantReader reader, AssistantActions actions, ModelSettingsService models, AgentDriverRegistry drivers,
+    AssistantService(AssistantStore store, AssistantReader reader, AssistantActions actions, SetupSettingsService setup, AgentDriverRegistry drivers,
             AgentResourceService resources, AgentProperties properties, ObjectMapper mapper, Clock clock, @Qualifier(IO_EXECUTOR) ExecutorService executor)
     {
         this.store = requireNonNull(store, "store is null");
         this.reader = requireNonNull(reader, "reader is null");
         this.actions = requireNonNull(actions, "actions is null");
-        this.models = requireNonNull(models, "models is null");
+        this.setup = requireNonNull(setup, "setup is null");
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.resources = requireNonNull(resources, "resources is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -213,6 +211,9 @@ public class AssistantService
     /** Takes the one reply slot, picks the message, and answers it on a virtual thread that gives the slot back when it ends. */
     private String start(Supplier<AssistantItem> pick)
     {
+        if (!setup.preferences().assistantEnabled()) {
+            throw new AgentConflictException("Enable Assistant in Settings before starting a conversation");
+        }
         Run run = new Run();
         if (!running.compareAndSet(null, run)) {
             throw new AgentConflictException("The assistant is still answering");
@@ -243,7 +244,7 @@ public class AssistantService
         LocalDate day = message.day();
         AgentModelSetting model;
         try {
-            model = readyModel();
+            model = setup.requireUsableDevelopmentAgent();
         }
         catch (RuntimeException notReady) {
             append(AssistantItem.failure(day, clock.instant(), reason(notReady), true));
@@ -272,16 +273,6 @@ public class AssistantService
         if (stored.isEmpty()) {
             retain(day);
         }
-    }
-
-    /** The global Development default, once its agent is shown ready for a session outside any repository. */
-    private AgentModelSetting readyModel()
-    {
-        AgentModelSetting model = models.agentModel(AgentModelType.DEVELOPMENT, Optional.empty());
-        AgentLaneId lane = new AgentLaneId(model.configId());
-        drivers.checkWorkspaceAccess(lane, Optional.empty());
-        WorkflowAgentTasks.requireReady(drivers, lane, AgentPermissionPolicy.AUTO, Optional.of(model.model()));
-        return model;
     }
 
     /**

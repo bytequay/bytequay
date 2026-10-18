@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
+import { OPEN_SETUP } from '../onboarding/setup';
 import { readBrowserDisplayMode, saveBrowserDisplayMode, type BrowserDisplayMode } from '../browserPreferences';
 import type { AppPreferencesDto, AppThemeDto, QuietHoursDto } from '../types';
 import AgendaScheduleCard from './AgendaScheduleCard';
@@ -55,6 +56,11 @@ export function GeneralPage({ preferences, quietHours, quietHoursBusy, version, 
     <div className="setw-page">
       <h1>General</h1>
       {error !== null && <div className="setw-error" role="alert">{error}</div>}
+      <SettingsCard>
+        <SettingsRow title="Setup guide" subtitle="Revisit appearance, agents, automation, and feature previews.">
+          <button type="button" className="setw-btn" onClick={() => window.dispatchEvent(new Event(OPEN_SETUP))}>Open setup</button>
+        </SettingsRow>
+      </SettingsCard>
 
       <div className="setw-section"><span className="setw-section-title">Background refresh</span></div>
       <SettingsCard>

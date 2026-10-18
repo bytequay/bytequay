@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { AgentSetupNotice, useAgentAvailability } from '../../agents/availability';
 import { CircleAlert, File, GitCommitHorizontal, PanelsTopLeft } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -126,6 +127,7 @@ export default function AgentReviewTab({
   localReview?: LocalReviewThreads;
   onSelectCommit?: (sha: string, snapshot?: { headSha: string; baseSha: string }) => void;
 }) {
+  const availability = useAgentAvailability(workspaceId);
   useNoticeSource(mode === 'conversation' ? review?.task.id ?? null : null);
   const [starting, setStarting] = useState(false);
   const [watchRepositoryId, setWatchRepositoryId] = useState<number | null>(null);
@@ -442,7 +444,7 @@ export default function AgentReviewTab({
   }, [focusFindingId]);
 
   const start = () => {
-    if (workspaceId === undefined || detail === null) return;
+    if (workspaceId === undefined || detail === null || !availability.review) return;
     setStarting(true);
     setError(null);
     void window.bridge.startAgentReview(workspaceId, detail.repo, detail.number)
@@ -506,6 +508,7 @@ export default function AgentReviewTab({
   }
 
   if (review === null && detail === null) return null;
+  if (review === null && !availability.review) return <><LocalComments localReview={localReview} /><AgentSetupNotice workspaceId={workspaceId} /></>;
   if (review === null && detail !== null) {
     const commits = detail.recentActivity.filter(activity => activity.eventType === 'committed').length;
     return (

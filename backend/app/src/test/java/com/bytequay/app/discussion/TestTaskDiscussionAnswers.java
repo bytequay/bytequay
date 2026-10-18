@@ -22,6 +22,7 @@ import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
@@ -444,7 +445,7 @@ class TestTaskDiscussionAnswers
         answered(turn, "It throws INVALID_TABLE_PROPERTY.");
         IntStream.range(0, TaskDiscussionService.MAXIMUM_DISCUSSIONS_PER_TASK).forEach(index -> store(new TaskDiscussion("p" + index, TASK.toString(),
                 new DiscussionAnchor("turn-" + index, "quote", 1, DiscussionQuotes.hash("quote", index + 1)), Optional.empty(), Optional.of(SEED),
-                "claude", Optional.empty(), Optional.empty(), ImmutableList.of(), false, NOW, NOW, 0)));
+                "claude", Optional.empty(), Optional.empty(), ImmutableList.of(), false, NOW, NOW, 0, Optional.empty(), Optional.empty())));
         driver.answers.add(VERDICT);
 
         assertThat(service.askComment(askComment(KEY, "")).comment()).isPresent();
@@ -460,6 +461,77 @@ class TestTaskDiscussionAnswers
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("most private threads");
         assertThat(service.open(new OpenDiscussionCommand("w1", TASK.toString(), turn.toString(), "INVALID_TABLE_PROPERTY", 1, "why?")).comment()).isEmpty();
+    }
+
+    @Test
+    void automaticallyPreparesAPrivateDraftOnceWithoutTheSummaryOnlyOption()
+    {
+        AgentTask task = task();
+        when(tasks.getInteractive("w1", TASK)).thenReturn(task.withDefaults(task.defaults()
+                .withDevelopmentAutomation(new DevelopmentAutomation(true, false, false, Optional.empty(), false, true)), NOW));
+        answered(TurnId.random(), "Done.");
+        driver.answers.add(VERDICT);
+        when(writer.draftReply(anyString(), eq(REPO), eq(Optional.of("w1")), eq(ReplyVoice.AUTHOR))).thenReturn("Thanks, I will rename it.");
+        List<ReviewCommentAnchor> comments = ImmutableList.of(anchor(KEY, "{\"body\":\"Rename it.\"}"));
+
+        service.summarize("w1", TASK.toString(), comments);
+
+        TaskDiscussion stored = rows.get(idOf(KEY));
+        assertThat(stored.replyDraft()).contains("Thanks, I will rename it.");
+        assertThat(stored.replyDraftError()).isEmpty();
+        assertThat(service.list("w1", TASK.toString())).singleElement().satisfies(view -> {
+            assertThat(view.replyDraft()).isEqualTo(stored.replyDraft());
+            assertThat(view.pending()).isFalse();
+        });
+        service.summarize("w1", TASK.toString(), comments);
+        verify(writer).draftReply(anyString(), eq(REPO), eq(Optional.of("w1")), eq(ReplyVoice.AUTHOR));
+        assertThat(prompts).hasSize(1);
+    }
+
+    @Test
+    void refusesManualDraftingWhileTheAutomaticDraftHoldsTheDiscussionSlot()
+    {
+        AgentTask task = task();
+        when(tasks.getInteractive("w1", TASK)).thenReturn(task.withDefaults(task.defaults()
+                .withDevelopmentAutomation(new DevelopmentAutomation(true, false, false, Optional.empty(), false, true)), NOW));
+        answered(TurnId.random(), "Done.");
+        driver.answers.add(VERDICT);
+        when(writer.draftReply(anyString(), eq(REPO), eq(Optional.of("w1")), eq(ReplyVoice.AUTHOR))).thenAnswer(call -> {
+            assertThat(service.list("w1", TASK.toString())).singleElement().satisfies(view -> assertThat(view.pending()).isTrue());
+            assertThatThrownBy(() -> service.draftReply("w1", TASK.toString(), idOf(KEY)))
+                    .isInstanceOf(AgentConflictException.class).hasMessage("This task is already answering a question");
+            return "Thanks, I will rename it.";
+        });
+
+        service.summarize("w1", TASK.toString(), ImmutableList.of(anchor(KEY, "{\"body\":\"Rename it.\"}")));
+
+        verify(writer).draftReply(anyString(), eq(REPO), eq(Optional.of("w1")), eq(ReplyVoice.AUTHOR));
+        assertThat(rows.get(idOf(KEY)).replyDraft()).contains("Thanks, I will rename it.");
+        assertThat(service.isAnswering(TASK)).isFalse();
+    }
+
+    @Test
+    void retainsTheAnalysisAndShowsADraftFailureForManualRetry()
+    {
+        AgentTask task = task();
+        when(tasks.getInteractive("w1", TASK)).thenReturn(task.withDefaults(task.defaults()
+                .withDevelopmentAutomation(new DevelopmentAutomation(true, false, false, Optional.empty(), false, true)), NOW));
+        answered(TurnId.random(), "Done.");
+        driver.answers.add(VERDICT);
+        when(writer.draftReply(anyString(), eq(REPO), eq(Optional.of("w1")), eq(ReplyVoice.AUTHOR)))
+                .thenThrow(new AgentUnavailableException("Account unavailable"));
+
+        service.summarize("w1", TASK.toString(), ImmutableList.of(anchor(KEY, "{\"body\":\"Rename it.\"}")));
+
+        TaskDiscussion stored = rows.get(idOf(KEY));
+        assertThat(stored.messages()).extracting(DiscussionMessage::body).containsExactly(DiscussionPrompt.SUMMARY_REQUEST, NORMALIZED);
+        assertThat(stored.replyDraft()).isEmpty();
+        assertThat(stored.replyDraftError()).contains("Account unavailable");
+        assertThat(service.list("w1", TASK.toString())).noneMatch(TaskDiscussionView::pending);
+
+        when(writer.draftReply(anyString(), eq(REPO), eq(Optional.of("w1")), eq(ReplyVoice.AUTHOR))).thenReturn("I will rename it.");
+        assertThat(service.draftReply("w1", TASK.toString(), stored.id())).isEqualTo("I will rename it.");
+        assertThat(rows.get(stored.id()).replyDraftError()).isEmpty();
     }
 
     @Test
@@ -1067,7 +1139,7 @@ class TestTaskDiscussionAnswers
     private static TaskDiscussion commentThread(String id, ReviewCommentAnchor comment, List<DiscussionMessage> messages)
     {
         return new TaskDiscussion(id, TASK.toString(), comment.anchor(), Optional.of(comment), Optional.empty(), "claude", Optional.empty(), Optional.empty(),
-                messages, false, NOW, NOW, 0);
+                messages, false, NOW, NOW, 0, Optional.empty(), Optional.empty());
     }
 
     private static StoredPrDetail detail()
@@ -1085,7 +1157,7 @@ class TestTaskDiscussionAnswers
     {
         return new TaskDiscussion("d1", TASK.toString(),
                 new DiscussionAnchor("turn-10", "INVALID_TABLE_PROPERTY", 1, DiscussionQuotes.hash("INVALID_TABLE_PROPERTY", 1)),
-                Optional.empty(), Optional.of(SEED), "claude", Optional.empty(), session, messages, false, NOW, NOW, 0);
+                Optional.empty(), Optional.of(SEED), "claude", Optional.empty(), session, messages, false, NOW, NOW, 0, Optional.empty(), Optional.empty());
     }
 
     private static TaskWorktree worktree()

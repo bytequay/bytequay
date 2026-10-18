@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAgentAvailability } from '../agents/availability';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, GitBranch, GitFork, ListChecks, RefreshCw, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '../css/commits.css';
@@ -134,6 +135,7 @@ export default function CommitsTab(props: CommitsTabProps) {
 
 export function CommitsBrowser({ workspace, settings, initialRepo, initialSourceSelection, onSourceSelectionChange, onOpenPullRequest, onOpenSettings }:
   CommitsTabProps & { settings: Pick<WorkspaceSettingsDto, 'commitsTarget' | 'remotes'> }) {
+  const availability = useAgentAvailability(workspace.id);
   const hasUpstream = workspace.upstreamRepositoryId !== null;
   const target = settings.commitsTarget;
   const targetUpstream = target.remote === 'upstream';
@@ -545,7 +547,7 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
                 <X size={12} strokeWidth={2} aria-hidden="true" />
                 Clear
               </button>
-              <button
+              {availability.any && <button
                 type="button"
                 className="cmt-strip-btn is-cherry"
                 disabled={previewBusy}
@@ -553,7 +555,7 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
               >
                 {previewBusy ? 'Preparing preview…' : 'Cherry-pick'}
                 <ArrowRight size={12} strokeWidth={2} aria-hidden="true" />
-              </button>
+              </button>}
             </>
           )}
         </div>

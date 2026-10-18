@@ -621,7 +621,7 @@ class TestSqliteAgentStores
     void retainsAutomationSnapshotsAndReadinessIndependentlyOfFutureDefaults()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        DevelopmentAutomation selected = new DevelopmentAutomation(false, true, true, Optional.of(AgentLaneId.CLAUDE_CLI), true);
+        DevelopmentAutomation selected = new DevelopmentAutomation(false, true, true, Optional.of(AgentLaneId.CLAUDE_CLI), true, false);
         AgentTask original = newTask(now);
         AgentTask task = original.withDefaults(original.defaults().withDevelopmentAutomation(selected), now);
         taskStore.insert(task);

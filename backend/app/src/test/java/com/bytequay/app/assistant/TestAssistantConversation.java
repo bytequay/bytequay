@@ -33,9 +33,13 @@ import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.agenda.AgendaFixtures;
 import com.bytequay.app.agent.AgentProperties;
+import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.service.settings.SetupPreferences;
+import com.bytequay.app.service.settings.SetupSettingsService;
 import com.bytequay.app.web.AssistantController;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.core.discussion.DiscussionSession;
@@ -43,6 +47,7 @@ import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantDay;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantReceipt;
+import com.bytequay.core.store.CredentialStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
@@ -123,6 +128,7 @@ class TestAssistantConversation
     private final AtomicBoolean threadLost = new AtomicBoolean();
     private Path runtime;
     private AssistantService assistant;
+    private SetupSettingsService setup;
 
     @BeforeEach
     void setUp()
@@ -178,7 +184,10 @@ class TestAssistantConversation
                 return now.get();
             }
         };
-        assistant = new AssistantService(store, reader, actions, models, drivers, resources,
+        CredentialStore credentials = mock(CredentialStore.class);
+        when(credentials.exists()).thenReturn(true);
+        setup = new SetupSettingsService(new InMemoryAppSettingsStore(), credentials, mock(AppSettingsService.class), models, drivers, AgendaFixtures.mapper());
+        assistant = new AssistantService(store, reader, actions, setup, drivers, resources,
                 new AgentProperties(runtime, Duration.ZERO, "", "codex", "0.159.3", temporaryDirectory.resolve("codex-home"), "claude", temporaryDirectory.resolve("claude-home")),
                 AgendaFixtures.mapper(), clock, executor);
     }
@@ -188,6 +197,27 @@ class TestAssistantConversation
     {
         executor.shutdownNow();
         executor.close();
+    }
+
+    @Test
+    void disabledAssistantKeepsHistoryAndReceiptsButAdmitsNoNewMessages()
+    {
+        store.add(AssistantItem.user(DAY, now.get(), "earlier question", ImmutableList.of(), Optional.empty(), "earlier"));
+        store.add(AssistantItem.failure(DAY, now.get(), "The provider signed out", true));
+        setup.save(new SetupPreferences(SetupPreferences.Step.COMPLETE, false));
+
+        assertThatThrownBy(() -> assistant.send("what's next?", ImmutableList.of(), Optional.empty(), "new"))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Enable Assistant");
+        assertThatThrownBy(assistant::retry).isInstanceOf(AgentConflictException.class).hasMessageContaining("Enable Assistant");
+        assertThat(assistant.today().items()).hasSize(2);
+        assertThat(assistant.today().running()).isFalse();
+        assertThat(opened).isEmpty();
+
+        ApprovalId approval = ApprovalId.random();
+        when(actions.buttonReceipt(approval, DAY)).thenReturn(AssistantItem.receipt(DAY, now.get(), "Denied",
+                AssistantReceipt.done(AssistantReceipt.Operation.ANSWER_APPROVAL, Optional.of(TASK))));
+        assistant.answered(approval.toString());
+        assertThat(assistant.today().items()).extracting(AssistantItem::kind).containsExactly(USER, FAILURE, RECEIPT);
     }
 
     @Test

@@ -16,7 +16,6 @@ package com.bytequay.app.discussion;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
-import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
@@ -138,7 +137,7 @@ public class PullRequestTaskWatcher
 
     private void summarize(AgentTask task)
     {
-        if (task.defaults().developmentAutomation().filter(DevelopmentAutomation::reviewSummary).isEmpty()) {
+        if (task.defaults().developmentAutomation().filter(automation -> automation.reviewSummary() || automation.reviewReply()).isEmpty()) {
             return;
         }
         // Only the pull request the tab shows, so every summary lands where the user can see it.
@@ -157,6 +156,7 @@ public class PullRequestTaskWatcher
         int characters = 0;
         for (ReviewCommentItem item : comments.read(pr.repo(), pr.number())) {
             if (!SUMMARIZED_KINDS.contains(item.anchor().kind())
+                    || (!task.defaults().developmentAutomation().orElseThrow().reviewSummary() && !item.anchor().kind().equals("review_comment"))
                     || item.bot()
                     || item.author().equalsIgnoreCase(pr.author())
                     || item.createdAt().filter(at -> !at.isBefore(task.createdAt())).isEmpty()

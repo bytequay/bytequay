@@ -51,6 +51,19 @@ class TestAppSettingsService
         verifyNoInteractions(drivers);
     }
 
+    @Test
+    void setupKeepsExistingChoicesAndStartsFreshInstallsWithOptionalAutomationOff()
+    {
+        settings.initializeAutomation(false);
+        assertThat(settings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, false, false, Optional.empty(), false, false));
+        settings.initializeAutomation(true);
+        assertThat(settings.developmentAutomation().autoDraftPr()).isFalse();
+
+        store.delete("agent.developmentAutomation");
+        settings.initializeAutomation(true);
+        assertThat(settings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, true, true, Optional.empty(), false, false));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"claude", "codex"})
     void automationRoundTripsIndependentChoicesAndExplicitCiRepairAgent(String laneId)
@@ -59,7 +72,7 @@ class TestAppSettingsService
         AgentDriver driver = mock(AgentDriver.class);
         when(drivers.require(lane)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(new AgentCapabilities(false, false, false, ImmutableSet.of(AgentPermissionPolicy.CI_AUTOFIX), ImmutableSet.of()));
-        DevelopmentAutomation chosen = new DevelopmentAutomation(false, true, true, Optional.of(lane), true);
+        DevelopmentAutomation chosen = new DevelopmentAutomation(false, true, true, Optional.of(lane), true, false);
 
         settings.saveDevelopmentAutomation(chosen);
 
@@ -90,7 +103,7 @@ class TestAppSettingsService
         store.put("agent.developmentAutomation", "{\"autoCommit\":true}");
         assertThatThrownBy(settings::developmentAutomation).isInstanceOf(IllegalStateException.class);
         store.put("agent.developmentAutomation", "{\"autoCommit\":true,\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":null}");
-        assertThat(settings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, true, true, Optional.empty(), false));
+        assertThat(settings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, true, true, Optional.empty(), false, false));
     }
 
     @Test

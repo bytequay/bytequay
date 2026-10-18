@@ -72,6 +72,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const posted: Parameters<Bridge['replyToReviewComment']>[] = [];
   const stored = new Map<string, TaskDiscussionDto>();
   let finishDraft: (text: string) => void = () => {};
+  let draftCalls = 0;
   const unused = async (): Promise<never> => { throw new Error('This fixture only asks about comments'); };
   const bridge: DiscussionBridgePort = {
     listTaskDiscussions: async () => [...stored.values()],
@@ -83,12 +84,12 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       asked.push(request);
       const thread: TaskDiscussionDto = { id: 'thread-1', taskId: request.taskId, turnId: 'review-comment', quote: request.key, occurrence: 1,
         resolved: false, pending: true, providerLane: 'codex', version: 1, createdAt: AT, updatedAt: AT,
-        comment: { repo: request.repo, number: request.number, key: request.key },
+        comment: { repo: request.repo, number: request.number, key: request.key }, replyDraft: null, replyDraftError: null,
         messages: [{ id: 'hidden', author: 'USER', body: request.question === '' ? SUMMARY_REQUEST : request.question, createdAt: AT, error: null }] };
       stored.set(thread.id, thread);
       return thread;
     },
-    draftTaskDiscussionReply: () => new Promise<string>(resolve => { finishDraft = resolve; }),
+    draftTaskDiscussionReply: () => { draftCalls++; return new Promise<string>(resolve => { finishDraft = resolve; }); },
   };
   const originalBridge = window.bridge;
   const pageBridge: Pick<Bridge, 'getUserProfile' | 'replyToReviewComment' | 'listAgentReviews'> = {
@@ -236,6 +237,27 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       button(host, 'Back to comment').click();
       await settle();
       button(host, 'Discard').click();
+      await settle();
+    });
+
+    await step('Use draft loads the saved automatic reply without another model call or publication', async () => {
+      const thread = stored.get('thread-1');
+      assert(thread !== undefined, 'The private thread must exist');
+      const calls = draftCalls;
+      stored.set(thread.id, { ...thread, replyDraft: 'I will rename the helper.', version: thread.version + 1 });
+      await refresh();
+      await settle();
+      chip()?.click();
+      await settle();
+      assert(host.textContent?.includes('Private draft · review and edit before posting.') === true, 'The automatic draft must remain private');
+      button(host, 'Use draft').click();
+      await settle();
+      const editor = host.querySelector<HTMLTextAreaElement>('[aria-label="Reply to review thread"]');
+      assert(editor?.value === '@bob I will rename the helper.', 'The saved draft must fill the editable reply composer');
+      assert(draftCalls === calls && posted.length === 0, 'Using a saved draft must neither regenerate nor publish it');
+      button(host, 'Discard').click();
+      stored.set(thread.id, thread);
+      await refresh();
       await settle();
     });
 

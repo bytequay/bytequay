@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { relativeTime } from '../relativeTime';
@@ -66,6 +67,7 @@ export default function FlowView({
   /** Leaves the confirm page without starting anything. */
   onCancel: () => void;
 }) {
+  const availability = useAgentAvailability(workspaceId);
   const [filter, setFilter] = useState('');
   const [unchecked, setUnchecked] = useState<ReadonlySet<string>>(new Set());
   const [skippedPrs, setSkippedPrs] = useState<ReadonlySet<number>>(new Set());
@@ -210,12 +212,12 @@ export default function FlowView({
   const selectedProvider = providers.find(provider => provider.id === laneId);
   const models = laneModels(providers, laneId);
   const efforts = models.find(option => option.id === model)?.efforts ?? [];
-  const canStart = applyItems.length > 0
+  const canStart = availability.any && applyItems.length > 0
     && selectedProvider !== undefined
     && providerAvailable(selectedProvider.readiness)
     && !busy;
 
-  const startButton = (
+  const startButton = availability.any ? (
     <button
       type="button"
       className="cmt-btn-green"
@@ -224,7 +226,7 @@ export default function FlowView({
     >
       {busy ? 'Starting…' : `Start cherry-pick (${applyItems.length})`}
     </button>
-  );
+  ) : <AgentSetupNotice workspaceId={workspaceId} />;
 
   return (
     <div className="cmt-flow">

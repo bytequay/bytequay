@@ -407,7 +407,7 @@ it('routes review passage and comment discussions through their owning review', 
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
   const discussion: TaskDiscussionDto = { id: 'discussion/one', taskId: 'task-1', turnId: 'turn-1', quote: 'releases the writer', occurrence: 1,
-    resolved: false, pending: false, providerLane: 'codex', messages: [], version: 1, comment: null,
+    resolved: false, pending: false, providerLane: 'codex', messages: [], version: 1, comment: null, replyDraft: null, replyDraftError: null,
     createdAt: '2026-09-06T16:00:00Z', updatedAt: '2026-09-06T16:00:00Z' };
   const open = { turnId: 'turn-1', quote: discussion.quote, occurrence: 1, question: 'How?' };
   const cases: { channel: string; args: unknown[]; path: string; method: string; body: unknown; response: unknown; expected: unknown }[] = [

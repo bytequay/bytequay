@@ -40,6 +40,9 @@ import {
   type NavigationMode,
 } from './navigationHistory';
 import OnboardingScreen from './OnboardingScreen';
+import SetupFlow from './onboarding/SetupFlow';
+import { OPEN_SETUP, SETUP_CHANGED } from './onboarding/setup';
+import { AgentAvailabilityProvider, useAgentAvailability } from './agents/availability';
 import PullsScreen from './pulls/PullsScreen';
 import RecentPage from './recent/RecentPage';
 import RecentPalette, { scrollToWrittenText } from './recent/RecentPalette';
@@ -53,7 +56,7 @@ import {
   settingsRoute,
   type SettingsSection,
 } from './settings/routes';
-import type { InAppBrowserState, RecentRowDto, RecentWordHitDto, WorkspaceDto } from './types';
+import type { InAppBrowserState, RecentRowDto, RecentWordHitDto, SetupPreferencesDto, WorkspaceDto } from './types';
 import WorkspaceIssuesScreen from './workspaces/WorkspaceIssuesScreen';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
@@ -71,7 +74,7 @@ import {
   type WorkspaceTab,
 } from './workspaces/model';
 
-type Status = 'checking' | 'needs-pat' | 'ready';
+type Status = 'checking' | 'needs-pat' | 'needs-setup' | 'ready';
 
 function layerKey(layer: ZoomedReference): string {
   if (layer.kind === 'work') return `work:${layer.workspaceId}:${layer.itemId}`;
@@ -89,7 +92,16 @@ function pageFromRoute(hash: string): AppPage {
 }
 
 export default function App() {
+  return <AgentAvailabilityProvider><AppContent /></AgentAvailabilityProvider>;
+}
+
+function AppContent() {
   const [status, setStatus] = useState<Status>('checking');
+  const [setup, setSetup] = useState<SetupPreferencesDto | null>(null);
+  const [githubConnected, setGithubConnected] = useState(false);
+  const [revisitSetup, setRevisitSetup] = useState(false);
+  const [startupError, setStartupError] = useState<string | null>(null);
+  const availability = useAgentAvailability();
   const [page, setPage] = useState<AppPage>('home');
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [settingsWorkspaceId, setSettingsWorkspaceId] = useState<string | null>(null);
@@ -121,6 +133,10 @@ export default function App() {
   // A new object for every Answer, so the panel shows the card again even when the same one was asked for last.
   const [assistantCard, setAssistantCard] = useState<{ id: string } | null>(null);
   const [notices, setNotices] = useState<AppNotice[]>([]);
+  const [assistantHasHistory, setAssistantHasHistory] = useState(false);
+  const assistantEnabled = setup?.assistantEnabled === true;
+  const assistantAvailable = assistantEnabled && availability.development;
+  const assistantAccessible = assistantAvailable || notices.length > 0 || assistantEnabled && (assistantHasHistory || assistantOpen);
   const browserTab = browser.tabs.find(tab => tab.id === browser.activeTabId) ?? null;
   const browserOpen = browserTab !== null;
   const browserAction = useCallback((action: Promise<void>) => {
@@ -167,8 +183,31 @@ export default function App() {
     );
   }, []);
 
+  const initialize = useCallback(async () => {
+    setStartupError(null);
+    try {
+      const [hasPat, saved] = await Promise.all([
+        window.bridge.hasPat(),
+        window.bridge.getSetupPreferences?.() ?? Promise.resolve({ step: 'COMPLETE' as const, assistantEnabled: true }),
+      ]);
+      setGithubConnected(hasPat);
+      setSetup(saved);
+      setStatus(saved.step !== 'COMPLETE' ? 'needs-setup' : hasPat ? 'ready' : 'needs-pat');
+    }
+    catch (failure) { setStartupError(failure instanceof Error ? failure.message : 'Unable to load setup.'); }
+  }, []);
+
+  useEffect(() => { void initialize(); }, [initialize]);
+
   useEffect(() => {
-    void window.bridge.hasPat().then(hasPat => setStatus(hasPat ? 'ready' : 'needs-pat'));
+    const changed = () => { void window.bridge.getSetupPreferences?.().then(setSetup).catch(() => {}); };
+    const reopen = () => { setRevisitSetup(true); setAssistantOpen(false); setStatus('needs-setup'); };
+    window.addEventListener(SETUP_CHANGED, changed);
+    window.addEventListener(OPEN_SETUP, reopen);
+    return () => { window.removeEventListener(SETUP_CHANGED, changed); window.removeEventListener(OPEN_SETUP, reopen); };
+  }, []);
+
+  useEffect(() => {
     let receivedState = false;
     const stopBrowser = window.bridge.onInAppBrowserState(next => {
       receivedState = true;
@@ -202,7 +241,16 @@ export default function App() {
     return () => { stopAttention(); stopNotification(); };
   }, []);
 
-  useEffect(() => window.bridge.onAssistantToggle?.(() => setAssistantOpen(open => !open)), []);
+  useEffect(() => window.bridge.onAssistantToggle?.(() => { if (assistantAccessible) setAssistantOpen(open => !open); }), [assistantAccessible]);
+
+  useEffect(() => {
+    let current = true;
+    if (!assistantEnabled) { setAssistantHasHistory(false); return; }
+    void window.bridge.getAssistantToday?.().then(view => {
+      if (current) setAssistantHasHistory(view.running || view.items.length > 0);
+    }).catch(() => {});
+    return () => { current = false; };
+  }, [assistantEnabled, availability.development]);
 
   useEffect(() => window.bridge.onAssistantOpenCard?.(id => {
     setAssistantOpen(true);
@@ -448,10 +496,17 @@ export default function App() {
   }, [settingsWorkspace, settingsWorkspaceId]);
 
   if (status !== 'ready') {
+    if (status === 'needs-setup' && setup !== null) return <SetupFlow initial={setup} connected={githubConnected} revisit={revisitSetup}
+      onSaved={setSetup} onConnected={() => setGithubConnected(true)} onFinish={() => {
+        setRevisitSetup(false);
+        setStatus(githubConnected ? 'ready' : 'needs-pat');
+        void availability.refresh();
+      }} />;
     return (
       <div className="app-shell">
         <main className="app-content">
-          {status === 'checking' ? <LogoLoading /> : <OnboardingScreen onSaved={() => setStatus('ready')} />}
+          {startupError !== null ? <div role="alert">{startupError}<button type="button" onClick={() => { void initialize(); }}>Try again</button></div>
+            : status === 'checking' ? <LogoLoading /> : <OnboardingScreen onSaved={() => { setGithubConnected(true); setStatus('ready'); }} />}
         </main>
       </div>
     );
@@ -545,7 +600,8 @@ export default function App() {
           workspaceTab={workspaceTab}
           relatedWorkspaceId={relatedWorkspaceId}
           onWorkspaceTab={selectWorkspaceTab}
-          assistant={{ open: assistantShown, waiting: notices.filter(needsAction).length, onToggle: () => setAssistantOpen(open => !open) }}
+          assistant={assistantAccessible ? { open: assistantShown, waiting: notices.filter(needsAction).length,
+            label: assistantEnabled ? 'Assistant' : 'Task notices', onToggle: () => setAssistantOpen(open => !open) } : undefined}
         />
         <main className="app-content">
           {page === 'home' && (
@@ -642,7 +698,7 @@ export default function App() {
       </div>
       {browserTab && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
         error={browserError} onError={setBrowserError} onBack={backToApp} />}
-      <AssistantPanel open={assistantShown} notices={notices} openCard={assistantCard} onScreen={onScreen} onClose={() => setAssistantOpen(false)} />
+      <AssistantPanel open={assistantShown} chatEnabled={assistantAvailable} notices={notices} openCard={assistantCard} onScreen={onScreen} onClose={() => setAssistantOpen(false)} />
     </div>
   );
 }

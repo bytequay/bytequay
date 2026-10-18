@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.OneShotSession;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
@@ -400,7 +401,7 @@ public class TaskDiscussionService
         }
     }
 
-    /** Drafts a GitHub reply from one comment thread; stores nothing and posts nothing. */
+    /** Drafts a GitHub reply from one comment thread and clears any previous preparation error; posts nothing. */
     public String draftReply(String workspaceId, String taskId, String discussionId)
     {
         return draftReply(askableTask(workspaceId, taskId), discussionId, ReplyVoice.AUTHOR);
@@ -408,13 +409,29 @@ public class TaskDiscussionService
 
     private String draftReply(AgentTask task, String discussionId, ReplyVoice voice)
     {
+        Set<String> slot = claim(task);
+        try {
+            slot.add(discussionId);
+            return writeReply(task, discussionId, voice);
+        }
+        finally {
+            release(task, slot);
+        }
+    }
+
+    private String writeReply(AgentTask task, String discussionId, ReplyVoice voice)
+    {
         TaskDiscussion thread = discussion(task, discussionId);
         ReviewCommentAnchor comment = thread.comment()
                 .orElseThrow(() -> new IllegalArgumentException("Only a private thread on a review comment can draft a reply"));
         if (thread.messages().stream().noneMatch(message -> message.author() == DiscussionMessage.Author.AGENT)) {
             throw new AgentConflictException("Ask the agent before drafting a reply");
         }
-        return writer.draftReply(replyContext(comment, thread.messages()), comment.repo(), task.workspaceId(), voice);
+        String reply = writer.draftReply(replyContext(comment, thread.messages()), comment.repo(), task.workspaceId(), voice);
+        if (thread.replyDraftError().isPresent()) {
+            store.find(thread.id()).ifPresent(current -> store.update(current.withReplyDraft(Optional.empty(), Optional.empty(), clock.instant())));
+        }
+        return reply;
     }
 
     /** Passage and comment discussions belonging to the review's task; an ended review's stay readable. */
@@ -600,7 +617,7 @@ public class TaskDiscussionService
                 false,
                 now,
                 now,
-                0));
+                0, Optional.empty(), Optional.empty()));
     }
 
     private static void requireCommentThreadRoom(List<TaskDiscussion> existing)
@@ -613,7 +630,7 @@ public class TaskDiscussionService
     private static TaskDiscussion commentThread(String id, AgentTask task, ReviewCommentAnchor comment, List<DiscussionMessage> messages, Instant now)
     {
         return new TaskDiscussion(id, task.id().toString(), comment.anchor(), Optional.of(comment), Optional.empty(), task.laneId().value(), task.defaults().model(),
-                Optional.empty(), messages, false, now, now, 0);
+                Optional.empty(), messages, false, now, now, 0, Optional.empty(), Optional.empty());
     }
 
     /**
@@ -701,7 +718,7 @@ public class TaskDiscussionService
                         .add(new DiscussionMessage(UUID.randomUUID().toString(), DiscussionMessage.Author.USER, question, now, Optional.empty()))
                         .build(),
                 discussion.sessionReference(),
-                now), slot, history);
+                now).withReplyDraft(Optional.empty(), Optional.empty(), now), slot, history);
     }
 
     /**
@@ -778,6 +795,12 @@ public class TaskDiscussionService
                 source, earlier);
         Answered answered = converse(task, discussion.providerModel(), resume, prompt, context, MAXIMUM_RUNTIME);
         record(discussion.id(), answered.result(), answered.reference());
+        if (answered.result().state() == AgentTurnResult.State.COMPLETED
+                && isSummaryRequest(discussion.messages().getLast())
+                && discussion.comment().filter(comment -> comment.kind().equals("review_comment")).isPresent()
+                && task.defaults().developmentAutomation().filter(DevelopmentAutomation::reviewReply).isPresent()) {
+            prepareReply(task, discussion.id());
+        }
     }
 
     /** One question in a disposable read-only session on the task's worktree; approvals are denied and events discarded. */
@@ -830,11 +853,27 @@ public class TaskDiscussionService
                                 .build(),
                         Optional.empty(),
                         clock.instant())));
+                if (task.defaults().developmentAutomation().filter(DevelopmentAutomation::reviewReply).isPresent()
+                        && threads.get(index).comment().orElseThrow().kind().equals("review_comment")) {
+                    prepareReply(task, id);
+                }
             }
             catch (RuntimeException failure) {
                 log.warn("The summary for discussion {} could not be stored", id, failure);
                 fail(id, reasonOf(failure));
             }
+        }
+    }
+
+    private void prepareReply(AgentTask task, String discussionId)
+    {
+        try {
+            String reply = writeReply(task, discussionId, ReplyVoice.AUTHOR);
+            store.find(discussionId).ifPresent(thread -> store.update(thread.withReplyDraft(Optional.of(reply), Optional.empty(), clock.instant())));
+        }
+        catch (RuntimeException failure) {
+            log.warn("The reply draft for discussion {} could not be prepared", discussionId, failure);
+            store.find(discussionId).ifPresent(thread -> store.update(thread.withReplyDraft(Optional.empty(), Optional.of(reasonOf(failure)), clock.instant())));
         }
     }
 

@@ -75,7 +75,7 @@ export async function run(local = false): Promise<string> {
       assert(request.question === 'How does cancellation do that?', 'The inline question changed');
       opens++;
       discussion = { id: 'passage-1', taskId: review.task.id, ...request, pending: false, resolved: false,
-        providerLane: review.task.laneId, comment: null, version: 1, createdAt: review.createdAt, updatedAt: review.createdAt,
+        providerLane: review.task.laneId, comment: null, replyDraft: null, replyDraftError: null, version: 1, createdAt: review.createdAt, updatedAt: review.createdAt,
         messages: [
           { id: 'question-1', author: 'USER', body: request.question, createdAt: review.createdAt, error: null },
           { id: 'answer-1', author: 'AGENT', body: 'Cancellation closes the writer.', createdAt: review.createdAt, error: null },

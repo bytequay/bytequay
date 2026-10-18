@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Connect GitHub and open your first repository."
+      content="Choose your appearance, connect GitHub and agents, and open your first repository."
     />
     <meta name="theme-color" content="#101017" />
     <title>Get started — ByteQuay Docs</title>
@@ -50,7 +50,7 @@
             <a href="documentation.html">Docs</a
             ><span aria-hidden="true"> / </span><span>Get started</span>
             <h1>Get started</h1>
-            <p>Connect GitHub and open your first repository.</p>
+            <p>Set up GitHub, choose your agent features, and open your first repository.</p>
           </header>
           <section id="what-is-bytequay">
             <h2>About ByteQuay</h2>
@@ -82,11 +82,9 @@
                 include Java 25, so no separate JDK installation is required.
               </li>
               <li>
-                Choose <strong>Use my GitHub CLI login</strong> after running
-                <code>gh auth login</code>, or
-                <strong>Connect with token →</strong>. The app recommends a
-                classic token with <code>repo</code> and
-                <code>read:user</code> scopes.
+                Follow the setup guide to choose your appearance, connect
+                GitHub, and decide which agent features to use. You can
+                continue without an agent.
               </li>
               <li>
                 Choose <strong>Home → Repos you watch → + Watch</strong>. Select
@@ -98,11 +96,52 @@
                 <strong>WorkBench → Changes</strong>.
               </li>
             </ol>
+            <h3>Choose your setup</h3>
+            <ol>
+              <li>
+                <strong>Appearance and GitHub:</strong> choose System, Light,
+                or Dark. Connect with <strong>Use my GitHub CLI login</strong>
+                after running <code>gh auth login</code>, or
+                <strong>Connect with token →</strong>. The app recommends a
+                classic token with <code>repo</code> and
+                <code>read:user</code> scopes.
+              </li>
+              <li>
+                <strong>Connect an agent and choose your default:</strong>
+                check Codex or Claude Code, sign in, or add a DeepSeek API key.
+                Select the account and model for Development; Review follows
+                it unless you choose another in Settings.
+              </li>
+              <li>
+                <strong>Automation:</strong> choose whether new tasks create
+                draft PRs, fix CI, analyze review comments, or prepare private
+                replies. These options start off on a fresh installation.
+                Existing preferences are preserved.
+              </li>
+              <li>
+                <strong>Your features:</strong> watch the previews to explore
+                Today and Assistant, then enable either feature if you want
+                it. Each uses your default Development agent and model
+                allowance. Assistant task actions have separate switches.
+              </li>
+            </ol>
             <p>
-              You can review without an agent. For coding tasks,
-              <a href="guide-agents.html#models">connect a provider</a>.
-              Change appearance in
-              <strong>Settings → Personal → Appearance</strong>.
+              After GitHub is connected,
+              <strong>Continue without an agent</strong> keeps GitHub and PR
+              work available. If an agent is already available,
+              <strong>Skip remaining setup</strong> keeps the remaining saved
+              choices. New agent actions stay hidden until their selected
+              agent and model are usable; saved tasks, reviews, and notices
+              remain.
+            </p>
+            <p>
+              Unfinished setup resumes where you left it. Once completed, it
+              never opens automatically again, including after a sign-in
+              expires. To revisit it, choose
+              <strong>Settings → General → Setup guide → Open setup</strong>.
+              You can also <a href="guide-agents.html#models">connect a provider</a>
+              or change <strong>Settings → Personal → Appearance</strong>
+              directly.
             </p>
           </section>
           <section id="workspaces">
@@ -133,11 +172,12 @@
             </ul>
             <h3>Plan the day with Today</h3>
             <p>
-              Today is off until you turn it on in
-              <strong>Settings → General → Daily agenda</strong>, because each
-              day’s list spends a model session from your default Development
-              account. Once on, Home opens on working days, after the time you
-              set, with <strong>Today</strong>: up to five things worth doing first, each
+              Today is off until you enable it during setup or in
+              <strong>Settings → General → Daily agenda</strong>. It needs a
+              usable global Development model, and each day’s list spends a
+              model session from that account. Once on, Home opens on working
+              days, after the time you set, with <strong>Today</strong>: up to
+              five things worth doing first, each
               with a reason. An agent picks them from ByteQuay’s records; it
               never writes to GitHub or starts a task. If ByteQuay was closed at
               that time, Today is made when you return.

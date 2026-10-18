@@ -30,6 +30,8 @@ export type TaskDiscussionDto = {
   updatedAt: string;
   /** The GitHub comment a private thread is about; null on a passage discussion. */
   comment: DiscussionCommentDto | null;
+  replyDraft: string | null;
+  replyDraftError: string | null;
 };
 
 export type DiscussionCommentDto = { repo: string; number: number; key: string };
@@ -135,6 +137,8 @@ export function parseTaskDiscussion(value: unknown): TaskDiscussionDto {
     createdAt: text(row.createdAt),
     updatedAt: text(row.updatedAt),
     comment: comment(row.comment),
+    replyDraft: row.replyDraft == null ? null : text(row.replyDraft),
+    replyDraftError: row.replyDraftError == null ? null : text(row.replyDraftError),
   };
 }
 

@@ -94,6 +94,23 @@ class TestReviewSummaryWatcher
     }
 
     @Test
+    void preparesReplyCommentsWithoutRequiringTheSummaryOption()
+    {
+        TaskId id = TaskId.random();
+        AgentTask task = AgentTask.created(id, true, "Task", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree(id),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO)
+                        .withDevelopmentAutomation(new DevelopmentAutomation(true, false, false, Optional.empty(), false, true)), CREATED);
+        when(tasks.listLive()).thenReturn(ImmutableList.of(task));
+        when(ownership.shownPullRequest(task)).thenReturn(Optional.of(pullRequest(12, "open")));
+        ReviewCommentItem comment = item("review_comment:2", "alice", false, CREATED.plusSeconds(20));
+        when(comments.read(REPO, 12)).thenReturn(ImmutableList.of(item("review:1", "alice", false, CREATED.plusSeconds(10)), comment));
+
+        watcher.pass();
+
+        verify(service).summarize("w1", task.id().toString(), ImmutableList.of(comment.anchor()));
+    }
+
+    @Test
     void summarizesNewHumanReviewCommentsOnceAndNeverTheCoveredOnes()
     {
         AgentTask task = task(true);
@@ -251,7 +268,7 @@ class TestReviewSummaryWatcher
     private static AgentTaskDefaults defaults(boolean reviewSummary)
     {
         return AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO)
-                .withDevelopmentAutomation(new DevelopmentAutomation(true, true, true, Optional.empty(), reviewSummary));
+                .withDevelopmentAutomation(new DevelopmentAutomation(true, true, true, Optional.empty(), reviewSummary, false));
     }
 
     private static ReviewCommentItem item(String key, String author, boolean bot, Instant createdAt)
@@ -267,7 +284,7 @@ class TestReviewSummaryWatcher
     private static TaskDiscussion thread(ReviewCommentAnchor comment)
     {
         return new TaskDiscussion("t-" + comment.key().replace(':', '-'), "task", comment.anchor(), Optional.of(comment), Optional.empty(), "claude",
-                Optional.empty(), Optional.empty(), ImmutableList.of(), false, CREATED, CREATED, 0);
+                Optional.empty(), Optional.empty(), ImmutableList.of(), false, CREATED, CREATED, 0, Optional.empty(), Optional.empty());
     }
 
     private static PullRequest pullRequest(int number, String state)

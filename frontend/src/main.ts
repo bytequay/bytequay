@@ -1345,6 +1345,9 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/settings/app`));
   ipcMain.handle('settings:app:save', (_event, preferences: unknown) =>
     backendJson<AppPreferencesDto>(`${backendBase()}/api/settings/app`, jsonInit('PUT', preferences)).then(applyAppearance));
+  ipcMain.handle('settings:setup', () => backendJson(`${backendBase()}/api/settings/setup`));
+  ipcMain.handle('settings:setup:save', (_event, preferences: unknown) =>
+    backendJson(`${backendBase()}/api/settings/setup`, jsonInit('PUT', preferences)));
 
   ipcMain.handle('backport-chains:list', (_event, workspaceId: string) =>
     backendJson(workspaceUrl(workspaceId, `/backport-chains`)));

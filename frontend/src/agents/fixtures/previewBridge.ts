@@ -41,6 +41,7 @@ const FIXTURE_EVENTS: AgentEventEnvelope[] = parseAgentEventSequence(eventFixtur
 
 const PREVIEW_CAPABILITIES = {
   ...NO_AGENT_CAPABILITIES,
+  permissionPolicies: ['AUTO', 'CI_AUTOFIX'],
   structuredPlans: true,
   steering: true,
   attachmentMediaTypes: ['image/png', 'image/jpeg', 'image/gif'],
@@ -183,7 +184,7 @@ export function createPreviewBridge(
       return [];
     },
     discardAgentDraftAttachments: async () => {},
-    getDevelopmentAutomation: async () => ({ autoDraftPr: true, autoCiFix: true, ciLaneId: null, reviewSummary: false }),
+    getDevelopmentAutomation: async () => ({ autoDraftPr: true, autoCiFix: true, ciLaneId: null, reviewSummary: false, reviewReply: false }),
     createAgentTask: async (request) => {
       record('createAgentTask', request);
       return previewTask(request.workspaceId, request.taskId);

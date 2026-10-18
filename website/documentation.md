@@ -35,16 +35,38 @@ release notes for availability.
    DMG and drag the app to Applications. Follow your release’s requirements;
    current builds need macOS 14+ and include Java 25, so no separate JDK
    installation is required.
-2. Choose **Use my GitHub CLI login** after running `gh auth login`, or
-   **Connect with token →**. The app recommends a classic token with `repo` and
-   `read:user` scopes.
+2. Follow the setup guide to choose your appearance, connect GitHub, and decide
+   which agent features to use. You can continue without an agent.
 3. Choose **Home → Repos you watch → + Watch**. Select a repository, check its
    branch and publication destinations, then **Watch repository**.
 4. Open **Pull requests**, select a PR, and inspect **WorkBench → Changes**.
 
-You can review without an agent. For coding tasks,
-[connect a provider](#models). Change appearance in **Settings → Personal →
-Appearance**.
+### Choose your setup
+
+1. **Appearance and GitHub:** choose System, Light, or Dark. Connect with
+   **Use my GitHub CLI login** after running `gh auth login`, or **Connect with
+   token →**. The app recommends a classic token with `repo` and `read:user`
+   scopes.
+2. **Connect an agent and choose your default:** check Codex or Claude Code,
+   sign in, or add a DeepSeek API key. Select the account and model for
+   Development; Review follows it unless you choose another in Settings.
+3. **Automation:** choose whether new tasks create draft PRs, fix CI, analyze
+   review comments, or prepare private replies. These options start off on a
+   fresh installation. Existing preferences are preserved.
+4. **Your features:** watch the previews to explore Today and Assistant, then
+   enable either feature if you want it. Each uses your default Development
+   agent and model allowance. Assistant task actions have separate switches.
+
+After GitHub is connected, **Continue without an agent** keeps GitHub and PR
+work available. If an agent is already available, **Skip remaining setup**
+keeps the remaining saved choices. New agent actions stay hidden until their
+selected agent and model are usable; saved tasks, reviews, and notices remain.
+
+Unfinished setup resumes where you left it. Once completed, it never opens
+automatically again, including after a sign-in expires. To revisit it, choose
+**Settings → General → Setup guide → Open setup**. You can also
+[connect a provider](#models) or change **Settings → Personal → Appearance**
+directly.
 
 <a id="workspaces"></a>
 
@@ -63,10 +85,11 @@ tasks, PRs, work items, commits, and memory.
 
 ### Plan the day with Today
 
-Today is off until you turn it on in **Settings → General → Daily agenda**,
-because each day's list spends a model session from your default Development
-account. Once on, Home opens on working days, after the time you set, with
-**Today**: up to five things worth doing first, each with a reason. An agent
+Today is off until you enable it during setup or in **Settings → General →
+Daily agenda**. It needs a usable global Development model, and each day's
+list spends a model session from that account. Once on, Home opens on working
+days, after the time you set, with **Today**: up to five things worth doing
+first, each with a reason. An agent
 picks them from ByteQuay's records; it never writes to GitHub or starts a task.
 If ByteQuay was closed at that time, Today is made when you return.
 
@@ -82,9 +105,11 @@ If ByteQuay was closed at that time, Today is made when you return.
 
 ## Use the Assistant
 
-Bring your day and waiting tasks into one conversation. The Assistant uses your
-default Development model; configure a ready provider in **Settings → Agents →
-Models** first.
+Bring your day and waiting tasks into one conversation. Choose a usable global
+Development model in **Settings → Agents → Models**, then turn on **Enable
+Assistant** during setup or in **Settings → Agents → Workflow**. Assistant
+starts off on a fresh installation; existing users keep their setting. Each
+message uses your model allowance.
 
 1. Press **⌘J** to open the Assistant. From a web page, ByteQuay returns to the
    app first.
@@ -94,10 +119,14 @@ Models** first.
    page through cards, or **View all**. Answer approvals and questions on their
    cards; **Esc** closes the panel.
 
+When chat is off or your agent needs reconnecting, task notices and approval
+buttons remain available. Saved conversation history is preserved.
+
 ### Let it act when you ask
 
 In **Settings → Agents → Workflow**, optionally enable **Assistant can start
-tasks** or **Assistant can answer tasks**. Both are off by default.
+tasks** or **Assistant can answer tasks**. Both are off by default and are
+separate from enabling Assistant conversation.
 
 - **Start tasks:** ask it to start work on an item. The task uses your saved
   automation settings.
@@ -199,15 +228,21 @@ open. Choose **Open** for the full item; **Escape** dismisses the preview.
 
 Open **Settings → Agents → Models**.
 
-- **Codex or Claude Code:** install the CLI, sign in, then choose **Check**.
+- **Codex or Claude Code:** use **Sign in** to connect your account. If the CLI
+  is missing or too old, copy the displayed install or upgrade command, run it
+  in your terminal, then choose **Check**. ByteQuay does not install or update
+  these CLIs itself.
 - **Your agent API:** choose **Add API key**, select a supported provider, such
   as DeepSeek, enter a label and key, then **Add key**. DeepSeek tasks require
-  Codex CLI.
+  Codex CLI, but not a Codex account.
 - Once **Ready**, choose your Development and Review models. Use repository
   **Model overrides** for a different choice.
 
 Keys are stored encrypted on your Mac. Saved OpenAI keys cannot run agent tasks
-yet.
+yet. Installing a CLI or saving a key alone is not enough: the CLI must meet
+the required version, and the selected account or key must have an available model.
+Today and Assistant use the global Development selection; an account available
+only to one repository cannot enable them.
 
 <a id="claude-accounts"></a>
 
@@ -249,15 +284,23 @@ Check limits in **Usage**. Add reusable instructions in
 
 Review **Automation** before starting:
 
-- **Auto draft PR:** pushes commits and creates or updates a PR. On by default.
-- **Auto CI fix:** repairs supported failures and can mark a draft ready. On by
-  default; can write to GitHub.
-- **Auto review summary:** adds private notes. Off by default.
+- **Auto draft PR:** pushes commits and creates or updates a PR.
+- **Auto CI fix:** repairs supported failures, reruns CI, and can mark a draft
+  ready. It can write to GitHub. **CI repair agent** follows Development unless
+  you choose another supported agent.
+- **Auto review summary:** adds private analysis and a suggested plan for new
+  review comments on the task's PR.
+- **Auto draft review replies:** analyzes new review comments and prepares
+  private replies. Choose **Use draft**, edit the reply, then **Comment** to
+  publish it. Generated replies are never posted automatically.
 - **Keep commits local for this turn:** skips publication and CI follow-up.
 
-Completed development work is committed automatically. Change defaults in
-**Settings → Agents → Workflow**. Use **Stop automation and continue…** to
-resume development. You review and merge the PR.
+These automation options start off on a fresh installation; existing choices
+are preserved. Completed development work is committed automatically. Change
+defaults for new tasks during setup or in **Settings → Agents → Workflow**,
+and review each task's choices before sending. Automatic analysis and repairs
+use your model allowance. Use **Stop automation and continue…** to resume
+development. You review and merge the PR.
 
 <a id="commits-and-backports"></a>
 

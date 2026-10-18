@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAgentAvailability } from '../agents/availability';
 import { CircleCheck, CircleDot, ExternalLink, Flag, ListTodo, Play, User } from 'lucide-react';
 import {
   useCallback,
@@ -104,6 +105,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   /** Opened from the Epic drawer: an Epic shows its Work tab first. */
   openOnWork?: boolean;
 }) {
+  const availability = useAgentAvailability(workspaceId);
   const overlay = onClose !== undefined;
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const close = useCallback(() => {
@@ -532,7 +534,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
           {rows.map(issue => (
             <IssueRow key={issue.id} issue={issue} repository={repository} labelColors={labelColors}
               labelFilter={labelFilter} onFilterLabel={label => setLabelFilter(current => current === label ? '' : label)}
-              actions={<IssueDevelopmentActions issue={issue} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}
+              actions={<IssueDevelopmentActions issue={issue} onStart={onStartDevelopment === undefined || !availability.any ? undefined : setStartingIssue} onViewTask={onViewTask}
                 onToggleEpic={() => requestEpic(issue)} changingEpic={changingEpic !== null} />}
               selected={issue.id === selectedId} onPick={() => {
                 onSelectIssue?.(issue.number, 'push');
@@ -593,7 +595,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
           <div className="pull-detail__body" hidden={workShown}>
             <IssueOverview key={selected.id} issue={selected} closed={selected.id === closedIssueId} readOnly={selected === previewIssue} metadata={metadata} timeline={timeline} issueType={issueType}
               repository={repository} workspaceId={workspaceId}
-              actions={selected === previewIssue ? undefined : <IssueDevelopmentActions issue={selected} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}
+              actions={selected === previewIssue ? undefined : <IssueDevelopmentActions issue={selected} onStart={onStartDevelopment === undefined || !availability.any ? undefined : setStartingIssue} onViewTask={onViewTask}
                 onToggleEpic={() => requestEpic(selected)} changingEpic={changingEpic !== null} />}
               timelineLoading={detailLoading} onTypeChange={type => updateIssueType(selected.number, type)}
               onMetadataChange={(assignees, labels) => updateIssueMetadata(selected.number, assignees, labels)}

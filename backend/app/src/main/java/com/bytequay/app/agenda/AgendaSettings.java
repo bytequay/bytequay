@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.agenda;
 
+import com.bytequay.app.service.settings.SetupSettingsService;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,11 +31,13 @@ public class AgendaSettings
 
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
+    private final SetupSettingsService setup;
 
-    public AgendaSettings(AppSettingsStore settings, ObjectMapper mapper)
+    public AgendaSettings(AppSettingsStore settings, ObjectMapper mapper, SetupSettingsService setup)
     {
         this.settings = requireNonNull(settings, "settings is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.setup = requireNonNull(setup, "setup is null");
     }
 
     public AgendaSchedule schedule()
@@ -53,6 +56,9 @@ public class AgendaSettings
     public AgendaSchedule save(AgendaSchedule schedule)
     {
         requireNonNull(schedule, "schedule is null");
+        if (schedule.enabled() && !schedule().enabled()) {
+            setup.requireUsableDevelopmentAgent();
+        }
         try {
             settings.put(KEY, mapper.writeValueAsString(schedule));
         }

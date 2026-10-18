@@ -30,6 +30,7 @@ import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.service.settings.SetupSettingsService;
 import com.bytequay.app.team.TeamService;
 import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaDay;
@@ -165,7 +166,8 @@ class TestAgendaService
                 return now.get();
             }
         };
-        agenda = new AgendaService(store, reader, calendars, teams, done, new AgendaSettings(settings, AgendaFixtures.mapper()), appSettings, models, drivers, resources,
+        agenda = new AgendaService(store, reader, calendars, teams, done, new AgendaSettings(settings, AgendaFixtures.mapper(), mock(SetupSettingsService.class)), appSettings,
+                models, drivers, resources,
                 AgendaFixtures.mapper(), clock, executor);
     }
 
@@ -181,7 +183,7 @@ class TestAgendaService
     {
         AppSettingsStore nothingSaved = mock(AppSettingsStore.class);
         when(nothingSaved.get(any())).thenReturn(Optional.empty());
-        assertThat(new AgendaSettings(nothingSaved, AgendaFixtures.mapper()).schedule().enabled()).isFalse();
+        assertThat(new AgendaSettings(nothingSaved, AgendaFixtures.mapper(), mock(SetupSettingsService.class)).schedule().enabled()).isFalse();
     }
 
     @Test

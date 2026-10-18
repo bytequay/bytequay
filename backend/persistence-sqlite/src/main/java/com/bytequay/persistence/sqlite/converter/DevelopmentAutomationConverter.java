@@ -14,9 +14,12 @@
 package com.bytequay.persistence.sqlite.converter;
 
 import com.bytequay.agent.core.DevelopmentAutomation;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.BooleanNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.persistence.Converter;
 
 @Converter
@@ -26,6 +29,17 @@ public class DevelopmentAutomationConverter
     private static final ObjectMapper MAPPER = JsonColumns.mapper()
             .enable(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES)
             .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES);
+
+    @Override
+    DevelopmentAutomation read(String json)
+            throws JsonProcessingException
+    {
+        var saved = MAPPER.readTree(json);
+        if (saved instanceof ObjectNode object) {
+            object.putIfAbsent("reviewReply", BooleanNode.FALSE);
+        }
+        return MAPPER.treeToValue(saved, DevelopmentAutomation.class);
+    }
 
     DevelopmentAutomationConverter()
     {

@@ -15,12 +15,12 @@ import type { AgentTaskState } from './model';
 import type { DevelopmentAutomationDto } from '../types';
 
 export const DEFAULT_DEVELOPMENT_AUTOMATION: DevelopmentAutomationDto = {
-  autoDraftPr: true, autoCiFix: true, ciLaneId: null, reviewSummary: false,
+  autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false, reviewReply: false,
 };
 
-/** The backend still commits development work; these fields only control publication and CI. */
+/** Keep development commits while leaving optional publication and follow-up off. */
 export const LOCAL_COMMITS_ONLY: DevelopmentAutomationDto = {
-  autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false,
+  autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false, reviewReply: false,
 };
 
 export const AUTOMATION_OPTIONS = [
@@ -28,14 +28,16 @@ export const AUTOMATION_OPTIONS = [
   { key: 'autoCiFix', title: 'Auto CI fix', description: 'Repair code or PR-description checks, rerun CI, and mark the draft ready when checks pass.' },
   { key: 'reviewSummary', title: 'Auto review summary',
     description: 'Add a private agent note to each new review comment on this task’s PR: what it asks, whether it holds, and a plan. Nothing is posted to GitHub.' },
+  { key: 'reviewReply', title: 'Auto draft review replies',
+    description: 'Analyze new review comments and prepare private reply drafts. You edit and post each reply yourself.' },
 ] as const;
 
-/** Keeping commits local changes only this turn's delivery; the review summary is not delivery. */
+/** Keeping commits local changes only delivery; private review follow-up stays selected. */
 export function automationForSubmission(settings: DevelopmentAutomationDto, localOnly: boolean): DevelopmentAutomationDto {
-  return localOnly ? { ...LOCAL_COMMITS_ONLY, reviewSummary: settings.reviewSummary } : settings;
+  return localOnly ? { ...LOCAL_COMMITS_ONLY, reviewSummary: settings.reviewSummary, reviewReply: settings.reviewReply } : settings;
 }
 
-/** The review summary is not delivery, so on its own it must not hide that commits stay local. */
+/** Private review follow-up must not hide that commits stay local. */
 export function automationSummary(settings: DevelopmentAutomationDto): string {
   const local = settings.autoDraftPr || settings.autoCiFix ? [] : ['Local commits'];
   return [...local, ...AUTOMATION_OPTIONS.filter(option => settings[option.key]).map(option => option.title.replace('Auto ', ''))].join(' · ');

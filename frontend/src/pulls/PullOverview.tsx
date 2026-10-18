@@ -1105,7 +1105,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
     setDrafting(true);
     setError('');
     try {
-      const text = await privateThreads.draftReply(thread);
+      const text = thread.replyDraft ?? await privateThreads.draftReply(thread);
       // The draft can take many seconds; if the user started typing elsewhere meanwhile, the caret stays there.
       const active = document.activeElement;
       const typingElsewhere = active !== textareaRef.current && active instanceof HTMLElement

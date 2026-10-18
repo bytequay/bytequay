@@ -25,6 +25,6 @@ it('keeps private threads local until the user posts a drafted reply, in Chromiu
     width: 1000,
     height: 900,
   });
-  expect(results).toHaveLength(8);
+  expect(results).toHaveLength(9);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, deadline(30_000));

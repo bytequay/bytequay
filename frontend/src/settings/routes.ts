@@ -49,14 +49,14 @@ const GROUP_SLUGS: Record<SettingsGroup, string> = {
 };
 
 export const SETTINGS_ENTRIES: SettingsEntry[] = [
-  { section: 'workflow', group: 'Agents', label: 'Workflow', slug: 'workflow', rows: ['Development commits', 'Auto draft PR', 'Auto CI fix', 'Auto review summary', 'CI repair agent',
-    'Assistant can start tasks', 'Assistant can answer tasks'] },
+  { section: 'workflow', group: 'Agents', label: 'Workflow', slug: 'workflow', rows: ['Development commits', 'Auto draft PR', 'Auto CI fix', 'Auto review summary', 'Auto draft review replies', 'CI repair agent',
+    'Enable Assistant', 'Assistant can start tasks', 'Assistant can answer tasks'] },
   {
     section: 'general',
     group: 'Personal',
     label: 'General',
     slug: 'general',
-    rows: ['Background refresh', 'Quiet hours', 'Keep detailed task runtime', 'Keep what you touched', 'Clear history', 'Recent'],
+    rows: ['Setup guide', 'Background refresh', 'Quiet hours', 'Keep detailed task runtime', 'Keep what you touched', 'Clear history', 'Recent'],
   },
   { section: 'appearance', group: 'Personal', label: 'Appearance', slug: 'appearance', rows: ['Theme'] },
   { section: 'browser', group: 'Personal', label: 'Browser', slug: 'browser', rows: ['Full screen behavior', 'Zoom'] },

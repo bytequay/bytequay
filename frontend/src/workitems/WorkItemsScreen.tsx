@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { useAgentAvailability } from '../agents/availability';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ChevronRight, CircleCheck, CircleDot, CircleDotDashed, CircleX, ExternalLink, Flag, GitPullRequest, History, Link2, ListTodo, LockKeyhole, Pencil, Play, Plus,
   RotateCcw, Upload, X } from 'lucide-react';
@@ -268,6 +269,7 @@ function openReference(workspace: WorkspaceDto, reference: UnifiedWorkItem['refe
 function WorkRow({ item, all, epic, selected, onPick, onStart, onViewTask, onPublish }: {
   item: LocalItem; all: WorkItemDto[]; epic: EpicName | null; selected: boolean; onPick: () => void; onStart: () => void; onViewTask: () => void; onPublish: () => void;
 }) {
+  const availability = useAgentAvailability(item.work.workspaceId);
   const work = item.work;
   const remote = remoteOf(work);
   const task = taskOf(work);
@@ -304,7 +306,7 @@ function WorkRow({ item, all, epic, selected, onPick, onStart, onViewTask, onPub
         </span>
       </button>
       <span className="issues-development-actions">
-        {isOpen(work) && !work.isEpic && !task && <button className="pulls-toolbar-button" type="button" title="Use agent to develop" aria-label={`Start development of ${item.title}`} onClick={onStart}>
+        {availability.any && isOpen(work) && !work.isEpic && !task && <button className="pulls-toolbar-button" type="button" title="Use agent to develop" aria-label={`Start development of ${item.title}`} onClick={onStart}>
           <Play size={16} aria-hidden="true" /></button>}
         {task && <button className="pulls-toolbar-button" type="button" title="View task" aria-label={`View the task for ${item.title}`} onClick={onViewTask}><ListTodo size={16} aria-hidden="true" /></button>}
         {!remote && work.state !== 'DROPPED' && <button className="pulls-toolbar-button" type="button" title="Push to GitHub or Jira…" aria-label={`Push ${item.title} to GitHub or Jira`}
@@ -385,6 +387,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const availability = useAgentAvailability(item.work.workspaceId);
   const work = item.work;
   const [workShown, setWorkShown] = useState(work.isEpic);
   const unmark = useUnmarkEpic();
@@ -392,7 +395,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
   const remote = remoteOf(work);
   const task = taskOf(work);
   const development = work.links.filter(link => link.kind === 'TASK' || link.kind === 'PULL_REQUEST');
-  const canStart = open && !work.isEpic && !task;
+  const canStart = availability.any && open && !work.isEpic && !task;
   // One item may be pushed to both GitHub and Jira; its links keep both.
   const canPublish = work.state !== 'DROPPED' && !(work.links.some(link => link.kind === 'ISSUE') && work.links.some(link => link.kind === 'JIRA'));
   const blockers = waitingOn(work, all);

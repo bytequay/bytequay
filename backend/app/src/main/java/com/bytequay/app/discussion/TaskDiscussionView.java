@@ -57,7 +57,9 @@ public record TaskDiscussionView(
         List<Message> messages,
         long version,
         Instant createdAt,
-        Instant updatedAt)
+        Instant updatedAt,
+        Optional<String> replyDraft,
+        Optional<String> replyDraftError)
 {
     public TaskDiscussionView
     {
@@ -89,7 +91,9 @@ public record TaskDiscussionView(
                 discussion.messages().stream().map(TaskDiscussionView::message).collect(toImmutableList()),
                 discussion.version(),
                 discussion.createdAt(),
-                discussion.updatedAt());
+                discussion.updatedAt(),
+                discussion.replyDraft(),
+                discussion.replyDraftError());
     }
 
     private static Message message(DiscussionMessage message)

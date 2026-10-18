@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { AgentSetupNotice, useAgentAvailability } from './availability';
 import { BackportButton, BackportRequestHint, backportDraft, startBackportRequest } from './BackportRequestHint';
 import { notifyJiraChanged, type JiraIssue } from '../jira/contracts';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
@@ -160,6 +161,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
 }) {
   // Home and the Tasks page remount on every tab switch; the last list paints the first frame, and
   // the mount still re-reads it.
+  const availability = useAgentAvailability(workspaceId);
   const seed = `agent-tasks:${workspaceId}`;
   const [tasks, setTasks] = useState<AgentTaskDto[]>(() => getCached<AgentTaskDto[]>(seed) ?? []);
   const [loading, setLoading] = useState(() => getCached(seed) === undefined);
@@ -229,6 +231,13 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     setLaneId(defaults.laneId);
     setSelection(defaults.model === '' ? null : { model: defaults.model, effort: defaults.effort });
   }, [initialLaunch]);
+
+  const selectionMissing = selection === null;
+  useEffect(() => {
+    if (availability.settings === null) return;
+    if (selectionMissing) applyCatalog(availability.settings);
+    else setCatalog(availability.settings);
+  }, [applyCatalog, availability.settings, selectionMissing]);
 
   useEffect(() => {
     let active = true;
@@ -462,6 +471,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   return {
     /** Everything TaskComposer needs, so a screen spreads it instead of re-listing eighteen props. */
     composer: {
+      workspaceId,
       laneId,
       providers: catalog?.providers ?? [],
       models,
@@ -788,10 +798,11 @@ export function ComposerDock({ repository, chips, children }: {
 
 /** The card that creates a task: the first message above its provider, automation and model controls. */
 export function TaskComposer({
-  draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings,
+  draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings, workspaceId,
   images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
   backport = false,
 }: {
+  workspaceId?: string;
   draft: string;
   blocker: string | null;
   laneId: string;
@@ -813,6 +824,7 @@ export function TaskComposer({
   onRemoveImage?: (id: string) => void;
   backport?: boolean;
 }): React.JSX.Element {
+  const availability = useAgentAvailability(workspaceId);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
   const nextCaret = useRef(false);
@@ -841,6 +853,7 @@ export function TaskComposer({
     inputRef.current.setSelectionRange('@backport '.length, '@backport '.length);
     nextCaret.current = false;
   });
+  if (!availability.any && !busy) return <AgentSetupNotice workspaceId={workspaceId} />;
   const imagesAccepted = !isDeepSeekKeyLane(laneId)
     && acceptsImages(models, selection?.model, providers.find((provider) => provider.id === laneId)?.capabilities ?? null);
   const openProviderSettings = (providerId: string): void => {
@@ -1010,6 +1023,7 @@ export function AgentTaskList({
   /** What each task's checkout holds, by task id, for tasks without a pull request to name. */
   changes?: Record<string, AgentTaskChangesDto>;
 }): React.JSX.Element {
+  const availability = useAgentAvailability(workspaceId);
   const linked = useLinkedWorkspaceWork(workspaceId);
   const backports = useBackportChains(workspaceId);
   const [tab, setTab] = useState<TaskTab>(initialTab);
@@ -1164,7 +1178,7 @@ export function AgentTaskList({
               </button>
             ))}
           </div>
-          {active && type !== 'linked' && type !== 'backports' && (
+          {active && (type === 'review' ? availability.review : availability.any) && type !== 'linked' && type !== 'backports' && (
             <button type="button" className="agt-type-new" onClick={startNew}>
               + {TASK_TYPES[type === 'all' ? 'dev' : type].newLabel}
             </button>
@@ -1194,7 +1208,7 @@ export function AgentTaskList({
         )}
         {error !== null && <div className="cmt-error" role="alert">{error}</div>}
         {loading && <div className="agt-loading">Loading agent tasks…</div>}
-        {type === 'backports' && <BackportChainList chains={chainShelf} error={backports.error} onStart={active ? event => {
+        {type === 'backports' && <BackportChainList chains={chainShelf} error={backports.error} onStart={active && availability.development ? event => {
           startBackportRequest(event.currentTarget, draft, onDraftChange);
         } : undefined} />}
         {type === 'linked' && <LinkedWorkList links={linkedShelf} error={linked.error} />}
@@ -1234,9 +1248,10 @@ export function AgentTaskList({
         </div>
 
         {/* Anchored under the list: sending this first message is what creates a task. */}
-        {active && (
+        {active && availability.any && (
           <ComposerDock repository={repository} chips={<BackportButton draft={draft} onDraftChange={onDraftChange} disabled={busy} />}>
             <TaskComposer
+              workspaceId={workspaceId}
               backport
               automation={automation}
               issueAttachment={issueAttachment}

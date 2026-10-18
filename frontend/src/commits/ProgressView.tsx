@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAgentAvailability } from '../agents/availability';
 import Composer from '../Composer';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
@@ -72,6 +73,7 @@ export default function ProgressView({
   onStartAnotherRange: () => void;
   headerAction?: ReactNode;
 }) {
+  const availability = useAgentAvailability(workspaceId);
   const [execution, setExecution] = useState<CherryPickExecution | null>(null);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
   const [openCards, setOpenCards] = useState<Record<string, boolean>>({});
@@ -412,7 +414,7 @@ export default function ProgressView({
                 {empty > 0 ? ` · ${empty} empty` : ''} — every applied commit carries its -x line.
               </div>
             </div>
-            <button type="button" onClick={onStartAnotherRange}>Start another range</button>
+            {availability.any && <button type="button" onClick={onStartAnotherRange}>Start another range</button>}
           </div>
         )}
         {state === 'done' && delivery && (
@@ -488,7 +490,7 @@ export default function ProgressView({
               <div className="cmt-banner-title">Canceled</div>
               <div className="cmt-banner-text">{execution.summary ?? 'This execution was canceled.'}</div>
             </div>
-            <button type="button" onClick={onStartAnotherRange}>Start another range</button>
+            {availability.any && <button type="button" onClick={onStartAnotherRange}>Start another range</button>}
           </div>
         )}
 

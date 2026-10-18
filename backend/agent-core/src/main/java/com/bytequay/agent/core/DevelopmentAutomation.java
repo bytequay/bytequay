@@ -25,10 +25,11 @@ import static java.util.Objects.requireNonNull;
  * @param reviewSummary whether the agent summarizes each new review comment on the task's pull request in a private thread. It is
  *         task-level: the watcher reads it from the task defaults, so the copies on turns and queued inputs have no effect. It is
  *         not a delivery step and grants no authority, so {@link #enabled()} ignores it.
+ * @param reviewReply whether new review comments receive a private reply draft for the user to edit and publish
  */
-public record DevelopmentAutomation(boolean autoCommit, boolean autoDraftPr, boolean autoCiFix, Optional<AgentLaneId> ciLaneId, boolean reviewSummary)
+public record DevelopmentAutomation(boolean autoCommit, boolean autoDraftPr, boolean autoCiFix, Optional<AgentLaneId> ciLaneId, boolean reviewSummary, boolean reviewReply)
 {
-    public static final DevelopmentAutomation DEFAULT = new DevelopmentAutomation(true, true, true, Optional.empty());
+    public static final DevelopmentAutomation DEFAULT = new DevelopmentAutomation(true, false, false, Optional.empty());
     public static final DevelopmentAutomation LOCAL_ONLY = new DevelopmentAutomation(false, false, false, Optional.empty());
 
     public DevelopmentAutomation
@@ -38,12 +39,12 @@ public record DevelopmentAutomation(boolean autoCommit, boolean autoDraftPr, boo
 
     public DevelopmentAutomation(boolean autoCommit, boolean autoDraftPr, boolean autoCiFix, Optional<AgentLaneId> ciLaneId)
     {
-        this(autoCommit, autoDraftPr, autoCiFix, ciLaneId, false);
+        this(autoCommit, autoDraftPr, autoCiFix, ciLaneId, false, false);
     }
 
     public DevelopmentAutomation forDevelopment()
     {
-        return new DevelopmentAutomation(true, autoDraftPr, autoCiFix, ciLaneId, reviewSummary);
+        return new DevelopmentAutomation(true, autoDraftPr, autoCiFix, ciLaneId, reviewSummary, reviewReply);
     }
 
     public boolean enabled()

@@ -18,7 +18,7 @@ import { createRoot } from 'react-dom/client';
 import type { Bridge, DiffCommitDto, DiffFileDto } from '../../types';
 import { DiffViewer, type CommitRange } from '../PullChanges';
 import { usePullRequestChanges, type PullRequestChangesSource } from '../usePullRequestChanges';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, settle, until } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/pulls.css';
 
@@ -64,8 +64,7 @@ async function runHook(): Promise<string[]> {
   };
   try {
     render();
-    await settle();
-    assert(defaultReads === 1 && current().files[0]?.filename === 'all', 'Initial read must use the complete cached diff');
+    await until(() => defaultReads === 1 && current().files[0]?.filename === 'all', 'Initial read must use the complete cached diff');
     click('First');
     assert(current().files.length === 0 && current().loading, 'Selecting a commit must immediately hide the previous diff');
     await settle();
@@ -136,8 +135,7 @@ async function runHook(): Promise<string[]> {
     assert(defaultReads === readsBeforeRefresh, 'Inactive changes must not read snapshots');
     active = true;
     render();
-    await settle();
-    assert(defaultReads === readsBeforeRefresh + 1 && current().files[0]?.filename === 'new-head', 'Activating changes must load the invalidated snapshot');
+    await until(() => defaultReads === readsBeforeRefresh + 1 && current().files[0]?.filename === 'new-head', 'Activating changes must load the invalidated snapshot');
     active = false;
     render();
     await settle();

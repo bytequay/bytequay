@@ -36,7 +36,7 @@ import LocalReviewThreadCard from '../LocalReviewThreadCard';
 import { findingConversation, localReviewConversation } from '../conversation';
 import type { LocalReviewThreadDto, LocalReviewThreads } from '../types';
 import { useLocalReviewThreads, type LocalReviewBridgePort } from '../useLocalReviewThreads';
-import { assert, changeInput, settle } from '../../../fixtures/harness';
+import { assert, changeInput, settle, until } from '../../../fixtures/harness';
 
 function button(host: HTMLElement, text: string) {
   const value = [...host.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.textContent === text);
@@ -493,6 +493,7 @@ async function developmentLearningRefresh(): Promise<void> {
     assert(found !== null, `Missing development learning card ${id}`);
     return found;
   };
+  const cardText = (id: string) => host.querySelector(`[data-learning-card="${id}"]`)?.textContent ?? '';
   render();
   try {
     await settle();
@@ -501,9 +502,8 @@ async function developmentLearningRefresh(): Promise<void> {
     savedTurn = firstTurn;
     refreshKey++;
     render();
-    await settle();
-    assert(card('purpose').textContent?.includes(summary.purpose) === true
-      && card(commitId).textContent?.includes(summary.commits[0].summary) === true
+    await until(() => cardText('purpose').includes(summary.purpose), 'The saved report must load');
+    assert(card(commitId).textContent?.includes(summary.commits[0].summary) === true
       && card(`commit:${summary.commits[1].sha}`).textContent?.includes(summary.commits[1].summary) === true,
     'The saved report must refresh into an intention card and separate commit implementation cards');
     assert(host.querySelectorAll('[data-learning-card]').length === 3 && !host.textContent?.includes('Start review')
@@ -557,9 +557,8 @@ async function developmentLearningRefresh(): Promise<void> {
         commits: [{ ...summary.commits[0], summary: 'Capture the snapshot and check the update version.' }, summary.commits[1]] } } };
     refreshKey++;
     render();
-    await settle();
-    assert(card('purpose').textContent?.includes('reject conflicting updates') === true
-      && card(commitId).textContent?.includes('check the update version') === true
+    await until(() => cardText('purpose').includes('reject conflicting updates'), 'The later refinement must load');
+    assert(card(commitId).textContent?.includes('check the update version') === true
       && card(commitId).textContent?.includes('Why capture the snapshot') === false,
     'A later refinement must show its new report without inheriting an older card discussion');
     const earlier = host.querySelector<HTMLDetailsElement>('.agr-learning-history');
@@ -569,8 +568,7 @@ async function developmentLearningRefresh(): Promise<void> {
     flushSync(() => root.unmount());
     root = createRoot(host);
     render();
-    await settle();
-    assert(reads >= 4 && card('purpose').textContent?.includes('reject conflicting updates') === true
+    await until(() => reads >= 4 && cardText('purpose').includes('reject conflicting updates')
       && host.querySelector('.agr-learning-history')?.textContent?.includes('rollback restores the original values') === true,
     'Reload must restore the kept report and earlier discussions without loading conversation history');
   }

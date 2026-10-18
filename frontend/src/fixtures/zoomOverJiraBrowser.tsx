@@ -149,7 +149,8 @@ async function ticketLinksOverThePage(): Promise<void> {
       const element = dialog?.querySelector(selector);
       return element ? `${getComputedStyle(element).borderTopWidth} ${getComputedStyle(element).borderRadius}` : null;
     };
-    assert(['.bq-iconbtn', 'textarea'].every(selector => look(ticketLayer(), selector) !== null && look(ticketLayer(), selector) === look(ticketDialog, selector)),
+    // The modal can match before its ticket body renders on a busy machine.
+    await until(() => ['.bq-iconbtn', 'textarea'].every(selector => look(ticketLayer(), selector) !== null && look(ticketLayer(), selector) === look(ticketDialog, selector)),
       'A ticket opened from a link looks like the Jira page ticket');
     const reply = ticketLayer()?.querySelector<HTMLTextAreaElement>('textarea');
     assert(reply !== null && reply !== undefined, 'The ticket layer takes comments');

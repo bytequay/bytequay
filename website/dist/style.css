@@ -190,7 +190,7 @@ p {
   --soft: #20202b;
   --purple: #bea5ff;
   color-scheme: dark;
-  background: var(--paper);
+  background: radial-gradient(ellipse 75% 750px at 50% 0, #241b35, transparent), var(--paper);
 }
 .landing .header {
   border-bottom-color: transparent;
@@ -215,8 +215,12 @@ p {
   background: #ffffff12;
 }
 .hero {
-  text-align: center;
-  padding: 42px 0 38px;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  align-items: center;
+  gap: 64px;
+  text-align: left;
+  padding: 68px 0 64px;
   position: relative;
 }
 .hero .eyebrow {
@@ -224,7 +228,7 @@ p {
   margin-bottom: 22px;
 }
 .hero h1 {
-  font-size: clamp(3.8rem, 6.4vw, 5.8rem);
+  font-size: clamp(3.4rem, 5.1vw, 4.7rem);
   font-weight: 600;
   line-height: 1.01;
   letter-spacing: -0.045em;
@@ -238,16 +242,16 @@ p {
 .hero-lede {
   font-size: 1.125rem;
   line-height: 1.7;
-  margin: 25px auto 24px;
+  margin: 0 0 26px;
   max-width: 640px;
   color: #b6b3c3;
 }
 .hero .actions {
-  justify-content: center;
+  justify-content: flex-start;
 }
 .availability {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 12px;
   margin-top: 18px;
   font-size: 0.8125rem;
@@ -283,6 +287,8 @@ p {
   padding: 4px;
 }
 .view-switcher button {
+  position: relative;
+  overflow: hidden;
   border: 0;
   cursor: pointer;
   padding: 8px 15px;
@@ -298,9 +304,98 @@ p {
 }
 .view-switcher [aria-pressed="true"] {
   color: white;
-  background: #34303f;
+  background: #3e3159;
   box-shadow: 0 2px 4px #0003;
 }
+.view-switcher [aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: #c9b1ff;
+}
+.showcase[data-rotating="true"] .view-switcher [aria-pressed="true"]::after {
+  transform-origin: left;
+  animation: slide-progress 2s linear;
+}
+@keyframes slide-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.carousel-viewport {
+  position: relative;
+}
+.showcase .app-stage {
+  padding: 28px;
+  border-radius: 16px 16px 0 0;
+  background:
+    radial-gradient(ellipse at 0 0, #9d71dc70, transparent 60%),
+    linear-gradient(135deg, #352742, #191923 60%, #40305f);
+}
+.showcase .app-stage a {
+  border: 1px solid #ffffff30;
+  border-radius: 8px;
+}
+.carousel-arrow,
+.carousel-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #ffffff38;
+  background: #292331;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+.carousel-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  box-shadow: 0 6px 24px #0006;
+}
+.carousel-previous { left: -24px; }
+.carousel-next { right: -24px; }
+.carousel-arrow:hover,
+.carousel-toggle:hover {
+  background: #493663;
+  border-color: var(--purple);
+}
+.carousel-arrow svg,
+.carousel-toggle svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.carousel-playback {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-shrink: 0;
+}
+.carousel-count {
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+.carousel-count > span { color: var(--muted); }
+.carousel-toggle {
+  min-height: 44px;
+  min-width: 98px;
+  gap: 6px;
+  border-radius: 24px;
+  font-size: 0.8125rem;
+}
+.carousel-toggle .play-icon,
+.showcase[data-paused="true"] .pause-icon { display: none; }
+.showcase[data-paused="true"] .play-icon { display: block; }
+.showcase [hidden] { display: none; }
 .app-stage {
   padding: 38px 38px 0;
   overflow: hidden;
@@ -334,10 +429,14 @@ p {
 .showcase-caption {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 30px;
-  padding: 17px 0;
-  border-bottom: 1px solid var(--line);
+  padding: 24px 28px;
+  border: 1px solid #cfaaff43;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 16px 16px;
+  background: #19161f;
+  min-height: 160px;
   font-size: 0.875rem;
 }
 .foundation {
@@ -348,7 +447,11 @@ p {
 }
 .foundation > a {
   flex: 1;
-  padding-block: 10px;
+  padding: 10px 20px 10px 0;
+}
+.foundation > a + a {
+  border-left: 1px solid var(--line);
+  padding-left: 30px;
 }
 .foundation strong {
   display: block;
@@ -390,6 +493,7 @@ p {
 .workflow-grid article {
   border-top: 1px solid #ffffff29;
   padding-top: 26px;
+  border-top-color: #a78aca66;
 }
 .feature-number {
   color: #9b8dab;
@@ -519,7 +623,7 @@ p {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  min-height: 385px;
+  min-height: 310px;
   padding: 38px;
   background: #25202f;
   color: #f0eaf8;
@@ -817,14 +921,19 @@ details p {
   .hero {
     padding-top: 82px;
   }
-  .hero h1 {
-    font-size: 6.7rem;
-  }
 }
 @media (max-width: 1050px) {
   .wrap {
     width: calc(100% - 56px);
   }
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    text-align: center;
+  }
+  .hero-lede { margin: 0 auto 24px; }
+  .hero .actions,
+  .availability { justify-content: center; }
   .foundation {
     gap: 40px;
   }
@@ -844,8 +953,7 @@ details p {
     flex-direction: column;
   }
   .showcase-caption {
-    flex-wrap: wrap;
-    gap: 5px;
+    gap: 20px;
   }
   .workflow-grid {
     gap: 26px;
@@ -894,7 +1002,8 @@ details p {
     display: none;
   }
   .hero {
-    padding: 52px 0 44px;
+    padding: 36px 0 40px;
+    gap: 22px;
   }
   .hero .eyebrow {
     font-size: 0.6875rem;
@@ -908,7 +1017,7 @@ details p {
   .hero-lede {
     font-size: 1rem;
     max-width: 420px;
-    margin-top: 24px;
+    margin-top: 0;
   }
   .desktop-break {
     display: none;
@@ -946,14 +1055,28 @@ details p {
   .showcase-caption {
     font-size: 0.875rem;
     line-height: 1.6;
-    padding-block: 13px;
+    padding: 20px;
+    flex-direction: column;
+    gap: 18px;
   }
+  .showcase-description h3 { min-height: 2.4em; }
+  .showcase-description p { min-height: 6.4em; }
+  .carousel-playback { width: 100%; justify-content: space-between; }
+  .showcase .app-stage { padding: 10px; }
+  .carousel-arrow { width: 44px; height: 44px; }
+  .carousel-previous { left: -14px; }
+  .carousel-next { right: -14px; }
   .foundation {
     padding-block: 25px;
     gap: 10px;
     flex-direction: column;
     align-items: stretch;
     font-size: 0.875rem;
+  }
+  .foundation > a + a {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 18px 0 0;
   }
   .workflow {
     padding-block: 56px 65px;
@@ -1132,6 +1255,7 @@ details p {
   *:before,
   *:after {
     transition: none !important;
+    animation: none !important;
   }
 }
 

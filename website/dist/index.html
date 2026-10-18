@@ -10,8 +10,8 @@
     <meta name="theme-color" content="#101017" />
     <title>ByteQuay — Don’t lose your understanding.</title>
     <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="style.css?v=providers" />
-    <script src="site.js?v=providers" defer></script>
+    <link rel="stylesheet" href="style.css?v=carousel" />
+    <script src="site.js?v=carousel" defer></script>
   </head>
   <body class="landing">
     <a class="skip" href="#main">Skip to content</a>
@@ -29,30 +29,35 @@
     </header>
     <main id="main">
       <section class="hero wrap">
-        <p class="eyebrow">YOUR REPOSITORIES. YOUR AGENTS. YOUR CALL.</p>
-        <h1>Don’t lose your<br /><span>understanding.</span></h1>
-        <p class="hero-lede">
-          As your agents do more, your confidence should grow. Keep context and
-          decisions close. Explore as deeply as you need, then merge.
-        </p>
-        <div class="actions">
-          <a
-            class="button primary"
-            href="https://github.com/bytequay/bytequay/releases"
-            >Explore releases</a
-          ><a class="button secondary" href="guide-get-started.html#getting-started"
-            >Get started</a
-          >
+        <div class="hero-heading">
+          <p class="eyebrow">YOUR REPOSITORIES. YOUR AGENTS. YOUR CALL.</p>
+          <h1>Don’t lose your<br /><span>understanding.</span></h1>
         </div>
-        <p class="availability">
-          Built for macOS <span aria-hidden="true">/</span> Open source
-          <span aria-hidden="true">/</span> Pre-1.0
-        </p>
+        <div class="hero-intro">
+          <p class="hero-lede">
+            As your agents do more, your confidence should grow. Keep context and
+            decisions close. Explore as deeply as you need, then merge.
+          </p>
+          <div class="actions">
+            <a
+              class="button primary"
+              href="https://github.com/bytequay/bytequay/releases"
+              >Explore releases</a
+            ><a class="button secondary" href="guide-get-started.html#getting-started"
+              >Get started</a
+            >
+          </div>
+          <p class="availability">
+            Built for macOS <span aria-hidden="true">/</span> Open source
+            <span aria-hidden="true">/</span> Pre-1.0
+          </p>
+        </div>
       </section>
       <section
         class="showcase wrap"
         id="the-app"
         aria-labelledby="showcase-title"
+        aria-roledescription="carousel"
       >
         <div class="showcase-heading">
           <h2 id="showcase-title">One workspace. The whole picture.</h2>
@@ -74,24 +79,32 @@
             </button>
           </div>
         </div>
-        <div class="app-stage">
-          <a
-            id="screenshot-link"
-            href="assets/app-development.jpg"
-            target="_blank"
-            rel="noopener"
-            aria-label="Open full-size development task screenshot"
-            ><img
-              id="app-screenshot"
-              src="assets/app-development.jpg"
-              width="2880"
-              height="1800"
-              alt="ByteQuay in dark mode with a completed development task beside its code changes and regression tests."
-              fetchpriority="high"
-          /></a>
+        <div class="carousel-viewport">
+          <div class="app-stage" id="screenshot-panel">
+            <a
+              id="screenshot-link"
+              href="assets/app-development.jpg"
+              target="_blank"
+              rel="noopener"
+              aria-label="Open full-size development task screenshot"
+              ><img
+                id="app-screenshot"
+                src="assets/app-development.jpg"
+                width="2880"
+                height="1800"
+                alt="ByteQuay in dark mode with a completed development task beside its code changes and regression tests."
+                fetchpriority="high"
+            /></a>
+          </div>
+          <button class="carousel-arrow carousel-previous" type="button" aria-label="Previous screenshot" aria-controls="screenshot-panel" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg>
+          </button>
+          <button class="carousel-arrow carousel-next" type="button" aria-label="Next screenshot" aria-controls="screenshot-panel" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6" /></svg>
+          </button>
         </div>
         <div class="showcase-caption">
-          <div aria-live="polite">
+          <div class="showcase-description" aria-live="off" aria-atomic="true">
             <h3 id="screenshot-title">
               From a request to a reviewable change.
             </h3>
@@ -102,6 +115,14 @@
             <a id="screenshot-guide" href="guide-agents.html#agent-tasks"
               >Read the feature guide →</a
             >
+          </div>
+          <div class="carousel-playback" hidden>
+            <span class="carousel-count" aria-label="Screenshot 1 of 5">01 <span aria-hidden="true">/ 05</span></span>
+            <button class="carousel-toggle" type="button" aria-label="Pause slideshow">
+              <svg class="pause-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12" /></svg>
+              <svg class="play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 10 7-10 7Z" /></svg>
+              <span>Pause</span>
+            </button>
           </div>
         </div>
       </section>

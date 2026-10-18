@@ -2,7 +2,11 @@
 
 The product landing page, user documentation, design overview, and Lab pages are
 static HTML and CSS in `dist/`, with a small script for switching app
-screenshots. They need no dependency installation or build step. The logo comes
+screenshots. The app tour loops every two seconds, with previous/next arrows,
+direct feature buttons, and a play/pause control. Hovering pauses the tour;
+keyboard navigation and reduced-motion preferences leave it paused until Play.
+It also pauses while offscreen or in a hidden browser tab.
+They need no dependency installation or build step. The logo comes
 from the repository's `assets/logo.svg`; typography uses Google Fonts with
 system fallbacks. No analytics, account system, or application data is embedded.
 
@@ -26,7 +30,8 @@ python3 -m http.server 4173 --bind 127.0.0.1 --directory website/dist
 ```
 
 Open `http://127.0.0.1:4173/`. Check the landing page, Docs index, seven topic
-guides, design page, and both Lab pages; also check screenshot switching and
+guides, design page, and both Lab pages; also check screenshot switching,
+two-second rotation, wraparound, pause/play, arrow keys, reduced motion, and
 full-size image links, navigation, topic links, disclosures, and narrow layouts
 after edits. The user guide lives in [`documentation.md`](documentation.md) and
 is presented in the Docs index (`dist/documentation.html`) and seven focused

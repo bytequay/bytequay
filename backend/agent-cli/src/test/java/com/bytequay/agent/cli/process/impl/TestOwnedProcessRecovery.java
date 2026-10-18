@@ -21,6 +21,7 @@ import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessIdentity;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
+import com.bytequay.agent.cli.process.ProcessStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
@@ -91,9 +92,12 @@ class TestOwnedProcessRecovery
         ManagedProcess process = first
                 .prepare(spec("sleep 60 & printf '%s\\n' \"$!\"; wait"))
                 .start((stream, bytes) -> {
-                    stdout.append(StandardCharsets.UTF_8.decode(bytes));
-                    if (stdout.indexOf("\n") >= 0) {
-                        reported.countDown();
+                    // Bash may warn on stderr about the launched job's process group; the PID comes on stdout.
+                    if (stream == ProcessStream.STDOUT) {
+                        stdout.append(StandardCharsets.UTF_8.decode(bytes));
+                        if (stdout.indexOf("\n") >= 0) {
+                            reported.countDown();
+                        }
                     }
                 });
         assertThat(reported.await(5, TimeUnit.SECONDS)).isTrue();

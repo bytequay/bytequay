@@ -357,12 +357,7 @@ class TestDefaultProcessSupervisor
         CountDownLatch childReported = new CountDownLatch(1);
         ManagedProcess cancelled = supervisor
                 .prepare(spec("sleep 30 & child=$!; printf '%s\\n' \"$child\"; wait"))
-                .start((stream, bytes) -> {
-                    stdout.append(StandardCharsets.UTF_8.decode(bytes));
-                    if (stdout.indexOf("\n") >= 0) {
-                        childReported.countDown();
-                    }
-                });
+                .start(firstStdoutLine(stdout, childReported));
         assertThat(childReported.await(5, TimeUnit.SECONDS)).isTrue();
         long childPid = Long.parseLong(stdout.toString().trim());
 
@@ -426,12 +421,7 @@ class TestDefaultProcessSupervisor
         // prove that the re-parented descendant stopped.
         ManagedProcess process = supervisor
                 .prepare(spec("/bin/sh -c 'sleep 45 & printf \"%s\\n\" \"$!\"'; sleep 45"))
-                .start((stream, bytes) -> {
-                    stdout.append(StandardCharsets.UTF_8.decode(bytes));
-                    if (stdout.indexOf("\n") >= 0) {
-                        reported.countDown();
-                    }
-                });
+                .start(firstStdoutLine(stdout, reported));
         assertThat(reported.await(5, TimeUnit.SECONDS)).isTrue();
         long descendantPid = Long.parseLong(stdout.toString().trim());
 
@@ -476,12 +466,7 @@ class TestDefaultProcessSupervisor
         CountDownLatch reported = new CountDownLatch(1);
         ManagedProcess process = supervisor
                 .prepare(spec("/bin/bash -c 'set -m; sleep 45 >/dev/null 2>&1 & printf \"%s\\n\" \"$!\"; sleep 1'"))
-                .start((stream, bytes) -> {
-                    stdout.append(StandardCharsets.UTF_8.decode(bytes));
-                    if (stdout.indexOf("\n") >= 0) {
-                        reported.countDown();
-                    }
-                });
+                .start(firstStdoutLine(stdout, reported));
         assertThat(reported.await(5, TimeUnit.SECONDS)).isTrue();
         long descendantPid = Long.parseLong(stdout.toString().trim());
 
@@ -563,12 +548,7 @@ class TestDefaultProcessSupervisor
                 1024,
                 Duration.ofSeconds(20),
                 Duration.ofMillis(100));
-        ManagedProcess process = supervisor.prepare(spec).start((stream, bytes) -> {
-            output.append(StandardCharsets.UTF_8.decode(bytes));
-            if (output.indexOf("\n") >= 0) {
-                childReported.countDown();
-            }
-        });
+        ManagedProcess process = supervisor.prepare(spec).start(firstStdoutLine(output, childReported));
         try {
             assertThat(childReported.await(5, TimeUnit.SECONDS)).isTrue();
             long childPid = Long.parseLong(output.toString().trim());
@@ -752,12 +732,7 @@ class TestDefaultProcessSupervisor
         ManagedProcess process = supervisor.prepare(spec(
                         new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "test-task"),
                         "/bin/bash -c 'set -m; sleep 45 >/dev/null 2>&1 & printf \"%s\\n\" \"$!\"; read value'"))
-                .start((stream, bytes) -> {
-                    output.append(StandardCharsets.UTF_8.decode(bytes));
-                    if (output.indexOf("\n") >= 0) {
-                        reported.countDown();
-                    }
-                });
+                .start(firstStdoutLine(output, reported));
         try {
             assertThat(reported.await(5, TimeUnit.SECONDS)).isTrue();
             long childPid = Long.parseLong(output.toString().trim());
@@ -997,6 +972,19 @@ class TestDefaultProcessSupervisor
                 1024,
                 Duration.ofSeconds(20),
                 Duration.ofMillis(100));
+    }
+
+    /** Bash may warn on stderr about the launched job's process group; the scripts print their PID on stdout. */
+    private static ProcessOutputSink firstStdoutLine(StringBuilder stdout, CountDownLatch reported)
+    {
+        return (stream, bytes) -> {
+            if (stream == ProcessStream.STDOUT) {
+                stdout.append(StandardCharsets.UTF_8.decode(bytes));
+                if (stdout.indexOf("\n") >= 0) {
+                    reported.countDown();
+                }
+            }
+        };
     }
 
     private static boolean awaitDead(long pid, Duration timeout)

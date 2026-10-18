@@ -17,10 +17,11 @@ import { observeNoticeOcclusion } from '../occlusion';
 import { useNoticeSource } from '../useNoticeSource';
 import { LayerCovered } from '../../Zoom';
 import type { AppNotice, NoticeBridge, NoticeSnapshot } from '../contracts';
+import { settle } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../notices.css';
 
-const wait = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+const wait = settle;
 function assert(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
 function TaskSource({ taskId }: { taskId: string | null }): null { useNoticeSource(taskId); return null; }
 export async function run() {

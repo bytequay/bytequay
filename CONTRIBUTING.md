@@ -248,7 +248,10 @@ npm run package
 Vitest runs one worker for every two cores, at most four, because browser
 suites each build a bundle and launch Electron. This keeps browser startup and
 shutdown from being starved by unrestricted parallel builds. CI splits the
-tests across three runners.
+tests across three runners. Those runners take two to four times as long as a
+developer Mac, so a browser suite sets its test and hook limits for a Mac and
+wraps them in `deadline()` from `src/fixtures/browserFixture.ts`, which triples
+them on CI.
 
 Packaging uses JDK 25's `jlink` to create `frontend/vendor/jre` and includes it
 in the app's resources with its license notices. Build on a Mac of the target

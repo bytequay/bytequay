@@ -23,6 +23,9 @@ import { electronFixtureLifecycle } from './electronFixtureLifecycle';
 
 export type ScenarioResult = { name: string; error?: string };
 
+/** Scales a deadline set on a developer Mac: suites take two to four times as long on a three-core CI runner. */
+export const deadline = (milliseconds: number): number => milliseconds * (process.env.CI ? 3 : 1);
+
 export type BrowserFixture = {
   /** Temporary directory prefix, e.g. `bytequay-recent-loading-`. */
   prefix: string;
@@ -77,6 +80,7 @@ export async function runBrowserFixture<T>(fixture: BrowserFixture): Promise<T> 
 async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Promise<T> {
   const directory = await mkdtemp(join(bundle, 'run-'));
   try {
+    const timeout = deadline(fixture.timeoutMs ?? 20_000);
     const charset = fixture.charset !== false ? '<meta charset="UTF-8">' : '';
     const styles = fixture.styles === true ? '<link rel="stylesheet" href="../style.css">' : '';
     await writeFile(join(directory, 'index.html'), `<!doctype html>${charset}${styles}<body><script src="../renderer.js"></script>`);
@@ -90,7 +94,7 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
       : "window.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, callback) => callback({ cancel: true }));";
     await writeFile(join(directory, 'main.cjs'), `
       const { app, BrowserWindow, ipcMain, nativeTheme } = require('electron');
-      ${electronFixtureLifecycle(fixture.timeoutMs ?? 20_000)}
+      ${electronFixtureLifecycle(timeout)}
       // Fixtures render the same whatever the host's appearance and motion settings are.
       nativeTheme.themeSource = 'light';
       app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
@@ -113,7 +117,7 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
     const executable = electron as unknown as string;
     const args = [join(directory, 'main.cjs')];
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
-    const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: fixture.timeoutMs ?? 20_000, killSignal: 'SIGKILL' });
+    const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout, killSignal: 'SIGKILL' });
     return JSON.parse(result.stdout.trim()) as T;
   }
   finally { await rm(directory, { recursive: true, force: true }); }

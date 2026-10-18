@@ -75,6 +75,9 @@ jobs:
         run: node --test scripts/lab-runtime.test.mjs
       - name: Package
         working-directory: frontend
+        env:
+          # As in the release, the bundles outgrow the runner's default 2 GB heap.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run package
       - name: Start packaged backend without system Java
         run: node scripts/test-packaged-backend.mjs

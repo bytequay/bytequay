@@ -25,7 +25,8 @@ concurrency:
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    # Agent tests run macOS tools the app depends on, such as sandbox-exec and plutil.
+    runs-on: macos-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6

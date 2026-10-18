@@ -17,7 +17,7 @@ import App from '../App';
 import { createPreviewBridge } from '../agents/fixtures/previewBridge';
 import { JIRA_CHANGED, type JiraConnection } from '../jira/contracts';
 import type { Bridge } from '../types';
-import { assert, settle } from './harness';
+import { assert, settle, until } from './harness';
 import '../css/base.css';
 
 const connected: JiraConnection = {
@@ -28,11 +28,6 @@ const connected: JiraConnection = {
 };
 
 const jiraButton = () => document.querySelector<HTMLButtonElement>('.app-sidebar [aria-label="Jira"]');
-
-async function until(condition: () => boolean) {
-  for (let i = 0; i < 45 && !condition(); i++) await settle();
-  assert(condition(), 'Jira navigation did not settle');
-}
 
 export async function run(): Promise<{ name: string }[]> {
   let connections = [connected];
@@ -65,7 +60,8 @@ export async function run(): Promise<{ name: string }[]> {
   const root = createRoot(host);
   flushSync(() => root.render(<App />));
   try {
-    await until(() => jiraButton() !== null && document.querySelector('[aria-label="Recent"][aria-current="page"]') !== null);
+    await until(() => jiraButton() !== null && document.querySelector('[aria-label="Recent"][aria-current="page"]') !== null,
+      'Jira navigation did not settle');
     const globalLabels = [...document.querySelectorAll('[aria-label="Global navigation"] button')].map(button => button.getAttribute('aria-label'));
     assert(JSON.stringify(globalLabels) === JSON.stringify(['Assistant', 'Home', 'Workspaces', 'Circles', 'Recent']), 'Global navigation order is stable');
     assert(jiraButton()?.closest('nav')?.getAttribute('aria-label') === 'Application navigation', 'Jira belongs below global navigation');

@@ -21,7 +21,7 @@ import { createPreviewBridge } from '../agents/fixtures/previewBridge';
 import { jiraRoute, notifyJiraChanged, type JiraConnection, type JiraIssueDetail } from '../jira/contracts';
 import { jiraDetail, jiraIssue } from '../jira/fixtures/jira';
 import type { Bridge, InAppBrowserState, RepositoryIssueSnapshotDto, WorkspaceDto } from '../types';
-import { assert, changeInput, settle } from './harness';
+import { assert, changeInput, settle, until } from './harness';
 import '../index.css';
 
 const connection: JiraConnection = {
@@ -37,11 +37,6 @@ const issue: RepositoryIssueSnapshotDto['issues'][number] = {
   createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
 };
 const repository = { owner: 'trinodb', repo: 'trino' };
-
-async function until(condition: () => boolean, message: string) {
-  for (let i = 0; i < 45 && !condition(); i++) await settle();
-  assert(condition(), message);
-}
 
 /** The element a pointer would hit at the middle of `element`, top layer included. */
 function onTop(element: Element | null): boolean {

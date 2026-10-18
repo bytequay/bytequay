@@ -17,7 +17,7 @@ import { createRoot } from 'react-dom/client';
 import { GoalPanel, type GoalPanelView } from '../GoalPanel';
 import type { GoalDto, GoalExchangeDto, GoalLessonDto, LessonDiagramDto, WorkItemDto } from '../contracts';
 import type { GoalConversation } from '../useGoals';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, until } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/goals.css';
 
@@ -57,10 +57,6 @@ function button(label: string): HTMLButtonElement {
   const found = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent?.trim() === label);
   assert(found !== undefined, `Missing button ${label}`);
   return found;
-}
-async function until(condition: () => boolean, message: string): Promise<void> {
-  for (let frame = 0; frame < 200 && !condition(); frame++) await settle();
-  assert(condition(), message);
 }
 
 const COURSE_MAP: LessonDiagramDto = { kind: 'COMPONENTS', caption: 'The concepts of an Iceberg table', nodes: [

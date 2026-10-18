@@ -27,7 +27,7 @@ import type { CodeHostRef } from '../code-tests/contracts';
 import type { AgentReviewDto, ReviewDraftDto } from '../agent-review/contracts';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import '../../css/base.css';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, until } from '../../fixtures/harness';
 import { loadHandled } from '../../home/attention';
 import { setCached } from '../../dataCache';
 
@@ -846,9 +846,6 @@ export async function runListSearch(): Promise<string> {
   // The title span carries the number too; the assertions read the title alone.
   const titles = () => [...host.querySelectorAll('.pulls-list .pull-row__title')]
     .map(row => (row.textContent ?? '').replace(/\s*#\d+$/, '').trim());
-  const until = async (condition: () => boolean) => {
-    for (let attempt = 0; attempt < 120 && !condition(); attempt++) await settle();
-  };
   /** The strip shows as many filters as the measured pane fits; the rest live in the ⋯ menu. */
   const pickTab = async (label: string) => {
     const tab = [...host.querySelectorAll<HTMLButtonElement>('.pulls-tab')].find(entry => entry.textContent === label);
@@ -874,7 +871,7 @@ export async function runListSearch(): Promise<string> {
     const render = () => flushSync(() => root.render(<PullsScreen
       repositoryScope={{ workspaceId: 'workspace', repository: 'owner/repo' }} />));
     render();
-    await until(() => titles().length > 0);
+    await until(() => titles().length > 0, 'Review must open with its pull requests');
     assert(titles().join('|') === 'Requested of bob', `Review must open on the requested pull request, not ${titles().join('|')}`);
     const reads = listReads;
 
@@ -903,12 +900,12 @@ export async function runListSearch(): Promise<string> {
       'A missing exact number must look up only the scoped repository');
     assert(host.querySelector('[role="status"]')?.textContent === 'Looking up #28755…', 'Lookup progress must replace the empty state');
     lookups[0].result.resolve(remotePullRequest(detailFor(28755, 'Older merged work', 'alice', 'merged'), 'bob'));
-    await until(() => titles().includes('Older merged work'));
+    await until(() => titles().includes('Older merged work'), 'The looked-up pull request must appear');
     assert(titles().join('|') === 'Older merged work', 'The fetched result must appear even when merged');
     await type('#2875');
     assert(Number(lookups.length) === 2 && titles().length === 0, 'A longer loaded number must not suppress an exact lookup');
     lookups[1].result.reject(new Error('Pull request not found'));
-    await until(() => host.querySelector('.pulls-sync-error') !== null);
+    await until(() => host.querySelector('.pulls-sync-error') !== null, 'Lookup failures must be visible');
     assert(host.querySelector('.pulls-sync-error')?.textContent?.includes('Pull request not found') === true, 'Lookup failures must be visible');
 
     await type('#28756');
@@ -920,15 +917,14 @@ export async function runListSearch(): Promise<string> {
     assert(listReads === reads, `Searching must not reload the list, but it read ${listReads - reads} more pages`);
 
     await type('');
-    await until(() => titles().length === 1);
+    await until(() => titles().length === 1, 'Clearing the search must restore the selected filter');
     assert(titles().join('|') === 'Authored by bob', 'Clearing the search must restore the selected filter');
     const broadcast = () => window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', {
       detail: page.map(detail => remotePullRequest(detail, 'bob')),
     }));
     broadcast(); await settle();
     page.push(detailFor(32000, 'Newly discovered', 'bob', 'open'));
-    broadcast(); await until(() => titles().includes('Newly discovered'));
-    assert(titles().includes('Newly discovered'), 'A newly discovered PR must enter the current list without reopening it');
+    broadcast(); await until(() => titles().includes('Newly discovered'), 'A newly discovered PR must enter the current list without reopening it');
     const afterDiscovery = listReads;
     for (let tick = 0; tick < 3; tick++) {
       render();
@@ -1070,9 +1066,6 @@ export async function runSelectionStability(): Promise<string> {
   document.body.append(host);
   const root = createRoot(host);
   const open = () => details.find(detail => host.querySelector('.pull-detail')?.textContent?.includes(detail.title))?.title;
-  const until = async (condition: () => boolean) => {
-    for (let attempt = 0; attempt < 60 && !condition(); attempt++) await settle();
-  };
 
   const scenario = async (link: boolean) => {
     let pageZero = [first];
@@ -1109,15 +1102,15 @@ export async function runSelectionStability(): Promise<string> {
         const shown = open();
         if (shown !== undefined && shown !== older.title) intruder = shown;
         return shown === older.title;
-      });
+      }, 'A linked pull request must open');
       assert(intruder === undefined, `A linked pull request must open alone, but ${intruder} showed first`);
     } else {
-      await until(() => host.querySelector('.pulls-list')?.textContent?.includes(older.title) === true);
+      await until(() => host.querySelector('.pulls-list')?.textContent?.includes(older.title) === true, 'The next list page must load the older pull request');
       const row = [...host.querySelectorAll<HTMLElement>('.pulls-list button, .pulls-list [role="option"]')]
         .find(element => element.textContent?.includes(older.title));
       assert(row !== undefined, 'The next list page must load the older pull request');
       row.click();
-      await until(() => open() === older.title);
+      await until(() => open() === older.title, 'A scrolled-to pull request must open');
     }
     assert(open() === older.title, `${link ? 'A linked' : 'A scrolled-to'} pull request must open, not ${open()}`);
     const siblingRow = [...host.querySelectorAll('.pull-card')].find(element => element.textContent?.includes(sibling.title));
@@ -1130,7 +1123,7 @@ export async function runSelectionStability(): Promise<string> {
     host.querySelector<HTMLButtonElement>('[aria-label="Refresh pull request"]')?.click();
     pageZero = [newest, first];
     synced.forEach(listener => listener());
-    await until(() => host.querySelector('.pulls-list')?.textContent?.includes(newest.title) === true);
+    await until(() => host.querySelector('.pulls-list')?.textContent?.includes(newest.title) === true, 'Sync must list the newest pull request');
     await settle();
     observer.disconnect();
     if (!link) assert(siblingRow !== undefined && siblingRow.isConnected && !removed.includes(siblingRow),

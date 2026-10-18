@@ -15,7 +15,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import App from '../../App';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, until } from '../../fixtures/harness';
 import type { Bridge } from '../../types';
 import { settingsRoute } from '../routes';
 import '../../index.css';
@@ -62,11 +62,6 @@ const toggle = () => document.querySelector<HTMLButtonElement>('.setw-page [role
 const openButton = () => document.querySelector<HTMLButtonElement>('.setw-page .setw-btn-primary');
 const errorText = () => document.querySelector('.setw-page [role="alert"]')?.textContent ?? '';
 const DASHBOARD = 'http://127.0.0.1:42311/';
-
-async function until(condition: () => boolean, message: string) {
-  for (let i = 0; i < 120 && !condition(); i++) await settle();
-  assert(condition(), message);
-}
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   window.localStorage.removeItem('bytequay.lab-link');

@@ -19,7 +19,7 @@ import App from '../../App';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import { relatedWorkspaceRoute, workspaceRoute } from '../model';
 import type { Bridge, WorkspaceDto, WorkspaceRelationshipDto } from '../../types';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, until } from '../../fixtures/harness';
 import '../../index.css';
 import '../../css/settings-window.css';
 
@@ -169,10 +169,6 @@ async function navigationScenario() {
   document.body.append(host);
   const root = createRoot(host);
   flushSync(() => root.render(<App />));
-  const until = async (condition: () => boolean, message: string) => {
-    for (let index = 0; index < 45 && !condition(); index++) await settle();
-    assert(condition(), `${message}: ${host.textContent}`);
-  };
   const ownTab = (label: string) => host.querySelector<HTMLButtonElement>(`[aria-label="Workspace navigation"] [aria-label="${label}"]`);
   const relatedLink = (tab: 'commits' | 'context') => host.querySelector<HTMLAnchorElement>(`a[href="${relatedWorkspaceRoute(trino.id, iceberg.id, tab)}"]`);
   const selected = (tab: 'commits' | 'context') => relatedLink(tab)?.getAttribute('aria-current') === 'page';

@@ -22,7 +22,7 @@ import type { Bridge, CreateAgentTaskRequest, WorkspaceDto } from '../../types';
 import type { WorkItemDto } from '../../goals/contracts';
 import { ticketEpicId } from '../../workspaces/epics';
 import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, until as untilSettled } from '../../fixtures/harness';
 import { ZOOM_REFERENCE } from '../../githubReference';
 import { loadHandled, visibleAttention } from '../../home/attention';
 import { loadPinned } from '../../home/pinned';
@@ -58,7 +58,8 @@ const select = (label: string): HTMLSelectElement => {
   assert(found != null, `Missing selector: ${label}`); return found;
 };
 function choose(element: HTMLSelectElement, value: string) { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(element, value); element.dispatchEvent(new Event('change', { bubbles: true })); }
-async function until(condition: () => boolean, message = 'UI did not settle') { for (let i = 0; i < 45 && !condition(); i++) await settle(); assert(condition(), message); }
+// Each test reports its own name, so most waits here go without a message of their own.
+const until = (condition: () => boolean, message = 'UI did not settle') => untilSettled(condition, message);
 const cards = () => document.querySelectorAll('.jira-card');
 const scope = (): HTMLButtonElement => { const found = document.querySelector<HTMLButtonElement>('.jira-scope'); assert(found !== null, 'Scope control exists'); return found; };
 const menuItem = (text: string): HTMLButtonElement => {

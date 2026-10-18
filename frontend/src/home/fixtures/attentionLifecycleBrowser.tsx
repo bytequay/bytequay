@@ -17,7 +17,7 @@ import { createRoot } from 'react-dom/client';
 import AppSidebar from '../../AppSidebar';
 import { taskAttentionItem } from '../../agents/attention';
 import { previewTask } from '../../agents/fixtures/previewBridge';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, settle, until } from '../../fixtures/harness';
 import { jiraAttentionItem } from '../../jira/attention';
 import { jiraIssue } from '../../jira/fixtures/jira';
 import type { Bridge, ModelSettingsDto, PullRequestDto, WorkspaceDto } from '../../types';
@@ -325,8 +325,7 @@ async function snoozing(): Promise<void> {
     await f.close();
     assert(loadHandled()[original.key]?.kind === 'snooze', 'Reading elsewhere must preserve a pending timed reminder');
     await new Promise<void>(resolve => window.setTimeout(resolve, Math.max(0, deadline - Date.now()) + 80));
-    await settle();
-    assert(f.cards().length === 2, 'Timed snoozes must return automatically whether or not an item changed');
+    await until(() => f.cards().length === 2, 'Timed snoozes must return automatically whether or not an item changed');
     assert(f.cards()[0].textContent?.includes('Latest title while snoozed') === true
       && f.cards()[0].textContent?.includes('Latest comment while snoozed') === true, 'Woken cards must display the latest title and comment');
   }
@@ -346,8 +345,7 @@ async function retainedReminder(): Promise<void> {
     await f.items([]);
     assert(f.cards().length === 0, 'A snoozed item that leaves ordinary eligibility must stay quiet before its deadline');
     await new Promise<void>(resolve => window.setTimeout(resolve, Math.max(0, deadline - Date.now()) + 100));
-    await settle();
-    assert(f.cards().length === 1 && f.cards()[0].textContent?.includes('Closed while snoozed') === true,
+    await until(() => f.cards().length === 1 && f.cards()[0].textContent?.includes('Closed while snoozed') === true,
       'An expired reminder must return with its latest closed state even after leaving the candidate query');
     button(f.host, 'Acknowledge #50').click(); await settle();
     assert(f.cards().length === 0, 'Acknowledging a retained reminder must remove it without ordinary eligibility');

@@ -27,7 +27,7 @@ and the resulting changes close enough to inspect together.
 | --- | --- |
 | Home and workspaces | Follow repositories, activity, and work that needs attention. |
 | Today | Start each working day with a few things worth doing first, each with its reason, picked from your own work. |
-| Assistant | Ask about your day, start tasks, and answer them from one panel. |
+| Assistant | Ask about your day, find and open your work, start tasks, and answer them from one panel. |
 | Development tasks | Give Codex or Claude a request, follow its progress, inspect changes, and continue the conversation. |
 | Pull-request review | Understand the purpose of a change, read patches and checks, discuss findings privately, and choose what to publish. |
 | Cherry-pick | Select commits, inspect their destination and order, follow conflict resolution, and deliver the resulting branch. |

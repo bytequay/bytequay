@@ -276,8 +276,13 @@ starts a task or changes work.
 
 The Assistant panel holds one conversation per local day with a tools-only
 session: it has no shell, file or web tools, only `assistant_context`, which reads
-the agenda's stored data plus what runs now and what is on screen, and
-`assistant_act`. It is the one agent that names other tasks, and only through
+the agenda's stored data plus what runs now, what is on screen and what a search
+of stored items finds, `assistant_act`, and `assistant_show`, which changes no
+data. A list it shows holds only references the user could see, on screen or
+handed out that day, and the panel draws each row from the app's own stores, so
+titles stay data. It opens a page or such an item only on the user's own words,
+checked as for an action, and leaves a receipt. It is the one agent that names
+other tasks, and only through
 `assistant_act`: in a run the user's own message started, on cards visible when
 that message was sent or on references handed out that day. A task it starts or
 replies to receives only the user's own words, beside the first message the app

@@ -118,6 +118,10 @@ message uses your model allowance.
 3. Browse **Decision**, **Running**, **Finished**, or **Today**. Use **← →** to
    page through cards, or **View all**. Answer approvals and questions on their
    cards; **Esc** closes the panel.
+4. Ask it to find or list work, such as your open pull requests. It shows them
+   as a list; switch between rows, cards and a timeline from the list's header,
+   and click an item to open it. Ask it to take you to a page or an item, such
+   as model settings, and it opens it; the receipt's **Open** goes there again.
 
 When chat is off or your agent needs reconnecting, task notices and approval
 buttons remain available. Saved conversation history is preserved.

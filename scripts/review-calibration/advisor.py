@@ -249,7 +249,7 @@ def peaks(sight, arguments):
         raise agent.ToolError("top must be from 1 to 10")
     column, scale, unit, digits = WHOLE[amount]
     chosen = []
-    for at, value in sight.machine.sort_values(column, ascending=False)[["at", column]].itertuples(index=False):
+    for at, value in sight.machine.sort_values(column, ascending=False, kind="stable")[["at", column]].itertuples(index=False):
         if len(chosen) == top:
             break
         if all(abs(at - other) >= SPACED for other, _ in chosen):
@@ -258,7 +258,7 @@ def peaks(sight, arguments):
     written = lambda made: f"{made / part_scale:,.{part_digits}f}{part_unit}"
     lines = [f"The Mac's busiest moments by {amount}, at least {SPACED // 60} minutes apart, with what ByteQuay took of it then; the rest is other programs:"]
     for at, value in chosen:
-        here = sight.parts[(sight.parts["at"] == at) & (sight.parts["processes"] > 0)].sort_values(amount, ascending=False)
+        here = sight.parts[(sight.parts["at"] == at) & (sight.parts["processes"] > 0)].sort_values(amount, ascending=False, kind="stable")
         turns = sight.machine.loc[sight.machine["at"] == at, "turns"].iloc[0]
         most = ", ".join(f"{resources.NAMES[part]} {written(made)}" for part, made in zip(here["part"].head(3), here[amount].head(3)))
         lines.append(f"  {local(at)}: the Mac {value / scale:,.{digits}f}{unit}; ByteQuay {written(here[amount].sum())}" + (f", most of it {most}" if most else "")

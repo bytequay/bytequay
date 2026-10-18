@@ -293,6 +293,7 @@ class AssistantActions
                 case START_TASK -> optional("from").orElse(text("workspace"));
                 case ANSWER_APPROVAL, ANSWER_QUESTION -> text("approval");
                 case REPLY_TO_TASK -> text("task");
+                case OPEN -> text("ref");
             };
         }
     }
@@ -345,7 +346,7 @@ class AssistantActions
                 // The service's own rules said no, such as an item that cannot start now; the user reads why.
                 String reason = clip(Optional.ofNullable(failure.getMessage()).filter(text -> !text.isBlank()).orElse("ByteQuay could not do that"), REASON);
                 result = new Result(reason, new AssistantReceipt(request.operation(), Outcome.FAILED, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                        Optional.empty()), Optional.empty());
+                        Optional.empty(), Optional.empty()), Optional.empty());
             }
             // The words go on every receipt, done or refused, so the user sees exactly what was taken as theirs.
             AssistantReceipt receipt = result.receipt().withWords(request.words());
@@ -392,7 +393,7 @@ class AssistantActions
                 return Optional.of(Result.refused(operation, "That isn't on screen"));
             }
             Optional<Result> state = switch (operation) {
-                case START_TASK -> Optional.empty();
+                case START_TASK, OPEN -> Optional.empty();
                 case ANSWER_APPROVAL, ANSWER_QUESTION -> approvalState(request);
                 case REPLY_TO_TASK -> taskState(request);
             };
@@ -507,6 +508,8 @@ class AssistantActions
                 case ANSWER_APPROVAL -> allowOrDeny(request);
                 case ANSWER_QUESTION -> answerQuestion(request);
                 case REPLY_TO_TASK -> send(request);
+                // Opening changes nothing, so assistant_show does it; this tool never parses that op.
+                case OPEN -> throw new IllegalStateException("assistant_act does not open");
             };
         }
 
@@ -534,8 +537,8 @@ class AssistantActions
             // What the task was sent, beside the words it was taken from.
             String sent = answers.entrySet().stream().map(answer -> clip(answer.getKey(), 60) + " → " + answer.getValue()).collect(joining(" · "));
             AssistantReceipt receipt = result.receipt();
-            return new Result(result.line(), new AssistantReceipt(receipt.operation(), receipt.outcome(), Optional.of(clip(sent, REASON)), receipt.target(), receipt.turnId(),
-                    receipt.fix(), receipt.words()), result.result());
+            return new Result(result.line(), new AssistantReceipt(receipt.operation(), receipt.outcome(), Optional.of(clip(sent, REASON)), receipt.target(), receipt.page(),
+                    receipt.turnId(), receipt.fix(), receipt.words()), result.result());
         }
 
         private Result decided(ApprovalId id, String verb, Operation operation, ApprovalDecision decided)
@@ -587,7 +590,7 @@ class AssistantActions
             }
             Optional<String> turnId = turns.findTurnByIdempotencyKey(task.id(), key).map(turn -> turn.id().toString());
             return new Result("Started “" + clip(task.title(), 80) + "”", new AssistantReceipt(Operation.START_TASK, Outcome.DONE, Optional.of(String.join(" · ", detail.build())),
-                    target, turnId, Optional.empty(), Optional.empty()), Optional.of(task.id().toString()));
+                    target, Optional.empty(), turnId, Optional.empty(), Optional.empty()), Optional.of(task.id().toString()));
         }
 
         private Start freeText(Request request)

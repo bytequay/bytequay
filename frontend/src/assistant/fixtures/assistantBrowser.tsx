@@ -19,6 +19,7 @@ import AssistantPanel from '../AssistantPanel';
 import type { RunningTask } from '../../agents/runningTaskModel';
 import type { AppNotice } from '../../notices/contracts';
 import type { AgendaDto, AgendaTargetDto, AgentPendingApprovalDto, AssistantItemDto, AssistantListStyle, AssistantRowDto, AssistantViewDto, Bridge } from '../../types';
+import { settingsRoute } from '../../settings/routes';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../../workspaces/model';
 import { dayLabel, localDay } from '../model';
 
@@ -51,9 +52,9 @@ const VIEW: AssistantViewDto = {
       text: 'Start with [#31377](pr:trinodb/trino#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null, list: null },
     { id: 'c1', day: '2026-10-16', at: '2026-10-16T07:08:00Z', kind: 'RECEIPT', text: 'Started “Expose snapshot id in metadata”', targets: {}, notReady: false,
       receipt: { operation: 'START_TASK', outcome: 'DONE', detail: 'trinodb/trino · Claude Code Opus 5.5 · Auto draft PR', target: target('TASK', { id: 't9' }),
-        turnId: 'turn-9', fix: null, words: 'start the snapshot id one' }, list: null },
+        page: null, turnId: 'turn-9', fix: null, words: 'start the snapshot id one' }, list: null },
     { id: 'c2', day: '2026-10-16', at: '2026-10-16T07:08:01Z', kind: 'RECEIPT', text: 'Use the buttons: this one runs outside the sandbox', targets: {}, notReady: false,
-      receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, turnId: null, fix: 'BUTTONS', words: 'allow it' }, list: null },
+      receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, page: null, turnId: null, fix: 'BUTTONS', words: 'allow it' }, list: null },
   ],
   rows: {},
 };
@@ -107,14 +108,16 @@ type Calls = {
 
 type Mounted = { host: HTMLElement; calls: Calls; render: (open: boolean, openCard?: { id: string }) => void; dispose: () => void };
 
-function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, running: RunningTask[] = []): Mounted {
+function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, running: RunningTask[] = [], replied: () => AssistantViewDto = () => view): Mounted {
   const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [] };
   let failures = failSends;
+  let today = view;
   window.bridge = {
-    getAssistantToday: async () => view,
+    getAssistantToday: async () => today,
     sendAssistantMessage: async (...args: unknown[]) => {
       calls.sent.push(args);
       if (failures-- > 0) throw new Error("Error invoking remote method 'assistant:send': Error: The backend is busy");
+      today = replied();
       return { itemId: 'u2' };
     },
     stopAssistant: async () => { calls.stopped++; },
@@ -427,6 +430,42 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
   finally { view.dispose(); }
 }
 
+const opened = (id: string, at: string, page: string | null, item: AgendaTargetDto | null, words: string): AssistantItemDto => ({
+  id, day: '2026-10-16', at, kind: 'RECEIPT', text: page === null ? 'Opened “Add Iceberg metadata cache”' : 'Opened Settings · Models', targets: {}, notReady: false, list: null,
+  receipt: { operation: 'OPEN', outcome: 'DONE', detail: null, target: item, page, turnId: null, fix: null, words },
+});
+
+async function followsAnOpenOnceWhenItArrives(): Promise<void> {
+  // An open from an earlier conversation, read when the panel opens, only offers Open.
+  const earlier = { ...VIEW, items: [...VIEW.items, opened('o1', '2026-10-16T07:09:00Z', null, PULL, 'open it')] };
+  const view = mount(earlier, 0, [], [], () => ({ ...earlier, items: [...earlier.items, opened('o2', new Date(Date.now() + 1000).toISOString(), 'settings/models', null,
+    'take me to model settings')] }));
+  try {
+    window.location.hash = '#/home';
+    await settle();
+    assert(view.calls.closed === 0 && window.location.hash === '#/home', 'An open read when the panel opens is not followed');
+    enter(type(view.host, 'take me to model settings'));
+    await settle();
+    assert(window.location.hash === settingsRoute('models') && view.calls.closed === 1, `An open that arrives while the panel is open goes there: ${window.location.hash}`);
+
+    window.location.hash = '#/home';
+    view.render(true);
+    await settle();
+    enter(type(view.host, 'and now?'));
+    await settle();
+    assert(window.location.hash === '#/home' && view.calls.closed === 1, 'Read again later, the same open only offers Open');
+    const actions = [...view.host.querySelectorAll<HTMLElement>('.assistant-receipt')].map(receipt => receipt.textContent);
+    assert(actions.filter(text => text?.startsWith('Opened') === true && text.endsWith('Open')).length === 2, `Each open keeps its Open: ${JSON.stringify(actions)}`);
+    [...view.host.querySelectorAll<HTMLElement>('.assistant-receipt')].find(receipt => receipt.textContent?.startsWith('Opened Settings') === true)
+      ?.querySelector<HTMLButtonElement>('.assistant-receipt__action')?.click();
+    assert(window.location.hash === settingsRoute('models') && view.calls.closed === 2, 'Open goes to the page and closes the Assistant');
+  }
+  finally {
+    window.location.hash = '';
+    view.dispose();
+  }
+}
+
 async function stopsARunningReply(): Promise<void> {
   const view = mount({ ...VIEW, running: true });
   try {
@@ -446,7 +485,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   for (const [name, scenario] of [['floats over the page', floatsOverThePage], ['shows the day once the user talks', showsTheDayOnceTheUserTalks],
     ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
     ['moves with the keyboard', movesWithTheKeyboard], ['opens at a card from its alert', opensAtACardFromItsAlert],
-    ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline]] as const) {
+    ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline],
+    ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }

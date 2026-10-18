@@ -1521,11 +1521,13 @@ export type AssistantRowDto = {
 
 /** What one action left, done or refused: by the assistant from the user's words, or by a card's own button. */
 export type AssistantReceiptDto = {
-  operation: 'START_TASK' | 'ANSWER_APPROVAL' | 'ANSWER_QUESTION' | 'REPLY_TO_TASK';
+  operation: 'START_TASK' | 'ANSWER_APPROVAL' | 'ANSWER_QUESTION' | 'REPLY_TO_TASK' | 'OPEN';
   outcome: 'DONE' | 'REFUSED' | 'FAILED';
   /** A second line, such as where a started task runs. */
   detail: string | null;
   target: AgendaTargetDto | null;
+  /** The app page or Settings section the receipt opens instead, such as `settings/models`. */
+  page: string | null;
   /** A started task's first turn, which Stop cancels. */
   turnId: string | null;
   /** Settings holds the switch that is off; the card's buttons answer what words may not. */

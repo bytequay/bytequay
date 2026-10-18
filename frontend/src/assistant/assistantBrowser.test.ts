@@ -16,7 +16,7 @@ import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/br
 
 const SCREENSHOTS = process.env.BYTEQUAY_ASSISTANT_SCREENSHOTS !== undefined;
 
-it('floats the Assistant over the page, pages its cards by keyboard, answers them, opens at a card from its alert, sends what is on screen and draws lists', async () => {
+it('floats the Assistant over the page, pages its cards by keyboard, answers them, opens at a card from its alert, sends what is on screen, draws lists and follows opens', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
     prefix: 'bytequay-assistant-',
     entry: 'src/assistant/fixtures/assistantBrowser.tsx',
@@ -47,5 +47,5 @@ it('floats the Assistant over the page, pages its cards by keyboard, answers the
     `,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  expect(results).toHaveLength(8);
+  expect(results).toHaveLength(9);
 }, deadline(SCREENSHOTS ? 120_000 : 30_000));

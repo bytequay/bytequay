@@ -11,10 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { AppPage } from '../AppSidebar';
 import type { RunningTask } from '../agents/runningTaskModel';
 import { pullRequestFromRoute, type ZoomedReference } from '../githubReference';
 import { dayText } from '../home/today';
 import { needsAction, type AppNotice } from '../notices/contracts';
+import { SETTINGS_ENTRIES, isWorkspaceSection, settingsRoute } from '../settings/routes';
 import type { AgendaTargetDto, AssistantItemDto, AssistantRowDto } from '../types';
 import { workspaceLocationFromRoute } from '../workspaces/model';
 
@@ -154,4 +156,23 @@ export function rowState(row: AssistantRowDto): string | null {
   }
   if (row.kind === 'EPIC') return row.done === null || row.total === null ? null : `${row.done}/${row.total}`;
   return row.state === null ? null : capital(row.state);
+}
+
+// The pages the assistant may open: the sidebar's, and each Settings section outside a workspace. AssistantShow.java holds the twin.
+const PAGES: readonly AppPage[] = ['home', 'workspaces', 'teams', 'recent', 'pulls', 'jira', 'google', 'settings'];
+
+/** Where a page the assistant opened lives: `settings/models` is a Settings section, and the rest are the sidebar's pages. */
+export function pageRoute(page: string): string | null {
+  const entry = SETTINGS_ENTRIES.find(each => `settings/${each.section}` === page);
+  if (entry !== undefined) return isWorkspaceSection(entry.section) ? null : settingsRoute(entry.section);
+  return PAGES.some(each => each === page) ? `#/${page}` : null;
+}
+
+/**
+ * The open the panel follows by itself: the newest done OPEN receipt that came in after the panel opened and was not followed yet.
+ * One read later only offers its Open.
+ */
+export function arrivedOpen(items: AssistantItemDto[], openedAt: number, followed: ReadonlySet<string>): AssistantItemDto | null {
+  return items.findLast(item => item.kind === 'RECEIPT' && item.receipt?.operation === 'OPEN' && item.receipt.outcome === 'DONE'
+    && Date.parse(item.at) > openedAt && !followed.has(item.id)) ?? null;
 }

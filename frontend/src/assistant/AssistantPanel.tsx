@@ -20,9 +20,9 @@ import { clockTime } from '../home/today';
 import type { AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../remoteError';
 import { settingsRoute, type SettingsSection } from '../settings/routes';
-import type { AgendaTargetDto, AssistantItemDto, AssistantRowDto } from '../types';
+import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantRowDto } from '../types';
 import AssistantList from './AssistantList';
-import { entries, linkRefs, refFromHref, refLabel } from './model';
+import { arrivedOpen, entries, linkRefs, pageRoute, refFromHref, refLabel } from './model';
 import { useAssistant } from './useAssistant';
 import WaitingStack from './WaitingStack';
 import '../css/assistant.css';
@@ -54,6 +54,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   const scroller = useRef<HTMLDivElement>(null);
   const visible = useRef<string[]>([]);
   const returnFocus = useRef<Element | null>(null);
+  const openedAt = useRef(0);
+  const followed = useRef(new Set<string>());
   const items = view?.items ?? [];
   const running = view?.running ?? false;
   // A card answered here leaves at once; the notice itself goes on the host's next read.
@@ -63,6 +65,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
 
   useLayoutEffect(() => {
     if (open) {
+      openedAt.current = Date.now();
       returnFocus.current = document.activeElement;
       input.current?.focus();
       return;
@@ -88,6 +91,24 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     const node = scroller.current;
     if (node) node.scrollTop = node.scrollHeight;
   }, [open, talkShown, items.length, running]);
+
+  // Where a receipt opens, a page before an item; the Assistant closes first, so nothing opens under it.
+  const openReceipt = useCallback((receipt: AssistantReceiptDto) => {
+    const hash = receipt.page === null ? null : pageRoute(receipt.page);
+    if (hash === null && receipt.target === null) return;
+    onClose();
+    if (hash !== null) window.location.hash = hash;
+    else if (receipt.target !== null) openTarget(receipt.target);
+  }, [onClose]);
+
+  // An open the assistant made while the user watched goes there once; read later, its receipt only offers Open.
+  useEffect(() => {
+    if (!open) return;
+    const arrived = arrivedOpen(view?.items ?? [], openedAt.current, followed.current);
+    if (arrived === null || arrived.receipt === null) return;
+    followed.current.add(arrived.id);
+    openReceipt(arrived.receipt);
+  }, [open, view, openReceipt]);
 
   if (!open) return null;
 
@@ -123,7 +144,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   const talk = talkShown && items.length > 0 && (
     <div ref={scroller} className="assistant-sheet assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
       {entries(items).map(entry => Array.isArray(entry)
-        ? <div key={entry[0].id} className="assistant-receipts">{entry.map(item => <Receipt key={item.id} item={item} onOpen={show} />)}</div>
+        ? <div key={entry[0].id} className="assistant-receipts">{entry.map(item => <Receipt key={item.id} item={item} onOpen={openReceipt} />)}</div>
         : <Entry key={entry.id} item={entry} rows={view?.rows ?? {}} retryable={chatEnabled && !running && entry.id === lastExchange} onRetry={retry}
           onSettings={openSettings} onOpen={show} />)}
       {running && <p className="assistant-thinking" role="status">Thinking…</p>}
@@ -222,12 +243,12 @@ function Entry({ item, rows, retryable, onRetry, onSettings, onOpen }: {
 }
 
 /** What an action did: Open goes where it acted, and Stop cancels the first turn of a task it started. */
-function Receipt({ item, onOpen }: { item: AssistantItemDto; onOpen: (target: AgendaTargetDto) => void }) {
+function Receipt({ item, onOpen }: { item: AssistantItemDto; onOpen: (receipt: AssistantReceiptDto) => void }) {
   const [stop, setStop] = useState<'idle' | 'stopping' | 'stopped'>('idle');
   const [error, setError] = useState<string | null>(null);
   const receipt = item.receipt;
   if (receipt === null) return null;
-  const { target, turnId } = receipt;
+  const { target, page, turnId } = receipt;
   const cancel = (turn: string) => {
     setStop('stopping');
     setError(null);
@@ -244,7 +265,7 @@ function Receipt({ item, onOpen }: { item: AssistantItemDto; onOpen: (target: Ag
       {turnId !== null && (stop === 'stopped'
         ? <span className="assistant-receipt__detail">Stopped</span>
         : <button type="button" className="assistant-receipt__action" disabled={stop === 'stopping'} onClick={() => cancel(turnId)}>Stop</button>)}
-      {target !== null && <button type="button" className="assistant-receipt__action" onClick={() => onOpen(target)}>Open</button>}
+      {(target !== null || page !== null) && <button type="button" className="assistant-receipt__action" onClick={() => onOpen(receipt)}>Open</button>}
     </div>
   );
 }

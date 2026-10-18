@@ -27,6 +27,7 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantList;
+import com.bytequay.core.domain.AssistantReceipt;
 import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -49,10 +50,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static com.bytequay.core.domain.AssistantReceipt.Operation.OPEN;
+import static com.bytequay.core.domain.AssistantReceipt.Outcome.DONE;
+import static com.bytequay.core.domain.AssistantReceipt.Outcome.REFUSED;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestAssistantShow
@@ -65,6 +71,7 @@ class TestAssistantShow
             "ws:ws1", new ServedRef("start_options", Optional.empty()));
 
     private final AppNoticeService notices = mock(AppNoticeService.class);
+    private final AssistantRows rows = mock(AssistantRows.class);
     private final ObjectMapper mapper = AgendaFixtures.mapper();
     private final List<AssistantItem> shown = new ArrayList<>();
     private AssistantShow show;
@@ -80,7 +87,11 @@ class TestAssistantShow
                 mock(AgentApprovalService.class), mock(AgentTaskStore.class), mock(AgentTurnService.class), mock(InteractiveAgentTaskStarter.class), notices,
                 mock(AgentReviewStore.class), mock(WorkspaceStore.class), mock(WorkItemStore.class), mock(RepositoryIssueStore.class), mock(JiraService.class),
                 mock(ModelSettingsService.class), mock(AppSettingsService.class), mapper, clock);
-        show = new AssistantShow(actions, mapper, clock);
+        show = new AssistantShow(actions, rows, mapper, clock);
+        AgendaTarget pull = AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"));
+        when(rows.rows(ImmutableList.of(PULL))).thenReturn(ImmutableMap.of(PULL, new AssistantRow(PULL, AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict",
+                Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), pull)));
     }
 
     @Test
@@ -133,7 +144,7 @@ class TestAssistantShow
     void rejectsAMalformedCall()
             throws Exception
     {
-        assertThat(error(show(message(), "{\"op\":\"merge\"}"))).isEqualTo("op must be one of list");
+        assertThat(error(show(message(), "{\"op\":\"merge\"}"))).isEqualTo("op must be one of list, open");
         assertThat(error(show(message(), "{\"op\":\"list\",\"title\":\"Mine\",\"refs\":[\"work:w22\"],\"words\":\"show them\"}"))).isEqualTo("list takes no words");
         assertThat(error(show(message(), "{\"op\":\"list\",\"refs\":[\"work:w22\"]}"))).isEqualTo("list needs a title");
         assertThat(error(show(message(), "{\"op\":\"list\",\"title\":\"Mine\",\"refs\":\"work:w22\"}"))).isEqualTo("list needs refs");
@@ -141,6 +152,87 @@ class TestAssistantShow
                 .isEqualTo("style must be one of rows, cards, timeline");
         assertThat(error(show(message(), "not json"))).isEqualTo("arguments are not JSON");
         assertThat(shown).isEmpty();
+    }
+
+    @Test
+    void opensAnItemTheUserCouldSeeOnTheirOwnWords()
+            throws Exception
+    {
+        AssistantItem message = message("open it, please");
+        JsonNode answer = show(message, "{\"op\":\"open\",\"ref\":\"" + PULL + "\",\"words\":\"open  IT\"}");
+
+        assertThat(answer.path("outcome").asText()).isEqualTo("done");
+        AssistantItem receipt = shown.getLast();
+        assertThat(receipt.kind()).isEqualTo(AssistantItem.Kind.RECEIPT);
+        // Its name and where it opens come from the stores, and the words it acted on go on the receipt.
+        assertThat(receipt.text()).isEqualTo("Opened “Retry Iceberg commit on conflict”");
+        assertThat(receipt.receipt()).contains(AssistantReceipt.done(OPEN, Optional.of(AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1")))).withWords("open  IT"));
+    }
+
+    @Test
+    void opensAPageOrASettingsSectionOnTheirOwnWords()
+            throws Exception
+    {
+        AssistantItem message = message("take me to model settings");
+        JsonNode answer = show(message, "{\"op\":\"open\",\"page\":\"settings/models\",\"words\":\"take me to model settings\"}");
+
+        assertThat(answer.path("message").asText()).isEqualTo("Opened Settings · Models");
+        AssistantReceipt receipt = shown.getLast().receipt().orElseThrow();
+        assertThat(receipt.operation()).isEqualTo(OPEN);
+        assertThat(receipt.outcome()).isEqualTo(DONE);
+        assertThat(receipt.page()).contains("settings/models");
+        assertThat(receipt.target()).isEmpty();
+        assertThat(receipt.words()).contains("take me to model settings");
+        show(message("show me my pull requests"), "{\"op\":\"open\",\"page\":\"pulls\",\"words\":\"show me my pull requests\"}");
+        assertThat(shown.getLast().text()).isEqualTo("Opened Pull requests");
+        verify(rows, never()).rows(ImmutableList.of(PULL));
+    }
+
+    @Test
+    void refusesWordsThatAreNotTheUsersOrThatTheMessageTurnsDown()
+            throws Exception
+    {
+        assertRefused(show(message("what is waiting on me?"), "{\"op\":\"open\",\"page\":\"settings/models\",\"words\":\"open settings\"}"),
+                "Those words aren't in your message", "open settings");
+        assertRefused(show(message("a"), "{\"op\":\"open\",\"page\":\"home\",\"words\":\"a\"}"), "Those words aren't in your message", "a");
+        assertRefused(show(message("don't open the model settings, just tell me"), "{\"op\":\"open\",\"page\":\"settings/models\",\"words\":\"open the model settings\"}"),
+                "Your message says not to do that", "open the model settings");
+        assertThat(shown).allSatisfy(receipt -> assertThat(receipt.receipt().orElseThrow().target()).isEmpty());
+    }
+
+    @Test
+    void opensOnlyAnItemOnScreenOrHandedOutThatStillExists()
+            throws Exception
+    {
+        assertRefused(show(message("open #1"), "{\"op\":\"open\",\"ref\":\"pr:trinodb/trino#1\",\"words\":\"open #1\"}"), "That isn't on screen", "open #1");
+        // Handed out earlier today, but no longer in any store.
+        assertRefused(show(message("open the work item"), "{\"op\":\"open\",\"ref\":\"work:w22\",\"words\":\"open the work item\"}"),
+                "That isn't in ByteQuay any more", "open the work item");
+
+        assertThat(error(show(message(), "{\"op\":\"open\",\"ref\":\"" + PULL + "\",\"page\":\"home\",\"words\":\"waiting\"}")))
+                .isEqualTo("open takes a ref or a page");
+        assertThat(error(show(message(), "{\"op\":\"open\",\"words\":\"waiting\"}"))).isEqualTo("open takes a ref or a page");
+        assertThat(error(show(message(), "{\"op\":\"open\",\"page\":\"home\"}"))).isEqualTo("open needs the user's words");
+        assertThat(error(show(message(), "{\"op\":\"open\",\"page\":\"terminal\",\"words\":\"waiting\"}"))).startsWith("page must be one of home, workspaces");
+        assertThat(error(show(message(), "{\"op\":\"open\",\"ref\":\"ws:ws1\",\"words\":\"waiting\"}"))).isEqualTo("open takes an item's ref or a page");
+        assertThat(error(show(message(), "{\"op\":\"open\",\"page\":\"home\",\"words\":\"waiting\",\"title\":\"Home\"}"))).isEqualTo("open takes no title");
+        assertThat(shown).hasSize(2);
+    }
+
+    private void assertRefused(JsonNode answer, String reason, String words)
+    {
+        assertThat(answer.path("outcome").asText()).isEqualTo("refused");
+        assertThat(answer.path("message").asText()).isEqualTo(reason);
+        AssistantItem receipt = shown.getLast();
+        assertThat(receipt.text()).isEqualTo(reason);
+        assertThat(receipt.receipt().orElseThrow().operation()).isEqualTo(OPEN);
+        assertThat(receipt.receipt().orElseThrow().outcome()).isEqualTo(REFUSED);
+        assertThat(receipt.receipt().orElseThrow().words()).contains(words);
+    }
+
+    private static AssistantItem message(String text)
+    {
+        return AssistantItem.user(DAY, NOW, text, ImmutableList.of("approval:a1"), Optional.of(PULL), "key-" + text);
     }
 
     private static AssistantItem message()

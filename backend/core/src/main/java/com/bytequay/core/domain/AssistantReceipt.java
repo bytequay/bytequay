@@ -24,16 +24,17 @@ import static java.util.Objects.requireNonNull;
  *
  * @param detail a second line, such as where a started task runs
  * @param target where the receipt opens
+ * @param page the app page or Settings section the receipt opens instead, such as {@code settings/models}
  * @param turnId a started task's first turn, which Stop cancels
  * @param fix where a refused action can be done instead
  * @param words the user's words the assistant acted on, exactly as it passed them; none for a button
  */
-public record AssistantReceipt(Operation operation, Outcome outcome, Optional<String> detail, Optional<AgendaTarget> target, Optional<String> turnId, Optional<Fix> fix,
-        Optional<String> words)
+public record AssistantReceipt(Operation operation, Outcome outcome, Optional<String> detail, Optional<AgendaTarget> target, Optional<String> page, Optional<String> turnId,
+        Optional<Fix> fix, Optional<String> words)
 {
     public enum Operation
     {
-        START_TASK, ANSWER_APPROVAL, ANSWER_QUESTION, REPLY_TO_TASK
+        START_TASK, ANSWER_APPROVAL, ANSWER_QUESTION, REPLY_TO_TASK, OPEN
     }
 
     public enum Outcome
@@ -53,6 +54,7 @@ public record AssistantReceipt(Operation operation, Outcome outcome, Optional<St
         requireNonNull(outcome, "outcome is null");
         checkOptionalText(detail, "detail");
         requireNonNull(target, "target is null");
+        checkOptionalText(page, "page");
         checkOptionalText(turnId, "turnId");
         requireNonNull(fix, "fix is null");
         requireNonNull(words, "words is null");
@@ -60,16 +62,16 @@ public record AssistantReceipt(Operation operation, Outcome outcome, Optional<St
 
     public static AssistantReceipt done(Operation operation, Optional<AgendaTarget> target)
     {
-        return new AssistantReceipt(operation, Outcome.DONE, Optional.empty(), target, Optional.empty(), Optional.empty(), Optional.empty());
+        return new AssistantReceipt(operation, Outcome.DONE, Optional.empty(), target, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     public static AssistantReceipt refused(Operation operation, Optional<Fix> fix)
     {
-        return new AssistantReceipt(operation, Outcome.REFUSED, Optional.empty(), Optional.empty(), Optional.empty(), fix, Optional.empty());
+        return new AssistantReceipt(operation, Outcome.REFUSED, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), fix, Optional.empty());
     }
 
     public AssistantReceipt withWords(String said)
     {
-        return new AssistantReceipt(operation, outcome, detail, target, turnId, fix, Optional.of(said));
+        return new AssistantReceipt(operation, outcome, detail, target, page, turnId, fix, Optional.of(said));
     }
 }

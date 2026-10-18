@@ -17,6 +17,9 @@ import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.agenda.AgendaRefs;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantList;
+import com.bytequay.core.domain.AssistantReceipt;
+import com.bytequay.core.domain.AssistantReceipt.Operation;
+import com.bytequay.core.domain.AssistantReceipt.Outcome;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,6 +31,7 @@ import org.springframework.stereotype.Component;
 import java.time.Clock;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -39,7 +43,8 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * The {@code assistant_show} tool: what the assistant shows the user, which changes no data. A list names refs the user could see, on
- * screen or handed out that day, and the panel draws each from ByteQuay's own data, so the assistant never writes a row.
+ * screen or handed out that day, and the panel draws each from ByteQuay's own data, so the assistant never writes a row. An open goes
+ * to a page or such an item only on the user's own words, and leaves a receipt either way.
  */
 @Component
 class AssistantShow
@@ -53,20 +58,48 @@ class AssistantShow
             "rows", AssistantList.Style.ROWS,
             "cards", AssistantList.Style.CARDS,
             "timeline", AssistantList.Style.TIMELINE);
-    private static final Map<String, Set<String>> FIELDS = ImmutableMap.of("list", ImmutableSet.of("op", "style", "title", "refs"));
+    private static final Map<String, Set<String>> FIELDS = ImmutableMap.of(
+            "list", ImmutableSet.of("op", "style", "title", "refs"),
+            "open", ImmutableSet.of("op", "ref", "page", "words"));
+    // Twins of the sidebar's AppPage in AppSidebar.tsx and the Settings sections in settings/routes.ts, by the names the app shows; change them together.
+    private static final Map<String, String> PAGES = ImmutableMap.<String, String>builder()
+            .put("home", "Home")
+            .put("workspaces", "Workspaces")
+            .put("teams", "Circles")
+            .put("recent", "Recent")
+            .put("pulls", "Pull requests")
+            .put("jira", "Jira")
+            .put("google", "Google Apps")
+            .put("settings", "Settings")
+            .put("settings/general", "Settings · General")
+            .put("settings/appearance", "Settings · Appearance")
+            .put("settings/browser", "Settings · Browser")
+            .put("settings/models", "Settings · Models")
+            .put("settings/skills", "Settings · Skills")
+            .put("settings/workflow", "Settings · Workflow")
+            .put("settings/github", "Settings · GitHub")
+            .put("settings/jira", "Settings · Jira")
+            .put("settings/google", "Settings · Google Apps")
+            .put("settings/lab", "Settings · Lab")
+            .buildOrThrow();
 
     private final AssistantActions actions;
+    private final AssistantRows rows;
     private final ObjectMapper mapper;
     private final Clock clock;
 
-    AssistantShow(AssistantActions actions, ObjectMapper mapper, Clock clock)
+    AssistantShow(AssistantActions actions, AssistantRows rows, ObjectMapper mapper, Clock clock)
     {
         this.actions = requireNonNull(actions, "actions is null");
+        this.rows = requireNonNull(rows, "rows is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    /** The tool for one message: it shows only what that message had on screen or the day handed out, and adds what it shows through {@code items}. */
+    /**
+     * The tool for one message: it shows only what that message had on screen or the day handed out, opens only on its words, and adds
+     * what it shows and the receipts it leaves through {@code items}.
+     */
     ReviewTool tool(AssistantItem message, AssistantContext context, Consumer<AssistantItem> items)
     {
         checkArgument(message.kind() == AssistantItem.Kind.USER, "only a user's message can show");
@@ -78,11 +111,14 @@ class AssistantShow
                                 "description", "rows by default; cards for a few items that need the user; timeline for history"),
                         "title", ImmutableMap.of("type", "string", "description", "A few words that name the list"),
                         "refs", ImmutableMap.of("type", "array", "items", ImmutableMap.of("type", "string"), "maxItems", AssistantList.MAXIMUM_REFS,
-                                "description", "Refs that assistant_context returned or that are on screen, in the order to show them")),
+                                "description", "list: refs that assistant_context returned or that are on screen, in the order to show them"),
+                        "ref", ImmutableMap.of("type", "string", "description", "open: an item's ref that assistant_context returned or that is on screen"),
+                        "page", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(PAGES.keySet()), "description", "open: a page of the app or a Settings section"),
+                        "words", ImmutableMap.of("type", "string", "description", "open: the user's exact words in their latest message that ask for it")),
                 "required", ImmutableList.of("op"),
                 "additionalProperties", false);
-        return new ReviewTool(NAME, "Show the user several items as a list in the panel. The app draws each item from its own data, so the list stays current.",
-                schema, arguments -> call(message, context, items, arguments), false);
+        return new ReviewTool(NAME, "Show the user several items as a list in the panel, which the app draws from its own data, or open a page or an item when the "
+                + "user's latest message asks. The app shows the user a receipt for every open.", schema, arguments -> call(message, context, items, arguments), false);
     }
 
     private String call(AssistantItem message, AssistantContext context, Consumer<AssistantItem> items, String arguments)
@@ -94,7 +130,7 @@ class AssistantShow
             String op = body.path("op").asText("");
             checkArgument(FIELDS.containsKey(op), "op must be one of %s", String.join(", ", FIELDS.keySet()));
             body.fieldNames().forEachRemaining(field -> checkArgument(FIELDS.get(op).contains(field), "%s takes no %s", op, field));
-            return list(message, context, items, body);
+            return op.equals("list") ? list(message, context, items, body) : open(message, context, items, body);
         }
         catch (JsonProcessingException invalid) {
             return reply("error", "arguments are not JSON", ImmutableList.of());
@@ -128,6 +164,49 @@ class AssistantShow
         items.accept(AssistantItem.list(message.day(), clock.instant(), clip(title, TITLE), new AssistantList(style, ImmutableList.copyOf(kept))));
         return reply("done", dropped.isEmpty() ? "Showed " + kept.size() : "Showed " + kept.size() + "; dropped the refs not on screen or handed out today",
                 ImmutableList.copyOf(dropped));
+    }
+
+    /** Goes where the user's own words ask: a page of the app, or an item they could see. Done or refused, it leaves a receipt. */
+    private String open(AssistantItem message, AssistantContext context, Consumer<AssistantItem> items, JsonNode body)
+    {
+        checkArgument(body.path("words").isTextual(), "open needs the user's words");
+        String words = body.path("words").asText();
+        Optional<String> ref = text(body, "ref");
+        Optional<String> page = text(body, "page");
+        checkArgument(ref.isPresent() != page.isPresent(), "open takes a ref or a page");
+        checkArgument(page.map(PAGES::containsKey).orElse(true), "page must be one of %s", String.join(", ", PAGES.keySet()));
+        checkArgument(ref.map(named -> LISTED.contains(AgendaRefs.kind(named))).orElse(true), "open takes an item's ref or a page");
+        Optional<String> unsaid = AssistantActions.unsaid(message, words);
+        if (unsaid.isPresent()) {
+            return receipt(message, items, unsaid.orElseThrow(), AssistantReceipt.refused(Operation.OPEN, Optional.empty()), words);
+        }
+        if (page.isPresent()) {
+            return receipt(message, items, "Opened " + PAGES.get(page.orElseThrow()), new AssistantReceipt(Operation.OPEN, Outcome.DONE, Optional.empty(), Optional.empty(),
+                    page, Optional.empty(), Optional.empty(), Optional.empty()), words);
+        }
+        String named = ref.orElseThrow();
+        if (!actions.shown(message, context).contains(named)) {
+            return receipt(message, items, "That isn't on screen", AssistantReceipt.refused(Operation.OPEN, Optional.empty()), words);
+        }
+        // Where it opens and what it is called come from the stores now, not from what the assistant was told.
+        Optional<AssistantRow> row = Optional.ofNullable(rows.rows(ImmutableList.of(named)).get(named));
+        if (row.isEmpty()) {
+            return receipt(message, items, "That isn't in ByteQuay any more", AssistantReceipt.refused(Operation.OPEN, Optional.empty()), words);
+        }
+        return receipt(message, items, "Opened “" + clip(row.orElseThrow().title(), TITLE) + "”", AssistantReceipt.done(Operation.OPEN, Optional.of(row.orElseThrow().target())),
+                words);
+    }
+
+    /** Leaves the receipt the user reads, with the words the assistant acted on, and tells the assistant the same line. */
+    private String receipt(AssistantItem message, Consumer<AssistantItem> items, String line, AssistantReceipt receipt, String words)
+    {
+        items.accept(AssistantItem.receipt(message.day(), clock.instant(), line, receipt.withWords(words)));
+        return reply(receipt.outcome().name().toLowerCase(Locale.ROOT), line, ImmutableList.of());
+    }
+
+    private static Optional<String> text(JsonNode body, String field)
+    {
+        return Optional.of(body.path(field).asText("").strip()).filter(value -> !value.isEmpty());
     }
 
     /** What the tool tells the assistant: what came of the call, and the refs it dropped, if any. */

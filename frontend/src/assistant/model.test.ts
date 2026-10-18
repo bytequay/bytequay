@@ -16,7 +16,8 @@ import type { RunningTask } from '../agents/runningTaskModel';
 import type { AppNotice } from '../notices/contracts';
 import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantRowDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceIssueRoute, workspacePullRequestRoute, workspaceReviewTaskRoute } from '../workspaces/model';
-import { dayLabel, entries, linkRefs, localDay, refFromHref, refLabel, rowState, screenRef, stackOf, timelineDays, waitingCards } from './model';
+import { settingsRoute } from '../settings/routes';
+import { arrivedOpen, dayLabel, entries, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, screenRef, stackOf, timelineDays, waitingCards } from './model';
 
 const target: AgendaTargetDto = { kind: 'PULL', workspaceId: 'ws', repo: 'trinodb/trino', number: 31402, id: null, connectionId: null, cloudId: null };
 
@@ -70,7 +71,7 @@ describe('linkRefs', () => {
 describe('entries', () => {
   const item = (id: string, kind: AssistantItemDto['kind'], outcome?: AssistantReceiptDto['outcome']): AssistantItemDto => ({
     id, day: '2026-10-17', at: '2026-10-17T07:00:00Z', kind, text: id, targets: {}, notReady: false, list: null,
-    receipt: outcome === undefined ? null : { operation: 'ANSWER_APPROVAL', outcome, detail: null, target: null, turnId: null, fix: null, words: null },
+    receipt: outcome === undefined ? null : { operation: 'ANSWER_APPROVAL', outcome, detail: null, target: null, page: null, turnId: null, fix: null, words: null },
   });
 
   it('groups a run of done receipts and leaves refusals and the rest on their own', () => {
@@ -141,5 +142,30 @@ describe('lists', () => {
     expect(rowState(row('work:w1', 'WORK', null, { state: 'planned' }))).toBe('Planned');
     expect(rowState(row('epic:e1', 'EPIC', null, { done: 3, total: 6 }))).toBe('3/6');
     expect(rowState(row('issue:a#2', 'ISSUE', null))).toBeNull();
+  });
+});
+
+describe('opens', () => {
+  const receipt = (id: string, at: string, outcome: AssistantReceiptDto['outcome'], operation: AssistantReceiptDto['operation'] = 'OPEN'): AssistantItemDto => ({
+    id, day: '2026-10-17', at, kind: 'RECEIPT', text: id, targets: {}, notReady: false, list: null,
+    receipt: { operation, outcome, detail: null, target, page: null, turnId: null, fix: null, words: 'open it' },
+  });
+
+  it('names the route of each page the assistant may open', () => {
+    expect(pageRoute('settings/models')).toBe(settingsRoute('models'));
+    expect(pageRoute('settings/workflow')).toBe('#/settings/agents/workflow');
+    expect(pageRoute('pulls')).toBe('#/pulls');
+    expect(pageRoute('settings')).toBe('#/settings');
+    expect(pageRoute('settings/ws-token')).toBeNull();
+    expect(pageRoute('terminal')).toBeNull();
+  });
+
+  it('follows only the newest done open that came in after the panel opened, once', () => {
+    const opened = Date.parse('2026-10-17T09:00:00Z');
+    const items = [receipt('old', '2026-10-17T08:59:00Z', 'DONE'), receipt('first', '2026-10-17T09:00:05Z', 'DONE'), receipt('refused', '2026-10-17T09:00:06Z', 'REFUSED'),
+      receipt('started', '2026-10-17T09:00:07Z', 'DONE', 'START_TASK'), receipt('second', '2026-10-17T09:00:08Z', 'DONE')];
+    expect(arrivedOpen(items, opened, new Set())?.id).toBe('second');
+    expect(arrivedOpen(items, opened, new Set(['second']))?.id).toBe('first');
+    expect(arrivedOpen(items.slice(0, 1), opened, new Set())).toBeNull();
   });
 });

@@ -80,15 +80,17 @@ class TestSqliteAssistantStore
         AssistantItem reply = AssistantItem.reply(DAY, AT, "One card waits on task:t1.", ImmutableMap.of("task:t1", AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t1")));
         AssistantItem receipt = AssistantItem.receipt(DAY, AT, "Started “Expose snapshot id”", new AssistantReceipt(AssistantReceipt.Operation.START_TASK,
                 AssistantReceipt.Outcome.DONE, Optional.of("trinodb/trino · Claude Opus 5.5"), Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t2")),
-                Optional.of("turn-1"), Optional.empty(), Optional.of("start the snapshot id one")));
-        for (AssistantItem item : ImmutableList.of(message, failure, reply, receipt)) {
+                Optional.empty(), Optional.of("turn-1"), Optional.empty(), Optional.of("start the snapshot id one")));
+        AssistantItem opened = AssistantItem.receipt(DAY, AT, "Opened Settings · Models", new AssistantReceipt(AssistantReceipt.Operation.OPEN, AssistantReceipt.Outcome.DONE,
+                Optional.empty(), Optional.empty(), Optional.of("settings/models"), Optional.empty(), Optional.empty(), Optional.of("take me to model settings")));
+        for (AssistantItem item : ImmutableList.of(message, failure, reply, receipt, opened)) {
             store.add(item);
         }
         store.add(AssistantItem.user(DAY.minusDays(1), AT, "yesterday", ImmutableList.of(), Optional.empty(), "key-0"));
         entities.flush();
         entities.clear();
 
-        assertThat(store.items(DAY)).containsExactly(message, failure, reply, receipt);
+        assertThat(store.items(DAY)).containsExactly(message, failure, reply, receipt, opened);
     }
 
     @Test

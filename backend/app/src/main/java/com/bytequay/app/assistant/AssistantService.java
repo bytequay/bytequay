@@ -101,6 +101,7 @@ public class AssistantService
             Use only refs that assistant_context returned. Keep replies to a few sentences.
             Write each ref as a Markdown link with a short label, such as [#31402](pr:trinodb/trino#31402).
             Show several items with assistant_show list, not as text.
+            Open a page or item with assistant_show open, only when the user's latest message asks.
             """;
 
     private final AssistantStore store;

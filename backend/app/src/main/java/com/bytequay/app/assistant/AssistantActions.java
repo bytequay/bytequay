@@ -228,6 +228,41 @@ class AssistantActions
         return AssistantItem.receipt(day, clock.instant(), verb + " · " + clip(title, 80), receipt);
     }
 
+    /**
+     * Check 3, for every tool that acts on the user's words: why the words are not the user's to act on, or empty when they are part of
+     * the message, ignoring case and runs of whitespace, at least 2 characters long, and not something the message says not to do.
+     */
+    static Optional<String> unsaid(AssistantItem message, String words)
+    {
+        if (!inMessage(message, words)) {
+            return Optional.of("Those words aren't in your message");
+        }
+        return saysNot(message, words) ? Optional.of("Your message says not to do that") : Optional.empty();
+    }
+
+    /** Whether the words are the user's own: part of their message, ignoring case and runs of whitespace. */
+    private static boolean inMessage(AssistantItem message, String words)
+    {
+        String said = normal(words);
+        return said.length() >= 2 && normal(message.text()).contains(said);
+    }
+
+    /** Whether the message says not to do what the words say, wherever they appear in it. */
+    private static boolean saysNot(AssistantItem message, String words)
+    {
+        return negated(normal(message.text()), normal(words));
+    }
+
+    /**
+     * Check 4 for anything but a card: the refs a message may name, which are what was on screen when it was sent, the tasks of the
+     * cards it showed, and what the day's reads handed out.
+     */
+    Set<String> shown(AssistantItem message, AssistantContext context)
+    {
+        List<String> cards = notices.current().stream().filter(notice -> message.visible().contains(notice.id())).map(AssistantActions::taskRef).toList();
+        return ImmutableSet.<String>builder().addAll(context.served().keySet()).addAll(message.onScreen().stream().toList()).addAll(cards).build();
+    }
+
     /** Where a task opens: its review's page for a review task, else its own. */
     private Optional<AgendaTarget> target(TaskId taskId)
     {
@@ -349,11 +384,9 @@ class AssistantActions
             if (operation == Operation.START_TASK ? !allowed.startTasks() : !allowed.answerTasks()) {
                 return Optional.of(Result.refused(operation, operation == Operation.START_TASK ? "Starting tasks is off" : "Answering tasks is off", Fix.SETTINGS));
             }
-            if (!inMessage(request.words())) {
-                return Optional.of(Result.refused(operation, "Those words aren't in your message"));
-            }
-            if (saysNot(request.words())) {
-                return Optional.of(Result.refused(operation, "Your message says not to do that"));
+            Optional<String> unsaid = unsaid(message, request.words());
+            if (unsaid.isPresent()) {
+                return Optional.of(Result.refused(operation, unsaid.orElseThrow()));
             }
             if (!onScreen(request)) {
                 return Optional.of(Result.refused(operation, "That isn't on screen"));
@@ -377,19 +410,6 @@ class AssistantActions
             return Optional.empty();
         }
 
-        /** Whether the words are the user's own: part of their message, ignoring case and runs of whitespace. */
-        private boolean inMessage(String words)
-        {
-            String said = normal(words);
-            return said.length() >= 2 && normal(message.text()).contains(said);
-        }
-
-        /** Whether the message says not to do what the words say, wherever they appear in it. */
-        private boolean saysNot(String words)
-        {
-            return negated(normal(message.text()), normal(words));
-        }
-
         /**
          * Whether the call names only what the user could see: a card on screen when they sent the message, or a task, item or repository
          * that was on screen or that this day's reads handed out.
@@ -399,18 +419,12 @@ class AssistantActions
             if (request.operation() == Operation.ANSWER_APPROVAL || request.operation() == Operation.ANSWER_QUESTION) {
                 return message.visible().contains(request.target());
             }
-            Set<String> shown = ImmutableSet.<String>builder().addAll(context.served().keySet()).addAll(message.onScreen().stream().toList())
-                    .addAll(visibleCards().stream().map(AssistantActions::taskRef).toList()).build();
+            Set<String> shown = shown(message, context);
             if (request.operation() == Operation.START_TASK && request.optional("from").isPresent()) {
                 return START_FROM.contains(AgendaRefs.kind(request.text("from"))) && shown.contains(request.text("from"));
             }
             String ref = request.target();
             return (request.operation() == Operation.START_TASK ? ref.startsWith("ws:") : ImmutableSet.of("task", "review").contains(AgendaRefs.kind(ref))) && shown.contains(ref);
-        }
-
-        private List<AppNotice> visibleCards()
-        {
-            return notices.current().stream().filter(notice -> message.visible().contains(notice.id())).toList();
         }
 
         /** A card is answered by words only while it waits, and only when it was asked before the message, which saw it. */
@@ -455,11 +469,11 @@ class AssistantActions
                 Optional<String> question = question(offered, answer.getKey());
                 String chosen = answer.getValue().asText("").strip();
                 Optional<String> label = question.flatMap(asked -> option(offered.get(asked), chosen));
-                if (question.isEmpty() || chosen.isEmpty() || !(label.isPresent() || inMessage(chosen))) {
+                if (question.isEmpty() || chosen.isEmpty() || !(label.isPresent() || inMessage(message, chosen))) {
                     return Optional.of(Result.refused(request.operation(), "Pick one of the card's options", Fix.BUTTONS));
                 }
                 // An option the message turns down, such as "the metadata table" in "not the metadata table", is not the user's answer.
-                if (saysNot(label.orElse(chosen))) {
+                if (saysNot(message, label.orElse(chosen))) {
                     return Optional.of(Result.refused(request.operation(), "Your message says not to do that"));
                 }
             }

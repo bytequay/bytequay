@@ -146,7 +146,7 @@ class TestAgendaReader
         when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace));
         WorkItem parent = new WorkItem("local-parent", "workspace", Optional.empty(), "Private connector work", WorkItem.Kind.DEVELOP, "Keep context local",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         when(items.find(parent.id())).thenReturn(Optional.of(parent));
         when(epics.find("LOCAL:local-parent")).thenReturn(Optional.of(Epic.of("LOCAL:local-parent", "workspace")));
         when(markers.findEpic("github.com", 41)).thenReturn(Optional.of(new IssueEpic("github.com", 41, "org/repo", 7, true, NOW)));
@@ -174,7 +174,8 @@ class TestAgendaReader
     private static WorkItemView work(String id, String epicId)
     {
         return new WorkItemView(id, "workspace", Optional.empty(), id, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
-                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.of(epicId), 0, false);
+                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.of(epicId), 0, false,
+                ImmutableList.of());
     }
 
     private static PullRequest pullRequest(int number, String author, PullRequest.Origin origin, List<String> requested, String decision, int additions, int deletions)

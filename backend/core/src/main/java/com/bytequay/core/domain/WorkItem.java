@@ -50,7 +50,8 @@ public record WorkItem(
         long rank,
         List<String> blockedBy,
         Optional<String> epicId,
-        long epicRank)
+        long epicRank,
+        List<WorkItemContextLink> contextLinks)
 {
     public WorkItem
     {
@@ -78,6 +79,9 @@ public record WorkItem(
         // Work saved before Epics held work belongs to none.
         epicId = requireNonNullElse(epicId, Optional.empty());
         epicId.ifPresent(value -> checkText(value, "epicId"));
+        contextLinks = contextLinks == null ? ImmutableList.of() : ImmutableList.copyOf(contextLinks);
+        checkArgument(contextLinks.stream().map(WorkItemContextLink::targetId).distinct().count() == contextLinks.size(), "duplicate contextual work item link");
+        checkArgument(contextLinks.stream().noneMatch(link -> link.targetId().equals(id)), "work cannot link to itself");
     }
 
     public enum Kind { LEARN, INVESTIGATE, DEVELOP }

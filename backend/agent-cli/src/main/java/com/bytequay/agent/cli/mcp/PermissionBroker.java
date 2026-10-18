@@ -1237,13 +1237,15 @@ public final class PermissionBroker
                         "id", ImmutableMap.of("type", "string"), "query", ImmutableMap.of("type", "string")),
                         "required", ImmutableList.of("action", "source"), "additionalProperties", false))));
         context.workItems().ifPresent(ignored -> tools.add(new ToolDefinition(WorkItemBridge.TOOL_NAME,
-                "LIST or READ workspace work; CREATE local items; MARK_EPIC or ASSIGN_EPIC by local id. Local Epic identity: LOCAL:<item id>. Never publishes",
+                "LIST/READ workspace work; CREATE local items; MARK_EPIC/ASSIGN_EPIC; LINK_CONTEXT/UNLINK_CONTEXT by id and targetId. Never publishes",
                 ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
-                        "action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("LIST", "READ", "CREATE", "MARK_EPIC", "ASSIGN_EPIC")),
+                        "action", ImmutableMap.of("type", "string", "enum",
+                                ImmutableList.of("LIST", "READ", "CREATE", "MARK_EPIC", "ASSIGN_EPIC", "LINK_CONTEXT", "UNLINK_CONTEXT")),
                         "id", ImmutableMap.of("type", "string"), "query", ImmutableMap.of("type", "string"),
                         "offset", ImmutableMap.of("type", "integer", "minimum", 0), "operationKey", ImmutableMap.of("type", "string"),
                         "title", ImmutableMap.of("type", "string", "maxLength", 500),
-                        "description", ImmutableMap.of("type", "string", "maxLength", 65536), "epicId", ImmutableMap.of("type", "string")),
+                        "description", ImmutableMap.of("type", "string", "maxLength", 65536), "epicId", ImmutableMap.of("type", "string"),
+                        "targetId", ImmutableMap.of("type", "string", "maxLength", 200)),
                         "required", ImmutableList.of("action"), "additionalProperties", false))));
         context.memory().ifPresent(ignored -> tools.add(memoryTool(false)));
         context.pullRequestCi().ifPresent(ignored -> {

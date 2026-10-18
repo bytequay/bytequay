@@ -256,6 +256,6 @@ class TestEpicBreakdowns
         return new WorkItem("work-" + title.hashCode(), "workspace", Optional.empty(), title, WorkItem.Kind.DEVELOP, context, WorkItem.CompletionRule.MERGED_DELIVERY,
                 WorkItem.State.PLANNED, 0, ImmutableList.of(new WorkItemLink("ISSUE:github.com:12", new GoalItem(GoalItemKind.ISSUE, "org/repo#12", "#12", title, now))),
                 ImmutableList.of(new WorkItemEvent("created", "", "CREATED", "Planned", now)), now, now,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.of(EPIC), 0);
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.of(EPIC), 0, ImmutableList.of());
     }
 }

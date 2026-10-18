@@ -150,7 +150,7 @@ class TestAssistantContext
                 ImmutableList.of("marlo-t"), PullRequestDetail.CiStatus.FAILING, 10, 2, 3, "open", null, null, true, "clean", NOW, "retry", null, NOW, null, "CHANGES_REQUESTED")));
         when(workItems.find("w22")).thenReturn(Optional.of(new WorkItem("w22", "ws1", Optional.empty(), "Expose snapshot id in metadata", WorkItem.Kind.DEVELOP, "",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH, 0,
-                ImmutableList.of("w19"), Optional.empty(), 0)));
+                ImmutableList.of("w19"), Optional.empty(), 0, ImmutableList.of())));
         AgentTurnSettings settled = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO, ImmutableList.of());
         AgentTurn failed = AgentTurn.accepted(TurnId.random(), FINISHED.id(), "request", settled, NOW.minusSeconds(300)).markDeliveryStarted(NOW.minusSeconds(300))
                 .running(new ProviderTurnRef("provider-turn"), Optional.empty()).finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("The provider stopped answering"), NOW);

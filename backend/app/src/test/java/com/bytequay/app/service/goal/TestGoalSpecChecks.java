@@ -135,7 +135,7 @@ class TestGoalSpecChecks
         String id = SpecWorkItems.identity("workspace", "plugin/trino-delta-lake/", gap);
         when(work.list("workspace")).thenReturn(ImmutableList.of(new WorkItemView(id, "workspace", Optional.of("goal-1"), "Checkpoint loses rows", WorkItem.Kind.DEVELOP,
                 "Passes", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.DONE, 3, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, false)));
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, false, ImmutableList.of())));
         GoalGap done = specChecks.gaps("workspace", "goal-1").getFirst();
         assertThat(done.workItemId()).contains(id);
         assertThat(done.open()).as("a done gap lets the next spec check come").isFalse();
@@ -171,9 +171,9 @@ class TestGoalSpecChecks
         String id = SpecWorkItems.identity("workspace", "plugin/trino-delta-lake/", gap);
         WorkItemView local = new WorkItemView(id, "workspace", Optional.empty(), "Checkpoint loses rows", WorkItem.Kind.DEVELOP, "Full reproduction",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, false);
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, false, ImmutableList.of());
         WorkItemView adopted = new WorkItemView(id, "workspace", Optional.of("goal-1"), local.title(), local.kind(), local.acceptanceCriteria(), local.completionRule(),
-                local.state(), 1, local.links(), local.history(), NOW, NOW, local.priority(), 0, ImmutableList.of(), Optional.empty(), 0, false);
+                local.state(), 1, local.links(), local.history(), NOW, NOW, local.priority(), 0, ImmutableList.of(), Optional.empty(), 0, false, ImmutableList.of());
         when(work.list("workspace")).thenReturn(ImmutableList.of(local));
         assertThat(specChecks.gaps("workspace", "goal-1").getFirst().workItemId()).as("local work still offers Add to Goal").isEmpty();
         when(specWorkItems.save("workspace", "check-1", "c-1")).thenReturn(local);

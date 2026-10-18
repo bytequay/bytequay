@@ -230,10 +230,10 @@ class TestGoalLessonService
     {
         WorkItemView lesson = new WorkItemView("lesson-1", "workspace", Optional.of("goal-1"), "What a table is", WorkItem.Kind.LEARN, "Explain table metadata",
                 WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.DONE, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0,
-                ImmutableList.of(), Optional.empty(), 0, false);
+                ImmutableList.of(), Optional.empty(), 0, false, ImmutableList.of());
         WorkItemView next = new WorkItemView("lesson-2", "workspace", Optional.of("goal-1"), "Plan a scan", WorkItem.Kind.LEARN, "Explain splits",
                 WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.PLANNED, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 1,
-                ImmutableList.of(), Optional.empty(), 0, false);
+                ImmutableList.of(), Optional.empty(), 0, false, ImmutableList.of());
         when(goals.get("workspace", "goal-1")).thenReturn(new GoalView("goal-1", "workspace", "Iceberg", "", true, Optional.empty(), Optional.empty(), 1,
                 Optional.of(new GoalCourse("op-0", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1")),
                         new GoalCourse.Part("The connector", ImmutableList.of("lesson-2"))), NOW, Optional.empty())), false,
@@ -252,7 +252,7 @@ class TestGoalLessonService
     {
         WorkItemView lesson = new WorkItemView("lesson-1", "workspace", Optional.of("goal-1"), "What a table is", WorkItem.Kind.LEARN, "Explain table metadata",
                 WorkItem.CompletionRule.ACCEPTED_RESULT, state, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(),
-                Optional.empty(), 0, false);
+                Optional.empty(), 0, false, ImmutableList.of());
         return new GoalView("goal-1", "workspace", "Iceberg", "", true, Optional.empty(), Optional.empty(), 1,
                 Optional.of(new GoalCourse("op-0", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), NOW, map)), false,
                 ImmutableList.of(lesson), ImmutableList.of(), ImmutableList.of(), NOW, NOW);

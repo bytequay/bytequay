@@ -1458,7 +1458,7 @@ class TestAgentHttpApi
         String id = UUID.randomUUID().toString();
         workItems.insert(new WorkItem(id, workspaceId, Optional.empty(), "Profile the reader", WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, state, 0,
                 ImmutableList.of(), ImmutableList.of(new WorkItemEvent("planned", "", "CREATED", "Planned", now)), now, now, WorkItem.Priority.NORMAL, 0, ImmutableList.of(),
-                Optional.empty(), 0));
+                Optional.empty(), 0, ImmutableList.of()));
         return id;
     }
 
@@ -1468,7 +1468,7 @@ class TestAgentHttpApi
         WorkItemEvent planned = new WorkItemEvent("planned", "", "CREATED", "Planned", now);
         workItems.insert(new WorkItem(UUID.randomUUID().toString(), ownerWorkspaceId, Optional.empty(), source.reference().title(), WorkItem.Kind.DEVELOP, "",
                 WorkItem.CompletionRule.MERGED_DELIVERY, state, 0, ImmutableList.of(source), ImmutableList.of(planned), now, now, WorkItem.Priority.NORMAL, 0,
-                ImmutableList.of(), Optional.empty(), 0));
+                ImmutableList.of(), Optional.empty(), 0, ImmutableList.of()));
     }
 
     private JsonNode startTurn(String taskId, String message, String idempotencyKey)

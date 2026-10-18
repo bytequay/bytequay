@@ -34,6 +34,7 @@ import { EpicWork } from '../workspaces/EpicView';
 import { useUnmarkEpic } from '../workspaces/useUnmarkEpic';
 import { workspaceIssueTaskRoute, workspaceRoute } from '../workspaces/model';
 import { type Publication, type UnifiedWorkItem, workItemRoute } from './contracts';
+import WorkItemContextLinks from './WorkItemContextLinks';
 import '../css/issues.css';
 import '../css/epic-view.css';
 import './workitems.css';
@@ -70,6 +71,7 @@ const EVENTS: Record<string, [string, typeof Plus, string]> = {
   ACCEPT: ['Marked this done', CircleCheck, ' is-purple'],
   PUBLISHED: ['Pushed this to remote', Upload, ' is-link'],
   LINKED: ['Linked', Link2, ''],
+  CONTEXT_UPDATED: ['Updated context links', Link2, ''],
 };
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 const selectedId = () => typeof window === 'undefined' ? null : new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('work');
@@ -183,7 +185,7 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
     if (value.work.isEpic) return;
     if (value.source !== 'LOCAL') openReference(workspace, value.reference, true);
     else startEpicWork({ workspaceId: workspace.id, itemId: value.work.id, send: true,
-      draft: `Develop this work item: ${value.work.title}\n\nCall read_issue_context before starting to read this item's full context and its parent Epic, if any. Deliver only this work item.` });
+      draft: `Develop this work item: ${value.work.title}\n\nCall read_issue_context before starting to read this item's full context, linked work items, and its parent Epic, if any. Deliver only this work item.` });
   };
   const viewTask = (value: LocalItem) => { const task = taskOf(value.work); if (task) zoomReference({ kind: 'task', workspaceId: workspace.id, taskId: task.key }); };
   return <div className="pulls-page issues-page work-items">
@@ -235,7 +237,7 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
       {zoomedItemId === undefined && <div className="pull-detail__resize" role="separator" aria-orientation="vertical" aria-label="Resize work item panes" title="Drag to resize"
         onMouseDown={event => detailPane.startResize(event, event.currentTarget.parentElement?.getBoundingClientRect().width)} />}
       {creating ? <WorkItemForm workspaceId={workspace.id} epics={epics} onClose={() => select(null)} onSaved={async value => { await reload(); select(value.id); }} />
-        : item ? <WorkItemDetail key={item.id} workspace={workspace} item={item} all={all} epic={item.work.epicId ? epicName(item.work.epicId) : null}
+        : item ? <WorkItemDetail key={item.id} workspace={workspace} item={item} all={all} catalog={items} epic={item.work.epicId ? epicName(item.work.epicId) : null}
           publishing={publishing} onPublishing={setPublishing} onStart={() => begin(item)} onViewTask={() => viewTask(item)}
           onOpenEpic={() => {
             const id = item.work.epicId;
@@ -375,8 +377,8 @@ function WorkItemForm({ workspaceId, item, epics = [], onClose, onSaved, headerA
   </>;
 }
 
-function WorkItemDetail({ workspace, item, all, epic, publishing, onPublishing, onStart, onViewTask, onOpenEpic, onChanged, headerAction }: {
-  workspace: WorkspaceDto; item: LocalItem; all: WorkItemDto[]; epic: EpicName | null; publishing: boolean; onPublishing: (value: boolean) => void;
+function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPublishing, onStart, onViewTask, onOpenEpic, onChanged, headerAction }: {
+  workspace: WorkspaceDto; item: LocalItem; all: WorkItemDto[]; catalog: UnifiedWorkItem[]; epic: EpicName | null; publishing: boolean; onPublishing: (value: boolean) => void;
   onStart: () => void; onViewTask: () => void; onOpenEpic: () => void; onChanged: () => Promise<void>; headerAction?: ReactNode;
 }) {
   const goals = useEpicGoals(workspace.id);
@@ -484,6 +486,7 @@ function WorkItemDetail({ workspace, item, all, epic, publishing, onPublishing, 
               <h3 className="work-items__subhead">Local context and acceptance criteria</h3>
               <MarkdownBody body={work.acceptanceCriteria} />
             </>}
+            <WorkItemContextLinks work={work} catalog={catalog} onChanged={onChanged} />
             <footer className="work-items__card-foot"><LockKeyhole size={12} aria-hidden="true" />{remote
               ? `Pushed to ${remote.kind === 'JIRA' ? 'Jira as' : 'GitHub as issue'} ${remote.label}. Local history and task conversations stay local.`
               : 'Private local work. Development can deliver a pull request without creating an issue or ticket.'}</footer>

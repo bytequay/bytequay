@@ -64,6 +64,12 @@ item as an Epic and assign related work to it. A GitHub issue or Jira ticket can
 also provide an Epic's context; its classification and work membership remain
 local and do not change the remote issue, ticket, or hierarchy.
 
+A local work item can also link other work in its workspace as context. Users and
+agents can add or remove these references to local items, GitHub issues, or Jira
+tickets. Context links keep related requests discoverable without making them
+subtasks, blockers, or sources of the current item. Agents see direct linked
+summaries and can read each target when needed.
+
 ### Make the change understandable
 
 Show intent, code, evidence, and discussion together. Distinguish an agent's

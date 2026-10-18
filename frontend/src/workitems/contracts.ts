@@ -24,13 +24,34 @@ export type UnifiedWorkItem = {
 export type Publication = {
   source: 'GITHUB' | 'JIRA'; expectedRevision: number; connectionId?: string; cloudId?: string; project?: string; issueTypeId?: string;
 };
+export type WorkItemContextLink = {
+  targetId: string; id: string; source: WorkSource; title: string; status: string; available: boolean;
+  reference: { kind: 'ISSUE' | 'JIRA'; key: string; label: string } | null;
+};
 export type WorkItemBridge = {
   listUnifiedWorkItems: (workspaceId: string) => Promise<UnifiedWorkItem[]>;
+  listWorkItemContextLinks: (workspaceId: string, itemId: string) => Promise<WorkItemContextLink[]>;
+  linkWorkItemContext: (workspaceId: string, itemId: string, expectedRevision: number, targetId: string) => Promise<WorkItemDto>;
+  unlinkWorkItemContext: (workspaceId: string, itemId: string, expectedRevision: number, targetId: string) => Promise<WorkItemDto>;
   publishWorkItem: (workspaceId: string, id: string, request: Publication) => Promise<WorkItemDto>;
   reconcileWorkItem: (workspaceId: string, id: string, destination: Publication, key: string) => Promise<WorkItemDto>;
   workItemJiraTypes: (workspaceId: string, connectionId: string, cloudId: string, project: string) => Promise<{ id: string; name: string }[]>;
   specWorkItem: (workspaceId: string, checkId: string, candidateId: string) => Promise<WorkItemDto>;
 };
+export function parseWorkItemContextLink(value: unknown): WorkItemContextLink {
+  if (value === null || typeof value !== 'object') throw new Error('Malformed context link');
+  const link = value as Record<string, unknown>;
+  if (typeof link.targetId !== 'string' || typeof link.id !== 'string' || typeof link.title !== 'string' || typeof link.status !== 'string'
+      || typeof link.available !== 'boolean' || !['LOCAL', 'GITHUB', 'JIRA'].includes(String(link.source))) throw new Error('Malformed context link');
+  let reference: WorkItemContextLink['reference'] = null;
+  if (link.reference != null) {
+    if (typeof link.reference !== 'object') throw new Error('Malformed context link source');
+    const ref = link.reference as Record<string, unknown>;
+    if ((ref.kind !== 'ISSUE' && ref.kind !== 'JIRA') || typeof ref.key !== 'string' || typeof ref.label !== 'string') throw new Error('Malformed context link source');
+    reference = { kind: ref.kind, key: ref.key, label: ref.label };
+  }
+  return { targetId: link.targetId, id: link.id, source: link.source as WorkSource, title: link.title, status: link.status, available: link.available, reference };
+}
 export function parseUnifiedWorkItem(value: unknown): UnifiedWorkItem {
   if (value === null || typeof value !== 'object') throw new Error('Malformed work item');
   const v = value as Record<string, unknown>;

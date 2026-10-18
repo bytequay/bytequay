@@ -147,7 +147,7 @@ class TestGoalReceipts
         WorkItem item = new WorkItem("work-1", "workspace", Optional.of("goal-1"), "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 1, ImmutableList.of(link),
                 ImmutableList.of(new WorkItemEvent("turn:" + earlier, "", "RECEIPT", "Task turn finished: the first test", NOW)), NOW, NOW, WorkItem.Priority.NORMAL, 0,
-                ImmutableList.of(), Optional.empty(), 0);
+                ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.id()).thenReturn("workspace");
         when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace));
@@ -183,7 +183,7 @@ class TestGoalReceipts
         WorkItem item = new WorkItem("work-1", "workspace", Optional.of("goal-1"), "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 1, ImmutableList.of(),
                 ImmutableList.of(new WorkItemEvent("turn:" + earlier, "", "RECEIPT", "Task turn finished: the first test", NOW)), NOW, NOW, WorkItem.Priority.NORMAL, 0,
-                ImmutableList.of(), Optional.empty(), 0);
+                ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         when(items.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item));
         when(turns.list(taskId)).thenReturn(ImmutableList.of(turn(earlier, TurnState.COMPLETED), turn(turnId, TurnState.COMPLETED)));
         // A cancelled Goal has no agent left to tell; its work still records the turn, and the task may go.
@@ -220,6 +220,7 @@ class TestGoalReceipts
     private static WorkItem item(Optional<String> goalId)
     {
         return new WorkItem("work-1", "workspace", goalId, "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint", WorkItem.CompletionRule.MERGED_DELIVERY,
-                WorkItem.State.WORKING, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+                WorkItem.State.WORKING, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0,
+                ImmutableList.of());
     }
 }

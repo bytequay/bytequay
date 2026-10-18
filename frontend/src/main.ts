@@ -15,7 +15,7 @@ import { backendJson } from './backendJson';
 import { openLab, stopLab } from './labProcess';
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
-import { parseUnifiedWorkItem, type Publication } from './workitems/contracts';
+import { parseUnifiedWorkItem, parseWorkItemContextLink, type Publication } from './workitems/contracts';
 import { parseConcludedEpics, parseEpicJoin, parseEpicRecord, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
@@ -1858,6 +1858,12 @@ function registerIpc(): void {
   const workItemsUrl = (workspaceId: string, suffix = '') => workspaceUrl(workspaceId, `/work-items${suffix}`);
   ipcMain.handle('work-items:catalog', (_event, workspaceId: string) =>
     backendJson(workItemsUrl(workspaceId, '/catalog')).then(items => parseList(items, parseUnifiedWorkItem, 'work items')));
+  ipcMain.handle('work-items:context-links', (_event, workspaceId: string, itemId: string) =>
+    backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/context-links`)).then(links => parseList(links, parseWorkItemContextLink, 'context links')));
+  ipcMain.handle('work-items:link-context', (_event, workspaceId: string, itemId: string, expectedRevision: number, targetId: string) =>
+    backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/context-links`), jsonInit('PUT', { expectedRevision, targetId })).then(parseWorkItem));
+  ipcMain.handle('work-items:unlink-context', (_event, workspaceId: string, itemId: string, expectedRevision: number, targetId: string) =>
+    backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/context-links`), jsonInit('DELETE', { expectedRevision, targetId })).then(parseWorkItem));
   ipcMain.handle('work-items:publish', (_event, workspaceId: string, id: string, request: Publication) =>
     backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(id)}/publish`), jsonInit('POST', request)).then(parseWorkItem));
   ipcMain.handle('work-items:reconcile', (_event, workspaceId: string, id: string, destination: Publication, key: string) =>

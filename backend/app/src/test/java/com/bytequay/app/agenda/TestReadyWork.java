@@ -59,6 +59,7 @@ class TestReadyWork
     private static WorkItemView work(String id, long place, WorkItem.State state, WorkItem.Priority priority, String... blockedBy)
     {
         return new WorkItemView(id, "ws1", Optional.empty(), id, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, state, 1, ImmutableList.of(),
-                ImmutableList.of(), CREATED.plusSeconds(place), CREATED.plusSeconds(place), priority, place, ImmutableList.copyOf(blockedBy), Optional.of("epic"), place, false);
+                ImmutableList.of(), CREATED.plusSeconds(place), CREATED.plusSeconds(place), priority, place, ImmutableList.copyOf(blockedBy), Optional.of("epic"), place, false,
+                ImmutableList.of());
     }
 }

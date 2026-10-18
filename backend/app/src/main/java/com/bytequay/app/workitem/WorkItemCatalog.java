@@ -23,11 +23,13 @@ import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemContextLink;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -39,6 +41,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
@@ -115,8 +118,69 @@ public class WorkItemCatalog
 
     public UnifiedWorkItem read(String workspaceId, String id)
     {
-        return list(workspaceId).stream().filter(item -> item.id().equals(id)).findFirst()
+        String resolved = resolveId(workspaceId, id);
+        return list(workspaceId).stream().filter(item -> item.id().equals(resolved)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Work item not found in this workspace"));
+    }
+
+    public WorkItemView linkContext(String workspaceId, String id, long expectedRevision, String targetId)
+    {
+        requireContextRequest(expectedRevision, targetId);
+        WorkItem item = work.requireItem(workspaceId, id);
+        UnifiedWorkItem target = read(workspaceId, targetId);
+        checkArgument(!target.id().equals(id), "A work item cannot reference itself");
+        if (item.contextLinks().stream().anyMatch(link -> resolveId(workspaceId, link.targetId()).equals(target.id()))) {
+            return work.changeContextLinks(workspaceId, id, expectedRevision, item.contextLinks(), "");
+        }
+        checkArgument(item.contextLinks().size() < 50, "A work item can have at most 50 context links");
+        return work.changeContextLinks(workspaceId, id, expectedRevision, ImmutableList.<WorkItemContextLink>builder().addAll(item.contextLinks())
+                .add(new WorkItemContextLink(target.id(), target.title())).build(), "Linked context: " + target.title());
+    }
+
+    public WorkItemView unlinkContext(String workspaceId, String id, long expectedRevision, String targetId)
+    {
+        requireContextRequest(expectedRevision, targetId);
+        WorkItem item = work.requireItem(workspaceId, id);
+        String resolved = resolveId(workspaceId, targetId);
+        List<WorkItemContextLink> remaining = item.contextLinks().stream()
+                .filter(link -> !link.targetId().equals(targetId) && !resolveId(workspaceId, link.targetId()).equals(resolved)).collect(toImmutableList());
+        String title = item.contextLinks().stream().filter(link -> !remaining.contains(link)).map(WorkItemContextLink::title).findFirst().orElse(targetId);
+        return work.changeContextLinks(workspaceId, id, expectedRevision, remaining, "Unlinked context: " + title);
+    }
+
+    /** Direct summaries only: cycles never recursively expand another item's private context. */
+    public List<WorkItemContextView> contextLinks(String workspaceId, String id)
+    {
+        WorkItem item = work.requireItem(workspaceId, id);
+        if (item.contextLinks().isEmpty()) {
+            return ImmutableList.of();
+        }
+        Map<String, UnifiedWorkItem> available = list(workspaceId).stream().collect(toImmutableMap(UnifiedWorkItem::id, target -> target));
+        return item.contextLinks().stream().map(link -> {
+            String resolved = resolveId(workspaceId, link.targetId());
+            Optional<UnifiedWorkItem> target = Optional.ofNullable(available.get(resolved)).filter(value -> !value.id().equals(id));
+            return target.map(value -> new WorkItemContextView(link.targetId(), value.id(), value.source(), value.title(), value.status(), true, value.reference()))
+                    .orElseGet(() -> new WorkItemContextView(link.targetId(), resolved, sourceOf(link.targetId()), link.title(),
+                            resolved.equals(id) ? "Same work item" : "Unavailable", false, Optional.empty()));
+        }).collect(toImmutableList());
+    }
+
+    private String resolveId(String workspaceId, String id)
+    {
+        return store.findByIdentity(id).filter(item -> item.workspaceId().equals(workspaceId)).map(WorkItem::id).orElse(id);
+    }
+
+    private static void requireContextRequest(long expectedRevision, String targetId)
+    {
+        checkArgument(expectedRevision >= 0 && targetId != null && !targetId.isBlank(), "Target work item and revision are required");
+    }
+
+    private static UnifiedWorkItem.Source sourceOf(String id)
+    {
+        if (id.startsWith("ISSUE:")) {
+            return UnifiedWorkItem.Source.GITHUB;
+        }
+        return id.startsWith("JIRA:") ? UnifiedWorkItem.Source.JIRA : UnifiedWorkItem.Source.LOCAL;
     }
 
     private static UnifiedWorkItem.Source type(GoalItemKind kind)

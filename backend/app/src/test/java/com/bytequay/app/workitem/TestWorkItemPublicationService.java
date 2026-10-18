@@ -122,7 +122,7 @@ class TestWorkItemPublicationService
     {
         return new WorkItem("local", "workspace", Optional.empty(), "Private repair", WorkItem.Kind.DEVELOP, "Full accepted context",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.copyOf(history), Instant.EPOCH, Instant.EPOCH,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
     }
 
     private static GitHubIssueSource source()

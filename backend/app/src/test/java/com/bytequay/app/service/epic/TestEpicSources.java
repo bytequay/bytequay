@@ -91,7 +91,7 @@ class TestEpicSources
     {
         WorkItem item = new WorkItem("work-1", "workspace", Optional.empty(), "Local Epic", WorkItem.Kind.DEVELOP, "Preserve private work",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         when(items.find(item.id())).thenReturn(Optional.of(item));
         String epicId = EpicSources.localEpicId(item.id());
         assertThat(epics.marked("workspace", epicId)).as("an ordinary local item is not an Epic").isFalse();

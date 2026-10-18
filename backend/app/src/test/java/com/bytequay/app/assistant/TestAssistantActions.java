@@ -384,7 +384,7 @@ class TestAssistantActions
     {
         when(workItems.find("w22")).thenReturn(Optional.of(new WorkItem("w22", "ws1", Optional.empty(), "Expose snapshot id in metadata", WorkItem.Kind.DEVELOP, "",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH, 0,
-                ImmutableList.of(), Optional.empty(), 0)));
+                ImmutableList.of(), Optional.empty(), 0, ImmutableList.of())));
         act(message("start the snapshot id one with codex", ImmutableList.of()), ImmutableMap.of("work:w22", SERVED),
                 "{\"op\":\"start_task\",\"from\":\"work:w22\",\"agent\":\"codex\",\"words\":\"start the snapshot id one\"}");
         InteractiveTaskStart work = started();

@@ -28,6 +28,8 @@ import com.bytequay.core.store.WorkItemStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -91,7 +93,8 @@ public class WorkItemBridgeResolver
                 case "CREATE" -> ImmutableSet.of("action", "operationKey", "title", "description", "epicId");
                 case "MARK_EPIC" -> ImmutableSet.of("action", "id");
                 case "ASSIGN_EPIC" -> ImmutableSet.of("action", "id", "epicId");
-                default -> throw new IllegalArgumentException("action must be LIST, READ, CREATE, MARK_EPIC or ASSIGN_EPIC");
+                case "LINK_CONTEXT", "UNLINK_CONTEXT" -> ImmutableSet.of("action", "id", "targetId");
+                default -> throw new IllegalArgumentException("action must be LIST, READ, CREATE, MARK_EPIC, ASSIGN_EPIC, LINK_CONTEXT or UNLINK_CONTEXT");
             };
             args.fieldNames().forEachRemaining(key -> checkArgument(allowed.contains(key), "Unknown field: %s", key));
             Object result = switch (action) {
@@ -109,7 +112,7 @@ public class WorkItemBridgeResolver
                     String id = args.has("id") ? text(args, "id", 200) : items.findByIdentity(WorkItemLink.taskIdentity(taskId))
                             .filter(item -> item.workspaceId().equals(workspaceId)).map(WorkItem::id)
                             .orElseThrow(() -> new IllegalArgumentException("This task has no work item; LIST then READ an id"));
-                    yield catalog.getObject().read(workspaceId, id);
+                    yield read(workspaceId, id);
                 }
                 case "CREATE" -> {
                     String operation = text(args, "operationKey", 100);
@@ -125,9 +128,21 @@ public class WorkItemBridgeResolver
                 case "MARK_EPIC" -> {
                     String id = text(args, "id", 200);
                     epics.getObject().setLocalEpic(workspaceId, id, true);
-                    yield catalog.getObject().read(workspaceId, id);
+                    yield read(workspaceId, id);
                 }
                 case "ASSIGN_EPIC" -> work.getObject().joinLocalEpic(workspaceId, text(args, "epicId", 200), text(args, "id", 200));
+                case "LINK_CONTEXT", "UNLINK_CONTEXT" -> {
+                    WorkItemView item = catalog.getObject().read(workspaceId, text(args, "id", 200)).work()
+                            .orElseThrow(() -> new IllegalArgumentException("Context links require a local work item"));
+                    String targetId = text(args, "targetId", 200);
+                    if (action.equals("LINK_CONTEXT")) {
+                        catalog.getObject().linkContext(workspaceId, item.id(), item.revision(), targetId);
+                    }
+                    else {
+                        catalog.getObject().unlinkContext(workspaceId, item.id(), item.revision(), targetId);
+                    }
+                    yield read(workspaceId, item.id());
+                }
                 default -> throw new IllegalArgumentException("Unknown action");
             };
             return mapper.writeValueAsString(result);
@@ -135,6 +150,14 @@ public class WorkItemBridgeResolver
         catch (JsonProcessingException failure) {
             throw new IllegalArgumentException("Invalid work item JSON", failure);
         }
+    }
+
+    private ObjectNode read(String workspaceId, String id)
+    {
+        UnifiedWorkItem item = catalog.getObject().read(workspaceId, id);
+        ObjectNode result = mapper.valueToTree(item);
+        result.set("contextLinks", mapper.valueToTree(item.work().isPresent() ? catalog.getObject().contextLinks(workspaceId, item.id()) : ImmutableList.of()));
+        return result;
     }
 
     private static String text(JsonNode args, String key, int limit)

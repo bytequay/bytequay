@@ -29,7 +29,7 @@ const epic = issueAttentionItem({ id: 24918, number: 24918, title: 'Iceberg REST
 const link = (kind: GoalItemDto['kind'], key: string, label: string, state: GoalItemDto['state'], status: string): GoalItemDto => ({
   kind, key, label, title: label, state, status, blocked: false, url: null, activity: null, addedAt: NOW });
 const work = (id: string, title: string, state: WorkItemDto['state'], epicRank: number, extra: Partial<WorkItemDto> = {}): WorkItemDto => ({
-  id, workspaceId: 'workspace', isEpic: false, goalId: null, title, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links: [],
+  id, workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: null, title, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links: [],
   history: [], createdAt: NOW, updatedAt: NOW, priority: 'NORMAL', rank: 0, blockedBy: [], epicId: EPIC_ID, epicRank, ...extra });
 const CANDIDATE = link('ISSUE', 'trinodb/trino#24977', '#24977', 'IDLE', 'Open');
 const child = (number: number, title: string, status: string): EpicChildDto => ({

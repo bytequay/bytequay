@@ -14,6 +14,7 @@
 package com.bytequay.app.service.goal;
 
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemContextLink;
 import com.bytequay.core.domain.WorkItemEvent;
 import com.google.common.collect.ImmutableList;
 
@@ -41,12 +42,14 @@ public record WorkItemView(
         List<String> blockedBy,
         Optional<String> epicId,
         long epicRank,
-        boolean isEpic)
+        boolean isEpic,
+        List<WorkItemContextLink> contextLinks)
 {
     public WorkItemView
     {
         links = ImmutableList.copyOf(links);
         history = ImmutableList.copyOf(history);
         blockedBy = ImmutableList.copyOf(blockedBy);
+        contextLinks = contextLinks == null ? ImmutableList.of() : ImmutableList.copyOf(contextLinks);
     }
 }

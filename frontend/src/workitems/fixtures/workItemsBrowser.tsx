@@ -17,7 +17,7 @@ import { workspaceFixture } from '../../workspaces/fixtures/workspace';
 import { assert, changeInput, settle, until } from '../../fixtures/harness';
 import type { Bridge } from '../../types';
 import type { EpicRecordDto, WorkItemDto } from '../../goals/contracts';
-import type { UnifiedWorkItem } from '../contracts';
+import type { UnifiedWorkItem, WorkItemContextLink } from '../contracts';
 import { EPIC_START, takeEpicStart, type EpicStart } from '../../workspaces/epics';
 import WorkItemsScreen, { LocalWorkItems } from '../WorkItemsScreen';
 import { WorkItemPrompt } from '../../agents/WorkItemPrompt';
@@ -34,7 +34,7 @@ const workspace = workspaceFixture({
 });
 const now = '2026-10-07T00:00:00Z';
 function local(id: string, title: string, body: string): WorkItemDto {
-  return { id, workspaceId: workspace.id, isEpic: false, goalId: null, title, acceptanceCriteria: body, kind: 'DEVELOP', completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0,
+  return { id, workspaceId: workspace.id, isEpic: false, contextLinks: [], goalId: null, title, acceptanceCriteria: body, kind: 'DEVELOP', completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0,
     links: [], history: [], createdAt: now, updatedAt: now, priority: 'NORMAL', rank: 0, blockedBy: [] };
 }
 function projected(work: WorkItemDto): UnifiedWorkItem {
@@ -48,6 +48,104 @@ function type(selector: string, text: string) {
   const input = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector); assert(input != null, `Missing ${selector}`);
   changeInput(input, text);
 }
+
+export async function contextLinks() {
+  const reference = { kind: 'ISSUE' as const, key: 'bytequay/bytequay#42', label: '#42', title: 'Published context owner', addedAt: now };
+  let work: WorkItemDto = { ...local('owner', reference.title, 'Retained acceptance criteria.'), revision: 4, epicId: 'LOCAL:parent', blockedBy: ['blocker'],
+    contextLinks: [{ targetId: 'ISSUE:github.com:50', title: 'Before publication' }, { targetId: 'removed', title: 'Removed reference' }],
+    links: [{ ...reference, state: 'IDLE', status: 'Open', blocked: false, url: null, activity: null },
+      { kind: 'TASK', key: 'attempt', label: 'Task', title: 'Existing attempt', addedAt: now, state: 'ENDED', status: 'Completed', blocked: false, url: null, activity: null }] };
+  const retained = JSON.stringify({ links: work.links, epicId: work.epicId, blockedBy: work.blockedBy });
+  const related: UnifiedWorkItem[] = [projected(local('local-reference', 'Local design notes', 'Details.')),
+    { id: 'ISSUE:github.com:43', source: 'GITHUB', title: 'GitHub regression request', description: 'Details.', status: 'Open', closed: false, updatedAt: now,
+      reference: { ...reference, key: 'other/repository#43', label: '#43', title: 'GitHub regression request' }, work: null },
+    { id: 'JIRA:connection:site:7', source: 'JIRA', title: 'Jira compatibility request', description: 'Details.', status: 'In progress', closed: false, updatedAt: now,
+      reference: { kind: 'JIRA', key: 'connection:site:7', label: 'BQ-7', title: 'Jira compatibility request', addedAt: now }, work: null },
+    { ...projected(local('published-reference', 'Published local reference', 'Details.')), source: 'GITHUB', reference: { ...reference, key: 'bytequay/bytequay#50', label: '#50' } }];
+  const owner = (): UnifiedWorkItem => ({ ...projected(work), source: 'GITHUB', reference });
+  const contextCount = () => work.contextLinks.length;
+  const requests: string[] = [];
+  let failRead = true;
+  let failWrite = false;
+  let importedVisible = false;
+  const summaries = (): WorkItemContextLink[] => work.contextLinks.map(link => {
+    const target = related.find(item => item.id === (link.targetId === 'ISSUE:github.com:50' ? 'published-reference' : link.targetId));
+    return { targetId: link.targetId, id: target?.id ?? link.targetId, source: target?.source ?? 'LOCAL', title: target?.title ?? link.title,
+      status: target?.status ?? 'Unavailable', available: target !== undefined,
+      reference: target?.reference?.kind === 'ISSUE' || target?.reference?.kind === 'JIRA' ? { ...target.reference, kind: target.reference.kind } : null };
+  });
+  const mutate = (revision: number, targetId: string, remove: boolean) => {
+    assert(revision === work.revision, 'Context changes use the current work revision');
+    if (failWrite) { failWrite = false; throw new Error('Work changed; refresh before editing context.'); }
+    requests.push(`${remove ? 'unlink' : 'link'} ${targetId}`);
+    const title = related.find(item => item.id === targetId)?.title ?? '';
+    work = { ...work, revision: work.revision + 1,
+      contextLinks: remove ? work.contextLinks.filter(link => link.targetId !== targetId) : [...work.contextLinks, { targetId, title }] };
+    return work;
+  };
+  Object.defineProperty(window, 'bridge', { configurable: true, value: {
+    listUnifiedWorkItems: async () => [owner(), ...related.map(item => !importedVisible && item.id === 'published-reference'
+      ? { ...item, id: 'ISSUE:github.com:50', work: null } : item)], listWorkItems: async () => [work],
+    listWorkItemContextLinks: async () => { if (failRead) { failRead = false; throw new Error('Context lookup failed'); } return summaries(); },
+    linkWorkItemContext: async (_workspace, id, revision, targetId) => { assert(id === 'owner', 'The retained owner receives links'); return mutate(revision, targetId, false); },
+    unlinkWorkItemContext: async (_workspace, _id, revision, targetId) => mutate(revision, targetId, true),
+  } satisfies Partial<Bridge> });
+  window.location.hash = workItemRoute(workspace.id, work.id);
+  const host = document.createElement('main'); host.style.cssText = 'height:100vh'; document.body.append(host);
+  const root = createRoot(host);
+  const zooms: ZoomedReference[] = [];
+  const capture = (event: Event) => zooms.push((event as CustomEvent<ZoomedReference>).detail);
+  const openContext = (title: string) => {
+    const link = [...document.querySelectorAll<HTMLButtonElement>('.work-items__context-links > .work-items__dev-row .work-items__link')]
+      .find(value => value.textContent === title);
+    assert(link !== undefined, `Missing context link ${title}`); link.click();
+  };
+  window.addEventListener(ZOOM_REFERENCE, capture);
+  try {
+    root.render(<LocalWorkItems workspace={workspace} />);
+    await until(() => document.querySelector('.work-items__context-links [role="alert"]') !== null, 'Failed lookup is visible');
+    assert(document.querySelector('[aria-label="Unlink Before publication"]') !== null, 'Saved links can still be removed when lookup fails');
+    button('Retry').click();
+    await until(() => document.querySelector('.work-items__context-links')?.textContent?.includes('Published local reference') === true, 'Retry resolves current titles');
+    assert(document.querySelector('.work-items__context-links')?.textContent?.includes('Unavailable') === true, 'Unavailable targets retain their saved label');
+    openContext('Published local reference');
+    assert(JSON.stringify(zooms.at(-1)) === JSON.stringify({ kind: 'work', workspaceId: workspace.id, itemId: 'published-reference' }), 'Resolved local context opens its retained detail even before the catalog catches up');
+    importedVisible = true;
+    window.dispatchEvent(new CustomEvent(GOALS_CHANGED, { detail: workspace.id })); await settle(); await settle();
+    button('Link work item').click(); await settle();
+    const picker = () => document.querySelector('.work-items__context-picker');
+    assert(!picker()?.textContent?.includes(work.title) && !picker()?.textContent?.includes('Published local reference'), 'Picker excludes self and resolved aliases already linked');
+    type('[aria-label="Search work to link"]', 'BQ-7'); await settle();
+    assert(picker()?.querySelectorAll('.work-items__dev-row').length === 1 && picker()?.textContent?.includes('Jira compatibility request') === true, 'Search matches source keys');
+    type('[aria-label="Search work to link"]', ''); await settle();
+    failWrite = true;
+    document.querySelector<HTMLButtonElement>('[aria-label="Link Local design notes"]')?.click();
+    await until(() => document.querySelector('.work-items__context-links')?.textContent?.includes('Work changed; refresh') === true, 'Revision errors keep the picker available');
+    assert(contextCount() === 2, 'Rejected writes do not add a local phantom link');
+    for (const title of ['Local design notes', 'GitHub regression request', 'Jira compatibility request']) {
+      document.querySelector<HTMLButtonElement>(`[aria-label="Link ${title}"]`)?.click();
+      await until(() => [...document.querySelectorAll('.work-items__context-links > .work-items__dev-row .work-items__link')].some(value => value.textContent === title), `${title} is linked`);
+    }
+    assert(picker()?.textContent?.includes('No other work items to link.') === true, 'Linked candidates leave the picker');
+    button('Done linking').click(); await settle();
+    openContext('Local design notes'); openContext('GitHub regression request'); openContext('Jira compatibility request');
+    assert(JSON.stringify(zooms.slice(-3)) === JSON.stringify([
+      { kind: 'work', workspaceId: workspace.id, itemId: 'local-reference' },
+      { kind: 'issue', workspaceId: workspace.id, repo: 'other/repository', number: 43 },
+      { kind: 'jira', connectionId: 'connection', cloudId: 'site', issueId: '7' },
+    ]), `Each source opens the correct native detail: ${JSON.stringify(zooms.slice(-3))}`);
+    document.querySelector<HTMLButtonElement>('[aria-label="Unlink Published local reference"]')?.click();
+    await until(() => !document.querySelector('[aria-label="Unlink Published local reference"]'), 'Unlink removes the saved alias');
+    document.querySelector<HTMLButtonElement>('[aria-label="Unlink Removed reference"]')?.click();
+    await until(() => !document.querySelector('[aria-label="Unlink Removed reference"]'), 'Unavailable context can be removed');
+    assert(requests.includes('unlink ISSUE:github.com:50') && requests.includes('unlink removed'), 'Unlink uses saved keys, even after target publication or removal');
+    assert(JSON.stringify({ links: work.links, epicId: work.epicId, blockedBy: work.blockedBy }) === retained, 'Context changes preserve source/attempt ownership, Epic membership and blockers');
+    assert(contextCount() === 3 && related.length === 4, 'Unlink leaves the target work items intact');
+    return true;
+  }
+  finally { window.removeEventListener(ZOOM_REFERENCE, capture); root.unmount(); host.remove(); }
+}
+
 export async function run() {
   window.location.hash = '#/workspaces/workspace/issues';
   let publications = 0;

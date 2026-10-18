@@ -30,6 +30,7 @@ import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemContextLink;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
@@ -123,6 +124,64 @@ class TestWorkItemService
         service.beginPublication("workspace", id, exposed.revision(), "publish-jira", "JIRA:cloud:ENG");
         service.publicationRejected("workspace", id, "publish-jira");
         service.beginPublication("workspace", id, find(id).revision(), "publish-jira-retry", "JIRA:cloud:ENG");
+    }
+
+    @Test
+    void contextualReferencesRecordOnlyActualChangesAndKeepSourcesAndPlanningIndependent()
+    {
+        WorkItemLink source = link(GoalItemKind.ISSUE, "org/repo#5", "ISSUE:github.com:5");
+        when(references.requireLink("workspace", GoalItemKind.ISSUE, source.reference().key())).thenReturn(source);
+        WorkItemView item = service.attach("workspace", "goal", GoalItemKind.ISSUE, source.reference().key());
+        WorkItemView assigned = service.joinLocalEpic("workspace", EPIC, item.id()).item();
+        WorkItemView blocker = epicWork(EPIC, "Related preparation");
+        service.change("workspace", item.id(), arrange(assigned, WorkItemCommand.Action.BLOCK, Optional.empty(), blocker.id()));
+        WorkItem before = service.requireItem("workspace", item.id());
+        List<WorkItemContextLink> links = ImmutableList.of(new WorkItemContextLink(blocker.id(), blocker.title()),
+                new WorkItemContextLink("ISSUE:github.com:9", "Related report"));
+
+        WorkItemView linked = service.changeContextLinks("workspace", item.id(), before.revision(), links, "Linked related reports");
+
+        assertThat(linked.contextLinks()).containsExactlyElementsOf(links);
+        assertThat(linked.history().getLast().action()).isEqualTo("CONTEXT_UPDATED");
+        assertThat(linked.history().getLast().detail()).isEqualTo("Linked related reports");
+        assertThat(service.requireItem("workspace", item.id())).usingRecursiveComparison().ignoringFields("revision", "history", "updatedAt", "contextLinks")
+                .isEqualTo(before);
+        assertThat(store.findByIdentity(source.identity())).map(WorkItem::id).contains(item.id());
+        assertThat(store.findByIdentity("ISSUE:github.com:9")).as("contextual references do not own sources").isEmpty();
+        assertThat(service.changeContextLinks("workspace", item.id(), before.revision(), links, "Retried")).isEqualTo(linked);
+        assertThatThrownBy(() -> service.changeContextLinks("workspace", item.id(), before.revision(), ImmutableList.of(), "Unlink"))
+                .hasMessageContaining("Work item changed");
+        assertThatThrownBy(() -> service.changeContextLinks("other", item.id(), linked.revision(), links, "Elsewhere"))
+                .hasMessageContaining("belongs to workspace workspace");
+
+        WorkItemView unlinked = service.changeContextLinks("workspace", item.id(), linked.revision(), ImmutableList.of(), "Unlinked related reports");
+        assertThat(unlinked.contextLinks()).isEmpty();
+        assertThat(unlinked.history()).hasSize(before.history().size() + 2);
+        assertThat(unlinked.links()).isEqualTo(linked.links());
+        assertThat(unlinked.epicId()).isEqualTo(linked.epicId());
+        assertThat(unlinked.blockedBy()).isEqualTo(linked.blockedBy());
+        assertThat(service.changeContextLinks("workspace", item.id(), linked.revision(), ImmutableList.of(), "Retried")).isEqualTo(unlinked);
+    }
+
+    @Test
+    void contextualReferencesSurviveOrdinaryDecisionsMembershipChangesAndPublication()
+    {
+        WorkItemView item = service.create("workspace", UUID.randomUUID().toString(), Optional.empty(), "Private work", WorkItem.Kind.DEVELOP,
+                "Retain all context", WorkItem.CompletionRule.MERGED_DELIVERY);
+        List<WorkItemContextLink> links = ImmutableList.of(new WorkItemContextLink("ISSUE:github.com:9", "Related report"));
+        WorkItemView linked = service.changeContextLinks("workspace", item.id(), item.revision(), links, "Linked related report");
+        service.change("workspace", item.id(), arrange(linked, WorkItemCommand.Action.PRIORITIZE, Optional.of(WorkItem.Priority.HIGH), ""));
+        service.receipt("workspace", item.id(), "receipt-1", "Useful investigation");
+        service.joinLocalEpic("workspace", EPIC, item.id());
+        WorkItemView sibling = epicWork(EPIC, "Another piece");
+        service.orderEpic("workspace", EPIC, ImmutableList.of(sibling.id(), item.id()));
+        service.removeFromEpic("workspace", item.id());
+        WorkItemLink source = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", 43, "org/repo", 7,
+                "https://github.com/org/repo/issues/7", item.title(), item.acceptanceCriteria(), NOW), NOW);
+        service.beginPublication("workspace", item.id(), find(item.id()).revision(), "publication-1", "GITHUB:org/repo");
+
+        assertThat(service.published("workspace", item.id(), source, "publication-1").contextLinks()).containsExactlyElementsOf(links);
+        assertThat(store.findByIdentity(source.identity())).map(WorkItem::contextLinks).contains(links);
     }
 
     @Test

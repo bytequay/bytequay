@@ -28,3 +28,9 @@ it('marks local Epics, assigns work and preserves their identity through publica
     styles: true, charset: true, width: 1280, height: 850,
     body: 'const results = await window.webContents.executeJavaScript("UnifiedWorkTests.localEpic()");' })).toBe(true);
 }, deadline(30_000));
+
+it('links local, GitHub and Jira context without changing ownership, Epic membership or blockers', async () => {
+  expect(await runBrowserFixture({ prefix: 'bytequay-work-context-', entry: 'src/workitems/fixtures/workItemsBrowser.tsx', global: 'UnifiedWorkTests',
+    styles: true, charset: true, width: 1280, height: 850,
+    body: 'const results = await window.webContents.executeJavaScript("UnifiedWorkTests.contextLinks()");' })).toBe(true);
+}, deadline(30_000));

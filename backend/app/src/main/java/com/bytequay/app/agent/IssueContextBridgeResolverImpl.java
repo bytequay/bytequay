@@ -25,6 +25,7 @@ import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.service.epic.EpicSources;
+import com.bytequay.app.workitem.WorkItemCatalog;
 import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.IssueTask;
@@ -46,6 +47,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -80,10 +82,11 @@ public class IssueContextBridgeResolverImpl
     private final ObjectMapper objectMapper;
     private final WorkItemStore workItems;
     private final EpicStore epics;
+    private final ObjectProvider<WorkItemCatalog> catalog;
 
     public IssueContextBridgeResolverImpl(AgentTaskStore tasks, IssueDevelopmentStore sources, WorkspaceStore workspaces,
             RepositoryIssueStore issues, RepositoryIssueDetailStore details, ObjectMapper objectMapper, JiraIssueTaskStore jiraSources, JiraService jira,
-            WorkItemStore workItems, EpicStore epics)
+            WorkItemStore workItems, EpicStore epics, ObjectProvider<WorkItemCatalog> catalog)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.sources = requireNonNull(sources, "sources is null");
@@ -95,6 +98,7 @@ public class IssueContextBridgeResolverImpl
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
         this.epics = requireNonNull(epics, "epics is null");
+        this.catalog = requireNonNull(catalog, "catalog is null");
     }
 
     @Override
@@ -136,9 +140,15 @@ public class IssueContextBridgeResolverImpl
         WorkItem item = taskWork(taskId).orElseThrow(() -> new AgentConflictException("This task no longer has readable work-item context."));
         ObjectNode result = objectMapper.createObjectNode();
         result.put("source", "ByteQuay local data only; no remote request was made.");
-        result.set("workItem", objectMapper.valueToTree(item));
-        item.epicId().ifPresent(ignored -> result.set("epic", epic(item)));
+        addWorkContext(result, item);
         return result.toString();
+    }
+
+    private void addWorkContext(ObjectNode result, WorkItem item)
+    {
+        result.set("workItem", objectMapper.valueToTree(item));
+        result.set("contextLinks", objectMapper.valueToTree(item.contextLinks().isEmpty() ? ImmutableList.of() : catalog.getObject().contextLinks(item.workspaceId(), item.id())));
+        item.epicId().ifPresent(ignored -> result.set("epic", epic(item)));
     }
 
     /** The Epic as ByteQuay keeps it: its local description or cached source, source children, and its work in the user's order. */
@@ -259,10 +269,7 @@ public class IssueContextBridgeResolverImpl
             entry.put("body", comment.body().substring(0, Math.min(comment.body().length(), MAXIMUM_EVENT_BODY)));
             entry.put("bodyTruncated", comment.body().length() > MAXIMUM_EVENT_BODY);
         });
-        taskWork(taskId).ifPresent(item -> {
-            result.set("workItem", objectMapper.valueToTree(item));
-            item.epicId().ifPresent(ignored -> result.set("epic", epic(item)));
-        });
+        taskWork(taskId).ifPresent(item -> addWorkContext(result, item));
         return result.toString();
     }
 
@@ -335,10 +342,7 @@ public class IssueContextBridgeResolverImpl
             entry.put("sourceUrl", event.payload().sourceUrl());
             entry.put("milestone", event.payload().milestoneTitle());
         }
-        taskWork(taskId).ifPresent(item -> {
-            result.set("workItem", objectMapper.valueToTree(item));
-            item.epicId().ifPresent(ignored -> result.set("epic", epic(item)));
-        });
+        taskWork(taskId).ifPresent(item -> addWorkContext(result, item));
         return result.toString();
     }
 }

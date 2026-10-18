@@ -19,6 +19,7 @@ import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.service.epic.EpicSources;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemContextLink;
 import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.store.EpicStore;
@@ -124,7 +125,7 @@ public class WorkItemService
             WorkItem item = new WorkItem(id, workspaceId, goalId, name, kind, criteria, rule, WorkItem.State.PLANNED, 0, ImmutableList.of(),
                     ImmutableList.of(new WorkItemEvent(id, fingerprint, "CREATED",
                             "Work item accepted: " + name + "\nSuccess: " + criteria + "\nCompletion: " + completionText(rule), now)), now, now,
-                    WorkItem.Priority.NORMAL, nextRank(workspaceId, goalId), ImmutableList.of(), epicId, nextEpicRank(workspaceId, epicId));
+                    WorkItem.Priority.NORMAL, nextRank(workspaceId, goalId), ImmutableList.of(), epicId, nextEpicRank(workspaceId, epicId), ImmutableList.of());
             items.insert(item);
             return view(item);
         });
@@ -174,7 +175,7 @@ public class WorkItemService
             WorkItem item = new WorkItem(id, workspaceId, Optional.of(goalId), name, WorkItem.Kind.DEVELOP, criteria.trim(), rule, state, 0, links,
                     ImmutableList.of(new WorkItemEvent(id, requested.identity(), "CREATED",
                             "Practice accepted: " + name + "\nSuccess: " + criteria.trim() + "\nCompletion: " + completionText(rule), now)), now, now,
-                    WorkItem.Priority.NORMAL, nextRank(workspaceId, Optional.of(goalId)), ImmutableList.of(), Optional.empty(), 0);
+                    WorkItem.Priority.NORMAL, nextRank(workspaceId, Optional.of(goalId)), ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
             items.insert(item);
             return view(item);
         });
@@ -197,6 +198,26 @@ public class WorkItemService
                 });
             }
             return view(saveLinks(item, item.goalId(), item.epicId(), links, "Linked supporting work"));
+        });
+    }
+
+    /** Updates contextual references without changing source ownership, execution state or planning membership. */
+    public WorkItemView changeContextLinks(String workspaceId, String itemId, long expectedRevision, List<WorkItemContextLink> links, String summary)
+    {
+        List<WorkItemContextLink> contextLinks = ImmutableList.copyOf(links);
+        return unitOfWork.execute(() -> {
+            WorkItem item = requireItem(workspaceId, itemId);
+            if (item.contextLinks().equals(contextLinks)) {
+                return view(item);
+            }
+            requireRevision(item, expectedRevision);
+            Instant now = clock.instant();
+            WorkItem next = new WorkItem(item.id(), item.workspaceId(), item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
+                    item.state(), item.revision() + 1, item.links(), ImmutableList.<WorkItemEvent>builder().addAll(item.history())
+                            .add(new WorkItemEvent(UUID.randomUUID().toString(), "", "CONTEXT_UPDATED", summary, now)).build(), item.createdAt(), now,
+                    item.priority(), item.rank(), item.blockedBy(), item.epicId(), item.epicRank(), contextLinks);
+            update(next, item.revision());
+            return view(next);
         });
     }
 
@@ -319,7 +340,7 @@ public class WorkItemService
                 Instant now = clock.instant();
                 WorkItem updated = new WorkItem(id, workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
                         item.revision() + 1, ImmutableList.<WorkItemLink>builder().addAll(item.links()).add(source).build(), item.history(), item.createdAt(), now,
-                        item.priority(), item.rank(), item.blockedBy(), item.epicId(), item.epicRank());
+                        item.priority(), item.rank(), item.blockedBy(), item.epicId(), item.epicRank(), item.contextLinks());
                 update(updated, item.revision());
             }
             record(workspaceId, id, operationId + ":settled", "PUBLISHED", "Linked " + source.reference().label());
@@ -350,7 +371,7 @@ public class WorkItemService
             WorkItem updated = new WorkItem(id, workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
                     item.revision() + 1, item.links(), ImmutableList.<WorkItemEvent>builder().addAll(item.history())
                             .add(new WorkItemEvent(operationId, "", action, detail, now)).build(), item.createdAt(), now, item.priority(), item.rank(), item.blockedBy(),
-                    item.epicId(), item.epicRank());
+                    item.epicId(), item.epicRank(), item.contextLinks());
             update(updated, item.revision());
             return null;
         });
@@ -465,7 +486,7 @@ public class WorkItemService
             WorkItem updated = new WorkItem(id, workspaceId, goalId, title, item.kind(), criteria, rule, state, item.revision() + 1, item.links(),
                     ImmutableList.<WorkItemEvent>builder().addAll(item.history())
                             .add(new WorkItemEvent(command.operationId(), command.toString(), command.action().name(), detail, now)).build(), item.createdAt(), now,
-                    priority, rank, blockedBy, item.epicId(), item.epicRank());
+                    priority, rank, blockedBy, item.epicId(), item.epicRank(), item.contextLinks());
             update(updated, item.revision());
             for (WorkItem dependent : released) {
                 update(new WorkItem(dependent.id(), workspaceId, dependent.goalId(), dependent.title(), dependent.kind(), dependent.acceptanceCriteria(),
@@ -473,7 +494,7 @@ public class WorkItemService
                                 .addAll(dependent.history()).add(new WorkItemEvent(command.operationId() + ":" + dependent.id(), "", "UNBLOCK",
                                         "No longer waits on " + title + ", which was dropped: " + detail, now)).build(),
                         dependent.createdAt(), now, dependent.priority(), dependent.rank(), dependent.blockedBy().stream().filter(value -> !value.equals(id))
-                        .collect(toImmutableList()), dependent.epicId(), dependent.epicRank()), dependent.revision());
+                        .collect(toImmutableList()), dependent.epicId(), dependent.epicRank(), dependent.contextLinks()), dependent.revision());
             }
             boolean concluding = switch (command.action()) {
                 case ACCEPT, DROP, REOPEN -> true;
@@ -513,7 +534,7 @@ public class WorkItemService
                 if ((epic ? item.epicRank() : item.rank()) != rank) {
                     WorkItem moved = new WorkItem(item.id(), workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
                             item.state(), item.revision() + 1, item.links(), item.history(), item.createdAt(), now, item.priority(), epic ? item.rank() : rank, item.blockedBy(),
-                            item.epicId(), epic ? rank : item.epicRank());
+                            item.epicId(), epic ? rank : item.epicRank(), item.contextLinks());
                     update(moved, item.revision());
                     item = moved;
                 }
@@ -547,7 +568,7 @@ public class WorkItemService
         WorkItem item = new WorkItem(id, workspaceId, Optional.empty(), source.reference().title(), WorkItem.Kind.DEVELOP, "",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(source),
                 ImmutableList.of(new WorkItemEvent(id, source.identity(), "CREATED", "Accepted work from " + source.reference().label(), now)), now, now,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         items.insert(item);
         return item;
     }
@@ -589,7 +610,7 @@ public class WorkItemService
         WorkItem next = new WorkItem(item.id(), item.workspaceId(), goalId, item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), state,
                 item.revision() + 1, linked, ImmutableList.<WorkItemEvent>builder().addAll(item.history())
                         .add(new WorkItemEvent(UUID.randomUUID().toString(), "", "LINKED", reason, now)).build(), item.createdAt(), now,
-                item.priority(), rank, item.blockedBy(), epicId, epicRank);
+                item.priority(), rank, item.blockedBy(), epicId, epicRank, item.contextLinks());
         update(next, item.revision());
         return next;
     }
@@ -703,7 +724,7 @@ public class WorkItemService
             WorkItem next = new WorkItem(item.id(), workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
                     item.revision() + 1, item.links(), ImmutableList.<WorkItemEvent>builder().addAll(item.history())
                             .add(new WorkItemEvent(UUID.randomUUID().toString(), "", left ? "LEFT_EPIC" : "UNBLOCK", detail, now)).build(), item.createdAt(), now,
-                    item.priority(), item.rank(), blockedBy, epicId, left ? 0 : item.epicRank());
+                    item.priority(), item.rank(), blockedBy, epicId, left ? 0 : item.epicRank(), item.contextLinks());
             update(next, item.revision());
             if (left) {
                 kept.add(next);
@@ -724,7 +745,7 @@ public class WorkItemService
         List<GoalItemView> links = item.links().stream().map(link -> references.view(item.workspaceId(), link.reference())).collect(toImmutableList());
         return new WorkItemView(item.id(), item.workspaceId(), item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
                 item.state(), item.revision(), links, item.history(), item.createdAt(), item.updatedAt(), item.priority(), item.rank(), item.blockedBy(),
-                item.epicId(), item.epicRank(), isLocalEpic(item));
+                item.epicId(), item.epicRank(), isLocalEpic(item), item.contextLinks());
     }
 
     private boolean isLocalEpic(WorkItem item)

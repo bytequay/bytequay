@@ -20,7 +20,8 @@ import type { AgentTaskDto } from '../types';
 import type {
   GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalPlanChangeDto, GoalRecommendationDto, LessonContentDto, WorkItemDecision, WorkItemDto,
 } from './contracts';
-import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation } from './contracts';
+import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseWorkItem } from './contracts';
+import { parseWorkItemContextLink } from '../workitems/contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import { ChapterBody, componentLayout, componentPlaces, flowPlaces, LessonDiagram, treePlaces, wrap } from './LessonBook';
 import {
@@ -47,7 +48,7 @@ const ITEMS: GoalItemDto[] = [
 const GOAL: GoalDto = {
   id: 'goal-1', workspaceId: 'workspace-1', title: 'Iceberg & Delta Lake correctness for 482', description: 'Land the fixes before 482.', pinned: true, paused: false,
   source: null, definition: null, revision: 0, course: null, recommendations: [], topics: [], items: ITEMS.map((link, index): WorkItemDto => ({
-    id: `work-${index}`, workspaceId: 'workspace-1', isEpic: false, goalId: 'goal-1', title: link.title, kind: 'DEVELOP', acceptanceCriteria: 'Verified fix',
+    id: `work-${index}`, workspaceId: 'workspace-1', isEpic: false, contextLinks: [], goalId: 'goal-1', title: link.title, kind: 'DEVELOP', acceptanceCriteria: 'Verified fix',
     completionRule: 'MERGED_DELIVERY', state: index === 1 ? 'DONE' : index === 2 ? 'PLANNED' : 'WORKING', revision: 0, priority: 'NORMAL', rank: index, blockedBy: [],
     links: [link],
     history: link.activity === null ? [] : [{ operationId: `op-${index}`, action: 'ACCEPT', detail: link.activity.text, at: link.activity.at }],
@@ -213,6 +214,19 @@ describe('goal model', () => {
     expect(parseGoal(JSON.parse(JSON.stringify(GOAL)))).toEqual(GOAL);
     expect(() => parseGoal({ ...GOAL, items: [{ ...GOAL.items[0], state: 'FINISHED' }] })).toThrow('Malformed work item state');
     expect(() => parseGoal({ ...GOAL, pinned: 'yes' })).toThrow('Malformed goal pinned');
+  });
+
+  it('reads context separately from source links and defaults older work to no context links', () => {
+    const work = GOAL.items[0];
+    expect(parseWorkItem({ ...work, contextLinks: undefined }).contextLinks).toEqual([]);
+    const contextLinks = [{ targetId: 'ISSUE:github.com:1', title: 'Related request' }];
+    expect(parseWorkItem({ ...work, contextLinks })).toEqual({ ...work, contextLinks });
+    expect(() => parseWorkItem({ ...work, contextLinks: [{ title: 'Missing identity' }] })).toThrow('Malformed context link target');
+    const resolved = { targetId: 'ISSUE:github.com:1', id: 'local-copy', source: 'GITHUB', title: 'Related request', status: 'Open', available: true,
+      reference: { kind: 'ISSUE', key: 'org/repo#1', label: '#1' } };
+    expect(parseWorkItemContextLink(resolved)).toEqual(resolved);
+    expect(parseWorkItemContextLink({ ...resolved, available: false, reference: undefined }).reference).toBeNull();
+    expect(() => parseWorkItemContextLink({ ...resolved, available: 'yes' })).toThrow('Malformed context link');
   });
 });
 

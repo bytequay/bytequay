@@ -293,6 +293,11 @@ Open **Work items** and choose **Local**, **GitHub issues**, or **Jira**.
 
 If publication is uncertain, link the existing remote item before retrying.
 
+In a Local item's **Context**, choose **Link work item** to reference another
+Local item, GitHub issue, or Jira ticket in the workspace. Linked titles open
+their details; **Unlink** removes only the reference. Agents can create and read
+these links too. Use Epic membership for subtasks and dependencies for blockers.
+
 <a id="epics"></a>
 
 ## Organize an Epic

@@ -252,6 +252,6 @@ class TestEpicService
     {
         return new WorkItem("work-1", "workspace", Optional.empty(), "Hive field names", WorkItem.Kind.DEVELOP, "Read fields containing slash characters",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), epicId, 0);
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), epicId, 0, ImmutableList.of());
     }
 }

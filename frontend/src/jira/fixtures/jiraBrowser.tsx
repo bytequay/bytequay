@@ -134,7 +134,7 @@ export async function mountPreview(offline = false, openIssue = true, body = jir
     moveJiraIssue: async (_location, sprintId, boardId, expectedUpdatedAt) => { record('sprint', sprintId, boardId, expectedUpdatedAt); return { ...detail, issue }; },
     createLocalJiraChild: async (_location, id, title, description) => {
       record('local-child', title, description);
-      return { id, workspaceId: 'workspace', isEpic: false, goalId: null, title, kind: 'DEVELOP', acceptanceCriteria: description, completionRule: 'MERGED_DELIVERY',
+      return { id, workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: null, title, kind: 'DEVELOP', acceptanceCriteria: description, completionRule: 'MERGED_DELIVERY',
         state: 'PLANNED', revision: 0, links: [], history: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', priority: 'NORMAL', rank: 0, blockedBy: [] };
     },
     listJiraLinkTypes: async () => [{ id: '10000', name: 'Blocks', inward: 'is blocked by', outward: 'blocks' }, { id: '10003', name: 'Relates', inward: 'relates to', outward: 'relates to' }],
@@ -433,7 +433,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await mountPreview(false, false);
       issue = { ...issue, isEpic: true, workspace: { id: 'workspace', name: 'Trino' } };
       const work = (id: string, state: WorkItemDto['state']): WorkItemDto => ({
-        id, workspaceId: 'workspace', isEpic: false, goalId: null, title: `Work ${id}`, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0,
+        id, workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: null, title: `Work ${id}`, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0,
         links: [], history: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', priority: 'NORMAL', rank: 0, blockedBy: [], epicId: ticketEpicId(issue),
         epicRank: 0 });
       window.bridge = { ...window.bridge, listWorkItems: async () => [work('a', 'DONE'), work('b', 'PLANNED')] } as Bridge;

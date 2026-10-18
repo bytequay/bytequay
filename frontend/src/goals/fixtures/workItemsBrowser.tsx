@@ -35,7 +35,7 @@ async function decisionsSurviveFailure(): Promise<void> {
   host.style.width = '380px';
   const root = createRoot(host);
   const now = '2026-09-01T00:00:00Z';
-  const initial: WorkItemDto = { id: 'work', workspaceId: 'workspace', isEpic: false, goalId: 'goal', title: 'Learn the contribution flow', kind: 'LEARN',
+  const initial: WorkItemDto = { id: 'work', workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: 'goal', title: 'Learn the contribution flow', kind: 'LEARN',
     acceptanceCriteria: 'Explain the contribution path', completionRule: 'ACCEPTED_RESULT', state: 'WORKING', revision: 0, links: [], history: [], createdAt: now, updatedAt: now,
     priority: 'NORMAL', rank: 0, blockedBy: [] };
   const decisions: WorkItemDecision[] = [];
@@ -92,7 +92,7 @@ async function finishedWorkKeepsItsSummary(): Promise<void> {
   const root = createRoot(host);
   const now = '2026-09-01T00:00:00Z';
   const accepted = { operationId: 'op-9', action: 'ACCEPT', detail: 'User accepted all criteria: Rows survive', at: now };
-  const finished: WorkItemDto = { id: 'work', workspaceId: 'workspace', isEpic: false, goalId: 'goal', title: 'Fix #31252', kind: 'DEVELOP', acceptanceCriteria: 'Rows survive',
+  const finished: WorkItemDto = { id: 'work', workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: 'goal', title: 'Fix #31252', kind: 'DEVELOP', acceptanceCriteria: 'Rows survive',
     completionRule: 'MERGED_DELIVERY', state: 'DONE', revision: 3, links: [], history: [accepted], createdAt: now, updatedAt: now, priority: 'NORMAL', rank: 0, blockedBy: [] };
   const asked: string[] = [];
   let show: (item: WorkItemDto) => void = () => {};
@@ -132,7 +132,7 @@ async function anotherAttemptAfterAnEndedTask(): Promise<void> {
   const now = '2026-09-01T00:00:00Z';
   const link = (kind: 'ISSUE' | 'JIRA' | 'TASK', key: string, state: 'IDLE' | 'ENDED'): WorkItemDto['links'][number] => ({ kind, key, label: kind === 'TASK' ? 'Task' : key,
     title: 'Fix the checkpoint', state, status: state === 'ENDED' ? 'Failed' : 'Idle', blocked: false, url: null, activity: null, addedAt: now });
-  const work = (task: 'IDLE' | 'ENDED', source = link('ISSUE', 'trinodb/trino#31252', 'IDLE')): WorkItemDto => ({ id: 'work', workspaceId: 'workspace', isEpic: false, goalId: 'goal',
+  const work = (task: 'IDLE' | 'ENDED', source = link('ISSUE', 'trinodb/trino#31252', 'IDLE')): WorkItemDto => ({ id: 'work', workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: 'goal',
     title: 'Fix #31252', kind: 'DEVELOP',
     acceptanceCriteria: 'Key actions by path and deletion vector.', completionRule: 'MERGED_DELIVERY', state: 'WORKING', revision: 2, priority: 'NORMAL', rank: 0, blockedBy: [],
     links: [source, link('TASK', 'task-1', task)], history: [], createdAt: now, updatedAt: now });
@@ -181,7 +181,7 @@ async function orderAndBlockers(): Promise<void> {
   host.style.width = '380px';
   const root = createRoot(host);
   const now = '2026-09-01T00:00:00Z';
-  const work = (id: string, title: string, rank: number, blockedBy: string[]): WorkItemDto => ({ id, workspaceId: 'workspace', isEpic: false, goalId: 'goal', title, kind: 'DEVELOP',
+  const work = (id: string, title: string, rank: number, blockedBy: string[]): WorkItemDto => ({ id, workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: 'goal', title, kind: 'DEVELOP',
     acceptanceCriteria: 'Rows survive a checkpoint', completionRule: 'ACCEPTED_RESULT', state: 'PLANNED', revision: 1, links: [], history: [], createdAt: now, updatedAt: now,
     priority: 'NORMAL', rank, blockedBy });
   const decisions: WorkItemDecision[] = [];
@@ -248,7 +248,7 @@ async function viewsPutReadyWorkFirst(): Promise<void> {
   host.style.width = '380px';
   const root = createRoot(host);
   const now = '2026-09-01T00:00:00Z';
-  const work = (id: string, rank: number, extra: Partial<WorkItemDto> = {}): WorkItemDto => ({ id, workspaceId: 'workspace', isEpic: false, goalId: 'goal', title: `Work ${id}`,
+  const work = (id: string, rank: number, extra: Partial<WorkItemDto> = {}): WorkItemDto => ({ id, workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: 'goal', title: `Work ${id}`,
     kind: 'DEVELOP', acceptanceCriteria: 'Done', completionRule: 'ACCEPTED_RESULT', state: 'PLANNED', revision: 1, links: [], history: [], createdAt: now, updatedAt: now,
     priority: 'NORMAL', rank, blockedBy: [], ...extra });
   const ticket: WorkItemDto['links'][number] = { kind: 'JIRA', key: 'connection:cloud:10412', label: 'TRINO-412', title: 'Keep deletion vectors', state: 'IDLE',

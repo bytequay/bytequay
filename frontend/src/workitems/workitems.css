@@ -53,6 +53,15 @@
 .work-items__progress { display: flex; align-items: center; gap: 8px; color: var(--fg-dim); font-size: 12px; white-space: nowrap; }
 .work-items__progress > .epic-progress { width: 72px; }
 
+.work-items__context-links { border-top: 1px solid var(--line-subtle); }
+.work-items__context-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 16px; font-size: 13px; }
+.work-items__context-note { margin: 0; padding: 0 16px 12px; color: var(--fg-dim); font-size: 12px; line-height: 1.5; }
+.work-items__context-picker { padding-top: 4px; border-top: 1px solid var(--line-subtle); }
+.work-items__context-picker > input { box-sizing: border-box; width: calc(100% - 32px); margin: 8px 16px; padding: 7px 10px; border: 1px solid var(--line-default);
+  border-radius: 7px; background: var(--surface-canvas); color: var(--text-1); font: inherit; font-size: 13px; }
+.work-items__context-picker > input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.work-items__quiet:disabled { opacity: 0.5; cursor: default; }
+
 .work-items__history > summary { display: flex; align-items: center; gap: 6px; margin: 6px 0 10px; font-size: 14px; font-weight: 600; list-style: none; cursor: pointer; }
 .work-items__history > summary::-webkit-details-marker { display: none; }
 .work-items__history > summary > svg { color: var(--fg-dim); transition: transform 0.15s; }

@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.converter;
 
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemContextLink;
 import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.WorkItemConverter;
 import com.google.common.collect.ImmutableList;
@@ -43,10 +44,23 @@ class TestWorkItemConverter
         assertThat(converter.convertToEntityAttribute(older)).isEqualTo(item(WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0));
     }
 
+    @Test
+    void retainsContextualReferencesAndReadsTheirAbsenceAsNoReferences()
+    {
+        WorkItem original = item(WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+        WorkItem linked = new WorkItem(original.id(), original.workspaceId(), original.goalId(), original.title(), original.kind(), original.acceptanceCriteria(),
+                original.completionRule(), original.state(), original.revision(), original.links(), original.history(), NOW, NOW, original.priority(), original.rank(),
+                original.blockedBy(), original.epicId(), original.epicRank(), ImmutableList.of(new WorkItemContextLink("ISSUE:github.com:42", "Related issue")));
+        assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(linked))).isEqualTo(linked);
+        String older = converter.convertToDatabaseColumn(original).replace(",\"contextLinks\":[]", "");
+        assertThat(older).doesNotContain("contextLinks");
+        assertThat(converter.convertToEntityAttribute(older)).isEqualTo(original);
+    }
+
     private static WorkItem item(WorkItem.Priority priority, long rank, ImmutableList<String> blockedBy, Optional<String> epicId, long epicRank)
     {
         return new WorkItem("work-1", "workspace", Optional.of("goal"), "Fix", WorkItem.Kind.DEVELOP, "Covers the bug", WorkItem.CompletionRule.MERGED_DELIVERY,
                 WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(new WorkItemEvent("op", "input", "CREATED", "Accepted", NOW)), NOW, NOW,
-                priority, rank, blockedBy, epicId, epicRank);
+                priority, rank, blockedBy, epicId, epicRank, ImmutableList.of());
     }
 }

@@ -22,6 +22,9 @@ import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.workitem.UnifiedWorkItem;
+import com.bytequay.app.workitem.WorkItemCatalog;
+import com.bytequay.app.workitem.WorkItemContextView;
 import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.EpicChild;
 import com.bytequay.core.domain.GitHubIssueSource;
@@ -36,6 +39,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemContextLink;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.EpicStore;
@@ -53,6 +57,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -88,13 +93,16 @@ class TestIssueContextBridgeResolverImpl
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
     private final WorkItemStore workItems = mock(WorkItemStore.class);
     private final EpicStore epics = mock(EpicStore.class);
+    private final WorkItemCatalog catalog = mock(WorkItemCatalog.class);
+    private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final IssueContextBridgeResolverImpl resolver = new IssueContextBridgeResolverImpl(tasks, sources, workspaces, issues, details, mapper, jiraSources, jira,
-            workItems, epics);
+            workItems, epics, beans.getBeanProvider(WorkItemCatalog.class));
     private final AgentTask task = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
 
     @BeforeEach
     void setUp()
     {
+        beans.registerSingleton("catalog", catalog);
         when(tasks.find(taskId)).thenReturn(Optional.of(task));
         when(task.interactive()).thenReturn(true);
         when(task.state()).thenReturn(TaskState.OPEN);
@@ -263,7 +271,7 @@ class TestIssueContextBridgeResolverImpl
         when(sources.findByTaskId(taskId.toString())).thenReturn(Optional.empty());
         WorkItem item = new WorkItem("local", "workspace", Optional.empty(), "Private repair", WorkItem.Kind.DEVELOP, "Reproduction and full acceptance criteria",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         when(workItems.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item));
         IssueContextBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
         assertThat(bridge.instruction()).isEqualTo(IssueContextBridge.WORK_INSTRUCTION);
@@ -282,7 +290,7 @@ class TestIssueContextBridgeResolverImpl
         String epicId = "LOCAL:parent";
         WorkItem parent = new WorkItem("parent", "workspace", Optional.empty(), "Private Epic", WorkItem.Kind.DEVELOP, "Full parent context and acceptance criteria",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         WorkItem sibling = work("sibling", "First connector", WorkItem.State.DONE, 0, epicId, "First connector verified", ImmutableList.of(), ImmutableList.of());
         WorkItem current = work("current", "Second connector", WorkItem.State.WORKING, 1, epicId, "Second connector verified", ImmutableList.of("sibling"), ImmutableList.of());
         when(workItems.find("parent")).thenReturn(Optional.of(parent));
@@ -306,7 +314,7 @@ class TestIssueContextBridgeResolverImpl
         assertThat(context.at("/epic/currentWork/waitsOn/0").asText()).isEqualTo(sibling.title());
 
         WorkItem otherWorkspace = new WorkItem("parent", "other", Optional.empty(), "Private elsewhere", parent.kind(), "Other workspace context", parent.completionRule(),
-                parent.state(), 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, parent.priority(), 0, ImmutableList.of(), Optional.empty(), 0);
+                parent.state(), 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, parent.priority(), 0, ImmutableList.of(), Optional.empty(), 0, parent.contextLinks());
         when(workItems.find("parent")).thenReturn(Optional.of(otherWorkspace));
         JsonNode excluded = mapper.readTree(bridge.read().get());
         assertThat(excluded.at("/epic/status").asText()).isEqualTo("missing");
@@ -319,7 +327,42 @@ class TestIssueContextBridgeResolverImpl
     private static WorkItem work(String id, String title, WorkItem.State state, long epicRank, String epicId, String criteria, List<String> blockedBy, List<WorkItemLink> links)
     {
         return new WorkItem(id, "workspace", Optional.empty(), title, WorkItem.Kind.DEVELOP, criteria, WorkItem.CompletionRule.MERGED_DELIVERY, state, 0, links,
-                ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, blockedBy, Optional.of(epicId), epicRank);
+                ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, blockedBy, Optional.of(epicId), epicRank, ImmutableList.of());
+    }
+
+    @Test
+    void allAssignmentSourcesReadDirectContextLinkSummariesWithoutExpandingTargets()
+            throws Exception
+    {
+        String targetId = "ISSUE:github.com:900";
+        WorkItem item = new WorkItem("local", "workspace", Optional.empty(), "Private repair", WorkItem.Kind.DEVELOP, "Retained task criteria",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of(new WorkItemContextLink(targetId, "Linked background")));
+        when(workItems.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item));
+        when(catalog.contextLinks("workspace", "local")).thenReturn(ImmutableList.of(
+                new WorkItemContextView(targetId, "resolved-local", UnifiedWorkItem.Source.GITHUB, "Linked background", "Open", true, Optional.empty())));
+        for (String source : ImmutableList.of("LOCAL", "GITHUB", "JIRA")) {
+            when(sources.findByTaskId(taskId.toString())).thenReturn(source.equals("GITHUB")
+                    ? Optional.of(new IssueTask(taskId.toString(), "workspace", SOURCE, Optional.empty(), NOW)) : Optional.empty());
+            JiraIssueSource jiraSource = new JiraIssueSource("connection", "cloud", "10001", "APP-7", "https://company.atlassian.net/browse/APP-7",
+                    "Jira assignment", "Jira body", NOW);
+            when(jiraSources.findByTaskId(taskId.toString())).thenReturn(source.equals("JIRA")
+                    ? Optional.of(new JiraIssueTask(taskId.toString(), "workspace", jiraSource, "Implement Jira scope", NOW)) : Optional.empty());
+            if (source.equals("JIRA")) {
+                when(jira.issue("connection", "cloud", "10001")).thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND));
+            }
+            IssueContextBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
+            assertThat(bridge.instruction()).contains("work_items READ", "do not assign linked work");
+            JsonNode context = mapper.readTree(bridge.read().get());
+            assertThat(context.at("/workItem/id").asText()).isEqualTo("local");
+            assertThat(context.at("/workItem/contextLinks/0/targetId").asText()).isEqualTo(targetId);
+            assertThat(context.at("/contextLinks/0/id").asText()).isEqualTo("resolved-local");
+            assertThat(context.at("/contextLinks/0/title").asText()).isEqualTo("Linked background");
+            assertThat(context.at("/contextLinks/0/status").asText()).isEqualTo("Open");
+            assertThat(context.at("/contextLinks/0/description").isMissingNode()).isTrue();
+            assertThat(context.at("/contextLinks/0/contextLinks").isMissingNode()).isTrue();
+        }
+        verify(catalog, never()).read(anyString(), anyString());
     }
 
     @Test

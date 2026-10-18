@@ -509,6 +509,8 @@ export type WorkItemDto = {
   state: WorkItemState;
   revision: number;
   links: GoalItemDto[];
+  /** Work items used as reference context, without changing source or development ownership. */
+  contextLinks: { targetId: string; title: string }[];
   history: { operationId: string; action: string; detail: string; at: string }[];
   createdAt: string;
   updatedAt: string;
@@ -594,6 +596,10 @@ export function parseWorkItem(value: unknown): WorkItemDto {
     state: oneOf(item.state, ['PLANNED', 'WORKING', 'DONE', 'DROPPED'] as const, 'work item state'),
     revision: item.revision as number,
     links: parseList(item.links, parseGoalItem, 'work item links'),
+    contextLinks: item.contextLinks == null ? [] : parseList(item.contextLinks, value => {
+      const link = object(value, 'work item context link');
+      return { targetId: text(link.targetId, 'context link target'), title: text(link.title, 'context link title') };
+    }, 'work item context links'),
     history: parseList(item.history, (value) => {
       const event = object(value, 'work item history');
       return { operationId: text(event.operationId, 'operation'), action: text(event.action, 'action'), detail: text(event.detail, 'detail'), at: text(event.at, 'time') };

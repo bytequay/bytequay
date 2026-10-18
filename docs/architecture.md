@@ -100,6 +100,13 @@ appear once. Local work owns its description, planning membership, history, and 
 attempts independently of remote publication or Epic membership. Confirmed spec
 findings retain their complete evidence in that same local model.
 
+Context links are separate, non-owning references stored with a local work item.
+They preserve the target identity and title, resolve source identities to retained
+local items within the same workspace, and remain removable when a cached target
+is unavailable. They do not reserve source/task identities or affect planning and
+execution state. Add/remove operations check the item revision and retain history;
+reads expose direct summaries without recursively expanding reference cycles.
+
 Agent work-item access is a task-scoped capability: reads stay within the task's
 workspace and creation always saves locally. The desktop publication action binds a
 previewed revision to an explicit provider destination before sending it. Its durable

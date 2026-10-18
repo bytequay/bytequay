@@ -18,6 +18,7 @@ import com.bytequay.core.domain.EpicChild;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemContextLink;
 import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.WorkItemLink;
 import com.google.common.collect.ImmutableList;
@@ -65,7 +66,7 @@ class TestSqliteWorkItemStore
         assertThat(store.findByIdentity(sourceIdentity)).contains(original);
         WorkItem updated = new WorkItem(original.id(), original.workspaceId(), Optional.empty(), original.title(), original.kind(), "New scope",
                 original.completionRule(), WorkItem.State.WORKING, 1, original.links(), original.history(), NOW, NOW.plusSeconds(1), WorkItem.Priority.HIGH, 2,
-                ImmutableList.of("blocker"), Optional.empty(), 0);
+                ImmutableList.of("blocker"), Optional.empty(), 0, original.contextLinks());
         assertThat(store.update(updated, 0)).isTrue();
         assertThat(store.update(updated, 0)).isFalse();
         assertThat(store.find("work")).contains(updated);
@@ -81,6 +82,22 @@ class TestSqliteWorkItemStore
         assertThatThrownBy(() -> store.insert(item("duplicate", "other"))).hasMessageContaining("already belongs");
         assertThat(store.find("duplicate")).isEmpty();
         assertThat(store.findByIdentity(sourceIdentity)).map(WorkItem::id).contains("owner");
+    }
+
+    @Test
+    void contextualReferencesPersistWithoutClaimingTheReferencedSource()
+    {
+        WorkItem owner = item("owner", "workspace");
+        store.insert(owner);
+        WorkItem referencing = new WorkItem("referencing", "workspace", Optional.empty(), "Related investigation", WorkItem.Kind.DEVELOP, "Understand the issue",
+                WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of(new WorkItemContextLink(sourceIdentity, "Related issue")));
+
+        store.insert(referencing);
+
+        assertThat(store.find(referencing.id())).contains(referencing);
+        assertThat(store.findByIdentity(sourceIdentity)).contains(owner);
+        assertThat(store.find(referencing.id()).orElseThrow().links()).isEmpty();
     }
 
     @Test
@@ -107,6 +124,6 @@ class TestSqliteWorkItemStore
         WorkItemLink source = new WorkItemLink(sourceIdentity, new GoalItem(GoalItemKind.ISSUE, "org/repo#1", "#1", "Fix", NOW));
         return new WorkItem(id, workspaceId, Optional.of("goal"), "Fix", WorkItem.Kind.DEVELOP, "Covers the bug", WorkItem.CompletionRule.MERGED_DELIVERY,
                 WorkItem.State.PLANNED, 0, ImmutableList.of(source), ImmutableList.of(new WorkItemEvent("op", "input", "CREATED", "User accepted this item", NOW)), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
     }
 }

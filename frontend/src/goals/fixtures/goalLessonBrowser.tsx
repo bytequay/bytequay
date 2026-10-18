@@ -22,7 +22,7 @@ import '../../css/base.css';
 import '../../css/goals.css';
 
 const NOW = '2026-10-03T10:00:00Z';
-const LESSON: WorkItemDto = { id: 'lesson-1', workspaceId: 'workspace', isEpic: false, goalId: 'goal', title: 'What a table is', kind: 'LEARN',
+const LESSON: WorkItemDto = { id: 'lesson-1', workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: 'goal', title: 'What a table is', kind: 'LEARN',
   acceptanceCriteria: 'Explain metadata, snapshots and manifests', completionRule: 'ACCEPTED_RESULT', state: 'PLANNED', revision: 0, priority: 'NORMAL', rank: 0,
   blockedBy: [], links: [], history: [],
   createdAt: NOW, updatedAt: NOW };

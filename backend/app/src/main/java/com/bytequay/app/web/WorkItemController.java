@@ -21,6 +21,7 @@ import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.app.workitem.SpecWorkItems;
 import com.bytequay.app.workitem.UnifiedWorkItem;
 import com.bytequay.app.workitem.WorkItemCatalog;
+import com.bytequay.app.workitem.WorkItemContextView;
 import com.bytequay.app.workitem.WorkItemPublicationService;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
@@ -160,6 +161,26 @@ public class WorkItemController
     }
 
     public record AssignEpic(String epicId) {}
+
+    @GetMapping("/{itemId}/context-links")
+    public List<WorkItemContextView> contextLinks(@PathVariable String workspaceId, @PathVariable String itemId)
+    {
+        return catalog.contextLinks(workspaceId, itemId);
+    }
+
+    @PutMapping("/{itemId}/context-links")
+    public WorkItemView linkContext(@PathVariable String workspaceId, @PathVariable String itemId, @RequestBody ContextLink request)
+    {
+        return catalog.linkContext(workspaceId, itemId, request.expectedRevision(), request.targetId());
+    }
+
+    @DeleteMapping("/{itemId}/context-links")
+    public WorkItemView unlinkContext(@PathVariable String workspaceId, @PathVariable String itemId, @RequestBody ContextLink request)
+    {
+        return catalog.unlinkContext(workspaceId, itemId, request.expectedRevision(), request.targetId());
+    }
+
+    public record ContextLink(long expectedRevision, String targetId) {}
 
     @PostMapping("/{itemId}/links")
     public WorkItemView link(@PathVariable String workspaceId, @PathVariable String itemId, @RequestBody LinkWorkItem request)

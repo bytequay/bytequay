@@ -207,7 +207,7 @@ async function localWorkAndTasksOverEpic(): Promise<void> {
     const workspace: WorkspaceDto = { id: 'workspace', name: 'Trino', monitoredOwner: 'trinodb', monitoredRepo: 'trino', selectedOwner: 'trinodb', selectedRepo: 'trino',
       topology: 'DIRECT', localRepositoryPath: '/managed/trino', defaultBranch: 'master', upstreamDefaultBranch: null, upstreamOwner: null, upstreamRepo: null,
       selectedRepositoryId: 40, monitoredRepositoryId: 40, upstreamRepositoryId: null, lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0 };
-    const work: WorkItemDto = { id: 'local-work', workspaceId: workspace.id, isEpic: false, goalId: null, epicId: `ISSUE:github.com:${issue.id}`, title: 'Retain Arrow memory context',
+    const work: WorkItemDto = { id: 'local-work', workspaceId: workspace.id, isEpic: false, contextLinks: [], goalId: null, epicId: `ISSUE:github.com:${issue.id}`, title: 'Retain Arrow memory context',
       acceptanceCriteria: 'Keep memory accounting in the retained context.', kind: 'DEVELOP', completionRule: 'MERGED_DELIVERY', state: 'WORKING', revision: 0,
       history: [], createdAt: issue.createdAt, updatedAt: issue.updatedAt, priority: 'NORMAL', rank: 0, blockedBy: [], links: [
         { kind: 'TASK', key: 'old-attempt', label: 'Task', title: 'Investigate Arrow allocations', state: 'ENDED', status: 'Completed', blocked: false, url: null, activity: null, addedAt: issue.createdAt },

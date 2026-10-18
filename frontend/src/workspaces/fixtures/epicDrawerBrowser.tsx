@@ -46,7 +46,7 @@ const EPICS = [
   ticket('998', 'Delta Lake deletion vectors in the native reader', true),
 ];
 const PLAIN = [issue(30303, 'Skip unselected values in Parquet projections', false, '2026-10-03T08:00:00Z'), ticket('1300', 'Not an Epic', false)];
-const work = (id: string, epicId: string, state: WorkItemDto['state']): WorkItemDto => ({ id, workspaceId: 'workspace', isEpic: false, goalId: null, title: id, kind: 'DEVELOP',
+const work = (id: string, epicId: string, state: WorkItemDto['state']): WorkItemDto => ({ id, workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: null, title: id, kind: 'DEVELOP',
   acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links: [], history: [], createdAt: '2026-10-01T08:00:00Z',
   updatedAt: '2026-10-01T08:00:00Z', priority: 'NORMAL', rank: 0, blockedBy: [], epicId, epicRank: 0 });
 const ICEBERG_WORK = ['DONE', 'WORKING', 'PLANNED', 'DROPPED'].map((state, index) => work(`iceberg-${index}`, 'ISSUE:github.com:24918', state as WorkItemDto['state']));

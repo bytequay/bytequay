@@ -12,5 +12,7 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "jsx": "react-jsx"
-  }
+  },
+  // Packaging leaves bundled runtimes in vendor/ and the app in out/; allowJs would otherwise check them.
+  "exclude": ["node_modules", "dist", "out", "vendor"]
 }

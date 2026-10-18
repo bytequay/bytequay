@@ -1082,6 +1082,8 @@
 .pr-private-summary > p { margin: 0 0 6px; }
 .pr-private-summary > p:last-child { margin-bottom: 0; }
 .pr-private-summary__pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pr-private-history { border-bottom: 1px solid var(--line-default); }
+.pr-private-history > summary { padding: 10px 16px; color: var(--fg-muted); font-size: 13px; cursor: pointer; }
 .avatar--fallback.pr-private-you { background: light-dark(#f4e4d0, var(--dark-orange-soft)); color: light-dark(#7a4a1f, var(--dark-orange)); }
 .pr-thread-draft { gap: 8px; border-top: 1px solid light-dark(#d8dee4, var(--dark-border)); background: light-dark(#f6f8fa, var(--dark-subtle)); color: var(--fg-muted); font-size: 13px; }
 .pr-thread-draft__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--fg-muted); font-size: 12px; }

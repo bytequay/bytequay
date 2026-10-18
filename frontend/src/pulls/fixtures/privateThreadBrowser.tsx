@@ -91,7 +91,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     draftTaskDiscussionReply: () => new Promise<string>(resolve => { finishDraft = resolve; }),
   };
   const originalBridge = window.bridge;
-  const pageBridge: Pick<Bridge, 'getUserProfile' | 'replyToReviewComment'> = {
+  const pageBridge: Pick<Bridge, 'getUserProfile' | 'replyToReviewComment' | 'listAgentReviews'> = {
+    listAgentReviews: async () => [],
     getUserProfile: async () => ({ login: 'alice', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0, following: 0,
       bio: null, location: null, company: null, email: null }),
     replyToReviewComment: async (...request) => { posted.push(request); },

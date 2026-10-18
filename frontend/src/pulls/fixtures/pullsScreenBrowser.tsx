@@ -21,6 +21,7 @@ import PullOverview from '../PullOverview';
 import PullRequestTaskActions from '../PullRequestTaskActions';
 import PullsScreen, { MergeDialog, remotePullRequest, ReviewDialog } from '../PullsScreen';
 import ReviewTaskScreen from '../../agents/ReviewTaskScreen';
+import { TaskPullRequestView } from '../../agents/TaskPullRequestPanel';
 import type { AgentEventEnvelope } from '../../agents/events';
 import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
 import type { CodeHostRef } from '../code-tests/contracts';
@@ -1450,7 +1451,7 @@ export async function runTitleEdit(): Promise<string> {
   }
 }
 
-export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'): Promise<string> {
+export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history' | 'closed-history' = 'task', taskPanel = false): Promise<string> {
   setCached('private-thread-drafts:owner/repo#8', undefined);
   const at = '2026-10-01T00:00:00Z';
   const detail: PullRequestDetailDto = {
@@ -1465,11 +1466,20 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
     ],
   };
   const task: AgentTaskDto = { ...previewTask('workspace-1', 'development-task'), checkoutRemovedAt: null };
-  const review = reviewFixture({ repo: 'owner/repo', number: 8, workspaceId: 'workspace-1' });
+  const retained = answeredBy === 'history' || answeredBy === 'closed-history';
+  const review = reviewFixture({ repo: 'owner/repo', number: 8, workspaceId: 'workspace-1',
+    ...(answeredBy === 'closed-history' ? { state: 'CLOSED', closedAt: at } : {}) });
+  const taskReview = reviewFixture({ id: 'newer-local-review', repo: detail.repo, number: null, sourceTaskId: task.id,
+    createdAt: '2026-10-02T00:00:00Z' });
   const asked: { taskId: string; reviewId: string | null; key: string; question: string }[] = [];
   const pending = (taskId: string, key: string): TaskDiscussionDto => ({ id: 'thread-1', taskId, turnId: 'review-comment', quote: key, occurrence: 1,
     resolved: false, pending: true, providerLane: 'codex', version: 1, createdAt: at, updatedAt: at, comment: { repo: 'owner/repo', number: 8, key },
     messages: [{ id: 'hidden', author: 'USER', body: SUMMARY_REQUEST, createdAt: at, error: null }] });
+  const history: TaskDiscussionDto[] = retained ? [{ ...pending(review.task.id, 'issue_comment:81'), pending: false,
+    messages: [
+      { id: 'earlier-question', author: 'USER', body: 'Why did we keep the original cache?', createdAt: at, error: null },
+      { id: 'earlier-answer', author: 'AGENT', body: 'The original cache avoids duplicate owner lookups.', createdAt: at, error: null },
+    ] }] : [];
   const original = window.bridge;
   const bridge = {
     getUserProfile: async () => ({ login: 'alice', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
@@ -1478,10 +1488,10 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
     refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
     fetchPrDiffFiles: async () => [file('owner.txt')],
     fetchPrDiffCommits: async () => commits,
-    // A pull request with both hosts would show the task's threads, so each run offers only the one it tests.
     findAgentReview: async () => answeredBy === 'review' ? review : null,
-    findTaskAgentReview: async () => null,
-    findPullRequestTask: async () => answeredBy === 'task'
+    findTaskAgentReview: async () => retained ? taskReview : null,
+    listAgentReviews: async () => retained ? [taskReview, review] : answeredBy === 'review' ? [review] : [],
+    findPullRequestTask: async () => answeredBy !== 'review'
       ? { workspaceId: task.workspaceId, taskId: task.id, taskState: 'OPEN', version: 1, linked: true } : null,
     getAgentTask: async () => task,
     listTaskDiscussions: async () => [],
@@ -1489,9 +1499,17 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
       asked.push({ taskId: request.taskId, reviewId: null, key: request.key, question: request.question });
       return pending(request.taskId, request.key);
     },
-    listReviewDiscussions: async () => [],
+    listReviewDiscussions: async reviewId => {
+      assert(reviewId === review.id, 'Comment history must come from the original PR review, not the newer local review');
+      return [...history];
+    },
     askReviewCommentThread: async (reviewId, key, question) => {
       asked.push({ taskId: review.task.id, reviewId, key, question });
+      if (retained) {
+        history[0] = { ...history[0], version: history[0].version + 1, pending: true,
+          messages: [...history[0].messages, { id: 'follow-up', author: 'USER', body: question, createdAt: at, error: null }] };
+        return history[0];
+      }
       return pending(review.task.id, key);
     },
     listLocalReviewComments: async () => [],
@@ -1501,7 +1519,7 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
     fetchMergeMode: async () => ({ mergeQueue: false }),
     recordRecentTouch: async () => {},
   } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'fetchPrDiffFiles'
-    | 'fetchPrDiffCommits' | 'findAgentReview' | 'findTaskAgentReview' | 'findPullRequestTask' | 'getAgentTask' | 'listTaskDiscussions' | 'askTaskDiscussionComment'
+    | 'fetchPrDiffCommits' | 'findAgentReview' | 'findTaskAgentReview' | 'listAgentReviews' | 'findPullRequestTask' | 'getAgentTask' | 'listTaskDiscussions' | 'askTaskDiscussionComment'
     | 'listReviewDiscussions' | 'askReviewCommentThread' | 'listLocalReviewComments' | 'listWorkspaces' | 'fetchAttentionPrs'
     | 'setPrAttentionHandled' | 'fetchMergeMode' | 'recordRecentTouch'>;
   Object.assign(window, { bridge });
@@ -1511,25 +1529,52 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
   document.body.append(host);
   const root = createRoot(host);
   try {
-    flushSync(() => root.render(<PullsScreen initialPr={{ repo: 'owner/repo', number: 8 }}
-      repositoryScope={{ workspaceId: 'workspace-1', repository: 'owner/repo' }} onClose={() => {}} />));
+    flushSync(() => root.render(taskPanel
+      ? <TaskPullRequestView pr={remotePullRequest(detail, 'alice')} workspaceId="workspace-1" detail={detail}
+        loading={false} error={null} onRefresh={async () => {}} onDetailUpdate={() => {}} onDetailChange={() => {}}
+        privateThreads={{ threads: new Map(), busy: false, busyReason: '', disabledReason: null,
+          ask: async (key, question) => { asked.push({ taskId: task.id, reviewId: null, key, question }); },
+          resolve: async () => {}, retry: async () => {}, draftReply: async () => '' }} />
+      : <PullsScreen initialPr={{ repo: 'owner/repo', number: 8 }}
+        repositoryScope={{ workspaceId: 'workspace-1', repository: 'owner/repo' }} onClose={() => {}} />));
     for (let attempt = 0; attempt < 30 && !(host.querySelector('.pr-meta > .pr-private-toggle')
       && host.textContent?.includes('Should this cache be keyed by id?') && host.querySelectorAll('.pr-ask-agent').length === 1); attempt++) await settle();
     assert(host.querySelector('.pr-meta > .pr-private-toggle') !== null && host.textContent?.includes('Should this cache be keyed by id?') === true,
       `A pull request with a ${answeredBy} to answer must show the private threads toggle beside its labels`);
     const asks = [...host.querySelectorAll<HTMLButtonElement>('.pr-ask-agent')];
     assert(asks.length === 1, `Only carol's comment may offer Ask agent, not the viewer's own; found ${asks.length}`);
-    asks[0].click();
+    if (retained) {
+      await until(() => host.querySelector('.pr-private-chip') !== null, 'The original review discussion must load alongside the development task');
+      const chip = host.querySelector<HTMLButtonElement>('.pr-private-chip');
+      assert(chip !== null && chip.textContent?.includes('1 reply'), 'A newer task and local review must retain the original question’s history chip');
+      chip.click();
+    }
+    else asks[0].click();
     await settle();
+    if (retained) {
+      assert(host.textContent?.includes('Why did we keep the original cache?')
+        && host.textContent?.includes('The original cache avoids duplicate owner lookups.'),
+      'Opening a retained private thread must show its original question and answer');
+      if (answeredBy === 'closed-history') {
+        assert(asks[0].disabled && host.querySelector('[aria-label="Private question to the agent"]') === null
+          && host.textContent?.includes('read-only'), 'A closed review’s retained history must open without offering a follow-up');
+        return 'The pull-request page retains closed review history read-only';
+      }
+    }
     const field = host.querySelector<HTMLTextAreaElement>('[aria-label="Private question to the agent"]');
     assert(field !== null && host.textContent?.includes('on carol’s comment · only the agent sees this') === true,
       'Ask agent must bring carol’s private thread forward');
+    if (retained) { changeInput(field, 'Which lookup does it avoid?'); await settle(); }
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
     await settle();
     const expected = answeredBy === 'task'
       ? { taskId: task.id, reviewId: null, key: 'issue_comment:81', question: '' }
-      : { taskId: review.task.id, reviewId: review.id, key: 'issue_comment:81', question: '' };
+      : { taskId: review.task.id, reviewId: review.id, key: 'issue_comment:81', question: retained ? 'Which lookup does it avoid?' : '' };
     assert(JSON.stringify(asked) === JSON.stringify([expected]), `The ${answeredBy} must answer the page's question: ${JSON.stringify(asked)}`);
+    if (retained) {
+      assert(host.textContent?.includes('The original cache avoids duplicate owner lookups.'), 'A follow-up must retain the original conversation');
+      return 'The pull-request page restores earlier Ask agent history and follows up through its original review';
+    }
     return answeredBy === 'task'
       ? 'The pull-request page hosts its development task’s private threads on other people’s comments'
       : 'The pull-request page hosts its review’s private threads on other people’s comments';
@@ -1590,6 +1635,7 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
       return workspace;
     },
     findAgentReview: async (_workspace: string, _repo: string, requested: number) => requested === number ? prepared : null,
+    listAgentReviews: async () => prepared === null ? [] : [prepared],
     findPullRequestTask: async () => null,
     listLocalReviewComments: async () => [],
     listReviewDiscussions: async () => [...saved],
@@ -1617,7 +1663,7 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
       saved.splice(0, saved.length, thread);
       return thread;
     },
-  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'fetchAttentionPrs' | 'listWorkspaces' | 'findAgentReview'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'fetchAttentionPrs' | 'listWorkspaces' | 'findAgentReview' | 'listAgentReviews'
     | 'findPullRequestTask' | 'listLocalReviewComments' | 'listReviewDiscussions' | 'fetchMergeMode' | 'setPrAttentionHandled'
     | 'recordRecentTouch' | 'getModelSettings' | 'prepareReviewWorktree' | 'startAgentReview' | 'askReviewCommentThread'
     | 'searchRepositories' | 'previewWatch' | 'watchRepository'>;

@@ -21,6 +21,7 @@ import type { AgentTaskDto, PullRequestDto } from '../types';
 import type { AgentReviewDto } from './agent-review/contracts';
 import { privateThreadSource, reviewThreadBridge, type PrivateThreadSource } from './PrivateThread';
 import { remoteErrorMessage } from '../remoteError';
+import { useReviewCommentHistory } from './useReviewCommentHistory';
 
 function WatchCommentRepository({ repo, onWatched }: { repo: string; onWatched: () => void }) {
   const [repositoryId, setRepositoryId] = useState<number | null>(null);
@@ -64,7 +65,7 @@ export function usePullCommentThreads({ pr, workspaceId, review, task, loading, 
   current.current = scope;
   const preparing = useRef(new Set<string>());
   const [preparingScope, setPreparingScope] = useState<string | null>(null);
-  // Do not temporarily show the review's threads while discovering the development task.
+  // Wait for task discovery before choosing where a new discussion belongs.
   const threadReview = task !== null || loading || review?.replay !== undefined || review?.number === null ? null : review;
   const host = task !== null ? { taskId: task.id, workspaceId: task.workspaceId }
     : threadReview === null ? null : { taskId: threadReview.task.id, workspaceId: threadReview.workspaceId };
@@ -73,11 +74,12 @@ export function usePullCommentThreads({ pr, workspaceId, review, task, loading, 
     bridge: threadReview === null ? undefined : reviewThreadBridge(threadReview.id),
     disabledReason: threadReview?.state === 'CLOSED' ? 'This review has ended, so its threads are read-only' : null,
   });
-  if (pr === null || scope === null || (task === null && (review?.replay !== undefined || review?.number === null))) return undefined;
-  const source = privateThreadSource(discussions, pr, threadReview === null ? undefined : 'The agent is answering another question on this review');
+  const source = pr === null ? undefined : privateThreadSource(discussions, pr,
+    threadReview === null ? undefined : 'The agent is answering another question on this review');
   const sendDisabledReason = loading ? 'Loading PR context…' : error !== null ? `PR context unavailable: ${error}`
-    : host === null && workspaceId === undefined ? `Watch ${pr.repo} to ask the agent about its code.` : null;
-  return {
+    : host === null && workspaceId === undefined && pr !== null ? `Watch ${pr.repo} to ask the agent about its code.` : null;
+  const preparedSource: PrivateThreadSource | undefined = pr === null || scope === null || source === undefined
+    || (task === null && (review?.replay !== undefined || review?.number === null)) ? undefined : {
     ...source,
     busy: source.busy || preparingScope === scope,
     busyReason: preparingScope === scope ? 'Preparing PR context…' : source.busyReason,
@@ -111,4 +113,5 @@ export function usePullCommentThreads({ pr, workspaceId, review, task, loading, 
       }
     },
   };
+  return useReviewCommentHistory(preparedSource, pr, workspaceId, active);
 }

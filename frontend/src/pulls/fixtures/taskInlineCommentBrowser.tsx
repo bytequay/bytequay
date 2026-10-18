@@ -177,6 +177,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
   const prBridge = {
     findAgentReview: async () => null,
     findTaskAgentReview: async () => null,
+    listAgentReviews: async () => [],
     getUserProfile: async () => ({ login: viewer, name: null, avatarUrl: viewerAvatar, htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     fetchPullRequestDetailByRef: async () => detail,
@@ -201,7 +202,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       if (posted.length === 1) throw new Error('GitHub did not confirm this comment, so it may have been posted.');
       return detail;
     },
-  } satisfies Pick<Bridge, 'findAgentReview' | 'findTaskAgentReview' | 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef'
+  } satisfies Pick<Bridge, 'findAgentReview' | 'findTaskAgentReview' | 'listAgentReviews' | 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef'
     | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'readWorktreeChanges' | 'refreshPrDiffFiles' | 'postPrReviewComment'>;
   const originalBridge = window.bridge;
   Object.defineProperty(window, 'bridge', { configurable: true, value: { ...bridge, ...prBridge } });

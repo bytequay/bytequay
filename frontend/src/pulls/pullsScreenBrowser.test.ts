@@ -70,6 +70,17 @@ it('hosts a task’s or a review’s private threads on the pull-request page fo
   expect(results).toHaveLength(2);
 }, deadline(30_000));
 
+it.each([false, true])('retains Ask agent history after a development task and local review are created (task panel: %s)', async taskPanel => {
+  const results = await fixture.run<string[]>({
+    width: 1250, height: 850,
+    body: `const results = await window.webContents.executeJavaScript('(async () => [await PullScreenTests.runPrivateThreads("history", ${taskPanel}), await PullScreenTests.runPrivateThreads("closed-history", ${taskPanel})])()');`,
+  });
+  expect(results).toEqual([
+    'The pull-request page restores earlier Ask agent history and follows up through its original review',
+    'The pull-request page retains closed review history read-only',
+  ]);
+}, deadline(30_000));
+
 it('prepares comment context on send, preserves setup drafts and isolates late results', async () => {
   const results = await fixture.run<string[]>({
     width: 1250, height: 850,

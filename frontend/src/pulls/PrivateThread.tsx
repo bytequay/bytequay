@@ -29,6 +29,9 @@ import LocalCard, { LocalCardMessage } from './local-review/LocalCard';
 export type PrivateThreadSource = {
   /** This pull request's comment threads, by comment key. */
   threads: ReadonlyMap<string, TaskDiscussionDto>;
+  /** Other retained conversations on a comment, when more than one task answered it. */
+  earlierThreads?: ReadonlyMap<string, TaskDiscussionDto[]>;
+  statusFor?: (key: string) => Pick<PrivateThreadSource, 'busy' | 'busyReason' | 'disabledReason' | 'sendDisabledReason'>;
   busy: boolean;
   /** Why a send waits while another question on the host is answering. */
   busyReason: string;
@@ -175,6 +178,7 @@ export function PrivateThreadsToggle({ threads }: { threads: PrivateThreads }) {
  * comments offer Ask agent; a thread already behind the user's own comment keeps its chip.
  */
 export function PrivateThreadControls({ threads, threadKey, own }: { threads: PrivateThreads; threadKey: string; own: boolean }) {
+  threads = { ...threads, ...threads.statusFor?.(threadKey) };
   const thread = held(threads, threadKey);
   const failed = thread !== null && !thread.pending && retryTarget(thread) !== null;
   return <>
@@ -246,6 +250,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
   /** Review-thread comments only: their thread has a GitHub reply editor to fill. */
   onDraftReply?: (thread: TaskDiscussionDto) => void;
 }) {
+  threads = { ...threads, ...threads.statusFor?.(threadKey) };
   const [unfolded, setUnfolded] = useState(true);
   const draft = threads.drafts.get(threadKey) ?? '';
   const setDraft = (value: string): void => threads.setDraft(threadKey, value);
@@ -326,6 +331,17 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
       <div className="pr-private-thread">
         <LocalCard resolved={thread?.resolved ?? false} open chip="Private" controls={controls}
           title={<span className="lrc__title"><strong>Private thread</strong> · on {author}’s comment · only the agent sees this</span>}>
+          {threads.earlierThreads?.get(threadKey)?.map(earlier => <details key={earlier.id} className="pr-private-history">
+            <summary>Other saved conversation · {replies(earlier)}</summary>
+            {earlier.messages.filter(message => !isSummaryRequest(message)).map(message => {
+              const agent = message.author === 'AGENT';
+              const summary = agent ? parseCommentSummary(message.body) : null;
+              return <LocalCardMessage key={message.id} timestamp={message.createdAt} author={agent ? 'Agent' : 'You'}
+                avatar={<Avatar login={agent ? 'Agent' : viewerLogin ?? 'You'} size={22} allowGitHubFallback={!agent && viewerLogin !== undefined} />}>
+                {summary !== null ? <CommentSummary summary={summary} /> : <MarkdownBody body={message.body} repository={repository} />}
+              </LocalCardMessage>;
+            })}
+          </details>)}
           {thread?.messages.filter(message => !isSummaryRequest(message)).map(message => {
             const agent = message.author === 'AGENT';
             const summary = agent ? parseCommentSummary(message.body) : null;

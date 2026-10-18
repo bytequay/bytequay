@@ -108,6 +108,26 @@ describe('private thread helpers', () => {
 });
 
 describe('private thread surfaces', () => {
+  it('keeps a second conversation on the same comment readable', () => {
+    const earlier = thread({ id: 'earlier', messages: [message('old-question', 'USER', 'Could another connector be affected?'),
+      message('old-answer', 'AGENT', 'Check the shared connector test.')] });
+    const html = forward(threads({ earlierThreads: new Map([[KEY, [earlier]]]) }));
+    expect(html).toContain('Other saved conversation · 1 reply');
+    expect(html).toContain('Could another connector be affected?');
+    expect(html).toContain('Check the shared connector test.');
+    expect(html).toContain('Sure?');
+  });
+
+  it('uses the saved conversation’s lifecycle while the development task remains open', () => {
+    const saved = threads({ statusFor: () => ({ busy: false, busyReason: ANSWERING_ELSEWHERE,
+      disabledReason: 'This review has ended, so its threads are read-only', sendDisabledReason: null }) });
+    expect(controls(saved)).toContain('Local · 2 replies');
+    const html = forward(saved);
+    expect(html).toContain('Sure?');
+    expect(html).toContain('This review has ended');
+    expect(html).not.toContain('Private question to the agent');
+  });
+
   it('shows a thread behind its comment as a chip and a tab, before Ask agent', () => {
     const html = controls(threads());
     expect(html).toContain('Local · 2 replies ↑');

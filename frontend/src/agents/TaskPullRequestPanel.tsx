@@ -18,6 +18,7 @@ import type { LocalReviewThreads } from '../pulls/local-review/types';
 import PullChanges, { DiffViewer, pullReviewThreads, type AgentReviewProjection, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import PullOverview, { type PullDetailUpdater } from '../pulls/PullOverview';
 import { usePrivateThreads, type PrivateThreadSource } from '../pulls/PrivateThread';
+import { useReviewCommentHistory } from '../pulls/useReviewCommentHistory';
 import { canSubmitReview } from '../pulls/model';
 import type { PullRequestDetailSource } from '../pulls/usePullRequestDetail';
 import type {
@@ -109,7 +110,7 @@ export function TaskPullRequestView({
   onDetailUpdate: PullDetailUpdater;
   onDetailChange: (detail: PullRequestDetailDto) => void;
 }): React.JSX.Element {
-  const privateThreads = usePrivateThreads(source);
+  const privateThreads = usePrivateThreads(useReviewCommentHistory(source, pr, workspaceId, true));
   if (detail === null) {
     return (
       <div className="agt-muted agt-panel__empty">

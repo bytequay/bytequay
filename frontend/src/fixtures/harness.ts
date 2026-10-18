@@ -19,9 +19,19 @@
  * is the node half and cannot hold them.
  */
 
-/** Two frames, which is when React has committed and the browser has painted. */
-export const settle = (): Promise<void> =>
-  new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+/**
+ * Two frames, which is when React has committed and the browser has painted, then one message turn: a busy renderer
+ * runs late frames back to back ahead of the message-channel tasks that carry React's scheduled renders, and a
+ * message posted now runs after those. Fixtures may stub setTimeout, so this does not use it.
+ */
+export const settle = async (): Promise<void> => {
+  await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  await new Promise<void>(resolve => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => { channel.port1.close(); resolve(); };
+    channel.port2.postMessage(null);
+  });
+};
 
 export function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);

@@ -105,7 +105,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
   const attention = useWorkspaceAttention(workspace.id, monitoredRepository, taskAttention);
   const goals = useGoals(workspace.id);
   const needsYou = needsYouKeys(visibleAttention(attention.candidates, attention.handled, Date.now()));
-  const epics = attention.candidates.filter(item => item.isEpic === true);
+  const epics = [...attention.candidates.filter(item => item.isEpic === true), ...goals.workItems.filter(item => item.isEpic)];
   const concludedEpics = useConcludedEpics(workspace.id, epics.map(epicIdentity).join(' '));
   // Unmarked while open, the Epic's view closes with it.
   const epic = openEpic === null ? undefined : epics.find(item => epicIdentity(item) === openEpic);
@@ -403,8 +403,11 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
     // The Epic drawer comes first so its trigger is the next tab stop after the sidebar.
     return stage(<>
       {epic === undefined
-        ? <EpicDrawer items={attention.candidates} concluded={concludedEpics} work={goals.workItems} onOpen={item => setOpenEpic(epicIdentity(item))} />
-        : epic.jira
+        ? <EpicDrawer items={epics} concluded={concludedEpics} work={goals.workItems} onOpen={item => {
+          if ('acceptanceCriteria' in item) zoomReference({ kind: 'work', workspaceId: workspace.id, itemId: item.id });
+          else setOpenEpic(epicIdentity(item));
+        }} />
+        : 'acceptanceCriteria' in epic ? null : epic.jira
           ? <JiraTicketLayer key={openEpic} location={jiraIssueLocation(epic.jira)} onClose={() => setOpenEpic(null)} openOnWork />
           : <WorkspaceIssuesScreen key={openEpic} workspaceId={workspace.id} repository={epic.repo} initialIssueNumber={epic.number} onClose={() => setOpenEpic(null)}
             openOnWork />}

@@ -104,6 +104,7 @@ public class WorkItemService
         requireWorkspace(workspaces, workspaceId);
         UUID.fromString(id);
         epics.require(workspaceId, epicId);
+        checkArgument(!EpicSources.localEpicId(id).equals(epicId), "An Epic cannot be its own work");
         return insert(workspaceId, id, Optional.empty(), Optional.of(epicId), title, kind, criteria, rule, "epic:" + epicId + "|");
     }
 
@@ -251,7 +252,7 @@ public class WorkItemService
         });
     }
 
-    private static void requireAttemptable(WorkItem item, String workspaceId)
+    private void requireAttemptable(WorkItem item, String workspaceId)
     {
         requireStartable(item, workspaceId);
         checkArgument(item.links().stream().noneMatch(link -> link.reference().kind() == GoalItemKind.ISSUE || link.reference().kind() == GoalItemKind.JIRA),
@@ -553,6 +554,13 @@ public class WorkItemService
 
     private WorkItem saveLinks(WorkItem item, Optional<String> goalId, Optional<String> epicId, List<WorkItemLink> links, String reason)
     {
+        if (epicId.isPresent()) {
+            String parent = epicId.orElseThrow();
+            checkArgument(!EpicSources.localEpicId(item.id()).equals(parent)
+                    && item.links().stream().noneMatch(link -> link.identity().equals(parent))
+                    && links.stream().noneMatch(link -> link.identity().equals(parent)), "An Epic cannot be its own work");
+            checkArgument(!isLocalEpic(item), "Unmark this work item's Epic before adding it to another Epic");
+        }
         LinkedHashMap<String, WorkItemLink> all = new LinkedHashMap<>();
         item.links().forEach(link -> all.put(link.identity(), link));
         links.forEach(link -> all.putIfAbsent(link.identity(), link));
@@ -601,6 +609,18 @@ public class WorkItemService
             requireItemWorkspace(item, workspaceId);
             Optional<String> movedFrom = item.epicId().filter(other -> !other.equals(epicId));
             return new EpicJoin(view(saveLinks(item, item.goalId(), Optional.of(epicId), links, movedFrom.isPresent() ? "Moved to another Epic" : "Added to Epic")), movedFrom);
+        });
+    }
+
+    /** Assigns an existing local work item without manufacturing a source or task link. */
+    public EpicJoin joinLocalEpic(String workspaceId, String epicId, String itemId)
+    {
+        epics.require(workspaceId, epicId);
+        return unitOfWork.execute(() -> {
+            WorkItem item = requireItem(workspaceId, itemId);
+            Optional<String> movedFrom = item.epicId().filter(other -> !other.equals(epicId));
+            return new EpicJoin(view(saveLinks(item, item.goalId(), Optional.of(epicId), ImmutableList.of(),
+                    movedFrom.isPresent() ? "Moved to another Epic" : "Added to Epic")), movedFrom);
         });
     }
 
@@ -704,7 +724,12 @@ public class WorkItemService
         List<GoalItemView> links = item.links().stream().map(link -> references.view(item.workspaceId(), link.reference())).collect(toImmutableList());
         return new WorkItemView(item.id(), item.workspaceId(), item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
                 item.state(), item.revision(), links, item.history(), item.createdAt(), item.updatedAt(), item.priority(), item.rank(), item.blockedBy(),
-                item.epicId(), item.epicRank());
+                item.epicId(), item.epicRank(), isLocalEpic(item));
+    }
+
+    private boolean isLocalEpic(WorkItem item)
+    {
+        return epicRecords.find(EpicSources.localEpicId(item.id())).filter(epic -> epic.workspaceId().equals(item.workspaceId())).isPresent();
     }
 
     public WorkItem requireItem(String workspaceId, String id)
@@ -721,9 +746,12 @@ public class WorkItemService
         }
     }
 
-    private static void requireStartable(WorkItem item, String workspaceId)
+    private void requireStartable(WorkItem item, String workspaceId)
     {
         requireItemWorkspace(item, workspaceId);
+        if (isLocalEpic(item)) {
+            throw conflict("An Epic organizes work. Start development on one of its work items instead.");
+        }
         if (item.state() == WorkItem.State.DONE || item.state() == WorkItem.State.DROPPED) {
             throw conflict("Reopen the work item before starting another attempt.");
         }

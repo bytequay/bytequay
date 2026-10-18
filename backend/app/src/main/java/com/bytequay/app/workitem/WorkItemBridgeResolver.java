@@ -19,7 +19,9 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.WorkItemBridge;
+import com.bytequay.app.service.epic.EpicService;
 import com.bytequay.app.service.goal.WorkItemService;
+import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.store.WorkItemStore;
@@ -47,14 +49,17 @@ public class WorkItemBridgeResolver
     private final AgentTaskStore tasks;
     private final ObjectProvider<WorkItemCatalog> catalog;
     private final ObjectProvider<WorkItemService> work;
+    private final ObjectProvider<EpicService> epics;
     private final WorkItemStore items;
     private final ObjectMapper mapper;
 
-    public WorkItemBridgeResolver(AgentTaskStore tasks, ObjectProvider<WorkItemCatalog> catalog, ObjectProvider<WorkItemService> work, WorkItemStore items, ObjectMapper mapper)
+    public WorkItemBridgeResolver(AgentTaskStore tasks, ObjectProvider<WorkItemCatalog> catalog, ObjectProvider<WorkItemService> work, ObjectProvider<EpicService> epics,
+            WorkItemStore items, ObjectMapper mapper)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.catalog = requireNonNull(catalog, "catalog is null");
         this.work = requireNonNull(work, "work is null");
+        this.epics = requireNonNull(epics, "epics is null");
         this.items = requireNonNull(items, "items is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
@@ -79,12 +84,14 @@ public class WorkItemBridgeResolver
             checkArgument(raw.length() <= 400000, "Work item request is too long");
             JsonNode args = mapper.readTree(raw);
             checkArgument(args != null && args.isObject(), "Expected an object");
-            String action = text(args, "action", 10);
+            String action = text(args, "action", 20);
             Set<String> allowed = switch (action) {
                 case "LIST" -> ImmutableSet.of("action", "query", "offset");
                 case "READ" -> ImmutableSet.of("action", "id");
                 case "CREATE" -> ImmutableSet.of("action", "operationKey", "title", "description", "epicId");
-                default -> throw new IllegalArgumentException("action must be LIST, READ or CREATE");
+                case "MARK_EPIC" -> ImmutableSet.of("action", "id");
+                case "ASSIGN_EPIC" -> ImmutableSet.of("action", "id", "epicId");
+                default -> throw new IllegalArgumentException("action must be LIST, READ, CREATE, MARK_EPIC or ASSIGN_EPIC");
             };
             args.fieldNames().forEachRemaining(key -> checkArgument(allowed.contains(key), "Unknown field: %s", key));
             Object result = switch (action) {
@@ -94,7 +101,9 @@ public class WorkItemBridgeResolver
                     int offset = args.path("offset").asInt();
                     checkArgument(offset >= 0, "offset must be nonnegative");
                     yield catalog.getObject().list(workspaceId).stream().filter(item -> (item.title() + " " + item.id()).toLowerCase(Locale.ROOT).contains(query))
-                            .skip(offset).limit(50).map(item -> new Entry(item.id(), item.source(), item.title(), item.status())).collect(toImmutableList());
+                            .skip(offset).limit(50)
+                            .map(item -> new Entry(item.id(), item.source(), item.title(), item.status(), item.work().map(WorkItemView::isEpic).orElse(false)))
+                            .collect(toImmutableList());
                 }
                 case "READ" -> {
                     String id = args.has("id") ? text(args, "id", 200) : items.findByIdentity(WorkItemLink.taskIdentity(taskId))
@@ -113,6 +122,12 @@ public class WorkItemBridgeResolver
                     }
                     yield work.getObject().create(workspaceId, id, Optional.empty(), title, WorkItem.Kind.DEVELOP, description, WorkItem.CompletionRule.MERGED_DELIVERY);
                 }
+                case "MARK_EPIC" -> {
+                    String id = text(args, "id", 200);
+                    epics.getObject().setLocalEpic(workspaceId, id, true);
+                    yield catalog.getObject().read(workspaceId, id);
+                }
+                case "ASSIGN_EPIC" -> work.getObject().joinLocalEpic(workspaceId, text(args, "epicId", 200), text(args, "id", 200));
                 default -> throw new IllegalArgumentException("Unknown action");
             };
             return mapper.writeValueAsString(result);
@@ -129,5 +144,5 @@ public class WorkItemBridgeResolver
         return value.asText();
     }
 
-    private record Entry(String id, UnifiedWorkItem.Source source, String title, String status) {}
+    private record Entry(String id, UnifiedWorkItem.Source source, String title, String status, boolean isEpic) {}
 }

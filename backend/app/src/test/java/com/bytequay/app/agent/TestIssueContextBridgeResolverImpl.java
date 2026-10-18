@@ -274,6 +274,48 @@ class TestIssueContextBridgeResolverImpl
         verifyNoInteractions(issues, details);
     }
 
+    @Test
+    void localEpicWorkReadsItsParentAndSiblingsOnlyWithinItsWorkspace()
+            throws Exception
+    {
+        when(sources.findByTaskId(taskId.toString())).thenReturn(Optional.empty());
+        String epicId = "LOCAL:parent";
+        WorkItem parent = new WorkItem("parent", "workspace", Optional.empty(), "Private Epic", WorkItem.Kind.DEVELOP, "Full parent context and acceptance criteria",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+        WorkItem sibling = work("sibling", "First connector", WorkItem.State.DONE, 0, epicId, "First connector verified", ImmutableList.of(), ImmutableList.of());
+        WorkItem current = work("current", "Second connector", WorkItem.State.WORKING, 1, epicId, "Second connector verified", ImmutableList.of("sibling"), ImmutableList.of());
+        when(workItems.find("parent")).thenReturn(Optional.of(parent));
+        when(workItems.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(current));
+        when(workItems.list("workspace")).thenReturn(ImmutableList.of(parent, current, sibling));
+        when(epics.find(epicId)).thenReturn(Optional.of(Epic.of(epicId, "workspace")));
+
+        IssueContextBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
+        assertThat(bridge.instruction()).contains(IssueContextBridge.WORK_INSTRUCTION, IssueContextBridge.EPIC_INSTRUCTION);
+        JsonNode context = mapper.readTree(bridge.read().get());
+        assertThat(context.at("/workItem/id").asText()).isEqualTo(current.id());
+        assertThat(context.at("/workItem/acceptanceCriteria").asText()).isEqualTo(current.acceptanceCriteria());
+        assertThat(context.at("/epic/status").asText()).isEqualTo("local");
+        assertThat(context.at("/epic/reference").asText()).isEqualTo("Local");
+        assertThat(context.at("/epic/url").asText()).isEmpty();
+        assertThat(context.at("/epic/title").asText()).isEqualTo(parent.title());
+        assertThat(context.at("/epic/description").asText()).isEqualTo(parent.acceptanceCriteria());
+        assertThat(context.at("/epic/children")).isEmpty();
+        assertThat(context.at("/epic/work")).extracting(item -> item.path("title").asText()).containsExactly(sibling.title(), current.title());
+        assertThat(context.at("/epic/currentWork/doneWhen").asText()).isEqualTo(current.acceptanceCriteria());
+        assertThat(context.at("/epic/currentWork/waitsOn/0").asText()).isEqualTo(sibling.title());
+
+        WorkItem otherWorkspace = new WorkItem("parent", "other", Optional.empty(), "Private elsewhere", parent.kind(), "Other workspace context", parent.completionRule(),
+                parent.state(), 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, parent.priority(), 0, ImmutableList.of(), Optional.empty(), 0);
+        when(workItems.find("parent")).thenReturn(Optional.of(otherWorkspace));
+        JsonNode excluded = mapper.readTree(bridge.read().get());
+        assertThat(excluded.at("/epic/status").asText()).isEqualTo("missing");
+        assertThat(excluded.at("/epic/title").isMissingNode()).isTrue();
+        assertThat(excluded.at("/epic/description").isMissingNode()).isTrue();
+        assertThat(excluded.at("/epic/work")).hasSize(2);
+        verifyNoInteractions(issues, details, jira);
+    }
+
     private static WorkItem work(String id, String title, WorkItem.State state, long epicRank, String epicId, String criteria, List<String> blockedBy, List<WorkItemLink> links)
     {
         return new WorkItem(id, "workspace", Optional.empty(), title, WorkItem.Kind.DEVELOP, criteria, WorkItem.CompletionRule.MERGED_DELIVERY, state, 0, links,

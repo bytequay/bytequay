@@ -57,6 +57,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
@@ -198,5 +199,59 @@ class TestEpicService
                 tuple("JIRA:5:cloud:12", "connection:cloud:12", "ENG-12", "Done", true));
         assertThat(read.childrenTruncated()).isTrue();
         assertThatThrownBy(() -> service.refreshChildren("workspace", JIRA_EPIC, Optional.empty())).hasMessageContaining("connection is required");
+    }
+
+    @Test
+    void markingALocalItemKeepsItsEpicRecordAndUnmarkingReleasesItsWork()
+    {
+        WorkItem item = localItem(Optional.empty());
+        when(work.requireItem("workspace", item.id())).thenReturn(item);
+        String epicId = EpicSources.localEpicId(item.id());
+        service.setLocalEpic("workspace", item.id(), true);
+        assertThat(records.find(epicId)).contains(Epic.of(epicId, "workspace"));
+
+        Epic planned = records.find(epicId).orElseThrow().withProposals(ImmutableList.of(new EpicProposal("proposal-1", "Parse Hive fields", "Fields parse",
+                "Cover slash characters", Optional.empty(), Optional.empty(), Optional.empty())));
+        records.save(planned);
+        service.setLocalEpic("workspace", item.id(), true);
+        assertThat(records.find(epicId)).as("marking again retains planning work").contains(planned);
+        service.setLocalEpic("workspace", item.id(), false);
+        verify(work).releaseEpic("workspace", epicId);
+        verifyNoInteractions(github, jira, credentials, tickets, markers, issues);
+    }
+
+    @Test
+    void promotingALocalItemRequiresItsWorkspaceAndNoParentEpic()
+    {
+        WorkItem assigned = localItem(Optional.of(EPIC));
+        when(work.requireItem("workspace", assigned.id())).thenReturn(assigned);
+        assertThatThrownBy(() -> service.setLocalEpic("workspace", assigned.id(), true)).isInstanceOf(IllegalArgumentException.class);
+        when(work.requireItem("other", assigned.id())).thenThrow(new IllegalArgumentException("Work belongs to workspace workspace"));
+        assertThatThrownBy(() -> service.setLocalEpic("other", assigned.id(), true)).hasMessageContaining("belongs to workspace workspace");
+        assertThat(records.find(EpicSources.localEpicId(assigned.id()))).isEmpty();
+        verify(work, never()).releaseEpic(anyString(), anyString());
+    }
+
+    @Test
+    void localRefreshStaysLocalAndBreakdownReadsTheSavedTitleAndDescription()
+    {
+        WorkItem item = localItem(Optional.empty());
+        when(work.requireItem("workspace", item.id())).thenReturn(item);
+        String epicId = EpicSources.localEpicId(item.id());
+        service.setLocalEpic("workspace", item.id(), true);
+
+        EpicView before = service.view("workspace", epicId);
+        assertThat(service.refreshChildren("workspace", epicId, Optional.empty())).isEqualTo(before);
+        assertThat(before.childrenReadAt()).as("there is no remote child collection to refresh").isEmpty();
+        service.propose("workspace", epicId, Optional.empty());
+        verify(breakdowns).start("workspace", epicId, new EpicBreakdowns.Source("Local", item.title(), item.acceptanceCriteria()));
+        verifyNoInteractions(github, jira, credentials, tickets, markers, issues);
+    }
+
+    private static WorkItem localItem(Optional<String> epicId)
+    {
+        return new WorkItem("work-1", "workspace", Optional.empty(), "Hive field names", WorkItem.Kind.DEVELOP, "Read fields containing slash characters",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), epicId, 0);
     }
 }

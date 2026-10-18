@@ -18,20 +18,25 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.WorkItemBridge;
+import com.bytequay.app.service.epic.EpicService;
 import com.bytequay.app.service.goal.WorkItemService;
+import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.store.WorkItemStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockMakers;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -58,7 +63,7 @@ class TestWorkItemBridgeResolver
         beans.registerSingleton("work", work);
         beans.registerSingleton("catalog", catalog);
         WorkItemBridgeResolver resolver = new WorkItemBridgeResolver(tasks, beans.getBeanProvider(WorkItemCatalog.class), beans.getBeanProvider(WorkItemService.class),
-                mock(WorkItemStore.class), new ObjectMapper().findAndRegisterModules());
+                beans.getBeanProvider(EpicService.class), mock(WorkItemStore.class), new ObjectMapper().findAndRegisterModules());
         WorkItemBridge bridge = resolver.resolve(taskId).orElseThrow();
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"CREATE\",\"source\":\"GITHUB\"}"))
                 .hasMessageContaining("Unknown field: source");
@@ -77,5 +82,48 @@ class TestWorkItemBridgeResolver
         when(task.state()).thenReturn(TaskState.COMPLETED);
         assertThat(resolver.resolve(taskId)).isEmpty();
         assertThatThrownBy(() -> bridge.call().apply(request)).hasMessageContaining("no longer available");
+    }
+
+    @Test
+    void agentCanMarkDiscoverAndPopulateALocalEpic()
+            throws Exception
+    {
+        String taskId = UUID.randomUUID().toString();
+        AgentTask task = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(task.state()).thenReturn(TaskState.OPEN);
+        when(task.workspaceId()).thenReturn(Optional.of("workspace"));
+        when(task.worktreeRemovedAt()).thenReturn(Optional.empty());
+        AgentTaskStore tasks = mock(AgentTaskStore.class);
+        when(tasks.find(TaskId.valueOf(taskId))).thenReturn(Optional.of(task));
+        WorkItemService work = mock(WorkItemService.class);
+        EpicService epics = mock(EpicService.class);
+        WorkItemCatalog catalog = mock(WorkItemCatalog.class);
+        WorkItemView view = mock(WorkItemView.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(view.isEpic()).thenReturn(true);
+        UnifiedWorkItem item = new UnifiedWorkItem("local-item", UnifiedWorkItem.Source.LOCAL, "Private Epic", "Outcome", "PLANNED", false,
+                Instant.now(), Optional.empty(), Optional.of(view));
+        when(catalog.read("workspace", "local-item")).thenReturn(item);
+        when(catalog.list("workspace")).thenReturn(ImmutableList.of(item));
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("work", work);
+        beans.registerSingleton("epics", epics);
+        beans.registerSingleton("catalog", catalog);
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        WorkItemBridgeResolver resolver = new WorkItemBridgeResolver(tasks, beans.getBeanProvider(WorkItemCatalog.class), beans.getBeanProvider(WorkItemService.class),
+                beans.getBeanProvider(EpicService.class), mock(WorkItemStore.class), mapper);
+        WorkItemBridge bridge = resolver.resolve(taskId).orElseThrow();
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"MARK_EPIC\",\"id\":\"local-item\",\"workspaceId\":\"other\"}"))
+                .hasMessageContaining("Unknown field: workspaceId");
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"MARK_EPIC\"}")).hasMessageContaining("id must contain");
+        verifyNoInteractions(epics, work, catalog);
+        String marked = bridge.call().apply("{\"action\":\"MARK_EPIC\",\"id\":\"local-item\"}");
+        verify(epics).setLocalEpic("workspace", "local-item", true);
+        assertThat(mapper.readTree(marked).at("/work/isEpic").asBoolean()).isTrue();
+        assertThat(mapper.readTree(bridge.call().apply("{\"action\":\"LIST\"}")).at("/0/isEpic").asBoolean()).isTrue();
+        bridge.call().apply("{\"action\":\"CREATE\",\"operationKey\":\"child\",\"title\":\"Connector\",\"description\":\"Acceptance criteria\",\"epicId\":\"LOCAL:local-item\"}");
+        verify(work).createInEpic(eq("workspace"), anyString(), eq("LOCAL:local-item"), eq("Connector"), eq(WorkItem.Kind.DEVELOP), eq("Acceptance criteria"),
+                eq(WorkItem.CompletionRule.MERGED_DELIVERY));
+        bridge.call().apply("{\"action\":\"ASSIGN_EPIC\",\"id\":\"existing-child\",\"epicId\":\"LOCAL:local-item\"}");
+        verify(work).joinLocalEpic("workspace", "LOCAL:local-item", "existing-child");
     }
 }

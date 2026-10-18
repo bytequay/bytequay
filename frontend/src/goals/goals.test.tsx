@@ -47,7 +47,7 @@ const ITEMS: GoalItemDto[] = [
 const GOAL: GoalDto = {
   id: 'goal-1', workspaceId: 'workspace-1', title: 'Iceberg & Delta Lake correctness for 482', description: 'Land the fixes before 482.', pinned: true, paused: false,
   source: null, definition: null, revision: 0, course: null, recommendations: [], topics: [], items: ITEMS.map((link, index): WorkItemDto => ({
-    id: `work-${index}`, workspaceId: 'workspace-1', goalId: 'goal-1', title: link.title, kind: 'DEVELOP', acceptanceCriteria: 'Verified fix',
+    id: `work-${index}`, workspaceId: 'workspace-1', isEpic: false, goalId: 'goal-1', title: link.title, kind: 'DEVELOP', acceptanceCriteria: 'Verified fix',
     completionRule: 'MERGED_DELIVERY', state: index === 1 ? 'DONE' : index === 2 ? 'PLANNED' : 'WORKING', revision: 0, priority: 'NORMAL', rank: index, blockedBy: [],
     links: [link],
     history: link.activity === null ? [] : [{ operationId: `op-${index}`, action: 'ACCEPT', detail: link.activity.text, at: link.activity.at }],
@@ -163,7 +163,7 @@ describe('goal model', () => {
   it('puts ready work first by the user priority, then by the work waiting on it, then by the Goal order', () => {
     const work = (id: string, rank: number, extra: Partial<WorkItemDto> = {}): WorkItemDto => ({ ...GOAL.items[2], id, title: id, rank, links: [], ...extra });
     const items = [work('a', 0), work('b', 1), work('c', 2, { priority: 'HIGH' }), work('d', 3, { blockedBy: ['b'] }), work('e', 4, { priority: 'LOW' }),
-      work('f', 5, { state: 'WORKING' }), work('g', 6, { state: 'DONE' })];
+      work('f', 5, { state: 'WORKING' }), work('g', 6, { state: 'DONE' }), work('epic', -1, { isEpic: true })];
     expect(workIn(items, 'next').map((entry) => entry.id)).toEqual(['c', 'b', 'a', 'e']);
     expect(workIn(items, 'blocked').map((entry) => entry.id)).toEqual(['d']);
     expect(waitingOn(items[3], items)).toEqual(['b']);

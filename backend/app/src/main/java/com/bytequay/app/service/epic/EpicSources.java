@@ -15,7 +15,9 @@ package com.bytequay.app.service.epic;
 
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.core.domain.IssueEpic;
+import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.IssueDevelopmentStore;
+import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
@@ -29,8 +31,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Tells whether a work item's Epic identity, the canonical identity of an issue or ticket, names one marked as an Epic in the workspace:
- * a GitHub issue of its monitored repository, or a Jira ticket assigned to it.
+ * Resolves the workspace's locally marked Epics: local work, GitHub issues and assigned Jira tickets.
  */
 @Component
 public class EpicSources
@@ -38,28 +39,38 @@ public class EpicSources
     private static final String HOST = "github.com";
     private static final String ISSUE = "ISSUE:" + HOST + ":";
     private static final String JIRA = "JIRA:";
+    private static final String LOCAL = "LOCAL:";
 
     private final IssueDevelopmentStore markers;
     private final WorkspaceStore workspaces;
     // JiraService needs work items, so it is looked up when an Epic is checked.
     private final ObjectProvider<JiraService> jira;
+    private final WorkItemStore items;
+    private final EpicStore epics;
 
-    public EpicSources(IssueDevelopmentStore markers, WorkspaceStore workspaces, ObjectProvider<JiraService> jira)
+    public EpicSources(IssueDevelopmentStore markers, WorkspaceStore workspaces, ObjectProvider<JiraService> jira, WorkItemStore items, EpicStore epics)
     {
         this.markers = requireNonNull(markers, "markers is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.jira = requireNonNull(jira, "jira is null");
+        this.items = requireNonNull(items, "items is null");
+        this.epics = requireNonNull(epics, "epics is null");
     }
 
     public void require(String workspaceId, String epicId)
     {
         if (!marked(workspaceId, epicId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Epic not found. Mark the issue or ticket as an Epic first.");
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Epic not found. Mark the work item, issue or ticket as an Epic first.");
         }
     }
 
     public boolean marked(String workspaceId, String epicId)
     {
+        Optional<String> local = localId(epicId);
+        if (local.isPresent()) {
+            return items.find(local.orElseThrow()).filter(item -> item.workspaceId().equals(workspaceId)).isPresent()
+                    && epics.find(epicId).filter(epic -> epic.workspaceId().equals(workspaceId)).isPresent();
+        }
         Optional<Ticket> ticket = ticket(epicId);
         if (ticket.isEmpty()) {
             String repository = workspaces.findById(workspaceId).map(workspace -> workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)).orElse("");
@@ -74,8 +85,19 @@ public class EpicSources
     /** The stable GitHub issue id of an issue Epic. */
     public static long issueId(String epicId)
     {
-        checkArgument(epicId.startsWith(ISSUE), "Epic must be a GitHub issue or a Jira ticket");
+        checkArgument(epicId.startsWith(ISSUE), "Expected a GitHub issue Epic identity");
         return Long.parseLong(epicId.substring(ISSUE.length()));
+    }
+
+    public static String localEpicId(String itemId)
+    {
+        return LOCAL + itemId;
+    }
+
+    public static Optional<String> localId(String epicId)
+    {
+        requireNonNull(epicId, "epicId is null");
+        return epicId.startsWith(LOCAL) ? Optional.of(epicId.substring(LOCAL.length())) : Optional.empty();
     }
 
     /** A Jira Epic's ticket; empty for an issue Epic. */

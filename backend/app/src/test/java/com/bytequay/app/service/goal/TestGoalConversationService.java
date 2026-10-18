@@ -339,7 +339,7 @@ class TestGoalConversationService
     private static WorkItemView learn(String id, String goalId, WorkItem.State state)
     {
         return new WorkItemView(id, "workspace", Optional.of(goalId), id, WorkItem.Kind.LEARN, "Outcome", WorkItem.CompletionRule.ACCEPTED_RESULT, state, 1,
-                ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+                ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, false);
     }
 
     @Test
@@ -376,7 +376,7 @@ class TestGoalConversationService
                 .flatMap(part -> part.lessons().stream()).collect(toImmutableList());
         WorkItemView waiting = new WorkItemView(lessons.get(1), "workspace", Optional.of(goal.id()), lessons.get(1), WorkItem.Kind.LEARN, "Outcome",
                 WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.PLANNED, 1, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH,
-                WorkItem.Priority.NORMAL, 1, ImmutableList.of(lessons.get(0)), Optional.empty(), 0);
+                WorkItem.Priority.NORMAL, 1, ImmutableList.of(lessons.get(0)), Optional.empty(), 0, false);
         when(work.list("workspace")).thenReturn(ImmutableList.of(learn(lessons.get(0), goal.id(), WorkItem.State.PLANNED), waiting));
         doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
@@ -417,7 +417,7 @@ class TestGoalConversationService
 
         WorkItemView practice = new WorkItemView("work-1", "workspace", Optional.of(goal.id()), "Fix #31252", WorkItem.Kind.DEVELOP,
                 "Key add and remove actions by path and deletion vector.", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(),
-                ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+                ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, false);
         when(work.adopt(eq("workspace"), eq(goal.id()), any(), eq("Fix #31252"), eq("Key add and remove actions by path and deletion vector."), eq(GoalItemKind.ISSUE),
                 eq("trinodb/trino#31252"))).thenReturn(practice);
         GoalRecommendation started = service.startCard("workspace", goal.id(), card.id());
@@ -659,7 +659,7 @@ class TestGoalConversationService
                 "You can say whether a checkpoint keeps deletion vectors", WorkItem.CompletionRule.ACCEPTED_RESULT)).thenReturn(new WorkItemView(id, "workspace",
                 Optional.of(goal.id()), "Check deletion vector support", WorkItem.Kind.INVESTIGATE, "You can say whether a checkpoint keeps deletion vectors",
                 WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0));
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, false));
         GoalRecommendation started = service.startCard("workspace", goal.id(), card.id());
         assertThat(started.state()).isEqualTo(GoalRecommendation.State.STARTED);
         assertThat(started.workItemId()).as("the investigation is the goal's work, whose result the user accepts").contains(id);
@@ -692,7 +692,7 @@ class TestGoalConversationService
         when(work.adopt(eq("workspace"), eq(goal.id()), any(), eq("Fix TRINO-12"), eq("Keep rows across checkpoints."), eq(GoalItemKind.JIRA),
                 eq("connection:cloud:10412"))).thenReturn(new WorkItemView("work-2", "workspace", Optional.of(goal.id()), "Fix TRINO-12", WorkItem.Kind.DEVELOP,
                 "Keep rows across checkpoints.", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(),
-                Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0));
+                Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, false));
         assertThat(service.startCard("workspace", goal.id(), card.id()).workItemId()).contains("work-2");
     }
 
@@ -880,13 +880,13 @@ class TestGoalConversationService
     private static WorkItemView work(String id, String goalId, String title, WorkItem.State state, String... blockedBy)
     {
         return new WorkItemView(id, "workspace", Optional.of(goalId), title, WorkItem.Kind.DEVELOP, "It lands", WorkItem.CompletionRule.MERGED_DELIVERY, state, 1,
-                ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.copyOf(blockedBy), Optional.empty(), 0);
+                ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.copyOf(blockedBy), Optional.empty(), 0, false);
     }
 
     private static WorkItemView done(String id, String goalId, WorkItem.Kind kind, WorkItemEvent... history)
     {
         return new WorkItemView(id, "workspace", Optional.of(goalId), "Fix #31252", kind, "Rows survive", WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.DONE, 3,
-                ImmutableList.of(), ImmutableList.copyOf(history), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+                ImmutableList.of(), ImmutableList.copyOf(history), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, false);
     }
 
     @Test
@@ -928,7 +928,7 @@ class TestGoalConversationService
         when(work.change(eq("workspace"), any(), any())).thenAnswer(invocation -> new WorkItemView(invocation.getArgument(1), "workspace", Optional.of(goal.id()),
                 "Changed", WorkItem.Kind.DEVELOP, "It lands", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED,
                 invocation.<WorkItemCommand>getArgument(2).expectedRevision() + 1, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0));
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, false));
 
         // Backporting before the test that waits on the backport would make each wait on the other.
         service.ask("workspace", goal.id(), "op-1", "Should the backport wait for the test?");
@@ -1076,7 +1076,7 @@ class TestGoalConversationService
     private static WorkItemView ranked(String id, String goalId, WorkItem.State state, long rank, WorkItem.Priority priority, String... blockedBy)
     {
         return new WorkItemView(id, "workspace", Optional.of(goalId), id, WorkItem.Kind.DEVELOP, "It lands", WorkItem.CompletionRule.MERGED_DELIVERY, state, 1,
-                ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, priority, rank, ImmutableList.copyOf(blockedBy), Optional.empty(), 0);
+                ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, priority, rank, ImmutableList.copyOf(blockedBy), Optional.empty(), 0, false);
     }
 
     private static GoalExchange.Reply named(String title)

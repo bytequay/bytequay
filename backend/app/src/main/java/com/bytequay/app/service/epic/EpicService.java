@@ -45,6 +45,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -94,10 +95,30 @@ public class EpicService
         return view(current(workspaceId, epicId));
     }
 
+    /** The local work item's identity remains the Epic's identity even if its context is later published. */
+    public void setLocalEpic(String workspaceId, String itemId, boolean isEpic)
+    {
+        unitOfWork.execute(() -> {
+            WorkItem item = work.requireItem(workspaceId, itemId);
+            String epicId = EpicSources.localEpicId(itemId);
+            if (isEpic) {
+                checkArgument(item.epicId().isEmpty(), "Remove this work item from its Epic before marking it as an Epic");
+                epics.save(current(workspaceId, epicId));
+            }
+            else {
+                work.releaseEpic(workspaceId, epicId);
+            }
+            return null;
+        });
+    }
+
     /** Reads the children the Epic's source reports now; a Jira Epic is read through the connection that shows it, and quiet hours keep the last read. */
     public EpicView refreshChildren(String workspaceId, String epicId, Optional<String> connectionId)
     {
         sources.require(workspaceId, epicId);
+        if (EpicSources.localId(epicId).isPresent()) {
+            return view(current(workspaceId, epicId));
+        }
         Read read = EpicSources.ticket(epicId)
                 .map(ticket -> childTickets(ticket, connectionId.orElseThrow(() -> new IllegalArgumentException("A Jira Epic's connection is required"))))
                 .orElseGet(() -> subIssues(epicId));
@@ -152,7 +173,7 @@ public class EpicService
         }));
     }
 
-    /** Asks the development model to propose work from the Epic's issue or ticket; the proposals wait in its view. */
+    /** Asks the development model to propose work from the Epic's context; the proposals wait in its view. */
     public EpicView propose(String workspaceId, String epicId, Optional<String> connectionId)
     {
         sources.require(workspaceId, epicId);
@@ -206,9 +227,14 @@ public class EpicService
                 breakdowns.failure(epic.id()), breakdowns.note(epic.id()));
     }
 
-    /** The issue or ticket a breakdown reads, from what ByteQuay keeps of it. */
+    /** The Epic's context, read from local work or a cached remote source. */
     private EpicBreakdowns.Source source(String workspaceId, String epicId, Optional<String> connectionId)
     {
+        Optional<String> local = EpicSources.localId(epicId);
+        if (local.isPresent()) {
+            WorkItem item = work.requireItem(workspaceId, local.orElseThrow());
+            return new EpicBreakdowns.Source("Local", item.title(), item.acceptanceCriteria());
+        }
         Optional<EpicSources.Ticket> ticket = EpicSources.ticket(epicId);
         if (ticket.isPresent()) {
             JiraIssue issue = jira.getObject().issue(connectionId.orElseThrow(() -> new IllegalArgumentException("A Jira Epic's connection is required")),

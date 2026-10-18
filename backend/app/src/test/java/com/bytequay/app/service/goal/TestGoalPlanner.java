@@ -194,7 +194,7 @@ class TestGoalPlanner
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.DONE, 4, ImmutableList.of(), ImmutableList.of(
                         new WorkItemEvent("turn:1", "", "RECEIPT", "Task turn finished: the new test passes", NOW),
                         new WorkItemEvent("op-9", "", "ACCEPT", "User accepted all criteria", NOW),
-                        new WorkItemEvent("summary:op-9", "", "SUMMARY", "What changed: actions keyed by path", NOW)), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+                        new WorkItemEvent("summary:op-9", "", "SUMMARY", "What changed: actions keyed by path", NOW)), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, false);
         GoalView goal = new GoalView("goal-1", "workspace", "Delta Lake correctness", "", true, Optional.empty(), Optional.empty(), 1, Optional.empty(), false,
                 ImmutableList.of(work), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
 
@@ -214,10 +214,10 @@ class TestGoalPlanner
                 mock(GoalTopicStore.class), mock(GoalResearchService.class), mock(GoalSourceContext.class));
         WorkItemView later = new WorkItemView("work-2", "workspace", Optional.of("goal-1"), "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH, 1,
-                ImmutableList.of("work-1"), Optional.empty(), 0);
+                ImmutableList.of("work-1"), Optional.empty(), 0, false);
         WorkItemView first = new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Read the checkpoint code", WorkItem.Kind.LEARN, "Explain it",
                 WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.PLANNED, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0,
-                ImmutableList.of(), Optional.empty(), 0);
+                ImmutableList.of(), Optional.empty(), 0, false);
         GoalView goal = new GoalView("goal-1", "workspace", "Delta Lake correctness", "", true, Optional.empty(), Optional.empty(), 1, Optional.empty(), false,
                 ImmutableList.of(later, first), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
 
@@ -227,7 +227,7 @@ class TestGoalPlanner
         GoalView started = new GoalView("goal-1", "workspace", "Delta Lake correctness", "", true, Optional.empty(), Optional.empty(), 1, Optional.empty(), false,
                 ImmutableList.of(later, new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Read the checkpoint code", WorkItem.Kind.LEARN, "Explain it",
                         WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.WORKING, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0,
-                        ImmutableList.of(), Optional.empty(), 0)), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
+                        ImmutableList.of(), Optional.empty(), 0, false)), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
         assertThat(planner.fingerprint(started)).as("work that moved is a new fact").isNotEqualTo(planner.fingerprint(goal));
         assertThat(prompt.indexOf("\"id\":\"work-1\"")).as("the work comes in the user's order").isLessThan(prompt.indexOf("\"id\":\"work-2\""));
         assertThat(prompt).contains("\"priority\":\"HIGH\"", "\"waitsOn\":[\"work-1\"]", "never recommend it");
@@ -310,7 +310,7 @@ class TestGoalPlanner
                 Optional.of(new GoalCourse("op-5", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), NOW, Optional.of(MAP))), false,
                 ImmutableList.of(new WorkItemView("lesson-1", "workspace", Optional.of("goal-1"), "What a table is", WorkItem.Kind.LEARN, "Explain metadata",
                         WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.DONE, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                        WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0)),
+                        WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, false)),
                 ImmutableList.of(new GoalRecommendation("card-1", "goal-1", "workspace", CARD, GoalRecommendation.State.SHOWN, Optional.empty(),
                         Optional.empty(), Optional.empty(), "op-0", NOW, NOW)), ImmutableList.of(), NOW, NOW);
         GoalExchange.Reply reply = new GoalExchange.Reply("You want reads first.", Optional.of(new GoalExchange.Question("Which area?", ImmutableList.of())), Optional.empty(),

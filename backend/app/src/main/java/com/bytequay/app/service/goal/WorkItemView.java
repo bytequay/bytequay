@@ -40,7 +40,8 @@ public record WorkItemView(
         long rank,
         List<String> blockedBy,
         Optional<String> epicId,
-        long epicRank)
+        long epicRank,
+        boolean isEpic)
 {
     public WorkItemView
     {

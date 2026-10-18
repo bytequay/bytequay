@@ -253,11 +253,15 @@ class TestPermissionBroker
                 JsonNode listed = listTools(broker, provider.token());
                 JsonNode definition = listed.at("/result/tools").findParents("name").stream()
                         .filter(tool -> tool.path("name").asText().equals(WorkItemBridge.TOOL_NAME)).findFirst().orElseThrow();
-                assertThat(definition.at("/inputSchema/properties/action/enum").toString()).isEqualTo("[\"LIST\",\"READ\",\"CREATE\"]");
+                assertThat(definition.at("/inputSchema/properties/action/enum").toString()).isEqualTo("[\"LIST\",\"READ\",\"CREATE\",\"MARK_EPIC\",\"ASSIGN_EPIC\"]");
                 assertThat(definition.at("/inputSchema/properties/source").isMissingNode()).isTrue();
                 JsonNode result = localReviewCall(broker, provider.token(), WorkItemBridge.TOOL_NAME, "{\"action\":\"READ\"}");
                 assertThat(result.at("/result/content/0/text").asText()).isEqualTo("Retained context [REDACTED]");
                 assertThat(called.get()).isEqualTo("{\"action\":\"READ\"}");
+                localReviewCall(broker, provider.token(), WorkItemBridge.TOOL_NAME, "{\"action\":\"MARK_EPIC\",\"id\":\"local-item\"}");
+                assertThat(called.get()).isEqualTo("{\"action\":\"MARK_EPIC\",\"id\":\"local-item\"}");
+                localReviewCall(broker, provider.token(), WorkItemBridge.TOOL_NAME, "{\"action\":\"ASSIGN_EPIC\",\"id\":\"child\",\"epicId\":\"LOCAL:local-item\"}");
+                assertThat(called.get()).isEqualTo("{\"action\":\"ASSIGN_EPIC\",\"id\":\"child\",\"epicId\":\"LOCAL:local-item\"}");
             }
         }
         try (McpRegistration helper = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,

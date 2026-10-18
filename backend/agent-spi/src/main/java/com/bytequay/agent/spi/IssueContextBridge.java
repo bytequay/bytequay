@@ -18,7 +18,7 @@ import java.util.function.Supplier;
 import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
-/** Read-only local context for one development task: the issue or ticket durably bound to it, and the Epic its work belongs to. */
+/** Read-only local context for one development task: its retained work or source, and the Epic its work belongs to. */
 public record IssueContextBridge(Supplier<String> read, String instruction)
 {
     public static final String WORK_INSTRUCTION = "This task delivers a ByteQuay work item. Before working, call read_issue_context to read its full "
@@ -39,7 +39,7 @@ public record IssueContextBridge(Supplier<String> read, String instruction)
             """;
     /** For a task that delivers one work item of an Epic: alone when that work has no issue or ticket, otherwise after {@link #INSTRUCTION}. */
     public static final String EPIC_INSTRUCTION = """
-            This development task delivers one work item of an Epic, a GitHub issue or Jira ticket that groups related work. Before
+            This development task delivers one work item of an Epic, a local work item, GitHub issue or Jira ticket that groups related work. Before
             working, call read_issue_context without arguments to read the Epic from ByteQuay's local storage: its title and
             description, the children its source lists, its work items in order with their states, and the item this task delivers,
             marked current. Deliver only the current item. The other items are context that their own tasks deliver: do not

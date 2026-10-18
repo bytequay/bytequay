@@ -1880,7 +1880,11 @@ function registerIpc(): void {
     backendJson(workItemsUrl(workspaceId, '/epic-order'), jsonInit('PUT', { epicId, ids })).then(items => parseList(items, parseWorkItem, 'work items')));
   ipcMain.handle('work-items:join-epic', (_event, workspaceId: string, epicId: string, kind: GoalItemKind, key: string) =>
     backendJson(workItemsUrl(workspaceId, '/epic'), jsonInit('POST', { epicId, kind, key })).then(parseEpicJoin));
+  ipcMain.handle('work-items:assign-epic', (_event, workspaceId: string, itemId: string, epicId: string) =>
+    backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/epic`), jsonInit('PUT', { epicId })).then(parseEpicJoin));
   const epicsUrl = (workspaceId: string, suffix = '') => workspaceUrl(workspaceId, `/epics${suffix}`);
+  ipcMain.handle('work-items:mark-epic', (_event, workspaceId: string, itemId: string, isEpic: boolean) =>
+    backendJson(epicsUrl(workspaceId, `/local/${encodeURIComponent(itemId)}`), jsonInit('PUT', { isEpic })).then((): void => undefined));
   ipcMain.handle('epics:get', (_event, workspaceId: string, epicId: string) =>
     backendJson(epicsUrl(workspaceId, `?epicId=${encodeURIComponent(epicId)}`)).then(parseEpicRecord));
   // Reading a Jira Epic's children refreshes its ticket detail, which can take a while.

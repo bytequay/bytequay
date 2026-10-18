@@ -77,7 +77,7 @@ export function mount(withFindings = false) {
     getRepositoryContextSpecSources: async () => [],
     specWorkItem: async (_workspace, checkId, candidateId) => {
       calls.push(`local:${checkId}:${candidateId}`);
-      return { id: 'local-finding', workspaceId: 'workspace', goalId: null, title: finding.title, kind: 'DEVELOP', acceptanceCriteria: finding.draft?.body ?? '',
+      return { id: 'local-finding', workspaceId: 'workspace', isEpic: false, goalId: null, title: finding.title, kind: 'DEVELOP', acceptanceCriteria: finding.draft?.body ?? '',
         completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0, links: [], history: [], createdAt: completedCheck.startedAt, updatedAt: completedCheck.startedAt,
         priority: 'NORMAL', rank: 0, blockedBy: [] };
     },

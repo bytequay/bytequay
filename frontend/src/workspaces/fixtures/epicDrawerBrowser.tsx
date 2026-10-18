@@ -23,7 +23,7 @@ import type { JiraRelatedIssue } from '../../jira/contracts';
 import { jiraDetail, jiraIssue } from '../../jira/fixtures/jira';
 import type { Bridge } from '../../types';
 import { assert, settle } from '../../fixtures/harness';
-import { epicIdentity } from '../epics';
+import { epicIdentity, type EpicItem } from '../epics';
 import '../../css/base.css';
 import '../../css/window-drag.css';
 
@@ -46,7 +46,7 @@ const EPICS = [
   ticket('998', 'Delta Lake deletion vectors in the native reader', true),
 ];
 const PLAIN = [issue(30303, 'Skip unselected values in Parquet projections', false, '2026-10-03T08:00:00Z'), ticket('1300', 'Not an Epic', false)];
-const work = (id: string, epicId: string, state: WorkItemDto['state']): WorkItemDto => ({ id, workspaceId: 'workspace', goalId: null, title: id, kind: 'DEVELOP',
+const work = (id: string, epicId: string, state: WorkItemDto['state']): WorkItemDto => ({ id, workspaceId: 'workspace', isEpic: false, goalId: null, title: id, kind: 'DEVELOP',
   acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links: [], history: [], createdAt: '2026-10-01T08:00:00Z',
   updatedAt: '2026-10-01T08:00:00Z', priority: 'NORMAL', rank: 0, blockedBy: [], epicId, epicRank: 0 });
 const ICEBERG_WORK = ['DONE', 'WORKING', 'PLANNED', 'DROPPED'].map((state, index) => work(`iceberg-${index}`, 'ISSUE:github.com:24918', state as WorkItemDto['state']));
@@ -92,7 +92,7 @@ export async function run(): Promise<boolean> {
   window.bridge = {
     getJiraIssue: async ({ issueId }: { issueId: string }) => ({ ...jiraDetail(), children: issueId === '1184' ? children : [] }),
   } as unknown as Bridge;
-  const render = (items: AttentionItem[], covered = false, workItems: WorkItemDto[] = ICEBERG_WORK, concluded: ReadonlySet<string> = new Set()): void =>
+  const render = (items: EpicItem[], covered = false, workItems: WorkItemDto[] = ICEBERG_WORK, concluded: ReadonlySet<string> = new Set()): void =>
     flushSync(() => root.render(<LayerCovered.Provider value={covered}>
     <div className="app-shell">
       <nav className="app-sidebar"><button type="button" id="sidebar-control">Workspace home</button><div className="app-sidebar__resize" /></nav>
@@ -252,6 +252,16 @@ export async function run(): Promise<boolean> {
     assert(document.querySelectorAll('.epic-cue__tick').length === 1 && element('.epic-cue').getAttribute('aria-label') === 'Epics · 1', 'A concluded Epic leaves the drawer');
     render(EPICS.slice(0, 1), false, ICEBERG_WORK, new Set([epicIdentity(EPICS[0])])); await settle();
     assert(document.querySelector('.epic-cue') === null, 'With every Epic concluded there is no cue');
+
+    const localEpic: WorkItemDto = { ...work('local-parent', '', 'PLANNED'), isEpic: true, title: 'Private connector cleanup', epicId: null };
+    render([localEpic], false, [work('child', 'LOCAL:local-parent', 'DONE')]); await settle();
+    element<HTMLButtonElement>('.epic-cue').click(); await settle();
+    const localCard = element<HTMLElement>('.epic-card');
+    assert(localCard.querySelector('.card-local') !== null && localCard.querySelector('.epic-card__done')?.textContent === '1/1', 'A local Epic has a Local badge and its own progress');
+    localCard.click();
+    assert(openedEpics.at(-1) === 'LOCAL:local-parent', 'A local Epic opens by its stable local identity');
+    render([localEpic], false, [], new Set(['LOCAL:local-parent'])); await settle();
+    assert(document.querySelector('.epic-cue') === null, 'A concluded local Epic leaves the drawer');
 
     // Many Epics in a short, narrow window: the width clamps and the list scrolls under the header.
     const shell = element('.app-shell');

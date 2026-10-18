@@ -139,7 +139,7 @@ const PRIORITY_FIRST: Record<WorkItemPriority, number> = { HIGH: 0, NORMAL: 1, L
  * on, then the Goal's order; Working and Blocked keep the order; Done shows the latest decision first.
  */
 export function workIn(items: WorkItemDto[], view: WorkView, all: WorkItemDto[] = items): WorkItemDto[] {
-  const rows = inOrder(items.filter((item) => viewOf(item, all) === view));
+  const rows = inOrder(items.filter((item) => (view !== 'next' || !item.isEpic) && viewOf(item, all) === view));
   if (view === 'next') {
     return rows.sort((left, right) => PRIORITY_FIRST[left.priority] - PRIORITY_FIRST[right.priority] || unblocks(right, all).length - unblocks(left, all).length);
   }

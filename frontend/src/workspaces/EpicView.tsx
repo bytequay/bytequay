@@ -23,9 +23,9 @@ import { Candidate, useCandidates } from '../goals/GoalPanel';
 import { GOAL_SOURCES, goalRef, isOpen, itemNeedsYou, progressWidths, refKey, summarize, waitingOn } from '../goals/model';
 import MarkdownBody from '../pulls/MarkdownBody';
 import type { Goals } from '../goals/useGoals';
-import type { AttentionItem, AttentionTone } from '../home/attention';
+import type { AttentionTone } from '../home/attention';
 import { EpicGlyph } from './EpicDrawer';
-import { epicIdentity, epicWork, joinEpic, orderEpic, removeFromEpic, startEpicWork, useEpicGoals, useEpicLend, useEpicRecord } from './epics';
+import { assignWorkItemEpic, epicIdentity, epicWork, joinEpic, orderEpic, removeFromEpic, startEpicWork, useEpicGoals, useEpicLend, useEpicRecord, type EpicItem } from './epics';
 import { notifyIssueDevelopmentChanged } from './issueDevelopment';
 import { zoomReference } from '../githubReference';
 import '../css/epic-view.css';
@@ -38,8 +38,8 @@ const UPSTREAM: Record<EpicChildDto['kind'], string> = { ISSUE: 'GitHub', JIRA: 
 const STATE_WORDS: Record<WorkItemDto['state'], string> = { PLANNED: 'Planned', WORKING: 'Working', DONE: 'Done', DROPPED: 'Dropped' };
 type Shown = 'ALL' | Exclude<WorkItemDto['state'], 'DROPPED'>;
 const SHOWN: Shown[] = ['ALL', 'PLANNED', 'WORKING', 'DONE'];
-type Finding = 'ALL' | GoalItemKind;
-const FINDING: [Finding, string][] = [['ALL', 'All'], ['ISSUE', 'GitHub issues'], ['JIRA', 'Jira'], ['PULL_REQUEST', 'Pull requests'], ['TASK', 'Tasks']];
+type Finding = 'ALL' | 'LOCAL' | GoalItemKind;
+const FINDING: [Finding, string][] = [['ALL', 'All'], ['LOCAL', 'Local'], ['ISSUE', 'GitHub issues'], ['JIRA', 'Jira'], ['PULL_REQUEST', 'Pull requests'], ['TASK', 'Tasks']];
 
 /** The issue or ticket the work came from; work without one is Local. */
 function sourceOfWork(item: WorkItemDto): GoalItemDto | undefined {
@@ -61,7 +61,7 @@ function upstreamOf(item: WorkItemDto, record: EpicRecordDto | null): Upstream |
  * repository, and starts the work its rows run; elsewhere the tab still adds, orders and decides work.
  */
 export function EpicWork({ epic, workspaceId, repository, work, onShowSource }: {
-  epic: AttentionItem;
+  epic: EpicItem;
   workspaceId: string;
   /** "owner/repo" the workspace's issue composer starts tasks in, when the host knows it. */
   repository: string | null;
@@ -84,7 +84,7 @@ export function EpicWork({ epic, workspaceId, repository, work, onShowSource }: 
  * detail.
  */
 export default function EpicView({ epic, workspaceId, repository, work, needsYou, goals, epicTitle, onOpenTask, onStartIssue, onStartWork, onShowSource }: {
-  epic: AttentionItem;
+  epic: EpicItem;
   workspaceId: string;
   /** "owner/repo" the workspace's issue composer starts tasks in. */
   repository: string;
@@ -103,6 +103,8 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
   onShowSource: () => void;
 }): React.JSX.Element {
   const epicId = epicIdentity(epic);
+  const local = 'acceptanceCriteria' in epic ? epic : null;
+  const source = 'acceptanceCriteria' in epic ? null : epic;
   const items = epicWork(work, epicId);
   const shown = items.filter((item) => item.state !== 'DROPPED');
   const dropped = items.filter((item) => item.state === 'DROPPED');
@@ -121,21 +123,24 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
   const [reason, setReason] = useState('');
   const [concluding, setConcluding] = useState(false);
   const [outcome, setOutcome] = useState('');
-  const own = goalRef(epic);
+  const own = source === null ? null : goalRef(source);
   const search = goals.search;
   // Narrowed before the results are cut to the few shown, so a kind with matches never comes back empty.
   const find = useCallback((query: string) => search(query).then((results) => results.filter((item) => finding === 'ALL' || item.kind === finding)), [finding, search]);
   const candidates = useCandidates({ items }, find, adding);
-  const found = candidates.results.filter((item) => own === null || refKey(item) !== refKey(own));
+  const found = candidates.results.filter((item) => (own === null || refKey(item) !== refKey(own))
+    && !local?.links.some(link => refKey(link) === refKey(item)));
+  const localFound = finding !== 'ALL' && finding !== 'LOCAL' ? [] : work.filter(item => !item.isEpic && item.id !== local?.id && item.epicId !== epicId
+    && sourceOfWork(item) === undefined && `${item.title} ${item.acceptanceCriteria}`.toLowerCase().includes(candidates.query.trim().toLowerCase())).slice(0, 20);
   /** The other Epic whose work the candidate already is; adding it moves it here. */
   const elsewhere = (candidate: GoalItemDto): string | null => work.find((item) => item.epicId != null && item.epicId !== epicId
     && item.links.some((link) => refKey(link) === refKey(candidate)))?.epicId ?? null;
-  const children = useEpicRecord(workspaceId, epicId, epic.jira?.connectionId ?? null);
+  const children = useEpicRecord(workspaceId, epicId, source?.jira?.connectionId ?? null);
   const record = children.record;
   const unsynced = record === null ? [] : record.children.filter((child) => !record.synced.includes(child.identity));
   const concludedAt = record?.concludedAt ?? null;
   const ready = summary.total > 0 && summary.finished === summary.total;
-  const sourceName = epic.jira ? epic.jira.key : `#${epic.number}`;
+  const sourceName = source === null ? 'Local work item' : source.jira ? source.jira.key : `#${source.number}`;
   const listed = shown.filter((item) => filter === 'ALL' || item.state === filter);
   const from = (kind: GoalItemKind | null): number => shown.filter((item) => (sourceOfWork(item)?.kind ?? null) === kind).length;
   const mix = { local: from(null), github: from('ISSUE'), jira: from('JIRA') };
@@ -191,7 +196,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
           <span>Parent of work from Local, GitHub and Jira</span>
           <span className="item-row__sep">·</span>
           <button type="button" className="epic-view__link" title={`Show ${sourceName}`} onClick={onShowSource}>
-            {epic.jira ? epic.jira.key : `${epic.repo} #${epic.number}`}<ArrowUpRight size={11} aria-hidden="true" />
+            {source === null ? <LocalBadge /> : source.jira ? source.jira.key : `${source.repo} #${source.number}`}<ArrowUpRight size={11} aria-hidden="true" />
           </button>
         </div>
         <h1 className="epic-view__title">{epic.title}</h1>
@@ -231,28 +236,28 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
             <CircleCheck size={14} aria-hidden="true" />
             <span>Concluded</span>
             <CardAge at={concludedAt} />
-            {epic.jira
-              ? <button type="button" className="epic-view__link" onClick={onShowSource}>Close {epic.jira.key} from its ticket</button>
+            {source !== null && (source.jira
+              ? <button type="button" className="epic-view__link" onClick={onShowSource}>Close {source.jira.key} from its ticket</button>
               : <button type="button" className="epic-view__link" disabled={busy} onClick={() => {
                 void run(async () => {
-                  await window.bridge.closeWorkspaceIssue(workspaceId, epic.number);
+                  await window.bridge.closeWorkspaceIssue(workspaceId, source.number);
                   notifyIssueDevelopmentChanged();
                 });
-              }}>Close #{epic.number} on GitHub</button>}
+              }}>Close #{source.number} on GitHub</button>)}
           </div>
           <p className="epic-view__outcome">{record.outcome}</p>
         </section>
       )}
-      {record?.offered === true && (
+      {source !== null && record?.offered === true && (
         <div className="epic-view__found">
           <ListTree size={14} aria-hidden="true" />
           <span className="epic-view__found-count" title={unsynced.map((child) => `${child.label} ${child.title}`).join('\n')}>
-            Found in {epic.jira ? 'Jira' : 'GitHub'} · {unsynced.length} {epic.jira ? 'child ticket' : 'sub-issue'}{unsynced.length === 1 ? '' : 's'} of {sourceName}
+            Found in {source.jira ? 'Jira' : 'GitHub'} · {unsynced.length} {source.jira ? 'child ticket' : 'sub-issue'}{unsynced.length === 1 ? '' : 's'} of {sourceName}
             {unsynced.length === 1 ? ' isn\'t' : ' aren\'t'} in this Epic's work yet
           </span>
           <button type="button" className="epic-view__sync" disabled={busy} onClick={() => {
             const count = unsynced.length;
-            void run(() => children.sync().then(() => setNotice(`Synced ${count} ${epic.jira ? 'child ticket' : 'sub-issue'}${count === 1 ? '' : 's'} from ${epic.jira ? 'Jira' : 'GitHub'}.`)));
+            void run(() => children.sync().then(() => setNotice(`Synced ${count} ${source.jira ? 'child ticket' : 'sub-issue'}${count === 1 ? '' : 's'} from ${source.jira ? 'Jira' : 'GitHub'}.`)));
           }}>Sync</button>
           <button type="button" className="epic-view__link" disabled={busy} onClick={() => { void run(children.dismiss); }}>Not now</button>
         </div>
@@ -278,7 +283,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
         <div className="goal-search epic-view__search">
           <label className="goal-search__field">
             <Search size={14} aria-hidden="true" />
-            <input autoFocus aria-label="Find an issue, ticket, pull request or task" placeholder="Find an issue, ticket, pull request or task"
+            <input autoFocus aria-label="Find local work, an issue, ticket, pull request or task" placeholder="Find local work, an issue, ticket, pull request or task"
               value={candidates.query} onChange={(event) => candidates.setQuery(event.target.value)} />
             <IconButton label="Close Add existing" title="Close" onClick={() => setAdding(false)}><X size={13} /></IconButton>
           </label>
@@ -288,12 +293,21 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
             ))}
           </div>
           <div className="epic-view__results">
+            {localFound.map(item => <div className="goal-result" key={item.id}>
+              <LocalBadge />
+              <span className="goal-result__title">{item.title}</span>
+              <span className="goal-result__sub">{item.epicId ? `In ${epicTitle(item.epicId) ?? 'another Epic'}` : STATE_WORDS[item.state]}</span>
+              <button type="button" className="goal-link" disabled={busy} onClick={() => { void run(async () => {
+                const joined = await assignWorkItemEpic(workspaceId, epicId, item.id);
+                setNotice(joined.movedFrom === null ? null : `Moved here from ${epicTitle(joined.movedFrom) ?? 'another Epic'}`);
+              }); }}>{item.epicId ? 'Move here' : 'Add'}</button>
+            </div>)}
             {found.map((item) => {
               const other = elsewhere(item);
               return <Candidate key={refKey(item)} item={item} onAdd={add} sub={other === null ? item.status : `In ${epicTitle(other) ?? 'another Epic'}`}
                 action={other === null ? 'Add' : 'Move here'} />;
             })}
-            {found.length === 0 && (candidates.query.trim() !== '' || finding !== 'ALL')
+            {found.length === 0 && localFound.length === 0 && (candidates.query.trim() !== '' || finding !== 'ALL')
               && <div className="epic-view__none">Nothing matches. New work you type below is created as Local.</div>}
           </div>
         </div>

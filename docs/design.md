@@ -59,6 +59,11 @@ keeps the description, source, accepted criteria, and attempts connected. Publis
 a local item to GitHub or Jira is a separate explicit action and preserves its local
 identity; delivering a pull request does not require publishing the item.
 
+Epics are ByteQuay's local planning groups. A user or agent can mark a local work
+item as an Epic and assign related work to it. A GitHub issue or Jira ticket can
+also provide an Epic's context; its classification and work membership remain
+local and do not change the remote issue, ticket, or hierarchy.
+
 ### Make the change understandable
 
 Show intent, code, evidence, and discussion together. Distinguish an agent's

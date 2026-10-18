@@ -499,6 +499,7 @@ export type CompletionRule = 'MERGED_DELIVERY' | 'ACCEPTED_RESULT';
 export type WorkItemPriority = 'HIGH' | 'NORMAL' | 'LOW';
 export type WorkItemDto = {
   id: string;
+  isEpic: boolean;
   workspaceId: string;
   goalId: string | null;
   title: string;
@@ -516,7 +517,7 @@ export type WorkItemDto = {
   rank: number;
   /** The same Goal's or Epic's work it waits on. */
   blockedBy: string[];
-  /** The Epic the work belongs to: the canonical identity of the issue or ticket marked as one. */
+  /** The Epic the work belongs to: a local item, GitHub issue, or Jira ticket identity. */
   epicId?: string | null;
   /** Its place in its Epic's order, lowest first; equal places keep creation order. */
   epicRank?: number;
@@ -583,6 +584,7 @@ export function parseWorkItem(value: unknown): WorkItemDto {
   if (!Number.isSafeInteger(item.rank)) throw new Error('Malformed work item rank');
   return {
     id: text(item.id, 'work item id'),
+    isEpic: item.isEpic === true,
     workspaceId: text(item.workspaceId, 'work item workspace'),
     goalId: optionalText(item.goalId),
     title: text(item.title, 'work item title'),

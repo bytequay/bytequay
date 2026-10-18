@@ -14,13 +14,13 @@
 
 import React, { useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ListTree, X } from 'lucide-react';
-import { Card, CardAge, IconButton, LinkKey, Pill } from '../cards/Card';
+import { Card, CardAge, IconButton, LinkKey, LocalBadge, Pill } from '../cards/Card';
 import type { WorkItemDto } from '../goals/contracts';
 import { progressWidths, summarize } from '../goals/model';
-import { statusPill, type AttentionItem } from '../home/attention';
+import { statusPill } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import { LayerCovered } from '../Zoom';
-import { epicIdentity, epicWork } from './epics';
+import { epicIdentity, epicWork, type EpicItem } from './epics';
 import '../css/epic-drawer.css';
 
 const OPEN_DELAY_MS = 150;
@@ -35,20 +35,20 @@ const MAX_TICKS = 4;
  * workspace without Epics shows no cue at all.
  */
 export default function EpicDrawer({ items, concluded, work, onOpen }: {
-  items: AttentionItem[];
+  items: EpicItem[];
   /** Concluded Epics, which leave the drawer. */
   concluded: ReadonlySet<string>;
   /** Every work item of the workspace; each card draws its Epic's progress from them. */
   work: WorkItemDto[];
   /** Opens the Epic's view, where its work is added and decided. */
-  onOpen: (epic: AttentionItem) => void;
+  onOpen: (epic: EpicItem) => void;
 }): React.JSX.Element | null {
   const epics = useMemo(() => items.filter(item => item.isEpic === true && !concluded.has(epicIdentity(item))), [concluded, items]);
   // Unmounting at zero closes it, so a first Epic marked later fades its tick in closed.
   return epics.length === 0 ? null : <Drawer epics={epics} work={work} onOpen={onOpen} />;
 }
 
-function Drawer({ epics, work, onOpen }: { epics: AttentionItem[]; work: WorkItemDto[]; onOpen: (epic: AttentionItem) => void }): React.JSX.Element {
+function Drawer({ epics, work, onOpen }: { epics: EpicItem[]; work: WorkItemDto[]; onOpen: (epic: EpicItem) => void }): React.JSX.Element {
   const covered = useContext(LayerCovered);
   const panelId = useId();
   const layer = useRef<HTMLDivElement>(null);
@@ -153,7 +153,7 @@ function Drawer({ epics, work, onOpen }: { epics: AttentionItem[]; work: WorkIte
         }}
       >
         <span className="epic-cue__ticks" aria-hidden="true">
-          {epics.slice(0, MAX_TICKS).map(item => <span key={item.key} className="epic-cue__tick" />)}
+          {epics.slice(0, MAX_TICKS).map(item => <span key={'acceptanceCriteria' in item ? epicIdentity(item) : item.key} className="epic-cue__tick" />)}
         </span>
       </button>
       <span className="epic-tip" aria-hidden="true">{label}</span>
@@ -165,7 +165,7 @@ function Drawer({ epics, work, onOpen }: { epics: AttentionItem[]; work: WorkIte
           <IconButton label="Close Epics" title="Close (Esc)" onClick={dismiss}><X size={14} aria-hidden="true" /></IconButton>
         </div>
         <div className="epic-drawer__list">
-          {epics.map(item => <EpicCard key={item.key} item={item} work={work} onOpen={() => onOpen(item)} />)}
+          {epics.map(item => <EpicCard key={'acceptanceCriteria' in item ? epicIdentity(item) : item.key} item={item} work={work} onOpen={() => onOpen(item)} />)}
         </div>
       </section>
     </div>
@@ -173,11 +173,12 @@ function Drawer({ epics, work, onOpen }: { epics: AttentionItem[]; work: WorkIte
 }
 
 /** One Epic; it opens the Epic's view and never runs. */
-function EpicCard({ item, work, onOpen }: { item: AttentionItem; work: WorkItemDto[]; onOpen: () => void }): React.JSX.Element {
-  const { jira } = item;
+function EpicCard({ item, work, onOpen }: { item: EpicItem; work: WorkItemDto[]; onOpen: () => void }): React.JSX.Element {
+  const source = 'acceptanceCriteria' in item ? null : item;
+  const jira = source?.jira;
   // The workspace's issue cache holds open issues only.
   const status = jira ? statusPill(jira.status) : { name: 'Open', tone: 'green' as const };
-  const name = jira ? jira.key : `#${item.number}`;
+  const name = source === null ? 'Local' : jira ? jira.key : `#${source.number}`;
   const summary = summarize({ items: epicWork(work, epicIdentity(item)) }, new Set());
   const widths = progressWidths(summary);
   return (
@@ -190,7 +191,7 @@ function EpicCard({ item, work, onOpen }: { item: AttentionItem; work: WorkItemD
         </span>
       )}
       <span className="epic-card__meta">
-        <LinkKey source={jira ? 'jira' : 'issue'} name={name} size={13} />
+        {source === null ? <LocalBadge /> : <LinkKey source={jira ? 'jira' : 'issue'} name={name} size={13} />}
         <Pill tone={status.tone}>{status.name}</Pill>
         {jira?.hasChildren && <ChildCount ticket={jira} />}
         {summary.total > 0 && <span className="epic-card__done" title={`${summary.finished} of ${summary.total} done`}>{summary.finished}/{summary.total}</span>}

@@ -70,7 +70,7 @@ class TestWorkItemCatalog
                 WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
         WorkItemView view = new WorkItemView(local.id(), local.workspaceId(), local.goalId(), local.title(), local.kind(), local.acceptanceCriteria(),
                 local.completionRule(), local.state(), local.revision(), ImmutableList.of(), local.history(), now, now, local.priority(), 0, ImmutableList.of(),
-                Optional.empty(), 0);
+                Optional.empty(), 0, false);
         when(store.list("workspace")).thenReturn(ImmutableList.of(local));
         when(work.list("workspace")).thenReturn(ImmutableList.of(view));
         WorkItemCatalog catalog = new WorkItemCatalog(workspaces, issues, jira, store, work);

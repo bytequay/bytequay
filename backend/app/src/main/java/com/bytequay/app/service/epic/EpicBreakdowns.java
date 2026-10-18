@@ -88,8 +88,8 @@ public class EpicBreakdowns
     private static final ObjectMapper MAPPER = JsonContracts.mapper();
     private static final String INSTRUCTIONS = """
             You suggest the work an Epic still needs, for a software developer in ByteQuay, a desktop app for their GitHub
-            pull-request work. The Epic is a GitHub issue or Jira ticket. The epic data holds its title and description, the
-            children its issue or ticket lists, every piece of work the Epic already has with its state, source and context,
+            pull-request work. The Epic is ByteQuay's local grouping of work, based on a local work item, GitHub issue or Jira ticket.
+            The epic data holds its title and description, any children its source lists, every piece of work it already has with its state, source and context,
             and what was suggested before.
 
             First read all of the Epic's existing work, its children and the earlier suggestions. Never suggest work one of
@@ -142,7 +142,7 @@ public class EpicBreakdowns
     private final Map<String, String> failures = new ConcurrentHashMap<>();
     private final Map<String, String> notes = new ConcurrentHashMap<>();
 
-    /** The issue or ticket an Epic is, as its breakdown reads it. */
+    /** The local work item or remote source providing the Epic's context. */
     public record Source(String label, String title, String description)
     {
         public Source

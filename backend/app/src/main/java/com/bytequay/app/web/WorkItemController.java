@@ -152,6 +152,15 @@ public class WorkItemController
         return new RemovedFromEpic(items.removeFromEpic(workspaceId, itemId));
     }
 
+    @PutMapping("/{itemId}/epic")
+    public WorkItemService.EpicJoin assignEpic(@PathVariable String workspaceId, @PathVariable String itemId, @RequestBody AssignEpic request)
+    {
+        checkArgument(request.epicId() != null, "Epic is required");
+        return items.joinLocalEpic(workspaceId, request.epicId(), itemId);
+    }
+
+    public record AssignEpic(String epicId) {}
+
     @PostMapping("/{itemId}/links")
     public WorkItemView link(@PathVariable String workspaceId, @PathVariable String itemId, @RequestBody LinkWorkItem request)
     {

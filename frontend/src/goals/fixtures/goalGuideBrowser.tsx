@@ -76,7 +76,7 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
     const course = server.exchanges.find((exchange) => exchange.id === exchangeId)?.reply?.course;
     assert(course !== null && course !== undefined, 'No course to accept');
     const lessons = course.parts.flatMap((part) => part.lessons).map((lesson, index): WorkItemDto => ({ id: `lesson-${index + 1}`, workspaceId: 'workspace',
-      goalId: 'goal', title: lesson.title, kind: 'LEARN', acceptanceCriteria: lesson.outcome, completionRule: 'ACCEPTED_RESULT', state: 'PLANNED', revision: 0,
+      isEpic: false, goalId: 'goal', title: lesson.title, kind: 'LEARN', acceptanceCriteria: lesson.outcome, completionRule: 'ACCEPTED_RESULT', state: 'PLANNED', revision: 0,
       priority: 'NORMAL', rank: index, blockedBy: [], links: [], history: [], createdAt: NOW, updatedAt: NOW }));
     let next = 0;
     server.goal = { ...server.goal, items: [...server.goal.items, ...lessons], course: { exchangeId, acceptedAt: NOW, map: null,
@@ -110,7 +110,7 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
     const gap = server.gaps.find((candidate) => candidate.candidateId === candidateId);
     assert(gap !== undefined, 'No such gap');
     server.gaps = server.gaps.map((candidate) => (candidate === gap ? { ...candidate, workItemId: 'work-1', state: 'PLANNED' } : candidate));
-    server.goal = { ...server.goal, items: [...server.goal.items, { id: 'work-1', workspaceId: 'workspace', goalId: 'goal', title: gap.title, kind: 'DEVELOP',
+    server.goal = { ...server.goal, items: [...server.goal.items, { id: 'work-1', workspaceId: 'workspace', isEpic: false, goalId: 'goal', title: gap.title, kind: 'DEVELOP',
       acceptanceCriteria: gap.rule, completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0, priority: 'NORMAL', rank: server.goal.items.length,
       blockedBy: [], links: [], history: [], createdAt: NOW, updatedAt: NOW }] };
     changed();
@@ -636,7 +636,7 @@ export async function run(): Promise<boolean> {
     // The task the user sent published a pull request, which merged; accepting the result stays the user's decision.
     const link = (kind: GoalItemDto['kind'], key: string, label: string, status: string): GoalItemDto => ({ kind, key, label, title: 'Key actions by path',
       state: status === 'Merged' ? 'MERGED' : 'WORKING', status, blocked: false, url: null, activity: null, addedAt: NOW });
-    server.goal = { ...server.goal, items: [{ id: 'work-1', workspaceId: 'workspace', goalId: 'goal', title: 'Fix #31252', kind: 'DEVELOP',
+    server.goal = { ...server.goal, items: [{ id: 'work-1', workspaceId: 'workspace', isEpic: false, goalId: 'goal', title: 'Fix #31252', kind: 'DEVELOP',
       acceptanceCriteria: PRACTICE.scope, completionRule: 'MERGED_DELIVERY', state: 'WORKING', revision: 2, priority: 'NORMAL', rank: 0, blockedBy: [], history: [],
       createdAt: NOW, updatedAt: NOW,
       links: [link('ISSUE', 'trinodb/trino#31252', '#31252', 'Open'), link('TASK', 'task-1', 'Task', 'Completed'), link('PULL_REQUEST', 'trinodb/trino#31260', '#31260', 'Merged')] }] };

@@ -28,7 +28,10 @@ import MarkdownBody from '../pulls/MarkdownBody';
 import { PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
 import { relativeTime } from '../relativeTime';
 import { useResizablePane } from '../useResizablePane';
-import { epicWork, startEpicWork, useEpicGoals, useEpicLend } from '../workspaces/epics';
+import { epicWork, localEpicId, startEpicWork, useEpicGoals, useEpicLend } from '../workspaces/epics';
+import { EpicTabs, workProgress } from '../workspaces/EpicTabs';
+import { EpicWork } from '../workspaces/EpicView';
+import { useUnmarkEpic } from '../workspaces/useUnmarkEpic';
 import { workspaceIssueTaskRoute, workspaceRoute } from '../workspaces/model';
 import { type Publication, type UnifiedWorkItem, workItemRoute } from './contracts';
 import '../css/issues.css';
@@ -158,12 +161,13 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
   const local = items.filter((value): value is LocalItem => value.work !== null);
   const all = local.map(value => value.work);
   const epicName = (id: string): EpicName => {
-    const source = items.find(value => value.id === id);
+    const source = items.find(value => value.id === (id.startsWith('LOCAL:') ? id.slice(6) : id));
     const label = source?.reference?.label;
     const title = source?.title ?? lend.epicTitles.get(id);
     return { id, label: label ? `Epic ${label}` : 'Epic', title: [label, title].filter(Boolean).join(' ') || 'Epic' };
   };
-  const epics = [...new Set([...lend.epicTitles.keys(), ...all.flatMap(work => work.epicId ? [work.epicId] : [])])].map(epicName);
+  const epics = [...new Set([...lend.epicTitles.keys(), ...all.filter(work => work.isEpic).map(work => localEpicId(work.id)),
+    ...all.flatMap(work => work.epicId ? [work.epicId] : [])])].map(epicName);
   const text = query.trim().toLowerCase();
   const filtering = text !== '' || epic !== '' || kind !== '' || where !== '';
   const matching = local.filter(value => `${value.title} ${value.description} ${value.work.acceptanceCriteria} ${value.reference?.label ?? ''} ${value.work.epicId ? epicName(value.work.epicId).title : ''}`
@@ -176,6 +180,7 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
   const item = local.find(value => value.id === selected);
   const creating = selected === 'new';
   const begin = (value: LocalItem) => {
+    if (value.work.isEpic) return;
     if (value.source !== 'LOCAL') openReference(workspace, value.reference, true);
     else startEpicWork({ workspaceId: workspace.id, itemId: value.work.id, send: true,
       draft: `Develop this work item: ${value.work.title}\n\nCall read_issue_context before starting to read this item's full context and its parent Epic, if any. Deliver only this work item.` });
@@ -232,7 +237,11 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
       {creating ? <WorkItemForm workspaceId={workspace.id} epics={epics} onClose={() => select(null)} onSaved={async value => { await reload(); select(value.id); }} />
         : item ? <WorkItemDetail key={item.id} workspace={workspace} item={item} all={all} epic={item.work.epicId ? epicName(item.work.epicId) : null}
           publishing={publishing} onPublishing={setPublishing} onStart={() => begin(item)} onViewTask={() => viewTask(item)}
-          onOpenEpic={() => openReference(workspace, items.find(value => value.id === item.work.epicId)?.reference ?? null)} onChanged={reload} headerAction={headerAction} />
+          onOpenEpic={() => {
+            const id = item.work.epicId;
+            if (id?.startsWith('LOCAL:')) zoomReference({ kind: 'work', workspaceId: workspace.id, itemId: id.slice(6) });
+            else openReference(workspace, items.find(value => value.id === id)?.reference ?? null);
+          }} onChanged={reload} headerAction={headerAction} />
           : <>
             <DetailHeader label="Local work">{headerAction}</DetailHeader>
             <div className="pull-detail__body"><div className="work-items__empty">{zoomedItemId === undefined ? 'Select a work item to read its context or start development.' : error ?? (loaded ? 'Work item not found.' : 'Loading work item…')}</div></div>
@@ -270,7 +279,7 @@ function WorkRow({ item, all, epic, selected, onPick, onStart, onViewTask, onPub
       </span>
     </button>
     <span className="pull-row__labels">
-      <span>{KIND[work.kind]}</span>
+      {work.isEpic ? <span className="issues-epic-badge"><Flag size={11} aria-hidden="true" />Epic</span> : <span>{KIND[work.kind]}</span>}
       {work.priority === 'HIGH' && <span className="work-items__high">High priority</span>}
       {epic && <span className="issues-epic-badge" title={epic.title}><Flag size={11} aria-hidden="true" />{epic.label}</span>}
       {waits > 0 && <span>Waiting on {waits}</span>}
@@ -293,7 +302,7 @@ function WorkRow({ item, all, epic, selected, onPick, onStart, onViewTask, onPub
         </span>
       </button>
       <span className="issues-development-actions">
-        {isOpen(work) && !task && <button className="pulls-toolbar-button" type="button" title="Use agent to develop" aria-label={`Start development of ${item.title}`} onClick={onStart}>
+        {isOpen(work) && !work.isEpic && !task && <button className="pulls-toolbar-button" type="button" title="Use agent to develop" aria-label={`Start development of ${item.title}`} onClick={onStart}>
           <Play size={16} aria-hidden="true" /></button>}
         {task && <button className="pulls-toolbar-button" type="button" title="View task" aria-label={`View the task for ${item.title}`} onClick={onViewTask}><ListTodo size={16} aria-hidden="true" /></button>}
         {!remote && work.state !== 'DROPPED' && <button className="pulls-toolbar-button" type="button" title="Push to GitHub or Jira…" aria-label={`Push ${item.title} to GitHub or Jira`}
@@ -303,10 +312,10 @@ function WorkRow({ item, all, epic, selected, onPick, onStart, onViewTask, onPub
   </div>;
 }
 
-function DetailHeader({ label, children }: { label: string; children?: ReactNode }) {
+function DetailHeader({ label, tabs, children }: { label: string; tabs?: ReactNode; children?: ReactNode }) {
   return <header className="pull-detail__header pull-detail__header--tabs">
     <div className="pull-detail__toolbar">
-      <span className="work-items__label"><LocalBadge />{label}</span>
+      {tabs ?? <span className="work-items__label"><LocalBadge />{label}</span>}
       {children && <div className="pull-detail__header-actions">{children}</div>}
     </div>
   </header>;
@@ -375,15 +384,28 @@ function WorkItemDetail({ workspace, item, all, epic, publishing, onPublishing, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const work = item.work;
+  const [workShown, setWorkShown] = useState(work.isEpic);
+  const unmark = useUnmarkEpic();
   const open = isOpen(work);
   const remote = remoteOf(work);
   const task = taskOf(work);
   const development = work.links.filter(link => link.kind === 'TASK' || link.kind === 'PULL_REQUEST');
-  const canStart = open && !task;
+  const canStart = open && !work.isEpic && !task;
   // One item may be pushed to both GitHub and Jira; its links keep both.
   const canPublish = work.state !== 'DROPPED' && !(work.links.some(link => link.kind === 'ISSUE') && work.links.some(link => link.kind === 'JIRA'));
   const blockers = waitingOn(work, all);
   const progress = epic === null ? null : summarize({ items: epicWork(all, epic.id) }, new Set());
+  const toggleEpic = async () => {
+    setBusy(true); setError(null);
+    try {
+      await window.bridge.setLocalWorkItemEpic(workspace.id, work.id, !work.isEpic);
+      setWorkShown(!work.isEpic);
+      await onChanged();
+      window.dispatchEvent(new CustomEvent(GOALS_CHANGED, { detail: workspace.id }));
+    }
+    catch (cause) { setError(errorText(cause)); }
+    finally { setBusy(false); }
+  };
   const decide = async (command: { action: 'DROP' | 'REOPEN' | 'PRIORITIZE' | 'EDIT'; detail: string; priority?: WorkItemPriority; completionRule?: CompletionRule }) => {
     setBusy(true); setError(null);
     try { await goals.decideWork(work, { operationId: crypto.randomUUID(), expectedRevision: work.revision, ...command }); await onChanged(); }
@@ -397,18 +419,28 @@ function WorkItemDetail({ workspace, item, all, epic, publishing, onPublishing, 
   };
   if (editing) return <WorkItemForm workspaceId={workspace.id} item={work} onClose={() => setEditing(false)} onSaved={async () => { await onChanged(); setEditing(false); }} headerAction={headerAction} />;
   return <>
-    <DetailHeader label={remote ? `Work item · on ${REMOTE[item.source === 'JIRA' ? 'JIRA' : 'GITHUB']} ${remote.label}` : 'Work item'}>
+    <DetailHeader label={remote ? `Work item · on ${REMOTE[item.source === 'JIRA' ? 'JIRA' : 'GITHUB']} ${remote.label}` : 'Work item'}
+      tabs={work.isEpic ? <EpicTabs source={<><LocalBadge /> Context</>} progress={workProgress(all, localEpicId(work.id))} work={workShown && !publishing}
+        onWork={shown => { setWorkShown(shown); if (shown) onPublishing(false); }} /> : undefined}>
       {remote && <button className="pull-detail__icon-action" type="button" title={`Open ${remote.label}`} aria-label={`Open ${remote.label}`} onClick={() => openLink(remote)}>
         <ExternalLink size={15} aria-hidden="true" /></button>}
       <button className="pull-detail__icon-action" type="button" title="Refresh" aria-label="Refresh" disabled={busy} onClick={() => { void onChanged().catch(cause => setError(errorText(cause))); }}>
         <RefreshIcon /></button>
-      {canPublish && <button type="button" aria-expanded={publishing} onClick={() => onPublishing(!publishing)}><Upload size={14} aria-hidden="true" />Push to remote…</button>}
+      {(open || work.isEpic) && <button type="button" aria-label={work.isEpic ? 'Unmark as Epic' : 'Mark as Epic'} aria-pressed={work.isEpic}
+        title={!work.isEpic && work.epicId ? 'Remove this item from its Epic before marking it as an Epic.' : work.isEpic ? 'Unmark as Epic' : 'Mark as Epic'}
+        disabled={busy || (!work.isEpic && !!work.epicId)} onClick={() => {
+          if (work.isEpic) unmark.request(workspace.id, localEpicId(work.id), () => { void toggleEpic(); });
+          else void toggleEpic();
+        }}><Flag size={14} aria-hidden="true" />{work.isEpic ? 'Epic' : 'Mark as Epic'}</button>}
+      {canPublish && <button type="button" aria-expanded={publishing} onClick={() => { setWorkShown(false); onPublishing(!publishing); }}><Upload size={14} aria-hidden="true" />Push to remote…</button>}
       {canStart && <button className="pull-detail__review-action" type="button" onClick={onStart}><Play size={13} aria-hidden="true" />Start development</button>}
       {task && <button type="button" onClick={onViewTask}><ListTodo size={14} aria-hidden="true" />View task</button>}
       {headerAction}
     </DetailHeader>
     {error && <div className="pull-detail__error" role="alert">{error}</div>}
-    <div className="pull-detail__body">
+    {work.isEpic && workShown && !publishing
+      ? <EpicWork epic={work} workspaceId={workspace.id} repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`} work={all} onShowSource={() => setWorkShown(false)} />
+      : <div className="pull-detail__body">
       <div className="pr-overview work-items__overview">
         <section className="pr-overview__summary">
           <div className="pr-overview__title">
@@ -510,7 +542,8 @@ function WorkItemDetail({ workspace, item, all, epic, publishing, onPublishing, 
           </div>
         </div>
       </div>
-    </div>
+    </div>}
+    {unmark.dialog}
   </>;
 }
 

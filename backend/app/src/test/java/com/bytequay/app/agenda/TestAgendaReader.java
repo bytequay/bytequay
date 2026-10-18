@@ -25,15 +25,22 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.WorkItemService;
+import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.team.TeamService;
 import com.bytequay.core.domain.AgendaCalendar;
+import com.bytequay.core.domain.AgendaTarget;
+import com.bytequay.core.domain.Epic;
+import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.PrDetailStore;
@@ -47,6 +54,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockMakers;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Instant;
@@ -62,6 +70,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 class TestAgendaReader
 {
@@ -73,6 +82,11 @@ class TestAgendaReader
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private final GitHubAccountClient github = mock(GitHubAccountClient.class);
+    private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
+    private final WorkItemStore items = mock(WorkItemStore.class);
+    private final WorkItemService work = mock(WorkItemService.class);
+    private final EpicStore epics = mock(EpicStore.class);
+    private final IssueDevelopmentStore markers = mock(IssueDevelopmentStore.class);
     private final ObjectMapper mapper = AgendaFixtures.mapper();
 
     @Test
@@ -122,14 +136,45 @@ class TestAgendaReader
         verifyNoInteractions(github);
     }
 
+    @Test
+    void localEpicsOpenTheirWorkItemAndDoNotHideRemoteEpics()
+    {
+        Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.id()).thenReturn("workspace");
+        when(workspace.monitoredRepository()).thenReturn(RepoRef.of("org", "repo"));
+        when(workspace.createdAt()).thenReturn(SINCE);
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace));
+        WorkItem parent = new WorkItem("local-parent", "workspace", Optional.empty(), "Private connector work", WorkItem.Kind.DEVELOP, "Keep context local",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+        when(items.find(parent.id())).thenReturn(Optional.of(parent));
+        when(epics.find("LOCAL:local-parent")).thenReturn(Optional.of(Epic.of("LOCAL:local-parent", "workspace")));
+        when(markers.findEpic("github.com", 41)).thenReturn(Optional.of(new IssueEpic("github.com", 41, "org/repo", 7, true, NOW)));
+        when(work.list("workspace")).thenReturn(ImmutableList.of(work("local-child", "LOCAL:local-parent"), work("issue-child", "ISSUE:github.com:41")));
+
+        AgendaSnapshot snapshot = reader().read(LocalDate.parse("2026-10-16"), SINCE, false, ImmutableList.of(), AgendaCalendar.of("off"));
+
+        assertThat(snapshot.epics()).extracting(AgendaSnapshot.EpicEntry::title).containsExactly("Private connector work", "#7");
+        assertThat(snapshot.epics().getFirst().ready()).extracting(AgendaSnapshot.Ready::ref).containsExactly(AgendaRefs.work("local-child"));
+        assertThat(snapshot.refs().get(AgendaRefs.epic("LOCAL:local-parent")).target()).isEqualTo(AgendaTarget.of(AgendaTarget.Kind.WORK, "workspace", parent.id()));
+        assertThat(snapshot.refs().get(AgendaRefs.epic("ISSUE:github.com:41")).target()).isEqualTo(AgendaTarget.issue("org/repo", 7, "workspace"));
+        verifyNoInteractions(github);
+    }
+
     private AgendaReader reader()
     {
         @SuppressWarnings("unchecked")
         ObjectProvider<JiraService> jira = mock(ObjectProvider.class);
-        return new AgendaReader(pullRequests, details, credentials, mock(WorkspaceStore.class), mock(AppNoticeService.class), mock(AgentTaskStore.class),
-                mock(TaskPullRequestOwnership.class), mock(LocalReviewService.class), mock(WorkItemStore.class), mock(WorkItemService.class), mock(EpicStore.class),
-                mock(IssueDevelopmentStore.class), mock(RepositoryIssueStore.class), mock(IssueDevelopmentService.class), jira, mock(JiraActivityLog.class),
+        return new AgendaReader(pullRequests, details, credentials, workspaces, mock(AppNoticeService.class), mock(AgentTaskStore.class),
+                mock(TaskPullRequestOwnership.class), mock(LocalReviewService.class), items, work, epics,
+                markers, mock(RepositoryIssueStore.class), mock(IssueDevelopmentService.class), jira, mock(JiraActivityLog.class),
                 new TeamService(new InMemoryAppSettingsStore(), mapper, credentials, github, mock(RepositoryMetadataStore.class)), mock(AgendaDone.class));
+    }
+
+    private static WorkItemView work(String id, String epicId)
+    {
+        return new WorkItemView(id, "workspace", Optional.empty(), id, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
+                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.of(epicId), 0, false);
     }
 
     private static PullRequest pullRequest(int number, String author, PullRequest.Origin origin, List<String> requested, String decision, int additions, int deletions)

@@ -17,6 +17,11 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.repository.github.GitHubRepoClient;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.epic.EpicBreakdowns;
+import com.bytequay.app.service.epic.EpicService;
 import com.bytequay.app.service.epic.EpicSources;
 import com.bytequay.app.service.epic.InMemoryEpicStore;
 import com.bytequay.core.domain.Epic;
@@ -27,11 +32,14 @@ import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.IssueDevelopmentStore;
+import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -443,6 +451,84 @@ class TestWorkItemService
                 .isEqualTo("Left its Epic, which was unmarked; work and history retained\nNo longer waits on Quick idea, which left the Epic");
         assertThat(find(unrelated.id()).epicId()).as("other Epics keep their work").contains(OTHER_EPIC);
         assertThat(epicRecords.find(EPIC)).as("its children and what the user did with them go too").isEmpty();
+    }
+
+    @Test
+    void localEpicsHoldNewAndExistingWorkAndUnmarkingRetainsEverything()
+    {
+        IssueDevelopmentStore markers = mock(IssueDevelopmentStore.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<JiraService> jira = mock(ObjectProvider.class);
+        EpicSources sources = new EpicSources(markers, workspaces, jira, store, epicRecords);
+        WorkItemService localWork = new WorkItemService(store, goals, workspaces, references, sources, epicRecords, tasks, transactions, published::add,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        EpicService localEpics = new EpicService(epicRecords, sources, localWork, markers, mock(GitHubRepoClient.class), mock(CredentialService.class), jira,
+                transactions, mock(RepositoryIssueStore.class), workspaces, mock(EpicBreakdowns.class), Clock.fixed(NOW, ZoneOffset.UTC));
+        WorkItemView parent = localWork.create("workspace", UUID.randomUUID().toString(), Optional.empty(), "Hive field names", WorkItem.Kind.DEVELOP,
+                "Support slash characters across connectors", WorkItem.CompletionRule.MERGED_DELIVERY);
+        String epicId = EpicSources.localEpicId(parent.id());
+        assertThat(parent.isEpic()).isFalse();
+        localEpics.setLocalEpic("workspace", parent.id(), true);
+        assertThat(localWork.list("workspace").getFirst().isEpic()).isTrue();
+        assertThatThrownBy(() -> localEpics.setLocalEpic("other", parent.id(), false)).hasMessageContaining("belongs to workspace workspace");
+
+        WorkItemView child = localWork.createInEpic("workspace", UUID.randomUUID().toString(), epicId, "Fix Iceberg", WorkItem.Kind.DEVELOP,
+                "Read slash fields", WorkItem.CompletionRule.MERGED_DELIVERY);
+        WorkItemView existing = localWork.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"), "Fix Hive", WorkItem.Kind.DEVELOP,
+                "Hive reads slash fields", WorkItem.CompletionRule.MERGED_DELIVERY);
+        WorkItemService.EpicJoin joined = localWork.joinLocalEpic("workspace", epicId, existing.id());
+        assertThat(joined.item().id()).isEqualTo(existing.id());
+        assertThat(joined.item().epicId()).contains(epicId);
+        assertThat(joined.item().goalId()).contains("goal");
+        assertThat(joined.item().acceptanceCriteria()).isEqualTo(existing.acceptanceCriteria());
+        assertThat(localWork.joinLocalEpic("workspace", epicId, existing.id())).as("assigning again changes nothing").isEqualTo(joined);
+        localWork.change("workspace", existing.id(), arrange(joined.item(), WorkItemCommand.Action.BLOCK, Optional.empty(), child.id()));
+
+        assertThatThrownBy(() -> localWork.createInEpic("workspace", parent.id(), epicId, parent.title(), parent.kind(), parent.acceptanceCriteria(),
+                parent.completionRule())).hasMessageContaining("its own work");
+        assertThatThrownBy(() -> localWork.joinLocalEpic("workspace", epicId, parent.id())).hasMessageContaining("its own work");
+        assertThatThrownBy(() -> localEpics.setLocalEpic("workspace", child.id(), true)).hasMessageContaining("Remove this work item");
+        assertThatThrownBy(() -> localWork.requireAttemptable("workspace", parent.id())).hasMessageContaining("Epic");
+        AgentTask attempt = task();
+        assertThatThrownBy(() -> localWork.persistAttempt(attempt, parent.id())).hasMessageContaining("Epic");
+        verify(tasks, never()).insert(attempt);
+
+        localEpics.setLocalEpic("workspace", parent.id(), false);
+        assertThat(sources.marked("workspace", epicId)).isFalse();
+        assertThat(localWork.list("workspace")).extracting(WorkItemView::id).containsExactly(parent.id(), child.id(), existing.id());
+        assertThat(localWork.list("workspace")).allMatch(item -> !item.isEpic() && item.epicId().isEmpty());
+        WorkItem retained = localWork.requireItem("workspace", existing.id());
+        assertThat(retained.goalId()).contains("goal");
+        assertThat(retained.acceptanceCriteria()).isEqualTo(existing.acceptanceCriteria());
+        assertThat(retained.blockedBy()).isEmpty();
+        assertThat(retained.history()).anyMatch(event -> event.action().equals("LEFT_EPIC"));
+        assertThat(localWork.requireItem("workspace", parent.id()).acceptanceCriteria()).isEqualTo(parent.acceptanceCriteria());
+        localWork.requireAttemptable("workspace", parent.id());
+    }
+
+    @Test
+    void publishingALocalEpicKeepsItsIdentityAndCannotBypassItsParentGuards()
+    {
+        WorkItemView parent = service.create("workspace", UUID.randomUUID().toString(), Optional.empty(), "Hive field names", WorkItem.Kind.DEVELOP,
+                "Support slash characters", WorkItem.CompletionRule.MERGED_DELIVERY);
+        String epicId = EpicSources.localEpicId(parent.id());
+        epicRecords.save(Epic.of(epicId, "workspace"));
+        WorkItemLink issue = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", 43, "org/repo", 7,
+                "https://github.com/org/repo/issues/7", parent.title(), parent.acceptanceCriteria(), NOW), NOW);
+        service.beginPublication("workspace", parent.id(), parent.revision(), "publish-1", "GITHUB:org/repo");
+        WorkItemView exposed = service.published("workspace", parent.id(), issue, "publish-1");
+        assertThat(exposed.id()).isEqualTo(parent.id());
+        assertThat(exposed.isEpic()).isTrue();
+        assertThat(epicRecords.find(epicId)).isPresent();
+        assertThat(service.list("workspace")).hasSize(1);
+
+        assertThatThrownBy(() -> service.requireStartable("workspace", issue.identity())).hasMessageContaining("Epic organizes work");
+        assertThatThrownBy(() -> service.recordAttempt(task(), issue)).hasMessageContaining("Epic organizes work");
+        when(references.requireLink("workspace", GoalItemKind.ISSUE, issue.reference().key())).thenReturn(issue);
+        assertThatThrownBy(() -> service.joinEpic("workspace", epicId, GoalItemKind.ISSUE, issue.reference().key())).hasMessageContaining("its own work");
+        assertThatThrownBy(() -> service.joinEpic("workspace", epicId, issue)).hasMessageContaining("its own work");
+        assertThatThrownBy(() -> service.joinLocalEpic("workspace", EPIC, parent.id())).as("Epics cannot be nested").hasMessageContaining("Epic");
+        assertThat(service.list("workspace").getFirst().epicId()).isEmpty();
     }
 
     @Test

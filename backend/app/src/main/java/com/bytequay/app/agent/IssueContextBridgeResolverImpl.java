@@ -141,17 +141,26 @@ public class IssueContextBridgeResolverImpl
         return result.toString();
     }
 
-    /** The Epic as ByteQuay keeps it: its issue or ticket, the children its source last reported, and its work in the user's order. */
+    /** The Epic as ByteQuay keeps it: its local description or cached source, source children, and its work in the user's order. */
     private ObjectNode epic(WorkItem current)
     {
         String epicId = current.epicId().orElseThrow();
         ObjectNode epic = objectMapper.createObjectNode();
-        epic.put("warning", "The Epic's text and children are cached observations that may be stale; missing data does not mean the Epic is closed or has no other work.");
-        Optional<EpicText> text = EpicSources.ticket(epicId)
-                .map(ticket -> jira.cachedIssue(ticket.cloudId(), ticket.issueId()).map(issue -> new EpicText(issue.key(), issue.url(), issue.title(), issue.body())))
-                .orElseGet(() -> epicIssue(current.workspaceId(), EpicSources.issueId(epicId))
-                        .map(issue -> new EpicText("#" + issue.number(), issue.htmlUrl(), issue.title(), issue.body())));
-        epic.put("status", text.isPresent() ? "cached" : "missing");
+        Optional<String> localId = EpicSources.localId(epicId);
+        Optional<EpicText> text;
+        if (localId.isPresent()) {
+            text = workItems.find(localId.orElseThrow()).filter(item -> item.workspaceId().equals(current.workspaceId()))
+                    .map(item -> new EpicText("Local", "", item.title(), item.acceptanceCriteria()));
+            epic.put("status", text.isPresent() ? "local" : "missing");
+        }
+        else {
+            epic.put("warning", "The Epic's text and children are cached observations that may be stale; missing data does not mean the Epic is closed or has no other work.");
+            text = EpicSources.ticket(epicId)
+                    .map(ticket -> jira.cachedIssue(ticket.cloudId(), ticket.issueId()).map(issue -> new EpicText(issue.key(), issue.url(), issue.title(), issue.body())))
+                    .orElseGet(() -> epicIssue(current.workspaceId(), EpicSources.issueId(epicId))
+                            .map(issue -> new EpicText("#" + issue.number(), issue.htmlUrl(), issue.title(), issue.body())));
+            epic.put("status", text.isPresent() ? "cached" : "missing");
+        }
         text.ifPresent(cached -> {
             epic.put("reference", cached.reference());
             epic.put("url", cached.url());

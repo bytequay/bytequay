@@ -1284,11 +1284,11 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
       <SourceIcon source={GOAL_SOURCES[link.kind]} /><span>{link.label}</span><span className="goal-result__title">{link.title}</span><span>{link.status}</span>
     </button>)}
     {/* An ended task no longer blocks its issue or ticket: another attempt becomes the source's task, and this work keeps both. */}
-    {!concluded && (issueNumber !== undefined || ticket !== undefined) && lastTask?.state === 'ENDED' && <button type="button" className="goal-link"
+    {!concluded && !item.isEpic && (issueNumber !== undefined || ticket !== undefined) && lastTask?.state === 'ENDED' && <button type="button" className="goal-link"
       onClick={() => issueNumber !== undefined ? props.onStartIssue(issueNumber, request(), lastTask.key)
         : props.onStartTicket(ticket.key, request(), lastTask.key)}>Start another attempt</button>}
     {/* Work without an issue or ticket opens the task composer itself, the same hand-off an Epic's Work tab uses; its task is the work's attempt. */}
-    {!concluded && item.kind !== 'LEARN' && issue === undefined && ticket === undefined && (lastTask === undefined || lastTask.state === 'ENDED')
+    {!concluded && !item.isEpic && item.kind !== 'LEARN' && issue === undefined && ticket === undefined && (lastTask === undefined || lastTask.state === 'ENDED')
       && <button type="button" className="goal-link" onClick={() => startEpicWork({ workspaceId: item.workspaceId, itemId: item.id, draft: request() })}>
         {lastTask === undefined ? 'Start a task' : 'Start another attempt'}</button>}
     {!concluded && <button type="button" className="goal-link" onClick={() => setAdding((value) => !value)}>Link source, task or PR</button>}

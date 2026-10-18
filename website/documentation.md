@@ -297,17 +297,24 @@ If publication is uncertain, link the existing remote item before retrying.
 
 ## Organize an Epic
 
-An Epic connects a larger issue or ticket to its work, attempts, and
-dependencies.
+An Epic groups work items, their development attempts, and dependencies in
+ByteQuay. A Local work item, GitHub issue, or Jira ticket can be an Epic. The
+Epic designation and its work assignments stay on your Mac; a Local Epic does
+not need a published issue or ticket.
 
-1. Open the Epic’s **Work** view. Review offered source children before
-   **Sync**.
+1. Open a work item and choose **Mark as Epic**, then open its **Work** view.
+   For GitHub or Jira Epics, review offered source children before **Sync**.
 2. Add a Local item, **Add existing**, or **Suggest work**. Inspect suggestions
    before **Accept as Local**.
 3. Use **Planned**, **Working**, and **Done** to track progress. **Run** on
    eligible work starts its development task immediately.
 4. Review outcomes, then **Conclude Epic**. Closing the source issue or ticket
    is separate.
+
+Agents can also create Local work items, mark them as Epics, and assign existing
+items or add Local subtasks. Creating an Epic or assigning work does not change
+GitHub or Jira. **Push to remote…** remains a separate action; publishing an item is
+optional and keeps its local identity and Epic membership.
 
 <a id="goals"></a>
 

@@ -35,8 +35,9 @@ export function WorkItemPrompt({ workspaceId, itemId, taskId, prompt, attachment
     void Promise.resolve().then(() => window.bridge.listUnifiedWorkItems(workspaceId)).then(items => {
       const item = items.find(candidate => candidate.work !== null && (itemId !== undefined ? candidate.id === itemId
         : candidate.work.links.some(link => link.kind === 'TASK' && link.key === taskId)));
+      const epicId = item?.work?.epicId;
       if (active) setSource(item === undefined ? null : { workspaceId, itemId, taskId, item,
-        epic: items.find(candidate => candidate.id === item.work?.epicId) ?? null });
+        epic: items.find(candidate => candidate.id === (epicId?.startsWith('LOCAL:') ? epicId.slice(6) : epicId)) ?? null });
     }, () => { if (active) setSource(null); });
     return () => { active = false; };
   }, [workspaceId, itemId, taskId]);
@@ -46,6 +47,7 @@ export function WorkItemPrompt({ workspaceId, itemId, taskId, prompt, attachment
 }
 
 function epicLink(workspaceId: string, epic: UnifiedWorkItem): { href: string; target: ZoomedReference } | null {
+  if (epic.work?.isEpic) return { href: workItemRoute(workspaceId, epic.id), target: { kind: 'work', workspaceId, itemId: epic.id } };
   const reference = epic.reference;
   if (reference?.kind === 'ISSUE') {
     const split = reference.key.lastIndexOf('#');

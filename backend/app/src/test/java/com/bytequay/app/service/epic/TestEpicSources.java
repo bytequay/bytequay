@@ -14,12 +14,16 @@
 package com.bytequay.app.service.epic;
 
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
+import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
@@ -41,7 +45,9 @@ class TestEpicSources
     private final JiraService jira = mock(JiraService.class);
     @SuppressWarnings("unchecked")
     private final ObjectProvider<JiraService> tickets = mock(ObjectProvider.class);
-    private final EpicSources epics = new EpicSources(markers, workspaces, tickets);
+    private final WorkItemStore items = mock(WorkItemStore.class);
+    private final InMemoryEpicStore records = new InMemoryEpicStore();
+    private final EpicSources epics = new EpicSources(markers, workspaces, tickets, items, records);
 
     @BeforeEach
     void setUp()
@@ -78,5 +84,27 @@ class TestEpicSources
         assertThat(epics.marked("workspace", WorkItemLink.jiraIdentity(cloud, "12"))).as("unmarked").isFalse();
         assertThatThrownBy(() -> epics.marked("workspace", "TASK:task-1")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> epics.marked("workspace", "JIRA:40:cloud:10")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void aLocalEpicNeedsBothItsWorkItemAndMarkerInTheSameWorkspace()
+    {
+        WorkItem item = new WorkItem("work-1", "workspace", Optional.empty(), "Local Epic", WorkItem.Kind.DEVELOP, "Preserve private work",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH,
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+        when(items.find(item.id())).thenReturn(Optional.of(item));
+        String epicId = EpicSources.localEpicId(item.id());
+        assertThat(epics.marked("workspace", epicId)).as("an ordinary local item is not an Epic").isFalse();
+
+        records.save(Epic.of(epicId, "workspace"));
+        assertThat(epics.marked("workspace", epicId)).isTrue();
+        assertThat(epics.marked("other", epicId)).as("another workspace cannot use the Epic").isFalse();
+        records.save(Epic.of(epicId, "other"));
+        assertThat(epics.marked("workspace", epicId)).as("the marker must belong to the item's workspace too").isFalse();
+        records.save(Epic.of("LOCAL:missing", "workspace"));
+        assertThat(epics.marked("workspace", "LOCAL:missing")).as("a marker cannot outlive its source item").isFalse();
+        assertThat(EpicSources.localId(epicId)).contains(item.id());
+        assertThat(EpicSources.localId(WorkItemLink.issueIdentity("github.com", 41))).isEmpty();
+        assertThat(epics.marked("workspace", "LOCAL:")).isFalse();
     }
 }

@@ -31,7 +31,7 @@ import static java.util.Objects.requireNonNullElse;
  * What an Epic keeps beyond its work items: the children its source last reported, and what the user did with them. Syncing children never
  * writes to GitHub or Jira.
  *
- * @param id the canonical identity of the issue or ticket marked as the Epic
+ * @param id the identity of the local work item, issue or ticket marked as the Epic
  * @param childrenTruncated whether the source had more children than one read returns
  * @param synced the children the user synced into work, as they were then; one later missing from {@code children} is no longer a child
  * @param dismissed the unsynced children Not now hid; any other unsynced child offers syncing again

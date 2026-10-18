@@ -1645,6 +1645,8 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   setWorkspaceIssueEpic: (workspaceId: string, issueNumber: number, isEpic: boolean) => Promise<IssueDevelopmentDto>;
   /** The workspace's goals with every item read locally; nothing here writes to GitHub or Jira. */
   listWorkItems: (workspaceId: string) => Promise<WorkItemDto[]>;
+  setLocalWorkItemEpic: (workspaceId: string, itemId: string, isEpic: boolean) => Promise<void>;
+  assignWorkItemEpic: (workspaceId: string, itemId: string, epicId: string) => Promise<EpicJoinDto>;
   createWorkItem: (workspaceId: string, request: CreateWorkItem) => Promise<WorkItemDto>;
   decideWorkItem: (workspaceId: string, itemId: string, command: WorkItemDecision) => Promise<WorkItemDto>;
   linkWorkItem: (workspaceId: string, itemId: string, revision: number, kind: GoalItemKind, key: string) => Promise<WorkItemDto>;

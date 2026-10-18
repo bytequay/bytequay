@@ -561,6 +561,11 @@ public class AgendaReader
 
     private Optional<Source> source(Workspace workspace, String epicId)
     {
+        Optional<String> local = EpicSources.localId(epicId);
+        if (local.isPresent()) {
+            return workItemStore.find(local.orElseThrow()).filter(item -> item.workspaceId().equals(workspace.id()))
+                    .map(item -> new Source(item.title(), AgendaTarget.of(AgendaTarget.Kind.WORK, workspace.id(), item.id())));
+        }
         Optional<EpicSources.Ticket> ticket = EpicSources.ticket(epicId);
         if (ticket.isPresent()) {
             return jira.getObject().cachedIssue(ticket.orElseThrow().cloudId(), ticket.orElseThrow().issueId())

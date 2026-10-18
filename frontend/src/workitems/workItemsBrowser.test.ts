@@ -22,3 +22,9 @@ it('keeps the original source screens under three tabs and creates work locally'
       require('node:fs').writeFileSync('/tmp/bytequay-unified-work.png', (await window.webContents.capturePage()).toPNG());` });
   expect(result).toEqual({ sources: 3, publications: 1, count: 4 });
 }, deadline(30_000));
+
+it('marks local Epics, assigns work and preserves their identity through publication', async () => {
+  expect(await runBrowserFixture({ prefix: 'bytequay-local-epic-', entry: 'src/workitems/fixtures/workItemsBrowser.tsx', global: 'UnifiedWorkTests',
+    styles: true, charset: true, width: 1280, height: 850,
+    body: 'const results = await window.webContents.executeJavaScript("UnifiedWorkTests.localEpic()");' })).toBe(true);
+}, deadline(30_000));

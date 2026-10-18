@@ -21,13 +21,20 @@ import { pollVisible } from '../ide/pollVisible';
 import type { Bridge } from '../types';
 import { workspaceRoute } from './model';
 
-export type EpicBridge = Pick<Bridge, 'joinEpic' | 'orderEpicWork' | 'removeFromEpic'>;
+export type EpicBridge = Pick<Bridge, 'joinEpic' | 'assignWorkItemEpic' | 'orderEpicWork' | 'removeFromEpic'>;
 export type EpicRecordBridge = Pick<Bridge, 'getEpic' | 'refreshEpicChildren' | 'syncEpicChildren' | 'dismissEpicChildren' | 'concludeEpic' | 'listConcludedEpics'
   | 'proposeEpicWork' | 'acceptEpicProposal' | 'dismissEpicProposal'>;
 /** How often an Epic is read again while its model proposes work; the read is local. */
 const BREAKDOWN_POLL_MS = 1_000;
 // Stable, so the record's reads run once per Epic rather than on every render.
 const windowRecordBridge = (): EpicRecordBridge => window.bridge;
+
+export type EpicItem = AttentionItem | WorkItemDto;
+
+/** Local Epic identity stays stable when the item is published. */
+export function localEpicId(itemId: string): string {
+  return `LOCAL:${itemId}`;
+}
 
 /** The identity work items name a GitHub issue Epic by: the canonical one the backend gives it, from its stable issue id. */
 export function issueEpicId(issueId: number | string): string {
@@ -39,7 +46,8 @@ export function ticketEpicId(ticket: Pick<JiraIssue, 'cloudId' | 'id'>): string 
   return `JIRA:${ticket.cloudId.length}:${ticket.cloudId}:${ticket.id}`;
 }
 
-export function epicIdentity(item: AttentionItem): string {
+export function epicIdentity(item: EpicItem): string {
+  if ('acceptanceCriteria' in item) return localEpicId(item.id);
   return item.jira ? ticketEpicId(item.jira) : issueEpicId(item.sourceKey?.split(':').pop() ?? '');
 }
 
@@ -56,6 +64,12 @@ function changed(workspaceId: string): void {
 
 export async function joinEpic(workspaceId: string, epicId: string, reference: GoalItemDto, bridge: EpicBridge = window.bridge): Promise<EpicJoinDto> {
   const joined = await bridge.joinEpic(workspaceId, epicId, reference.kind, reference.key);
+  changed(workspaceId);
+  return joined;
+}
+
+export async function assignWorkItemEpic(workspaceId: string, epicId: string, itemId: string, bridge: EpicBridge = window.bridge): Promise<EpicJoinDto> {
+  const joined = await bridge.assignWorkItemEpic(workspaceId, itemId, epicId);
   changed(workspaceId);
   return joined;
 }

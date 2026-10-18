@@ -69,9 +69,6 @@ jobs:
       - name: Type check
         working-directory: frontend
         run: npx tsc --noEmit
-      - name: Test
-        working-directory: frontend
-        run: npm test
       - name: Test Java runtime packaging
         run: node --test scripts/java-runtime.test.mjs
       - name: Test Lab runtime packaging
@@ -83,6 +80,33 @@ jobs:
         run: node scripts/test-packaged-backend.mjs
       - name: Start packaged Lab without system Python
         run: node scripts/test-packaged-lab.mjs
+
+  frontend-test:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # A three-core runner fits one browser suite at a time.
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          check-latest: true
+          distribution: temurin
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Test
+        working-directory: frontend
+        run: npm test -- --shard=${{ matrix.shard }}/3
 
   scripts:
     runs-on: ubuntu-latest

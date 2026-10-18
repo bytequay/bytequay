@@ -12,10 +12,12 @@
  * limitations under the License.
  */
 
+import { availableParallelism } from 'node:os';
+
 export default {
   test: {
-    // Browser suites build bundles and launch real Electron processes in each worker.
-    maxWorkers: 4,
+    // Each browser suite builds a bundle and runs Electron's main, renderer and GPU processes: about two cores.
+    maxWorkers: Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2))),
     minWorkers: 1,
   },
 };

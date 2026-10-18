@@ -16,7 +16,7 @@ import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/br
 
 const SCREENSHOTS = process.env.BYTEQUAY_ASSISTANT_SCREENSHOTS !== undefined;
 
-it('floats the Assistant over the page, pages its cards by keyboard, answers them, opens at a card from its alert and sends what is on screen', async () => {
+it('floats the Assistant over the page, pages its cards by keyboard, answers them, opens at a card from its alert, sends what is on screen and draws lists', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
     prefix: 'bytequay-assistant-',
     entry: 'src/assistant/fixtures/assistantBrowser.tsx',
@@ -38,10 +38,14 @@ it('floats the Assistant over the page, pages its cards by keyboard, answers the
           await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] });
           await window.webContents.executeJavaScript('AssistantTests.showPreview()');
           await writeFile(join(screenshots, 'assistant-' + theme + '.png'), (await window.webContents.capturePage()).toPNG());
+          for (const style of ['ROWS', 'CARDS', 'TIMELINE']) {
+            await window.webContents.executeJavaScript('AssistantTests.showListPreview(' + JSON.stringify(style) + ')');
+            await writeFile(join(screenshots, 'assistant-list-' + style.toLowerCase() + '-' + theme + '.png'), (await window.webContents.capturePage()).toPNG());
+          }
         }
       }
     `,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  expect(results).toHaveLength(7);
+  expect(results).toHaveLength(8);
 }, deadline(SCREENSHOTS ? 120_000 : 30_000));

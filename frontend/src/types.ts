@@ -1474,14 +1474,49 @@ export type AssistantItemDto = {
   id: string;
   day: string;
   at: string;
-  kind: 'USER' | 'REPLY' | 'RECEIPT' | 'FAILURE';
-  /** The user's words, the reply's Markdown, a receipt's line, or why the reply failed. */
+  kind: 'USER' | 'REPLY' | 'RECEIPT' | 'FAILURE' | 'LIST';
+  /** The user's words, the reply's Markdown, a receipt's line, a list's title, or why the reply failed. */
   text: string;
   /** Where each ref a reply names opens; only refs the day served. */
   targets: Record<string, AgendaTargetDto>;
   /** Whether a failure is the model not being ready, which Settings fixes. */
   notReady: boolean;
   receipt: AssistantReceiptDto | null;
+  /** The style a list shows first and its refs in order; their rows come with the day. */
+  list: AssistantListDto | null;
+};
+
+export type AssistantListStyle = 'ROWS' | 'CARDS' | 'TIMELINE';
+
+export type AssistantListDto = { style: AssistantListStyle; refs: string[] };
+
+/** One ref of a list, read from what ByteQuay stores whenever the day is read. Its facts are icons and counts by kind. */
+export type AssistantRowDto = {
+  ref: string;
+  kind: 'PULL' | 'ISSUE' | 'JIRA' | 'TASK' | 'REVIEW' | 'WORK' | 'EPIC';
+  title: string;
+  /** A pull request's or issue's number, or a ticket's key. */
+  key: string | null;
+  /** A pull request's open, draft, merged or closed; a task's phase; an issue's or ticket's status; a work item's state. */
+  state: string | null;
+  /** A pull request's checks: passing, failing or pending. */
+  ci: string | null;
+  /** A pull request's review decision. */
+  review: string | null;
+  /** How many reviewers approve a pull request, from its cached reviews. */
+  approvals: number | null;
+  /** The agent a task runs with. */
+  agent: string | null;
+  /** The Epic a work item belongs to. */
+  epic: string | null;
+  /** An Epic's finished work items, and those not dropped. */
+  done: number | null;
+  total: number | null;
+  /** When it last moved; for a task, since when it has been in its phase. */
+  at: string | null;
+  /** What happened last, for a card's body; its text is the source's own. */
+  latest: { by: string | null; text: string; at: string } | null;
+  target: AgendaTargetDto;
 };
 
 /** What one action left, done or refused: by the assistant from the user's words, or by a card's own button. */
@@ -1502,7 +1537,14 @@ export type AssistantReceiptDto = {
 /** What the Assistant may do from the user's words; both start off. */
 export type AssistantPermissionsDto = { startTasks: boolean; answerTasks: boolean };
 
-export type AssistantViewDto = { day: string; model: string | null; running: boolean; items: AssistantItemDto[] };
+export type AssistantViewDto = {
+  day: string;
+  model: string | null;
+  running: boolean;
+  items: AssistantItemDto[];
+  /** Each ref the day's lists name that still resolves; a ref missing here is gone. */
+  rows: Record<string, AssistantRowDto>;
+};
 
 export type AgendaDay = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY';
 

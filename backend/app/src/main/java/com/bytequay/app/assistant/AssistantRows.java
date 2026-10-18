@@ -14,27 +14,52 @@
 package com.bytequay.app.assistant;
 
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.app.agenda.AgendaReader;
 import com.bytequay.app.agenda.AgendaRefs;
+import com.bytequay.app.agent.RunningTask;
+import com.bytequay.app.agent.RunningTaskReader;
+import com.bytequay.app.agent.TaskActivityReader;
+import com.bytequay.app.agent.TaskMessage;
+import com.bytequay.app.assistant.AssistantRow.Kind;
+import com.bytequay.app.assistant.AssistantRow.Latest;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.service.epic.EpicSources;
+import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.Epic;
+import com.bytequay.core.domain.PrActivitySummary;
+import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.review.AgentReview;
+import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.EpicStore;
+import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.integration.jira.JiraActivity;
+import com.bytequay.integration.jira.JiraActivityReader;
 import com.bytequay.integration.jira.JiraIssue;
 import com.google.common.base.Splitter;
+import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -43,19 +68,24 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.bytequay.app.agenda.AgendaReader.clip;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Finds the items the assistant names in what ByteQuay stores: pull requests, repository issues, cached Jira tickets, tasks, work items
- * and Epics. No GitHub, Jira or provider request is made here.
+ * Reads the items the assistant names from what ByteQuay stores: the rows of the lists it showed, and what a search finds among pull
+ * requests, repository issues, cached Jira tickets, tasks, work items and Epics. No GitHub, Jira or provider request is made here.
  */
 @Component
 class AssistantRows
 {
+    private static final Logger log = LoggerFactory.getLogger(AssistantRows.class);
+    private static final int LINE = 160;
     // ponytail: a search reads each source and filters here; a query in the store once one of them outgrows these bounds.
     private static final int ISSUE_PAGE = 200;
     private static final int ISSUE_PAGES = 5;
@@ -63,25 +93,201 @@ class AssistantRows
     private static final Pattern NUMBER = Pattern.compile("#?(\\d{1,9})");
 
     private final PullRequestStore pullRequests;
+    private final PrDetailStore details;
     private final RepositoryIssueStore issues;
     private final JiraService jira;
+    private final JiraActivityReader jiraActivity;
     private final AgentTaskStore tasks;
+    private final AgentReviewStore reviews;
+    private final RunningTaskReader running;
+    private final TaskActivityReader activities;
     private final WorkItemStore workItems;
     private final EpicStore epics;
     private final WorkspaceStore workspaces;
     private final AgendaReader agenda;
+    private final ModelSettingsService models;
 
-    AssistantRows(PullRequestStore pullRequests, RepositoryIssueStore issues, JiraService jira, AgentTaskStore tasks, WorkItemStore workItems, EpicStore epics,
-            WorkspaceStore workspaces, AgendaReader agenda)
+    AssistantRows(
+            PullRequestStore pullRequests,
+            PrDetailStore details,
+            RepositoryIssueStore issues,
+            JiraService jira,
+            JiraActivityReader jiraActivity,
+            AgentTaskStore tasks,
+            AgentReviewStore reviews,
+            RunningTaskReader running,
+            TaskActivityReader activities,
+            WorkItemStore workItems,
+            EpicStore epics,
+            WorkspaceStore workspaces,
+            AgendaReader agenda,
+            ModelSettingsService models)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.details = requireNonNull(details, "details is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.jira = requireNonNull(jira, "jira is null");
+        this.jiraActivity = requireNonNull(jiraActivity, "jiraActivity is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.reviews = requireNonNull(reviews, "reviews is null");
+        this.running = requireNonNull(running, "running is null");
+        this.activities = requireNonNull(activities, "activities is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
         this.epics = requireNonNull(epics, "epics is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.agenda = requireNonNull(agenda, "agenda is null");
+        this.models = requireNonNull(models, "models is null");
+    }
+
+    /**
+     * Each ref that still resolves, as the panel draws it. A ref missing from the answer is gone; one whose store cannot be read now is
+     * left out the same way, and the next read tries again.
+     */
+    Map<String, AssistantRow> rows(Collection<String> refs)
+    {
+        Shared shared = new Shared();
+        Map<String, AssistantRow> rows = new LinkedHashMap<>();
+        for (String ref : ImmutableSet.copyOf(refs)) {
+            try {
+                row(ref, shared).ifPresent(row -> rows.put(ref, row));
+            }
+            catch (RuntimeException failure) {
+                log.warn("The assistant could not read {}: {}", ref, failure.getMessage());
+            }
+        }
+        return ImmutableMap.copyOf(rows);
+    }
+
+    /** What several rows need, read once for all of them and only when one does. */
+    private final class Shared
+    {
+        final Supplier<List<Workspace>> watched = Suppliers.memoize(workspaces::findAll);
+        final Supplier<Map<String, RunningTask>> running = Suppliers.memoize(() -> AssistantRows.this.running.current().stream()
+                .collect(toImmutableMap(RunningTask::id, task -> task, (first, second) -> first)));
+        final Supplier<Map<String, String>> agents = Suppliers.memoize(() -> models.get().providers().stream()
+                .collect(toImmutableMap(ModelSettingsService.Provider::id, ModelSettingsService.Provider::label, (first, second) -> first)));
+    }
+
+    private Optional<AssistantRow> row(String ref, Shared shared)
+    {
+        return switch (AgendaRefs.kind(ref)) {
+            case "pr" -> AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).flatMap(pullRequests::findById)
+                    .map(pr -> pullRequest(pr, shared));
+            case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> workspace(shared.watched.get(), number.repo())
+                    .flatMap(workspace -> issues.find(workspace.monitoredRepositoryId(), number.number()).map(issue -> issue(workspace, issue))));
+            case "jira" -> Optional.of(Splitter.on(':').limit(2).splitToList(AgendaRefs.id(ref))).filter(parts -> parts.size() == 2)
+                    .flatMap(parts -> jira.cachedIssue(parts.get(0), parts.get(1))).map(this::ticket);
+            case "task" -> taskId(AgendaRefs.id(ref)).flatMap(tasks::find).flatMap(task -> task(task, shared));
+            case "review" -> reviews.findReview(AgendaRefs.id(ref)).flatMap(review -> taskId(review.taskId()).flatMap(tasks::find).map(task -> review(review, task, shared)));
+            case "work" -> workItems.find(AgendaRefs.id(ref)).map(this::work);
+            case "epic" -> epic(AgendaRefs.id(ref), shared);
+            default -> Optional.empty();
+        };
+    }
+
+    private AssistantRow pullRequest(PullRequest pr, Shared shared)
+    {
+        // Each reviewer's latest verdict, as the pull request's page counts approvals; none until its reviews have been read once.
+        Optional<Integer> approvals = details.find(pr.id())
+                .map(detail -> (int) PrReviewState.latestVerdicts(detail.reviews()).stream().filter(review -> review.state().equals("APPROVED")).count());
+        Optional<Latest> latest = Optional.ofNullable(details.findLatestActivities(ImmutableSet.of(pr.id())).get(pr.id())).map(AssistantRows::latest);
+        return new AssistantRow(AgendaRefs.pull(pr.repo(), pr.number()), Kind.PULL, pr.title(), Optional.of("#" + pr.number()), Optional.of(state(pr)),
+                Optional.ofNullable(pr.ciStatus()).filter(ci -> ci != PullRequestDetail.CiStatus.NONE).map(ci -> lower(ci.name())),
+                Optional.ofNullable(pr.reviewDecision()).map(AssistantRows::lower), approvals, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), at(pr),
+                latest, AgendaTarget.pull(pr.repo(), pr.number(), workspace(shared.watched.get(), pr.repo()).map(Workspace::id)));
+    }
+
+    private static Latest latest(PrActivitySummary activity)
+    {
+        // A review's verdict says more than that someone reviewed.
+        String event = (activity.event().equals("reviewed") ? activity.state().map(AssistantRows::lower).orElse(activity.event()) : activity.event()).replace('_', ' ');
+        String text = activity.excerpt().filter(excerpt -> !excerpt.isBlank()).map(excerpt -> event + ": " + excerpt).orElse(event);
+        return new Latest(activity.actor(), clip(text, LINE), activity.timestamp());
+    }
+
+    private static AssistantRow issue(Workspace workspace, RepositoryIssue issue)
+    {
+        String repo = workspace.monitoredRepository().fullName();
+        // The store keeps a repository's open issues only.
+        return new AssistantRow(AgendaRefs.issue(repo, issue.number()), Kind.ISSUE, issue.title(), Optional.of("#" + issue.number()), Optional.of("open"), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(issue.updatedAt()), Optional.empty(),
+                AgendaTarget.issue(repo, issue.number(), workspace.id()));
+    }
+
+    private AssistantRow ticket(JiraIssue ticket)
+    {
+        Optional<Latest> latest = jiraActivity.latest(ticket)
+                .map(activity -> new Latest(activity.actor().map(person -> person.displayName()), clip(said(activity), LINE), activity.at()));
+        return new AssistantRow(AgendaRefs.jira(ticket.cloudId(), ticket.id()), Kind.JIRA, ticket.title(), Optional.of(ticket.key()), Optional.of(ticket.status().name()),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(ticket.updatedAt()),
+                latest, AgendaTarget.jira(ticket.connectionId(), ticket.cloudId(), ticket.id(), ticket.workspace().map(link -> link.id())));
+    }
+
+    /** What a ticket's latest change did. */
+    private static String said(JiraActivity activity)
+    {
+        return switch (activity.kind()) {
+            case STATUS_CHANGED -> "moved to " + activity.to().map(status -> status.name()).orElse("another status");
+            case COMMENTED -> activity.note().filter(note -> !note.isBlank()).map(note -> "commented: " + note).orElse("commented");
+            case FIELDS_CHANGED -> "changed " + (activity.fields().isEmpty() ? "fields" : String.join(", ", activity.fields()));
+        };
+    }
+
+    private Optional<AssistantRow> task(AgentTask task, Shared shared)
+    {
+        return task.workspaceId().map(workspace -> {
+            Phase phase = phase(task, shared);
+            return new AssistantRow(AgendaRefs.task(task.id().toString()), Kind.TASK, task.title(), Optional.empty(), Optional.of(phase.name()), Optional.empty(),
+                    Optional.empty(), Optional.empty(), Optional.of(phase.agent()), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(phase.since()),
+                    phase.latest(), AgendaTarget.of(AgendaTarget.Kind.TASK, workspace, task.id().toString()));
+        });
+    }
+
+    private AssistantRow review(AgentReview review, AgentTask task, Shared shared)
+    {
+        Phase phase = phase(task, shared);
+        return new AssistantRow(AgendaRefs.review(review.id()), Kind.REVIEW, task.title(), review.number().stream().mapToObj(number -> "#" + number).findFirst(),
+                Optional.of(phase.name()), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(phase.agent()), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.of(phase.since()), phase.latest(), AgendaTarget.of(AgendaTarget.Kind.REVIEW, review.workspaceId(), review.id()));
+    }
+
+    /** Where a task's work stands: its running phase while it runs or waits, else idle or how it ended, with what was said last. */
+    private record Phase(String name, Instant since, String agent, Optional<Latest> latest) {}
+
+    private Phase phase(AgentTask task, Shared shared)
+    {
+        Optional<RunningTask> now = Optional.ofNullable(shared.running.get().get(task.id().toString()));
+        String name = now.map(value -> lower(value.status().name())).orElseGet(() -> task.state() == TaskState.OPEN ? "idle" : lower(task.state().name()));
+        String agent = shared.agents.get().getOrDefault(task.laneId().value(), task.laneId().value());
+        Optional<Latest> latest = Optional.ofNullable(activities.read(ImmutableList.of(task)).get(task.id())).flatMap(activity -> activity.lastMessage())
+                .map(message -> new Latest(Optional.of(message.author() == TaskMessage.Author.AGENT ? agent : "You"), clip(message.text(), LINE), message.at()));
+        return new Phase(name, now.map(RunningTask::startedAt).orElse(task.updatedAt()), agent, latest);
+    }
+
+    private AssistantRow work(WorkItem item)
+    {
+        Optional<String> epic = item.epicId().flatMap(epicId -> workspaces.findById(item.workspaceId()).flatMap(workspace -> agenda.epicSource(workspace, epicId)))
+                .map(AgendaReader.EpicSource::title);
+        return new AssistantRow(AgendaRefs.work(item.id()), Kind.WORK, item.title(), Optional.empty(), Optional.of(lower(item.state().name())), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), epic, Optional.empty(), Optional.empty(), Optional.of(item.updatedAt()), Optional.empty(),
+                AgendaTarget.of(AgendaTarget.Kind.WORK, item.workspaceId(), item.id()));
+    }
+
+    private Optional<AssistantRow> epic(String epicId, Shared shared)
+    {
+        // An Epic belongs to the workspace its record, its local work item, or any work in it names.
+        Optional<Workspace> workspace = epics.find(epicId).map(Epic::workspaceId).or(() -> EpicSources.localId(epicId).flatMap(workItems::find).map(WorkItem::workspaceId))
+                .flatMap(workspaces::findById)
+                .or(() -> shared.watched.get().stream().filter(watched -> workItems.list(watched.id()).stream().anyMatch(item -> inEpic(item, epicId))).findFirst());
+        return workspace.flatMap(found -> agenda.epicSource(found, epicId).map(source -> {
+            List<WorkItem> work = workItems.list(found.id()).stream().filter(item -> inEpic(item, epicId)).collect(toImmutableList());
+            int done = (int) work.stream().filter(item -> item.state() == WorkItem.State.DONE).count();
+            int total = (int) work.stream().filter(item -> item.state() != WorkItem.State.DROPPED).count();
+            Optional<String> state = epics.find(epicId).flatMap(Epic::concludedAt).map(ignored -> "concluded");
+            return new AssistantRow(AgendaRefs.epic(epicId), Kind.EPIC, source.title(), Optional.empty(), state, Optional.empty(), Optional.empty(), Optional.empty(),
+                    Optional.empty(), Optional.empty(), Optional.of(done), Optional.of(total), work.stream().map(WorkItem::updatedAt).max(Comparator.naturalOrder()),
+                    Optional.empty(), source.target());
+        }));
     }
 
     /**
@@ -145,10 +351,10 @@ class AssistantRows
     private void issues(Workspace workspace, List<String> words, Optional<Integer> number, Map<String, Found> found)
     {
         String repo = workspace.monitoredRepository().fullName();
-        number.flatMap(value -> issues.find(workspace.monitoredRepositoryId(), value)).ifPresent(issue -> add(found, issue(workspace, repo, issue, true)));
+        number.flatMap(value -> issues.find(workspace.monitoredRepositoryId(), value)).ifPresent(issue -> add(found, found(workspace, repo, issue, true)));
         for (int page = 0; page < ISSUE_PAGES; page++) {
             RepositoryIssuePage read = issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), page, ISSUE_PAGE);
-            read.issues().stream().filter(issue -> matches(issue.title(), words)).forEach(issue -> add(found, issue(workspace, repo, issue, false)));
+            read.issues().stream().filter(issue -> matches(issue.title(), words)).forEach(issue -> add(found, found(workspace, repo, issue, false)));
             if (!read.hasMore()) {
                 return;
             }
@@ -163,15 +369,14 @@ class AssistantRows
         items.forEach(item -> item.epicId().ifPresent(epicIds::add));
         for (String epicId : epicIds) {
             agenda.epicSource(workspace, epicId).filter(source -> matches(source.title(), words)).ifPresent(source -> {
-                Optional<Instant> touched = items.stream().filter(item -> item.epicId().filter(epicId::equals).isPresent()).map(WorkItem::updatedAt)
-                        .max(Comparator.naturalOrder());
+                Optional<Instant> touched = items.stream().filter(item -> inEpic(item, epicId)).map(WorkItem::updatedAt).max(Comparator.naturalOrder());
                 Optional<String> state = epics.find(epicId).flatMap(Epic::concludedAt).map(ignored -> "concluded");
                 add(found, new Found(AgendaRefs.epic(epicId), source.title(), state, touched, source.target(), false));
             });
         }
     }
 
-    private static Found issue(Workspace workspace, String repo, RepositoryIssue issue, boolean exact)
+    private static Found found(Workspace workspace, String repo, RepositoryIssue issue, boolean exact)
     {
         // The store keeps a repository's open issues only.
         return new Found(AgendaRefs.issue(repo, issue.number()), issue.title(), Optional.of("open"), Optional.of(issue.updatedAt()),
@@ -188,6 +393,11 @@ class AssistantRows
     {
         String text = title.toLowerCase(Locale.ROOT);
         return !words.isEmpty() && words.stream().allMatch(text::contains);
+    }
+
+    private static boolean inEpic(WorkItem item, String epicId)
+    {
+        return item.epicId().filter(epicId::equals).isPresent();
     }
 
     static String state(PullRequest pr)
@@ -209,6 +419,16 @@ class AssistantRows
     private static Optional<Workspace> workspace(List<Workspace> watched, String repo)
     {
         return watched.stream().filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).findFirst();
+    }
+
+    private static Optional<TaskId> taskId(String id)
+    {
+        try {
+            return Optional.of(TaskId.valueOf(id));
+        }
+        catch (IllegalArgumentException notATask) {
+            return Optional.empty();
+        }
     }
 
     private static String lower(String value)

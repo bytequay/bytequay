@@ -14,9 +14,9 @@
 import { describe, expect, it } from 'vitest';
 import type { RunningTask } from '../agents/runningTaskModel';
 import type { AppNotice } from '../notices/contracts';
-import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto } from '../types';
+import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantRowDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceIssueRoute, workspacePullRequestRoute, workspaceReviewTaskRoute } from '../workspaces/model';
-import { entries, linkRefs, refFromHref, refLabel, screenRef, stackOf, waitingCards } from './model';
+import { dayLabel, entries, linkRefs, localDay, refFromHref, refLabel, rowState, screenRef, stackOf, timelineDays, waitingCards } from './model';
 
 const target: AgendaTargetDto = { kind: 'PULL', workspaceId: 'ws', repo: 'trinodb/trino', number: 31402, id: null, connectionId: null, cloudId: null };
 
@@ -69,7 +69,7 @@ describe('linkRefs', () => {
 
 describe('entries', () => {
   const item = (id: string, kind: AssistantItemDto['kind'], outcome?: AssistantReceiptDto['outcome']): AssistantItemDto => ({
-    id, day: '2026-10-17', at: '2026-10-17T07:00:00Z', kind, text: id, targets: {}, notReady: false,
+    id, day: '2026-10-17', at: '2026-10-17T07:00:00Z', kind, text: id, targets: {}, notReady: false, list: null,
     receipt: outcome === undefined ? null : { operation: 'ANSWER_APPROVAL', outcome, detail: null, target: null, turnId: null, fix: null, words: null },
   });
 
@@ -103,5 +103,43 @@ describe('stackOf', () => {
     expect(stackOf(['a', 'b', 'c', 'd'], 3)).toEqual(['d', 'a', 'b']);
     expect(stackOf(['a', 'b'], 1)).toEqual(['b', 'a']);
     expect(stackOf([], 0)).toEqual([]);
+  });
+});
+
+describe('lists', () => {
+  const row = (ref: string, kind: AssistantRowDto['kind'], at: string | null, fields: Partial<AssistantRowDto> = {}): AssistantRowDto => ({
+    ref, kind, title: ref, key: null, state: null, ci: null, review: null, approvals: null, agent: null, epic: null, done: null, total: null, at, latest: null, target,
+    ...fields,
+  });
+  const local = (day: number, hour: number): string => new Date(2026, 9, day, hour, 30).toISOString();
+
+  it('puts each ref under the local day it last moved, the newest first, and the ones with no time last', () => {
+    const rows = Object.fromEntries([row('pr:a#1', 'PULL', local(16, 9)), row('task:t1', 'TASK', local(17, 8)), row('work:w1', 'WORK', local(16, 23)),
+      row('epic:e1', 'EPIC', null)].map(each => [each.ref, each]));
+    expect(timelineDays(['pr:a#1', 'epic:e1', 'task:t1', 'pr:gone#2', 'work:w1'], rows)).toEqual([
+      { day: '2026-10-17', refs: ['task:t1'] },
+      { day: '2026-10-16', refs: ['work:w1', 'pr:a#1'] },
+      { day: null, refs: ['epic:e1', 'pr:gone#2'] },
+    ]);
+    expect(timelineDays([], rows)).toEqual([]);
+  });
+
+  it('heads a day as Today, Yesterday or its date', () => {
+    const now = new Date(2026, 9, 17, 0, 5).getTime();
+    expect(localDay(now)).toBe('2026-10-17');
+    expect(dayLabel('2026-10-17', now)).toBe('Today');
+    expect(dayLabel('2026-10-16', now)).toBe('Yesterday');
+    expect(dayLabel('2026-10-13', now)).toBe('Tue 13 Oct');
+  });
+
+  it('names where a row stands, a pull request by what it needs first', () => {
+    expect(rowState(row('pr:a#1', 'PULL', null, { state: 'open', ci: 'failing', review: 'changes_requested' }))).toBe('Changes requested');
+    expect(rowState(row('pr:a#1', 'PULL', null, { state: 'open', ci: 'failing', review: 'approved' }))).toBe('Checks failing');
+    expect(rowState(row('pr:a#1', 'PULL', null, { state: 'open', ci: 'passing', review: 'approved' }))).toBe('Approved');
+    expect(rowState(row('pr:a#1', 'PULL', null, { state: 'merged', review: 'approved' }))).toBe('Merged');
+    expect(rowState(row('task:t1', 'TASK', null, { state: 'waiting' }))).toBe('Waiting');
+    expect(rowState(row('work:w1', 'WORK', null, { state: 'planned' }))).toBe('Planned');
+    expect(rowState(row('epic:e1', 'EPIC', null, { done: 3, total: 6 }))).toBe('3/6');
+    expect(rowState(row('issue:a#2', 'ISSUE', null))).toBeNull();
   });
 });

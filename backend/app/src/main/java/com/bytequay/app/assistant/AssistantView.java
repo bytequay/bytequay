@@ -15,8 +15,10 @@ package com.bytequay.app.assistant;
 
 import com.bytequay.core.domain.AssistantItem;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -26,14 +28,16 @@ import static java.util.Objects.requireNonNull;
  *
  * @param model the model label of the day's last reply
  * @param running whether a reply is being written now
- * @param items the day's messages, replies and failures, oldest first
+ * @param items the day's messages, replies, receipts, lists and failures, oldest first
+ * @param rows each ref the day's lists name that still resolves, read now; a ref missing here is gone
  */
-public record AssistantView(String day, Optional<String> model, boolean running, List<AssistantItem> items)
+public record AssistantView(String day, Optional<String> model, boolean running, List<AssistantItem> items, Map<String, AssistantRow> rows)
 {
     public AssistantView
     {
         requireNonNull(day, "day is null");
         requireNonNull(model, "model is null");
         items = ImmutableList.copyOf(items);
+        rows = ImmutableMap.copyOf(rows);
     }
 }

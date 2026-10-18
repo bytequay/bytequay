@@ -46,6 +46,7 @@ import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantDay;
 import com.bytequay.core.domain.AssistantItem;
+import com.bytequay.core.domain.AssistantList;
 import com.bytequay.core.domain.AssistantReceipt;
 import com.bytequay.core.store.CredentialStore;
 import com.google.common.collect.ImmutableList;
@@ -92,6 +93,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -114,6 +116,8 @@ class TestAssistantConversation
     private final MemoryAssistantStore store = new MemoryAssistantStore();
     private final AssistantReader reader = mock(AssistantReader.class);
     private final AssistantActions actions = mock(AssistantActions.class);
+    private final AssistantShow show = mock(AssistantShow.class);
+    private final AssistantRows rows = mock(AssistantRows.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
     private final AgentDriver driver = mock(AgentDriver.class);
@@ -149,6 +153,7 @@ class TestAssistantConversation
         when(reader.cards(anyList())).thenAnswer(call -> call.<List<String>>getArgument(0).stream().map(ref -> ref + ": Retry Iceberg commit · Allow Claude Bash")
                 .collect(toImmutableList()));
         when(actions.tool(any(), any(), any())).thenReturn(new ReviewTool("assistant_act", "Act", ImmutableMap.of("type", "object"), arguments -> "{}", false));
+        when(show.tool(any(), any(), any())).thenReturn(new ReviewTool("assistant_show", "Show", ImmutableMap.of("type", "object"), arguments -> "{}", false));
         when(driver.open(any(), any())).thenAnswer(call -> {
             AgentSessionContext context = call.getArgument(0);
             opened.add(context);
@@ -187,7 +192,7 @@ class TestAssistantConversation
         CredentialStore credentials = mock(CredentialStore.class);
         when(credentials.exists()).thenReturn(true);
         setup = new SetupSettingsService(new InMemoryAppSettingsStore(), credentials, mock(AppSettingsService.class), models, drivers, AgendaFixtures.mapper());
-        assistant = new AssistantService(store, reader, actions, setup, drivers, resources,
+        assistant = new AssistantService(store, reader, actions, show, rows, setup, drivers, resources,
                 new AgentProperties(runtime, Duration.ZERO, "", "codex", "0.159.3", temporaryDirectory.resolve("codex-home"), "claude", temporaryDirectory.resolve("claude-home")),
                 AgendaFixtures.mapper(), clock, executor);
     }
@@ -244,7 +249,7 @@ class TestAssistantConversation
         AgentSessionContext morning = opened.getFirst();
         assertThat(morning.access()).isEqualTo(SessionAccess.TOOLS_ONLY);
         assertThat(morning.managedInstructions()).isEqualTo(AssistantService.INSTRUCTIONS);
-        assertThat(morning.sessionTools()).extracting(tool -> tool.name()).containsExactly("assistant_context", "assistant_act");
+        assertThat(morning.sessionTools()).extracting(tool -> tool.name()).containsExactly("assistant_context", "assistant_act", "assistant_show");
         assertThat(morning.worktree()).isEqualTo(runtime.resolve("assistant").resolve("2026-10-17")).isDirectory();
         assertThat(morning.sessionReference()).isEmpty();
         assertThat(opened.get(1).sessionReference()).contains(new AgentSessionRef(LANE, 1, "session-1"));
@@ -409,7 +414,7 @@ class TestAssistantConversation
         doAnswer(call -> {
             AgentSessionContext context = call.getArgument(0);
             opened.add(context);
-            context.sessionTools().getLast().call().apply("{}");
+            context.sessionTools().stream().filter(tool -> tool.name().equals("assistant_act")).findFirst().orElseThrow().call().apply("{}");
             return session;
         }).when(driver).open(any(), any());
         results.add(CompletableFuture.completedFuture(new AgentTurnResult(AgentTurnResult.State.FAILED, Optional.empty(), Optional.of("Claude turn failed"),
@@ -424,6 +429,32 @@ class TestAssistantConversation
         waitForReply();
         assertThat(store.items(DAY)).extracting(AssistantItem::kind).containsExactly(USER, RECEIPT, FAILURE, RECEIPT, RECEIPT, REPLY);
         verify(actions, atLeastOnce()).tool(eq(store.items(DAY).getFirst()), any(), any());
+    }
+
+    @Test
+    void readsEachListsRowsWhenTheDayIsRead()
+    {
+        assertThat(assistant.today().rows()).isEmpty();
+        verify(rows, never()).rows(any());
+
+        AgendaTarget pull = AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"));
+        AssistantRow row = new AssistantRow("pr:trinodb/trino#31402", AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict", Optional.of("#31402"), Optional.of("open"),
+                Optional.of("failing"), Optional.empty(), Optional.of(0), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), pull);
+        AssistantList shown = new AssistantList(AssistantList.Style.CARDS, ImmutableList.of("pr:trinodb/trino#31402", "task:gone"));
+        store.add(AssistantItem.user(DAY, now.get(), "what is red?", ImmutableList.of(), Optional.empty(), "key-1"));
+        store.add(AssistantItem.list(DAY, now.get(), "Red pull requests", shown));
+        when(rows.rows(shown.refs())).thenReturn(ImmutableMap.of("pr:trinodb/trino#31402", row));
+
+        AssistantView view = assistant.today();
+        assertThat(view.items().getLast().list()).contains(shown);
+        // The day keeps refs only; each read draws them from the stores as they are now, and a ref that is gone has no row.
+        assertThat(view.rows()).containsExactly(Map.entry("pr:trinodb/trino#31402", row));
+
+        // A session that starts over reads what the day's lists named.
+        assistant.send("and now?", ImmutableList.of(), Optional.empty(), "key-2");
+        waitForReply();
+        assertThat(prompts.getFirst()).contains("[you listed 12:00] Red pull requests: pr:trinodb/trino#31402, task:gone");
     }
 
     @Test

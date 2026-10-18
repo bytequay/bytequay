@@ -182,7 +182,8 @@ class TestClaudeCliDriver
         Path day = Files.createDirectories(runtimeDirectory().resolveSibling("assistant").resolve("2026-10-17"));
         List<ReviewTool> tools = ImmutableList.of(
                 new ReviewTool("assistant_context", "Read the user's day", ImmutableMap.of("type", "object"), query -> "{}", true),
-                new ReviewTool("assistant_act", "Act on the user's words", ImmutableMap.of("type", "object"), query -> "{}", false));
+                new ReviewTool("assistant_act", "Act on the user's words", ImmutableMap.of("type", "object"), query -> "{}", false),
+                new ReviewTool("assistant_show", "Show the user a list", ImmutableMap.of("type", "object"), query -> "{}", false));
         AgentSessionRef reference;
         try (AgentSession session = driver.open(toolsOnly(plain, day, Optional.empty(), tools), event -> {})) {
             assertThat(await(session.start(command("what is waiting on me?"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
@@ -191,7 +192,8 @@ class TestClaudeCliDriver
             assertThat(spec.workingDirectory().toRealPath()).isEqualTo(day.toRealPath());
             assertThat(spec.argv()).contains("--tools=", "--disable-slash-commands").doesNotContain("--no-session-persistence");
             assertThat(spec.argv()).containsSequence("--disallowedTools", "Agent,Task,Skill,Workflow,SendMessage");
-            assertThat(spec.argv().get(spec.argv().indexOf("--allowedTools") + 1).split(",")).containsExactly("mcp__bytequay__assistant_context", "mcp__bytequay__assistant_act");
+            assertThat(spec.argv().get(spec.argv().indexOf("--allowedTools") + 1).split(","))
+                    .containsExactly("mcp__bytequay__assistant_context", "mcp__bytequay__assistant_act", "mcp__bytequay__assistant_show");
             assertThat(spec.argv()).noneMatch(argument -> argument.contains("bytequay_list_tools"));
             assertThat(spec.argv()).containsSequence("--session-id", session.reference().providerValue());
             JsonNode settings = objectMapper.readTree(Files.readString(runtimeDirectory().resolve("provider/scratch/sandbox-settings.json")));

@@ -203,7 +203,8 @@ class TestCodexCliDriver
         Path day = Files.createDirectories(worktree.resolve("assistant/2026-10-17"));
         List<ReviewTool> tools = ImmutableList.of(
                 new ReviewTool("assistant_context", "Read the user's day", ImmutableMap.of("type", "object"), query -> "{}", true),
-                new ReviewTool("assistant_act", "Act on the user's words", ImmutableMap.of("type", "object"), query -> "{}", false));
+                new ReviewTool("assistant_act", "Act on the user's words", ImmutableMap.of("type", "object"), query -> "{}", false),
+                new ReviewTool("assistant_show", "Show the user a list", ImmutableMap.of("type", "object"), query -> "{}", false));
         AgentSessionContext toolsOnly = new AgentSessionContext(plain.taskId(), day, runtime, runtime.resolve("provider"), plain.permissionPolicy(), Optional.empty(),
                 plain.approvals(), plain.model(), plain.effort(), SessionAccess.TOOLS_ONLY, Optional.empty(), "", Optional.empty(), tools);
         AgentSessionRef reference;
@@ -215,7 +216,8 @@ class TestCodexCliDriver
             }
             assertThat(argv).contains("web_search=\"disabled\"", "approval_policy=\"never\"", "agents.enabled=false");
             assertThat(argv).filteredOn(argument -> argument.startsWith("mcp_servers.bytequay.tools="))
-                    .containsExactly("mcp_servers.bytequay.tools={\"assistant_context\"={approval_mode=\"approve\"},\"assistant_act\"={approval_mode=\"approve\"}}");
+                    .containsExactly("mcp_servers.bytequay.tools={\"assistant_context\"={approval_mode=\"approve\"},\"assistant_act\"={approval_mode=\"approve\"},"
+                            + "\"assistant_show\"={approval_mode=\"approve\"}}");
             assertThat(argv).noneMatch(argument -> argument.contains("bytequay_list_tools"));
             JsonNode thread = supervisor.server().threadRequests().getFirst();
             assertThat(thread.path("ephemeral").asBoolean()).isFalse();

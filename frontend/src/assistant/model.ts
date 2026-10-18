@@ -13,8 +13,9 @@
  */
 import type { RunningTask } from '../agents/runningTaskModel';
 import { pullRequestFromRoute, type ZoomedReference } from '../githubReference';
+import { dayText } from '../home/today';
 import { needsAction, type AppNotice } from '../notices/contracts';
-import type { AgendaTargetDto, AssistantItemDto } from '../types';
+import type { AgendaTargetDto, AssistantItemDto, AssistantRowDto } from '../types';
 import { workspaceLocationFromRoute } from '../workspaces/model';
 
 /** The pills over the stack, in the order Tab moves through them. */
@@ -108,4 +109,49 @@ export function linkRefs(text: string, targets: Record<string, AgendaTargetDto>)
     if (!(ref in targets)) return label ?? whole;
     return `[${label ?? refLabel(ref)}](${REF_LINK}${encodeURIComponent(ref)})`;
   });
+}
+
+/** The local day an instant falls on, as yyyy-mm-dd. */
+export function localDay(at: string | number): string {
+  const date = new Date(at);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** A timeline day's header: Today, Yesterday, or its date. */
+export function dayLabel(day: string, now: number = Date.now()): string {
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  return day === localDay(now) ? 'Today' : day === localDay(yesterday.getTime()) ? 'Yesterday' : dayText(day);
+}
+
+export type TimelineDay = { day: string | null; refs: string[] };
+
+/** A list as a timeline: each ref under the local day it last moved, the newest first, then the refs with no time, gone ones too. */
+export function timelineDays(refs: string[], rows: Record<string, AssistantRowDto>): TimelineDay[] {
+  const at = (ref: string): number | null => {
+    const row = rows[ref];
+    return row === undefined || row.at === null ? null : Date.parse(row.at);
+  };
+  const days: TimelineDay[] = [];
+  for (const ref of refs.filter(each => at(each) !== null).sort((left, right) => (at(right) ?? 0) - (at(left) ?? 0))) {
+    const day = localDay(at(ref) ?? 0);
+    const last = days.at(-1);
+    if (last?.day === day) last.refs.push(ref);
+    else days.push({ day, refs: [ref] });
+  }
+  const untimed = refs.filter(ref => at(ref) === null);
+  return untimed.length === 0 ? days : [...days, { day: null, refs: untimed }];
+}
+
+const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1).replaceAll('_', ' ');
+
+/** Where a row stands, as a card's strip names it: what needs doing on a pull request first, else its own state. */
+export function rowState(row: AssistantRowDto): string | null {
+  if (row.kind === 'PULL' && row.state === 'open') {
+    if (row.review === 'changes_requested') return 'Changes requested';
+    if (row.ci === 'failing') return 'Checks failing';
+    if (row.review === 'approved') return 'Approved';
+  }
+  if (row.kind === 'EPIC') return row.done === null || row.total === null ? null : `${row.done}/${row.total}`;
+  return row.state === null ? null : capital(row.state);
 }

@@ -64,10 +64,12 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.AgendaStore;
 import com.bytequay.core.store.EpicStore;
+import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.integration.jira.JiraActivityReader;
 import com.bytequay.integration.jira.JiraDtos;
 import com.bytequay.integration.jira.JiraIssue;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -132,9 +134,11 @@ class TestAssistantContext
     private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
     private final JiraService jira = mock(JiraService.class);
     private final EpicStore epics = mock(EpicStore.class);
-    private final AssistantRows rows = new AssistantRows(pullRequests, issues, jira, tasks, workItems, epics, workspaces, agenda);
-    private final AssistantReader reader = new AssistantReader(agenda, agendas, running, notices, approvals, tasks, activities, mock(AgentReviewStore.class),
-            pullRequests, workItems, workspaces, rows, models, settings, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final AgentReviewStore reviews = mock(AgentReviewStore.class);
+    private final AssistantRows rows = new AssistantRows(pullRequests, mock(PrDetailStore.class), issues, jira, mock(JiraActivityReader.class), tasks, reviews, running, activities,
+            workItems, epics, workspaces, agenda, models);
+    private final AssistantReader reader = new AssistantReader(agenda, agendas, running, notices, approvals, tasks, activities, reviews, pullRequests, workItems, workspaces,
+            rows, models, settings, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void storesHoldOneDay()

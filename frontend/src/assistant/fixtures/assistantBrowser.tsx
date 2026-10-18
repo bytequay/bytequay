@@ -18,8 +18,9 @@ import { changeInput } from '../../fixtures/harness';
 import AssistantPanel from '../AssistantPanel';
 import type { RunningTask } from '../../agents/runningTaskModel';
 import type { AppNotice } from '../../notices/contracts';
-import type { AgendaDto, AgendaTargetDto, AgentPendingApprovalDto, AssistantViewDto, Bridge } from '../../types';
+import type { AgendaDto, AgendaTargetDto, AgentPendingApprovalDto, AssistantItemDto, AssistantListStyle, AssistantRowDto, AssistantViewDto, Bridge } from '../../types';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../../workspaces/model';
+import { dayLabel, localDay } from '../model';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -45,15 +46,41 @@ const AGENDA: AgendaDto = {
 const VIEW: AssistantViewDto = {
   day: '2026-10-16', model: 'Claude Sonnet', running: false,
   items: [
-    { id: 'u1', day: '2026-10-16', at: '2026-10-16T07:06:00Z', kind: 'USER', text: 'What should I look at first?', targets: {}, notReady: false, receipt: null },
+    { id: 'u1', day: '2026-10-16', at: '2026-10-16T07:06:00Z', kind: 'USER', text: 'What should I look at first?', targets: {}, notReady: false, receipt: null, list: null },
     { id: 'r1', day: '2026-10-16', at: '2026-10-16T07:06:20Z', kind: 'REPLY', targets: { 'pr:trinodb/trino#31377': PULL, 'task:t1': target('TASK', { id: 't1' }) },
-      text: 'Start with [#31377](pr:trinodb/trino#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null },
+      text: 'Start with [#31377](pr:trinodb/trino#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null, list: null },
     { id: 'c1', day: '2026-10-16', at: '2026-10-16T07:08:00Z', kind: 'RECEIPT', text: 'Started “Expose snapshot id in metadata”', targets: {}, notReady: false,
       receipt: { operation: 'START_TASK', outcome: 'DONE', detail: 'trinodb/trino · Claude Code Opus 5.5 · Auto draft PR', target: target('TASK', { id: 't9' }),
-        turnId: 'turn-9', fix: null, words: 'start the snapshot id one' } },
+        turnId: 'turn-9', fix: null, words: 'start the snapshot id one' }, list: null },
     { id: 'c2', day: '2026-10-16', at: '2026-10-16T07:08:01Z', kind: 'RECEIPT', text: 'Use the buttons: this one runs outside the sandbox', targets: {}, notReady: false,
-      receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, turnId: null, fix: 'BUTTONS', words: 'allow it' } },
+      receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, turnId: null, fix: 'BUTTONS', words: 'allow it' }, list: null },
   ],
+  rows: {},
+};
+
+// Relative to now, so a timeline's Today and Yesterday hold whenever the fixture runs.
+const ago = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
+const row = (fields: Pick<AssistantRowDto, 'ref' | 'kind' | 'title' | 'target'> & Partial<AssistantRowDto>): AssistantRowDto => ({
+  key: null, state: null, ci: null, review: null, approvals: null, agent: null, epic: null, done: null, total: null, at: null, latest: null, ...fields,
+});
+const ROWS: Record<string, AssistantRowDto> = Object.fromEntries([
+  row({ ref: 'pr:trinodb/trino#31377', kind: 'PULL', title: 'Add Iceberg metadata cache', target: PULL, key: '#31377', state: 'open', ci: 'passing',
+    review: 'approved', approvals: 2, at: ago(20), latest: { by: 'marlo-t', text: 'approved these changes', at: ago(20) } }),
+  row({ ref: 'pr:trinodb/trino#31402', kind: 'PULL', title: 'Retry Iceberg commit on conflict', target: target('PULL', { repo: 'trinodb/trino', number: 31402 }),
+    key: '#31402', state: 'open', ci: 'failing', review: 'changes_requested', at: ago(60 * 26) }),
+  row({ ref: 'task:t1', kind: 'TASK', title: 'Expose snapshot id in metadata', target: target('TASK', { id: 't1' }), agent: 'Claude Code', state: 'waiting',
+    at: ago(45), latest: { by: 'Claude Code', text: 'Which table should hold the snapshot id?', at: ago(45) } }),
+  row({ ref: 'jira:cloud:10042', kind: 'JIRA', title: 'Expire snapshots by branch', target: target('JIRA', { id: '10042', connectionId: 'c1', cloudId: 'cloud' }),
+    key: 'ICE-7', state: 'In progress', at: ago(60 * 24 * 3) }),
+  row({ ref: 'work:w22', kind: 'WORK', title: 'Add a snapshot id column', target: target('WORK', { id: 'w22' }), epic: 'Iceberg write path', state: 'planned',
+    at: ago(60 * 24 * 3 + 30) }),
+  row({ ref: 'epic:LOCAL:w1', kind: 'EPIC', title: 'Iceberg write path', target: target('WORK', { id: 'w1' }), done: 3, total: 6 }),
+].map(each => [each.ref, each]));
+const REFS = ['pr:trinodb/trino#31377', 'pr:trinodb/trino#31402', 'task:t1', 'jira:cloud:10042', 'work:w22', 'epic:LOCAL:w1', 'pr:trinodb/trino#1'];
+const listView = (style: AssistantListStyle): AssistantViewDto => {
+  const list: AssistantItemDto = { id: 'l1', day: '2026-10-16', at: '2026-10-16T07:06:10Z', kind: 'LIST', text: 'Waiting on you', targets: {}, notReady: false,
+    receipt: null, list: { style, refs: REFS } };
+  return { ...VIEW, items: [VIEW.items[0], list], rows: ROWS };
 };
 
 const notice = (id: string, kind: AppNotice['kind'], taskId: string, title: string): AppNotice => ({
@@ -335,6 +362,71 @@ async function opensAtACardFromItsAlert(): Promise<void> {
   finally { view.dispose(); }
 }
 
+async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
+  const view = mount(listView('ROWS'), 0, []);
+  try {
+    await settle();
+    enter(type(view.host, 'What is waiting on me?'));
+    await settle();
+    const list = view.host.querySelector<HTMLElement>('.assistant-talk .assistant-items');
+    assert(list !== null, 'The list shows in the conversation');
+    assert(list.querySelector('.assistant-items__title')?.textContent === 'Waiting on you' && list.querySelector('.assistant-items__count')?.textContent === '7',
+      'Its header names it and counts its refs');
+    const switches = [...list.querySelectorAll<HTMLButtonElement>('.assistant-items__head .card-iconbtn')];
+    const pressed = () => switches.map(button => button.getAttribute('aria-pressed'));
+    assert(JSON.stringify(switches.map(button => button.getAttribute('aria-label'))) === '["Show as rows","Show as cards","Show as timeline"]', 'Three style switches');
+    assert(JSON.stringify(pressed()) === '["true","false","false"]', 'The assistant picked rows');
+    assert(switches.every(button => getComputedStyle(button).borderStyle === 'none'), 'The switches are borderless icon buttons');
+
+    const lines = [...list.querySelectorAll<HTMLElement>('.assistant-row')];
+    assert(lines.length === 7 && lines.every(line => line.getBoundingClientRect().height === 34), `Rows are one line each: ${lines.map(line => line.getBoundingClientRect().height)}`);
+    const [mine, red, task, ticket, work, epic, gone] = lines;
+    assert(mine.textContent?.includes('#31377') === true && mine.querySelector('[title="Checks passing"]') !== null
+      && mine.querySelector('[title="2 approvals"]')?.textContent === '2', `A pull request shows its checks and approvals: ${mine.textContent}`);
+    assert(red.querySelector('[title="Checks failing"]') !== null && red.querySelector('[title="Changes requested"]') !== null, 'Red checks and changes requested');
+    assert(task.querySelector('[title="Runs with Claude Code"]') !== null && task.querySelector('[title="Waiting"] .assistant-dot') !== null, 'A task shows its agent and phase');
+    assert(ticket.querySelector('.card-key')?.textContent === 'ICE-7' && ticket.querySelector('.pill')?.textContent === 'In progress', 'A ticket shows its key and status');
+    assert(work.querySelector('[title="Epic: Iceberg write path"]') !== null && work.querySelector('.pill')?.textContent === 'Planned', 'A work item shows its Epic and state');
+    assert(epic.querySelector('[title="3 of 6 done"]')?.textContent === '3/6', 'An Epic shows done of total');
+    assert(gone.classList.contains('is-gone') && gone.textContent === '#1Gone' && gone.getAttribute('role') === null, `A ref that is gone draws as gone: ${gone.textContent}`);
+    const bold = () => [...list.querySelectorAll('*')].filter(node => Number(getComputedStyle(node).fontWeight) > 400).map(node => node.className);
+    assert(bold().length === 0, `Nothing in a list is bold: ${bold().join(', ')}`);
+
+    switches[1].click();
+    await settle();
+    assert(JSON.stringify(pressed()) === '["false","true","false"]', 'The switch moves to cards');
+    const cards = [...list.querySelectorAll<HTMLElement>('.assistant-item-card')];
+    assert(cards.length === 6 && cards.every(card => card.classList.contains('card') && card.getAttribute('role') === 'button'), 'Each item is a card of the shared base');
+    assert(list.querySelectorAll('.assistant-row.is-gone').length === 1, 'The gone ref stays a line among the cards');
+    const strips = cards.map(card => card.querySelector('.assistant-item-card__strip .pill')?.textContent ?? null);
+    assert(JSON.stringify(strips) === '["Approved","Changes requested","Waiting","In progress","Planned","3/6"]', `Where each stands is in the strip: ${JSON.stringify(strips)}`);
+    assert(cards[2].querySelector('.assistant-item-card__latest')?.textContent?.startsWith('Claude CodeWhich table should hold the snapshot id?') === true,
+      `The latest event is in the body: ${cards[2].querySelector('.assistant-item-card__latest')?.textContent}`);
+    assert(cards[3].querySelector('.assistant-item-card__body .pill') === null, 'The body does not repeat the state');
+    assert(bold().length === 0, `Nothing in a card is bold: ${bold().join(', ')}`);
+
+    switches[2].click();
+    await settle();
+    const dates = [...list.querySelectorAll('.assistant-items__date')].map(date => date.textContent);
+    const expected = [...new Set(['pr:trinodb/trino#31377', 'task:t1', 'pr:trinodb/trino#31402', 'jira:cloud:10042', 'work:w22'].map(ref => dayLabel(localDay(ROWS[ref].at))))];
+    assert(JSON.stringify(dates) === JSON.stringify(expected), `Days head the timeline, newest first: ${JSON.stringify(dates)} != ${JSON.stringify(expected)}`);
+    const timed = [...list.querySelectorAll<HTMLElement>('.assistant-row')];
+    assert(timed[0].textContent?.includes('Add Iceberg metadata cache') === true && timed[1].textContent?.includes('Expose snapshot id') === true, 'The newest comes first');
+    assert(/^\d{1,2}:\d{2}$/.test(timed[0].firstElementChild?.textContent ?? '') && timed[0].firstElementChild?.className === 'assistant-row__time', 'Its time is on the left');
+    const last = [...list.querySelectorAll<HTMLElement>('.assistant-items__day')].at(-1);
+    assert(last?.querySelector('.assistant-items__date') === null && last.querySelectorAll('.assistant-row').length === 2, 'What has no time comes last, without a day');
+
+    const opened: unknown[] = [];
+    const listener = (event: Event) => { opened.push((event as CustomEvent).detail); };
+    window.addEventListener('bytequay:zoom-reference', listener);
+    try { timed[0].click(); }
+    finally { window.removeEventListener('bytequay:zoom-reference', listener); }
+    assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'trinodb/trino', number: 31377, workspaceId: 'ws1' }]), `A row opens its item: ${JSON.stringify(opened)}`);
+    assert(view.calls.closed === 1 && view.host.querySelector('.assistant-float') === null, 'Opening an item closes the Assistant');
+  }
+  finally { view.dispose(); }
+}
+
 async function stopsARunningReply(): Promise<void> {
   const view = mount({ ...VIEW, running: true });
   try {
@@ -354,7 +446,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   for (const [name, scenario] of [['floats over the page', floatsOverThePage], ['shows the day once the user talks', showsTheDayOnceTheUserTalks],
     ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
     ['moves with the keyboard', movesWithTheKeyboard], ['opens at a card from its alert', opensAtACardFromItsAlert],
-    ['stops a running reply', stopsARunningReply]] as const) {
+    ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }
@@ -362,6 +454,18 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
 }
 
 let preview: { dispose: () => void } | null = null;
+
+/** Draws a list the assistant showed in one style, for a screenshot. */
+export async function showListPreview(style: AssistantListStyle): Promise<void> {
+  preview?.dispose();
+  document.body.style.margin = '0';
+  document.body.style.background = 'var(--bg)';
+  const mounted = mount(listView(style), 0, []);
+  preview = mounted;
+  await new Promise(resolve => setTimeout(resolve, 150));
+  enter(type(mounted.host, 'What is waiting on me?'));
+  await new Promise(resolve => setTimeout(resolve, 150));
+}
 
 /** Draws the Assistant over a page for a screenshot: the day's conversation once the user talks, and an approval on top of a few cards. */
 export async function showPreview(): Promise<void> {

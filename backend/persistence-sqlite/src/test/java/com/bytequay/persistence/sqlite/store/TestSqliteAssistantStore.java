@@ -18,6 +18,7 @@ import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantAction;
 import com.bytequay.core.domain.AssistantDay;
 import com.bytequay.core.domain.AssistantItem;
+import com.bytequay.core.domain.AssistantList;
 import com.bytequay.core.domain.AssistantReceipt;
 import com.bytequay.core.domain.ServedRef;
 import com.google.common.collect.ImmutableList;
@@ -91,6 +92,23 @@ class TestSqliteAssistantStore
     }
 
     @Test
+    void keepsAListsStyleTitleAndRefsButNoRowText()
+    {
+        AssistantItem list = AssistantItem.list(DAY, AT, "Waiting on you", new AssistantList(AssistantList.Style.TIMELINE,
+                ImmutableList.of("pr:trinodb/trino#31402", "task:t1", "epic:LOCAL:w1")));
+        store.add(AssistantItem.user(DAY, AT, "what is waiting on me?", ImmutableList.of(), Optional.empty(), "key-1"));
+        store.add(list);
+        entities.flush();
+        entities.clear();
+
+        assertThat(store.items(DAY).getLast()).isEqualTo(list);
+        Object stored = entities.createNativeQuery("select value from assistant_item where id = ?").setParameter(1, list.id()).getSingleResult();
+        // The refs alone: each row's text is read from the stores when the day is drawn.
+        assertThat(stored.toString()).contains("\"text\":\"Waiting on you\"")
+                .contains("\"list\":{\"style\":\"TIMELINE\",\"refs\":[\"pr:trinodb/trino#31402\",\"task:t1\",\"epic:LOCAL:w1\"]}");
+    }
+
+    @Test
     void readsAnItemSavedBeforeReceiptsAsHavingNone()
     {
         entities.createNativeQuery("insert into assistant_item (id, day, ordinal, value) values ('old', '2026-10-17', 0, ?)")
@@ -102,6 +120,7 @@ class TestSqliteAssistantStore
         assertThat(store.items(DAY)).singleElement().satisfies(item -> {
             assertThat(item.kind()).isEqualTo(AssistantItem.Kind.REPLY);
             assertThat(item.receipt()).isEmpty();
+            assertThat(item.list()).isEmpty();
         });
     }
 

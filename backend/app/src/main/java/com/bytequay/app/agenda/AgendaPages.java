@@ -47,7 +47,7 @@ public final class AgendaPages
             """;
     public static final List<String> KINDS = ImmutableList.of("overview", "changes", "mine", "tasks", "asks", "epics", "history");
     private static final Set<String> REF_KINDS = ImmutableSet.of("pr", "issue", "jira", "task", "review", "work", "epic");
-    private static final int PAGE = 20;
+    public static final int PAGE = 20;
     private static final int MAXIMUM_ARGUMENTS = 4096;
 
     private final AgendaSnapshot snapshot;

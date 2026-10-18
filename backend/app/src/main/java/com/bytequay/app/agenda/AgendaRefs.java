@@ -30,12 +30,12 @@ public final class AgendaRefs
         return "pr:" + repo.toLowerCase(Locale.ROOT) + "#" + number;
     }
 
-    static String issue(String repo, int number)
+    public static String issue(String repo, int number)
     {
         return "issue:" + repo.toLowerCase(Locale.ROOT) + "#" + number;
     }
 
-    static String jira(String cloudId, String issueId)
+    public static String jira(String cloudId, String issueId)
     {
         return "jira:" + cloudId + ":" + issueId;
     }
@@ -55,7 +55,7 @@ public final class AgendaRefs
         return "work:" + itemId;
     }
 
-    static String epic(String epicId)
+    public static String epic(String epicId)
     {
         return "epic:" + epicId;
     }

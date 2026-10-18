@@ -43,6 +43,7 @@ import com.bytequay.app.agent.RunningTaskReader;
 import com.bytequay.app.agent.TaskActivity;
 import com.bytequay.app.agent.TaskActivityReader;
 import com.bytequay.app.agent.TaskMessage;
+import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
 import com.bytequay.app.service.settings.AgentModelSetting;
@@ -55,14 +56,20 @@ import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.RepositoryIssue;
+import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.AgendaStore;
+import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.integration.jira.JiraDtos;
+import com.bytequay.integration.jira.JiraIssue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -81,7 +88,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.IntStream;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -90,6 +99,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class TestAssistantContext
@@ -119,8 +129,12 @@ class TestAssistantContext
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);
+    private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
+    private final JiraService jira = mock(JiraService.class);
+    private final EpicStore epics = mock(EpicStore.class);
+    private final AssistantRows rows = new AssistantRows(pullRequests, issues, jira, tasks, workItems, epics, workspaces, agenda);
     private final AssistantReader reader = new AssistantReader(agenda, agendas, running, notices, approvals, tasks, activities, mock(AgentReviewStore.class),
-            pullRequests, workItems, workspaces, models, settings, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
+            pullRequests, workItems, workspaces, rows, models, settings, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void storesHoldOneDay()
@@ -304,6 +318,74 @@ class TestAssistantContext
     }
 
     @Test
+    void searchesTheStoredItemsByTitleNumberOrKey()
+            throws Exception
+    {
+        when(pullRequests.findAttentionCandidates()).thenReturn(ImmutableList.of(pull(7, 31402, "Retry Iceberg commit on conflict", NOW.minusSeconds(60)),
+                pull(8, 31377, "Add Iceberg snapshot cache", NOW.minusSeconds(7200))));
+        when(issues.findPage(1, RepoRef.of("trinodb", "trino"), 0, 200)).thenReturn(new RepositoryIssuePage(1, RepoRef.of("trinodb", "trino"),
+                ImmutableList.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "", "https://github.com/trinodb/trino/issues/77", ImmutableList.of(),
+                        ImmutableList.of(), 0, NOW.minusSeconds(86400), NOW.minusSeconds(600))), 0, 200, 1, false, Optional.empty()));
+        when(jira.cachedIssues()).thenReturn(ImmutableList.of(new JiraIssue("connection", "cloud", "10042", "ICE-7", "https://company.atlassian.net/browse/ICE-7",
+                "Expire snapshots by branch", "As described", "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(), ImmutableList.of(),
+                Optional.empty(), Optional.empty(), false, false, NOW.minusSeconds(300), Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(),
+                Optional.of(new JiraDtos.WorkspaceLink("ws1", "Trino")))));
+        when(tasks.listRecent(500)).thenReturn(ImmutableList.of(TASK, ASKING, FINISHED));
+        when(workItems.list("ws1")).thenReturn(ImmutableList.of(work("w22", "Expose snapshot id in metadata", Optional.of("LOCAL:w1"), NOW),
+                work("w1", "Iceberg write path", Optional.empty(), NOW.minusSeconds(9000))));
+        when(agenda.epicSource(any(), eq("LOCAL:w1"))).thenReturn(Optional.of(new AgendaReader.EpicSource("Iceberg snapshots",
+                AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w1"))));
+        AssistantContext context = context(Optional.empty(), ImmutableMap.of());
+        ReviewTool tool = context.tool();
+
+        // Every word of the query in a title, the newest first, whichever store holds it.
+        JsonNode snapshots = search(tool, "{\"kind\":\"search\",\"query\":\"Snapshot\"}");
+        assertThat(keys(snapshots)).isEqualTo(ImmutableSet.of("kind", "query", "page", "entries", "nextPage"));
+        assertThat(refs(snapshots)).containsExactly("work:w22", "epic:LOCAL:w1", "jira:cloud:10042", "issue:trinodb/trino#77", "task:" + ASKING.id(), "pr:trinodb/trino#31377");
+        assertThat(keys(snapshots.path("entries").path(2))).isEqualTo(ImmutableSet.of("ref", "title", "state", "at"));
+        assertThat(snapshots.path("entries").path(2).path("title").asText()).isEqualTo("ICE-7 Expire snapshots by branch");
+        assertThat(snapshots.path("entries").path(2).path("state").asText()).isEqualTo("In progress");
+        assertThat(snapshots.path("nextPage").isNull()).isTrue();
+        assertThat(refs(search(tool, "{\"kind\":\"search\",\"query\":\"iceberg  cache\"}"))).containsExactly("pr:trinodb/trino#31377");
+        // A number or key the user names comes first.
+        assertThat(refs(search(tool, "{\"kind\":\"search\",\"query\":\"#31402\"}"))).containsExactly("pr:trinodb/trino#31402");
+        assertThat(refs(search(tool, "{\"kind\":\"search\",\"query\":\"ice-7\"}")).getFirst()).isEqualTo("jira:cloud:10042");
+
+        // What a search found joins the day's refs, so a later message may act on it.
+        assertThat(context.served()).containsEntry("work:w22", new ServedRef("search", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"))))
+                .containsEntry("epic:LOCAL:w1", new ServedRef("search", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w1"))))
+                .containsEntry("pr:trinodb/trino#31402", new ServedRef("search", Optional.of(AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1")))));
+        // Tickets come from Jira's cache; a search never asks Jira.
+        verify(jira, times(4)).cachedIssues();
+        verifyNoMoreInteractions(jira);
+    }
+
+    @Test
+    void searchPagesTwentyAtATime()
+            throws Exception
+    {
+        when(issues.findPage(eq(1L), any(), anyInt(), eq(200))).thenReturn(new RepositoryIssuePage(1, RepoRef.of("trinodb", "trino"), ImmutableList.of(), 0, 200, 0, false,
+                Optional.empty()));
+        when(workItems.list("ws1")).thenReturn(IntStream.range(0, 25).mapToObj(index -> work("w" + index, "Snapshot step " + index, Optional.empty(), NOW.minusSeconds(index)))
+                .collect(toImmutableList()));
+        AssistantContext context = context(Optional.empty(), ImmutableMap.of());
+        ReviewTool tool = context.tool();
+
+        JsonNode first = search(tool, "{\"kind\":\"search\",\"query\":\"snapshot step\"}");
+        assertThat(first.path("entries")).hasSize(20);
+        assertThat(first.path("nextPage").asInt()).isEqualTo(1);
+        JsonNode second = search(tool, "{\"kind\":\"search\",\"query\":\"snapshot step\",\"page\":1}");
+        assertThat(refs(second)).containsExactly("work:w20", "work:w21", "work:w22", "work:w23", "work:w24");
+        assertThat(second.path("nextPage").isNull()).isTrue();
+        assertThat(context.served()).hasSize(25);
+
+        assertThat(error(tool, "{\"kind\":\"search\"}")).isEqualTo("search needs a query of at least 2 characters");
+        assertThat(error(tool, "{\"kind\":\"search\",\"query\":\"snapshot\",\"ref\":\"work:w1\"}")).isEqualTo("Unknown field: ref");
+        assertThat(error(tool, "{\"kind\":\"lookup\",\"ref\":\"work:w1\",\"query\":\"snapshot\"}")).isEqualTo("Unknown field: query");
+        assertThat(error(tool, "{\"kind\":\"search\",\"query\":\"snapshot\",\"page\":-1}")).isEqualTo("page must be a non-negative integer");
+    }
+
+    @Test
     void answersABadCallWithAnErrorItCanRepair()
             throws Exception
     {
@@ -340,6 +422,17 @@ class TestAssistantContext
         return mapper.readTree(tool.call().apply("{\"kind\":\"" + kind + "\",\"ref\":\"" + ref + "\"}"));
     }
 
+    private JsonNode search(ReviewTool tool, String arguments)
+            throws Exception
+    {
+        return mapper.readTree(tool.call().apply(arguments));
+    }
+
+    private static List<String> refs(JsonNode page)
+    {
+        return ImmutableList.copyOf(page.path("entries").findValuesAsText("ref"));
+    }
+
     private String error(ReviewTool tool, String arguments)
             throws Exception
     {
@@ -355,6 +448,19 @@ class TestAssistantContext
     {
         return AgentTask.created(TaskId.random(), Optional.of("ws1"), true, title, new AgentLaneId(lane), new RepositoryIdentity("trinodb", "trino"),
                 Path.of("/tmp/assistant-task"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW.minusSeconds(3600));
+    }
+
+    private static PullRequest pull(long id, int number, String title, Instant at)
+    {
+        return new PullRequest(id, "trinodb/trino", number, title, "elric-t", "https://github.com/trinodb/trino/pull/" + number, NOW, NOW, PullRequest.Origin.AUTHORED,
+                ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.PASSING, 10, 2, 3, "open", null, null, true,
+                "clean", NOW, "retry", null, at, null, null);
+    }
+
+    private static WorkItem work(String id, String title, Optional<String> epicId, Instant at)
+    {
+        return new WorkItem(id, "ws1", Optional.empty(), title, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0,
+                ImmutableList.of(), ImmutableList.of(), at, at, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), epicId, 0, ImmutableList.of());
     }
 
     private static AppNotice notice(String id, AppNotice.Kind kind, AgentTask task, String message)

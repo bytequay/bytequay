@@ -23,6 +23,7 @@ import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.app.agenda.AgendaPages;
 import com.bytequay.app.agenda.AgendaReader;
 import com.bytequay.app.agenda.AgendaRefs;
 import com.bytequay.app.agenda.AgendaService;
@@ -41,7 +42,6 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaDay;
 import com.bytequay.core.domain.AgendaTarget;
-import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
@@ -76,9 +76,9 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Reads what the assistant's {@code assistant_context} answers, fresh on every call: the agenda's pages over the stores as they are
- * now, the tasks at work, the cards a message lists as visible, the page it was sent from, any item named by its ref, what a task
- * said last, and what a new task can start with. Like the agenda's reader, it reads only what ByteQuay stores: no GitHub, Jira,
- * calendar or provider request is made here.
+ * now, the tasks at work, the cards a message lists as visible, the page it was sent from, any item named by its ref or found by its
+ * title, number or key, what a task said last, and what a new task can start with. Like the agenda's reader, it reads only what
+ * ByteQuay stores: no GitHub, Jira, calendar or provider request is made here.
  */
 @Component
 class AssistantReader
@@ -101,6 +101,7 @@ class AssistantReader
     private final PullRequestStore pullRequests;
     private final WorkItemStore workItems;
     private final WorkspaceStore workspaces;
+    private final AssistantRows rows;
     private final ModelSettingsService models;
     private final AppSettingsService settings;
     private final ObjectMapper mapper;
@@ -118,6 +119,7 @@ class AssistantReader
             PullRequestStore pullRequests,
             WorkItemStore workItems,
             WorkspaceStore workspaces,
+            AssistantRows rows,
             ModelSettingsService models,
             AppSettingsService settings,
             ObjectMapper mapper,
@@ -134,6 +136,7 @@ class AssistantReader
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.rows = requireNonNull(rows, "rows is null");
         this.models = requireNonNull(models, "models is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -245,6 +248,22 @@ class AssistantReader
         }).orElseGet(() -> nothing("result"));
     }
 
+    /** One page of the stored items whose title, number or key matches the query, exact numbers and keys first, then the newest. */
+    Page search(String query, int page)
+    {
+        checkArgument(query.strip().length() >= 2, "search needs a query of at least 2 characters");
+        List<AssistantRows.Found> found = rows.search(query);
+        int from = Math.min(found.size(), page * AgendaPages.PAGE);
+        int to = Math.min(found.size(), from + AgendaPages.PAGE);
+        Map<String, Optional<AgendaTarget>> refs = new LinkedHashMap<>();
+        ImmutableList.Builder<Match> entries = ImmutableList.builder();
+        for (AssistantRows.Found item : found.subList(from, to)) {
+            refs.put(item.ref(), Optional.of(item.target()));
+            entries.add(new Match(item.ref(), AgendaReader.clip(item.title(), TITLE), item.state(), item.at()));
+        }
+        return new Page(new Searched("search", query.strip(), page, entries.build(), to < found.size() ? Optional.of(page + 1) : Optional.empty()), refs);
+    }
+
     /** Where a new task can start: each watched repository with its Development default, the agents ready now, and the saved automation. */
     Page startOptions()
     {
@@ -291,7 +310,7 @@ class AssistantReader
             String canonical = AgendaRefs.pull(pr.repo(), pr.number());
             Optional<String> workspace = workspaces.findAll().stream().filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(pr.repo()))
                     .map(Workspace::id).findFirst();
-            PullRequestFacts facts = new PullRequestFacts(canonical, AgendaReader.clip(pr.title(), TITLE), pr.author(), state(pr),
+            PullRequestFacts facts = new PullRequestFacts(canonical, AgendaReader.clip(pr.title(), TITLE), pr.author(), AssistantRows.state(pr),
                     Optional.ofNullable(pr.ciStatus()).map(AssistantReader::lower), Optional.ofNullable(pr.reviewDecision()).map(decision -> decision.toLowerCase(Locale.ROOT)),
                     pr.requestedReviewers(), Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt())));
             return new Page(new Entries(kind, ImmutableList.of(facts)), ImmutableMap.of(canonical, Optional.of(AgendaTarget.pull(pr.repo(), pr.number(), workspace))));
@@ -345,17 +364,6 @@ class AssistantReader
         }
     }
 
-    private static String state(PullRequest pr)
-    {
-        if (pr.mergedAt() != null) {
-            return "merged";
-        }
-        if (pr.closedAt() != null || "closed".equalsIgnoreCase(pr.state())) {
-            return "closed";
-        }
-        return pr.draft() ? "draft" : "open";
-    }
-
     private static String ref(AgendaTarget target)
     {
         String id = target.id().orElseThrow();
@@ -406,6 +414,11 @@ class AssistantReader
 
     /** The newest message in the conversation, by the task's own agent or by the user, clipped. */
     record Said(String by, String text, Instant at) {}
+
+    record Searched(String kind, String query, int page, List<Match> entries, Optional<Integer> nextPage) {}
+
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    record Match(String ref, String title, Optional<String> state, Optional<Instant> at) {}
 
     record StartOptions(String kind, List<Repository> repositories, List<Agent> agents, Automation automation) {}
 

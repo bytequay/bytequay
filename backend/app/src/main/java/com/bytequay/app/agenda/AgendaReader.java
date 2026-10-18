@@ -525,7 +525,7 @@ public class AgendaReader
             if (epic.flatMap(Epic::concludedAt).isPresent()) {
                 return;
             }
-            Optional<Source> source = source(workspace, epicId);
+            Optional<EpicSource> source = epicSource(workspace, epicId);
             if (source.isEmpty()) {
                 return;
             }
@@ -557,22 +557,25 @@ public class AgendaReader
         return entries.build();
     }
 
-    private record Source(String title, AgendaTarget target) {}
+    /** What an Epic is called and where it opens: the work item, ticket or issue marked as the Epic. */
+    public record EpicSource(String title, AgendaTarget target) {}
 
-    private Optional<Source> source(Workspace workspace, String epicId)
+    /** An Epic of the workspace by its source, from the stores only; empty when the source is gone. */
+    public Optional<EpicSource> epicSource(Workspace workspace, String epicId)
     {
         Optional<String> local = EpicSources.localId(epicId);
         if (local.isPresent()) {
             return workItemStore.find(local.orElseThrow()).filter(item -> item.workspaceId().equals(workspace.id()))
-                    .map(item -> new Source(item.title(), AgendaTarget.of(AgendaTarget.Kind.WORK, workspace.id(), item.id())));
+                    .map(item -> new EpicSource(item.title(), AgendaTarget.of(AgendaTarget.Kind.WORK, workspace.id(), item.id())));
         }
         Optional<EpicSources.Ticket> ticket = EpicSources.ticket(epicId);
         if (ticket.isPresent()) {
             return jira.getObject().cachedIssue(ticket.orElseThrow().cloudId(), ticket.orElseThrow().issueId())
-                    .map(issue -> new Source(issue.key() + " " + issue.title(), AgendaTarget.jira(issue.connectionId(), issue.cloudId(), issue.id(), Optional.of(workspace.id()))));
+                    .map(issue -> new EpicSource(issue.key() + " " + issue.title(), AgendaTarget.jira(issue.connectionId(), issue.cloudId(), issue.id(),
+                            Optional.of(workspace.id()))));
         }
         Optional<IssueEpic> marker = markers.findEpic(GITHUB, EpicSources.issueId(epicId));
-        return marker.map(found -> new Source(issues.find(workspace.monitoredRepositoryId(), found.number()).map(RepositoryIssue::title).orElse("#" + found.number()),
+        return marker.map(found -> new EpicSource(issues.find(workspace.monitoredRepositoryId(), found.number()).map(RepositoryIssue::title).orElse("#" + found.number()),
                 AgendaTarget.issue(found.repo(), found.number(), workspace.id())));
     }
 

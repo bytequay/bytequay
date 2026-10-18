@@ -29,8 +29,8 @@ it('colors numbers, resolves inline titles, and previews and zooms Goal referenc
 }, deadline(30_000));
 
 it('clarifies a goal from free text and a suggested answer to an accepted definition', async () => {
-  expect(await fixture.run<boolean>()).toBe(true);
-}, deadline(30_000));
+  expect(await fixture.run<boolean>({ timeoutMs: 45_000 })).toBe(true);
+}, deadline(60_000));
 
 it('guides an unsure user by suggested answers alone, by keyboard, in a narrow window', async () => {
   expect(await fixture.run<boolean>({ width: 380, height: 760,

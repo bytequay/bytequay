@@ -29,6 +29,7 @@ it('folds saved developer fix prompts and opens their original findings, includi
       const results = [];
       for (const width of [760, 320]) {
         window.setContentSize(width, 900);
+        await untilWidth(width);
         for (const delivery of ['TURN', 'STEER']) {
           for (const snapshot of [false, true]) {
             results.push(await window.webContents.executeJavaScript('ReviewRequestTests.fixRequest(' + JSON.stringify(delivery) + ', ' + snapshot + ')'));
@@ -57,6 +58,7 @@ it('discloses complete review requests with keyboard and pointer without overflo
       const results = [];
       for (const width of [760, 320]) {
         window.setContentSize(width, 900);
+        await untilWidth(width);
         await run('ReviewRequestTests.mount()');
         await run('ReviewRequestTests.verify(false)');
         key('Enter');
@@ -83,6 +85,7 @@ it('keeps development follow-ups compact with their authorization scope and exac
       const results = [];
       for (const width of [760, 320]) {
         window.setContentSize(width, 900);
+        await untilWidth(width);
         for (const kind of ['AUTO_COMMIT', 'REFINE_SUMMARY', 'CREATE_DRAFT_PR']) {
           for (const snapshot of [false, true]) {
             for (const existing of kind === 'CREATE_DRAFT_PR' ? [false, true] : [false]) {
@@ -103,6 +106,7 @@ it('keeps current and historical review prompts behind a separate disclosure', a
       const results = [];
       for (const width of [760, 320]) {
         window.setContentSize(width, 900);
+        await untilWidth(width);
         for (const snapshot of [false, true]) {
           results.push(await window.webContents.executeJavaScript('ReviewRequestTests.generatedReview(' + snapshot + ')'));
         }
@@ -118,6 +122,7 @@ it('keeps current and historical CI requests compact while preserving the exact 
       const results = [];
       for (const width of [760, 320]) {
         window.setContentSize(width, 900);
+        await untilWidth(width);
         for (const snapshot of [false, true]) {
           results.push(await window.webContents.executeJavaScript('ReviewRequestTests.generatedCi(' + snapshot + ')'));
         }
@@ -133,6 +138,7 @@ it('keeps private code and learning discussions compact with their exact sent pr
       const results = [];
       for (const width of [760, 320]) {
         window.setContentSize(width, 900);
+        await untilWidth(width);
         for (const learning of [false, true]) {
           for (const snapshot of [false, true]) {
             results.push(await window.webContents.executeJavaScript('ReviewRequestTests.localDiscussion(' + learning + ', ' + snapshot + ')'));

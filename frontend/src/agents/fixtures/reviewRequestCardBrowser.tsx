@@ -66,7 +66,7 @@ export async function mount() {
   </div>));
   await settle();
   closedHeight = card().getBoundingClientRect().height;
-  assert(closedHeight <= 100, 'Collapsed request must stay compact even with a long question');
+  assert(closedHeight <= 100, `Collapsed request must stay compact even with a long question (${closedHeight}px at ${innerWidth}px)`);
   assert(toggle().querySelector('button, a') === null, 'Disclosure must not nest another action');
   const bar = card().querySelector<HTMLElement>('.agt-review-request__bar');
   assert(bar !== null && getComputedStyle(bar).backgroundColor === 'rgb(232, 244, 241)', 'The request title bar must use the private-review green background');

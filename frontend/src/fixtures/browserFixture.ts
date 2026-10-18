@@ -43,7 +43,10 @@ export type BrowserFixture = {
   preload?: string;
   /** Main-process source that runs after the window exists and before the page loads. */
   setup?: string;
-  /** Main-process source that assigns `results` after the page loads. */
+  /**
+   * Main-process source that assigns `results` after the page loads. After resizing the window it awaits
+   * `untilWidth(width)`: the page lays out at a new size only after `setSize` returns.
+   */
   body?: string;
   blockNetwork?: boolean;
   timeoutMs?: number;
@@ -102,6 +105,8 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
       app.whenReady().then(async () => {
         const window = new BrowserWindow({ show: false, webPreferences: { backgroundThrottling: false${preload} } });
         ${size}
+        const untilWidth = width => window.webContents.executeJavaScript(
+          'new Promise(resolve => { const check = () => innerWidth === ' + width + ' ? resolve() : requestAnimationFrame(check); check(); })');
         ${network}
         ${fixture.setup ?? ''}
         try {

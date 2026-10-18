@@ -28,6 +28,7 @@ it('starts issue development through the existing composer and retains source na
       const results = await window.webContents.executeJavaScript('IssueDevelopmentTests.run()');
       for (const width of [1060, 600]) {
         window.setSize(width, 820);
+        await untilWidth(width);
         const source = await window.webContents.executeJavaScript('IssueDevelopmentTests.mountIssueConversation()');
         await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', ...source });
         await window.webContents.executeJavaScript('IssueDevelopmentTests.verifyIssuePreview()');

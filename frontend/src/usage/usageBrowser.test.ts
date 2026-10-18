@@ -24,6 +24,7 @@ it('opens usage on demand, switches accounts, handles missing limits and support
       await window.webContents.executeJavaScript('UsageTests.checkLayout()');
       if (process.env.BYTEQUAY_USAGE_CAPTURE) require('fs').writeFileSync(process.env.BYTEQUAY_USAGE_CAPTURE + '-dark.png', (await window.webContents.capturePage()).toPNG());
       window.setSize(360, 600);
+      await untilWidth(360);
       await window.webContents.executeJavaScript('UsageTests.checkLayout()');
       window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
       window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });

@@ -83,17 +83,21 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
     if (fixture.preload !== undefined) {
       await writeFile(join(directory, 'preload.cjs'), fixture.preload);
     }
-    const size = fixture.width === undefined ? '' : `width: ${fixture.width}, height: ${fixture.height}, `;
+    // The constructor shrinks a window to the screen, and a CI runner's display can be smaller than the fixture.
+    const size = fixture.width === undefined ? '' : `window.setSize(${fixture.width}, ${fixture.height ?? 'window.getSize()[1]'});`;
     const preload = fixture.preload === undefined ? '' : `, preload: ${JSON.stringify(join(directory, 'preload.cjs'))}`;
     const network = fixture.blockNetwork === false ? ''
       : "window.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, callback) => callback({ cancel: true }));";
     await writeFile(join(directory, 'main.cjs'), `
       const { app, BrowserWindow, ipcMain, nativeTheme } = require('electron');
       ${electronFixtureLifecycle(fixture.timeoutMs ?? 20_000)}
+      // Fixtures render the same whatever the host's appearance and motion settings are.
       nativeTheme.themeSource = 'light';
+      app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
       app.setPath('userData', ${JSON.stringify(join(directory, 'profile'))});
       app.whenReady().then(async () => {
-        const window = new BrowserWindow({ show: false, ${size}webPreferences: { backgroundThrottling: false${preload} } });
+        const window = new BrowserWindow({ show: false, webPreferences: { backgroundThrottling: false${preload} } });
+        ${size}
         ${network}
         ${fixture.setup ?? ''}
         try {

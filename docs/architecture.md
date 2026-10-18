@@ -33,6 +33,8 @@ Packaged apps own their Java runtime alongside the backend JAR. The release
 build creates it from JDK 25 for the target Mac architecture, and Electron
 starts that bundled executable directly. Installed system Java does not
 determine app startup; runtime updates ship with ByteQuay releases.
+The IDE's Java language server uses a suitable installed JDK when available
+and otherwise shares the backend's Java runtime, avoiding a second bundled JRE.
 
 Goals are a development-only experiment. Packaged renderers omit their controls,
 and the packaged sidecar disables Goal endpoints and automatic guidance. Shared

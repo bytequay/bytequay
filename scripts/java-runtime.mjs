@@ -35,7 +35,7 @@ const modules = execFileSync(join(javaHome, 'bin', 'java'), ['--list-modules'], 
   .trim().split(/\r?\n/).map(module => module.split('@')[0])
   .filter(module => module !== 'jdk.jlink' && module !== 'jdk.jpackage').join(',');
 // Keep reflective and service-loaded modules available to Spring, Hibernate, and provider helpers.
-const options = ['--add-modules', modules, '--strip-debug', '--no-header-files', '--no-man-pages'];
+const options = ['--add-modules', modules, '--compress', 'zip-6', '--strip-debug', '--no-header-files', '--no-man-pages'];
 const marker = createHash('sha256').update(JSON.stringify({ platform, release, options })).digest('hex');
 const vendor = join(dirname(fileURLToPath(import.meta.url)), '..', 'frontend', 'vendor');
 const target = join(vendor, 'jre');

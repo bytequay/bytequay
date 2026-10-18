@@ -64,6 +64,26 @@ try {
   uv(['pip', 'sync', requirements, '--python', python, '--target', sitePackages, '--require-hashes', '--only-binary', ':all:', '--link-mode', 'copy', '--strict']);
   // Console entry points contain build paths; Lab starts Python modules directly.
   await rm(join(sitePackages, 'bin'), { recursive: true, force: true });
+  // The desktop does not compile extensions or run dependency test suites; keep their public testing helpers and notices.
+  for (const path of ['include', 'lib/pkgconfig', 'lib/python3.14/config-3.14-darwin', 'share/man', 'bin/python3-config', 'bin/python3.14-config']) {
+    await rm(join(pythonHome, path), { recursive: true, force: true });
+  }
+  const unusedPackages = [
+    'pandas/tests', 'pyarrow/tests', 'pyarrow/include', 'pyarrow/src',
+    ...['', '_core', '_pyinstaller', 'f2py', 'fft', 'lib', 'linalg', 'ma', 'matrixlib', 'polynomial', 'random', 'testing', 'typing']
+      .map(module => join('numpy', module, 'tests')),
+    'share/jupyter/nbextensions/pydeck', 'pydeck/nbextension/static/index.js.map',
+  ];
+  for (const path of unusedPackages) await rm(join(sitePackages, path), { recursive: true, force: true });
+  // These duplicate bundles serve Jupyter only; preserve their license manifests and pydeck's offline HTML bundle.
+  for (const path of ['plotly/labextension/static', 'share/jupyter/labextensions/jupyterlab-plotly/static']) {
+    const directory = join(sitePackages, path);
+    const entries = await readdir(directory).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+      return [];
+    });
+    for (const name of entries.filter(name => name.endsWith('.js'))) await rm(join(directory, name));
+  }
   await access(join(pythonHome, 'lib', 'python3.14', 'LICENSE.txt'));
   for (const name of sources) {
     const destination = join(image, 'app', name);

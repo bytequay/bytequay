@@ -281,7 +281,7 @@ public class IdeRuntimeService
                     Files.createSymbolicLink(link, target);
                 }
             }
-            configureJavaRuntime(profile, loginShell.javaHomeAtLeast(MINIMUM_JAVA_SERVER_RELEASE));
+            configureJavaRuntime(profile, loginShell.javaHomeAtLeast(MINIMUM_JAVA_SERVER_RELEASE).orElseGet(() -> Path.of(System.getProperty("java.home"))));
             byte[] secret = new byte[32];
             new SecureRandom().nextBytes(secret);
             String token = HexFormat.of().formatHex(secret);
@@ -336,15 +336,15 @@ public class IdeRuntimeService
     }
 
     /**
-     * The Java extension otherwise runs its language server on a bundled JRE 21. Maven import happens inside that
-     * process, so a build plugin compiled for a newer release fails to load there and its modules lose Java support.
+     * Prefer the user's JDK for Maven plugins that need its release; otherwise share the backend's bundled Java.
+     * The Java extension has no separate runtime in the application bundle.
      */
-    private void configureJavaRuntime(Path profile, Optional<Path> javaHome)
+    private void configureJavaRuntime(Path profile, Path javaHome)
             throws IOException
     {
         Path userData = profile.resolve("data").resolve("data");
         Path marker = profile.resolve("java-home");
-        String selected = javaHome.map(Path::toString).orElse("");
+        String selected = javaHome.toString();
         String previous = Files.exists(marker) ? Files.readString(marker) : "";
         if (!previous.equals(selected)) {
             // Project state imported under another runtime keeps its missing modules, so it is rebuilt.
@@ -364,7 +364,7 @@ public class IdeRuntimeService
         }
         // Machine-scoped settings are read from the server's own profile; the renderer's user settings cannot set them.
         Path settings = Files.createDirectories(userData.resolve("Machine")).resolve("settings.json");
-        mapper.writeValue(settings.toFile(), javaHome.map(home -> ImmutableMap.of("java.jdt.ls.java.home", home.toString())).orElse(ImmutableMap.of()));
+        mapper.writeValue(settings.toFile(), ImmutableMap.of("java.jdt.ls.java.home", selected));
     }
 
     private void stop(Live live)

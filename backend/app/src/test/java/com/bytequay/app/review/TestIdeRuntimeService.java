@@ -146,14 +146,17 @@ class TestIdeRuntimeService
         Path otherState = Files.createDirectories(storage.resolve("vadimcn.vscode-lldb")).resolve("state");
         Files.writeString(otherState, "kept");
 
-        // No suitable JDK: the bundled runtime stays, and so does the state it imported.
+        // The old implicit extension runtime has no marker; switching to the shared runtime rebuilds only Java state.
         Files.createDirectories(javaState.getParent());
         Files.writeString(javaState, "bundled");
         runtime.open(worktree);
-        assertThat(Files.readString(settings)).isEqualTo("{}");
-        assertThat(javaState).exists();
+        assertThat(new ObjectMapper().readTree(settings.toFile()).required("java.jdt.ls.java.home").asText()).isEqualTo(System.getProperty("java.home"));
+        assertThat(storage.resolve("redhat.java")).doesNotExist();
+        assertThat(otherState).hasContent("kept");
         runtime.stopWorktree(worktree);
 
+        Files.createDirectories(javaState.getParent());
+        Files.writeString(javaState, "shared");
         Path jdk = directory.resolve("jdk-26");
         when(login.javaHomeAtLeast(21)).thenReturn(Optional.of(jdk));
         runtime.open(worktree);

@@ -34,6 +34,7 @@ console.log('java.base@25\\njava.compiler@25\\njdk.compiler@25\\njdk.jlink@25\\n
 const fs = require('node:fs');
 const path = require('node:path');
 require('node:assert/strict').equal(process.argv[process.argv.indexOf('--add-modules') + 1], 'java.base,java.compiler,jdk.compiler');
+require('node:assert/strict').equal(process.argv[process.argv.indexOf('--compress') + 1], 'zip-6');
 require('node:assert/strict').ok(!process.argv.includes('--module-path'));
 fs.appendFileSync(path.join(process.env.JAVA_HOME, 'calls'), 'build\\n');
 if (process.env.FAIL_JLINK) process.exit(1);

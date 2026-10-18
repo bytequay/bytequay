@@ -51,6 +51,8 @@ if (args[0] === 'python') {
   const directory = path.join(process.env.UV_PYTHON_INSTALL_DIR, 'cpython-3.14.8-macos-${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-none');
   fs.mkdirSync(path.join(directory, 'bin'), { recursive: true });
   fs.mkdirSync(path.join(directory, 'lib', 'python3.14', 'site-packages'), { recursive: true });
+  fs.mkdirSync(path.join(directory, 'include'), { recursive: true });
+  fs.writeFileSync(path.join(directory, 'include', 'Python.h'), 'build-only header');
   fs.writeFileSync(path.join(directory, 'lib', 'python3.14', 'LICENSE.txt'), 'Python license');
   fs.writeFileSync(path.join(directory, 'bin', 'python3'), ${JSON.stringify(`#!${process.execPath}
 const assert = require('node:assert/strict');
@@ -77,6 +79,21 @@ fs.writeFileSync('../smoke-passed', 'yes');
   const site = after('--target');
   fs.mkdirSync(path.join(site, 'streamlit.dist-info'), { recursive: true });
   fs.writeFileSync(path.join(site, 'streamlit.dist-info', 'LICENSE'), 'Streamlit license');
+  for (const file of [
+    'pandas/tests/test_frame.py', 'pandas/testing.py', 'pandas/_testing/__init__.py',
+    'numpy/testing/tests/test_utils.py', 'numpy/testing/__init__.py', 'numpy/_core/tests/test_api.py', 'numpy/_core/include/numpy/random/LICENSE.txt',
+    'pyarrow/include/arrow/api.h', 'pyarrow/src/module.cpp', 'pyarrow/tests/test_array.py', 'pyarrow/libarrow.dylib',
+    'pydeck/nbextension/__init__.py', 'pydeck/nbextension/static/index.js', 'pydeck/nbextension/static/index.js.map',
+    'share/jupyter/nbextensions/pydeck/index.js', 'share/jupyter/nbextensions/pydeck/index.js.map',
+    'plotly/labextension/static/chart.js', 'plotly/labextension/static/third-party-licenses.json',
+    'share/jupyter/labextensions/jupyterlab-plotly/static/chart.js',
+    'share/jupyter/labextensions/jupyterlab-plotly/static/third-party-licenses.json',
+    'plotly/package_data/plotly.min.js', 'plotly/package_data/widgetbundle.js', 'streamlit/static/app.js',
+    'pip/__init__.py',
+  ]) {
+    fs.mkdirSync(path.dirname(path.join(site, file)), { recursive: true });
+    fs.writeFileSync(path.join(site, file), file);
+  }
 }
 `, { mode: 0o755 });
   const run = (args = [], env = {}) => spawnSync(process.execPath, [script, ...args], {
@@ -95,6 +112,21 @@ test('ships the runtime, locked dependencies, sources and licenses after a reloc
   assert.equal(await readFile(join(target, 'app', 'pages', 'Context.py'), 'utf8'), 'context');
   assert.ok(!(await readdir(join(target, 'app'))).includes('test_dashboard.py'));
   assert.equal(await readFile(join(target, 'smoke-passed'), 'utf8'), 'yes');
+  const python = join(target, 'python');
+  const site = join(python, 'lib', 'python3.14', 'site-packages');
+  for (const path of ['include', 'lib/python3.14/site-packages/pandas/tests', 'lib/python3.14/site-packages/numpy/testing/tests',
+    'lib/python3.14/site-packages/numpy/_core/tests', 'lib/python3.14/site-packages/pyarrow/include',
+    'lib/python3.14/site-packages/pyarrow/src', 'lib/python3.14/site-packages/pyarrow/tests',
+    'lib/python3.14/site-packages/pydeck/nbextension/static/index.js.map', 'lib/python3.14/site-packages/share/jupyter/nbextensions/pydeck',
+    'lib/python3.14/site-packages/plotly/labextension/static/chart.js']) {
+    await assert.rejects(readFile(join(python, path)), { code: 'ENOENT' });
+  }
+  for (const path of ['pandas/testing.py', 'pandas/_testing/__init__.py', 'numpy/testing/__init__.py', 'numpy/_core/include/numpy/random/LICENSE.txt', 'pyarrow/libarrow.dylib',
+    'pydeck/nbextension/__init__.py', 'pydeck/nbextension/static/index.js', 'plotly/package_data/plotly.min.js',
+    'plotly/package_data/widgetbundle.js', 'streamlit/static/app.js', 'pip/__init__.py',
+    'plotly/labextension/static/third-party-licenses.json', 'share/jupyter/labextensions/jupyterlab-plotly/static/third-party-licenses.json']) {
+    assert.equal(await readFile(join(site, path), 'utf8'), path);
+  }
   const cached = run();
   assert.equal(cached.status, 0, cached.stderr);
   assert.match(cached.stdout, /already present/);

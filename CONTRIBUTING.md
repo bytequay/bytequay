@@ -259,9 +259,16 @@ architecture (arm64 or x64), with `JAVA_HOME` pointing to a matching JDK 25;
 when unset, the build uses `/usr/libexec/java_home -v 25`. The runtime retains
 JDK modules for reflective loading and provider helpers, excluding the
 build-only `jdk.jlink` and `jdk.jpackage` modules so Temurin's runtime linking
-works without a `jmods` directory. It is rebuilt when the source JDK changes.
+works without a `jmods` directory. ZIP level 6 compresses runtime resources while
+preserving this module set and its license notices. It is rebuilt when the
+source JDK changes.
 Release CI uses the latest Temurin 25 patch; Java security updates reach users
 through new ByteQuay releases.
+
+The IDE's Java language server uses a suitable installed JDK when available,
+otherwise the backend's Java runtime. The IDE bundle omits the Java extension's
+duplicate runtime. `node scripts/test-packaged-ide.mjs` verifies that the Java
+language server initializes with the shared bundled runtime and an empty `PATH`.
 
 Installed apps launch their bundled Java directly, so users do not need a
 separate JDK. Development still uses the tools listed above. Verify runtime
@@ -280,6 +287,10 @@ Python or uv. The build checks that imports work after relocating the runtime
 with an empty `PATH`. Run `node --test scripts/lab-runtime.test.mjs` to check
 packaging behavior. Changes to Lab sources or its dependency lock rebuild the
 bundle on the next start or package.
+
+Lab packaging excludes dependency test suites, build headers, and duplicate
+notebook assets. Runtime libraries, offline chart exports, package metadata,
+and license notices remain in the bundle.
 
 Choose **Settings → Integrations → Lab → Open Lab** to refresh the local
 statistics and start its dashboard. Electron owns that process, chooses an

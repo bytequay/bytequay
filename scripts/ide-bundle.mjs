@@ -30,7 +30,7 @@ const vendor = join(root, 'frontend/vendor');
 const target = join(vendor, 'ide');
 const cache = join(vendor, '.ide-downloads');
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
-const marker = `${platform}:${digest(manifestText)}:1`;
+const marker = `${platform}:${digest(manifestText)}:2`;
 await mkdir(cache, { recursive: true });
 
 async function cached(artifact) {
@@ -88,6 +88,8 @@ try {
     if (`${metadata.publisher}.${metadata.name}`.toLowerCase() !== extension.id || metadata.version !== extension.version) {
       throw new Error(`IDE extension identity mismatch: ${extension.id}`);
     }
+    // The backend selects the user's JDK or its own bundled Java for the language server.
+    if (extension.id === 'redhat.java') await rm(join(directory, 'jre'), { recursive: true, force: true });
     await rename(directory, join(extensions, `${extension.id}-${extension.version}`));
     await rm(extracted, { recursive: true });
   }

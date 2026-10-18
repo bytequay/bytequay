@@ -81,6 +81,8 @@ jobs:
         run: npm run package
       - name: Start packaged backend without system Java
         run: node scripts/test-packaged-backend.mjs
+      - name: Start packaged Java language server without system Java
+        run: node scripts/test-packaged-ide.mjs
       - name: Start packaged Lab without system Python
         run: node scripts/test-packaged-lab.mjs
 

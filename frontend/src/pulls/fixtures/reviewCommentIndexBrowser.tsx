@@ -16,7 +16,7 @@ import { createRoot } from 'react-dom/client';
 import { prDetail } from './pullRequest';
 import type { ReactNode } from 'react';
 import type { Bridge, PullTimelineCommentDto } from '../../types';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, settle, until } from '../../fixtures/harness';
 import PullOverview from '../PullOverview';
 import { remotePullRequest } from '../PullsScreen';
 import ReviewCommentIndex, { commentIndexTarget } from '../ReviewCommentIndex';
@@ -131,7 +131,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         assert(document.activeElement !== null && getComputedStyle(document.activeElement).outlineStyle === 'none',
           'Jumping to a comment must not add a blue outline to the card');
         assert(marker('Preserve the leaf field ID.').getAttribute('aria-label')?.includes('Outdated') === true, 'Index must retain thread status');
-        assert((host.querySelector('.review-comment-scroll')?.scrollTop ?? 0) > 0, 'Navigation must scroll the PR container');
+        // A smooth scroll can take more than a settle to move on a slow machine.
+        await until(() => (host.querySelector('.review-comment-scroll')?.scrollTop ?? 0) > 0, 'Navigation must scroll the PR container');
         checkRailPosition();
         const pane = host.firstElementChild;
         assert(pane instanceof HTMLElement, 'The pane must exist');

@@ -50,7 +50,8 @@ it('renders native syntax, folding, type icons, test colors, usages, search, pri
           const pending = window.webContents.executeJavaScript('window.result');
           let failure; pending.catch(error => { failure = error; });
           const modifier = process.platform === 'darwin' ? 'meta' : 'control';
-          window.show(); window.focus(); window.webContents.focus();
+          // Stay hidden: a shown window loses page focus whenever another app becomes active, and the user's clicks land in it.
+          window.webContents.focus();
           const waitFor = async (expression, attempts = 100) => {
             for (let attempt = 0; attempt < attempts; attempt++) {
               if (failure) throw failure;

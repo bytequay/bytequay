@@ -13,7 +13,7 @@
  */
 import { ipcMain, protocol, WebContentsView, type BrowserWindow } from 'electron';
 // eslint-disable-next-line import/no-unresolved -- Vite inlines the stylesheet's text; the resolver does not know ?raw.
-import palette from './css/palette.css?raw';
+import theme from './artifacts/theme.css?raw';
 import { browserBounds } from './browserTabs';
 import { parseArtifactTarget, type ArtifactTarget } from './artifacts/contracts';
 
@@ -26,20 +26,8 @@ const ID = /^[a-z0-9-]{1,64}$/;
 // Inline scripts and styles only: a page brings everything it needs and reaches nothing.
 const POLICY = "default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'";
 
-/** The app's palette, so a page that links `theme.css` matches ByteQuay and follows its light or dark choice. */
-export const ARTIFACT_THEME = `${palette}
-:root {
-  color-scheme: light dark;
-  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas, monospace;
-  font: 14px/1.6 var(--font-body);
-  color: var(--fg-default);
-  background: var(--surface-canvas);
-}
-body { margin: 0; padding: 24px 32px; }
-code, pre, kbd { font-family: var(--font-mono); font-size: 12px; }
-a { color: var(--fg-link); }
-`;
+/** The page base every page links as `theme.css`, so it matches ByteQuay and follows its light or dark choice. */
+export const ARTIFACT_THEME = theme;
 
 /** Each artifact is its own origin, so one page cannot read another page's storage. */
 export function artifactUrl(target: ArtifactTarget): string {

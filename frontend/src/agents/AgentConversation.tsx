@@ -1266,7 +1266,7 @@ export function ConversationComposer({
   composerRef, onPaste, connection, closing = false, ciMention = false, routedToCi = false, ciMessageHint,
   placeholder = "Let's ship something",
   steerTitle = 'Sends into the running turn now', queueTitle = 'Runs after this turn finishes',
-  stopLabel = 'Stop this turn', stopTitle = 'Interrupts the running turn and waits for its work to stop',
+  stopLabel = 'Stop this turn', stopTitle = 'Interrupts the running turn and waits for its work to stop', turnControls = true,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -1310,6 +1310,8 @@ export function ConversationComposer({
   queueTitle?: string;
   stopLabel?: string;
   stopTitle?: string;
+  /** The model, attachment, steer and queue controls; off for a conversation that has none of them. */
+  turnControls?: boolean;
 }): React.JSX.Element {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
@@ -1397,11 +1399,11 @@ export function ConversationComposer({
           // A development turn reads as running during its baseline capture, before it can be stopped cleanly.
           <button type="button" className="agt-send is-stop" aria-label={stopLabel}
             title={stopTitle} onClick={onStop} disabled={sending}><span className="agt-stop-square" aria-hidden="true" /></button>}>
-        <ComposerModelControls models={models} model={model} effort={effort} serviceTier={serviceTier} provider={provider}
+        {turnControls && <ComposerModelControls models={models} model={model} effort={effort} serviceTier={serviceTier} provider={provider}
           providers={providers} laneId={laneId} onSelectProvider={onSelectProvider} onSelectModel={onSelectModel}
           disabled={sending || disabled || closing} modelLabel="Model and effort for the next message" automation={automation}
-          onAttach={onAttach} attachEnabled={attachEnabled} attachTitle={attachTitle} />
-        {running && !routedToCi && value.trim() !== '' && <>
+          onAttach={onAttach} attachEnabled={attachEnabled} attachTitle={attachTitle} />}
+        {turnControls && running && !routedToCi && value.trim() !== '' && <>
           <button type="button" className="agt-steer" disabled={!steerEnabled} title={steerTitle} onClick={onSteer}>Steer</button>
           <button type="button" className="agt-compose__chip" disabled={!queueEnabled} title={queueTitle} onClick={onQueue}>Run next</button>
         </>}

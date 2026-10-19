@@ -2137,8 +2137,9 @@ app.on('ready', async () => {
   nativeTheme.on('updated', () => {
     for (const window of BrowserWindow.getAllWindows()) window.setBackgroundColor(windowBackground());
   });
-  registerIpc();
+  // Packaged startup restores the login-shell PATH before IPC services discover tools such as Gemini.
   spawnBackend();
+  registerIpc();
   const backendReady = await waitForBackendReady();
   if (!backendReady) reportBackendFailure();
   else {

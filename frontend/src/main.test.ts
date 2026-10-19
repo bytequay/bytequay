@@ -77,6 +77,23 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+it('imports login-shell tool directories before constructing Gemini setup', async () => {
+  const backend = await import('./backendProcess');
+  const gemini = await import('./google/geminiSetup');
+  const Setup = gemini.GeminiSetup;
+  const paths: Array<string | undefined> = [];
+  vi.stubEnv('PATH', '/usr/bin:/bin');
+  vi.mocked(backend.spawnBackend).mockImplementationOnce(() => { process.env.PATH = '/Users/me/.nvm/bin:/usr/bin:/bin'; });
+  vi.spyOn(gemini, 'GeminiSetup').mockImplementation(function (...args) {
+    paths.push(process.env.PATH);
+    return new Setup(...args);
+  });
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  expect(paths).toEqual(['/Users/me/.nvm/bin:/usr/bin:/bin']);
 });
 
 it('denies browser permissions before opening a remote popout', async () => {

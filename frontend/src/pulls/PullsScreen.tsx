@@ -1621,6 +1621,14 @@ export function hasMergeConflicts(detail: PullRequestDetailDto | null) {
   return ['dirty', 'conflicting', 'conflicts'].includes(detail?.mergeableState?.toLowerCase() ?? '');
 }
 
+/** Whether the merge sheet's button may merge now: every place that merges a pull request asks the same. */
+export function mergeReady(detail: PullRequestDetailDto, mergeQueue: boolean | null | undefined): boolean {
+  const { state, unresolved } = mergeStatus(detail);
+  return !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite
+    && (state === 'ready' || (mergeQueue === true && state === 'pending' && unresolved === 0))
+    && typeof mergeQueue === 'boolean' && !!detail.headSha && !hasMergeConflicts(detail) && !isQueued(detail.recentActivity);
+}
+
 export function mergeActionLabel(mergeQueue: boolean | null | undefined, conflicts = false) {
   if (conflicts) return 'Conflicts';
   if (mergeQueue === undefined) return 'Loading merge status';
@@ -2115,9 +2123,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
   const queued = isQueued(detail.recentActivity);
   const lastRemoval = detail.recentActivity.filter(activity => activity.eventType === 'removed_from_merge_queue').at(-1);
   const canRemoveFromQueue = queued && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite;
-  const canMerge = !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite
-    && (state === 'ready' || (mergeQueue === true && state === 'pending' && unresolved === 0))
-    && typeof mergeQueue === 'boolean' && !!detail.headSha && !conflicts && !queued;
+  const canMerge = mergeReady(detail, mergeQueue);
 
   useEffect(() => {
     mounted.current = true;

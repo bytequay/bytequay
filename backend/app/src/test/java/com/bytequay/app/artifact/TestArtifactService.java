@@ -325,6 +325,27 @@ class TestArtifactService
     }
 
     @Test
+    void aRestartClosesAQuestionItsTurnWasWaitingOn()
+    {
+        agent.add(turn -> turn.context().approvals().request(approval("AskUserQuestion", QUESTION_INPUT), Duration.ofMinutes(1)).toCompletableFuture()
+                .thenApply(decision -> new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.empty(), Optional.empty(), Duration.ofSeconds(1), true)));
+        String id = artifacts.start(WORKSPACE, "Teach me position deletes").artifact().id();
+        waitUntil(() -> !artifacts.view(WORKSPACE, id).questions().isEmpty());
+
+        // ByteQuay starts again on the same store; the turn and its waiting question are gone.
+        ArtifactService restarted = new ArtifactService(store, models, drivers, resources, repositories, builds, git,
+                new AgentProperties(runtime, Duration.ZERO, "", "codex", "0.159.3", temporaryDirectory.resolve("codex-home"), "claude", temporaryDirectory.resolve("claude-home")),
+                new ObjectMapper(), Clock.systemUTC(), executor);
+        restarted.settleInterrupted();
+
+        List<AgentEventEnvelope> events = restarted.events(WORKSPACE, id, 0);
+        assertThat(events.get(events.size() - 2).payload()).isInstanceOfSatisfying(AgentEventPayload.ApprovalResolved.class,
+                resolved -> assertThat(resolved.outcome()).isEqualTo(AgentEventPayload.ApprovalOutcome.CANCELLED));
+        assertThat(transcript(id)).last().isEqualTo("interrupted: Stopped when ByteQuay closed");
+        assertThat(restarted.view(WORKSPACE, id).artifact().working()).isFalse();
+    }
+
+    @Test
     void aLostConversationGoesOnFreshWithItsHistoryAndPages()
     {
         agent.add(turn -> {

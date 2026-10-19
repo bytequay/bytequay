@@ -71,6 +71,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -268,10 +269,20 @@ public class ArtifactService
     public void settleInterrupted()
     {
         for (Artifact artifact : store.working()) {
+            List<AgentEventEnvelope> events = store.events(artifact.workspaceId(), artifact.id(), 0, Integer.MAX_VALUE).stream().map(ArtifactService::event).collect(toImmutableList());
             // The turn cut short is the one the log's last event belongs to.
-            long last = store.lastEvent(artifact.workspaceId(), artifact.id());
-            Optional<TurnId> turn = store.events(artifact.workspaceId(), artifact.id(), Math.max(0, last - 1), 1).stream().findFirst()
-                    .flatMap(json -> event(json).turnId());
+            Optional<TurnId> turn = events.isEmpty() ? Optional.empty() : events.getLast().turnId();
+            // A question it was waiting on went with it, so its card closes rather than taking an answer nobody waits for.
+            Map<String, AgentEventSource> open = new LinkedHashMap<>();
+            for (AgentEventEnvelope event : events) {
+                switch (event.payload()) {
+                    case AgentEventPayload.ApprovalRequested requested -> open.put(requested.approvalId(), event.source());
+                    case AgentEventPayload.ApprovalResolved resolved -> open.remove(resolved.approvalId());
+                    default -> {
+                    }
+                }
+            }
+            open.forEach((id, source) -> write(artifact, turn, source, new AgentEventPayload.ApprovalResolved(id, AgentEventPayload.ApprovalOutcome.CANCELLED, false)));
             write(artifact, turn, lifecycle(AgentEventPayload.LifecyclePhase.INTERRUPTED, "Stopped when ByteQuay closed"));
             store.save(artifact.working(false, clock.instant()));
         }
@@ -381,7 +392,7 @@ public class ArtifactService
             write(artifact, turn, lifecycle(AgentEventPayload.LifecyclePhase.INTERRUPTED, "Stopped"));
         }
         else {
-            failure.ifPresent(reason -> write(artifact, turn, new AgentEventPayload.Error("TURN_FAILED", clip(reason, REASON), true)));
+            failure.ifPresent(reason -> write(artifact, turn, new AgentEventPayload.Error("TURN_FAILED", clip(reason, REASON), false)));
             write(artifact, turn, lifecycle(AgentEventPayload.LifecyclePhase.TURN_COMPLETED, failure.map(reason -> "Turn failed: " + clip(reason, REASON)).orElse("Turn completed")));
         }
         Artifact ended = current.orElseThrow().working(false, clock.instant());

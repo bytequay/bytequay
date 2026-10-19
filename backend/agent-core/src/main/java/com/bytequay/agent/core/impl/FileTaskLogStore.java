@@ -14,26 +14,16 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentEventEnvelope;
-import com.bytequay.agent.core.AgentEventPayload;
-import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentEventJson;
 import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.BlobRef;
-import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
-import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
 
 import java.io.BufferedInputStream;
@@ -45,10 +35,8 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
@@ -73,7 +61,6 @@ public final class FileTaskLogStore
     private final AgentResourceService resourceService;
     private final int maxEventBytes;
     private final int maxBlobBytes;
-    private final ObjectMapper objectMapper;
     private final DirectorySync directorySync;
     private final ConcurrentMap<TaskId, Object> taskLocks = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, Long> lastSequences = new ConcurrentHashMap<>();
@@ -95,11 +82,6 @@ public final class FileTaskLogStore
         this.maxEventBytes = maxEventBytes;
         this.maxBlobBytes = maxBlobBytes;
         this.directorySync = requireNonNull(directorySync, "directorySync is null");
-        this.objectMapper = new ObjectMapper()
-                .registerModule(new Jdk8Module())
-                .registerModule(new JavaTimeModule())
-                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     }
 
     @Override
@@ -630,60 +612,23 @@ public final class FileTaskLogStore
         return null;
     }
 
-    private byte[] serialize(AgentEventEnvelope envelope)
+    private static byte[] serialize(AgentEventEnvelope envelope)
     {
-        ObjectNode root = objectMapper.createObjectNode();
-        root.put("schemaVersion", envelope.schemaVersion());
-        root.put("eventId", envelope.eventId().toString());
-        root.put("sequence", envelope.sequence());
-        root.put("taskId", envelope.taskId().toString());
-        envelope.turnId().ifPresentOrElse(turnId -> root.put("turnId", turnId.toString()), () -> root.putNull("turnId"));
-        root.set("source", objectMapper.valueToTree(envelope.source()));
-        root.put("occurredAt", envelope.occurredAt().toString());
-        root.put("type", envelope.type().name().toLowerCase(Locale.ROOT));
-        root.set("payload", objectMapper.valueToTree(envelope.payload()));
         try {
-            return objectMapper.writeValueAsBytes(root);
+            return AgentEventJson.write(envelope);
         }
         catch (JsonProcessingException e) {
             throw new AgentStorageException("Cannot serialize task event", e);
         }
     }
 
-    private AgentEventEnvelope deserialize(byte[] line)
+    private static AgentEventEnvelope deserialize(byte[] line)
     {
         try {
-            JsonNode root = objectMapper.readTree(line);
-            int schemaVersion = root.required("schemaVersion").intValue();
-            return switch (schemaVersion) {
-                case AgentEventEnvelope.CURRENT_SCHEMA_VERSION -> deserializeV2(root);
-                default -> throw new IllegalArgumentException("Unsupported schemaVersion: " + schemaVersion);
-            };
+            return AgentEventJson.read(line);
         }
         catch (IOException | RuntimeException e) {
             throw new AgentStorageException("Task log contains a corrupt record", e);
         }
-    }
-
-    private AgentEventEnvelope deserializeV2(JsonNode root)
-            throws JsonProcessingException
-    {
-        AgentEventPayload.Kind kind = AgentEventPayload.Kind.valueOf(root.required("type").textValue().toUpperCase(Locale.ROOT));
-        AgentEventPayload payload = objectMapper.treeToValue(root.required("payload"), kind.type());
-        return new AgentEventEnvelope(
-                AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
-                EventId.valueOf(root.required("eventId").textValue()),
-                root.required("sequence").longValue(),
-                TaskId.valueOf(root.required("taskId").textValue()),
-                turnId(root),
-                objectMapper.treeToValue(root.required("source"), AgentEventSource.class),
-                Instant.parse(root.required("occurredAt").textValue()),
-                payload);
-    }
-
-    private static Optional<TurnId> turnId(JsonNode root)
-    {
-        JsonNode turnId = root.required("turnId");
-        return turnId.isNull() ? Optional.empty() : Optional.of(TurnId.valueOf(turnId.textValue()));
     }
 }

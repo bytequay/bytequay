@@ -274,10 +274,12 @@ public class IdeRuntimeService
                 checkArgument(name.matches("[A-Za-z0-9_.-]+"), "Invalid IDE extension identity");
                 Path target = bundle.resolve("extensions").resolve(name).toRealPath();
                 Path link = extensions.resolve(name);
-                if (Files.exists(link, LinkOption.NOFOLLOW_LINKS)) {
-                    checkState(Files.isSymbolicLink(link) && link.toRealPath().equals(target), "The IDE extension profile changed");
+                // ./dev.sh and the packaged app share this profile, and moving the app changes the bundle path.
+                if (Files.isSymbolicLink(link) && !Files.readSymbolicLink(link).equals(target)) {
+                    Files.delete(link);
                 }
-                else {
+                if (!Files.isSymbolicLink(link)) {
+                    checkState(Files.notExists(link, LinkOption.NOFOLLOW_LINKS), "The IDE extension profile changed");
                     Files.createSymbolicLink(link, target);
                 }
             }

@@ -136,6 +136,22 @@ class TestIdeRuntimeService
     }
 
     @Test
+    void relinksExtensionsFromAnotherBundle()
+            throws IOException
+    {
+        Path extensions = Files.createDirectories(directory.resolve("runtime/ide").resolve(worktree.taskId().toString()).resolve("a".repeat(40)).resolve("extensions"));
+        Path link = extensions.resolve("redhat.java-1.56.0");
+        Files.createSymbolicLink(link, directory.resolve("moved-bundle/extensions/redhat.java-1.56.0"));
+        IdeConnection connection = runtime.open(worktree);
+        assertThat(link.toRealPath()).isEqualTo(Path.of(connection.bundleRoot(), "extensions/redhat.java-1.56.0"));
+        runtime.stopWorktree(worktree);
+
+        Files.delete(link);
+        Files.createDirectory(link);
+        assertThatThrownBy(() -> runtime.open(worktree)).hasMessageContaining("extension profile changed");
+    }
+
+    @Test
     void runsTheJavaServerOnTheNewestJdkAndRebuildsStateFromAnotherRuntime()
             throws IOException
     {

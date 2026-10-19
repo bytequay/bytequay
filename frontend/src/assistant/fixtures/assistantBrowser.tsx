@@ -104,12 +104,14 @@ const RUNNING: RunningTask = {
 
 type Calls = {
   sent: unknown[][]; resolved: unknown[][]; opened: string[]; removed: string[]; stopped: number; closed: number; cancelled: string[]; answered: string[];
+  completed: unknown[][];
 };
 
 type Mounted = { host: HTMLElement; calls: Calls; render: (open: boolean, openCard?: { id: string }) => void; dispose: () => void };
 
-function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, running: RunningTask[] = [], replied: () => AssistantViewDto = () => view): Mounted {
-  const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [] };
+function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, running: RunningTask[] = [], replied: () => AssistantViewDto = () => view,
+  completed: () => AssistantViewDto = () => view): Mounted {
+  const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [], completed: [] };
   let failures = failSends;
   let today = view;
   window.bridge = {
@@ -130,6 +132,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     resolveAgentApproval: async (...args: unknown[]) => { calls.resolved.push(args); return {}; },
     recordAssistantAnswer: async (id: string) => { calls.answered.push(id); },
     cancelAgentTurn: async (turnId: string) => { calls.cancelled.push(turnId); return {}; },
+    completeAgentTask: async (...args: unknown[]) => { calls.completed.push(args); today = completed(); return {}; },
     openAppNotice: async (id: string) => { calls.opened.push(id); },
     removeAppNotice: async (id: string) => { calls.removed.push(id); },
   } as unknown as Bridge;
@@ -466,6 +469,60 @@ async function followsAnOpenOnceWhenItArrives(): Promise<void> {
   }
 }
 
+const taskRow = (id: string, title: string, state: string): AssistantRowDto => row({ ref: `task:${id}`, kind: 'TASK', title, target: target('TASK', { id }),
+  agent: 'Claude Code', state, at: ago(5), latest: { by: 'Claude Code', text: 'The snapshot id is in $snapshots now.', at: ago(5) } });
+const taskView = (first: string): AssistantViewDto => {
+  const rows = [taskRow('t1', 'Expose snapshot id in metadata', first), taskRow('t2', 'Retry Iceberg commit on conflict', 'running'),
+    taskRow('t3', 'Drop the old cache key', 'completed')];
+  const list: AssistantItemDto = { id: 'l2', day: '2026-10-16', at: '2026-10-16T07:06:10Z', kind: 'LIST', text: 'Your tasks', targets: {}, notReady: false, receipt: null,
+    list: { style: 'CARDS', refs: rows.map(each => each.ref) } };
+  return { ...VIEW, items: [VIEW.items[0], list], rows: Object.fromEntries(rows.map(each => [each.ref, each])) };
+};
+
+async function completesATaskFromItsCard(): Promise<void> {
+  const view = mount(taskView('idle'), 0, [], [], () => taskView('idle'), () => taskView('completed'));
+  try {
+    await settle();
+    enter(type(view.host, 'close the snapshot task'));
+    await settle();
+    const cards = () => [...view.host.querySelectorAll<HTMLElement>('.assistant-item-card')];
+    const complete = (card: HTMLElement) => card.querySelector<HTMLButtonElement>('.card-actions button');
+    const [idle, running, ended] = cards();
+    const button = complete(idle);
+    assert(button !== null && !button.disabled && button.title === 'Complete task' && button.getAttribute('aria-label') === 'Complete “Expose snapshot id in metadata”',
+      `An idle task's card has its own Complete task: ${button?.outerHTML.slice(0, 120)}`);
+    assert(complete(running)?.disabled === true && complete(running)?.title === 'Available when the task is idle', 'A working task cannot be completed yet');
+    assert(complete(ended) === null, 'An ended task has nothing to complete');
+    const actions = idle.querySelector<HTMLElement>('.card-actions');
+    assert(actions !== null && getComputedStyle(actions).display === 'none' && actions.nextElementSibling?.className === 'card-age',
+      'Like every card action, it takes the age\'s place under the pointer or focus');
+
+    const hash = window.location.hash;
+    button.click();
+    await settle();
+    assert(JSON.stringify(view.calls.completed) === '[["t1","ws1"]]', `The click completes that task: ${JSON.stringify(view.calls.completed)}`);
+    assert(view.calls.closed === 0 && window.location.hash === hash, 'Its button never opens the card it sits on');
+    const strip = cards()[0].querySelector('.assistant-item-card__strip .pill')?.textContent;
+    assert(strip === 'Completed' && complete(cards()[0]) === null, `The list reads the task again and shows it completed: ${strip}`);
+  }
+  finally { view.dispose(); }
+
+  const refused = mount(taskView('idle'), 0, [], [], () => taskView('idle'), () => {
+    throw new Error("Error invoking remote method 'agent:tasks:complete': Error: Run or remove every waiting queued message first");
+  });
+  try {
+    await settle();
+    enter(type(refused.host, 'close it'));
+    await settle();
+    refused.host.querySelector<HTMLButtonElement>('.assistant-item-card .card-actions button')?.click();
+    await settle();
+    assert(refused.host.querySelector('.assistant-error')?.textContent === 'Run or remove every waiting queued message first',
+      `A refused completion says why: ${refused.host.querySelector('.assistant-error')?.textContent}`);
+    assert(refused.host.querySelector<HTMLButtonElement>('.assistant-item-card .card-actions button')?.disabled === false, 'Its button can be tried again');
+  }
+  finally { refused.dispose(); }
+}
+
 async function stopsARunningReply(): Promise<void> {
   const view = mount({ ...VIEW, running: true });
   try {
@@ -486,7 +543,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
     ['moves with the keyboard', movesWithTheKeyboard], ['opens at a card from its alert', opensAtACardFromItsAlert],
     ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline],
-    ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives]] as const) {
+    ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }
@@ -495,16 +552,17 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
 
 let preview: { dispose: () => void } | null = null;
 
-/** Draws a list the assistant showed in one style, for a screenshot. */
-export async function showListPreview(style: AssistantListStyle): Promise<void> {
+/** Draws a list the assistant showed in one style, for a screenshot; `tasks` is a list of task cards with an idle one focused. */
+export async function showListPreview(style: AssistantListStyle | 'tasks'): Promise<void> {
   preview?.dispose();
   document.body.style.margin = '0';
   document.body.style.background = 'var(--bg)';
-  const mounted = mount(listView(style), 0, []);
+  const mounted = mount(style === 'tasks' ? taskView('idle') : listView(style), 0, []);
   preview = mounted;
   await new Promise(resolve => setTimeout(resolve, 150));
   enter(type(mounted.host, 'What is waiting on me?'));
   await new Promise(resolve => setTimeout(resolve, 150));
+  if (style === 'tasks') mounted.host.querySelector<HTMLElement>('.assistant-item-card')?.focus();
 }
 
 /** Draws the Assistant over a page for a screenshot: the day's conversation once the user talks, and an approval on top of a few cards. */

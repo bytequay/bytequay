@@ -136,6 +136,12 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     event.preventDefault();
     if (ref in targets) show(targets[ref]);
   };
+  // The user's own click on a task's card; the list shows it completed once the day is read again.
+  const completeTask = (target: AgendaTargetDto): Promise<void> => {
+    if (target.id === null || target.workspaceId === null) return Promise.resolve();
+    setFailure(null);
+    return window.bridge.completeAgentTask(target.id, target.workspaceId).then(refresh).catch((cause: unknown) => setFailure(remoteErrorMessage(cause)));
+  };
   const noticeAction = (action: Promise<void>, message: string, then?: () => void) => {
     setFailure(null);
     void action.then(then).catch(() => setFailure(message));
@@ -145,8 +151,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     <div ref={scroller} className="assistant-sheet assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
       {entries(items).map(entry => Array.isArray(entry)
         ? <div key={entry[0].id} className="assistant-receipts">{entry.map(item => <Receipt key={item.id} item={item} onOpen={openReceipt} />)}</div>
-        : <Entry key={entry.id} item={entry} rows={view?.rows ?? {}} retryable={chatEnabled && !running && entry.id === lastExchange} onRetry={retry}
-          onSettings={openSettings} onOpen={show} />)}
+        : <Entry key={entry.id} item={entry} rows={view?.rows ?? {}} retryable={chatEnabled && !running && entry.id === lastExchange} onRetry={retry} onSettings={openSettings}
+          onOpen={show} onComplete={completeTask} />)}
       {running && <p className="assistant-thinking" role="status">Thinking…</p>}
     </div>
   );
@@ -203,20 +209,21 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   );
 }
 
-function Entry({ item, rows, retryable, onRetry, onSettings, onOpen }: {
+function Entry({ item, rows, retryable, onRetry, onSettings, onOpen, onComplete }: {
   item: AssistantItemDto;
   rows: Record<string, AssistantRowDto>;
   retryable: boolean;
   onRetry: () => void;
   onSettings: (section: SettingsSection) => void;
   onOpen: (target: AgendaTargetDto) => void;
+  onComplete: (target: AgendaTargetDto) => Promise<void>;
 }) {
   if (item.kind === 'USER') return <>
     <div className="assistant-time">{clockTime(item.at)}</div>
     <div className="agt-user"><div className="agt-user__bubble">{item.text}</div></div>
   </>;
   if (item.kind === 'REPLY') return <div className="assistant-reply">{renderMarkdown(linkRefs(item.text, item.targets))}</div>;
-  if (item.kind === 'LIST') return <AssistantList item={item} rows={rows} onOpen={onOpen} />;
+  if (item.kind === 'LIST') return <AssistantList item={item} rows={rows} onOpen={onOpen} onComplete={onComplete} />;
   if (item.kind === 'RECEIPT') {
     // What was refused or failed: one muted line, pointing down at the card's buttons when they are the way to do it.
     const failed = item.receipt?.outcome === 'FAILED';

@@ -102,6 +102,7 @@ public class AssistantService
             Write each ref as a Markdown link with a short label, such as [#31402](pr:trinodb/trino#31402).
             Show several items with assistant_show list, not as text.
             Open a page or item with assistant_show open, only when the user's latest message asks.
+            Completing a task is the user's click: show the task with assistant_show list in the cards style, whose card has Complete task.
             """;
 
     private final AssistantStore store;

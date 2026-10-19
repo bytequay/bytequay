@@ -54,6 +54,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -91,6 +92,8 @@ class AssistantRows
     private static final int ISSUE_PAGES = 5;
     private static final int TASKS = 500;
     private static final Pattern NUMBER = Pattern.compile("#?(\\d{1,9})");
+    /** What a task does while its turn or its automation is still at work; a settled turn leaves the task idle. */
+    private static final Set<RunningTask.Status> WORKING = Sets.immutableEnumSet(RunningTask.Status.RUNNING, RunningTask.Status.WAITING, RunningTask.Status.BLOCKED);
 
     private final PullRequestStore pullRequests;
     private final PrDetailStore details;
@@ -251,13 +254,17 @@ class AssistantRows
                 Optional.of(phase.since()), phase.latest(), AgendaTarget.of(AgendaTarget.Kind.REVIEW, review.workspaceId(), review.id()));
     }
 
-    /** Where a task's work stands: its running phase while it runs or waits, else idle or how it ended, with what was said last. */
+    /**
+     * Where a task's work stands, with what was said last: running, waiting or blocked while it works, idle while it waits for the user's
+     * next message, and completed or failed once the task itself ended. Only an idle task can be completed.
+     */
     private record Phase(String name, Instant since, String agent, Optional<Latest> latest) {}
 
     private Phase phase(AgentTask task, Shared shared)
     {
-        Optional<RunningTask> now = Optional.ofNullable(shared.running.get().get(task.id().toString()));
-        String name = now.map(value -> lower(value.status().name())).orElseGet(() -> task.state() == TaskState.OPEN ? "idle" : lower(task.state().name()));
+        Optional<RunningTask> now = Optional.ofNullable(shared.running.get().get(task.id().toString())).filter(value -> WORKING.contains(value.status()));
+        // The sidebar keeps a turn that just completed or failed for a while; the task itself is open and idle until the user ends it.
+        String name = task.state() == TaskState.OPEN ? now.map(value -> lower(value.status().name())).orElse("idle") : lower(task.state().name());
         String agent = shared.agents.get().getOrDefault(task.laneId().value(), task.laneId().value());
         Optional<Latest> latest = Optional.ofNullable(activities.read(ImmutableList.of(task)).get(task.id())).flatMap(activity -> activity.lastMessage())
                 .map(message -> new Latest(Optional.of(message.author() == TaskMessage.Author.AGENT ? agent : "You"), clip(message.text(), LINE), message.at()));

@@ -24,7 +24,8 @@ import java.util.Optional;
  * status and time; a work item's Epic and state; an Epic's done and total.
  *
  * @param key a pull request's or issue's number, or a ticket's key
- * @param state a pull request's open, draft, merged or closed; a task's phase; an issue's or ticket's status; a work item's state
+ * @param state a pull request's open, draft, merged or closed; a task's running, waiting, blocked, idle, completed or failed; an issue's
+ *         or ticket's status; a work item's state
  * @param ci a pull request's checks: passing, failing or pending
  * @param review a pull request's review decision
  * @param approvals how many reviewers approve a pull request, from its cached reviews

@@ -84,6 +84,9 @@ class TestAssistantRows
     private static final Instant NOW = Instant.parse("2026-10-17T10:00:00Z");
     private static final AgentTask WAITING = task("Expose snapshot id in metadata", "claude", NOW.minusSeconds(7200));
     private static final AgentTask IDLE = task("Add metadata cache", "codex", NOW.minusSeconds(3600));
+    private static final AgentTask SETTLED = task("Retry Iceberg commit on conflict", "claude", NOW.minusSeconds(60));
+    private static final AgentTask ENDED = task("Drop the old cache key", "claude", NOW.minusSeconds(7200))
+            .fail("Stopped by the user", NOW.minusSeconds(30), NOW.plusSeconds(86400));
     private static final Workspace TRINO = new Workspace("ws1", "Trino", 1, RepoRef.of("trinodb", "trino"), Optional.empty(), Optional.empty(), 1, RepoRef.of("trinodb", "trino"),
             Workspace.Topology.DIRECT, "master", "https://github.com/trinodb/trino.git", Optional.empty(), Optional.empty(), "/managed/trino", Optional.empty(),
             Optional.empty(), 0, NOW, NOW);
@@ -139,8 +142,12 @@ class TestAssistantRows
 
         when(tasks.find(WAITING.id())).thenReturn(Optional.of(WAITING));
         when(tasks.find(IDLE.id())).thenReturn(Optional.of(IDLE));
+        when(tasks.find(SETTLED.id())).thenReturn(Optional.of(SETTLED));
+        when(tasks.find(ENDED.id())).thenReturn(Optional.of(ENDED));
+        // The sidebar still lists a turn that completed a minute ago; the task is open and waits for the user.
         when(running.current()).thenReturn(ImmutableList.of(new RunningTask(WAITING.id().toString(), "ws1", WAITING.title(), "trinodb/trino", RunningTask.Kind.TASK,
-                WAITING.id().toString(), RunningTask.Status.WAITING, NOW.minusSeconds(240), Optional.empty())));
+                WAITING.id().toString(), RunningTask.Status.WAITING, NOW.minusSeconds(240), Optional.empty()), new RunningTask(SETTLED.id().toString(), "ws1",
+                SETTLED.title(), "trinodb/trino", RunningTask.Kind.TASK, SETTLED.id().toString(), RunningTask.Status.COMPLETED, NOW.minusSeconds(900), Optional.empty())));
         when(activities.read(ImmutableList.of(WAITING))).thenReturn(ImmutableMap.of(WAITING.id(), new TaskActivity(Optional.of(new TaskMessage(TaskMessage.Author.AGENT,
                 "Which table should hold the snapshot id?", NOW.minusSeconds(240), Optional.empty())), Optional.empty(), Optional.empty())));
         when(reviews.findReview("r7")).thenReturn(Optional.of(new AgentReview("r7", "ws1", "trinodb/trino", OptionalInt.of(31377), OptionalLong.of(8), IDLE.id().toString(),
@@ -206,6 +213,16 @@ class TestAssistantRows
         // Tickets come from Jira's cache; reading rows never asks Jira.
         verify(jira).cachedIssue("cloud", "10042");
         verifyNoMoreInteractions(jira);
+    }
+
+    @Test
+    void readsAnOpenTaskAsIdleOnceItsTurnSettlesAndAnEndedOneAsEnded()
+    {
+        Map<String, AssistantRow> read = rows.rows(ImmutableList.of("task:" + SETTLED.id(), "task:" + ENDED.id()));
+
+        assertThat(read.get("task:" + SETTLED.id()).state()).contains("idle");
+        assertThat(read.get("task:" + SETTLED.id()).at()).contains(SETTLED.updatedAt());
+        assertThat(read.get("task:" + ENDED.id()).state()).contains("failed");
     }
 
     @Test

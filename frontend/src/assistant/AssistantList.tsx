@@ -13,7 +13,7 @@
  */
 import { useState, type ReactNode } from 'react';
 import { CalendarClock, Check, CircleCheck, CircleDashed, CircleOff, CircleX, FileDiff, LayoutGrid, ListChecks, ListTodo, ListTree, Rows3, TriangleAlert } from 'lucide-react';
-import { Card, CardAge, Clickable, IconButton, Pill, SourceIcon } from '../cards/Card';
+import { Card, CardActions, CardAge, Clickable, IconButton, Pill, SourceIcon } from '../cards/Card';
 import type { AttentionSource } from '../home/attention';
 import { clockTime } from '../home/today';
 import type { AgendaTargetDto, AssistantItemDto, AssistantListStyle, AssistantRowDto } from '../types';
@@ -34,12 +34,22 @@ const CHECKS: Record<string, { icon: ReactNode; tone: string; title: string }> =
 };
 
 type Open = (target: AgendaTargetDto) => void;
+/** Completes a task by the user's click; settles once the call is done, failed or not. */
+type Complete = (target: AgendaTargetDto) => Promise<void>;
+
+/** The phases of a task that is still open; only an idle one can be completed. */
+const OPEN_PHASES = ['running', 'waiting', 'blocked', 'idle'];
 
 /**
  * A list the assistant showed: its title, a switch between rows, cards and a timeline, and each ref drawn from the app's own data,
  * which the assistant never writes. It picks the first style; the switch changes only how this list draws.
  */
-export default function AssistantList({ item, rows, onOpen }: { item: AssistantItemDto; rows: Record<string, AssistantRowDto>; onOpen: Open }): React.JSX.Element | null {
+export default function AssistantList({ item, rows, onOpen, onComplete }: {
+  item: AssistantItemDto;
+  rows: Record<string, AssistantRowDto>;
+  onOpen: Open;
+  onComplete: Complete;
+}): React.JSX.Element | null {
   const [style, setStyle] = useState<AssistantListStyle>(item.list?.style ?? 'ROWS');
   if (item.list === null) return null;
   const { refs } = item.list;
@@ -54,7 +64,9 @@ export default function AssistantList({ item, rows, onOpen }: { item: AssistantI
             pressed={each.style === style} onClick={() => setStyle(each.style)}>{each.icon}</IconButton>
         ))}
       </div>
-      {style === 'CARDS' && <div className="assistant-items__cards">{refs.map(ref => <ItemCard key={ref} id={ref} row={rows[ref]} onOpen={onOpen} />)}</div>}
+      {style === 'CARDS' && (
+        <div className="assistant-items__cards">{refs.map(ref => <ItemCard key={ref} id={ref} row={rows[ref]} onOpen={onOpen} onComplete={onComplete} />)}</div>
+      )}
       {style === 'TIMELINE' && timelineDays(refs, rows).map(day => (
         <div key={day.day ?? 'untimed'} className="assistant-items__day">
           {day.day !== null && <div className="assistant-items__date">{dayLabel(day.day)}</div>}
@@ -83,8 +95,8 @@ function Line({ id, row, timed, onOpen }: { id: string; row: AssistantRowDto | u
   );
 }
 
-/** One item as a card: where it stands in the strip, and what happened last in the body. */
-function ItemCard({ id, row, onOpen }: { id: string; row: AssistantRowDto | undefined; onOpen: Open }) {
+/** One item as a card: where it stands in the strip, and what happened last in the body; a task's card also carries its own Complete task. */
+function ItemCard({ id, row, onOpen, onComplete }: { id: string; row: AssistantRowDto | undefined; onOpen: Open; onComplete: Complete }) {
   if (row === undefined) return <Gone id={id} timed={false} />;
   const state = rowState(row);
   const source = SOURCES[row.kind];
@@ -105,10 +117,28 @@ function ItemCard({ id, row, onOpen }: { id: string; row: AssistantRowDto | unde
               {row.latest.by !== null && <span className="assistant-item-card__by">{row.latest.by}</span>}
               <span className="assistant-item-card__text" title={row.latest.text}>{row.latest.text}</span>
             </>}
+          {row.kind === 'TASK' && row.state !== null && OPEN_PHASES.includes(row.state) && <CompleteTask row={row} onComplete={onComplete} />}
           {(row.latest?.at ?? row.at) !== null && <CardAge at={row.latest?.at ?? row.at} />}
         </div>
       </div>
     </Card>
+  );
+}
+
+/** Completing a task stays the user's click, as on the task's own page: it waits until the task is idle. */
+function CompleteTask({ row, onComplete }: { row: AssistantRowDto; onComplete: Complete }) {
+  const [busy, setBusy] = useState(false);
+  const idle = row.state === 'idle';
+  return (
+    <CardActions label={`Actions for ${row.title}`}>
+      <IconButton label={`Complete “${row.title}”`} title={idle ? 'Complete task' : 'Available when the task is idle'} tone="ack" disabled={!idle || busy}
+        onClick={() => {
+          setBusy(true);
+          void onComplete(row.target).finally(() => setBusy(false));
+        }}>
+        <CircleCheck size={14} aria-hidden="true" />
+      </IconButton>
+    </CardActions>
   );
 }
 

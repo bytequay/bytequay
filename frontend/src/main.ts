@@ -24,7 +24,7 @@ import os from 'node:os';
 import { spawn as spawnPty } from 'node-pty';
 import { IdeViews } from './ideViews';
 import { ArtifactView } from './artifactView';
-import { parseArtifact, parseArtifactPage, parseArtifacts } from './artifacts/contracts';
+import { parseArtifactPage, parseArtifactRows, parseArtifactView } from './artifacts/contracts';
 import { repositoryAvatar } from './repositoryAvatars';
 import { NoticeHost } from './notices/host';
 import { isAssistantShortcut } from './assistantShortcut';
@@ -314,7 +314,8 @@ const appNotices = new NoticeHost(() => mainWindow,
   }, () => path.join(app.getPath('userData'), 'dismissed-notices.json'));
 const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.has(sender), () => appNotices.raise());
 const artifactView = new ArtifactView(() => mainWindow,
-  target => backendJson(workspaceUrl(target.workspaceId, `/artifacts/${encodeURIComponent(target.artifactId)}`)).then(parseArtifactPage), () => appNotices.raise());
+  target => backendJson(workspaceUrl(target.workspaceId, `/artifacts/${encodeURIComponent(target.artifactId)}/pages/${encodeURIComponent(target.pageId)}`))
+    .then(parseArtifactPage), () => appNotices.raise());
 const browserTabs = new BrowserTabs(() => mainWindow, () => path.join(app.getPath('userData'), 'browser-tabs.json'), () => appNotices.raise());
 let pendingWindow: Promise<void> | null = null;
 
@@ -1837,16 +1838,17 @@ function registerIpc(): void {
   ipcMain.handle('work-items:assign-epic', (_event, workspaceId: string, itemId: string, epicId: string) =>
     backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/epic`), jsonInit('PUT', { epicId })).then(parseEpicJoin));
   const artifactsUrl = (workspaceId: string, suffix = '') => workspaceUrl(workspaceId, `/artifacts${suffix}`);
-  ipcMain.handle('artifacts:list', (_event, workspaceId: string) => backendJson(artifactsUrl(workspaceId)).then(parseArtifacts));
-  ipcMain.handle('artifacts:ask', (_event, workspaceId: string, ask: string) =>
-    backendJson(artifactsUrl(workspaceId), jsonInit('POST', { ask })).then(parseArtifact));
-  ipcMain.handle('artifacts:change', (_event, workspaceId: string, artifactId: string, ask: string) =>
-    backendJson(artifactsUrl(workspaceId, `/${encodeURIComponent(artifactId)}/change`), jsonInit('POST', { ask })).then(parseArtifact));
+  const artifactUrl = (workspaceId: string, artifactId: string, suffix = '') => artifactsUrl(workspaceId, `/${encodeURIComponent(artifactId)}${suffix}`);
+  ipcMain.handle('artifacts:list', (_event, workspaceId: string) => backendJson(artifactsUrl(workspaceId)).then(parseArtifactRows));
+  ipcMain.handle('artifacts:start', (_event, workspaceId: string, text: string) =>
+    backendJson(artifactsUrl(workspaceId), jsonInit('POST', { text })).then(parseArtifactView));
+  ipcMain.handle('artifacts:view', (_event, workspaceId: string, artifactId: string) => backendJson(artifactUrl(workspaceId, artifactId)).then(parseArtifactView));
+  ipcMain.handle('artifacts:send', (_event, workspaceId: string, artifactId: string, text: string) =>
+    backendJson(artifactUrl(workspaceId, artifactId, '/messages'), jsonInit('POST', { text })).then(parseArtifactView));
+  ipcMain.handle('artifacts:offer', (_event, workspaceId: string, artifactId: string, itemId: string, accept: boolean) =>
+    backendJson(artifactUrl(workspaceId, artifactId, `/offers/${encodeURIComponent(itemId)}`), jsonInit('POST', { accept: accept === true })).then(parseArtifactView));
   ipcMain.handle('artifacts:stop', (_event, workspaceId: string, artifactId: string) =>
-    backendJson(artifactsUrl(workspaceId, `/${encodeURIComponent(artifactId)}/stop`), { method: 'POST' }).then((): void => undefined));
-  ipcMain.handle('artifacts:next', (_event, workspaceId: string, artifactId: string, cardId: string, action: 'write' | 'dismiss') =>
-    backendJson(artifactsUrl(workspaceId, `/${encodeURIComponent(artifactId)}/next/${encodeURIComponent(cardId)}/${action === 'write' ? 'write' : 'dismiss'}`),
-      { method: 'POST' }).then(parseArtifact));
+    backendJson(artifactUrl(workspaceId, artifactId, '/stop'), { method: 'POST' }).then((): void => undefined));
   const epicsUrl = (workspaceId: string, suffix = '') => workspaceUrl(workspaceId, `/epics${suffix}`);
   ipcMain.handle('work-items:mark-epic', (_event, workspaceId: string, itemId: string, isEpic: boolean) =>
     backendJson(epicsUrl(workspaceId, `/local/${encodeURIComponent(itemId)}`), jsonInit('PUT', { isEpic })).then((): void => undefined));

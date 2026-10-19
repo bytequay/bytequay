@@ -60,7 +60,7 @@ export class ArtifactView {
       return;
     }
     const url = artifactUrl(target);
-    const wanted = `${url} ${target.version}`;
+    const wanted = `${url} ${target.pageId}`;
     const view = this.view ?? this.create();
     view.setBounds(browserBounds(bounds, window));
     window.contentView.addChildView(view);

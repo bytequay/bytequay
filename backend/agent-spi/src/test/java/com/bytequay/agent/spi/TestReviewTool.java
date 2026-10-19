@@ -23,11 +23,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestReviewTool
 {
     @Test
-    void readOnlySessionsCarryContextReadsAndOneRootOnlyArtifactSave()
+    void readOnlySessionsCarryContextReadsAndRootOnlyArtifactWrites()
     {
         ReviewTool context = tool("agenda_context", true);
         ReviewTool save = tool("artifact_save", false);
-        assertThatCode(() -> ReviewTool.checkSessionTools(SessionAccess.READ_ONLY, ImmutableList.of(context, save))).doesNotThrowAnyException();
+        ReviewTool offer = tool("artifact_offer", false);
+        assertThatCode(() -> ReviewTool.checkSessionTools(SessionAccess.READ_ONLY, ImmutableList.of(context, offer, save))).doesNotThrowAnyException();
+        assertThatThrownBy(() -> ReviewTool.checkSessionTools(SessionAccess.READ_ONLY, ImmutableList.of(tool("artifact_offer", true))))
+                .isInstanceOf(IllegalArgumentException.class);
         // A child could otherwise overwrite the page the root agent is writing.
         assertThatThrownBy(() -> ReviewTool.checkSessionTools(SessionAccess.READ_ONLY, ImmutableList.of(tool("artifact_save", true))))
                 .isInstanceOf(IllegalArgumentException.class);

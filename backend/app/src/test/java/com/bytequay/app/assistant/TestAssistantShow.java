@@ -18,12 +18,9 @@ import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.app.agenda.AgendaFixtures;
-import com.bytequay.app.agent.InteractiveAgentTaskStarter;
-import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.agenda.ItemTaskStarter;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
-import com.bytequay.app.service.settings.AppSettingsService;
-import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
@@ -33,8 +30,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
-import com.bytequay.core.store.RepositoryIssueStore;
-import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -89,9 +84,8 @@ class TestAssistantShow
                 "Retry Iceberg commit on conflict", Optional.empty(), Optional.empty(), Optional.empty(), "Permission needed", "trinodb/trino", "claude", NOW)));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         AssistantActions actions = new AssistantActions(new MemoryAssistantStore(), mock(AssistantSettings.class), mock(AgentApprovalStore.class),
-                mock(AgentApprovalService.class), mock(AgentTaskStore.class), mock(AgentTurnService.class), mock(InteractiveAgentTaskStarter.class), notices,
-                mock(AgentReviewStore.class), mock(WorkspaceStore.class), mock(WorkItemStore.class), mock(RepositoryIssueStore.class), mock(JiraService.class),
-                mock(ModelSettingsService.class), mock(AppSettingsService.class), mock(AssistantWork.class), mapper, clock);
+                mock(AgentApprovalService.class), mock(AgentTaskStore.class), mock(AgentTurnService.class), mock(ItemTaskStarter.class), notices,
+                mock(AgentReviewStore.class), mock(AssistantWork.class), mapper, clock);
         show = new AssistantShow(actions, rows, workspaces, mapper, clock);
         when(workspaces.findById("ws1")).thenReturn(Optional.of(new Workspace("ws1", "Trino", 1, RepoRef.of("trinodb", "trino"), Optional.empty(), Optional.empty(), 1,
                 RepoRef.of("trinodb", "trino"), Workspace.Topology.DIRECT, "master", "https://github.com/trinodb/trino.git", Optional.empty(), Optional.empty(),

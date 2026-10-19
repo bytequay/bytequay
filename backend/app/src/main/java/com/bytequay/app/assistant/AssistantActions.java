@@ -16,35 +16,22 @@ package com.bytequay.app.assistant;
 import com.bytequay.agent.core.AgentApproval;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentTask;
-import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
-import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
-import com.bytequay.agent.spi.AgentLaneId;
-import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.agenda.AgendaRefs;
-import com.bytequay.app.agent.InteractiveAgentTaskStarter;
-import com.bytequay.app.agent.InteractiveTaskStart;
-import com.bytequay.app.agent.IssueSourceInput;
-import com.bytequay.app.agent.JiraSourceInput;
+import com.bytequay.app.agenda.ItemTaskStarter;
 import com.bytequay.app.agent.TaskInput;
-import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
 import com.bytequay.app.service.attention.AttentionMarkService;
-import com.bytequay.app.service.settings.AgentModelSetting;
-import com.bytequay.app.service.settings.AgentModelType;
-import com.bytequay.app.service.settings.AppSettingsService;
-import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantAction;
 import com.bytequay.core.domain.AssistantItem;
@@ -52,16 +39,9 @@ import com.bytequay.core.domain.AssistantReceipt;
 import com.bytequay.core.domain.AssistantReceipt.Fix;
 import com.bytequay.core.domain.AssistantReceipt.Operation;
 import com.bytequay.core.domain.AssistantReceipt.Outcome;
-import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.ServedRef;
-import com.bytequay.core.domain.WorkItem;
-import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.AssistantStore;
-import com.bytequay.core.store.RepositoryIssueStore;
-import com.bytequay.core.store.WorkItemStore;
-import com.bytequay.core.store.WorkspaceStore;
-import com.bytequay.integration.jira.JiraIssue;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -108,11 +88,6 @@ class AssistantActions
     private static final int REASON = 200;
     private static final int QUESTION = 400;
     private static final String QUESTION_TOOL = "AskUserQuestion";
-    // Twins of the composer's own first messages, in WorkItemsScreen.tsx and AgentTasksView.tsx; change them together.
-    private static final String WORK_ITEM_START = "Develop this work item: %s\n\nCall read_issue_context before starting to read this item's full context and its "
-            + "parent Epic, if any. Deliver only this work item.";
-    private static final String ISSUE_START = "Implement %s";
-    private static final String JIRA_START = "Implement %s: %s";
     private static final String NOTE = "\n\nNote from the user, in their words to the assistant: “%s”";
     private static final Map<String, Operation> OPERATIONS = ImmutableMap.<String, Operation>builder()
             .put("start_task", Operation.START_TASK)
@@ -161,15 +136,9 @@ class AssistantActions
     private final AgentApprovalService approvalService;
     private final AgentTaskStore tasks;
     private final AgentTurnService turns;
-    private final InteractiveAgentTaskStarter starter;
+    private final ItemTaskStarter starts;
     private final AppNoticeService notices;
     private final AgentReviewStore reviews;
-    private final WorkspaceStore workspaces;
-    private final WorkItemStore workItems;
-    private final RepositoryIssueStore issues;
-    private final JiraService jira;
-    private final ModelSettingsService models;
-    private final AppSettingsService settings;
     private final AssistantWork work;
     private final ObjectMapper mapper;
     private final Clock clock;
@@ -181,15 +150,9 @@ class AssistantActions
             AgentApprovalService approvalService,
             AgentTaskStore tasks,
             AgentTurnService turns,
-            InteractiveAgentTaskStarter starter,
+            ItemTaskStarter starts,
             AppNoticeService notices,
             AgentReviewStore reviews,
-            WorkspaceStore workspaces,
-            WorkItemStore workItems,
-            RepositoryIssueStore issues,
-            JiraService jira,
-            ModelSettingsService models,
-            AppSettingsService settings,
             AssistantWork work,
             ObjectMapper mapper,
             Clock clock)
@@ -200,15 +163,9 @@ class AssistantActions
         this.approvalService = requireNonNull(approvalService, "approvalService is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
-        this.starter = requireNonNull(starter, "starter is null");
+        this.starts = requireNonNull(starts, "starts is null");
         this.notices = requireNonNull(notices, "notices is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
-        this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.workItems = requireNonNull(workItems, "workItems is null");
-        this.issues = requireNonNull(issues, "issues is null");
-        this.jira = requireNonNull(jira, "jira is null");
-        this.models = requireNonNull(models, "models is null");
-        this.settings = requireNonNull(settings, "settings is null");
         this.work = requireNonNull(work, "work is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -642,78 +599,31 @@ class AssistantActions
 
         private Result start(Request request)
         {
-            Start start = request.optional("from").map(from -> item(from, request.words())).orElseGet(() -> freeText(request));
-            AgentModelSetting development = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(start.workspaceId()));
-            String lane = request.optional("agent").orElse(development.configId());
-            Optional<ModelSettingsService.Provider> provider = models.get().providers().stream().filter(candidate -> candidate.id().equals(lane)).findFirst();
-            if (provider.filter(ready -> ready.readiness() == AgentProviderStatus.Readiness.READY).isEmpty()) {
-                return Result.refused(Operation.START_TASK, "That agent isn't ready");
-            }
-            boolean usual = lane.equals(development.configId());
-            Optional<String> model = Optional.ofNullable(usual ? development.model() : provider.orElseThrow().selectedModel()).filter(value -> !value.isBlank());
-            Optional<String> effort = model.isEmpty() ? Optional.empty()
-                    : (usual ? development.effort() : Optional.ofNullable(provider.orElseThrow().selectedEffort())).filter(value -> !value.isBlank());
-            DevelopmentAutomation automation = settings.developmentAutomation();
+            ItemTaskStarter.Start start = request.optional("from").map(from -> starts.item(from).followedBy(NOTE.formatted(request.words())))
+                    .orElseGet(() -> starts.freeText(request.text("workspace").substring("ws:".length()), request.words()));
             TaskId taskId = new TaskId(UUID.nameUUIDFromBytes(identity(request).getBytes(StandardCharsets.UTF_8)));
             String key = key(request);
-            AgentTask task = starter.start(new InteractiveTaskStart(taskId, start.workspaceId(), start.message(), new AgentLaneId(lane),
-                    new AgentTaskDefaults(model, effort, AgentPermissionPolicy.AUTO, Optional.empty(), Optional.of(automation)),
-                    key, Optional.of(automation), start.issue(), start.jira(), start.workItemId(), ImmutableList.of()));
+            Optional<ItemTaskStarter.Started> started = starts.start(start, request.optional("agent"), taskId, key);
+            if (started.isEmpty()) {
+                return Result.refused(Operation.START_TASK, "That agent isn't ready");
+            }
+            AgentTask task = started.get().task();
             Optional<AgendaTarget> target = task.workspaceId().map(workspace -> AgendaTarget.of(AgendaTarget.Kind.TASK, workspace, task.id().toString()));
             target.ifPresent(opens -> context.serve(AgendaRefs.task(task.id().toString()), new ServedRef("act", Optional.of(opens))));
-            if (!task.id().equals(taskId)) {
+            if (!started.get().fresh()) {
                 // An issue that has a task already opens that task instead of starting another.
                 return new Result("Already started: “" + clip(task.title(), 80) + "”", AssistantReceipt.done(Operation.START_TASK, target), Optional.of(task.id().toString()));
             }
-            String agent = provider.orElseThrow().label() + " " + (usual ? development.modelLabel() : model.orElse(""));
-            ImmutableList.Builder<String> detail = ImmutableList.<String>builder().add(task.repository().toString(), agent.strip());
-            if (automation.autoDraftPr()) {
+            ImmutableList.Builder<String> detail = ImmutableList.<String>builder().add(task.repository().toString(), started.get().agent());
+            if (started.get().automation().autoDraftPr()) {
                 detail.add("Auto draft PR");
             }
-            if (automation.autoCiFix()) {
+            if (started.get().automation().autoCiFix()) {
                 detail.add("Auto CI fix");
             }
             Optional<String> turnId = turns.findTurnByIdempotencyKey(task.id(), key).map(turn -> turn.id().toString());
             return new Result("Started “" + clip(task.title(), 80) + "”", new AssistantReceipt(Operation.START_TASK, Outcome.DONE, Optional.of(String.join(" · ", detail.build())),
                     target, Optional.empty(), turnId, Optional.empty(), Optional.empty()), Optional.of(task.id().toString()));
-        }
-
-        private Start freeText(Request request)
-        {
-            String workspace = request.text("workspace").substring("ws:".length());
-            workspaces.findById(workspace).orElseThrow(() -> new IllegalArgumentException("That repository is not watched any more"));
-            return new Start(workspace, request.words(), Optional.empty(), Optional.empty(), Optional.empty());
-        }
-
-        /** The item's own first message, as its Start button sends it, then the user's words as their note. */
-        private Start item(String ref, String words)
-        {
-            String note = NOTE.formatted(words);
-            return switch (AgendaRefs.kind(ref)) {
-                case "work" -> {
-                    WorkItem item = workItems.find(AgendaRefs.id(ref)).orElseThrow(() -> new IllegalArgumentException("That work item is gone"));
-                    yield new Start(item.workspaceId(), WORK_ITEM_START.formatted(item.title()) + note, Optional.empty(), Optional.empty(), Optional.of(item.id()));
-                }
-                case "issue" -> {
-                    AgendaRefs.Numbered numbered = AgendaRefs.numbered(ref).orElseThrow(() -> new IllegalArgumentException("That issue ref is not valid"));
-                    Workspace workspace = workspaces.findAll().stream().filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(numbered.repo())).findFirst()
-                            .orElseThrow(() -> new IllegalArgumentException("That issue's repository is not watched"));
-                    RepositoryIssue issue = issues.find(workspace.monitoredRepositoryId(), numbered.number())
-                            .orElseThrow(() -> new IllegalArgumentException("That issue is not loaded; refresh its repository's issues"));
-                    yield new Start(workspace.id(), ISSUE_START.formatted(issue.title()) + note,
-                            Optional.of(new IssueSourceInput(issue.id(), issue.number(), issue.updatedAt(), Optional.empty())), Optional.empty(), Optional.empty());
-                }
-                case "jira" -> {
-                    String[] parts = AgendaRefs.id(ref).split(":", 2);
-                    checkArgument(parts.length == 2, "That Jira ref is not valid");
-                    JiraIssue ticket = jira.cachedIssue(parts[0], parts[1]).orElseThrow(() -> new IllegalArgumentException("That ticket is not cached; open it in Jira first"));
-                    String workspace = ticket.workspace().orElseThrow(() -> new IllegalArgumentException("Assign that ticket to a repository first")).id();
-                    yield new Start(workspace, JIRA_START.formatted(ticket.key(), ticket.title()) + note, Optional.empty(),
-                            Optional.of(new JiraSourceInput(ticket.connectionId(), ticket.cloudId(), ticket.id(), ticket.key(), ticket.title(), ticket.body(), ticket.updatedAt(),
-                                    Optional.empty())), Optional.empty());
-                }
-                default -> throw new IllegalArgumentException("A task starts from a work, issue or jira ref");
-            };
         }
 
         /** The same call on the same message is the same input: a retried reply starts or sends nothing twice. */
@@ -738,9 +648,6 @@ class AssistantActions
             }
         }
     }
-
-    /** Where a new task starts, with what first message and from which source. */
-    private record Start(String workspaceId, String message, Optional<IssueSourceInput> issue, Optional<JiraSourceInput> jira, Optional<String> workItemId) {}
 
     /** One question's option labels, and whether it takes several. */
     private record Offered(List<String> options, boolean multiSelect) {}

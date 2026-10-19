@@ -45,6 +45,7 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.app.agenda.AgendaFixtures;
+import com.bytequay.app.agenda.ItemTaskStarter;
 import com.bytequay.app.agent.InteractiveAgentTaskStarter;
 import com.bytequay.app.agent.InteractiveTaskStart;
 import com.bytequay.app.agent.IssueDevelopmentService;
@@ -190,8 +191,8 @@ class TestAssistantActions
         when(turns.start(any())).thenAnswer(call -> turn(call.<StartAgentTurnCommand>getArgument(0).taskId()));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         work = new AssistantWork(issueDevelopment, jira, epics, workItemService, workItems, workspaces, rows, attentionMarks);
-        actions = new AssistantActions(store, permissions, approvals, approvalService, tasks, turns, starter, notices, reviews, workspaces, workItems, issues, jira, models,
-                settings, work, mapper, clock);
+        actions = new AssistantActions(store, permissions, approvals, approvalService, tasks, turns, new ItemTaskStarter(starter, models, settings, workspaces, workItems,
+                issues, jira), notices, reviews, work, mapper, clock);
     }
 
     @Test

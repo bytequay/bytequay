@@ -33,13 +33,19 @@ const desktop = vi.hoisted(() => ({
   clipboardWriteText: vi.fn(),
   createImage: vi.fn(),
   spawnPty: vi.fn(),
+  popupSession: { setPermissionCheckHandler: vi.fn(), setPermissionRequestHandler: vi.fn() },
+  popupLoad: vi.fn(),
 }));
 
 vi.mock('node-pty', () => ({ spawn: desktop.spawnPty }));
 
 vi.mock('electron', () => ({
   nativeTheme: { on: vi.fn(), themeSource: 'system', shouldUseDarkColors: false },
-  BrowserWindow: { getAllWindows: () => desktop.accountNotifications.map(send => ({ isDestroyed: () => false, webContents: { isDestroyed: () => false, send } })) },
+  BrowserWindow: class {
+    static getAllWindows() { return desktop.accountNotifications.map(send => ({ isDestroyed: () => false, webContents: { isDestroyed: () => false, send } })); }
+    webContents = { session: desktop.popupSession, setWindowOpenHandler: vi.fn() };
+    loadURL = desktop.popupLoad;
+  },
   app: {
     setName: vi.fn(), commandLine: { appendSwitch: vi.fn() }, requestSingleInstanceLock: () => true,
     on: (event: string, listener: () => Promise<void>) => desktop.listeners.set(event, listener),
@@ -64,10 +70,27 @@ afterEach(() => {
   desktop.clipboardWriteText.mockReset();
   desktop.createImage.mockReset();
   desktop.spawnPty.mockReset();
+  desktop.popupSession.setPermissionCheckHandler.mockReset();
+  desktop.popupSession.setPermissionRequestHandler.mockReset();
+  desktop.popupLoad.mockReset();
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it('denies browser permissions before opening a remote popout', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await desktop.handlers.get('inapp:popout')?.({}, 'https://example.com/');
+  const check = desktop.popupSession.setPermissionCheckHandler.mock.calls[0][0];
+  const request = desktop.popupSession.setPermissionRequestHandler.mock.calls[0][0];
+  expect(check(null, 'clipboard-read', 'https://example.com', {})).toBe(false);
+  const result = vi.fn();
+  request(null, 'clipboard-read', result, {});
+  expect(result).toHaveBeenCalledOnce();
+  expect(result).toHaveBeenCalledWith(false);
+  expect(desktop.popupSession.setPermissionRequestHandler.mock.invocationCallOrder[0]).toBeLessThan(desktop.popupLoad.mock.invocationCallOrder[0]);
 });
 
 it.each([

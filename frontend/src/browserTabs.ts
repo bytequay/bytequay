@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { ipcMain, WebContentsView, type BrowserWindow, type IpcMainInvokeEvent, type Rectangle } from 'electron';
+import { ipcMain, WebContentsView, type BrowserWindow, type IpcMainInvokeEvent, type Rectangle, type Session } from 'electron';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { InAppBrowserState, InAppBrowserTab } from './types';
@@ -19,6 +19,12 @@ import { normalizeWebAddress } from './webAddress';
 
 type Tab = { state: InAppBrowserTab; view: WebContentsView | null; loadVersion: number; committedUrl: string };
 type PinnedTab = Pick<InAppBrowserTab, 'id' | 'url' | 'title' | 'name' | 'favicon'>;
+
+/** Electron grants browser permissions by default; remote pages have no access to desktop capabilities. */
+export function denyBrowserPermissions(session: Session): void {
+  session.setPermissionCheckHandler(() => false);
+  session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+}
 
 function faviconUrl(value: unknown): string | null {
   if (typeof value !== 'string' || !/^https?:/i.test(value)) return null;
@@ -283,6 +289,7 @@ export class BrowserTabs {
     view.setVisible(false);
     view.setBackgroundColor('#00000000');
     const contents = view.webContents;
+    denyBrowserPermissions(contents.session);
     const current = () => this.tabs.get(tab.state.id) === tab && tab.view === view;
     const update = () => {
       if (!current() || contents.isDestroyed()) return;

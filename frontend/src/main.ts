@@ -28,7 +28,7 @@ import { isAssistantShortcut } from './assistantShortcut';
 import { GeminiSetup } from './google/geminiSetup';
 import { GeminiChat } from './google/geminiChat';
 import type { GoogleStatus } from './google/contracts';
-import { BrowserTabs, registerBrowserTabIpc } from './browserTabs';
+import { BrowserTabs, denyBrowserPermissions, registerBrowserTabIpc } from './browserTabs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { notificationVersion, parsePrNotificationState, pendingPrNotifications, type PrNotificationState } from './prNotifications';
@@ -406,6 +406,7 @@ function openPopup(url: string): void {
       partition: 'persist:inapp-browser',
     },
   });
+  denyBrowserPermissions(popup.webContents.session);
   popup.webContents.setWindowOpenHandler(({ url: nested }) => {
     openPopup(nested);
     return { action: 'deny' };

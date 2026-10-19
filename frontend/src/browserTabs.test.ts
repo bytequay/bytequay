@@ -27,6 +27,7 @@ vi.mock('electron', async () => {
     WebContentsView: class {
       webContents = Object.assign(new EventEmitter(), {
         url: '', title: '', destroyed: false, formValue: '', scrollY: 0,
+        session: { setPermissionCheckHandler: vi.fn(), setPermissionRequestHandler: vi.fn() },
         isDestroyed: () => this.webContents.destroyed,
         getURL: () => this.webContents.url,
         getTitle: () => this.webContents.title,
@@ -53,6 +54,7 @@ type MockView = {
     loadURL: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; reload: ReturnType<typeof vi.fn>;
     navigationHistory: { goBack: ReturnType<typeof vi.fn> };
     setWindowOpenHandler: ReturnType<typeof vi.fn>;
+    session: { setPermissionCheckHandler: ReturnType<typeof vi.fn>; setPermissionRequestHandler: ReturnType<typeof vi.fn> };
   };
   setVisible: ReturnType<typeof vi.fn>; setBounds: ReturnType<typeof vi.fn>;
 };
@@ -79,6 +81,21 @@ function open(url: string): string {
   tabs.open(url);
   return tabs.getState().activeTabId as string;
 }
+
+it('denies sensitive permissions before loading an untrusted browser page', () => {
+  open('https://example.com/');
+  const contents = view(0).webContents;
+  const check = contents.session.setPermissionCheckHandler.mock.calls[0][0];
+  const request = contents.session.setPermissionRequestHandler.mock.calls[0][0];
+  for (const permission of ['clipboard-read', 'notifications', 'geolocation', 'media', 'fileSystem', 'openExternal']) {
+    expect(check(contents, permission, 'https://example.com', {})).toBe(false);
+    const result = vi.fn();
+    request(contents, permission, result, {});
+    expect(result).toHaveBeenCalledOnce();
+    expect(result).toHaveBeenCalledWith(false);
+  }
+  expect(contents.session.setPermissionRequestHandler.mock.invocationCallOrder[0]).toBeLessThan(contents.loadURL.mock.invocationCallOrder[0]);
+});
 
 it('preserves each live page/history across switch, hide and renderer reload; ignores stale layout', () => {
   const first = open('https://example.com/one');

@@ -13,18 +13,21 @@
  */
 package com.bytequay.core.domain;
 
-import java.time.Instant;
+import com.bytequay.core.discussion.DiscussionSession;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
-/** An artifact as its list shows it, without the page. */
-public record ArtifactSummary(String id, String title, Instant updatedAt)
+/**
+ * The agent conversation an artifact's next request continues.
+ *
+ * @param laneId the agent lane the conversation belongs to; on another lane the next request starts a fresh one
+ */
+public record ArtifactSession(String laneId, DiscussionSession conversation)
 {
-    public ArtifactSummary
+    public ArtifactSession
     {
-        checkText(id, "id");
-        checkText(title, "title");
-        requireNonNull(updatedAt, "updatedAt is null");
+        checkText(laneId, "laneId");
+        requireNonNull(conversation, "conversation is null");
     }
 }

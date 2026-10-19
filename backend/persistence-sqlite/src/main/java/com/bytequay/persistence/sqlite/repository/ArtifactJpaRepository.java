@@ -13,9 +13,10 @@
  */
 package com.bytequay.persistence.sqlite.repository;
 
-import com.bytequay.core.domain.ArtifactSummary;
+import com.bytequay.core.domain.Artifact;
 import com.bytequay.persistence.sqlite.entity.ArtifactEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
@@ -24,8 +25,16 @@ import java.util.Optional;
 public interface ArtifactJpaRepository
         extends JpaRepository<ArtifactEntity, String>
 {
-    Optional<ArtifactEntity> findByIdAndWorkspaceId(String id, String workspaceId);
+    @Query("select a.value from ArtifactEntity a where a.workspaceId = :workspaceId")
+    List<Artifact> records(String workspaceId);
 
-    @Query("select new com.bytequay.core.domain.ArtifactSummary(a.id, a.title, a.updatedAt) from ArtifactEntity a where a.workspaceId = :workspaceId")
-    List<ArtifactSummary> summaries(String workspaceId);
+    @Query("select a.value from ArtifactEntity a where a.state = :state")
+    List<Artifact> inState(Artifact.State state);
+
+    @Query("select a.html from ArtifactEntity a where a.id = :id and a.workspaceId = :workspaceId and a.html is not null")
+    Optional<String> page(String id, String workspaceId);
+
+    @Modifying
+    @Query("delete from ArtifactEntity a where a.workspaceId = :workspaceId")
+    void deleteWorkspace(String workspaceId);
 }

@@ -14,7 +14,6 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.Artifact;
-import com.bytequay.core.domain.ArtifactSummary;
 import com.bytequay.core.store.ArtifactStore;
 import com.bytequay.persistence.sqlite.entity.ArtifactEntity;
 import com.bytequay.persistence.sqlite.repository.ArtifactJpaRepository;
@@ -43,25 +42,57 @@ public class SqliteArtifactStore
     @Transactional(readOnly = true)
     public Optional<Artifact> find(String workspaceId, String id)
     {
-        return artifacts.findByIdAndWorkspaceId(id, workspaceId).map(ArtifactEntity::toDomain);
+        return artifacts.findById(id).map(ArtifactEntity::toDomain).filter(artifact -> artifact.workspaceId().equals(workspaceId));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<ArtifactSummary> list(String workspaceId)
+    public List<Artifact> list(String workspaceId)
     {
-        // Sorted here: ISO-8601 text with varying fraction digits does not sort by time in SQL.
-        return artifacts.summaries(workspaceId).stream()
-                .sorted(Comparator.comparing(ArtifactSummary::updatedAt).reversed())
+        return artifacts.records(workspaceId).stream()
+                .sorted(Comparator.comparing(Artifact::updatedAt).reversed())
                 .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Artifact> writing()
+    {
+        return artifacts.inState(Artifact.State.WRITING);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<String> page(String workspaceId, String id)
+    {
+        return artifacts.page(id, workspaceId);
     }
 
     @Override
     @Transactional
     public void save(Artifact artifact)
     {
+        save(artifact, Optional.empty());
+    }
+
+    @Override
+    @Transactional
+    public void save(Artifact artifact, String page)
+    {
+        save(artifact, Optional.of(page));
+    }
+
+    private void save(Artifact artifact, Optional<String> page)
+    {
         ArtifactEntity entity = artifacts.findById(artifact.id()).orElseGet(() -> new ArtifactEntity(artifact));
-        entity.update(artifact);
+        entity.update(artifact, page);
         artifacts.save(entity);
+    }
+
+    @Override
+    @Transactional
+    public void deleteWorkspace(String workspaceId)
+    {
+        artifacts.deleteWorkspace(workspaceId);
     }
 }

@@ -14,15 +14,20 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.Artifact;
+import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.ArtifactConverter;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Getter;
 
-import java.time.Instant;
+import java.util.Optional;
 
+/** The record as JSON, with the workspace and state beside it for queries and the page in its own column so lists never read it. */
 @Entity
 @Table(name = "artifact", indexes = @Index(name = "idx_artifact_workspace", columnList = "workspace_id"))
 public class ArtifactEntity
@@ -35,33 +40,35 @@ public class ArtifactEntity
     @Column(name = "workspace_id", nullable = false)
     private String workspaceId;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String title;
+    private Artifact.State state;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    private String html;
+    @Convert(converter = ArtifactConverter.class)
+    private Artifact value;
 
-    @Column(name = "updated_at", nullable = false)
-    private Instant updatedAt;
+    @Column(columnDefinition = "TEXT")
+    private String html;
 
     protected ArtifactEntity() {}
 
     public ArtifactEntity(Artifact artifact)
     {
         id = artifact.id();
-        update(artifact);
+        update(artifact, Optional.empty());
     }
 
-    public void update(Artifact artifact)
+    public void update(Artifact artifact, Optional<String> page)
     {
         workspaceId = artifact.workspaceId();
-        title = artifact.title();
-        html = artifact.html();
-        updatedAt = artifact.updatedAt();
+        state = artifact.state();
+        value = artifact;
+        page.ifPresent(text -> html = text);
     }
 
     public Artifact toDomain()
     {
-        return new Artifact(id, workspaceId, title, html, updatedAt);
+        return value;
     }
 }

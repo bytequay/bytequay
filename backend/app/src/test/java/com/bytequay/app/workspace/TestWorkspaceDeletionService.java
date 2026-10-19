@@ -30,6 +30,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.artifact.ArtifactService;
 import com.bytequay.app.context.ContextSpecCheckService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -82,6 +83,7 @@ class TestWorkspaceDeletionService
     private final WorktreeService worktreeService = mock(WorktreeService.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final ContextSpecCheckService specChecks = mock(ContextSpecCheckService.class);
+    private final ArtifactService artifacts = mock(ArtifactService.class);
     private final List<AgentTask> ownedTasks = new ArrayList<>();
     private WorkspacePaths paths;
     private Workspace workspace;
@@ -108,7 +110,7 @@ class TestWorkspaceDeletionService
             ownedTasks.removeIf(task -> task.id().equals(invocation.getArgument(0)));
             return null;
         }).when(completion).delete(any());
-        service = new WorkspaceDeletionService(workspaces, tasks, turns, completion, worktreeService, paths, git, models, specChecks);
+        service = new WorkspaceDeletionService(workspaces, tasks, turns, completion, worktreeService, paths, git, models, specChecks, artifacts);
     }
 
     @Test
@@ -127,6 +129,7 @@ class TestWorkspaceDeletionService
         verify(completion).delete(task.id());
         verify(models).clearWorkspaceOverrides(WORKSPACE_ID);
         verify(specChecks).deleteWorkspaceData(WORKSPACE_ID);
+        verify(artifacts).deleteWorkspaceData(WORKSPACE_ID);
         verify(workspaces).delete(WORKSPACE_ID);
         assertThat(paths.workspace(WORKSPACE_ID)).doesNotExist();
         assertThat(external).hasContent("keep");
@@ -138,7 +141,7 @@ class TestWorkspaceDeletionService
         assertThatThrownBy(() -> service.delete(WORKSPACE_ID, false, REPOSITORY.fullName())).isInstanceOf(WorkspaceException.class);
         assertThatThrownBy(() -> service.delete(WORKSPACE_ID, true, "another/project")).isInstanceOf(WorkspaceException.class);
 
-        verifyNoInteractions(tasks, completion, worktreeService, models, specChecks);
+        verifyNoInteractions(tasks, completion, worktreeService, models, specChecks, artifacts);
         verify(workspaces, never()).delete(any());
         assertThat(paths.repository(workspace)).isDirectory();
     }
@@ -159,7 +162,7 @@ class TestWorkspaceDeletionService
         when(turns.findActive(active.id())).thenReturn(Optional.empty());
         ownedTasks.set(1, active.claimWorktreeMutation(WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW));
         assertThatThrownBy(this::delete).isInstanceOf(AgentConflictException.class);
-        verifyNoInteractions(completion, specChecks);
+        verifyNoInteractions(completion, specChecks, artifacts);
         verify(workspaces, never()).delete(any());
     }
 

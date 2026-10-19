@@ -20,6 +20,7 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.app.artifact.ArtifactService;
 import com.bytequay.app.context.ContextSpecCheckService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -59,6 +60,7 @@ public class WorkspaceDeletionService
     private final GitCommandRunner git;
     private final ModelSettingsService models;
     private final ContextSpecCheckService specChecks;
+    private final ArtifactService artifacts;
 
     public WorkspaceDeletionService(
             WorkspaceStore workspaces,
@@ -69,7 +71,8 @@ public class WorkspaceDeletionService
             WorkspacePaths paths,
             GitCommandRunner git,
             ModelSettingsService models,
-            ContextSpecCheckService specChecks)
+            ContextSpecCheckService specChecks,
+            ArtifactService artifacts)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -80,6 +83,7 @@ public class WorkspaceDeletionService
         this.git = requireNonNull(git, "git is null");
         this.models = requireNonNull(models, "models is null");
         this.specChecks = requireNonNull(specChecks, "specChecks is null");
+        this.artifacts = requireNonNull(artifacts, "artifacts is null");
     }
 
     public void delete(String workspaceId, boolean confirmed, String repositoryName)
@@ -117,6 +121,7 @@ public class WorkspaceDeletionService
                 deleteDirectory(current);
                 models.clearWorkspaceOverrides(workspaceId);
                 specChecks.deleteWorkspaceData(workspaceId);
+                artifacts.deleteWorkspaceData(workspaceId);
                 workspaces.delete(workspaceId);
             }
             catch (IOException failure) {

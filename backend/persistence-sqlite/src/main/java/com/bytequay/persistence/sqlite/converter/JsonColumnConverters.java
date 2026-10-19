@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.converter;
 
 import com.bytequay.core.backport.BackportChain;
+import com.bytequay.core.domain.Artifact;
 import com.bytequay.core.domain.AssistantAction;
 import com.bytequay.core.domain.AssistantDay;
 import com.bytequay.core.domain.AssistantItem;
@@ -52,6 +53,16 @@ import java.util.Map;
 public final class JsonColumnConverters
 {
     private JsonColumnConverters() {}
+
+    @Converter
+    public static class ArtifactConverter
+            extends JsonColumnConverter<Artifact>
+    {
+        ArtifactConverter()
+        {
+            super(new TypeReference<>() {}, "artifact", null, null);
+        }
+    }
 
     @Converter
     public static class AssistantDayConverter

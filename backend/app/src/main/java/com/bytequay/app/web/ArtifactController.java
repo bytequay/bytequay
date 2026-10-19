@@ -13,12 +13,13 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.artifact.ArtifactService;
 import com.bytequay.core.domain.Artifact;
-import com.bytequay.core.domain.ArtifactSummary;
-import com.bytequay.core.store.ArtifactStore;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -31,22 +32,57 @@ import static java.util.Objects.requireNonNull;
 @RequestMapping("/api/workspaces/{workspaceId}/artifacts")
 public class ArtifactController
 {
-    private final ArtifactStore artifacts;
+    private final ArtifactService artifacts;
 
-    public ArtifactController(ArtifactStore artifacts)
+    public ArtifactController(ArtifactService artifacts)
     {
         this.artifacts = requireNonNull(artifacts, "artifacts is null");
     }
 
     @GetMapping
-    public List<ArtifactSummary> list(@PathVariable String workspaceId)
+    public List<Artifact> list(@PathVariable String workspaceId)
     {
         return artifacts.list(workspaceId);
     }
 
     @GetMapping("/{artifactId}")
-    public Artifact page(@PathVariable String workspaceId, @PathVariable String artifactId)
+    public Page page(@PathVariable String workspaceId, @PathVariable String artifactId)
     {
-        return artifacts.find(workspaceId, artifactId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "This artifact no longer exists"));
+        return artifacts.page(workspaceId, artifactId).map(Page::new)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "This page is not written yet"));
+    }
+
+    public record Page(String html) {}
+
+    @PostMapping
+    public Artifact ask(@PathVariable String workspaceId, @RequestBody Ask request)
+    {
+        return artifacts.ask(workspaceId, request.ask());
+    }
+
+    @PostMapping("/{artifactId}/change")
+    public Artifact change(@PathVariable String workspaceId, @PathVariable String artifactId, @RequestBody Ask request)
+    {
+        return artifacts.change(workspaceId, artifactId, request.ask());
+    }
+
+    public record Ask(String ask) {}
+
+    @PostMapping("/{artifactId}/stop")
+    public void stop(@PathVariable String workspaceId, @PathVariable String artifactId)
+    {
+        artifacts.stop(workspaceId, artifactId);
+    }
+
+    @PostMapping("/{artifactId}/next/{cardId}/write")
+    public Artifact writeNext(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String cardId)
+    {
+        return artifacts.writeNext(workspaceId, artifactId, cardId);
+    }
+
+    @PostMapping("/{artifactId}/next/{cardId}/dismiss")
+    public Artifact dismissNext(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String cardId)
+    {
+        return artifacts.dismissNext(workspaceId, artifactId, cardId);
     }
 }

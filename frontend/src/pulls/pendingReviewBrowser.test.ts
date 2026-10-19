@@ -41,3 +41,10 @@ it('refreshes resolved findings after confirming GitHub publication in Chromium'
   });
   expect(result).toContain('Confirmed publications refresh resolved findings');
 }, deadline(40_000));
+
+it('keeps an approval on its viewed commit when detail refreshes and blocks an unknown commit', async () => {
+  const result = await fixture.run<string>({
+    body: "const results = await window.webContents.executeJavaScript('PendingReviewTests.runApprovalCommitBinding()');",
+  });
+  expect(result).toBe('Approvals stay bound to the viewed commit');
+}, deadline(40_000));

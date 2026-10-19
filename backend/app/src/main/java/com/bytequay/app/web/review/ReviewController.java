@@ -472,7 +472,7 @@ public class ReviewController
     }
 
     @PostMapping("/drafts/submit")
-    public ReviewHttpModels.PublishResponse submit(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.DraftReviewRequest request)
+    public ReviewHttpModels.PublishResponse submit(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.DraftSubmitRequest request)
     {
         PullRequestRefUtil.parseRef(repo, number);
         return ReviewHttpModels.publish(publications.submit(
@@ -480,7 +480,8 @@ public class ReviewController
                 number,
                 required(request.expectedVersion(), "expectedVersion"),
                 request.body(),
-                Optional.ofNullable(request.event()).orElse("COMMENT")));
+                Optional.ofNullable(request.event()).orElse("COMMENT"),
+                request.headSha()));
     }
 
     /** The turn the user saw running; core refuses it once it has ended rather than steering whatever runs next. */

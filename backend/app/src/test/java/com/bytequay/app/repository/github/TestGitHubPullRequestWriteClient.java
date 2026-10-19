@@ -62,6 +62,25 @@ class TestGitHubPullRequestWriteClient
     }
 
     @Test
+    void approvesTheViewedCommitWithoutInlineComments()
+    {
+        String viewedCommit = "a".repeat(40);
+        RestClient.Builder rest = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(rest.build(), RestClient.create());
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/reviews"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("{\"event\":\"APPROVE\",\"commit_id\":\"%s\"}".formatted(viewedCommit), true))
+                .andRespond(withSuccess(
+                        "{\"id\":77,\"state\":\"APPROVED\",\"user\":{\"login\":\"reviewer\"},\"commit_id\":\"%s\"}".formatted(viewedCommit), MediaType.APPLICATION_JSON));
+
+        assertThat(client.submitReview("pat", PullRequestRef.of("owner", "repo", 7), "APPROVE", "", ImmutableList.of(), viewedCommit).commitId()).isEqualTo(viewedCommit);
+
+        server.verify();
+    }
+
+    @Test
     void submitsInlineCommentsAndThreadRepliesInOneReview()
     {
         RestClient.Builder rest = RestClient.builder().baseUrl("https://api.github.test");
@@ -88,7 +107,7 @@ class TestGitHubPullRequestWriteClient
 
         assertThat(client.submitReviewWithReplies("pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix", ImmutableList.of(
                 new InlineReviewComment("A.java", "New comment", 3, "RIGHT", null, null, "head", OptionalLong.empty()),
-                new InlineReviewComment("A.java", "Reply", 1, "RIGHT", null, null, null, OptionalLong.of(61))), ImmutableMap.of(61L, "PRRT_61")).githubId()).isEqualTo(77);
+                new InlineReviewComment("A.java", "Reply", 1, "RIGHT", null, null, null, OptionalLong.of(61))), ImmutableMap.of(61L, "PRRT_61"), "head").githubId()).isEqualTo(77);
         server.verify();
         graphServer.verify();
     }
@@ -102,13 +121,13 @@ class TestGitHubPullRequestWriteClient
         MockRestServiceServer graphServer = MockRestServiceServer.bindTo(graph).build();
         GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(rest.build(), graph.build());
         server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/reviews"))
-                .andExpect(content().json("{}", true))
+                .andExpect(content().json("{\"commit_id\":\"head\"}", true))
                 .andRespond(withSuccess("{\"id\":77,\"node_id\":\"PRR_77\",\"state\":\"PENDING\"}", MediaType.APPLICATION_JSON));
         graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("{\"errors\":[{\"message\":\"Reply rejected\"}]}", MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> client.submitReviewWithReplies("pat", PullRequestRef.of("owner", "repo", 7), "COMMENT", "", ImmutableList.of(
-                new InlineReviewComment("A.java", "Reply", 1, "RIGHT", null, null, null, OptionalLong.of(61))), ImmutableMap.of(61L, "PRRT_61")))
+                new InlineReviewComment("A.java", "Reply", 1, "RIGHT", null, null, null, OptionalLong.of(61))), ImmutableMap.of(61L, "PRRT_61"), "head"))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Check the pending or submitted review on GitHub");
         server.verify();
         graphServer.verify();
@@ -474,7 +493,8 @@ class TestGitHubPullRequestWriteClient
                 "",
                 ImmutableList.of(
                         new InlineReviewComment("src/Main.java", "First note", 18, "RIGHT", null, null, "head-sha", OptionalLong.empty()),
-                        new InlineReviewComment("src/Other.java", "Second note", 9, "LEFT", null, null, "head-sha", OptionalLong.empty())));
+                        new InlineReviewComment("src/Other.java", "Second note", 9, "LEFT", null, null, "head-sha", OptionalLong.empty())),
+                "head-sha");
 
         server.verify();
     }

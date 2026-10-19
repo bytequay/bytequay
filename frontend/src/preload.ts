@@ -610,8 +610,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('review:draft:save', repo, number, expectedVersion, body, event),
   publishReviewDraftComment: (repo, number, expectedVersion, itemId) =>
     ipcRenderer.invoke('review:draft:publish', repo, number, expectedVersion, itemId),
-  submitReviewDraft: (repo, number, expectedVersion, body, event) =>
-    ipcRenderer.invoke('review:draft:submit', repo, number, expectedVersion, body, event),
+  submitReviewDraft: (repo, number, expectedVersion, body, event, headSha) =>
+    ipcRenderer.invoke('review:draft:submit', repo, number, expectedVersion, body, event, headSha),
 
   subscribeAgentTask: streamSubscriber('agent'),
 };

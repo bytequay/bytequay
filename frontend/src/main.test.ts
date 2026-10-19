@@ -156,6 +156,18 @@ it('posts a single comment through the pending review under its comment box key'
     expect.objectContaining({ method: 'POST', body: JSON.stringify(comment), headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
 });
 
+it('carries the viewed head commit through review submission', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response('{}'));
+  vi.stubGlobal('fetch', fetch);
+
+  await desktop.handlers.get('review:draft:submit')?.({}, 'owner/repo', 7, 4, '', 'APPROVE', 'viewed-head');
+
+  expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/api/agent-review/drafts/submit?repo=owner%2Frepo&number=7',
+    expect.objectContaining({ method: 'POST', body: JSON.stringify({ expectedVersion: 4, body: '', event: 'APPROVE', headSha: 'viewed-head' }) }));
+});
+
 it('carries the displayed head commit through the merge request', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');

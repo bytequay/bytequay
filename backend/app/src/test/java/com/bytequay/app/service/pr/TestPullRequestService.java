@@ -1930,10 +1930,10 @@ class TestPullRequestService
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
-        when(writes.submitReview("pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this", ImmutableList.of()))
+        when(writes.submitReview("pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this", ImmutableList.of(), "head"))
                 .thenReturn(review(501L, "REQUEST_CHANGES", "Please fix this"));
 
-        PullRequestDetail detail = service.submitReview("owner/repo", 7, 12L, "request_changes", "Please fix this", ImmutableList.of()).detail();
+        PullRequestDetail detail = service.submitReview("owner/repo", 7, 12L, "request_changes", "Please fix this", ImmutableList.of(), "head").detail();
 
         verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.CHANGES_REQUESTED), eq("head"), any(Instant.class));
         // The submitted review is spliced into the cache, so nothing is thrown away
@@ -1959,6 +1959,27 @@ class TestPullRequestService
     }
 
     @Test
+    void approvesTheViewedCommitEvenWhenTheCacheHasANewerHead()
+    {
+        String viewedCommit = "a".repeat(40);
+        String newerCommit = "b".repeat(40);
+        PrRawDetail current = new PrRawDetail(null, null, null, null, null, null, REVIEWED_AT, null, "body", ImmutableList.of(), null, ImmutableList.of(), null,
+                false, true, "clean", 4, 2, 1, 0, ImmutableList.of(), newerCommit, "feature", "main", "base");
+        StoredPrDetail cached = new StoredPrDetail(current, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(cached));
+        when(writes.submitReview("pat", ref, "APPROVE", "", ImmutableList.of(), viewedCommit))
+                .thenReturn(new PrReviewState(501L, "me", null, false, "APPROVED", REVIEWED_AT, "", null, viewedCommit));
+
+        PullRequestService.Posted posted = service.submitReview("owner/repo", 7, 12L, "APPROVE", "", ImmutableList.of(), viewedCommit);
+
+        verify(writes).submitReview("pat", ref, "APPROVE", "", ImmutableList.of(), viewedCommit);
+        verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.APPROVED), eq(viewedCommit), any(Instant.class));
+        assertThat(posted.detail().headSha()).isEqualTo(newerCommit);
+    }
+
+    @Test
     void readsBackTheInlineCommentsAReviewWasSubmittedWith()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
@@ -1966,11 +1987,11 @@ class TestPullRequestService
         PrTimelineEvent thread = new PrTimelineEvent(901L, "review_thread", "me", REVIEWED_AT, null, Optional.empty());
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
-        when(writes.submitReview("pat", ref, "COMMENT", "", ImmutableList.of(comment)))
+        when(writes.submitReview("pat", ref, "COMMENT", "", ImmutableList.of(comment), "head"))
                 .thenReturn(review(502L, "COMMENTED", ""));
         when(gitHub.fetchReviewComments("pat", ref, 502L)).thenReturn(ImmutableList.of(thread));
 
-        service.submitReview("owner/repo", 7, 12L, "comment", "", ImmutableList.of(comment));
+        service.submitReview("owner/repo", 7, 12L, "comment", "", ImmutableList.of(comment), "head");
 
         ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).saveCached(eq(12L), saved.capture());
@@ -1987,11 +2008,11 @@ class TestPullRequestService
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(gitHub.findReviewThreadId("pat", ref, 61)).thenReturn("PRRT_61");
-        when(writes.submitReviewWithReplies("pat", ref, "COMMENT", "", ImmutableList.of(reply), ImmutableMap.of(61L, "PRRT_61")))
+        when(writes.submitReviewWithReplies("pat", ref, "COMMENT", "", ImmutableList.of(reply), ImmutableMap.of(61L, "PRRT_61"), "head"))
                 .thenReturn(review(502L, "COMMENTED", ""));
         when(gitHub.fetchPrReviewThreads("pat", ref)).thenReturn(ImmutableList.of(thread));
 
-        service.submitReview("owner/repo", 7, 12L, "COMMENT", "", ImmutableList.of(reply));
+        service.submitReview("owner/repo", 7, 12L, "COMMENT", "", ImmutableList.of(reply), "head");
 
         verify(gitHub, never()).fetchReviewComments(anyString(), any(), anyLong());
         verify(writes, never()).replyToReviewComment(anyString(), any(), anyLong(), anyString());
@@ -2005,10 +2026,10 @@ class TestPullRequestService
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
-        when(writes.submitReview("pat", PullRequestRef.of("owner", "repo", 7), "COMMENT", "Looks good with one note", ImmutableList.of()))
+        when(writes.submitReview("pat", PullRequestRef.of("owner", "repo", 7), "COMMENT", "Looks good with one note", ImmutableList.of(), "head"))
                 .thenReturn(review(503L, "COMMENTED", "Looks good with one note"));
 
-        service.submitReview("owner/repo", 7, 12L, "comment", "Looks good with one note", ImmutableList.of());
+        service.submitReview("owner/repo", 7, 12L, "comment", "Looks good with one note", ImmutableList.of(), "head");
 
         verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.COMMENTED), eq("head"), any(Instant.class));
     }
@@ -2020,10 +2041,10 @@ class TestPullRequestService
         InlineReviewComment comment = new InlineReviewComment("a.txt", "note", 4, "RIGHT", null, null, "head", OptionalLong.empty());
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
-        when(writes.submitReview("pat", ref, "COMMENT", "", ImmutableList.of(comment))).thenReturn(review(502L, "COMMENTED", ""));
+        when(writes.submitReview("pat", ref, "COMMENT", "", ImmutableList.of(comment), "head")).thenReturn(review(502L, "COMMENTED", ""));
         when(gitHub.fetchReviewComments("pat", ref, 502L)).thenThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS));
 
-        PullRequestService.Posted posted = service.submitReview("owner/repo", 7, 12L, "comment", "", ImmutableList.of(comment));
+        PullRequestService.Posted posted = service.submitReview("owner/repo", 7, 12L, "comment", "", ImmutableList.of(comment), "head");
 
         assertThat(posted.reviewId()).hasValue(502L);
         assertThat(posted.threads()).isEmpty();
@@ -2073,7 +2094,7 @@ class TestPullRequestService
         ResponseStatusException limited = new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS);
         when(gitHub.getPullRequest("pat", ref, Optional.empty())).thenThrow(limited);
 
-        assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "comment", "Looks good", ImmutableList.of())).isSameAs(limited);
+        assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "comment", "Looks good", ImmutableList.of(), "head")).isSameAs(limited);
 
         verifyNoInteractions(writes);
     }
@@ -2090,18 +2111,18 @@ class TestPullRequestService
                 new InlineReviewComment("a.txt", "note", 4, "RIGHT", null, null, "older", OptionalLong.empty()),
                 new InlineReviewComment("b.txt", "note", 9, "RIGHT", null, null, "head", OptionalLong.empty()));
 
-        assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "COMMENT", "", comments))
+        assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "COMMENT", "", comments, "head"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("comments written on one commit");
-        verify(writes, never()).submitReview(anyString(), any(), anyString(), anyString(), anyList());
+        verify(writes, never()).submitReview(anyString(), any(), anyString(), anyString(), anyList(), anyString());
     }
 
     @Test
     void rejectsCommentReviewWithoutBody()
     {
-        assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "COMMENT", " ", ImmutableList.of()))
+        assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "COMMENT", " ", ImmutableList.of(), "head"))
                 .isInstanceOf(ResponseStatusException.class);
-        verify(writes, never()).submitReview(anyString(), any(), anyString(), anyString(), anyList());
+        verify(writes, never()).submitReview(anyString(), any(), anyString(), anyString(), anyList(), anyString());
     }
 
     @Test

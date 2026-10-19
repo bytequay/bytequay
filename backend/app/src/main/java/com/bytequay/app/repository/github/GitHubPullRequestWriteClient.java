@@ -204,10 +204,10 @@ public class GitHubPullRequestWriteClient
                 .toBodilessEntity());
     }
 
-    public PrReviewState submitReview(String pat, PullRequestRef pr, String event, String body, List<InlineReviewComment> comments)
+    public PrReviewState submitReview(String pat, PullRequestRef pr, String event, String body, List<InlineReviewComment> comments, String commitId)
     {
         return translating(() -> {
-            Map<String, Object> request = reviewRequest(comments == null ? ImmutableList.of() : comments);
+            Map<String, Object> request = reviewRequest(comments == null ? ImmutableList.of() : comments, commitId);
             request.put("event", event);
             if (body != null && !body.isBlank()) {
                 request.put("body", body);
@@ -219,10 +219,11 @@ public class GitHubPullRequestWriteClient
     }
 
     /** Replies belong to existing threads, so attach them to one pending review before publishing it. */
-    public PrReviewState submitReviewWithReplies(String pat, PullRequestRef pr, String event, String body, List<InlineReviewComment> comments, Map<Long, String> replyThreads)
+    public PrReviewState submitReviewWithReplies(String pat, PullRequestRef pr, String event, String body, List<InlineReviewComment> comments, Map<Long, String> replyThreads,
+            String commitId)
     {
         return translating(() -> {
-            Map<String, Object> request = reviewRequest(comments.stream().filter(comment -> comment.replyToCommentId().isEmpty()).toList());
+            Map<String, Object> request = reviewRequest(comments.stream().filter(comment -> comment.replyToCommentId().isEmpty()).toList(), commitId);
             PendingReview pending = requireBody(send(gitHubRestClient, HttpMethod.POST, pat, request,
                     "/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
                     .body(PendingReview.class), "Empty response from GitHub when preparing review");
@@ -273,13 +274,12 @@ public class GitHubPullRequestWriteClient
         });
     }
 
-    private static Map<String, Object> reviewRequest(List<InlineReviewComment> comments)
+    private static Map<String, Object> reviewRequest(List<InlineReviewComment> comments, String commitId)
     {
+        checkText(commitId, "review commit");
         Map<String, Object> request = new LinkedHashMap<>();
+        request.put("commit_id", commitId);
         if (!comments.isEmpty()) {
-            // One review is anchored at one commit; callers guarantee every comment names the same one.
-            comments.stream().map(InlineReviewComment::commitId).filter(commit -> commit != null && !commit.isBlank()).findFirst()
-                    .ifPresent(commit -> request.put("commit_id", commit));
             request.put("comments", comments.stream().map(GitHubPullRequestWriteClient::toReviewCommentRequest).toList());
         }
         return request;

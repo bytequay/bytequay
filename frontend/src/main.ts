@@ -1112,9 +1112,9 @@ function registerIpc(): void {
     backendJson(reviewUrl(`/drafts/items/${encodeURIComponent(itemId)}/publish`, { repo, number: String(number), expectedVersion: String(expectedVersion) }), {
       method: 'POST',
           }));
-  ipcMain.handle('review:draft:submit', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string) =>
+  ipcMain.handle('review:draft:submit', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string, headSha: string) =>
     backendJson(reviewUrl('/drafts/submit', { repo, number: String(number) }),
-      jsonInit('POST', { expectedVersion, body, event }))
+      jsonInit('POST', { expectedVersion, body, event, headSha }))
       );
   ipcMain.handle('agent:providers:refresh', () =>
     backendJson(`${backendBase()}/agent/providers/status`, {

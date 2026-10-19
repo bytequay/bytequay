@@ -1012,7 +1012,7 @@ public class PullRequestService
         PrTimelineEvent created = pullRequestWrites.createReviewComment(pat, parseRef(repo, number), comment);
         PullRequestDetail detail = afterWrite(repo, number, () -> {
             PullRequestDetail patched = patchCachedTimeline(repo, number, prId, created);
-            prId.ifPresent(id -> markReviewed(id, "COMMENT"));
+            prId.ifPresent(id -> markReviewed(id, "COMMENT", comment.commitId()));
             recordComment(repo, number, "review-comment", created, comment.body());
             return patched;
         }, before);
@@ -1264,8 +1264,9 @@ public class PullRequestService
      * Submits a review, with any inline comments, for the given pull request on GitHub and
      * records a local reviewed state.
      */
-    public Posted submitReview(String repo, int number, long prId, String event, String body, List<InlineReviewComment> comments)
+    public Posted submitReview(String repo, int number, long prId, String event, String body, List<InlineReviewComment> comments, String commitId)
     {
+        checkText(commitId, "review commit");
         checkText(event, "review event");
         String normalizedEvent = event.toUpperCase(Locale.ROOT);
         if (!ImmutableSet.of("COMMENT", "APPROVE", "REQUEST_CHANGES").contains(normalizedEvent)) {
@@ -1279,6 +1280,10 @@ public class PullRequestService
         if (reviewComments.stream().map(InlineReviewComment::commitId).filter(commit -> commit != null && !commit.isBlank()).distinct().count() > 1) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "one review carries comments written on one commit");
         }
+        if (reviewComments.stream().filter(comment -> comment.replyToCommentId().isEmpty())
+                .anyMatch(comment -> !commitId.equals(comment.commitId()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review comments must match the review commit");
+        }
         String reviewBody = body == null ? "" : body.trim();
         if (!"APPROVE".equals(normalizedEvent) && reviewBody.isBlank() && reviewComments.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review body or inline comment must not be blank");
@@ -1291,8 +1296,8 @@ public class PullRequestService
                 .forEach(commentId -> replyThreads.put(commentId, gitHub.findReviewThreadId(pat, ref, commentId)));
         PullRequestDetail before = getPullRequestDetail(repo, number);
         PrReviewState created = replyThreads.isEmpty()
-                ? pullRequestWrites.submitReview(pat, ref, normalizedEvent, reviewBody, reviewComments)
-                : pullRequestWrites.submitReviewWithReplies(pat, ref, normalizedEvent, reviewBody, reviewComments, replyThreads);
+                ? pullRequestWrites.submitReview(pat, ref, normalizedEvent, reviewBody, reviewComments, commitId)
+                : pullRequestWrites.submitReviewWithReplies(pat, ref, normalizedEvent, reviewBody, reviewComments, replyThreads, commitId);
         // The review response carries the review alone, so the inline comments it
         // was submitted with have to be read back or they vanish from the diff
         // until the next poll.
@@ -1302,7 +1307,7 @@ public class PullRequestService
                         ImmutableList.of());
         PullRequestDetail detail = afterWrite(repo, number, () -> {
             PullRequestDetail patched = patchCachedReview(repo, number, prId, created, threads);
-            markReviewed(prId, normalizedEvent);
+            markReviewed(prId, normalizedEvent, commitId);
             recordReview(repo, number, normalizedEvent, reviewBody, created);
             reviewComments.forEach(inline -> recent.wroteOnPullRequest(
                     repo,
@@ -1375,14 +1380,14 @@ public class PullRequestService
                 Optional.empty());
     }
 
-    private void markReviewed(long prId, String event)
+    private void markReviewed(long prId, String event, String commitId)
     {
         HandledAction action = switch (event) {
             case "APPROVE" -> HandledAction.APPROVED;
             case "REQUEST_CHANGES" -> HandledAction.CHANGES_REQUESTED;
             default -> HandledAction.COMMENTED;
         };
-        viewStateStore.markReviewed(prId, action, currentHeadSha(prId), Instant.now());
+        viewStateStore.markReviewed(prId, action, commitId, Instant.now());
     }
 
     private void recordComment(String repo, int number, String kind, PrTimelineEvent created, String body)
@@ -1407,11 +1412,6 @@ public class PullRequestService
     {
         Long githubId = created == null ? null : created.githubId();
         return kind + ":" + (githubId != null ? githubId : Objects.toString(created == null ? null : created.timestamp(), "local"));
-    }
-
-    private String currentHeadSha(long prId)
-    {
-        return snapshots.findHeadSha(prId).orElse(null);
     }
 
     /** The head SHA locally recorded for a pull request, without contacting GitHub. */

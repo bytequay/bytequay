@@ -359,4 +359,6 @@ final class ReviewHttpModels
     record PromoteFindingRequest(Long expectedVersion, String reviewId, String findingId) {}
 
     record DraftReviewRequest(Long expectedVersion, String body, String event) {}
+
+    record DraftSubmitRequest(Long expectedVersion, String body, String event, String headSha) {}
 }

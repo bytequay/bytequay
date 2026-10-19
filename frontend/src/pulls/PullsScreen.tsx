@@ -1715,6 +1715,8 @@ export function ReviewDialog({
   // send whose outcome is unknown stays recorded and cannot go out twice.
   const [loadedDraft, setLoadedDraft] = useState<ReviewDraftDto | null>(null);
   const draft = review?.draft ?? loadedDraft;
+  // A background refresh must not turn this verdict into approval of a later push.
+  const reviewedHead = useRef(detail.headSha).current;
   const [body, setBody] = useState(draft?.body ?? '');
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const commentRef = useRef<HTMLTextAreaElement>(null);
@@ -1737,7 +1739,9 @@ export function ReviewDialog({
   // Review text in a send stays as sent until the user says whether it reached GitHub.
   const reviewSend = draft?.reviewPublication?.state ?? null;
   const unconfirmed = reviewSend !== null || (draft?.items.some(item => item.publication?.state === 'UNCERTAIN' || item.publication?.state === 'RESERVED') ?? false);
-  const bodyRequired = event !== 'APPROVE' && pendingComments.length === 0 && promoted.length === 0;
+  const earlierCommentsNeedText = event === 'REQUEST_CHANGES' && pendingComments.length + promoted.length > 0
+    && ![...pendingComments, ...promoted].some(comment => comment.replyToCommentId != null || comment.commitId === reviewedHead);
+  const bodyRequired = earlierCommentsNeedText || (event !== 'APPROVE' && pendingComments.length === 0 && promoted.length === 0);
   const failed = useCallback((value: unknown) => setError(remoteErrorMessage(value)), []);
   const hasReviewDraft = Boolean(review?.draft);
 
@@ -1935,6 +1939,7 @@ export function ReviewDialog({
       // Everything leaves through the draft, which reserves each comment and the review text, so
       // Post comment now or a retry after an unknown outcome cannot send them again. Written
       // comments retain their commits in the same draft; the backend sends one batch per commit.
+      if (!reviewedHead) throw new Error('Refresh the pull request before submitting a review.');
       const saved = savedDraft.current;
       if (saved === null) throw new Error('The review draft loaded after you started editing. Close and reopen to review its latest text.');
       savedDraft.current = await window.bridge.saveReviewDraft(detail.repo, detail.number, saved.version, body, event);
@@ -1948,7 +1953,7 @@ export function ReviewDialog({
         remaining = remaining.filter(value => value !== comment);
         onPendingCommentsChange(remaining);
       }
-      await window.bridge.submitReviewDraft(detail.repo, detail.number, version, body.trim(), event);
+      await window.bridge.submitReviewDraft(detail.repo, detail.number, version, body.trim(), event, reviewedHead);
       recordAttentionAction(`${detail.repo}#${detail.number}`, event === 'COMMENT' ? 'comment' : 'review',
         event === 'COMMENT' ? Math.max(1, pendingComments.length + promoted.length + Number(body.trim().length > 0)) : 1);
       reloadReview();
@@ -1990,6 +1995,7 @@ export function ReviewDialog({
           onKeyDown={command.keyDown}
           onChange={command.change} />
         {command.suggestion}
+        {earlierCommentsNeedText && !body.trim() && <p>Add review text to request changes when your comments are on earlier commits.</p>}
         {reviewSend !== null && <div className="pr-review-sheet__review-delivery">
           <span className="pull-diff-pending__badge">{reviewSend === 'UNCERTAIN' ? 'Delivery unconfirmed' : 'Sending…'}</span>
           {reviewSend === 'UNCERTAIN' && <>

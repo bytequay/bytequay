@@ -237,8 +237,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(submissions.length === 0, 'Opening and staging review comments must not publish them');
     submit.click(); await settle();
     assert(Number(submissions.length) === 1, 'The explicit submit action must publish the review exactly once');
-    const [repo, number, version, , event] = submissions[0];
-    assert(repo === detail.repo && number === detail.number && version === saved.version && event === 'COMMENT' && added.length === 2
+    const [repo, number, version, , event, headSha] = submissions[0];
+    assert(repo === detail.repo && number === detail.number && version === saved.version && event === 'COMMENT' && headSha === stored.headSha && added.length === 2
       && added[0].path === files[0].filename && added[0].side === 'RIGHT' && added[0].line === 1
       && added[0].commitId === 'two' && added[0].body === editedBody
       && added[1].replyToCommentId === 61 && added[1].body === 'Include this reply in my review',
@@ -442,6 +442,54 @@ export async function runConfirmedPublication(): Promise<string> {
         'The refreshed review must preserve the confirmed publication and clear its recovery controls');
     }
     return 'Confirmed publications refresh resolved findings for comments and review summaries';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    Object.assign(window, { bridge: previous });
+  }
+}
+
+export async function runApprovalCommitBinding(): Promise<string> {
+  const previous = window.bridge;
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const submissions: Parameters<Bridge['submitReviewDraft']>[] = [];
+  let writes = 0;
+  let draft: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: '', event: 'APPROVE', reviewPublication: null,
+    items: [], postedSummaryFindingIds: [], version: 0, updatedAt: review.createdAt };
+  const bridge = {
+    saveReviewDraft: async (_repo, _number, version, body, event) => { writes++; return (draft = { ...draft, body, event, version: version + 1 }); },
+    submitReviewDraft: async (...request) => { submissions.push(request); },
+    getAgentReview: async () => ({ ...review, draft }),
+    fetchPullRequestDetailByRef: async () => stored,
+  } satisfies Pick<Bridge, 'saveReviewDraft' | 'submitReviewDraft' | 'getAgentReview' | 'fetchPullRequestDetailByRef'>;
+  Object.assign(window, { bridge });
+  const render = (key: string, headSha: string | null) => flushSync(() => root.render(<ReviewDialog key={key}
+    pr={remotePullRequest(stored, 'bob')} detail={{ ...stored, headSha }} review={{ ...review, draft }}
+    onReviewChange={() => {}} onReviewSubmitted={() => {}} onClose={() => {}} />));
+  const submit = async () => {
+    const button = host.querySelector<HTMLButtonElement>('.pr-review-sheet__footer .is-primary');
+    assert(button !== null && !button.disabled, 'The approval submission must be available');
+    button.click();
+    await settle();
+  };
+  try {
+    render('viewed', 'viewed-head'); await settle();
+    render('viewed', 'new-head'); await settle();
+    await submit();
+    assert(JSON.stringify(submissions) === JSON.stringify([[stored.repo, stored.number, 1, '', 'APPROVE', 'viewed-head']]),
+      'A later detail refresh must not move an approval from the commit shown when its dialog opened');
+
+    render('missing', null); await settle();
+    await submit();
+    assert(writes === 1 && submissions.length === 1 && host.querySelector('[role="alert"]')?.textContent?.includes('Refresh the pull request') === true,
+      'A review with no viewed commit must explain recovery without saving or publishing');
+    render('missing', 'later-head'); await settle();
+    await submit();
+    assert(writes === 1 && submissions.length === 1, 'A head discovered after opening must not silently become the reviewed commit');
+    return 'Approvals stay bound to the viewed commit';
   }
   finally {
     flushSync(() => root.unmount());

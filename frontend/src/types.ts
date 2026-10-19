@@ -2185,7 +2185,7 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   saveReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent) => Promise<ReviewDraftDto>;
   /** Publishes one previewed comment at its saved commit; the backend validates the payload first. */
   publishReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<void>;
-  submitReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent) => Promise<void>;
+  submitReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent, headSha: string) => Promise<void>;
   /** Why each pending comment cannot be sent right now; an eligible one is absent. */
 
   /** Streams one task's events; the returned function stops the subscription. */

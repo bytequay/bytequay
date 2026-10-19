@@ -578,6 +578,44 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pr-better-words" type="button" aria-busy="false"');
   });
 
+  it.each(['pending', 'draft'] as const)('requires review text before requesting changes with only earlier %s comments', source => {
+    const review = reviewFixture();
+    const comment: InlineReviewCommentDto = { path: 'Example.java', side: 'RIGHT', line: 10,
+      startLine: null, startSide: null, commitId: 'old-head', body: 'An earlier commit comment.' };
+    review.draft = { repo: 'owner/repo', number: 42, body: '', event: 'REQUEST_CHANGES', reviewPublication: null,
+      postedSummaryFindingIds: [], version: 7, updatedAt: review.createdAt,
+      items: source === 'draft' ? [{ ...comment, id: 'older', source: 'AGENT_FINDING', findingId: 'finding', findingRevision: 1,
+        included: true, published: false, publication: null }] : [] };
+    const props: Parameters<typeof ReviewDialog>[0] = { pr: { ...pullRequest(), origin: 'OTHER' }, detail: detail(), review,
+      pendingComments: source === 'pending' ? [comment] : [], onClose: () => {}, onReviewSubmitted: () => {} };
+    const blocked = renderToStaticMarkup(<ReviewDialog {...props} />);
+    expect(blocked).toContain('class="is-primary" type="button" disabled="">Submit review');
+    expect(blocked).toContain('Add review text to request changes when your comments are on earlier commits.');
+
+    review.draft.body = 'Please address the earlier comment.';
+    const ready = renderToStaticMarkup(<ReviewDialog {...props} />);
+    expect(ready).toContain('class="is-primary" type="button">Submit review');
+    expect(ready).not.toContain('Add review text to request changes');
+  });
+
+  it.each([
+    { event: 'COMMENT', commitId: 'old-head', replyToCommentId: null },
+    { event: 'APPROVE', commitId: 'old-head', replyToCommentId: null },
+    { event: 'REQUEST_CHANGES', commitId: 'displayed-head', replyToCommentId: null },
+    { event: 'REQUEST_CHANGES', commitId: null, replyToCommentId: 61 },
+  ] as const)('allows $event without prose for a comment at $commitId or reply $replyToCommentId', comment => {
+    const review = reviewFixture();
+    review.draft = { repo: 'owner/repo', number: 42, body: '', event: comment.event, items: [], reviewPublication: null,
+      postedSummaryFindingIds: [], version: 7, updatedAt: review.createdAt };
+    const html = renderToStaticMarkup(<ReviewDialog pr={{ ...pullRequest(), origin: 'OTHER' }} detail={detail()} review={review}
+      pendingComments={[{ path: 'Example.java', side: 'RIGHT', line: 10, startLine: null, startSide: null,
+        commitId: comment.commitId, replyToCommentId: comment.replyToCommentId, body: 'A comment.' }]}
+      onClose={() => {}} onReviewSubmitted={() => {}} />);
+
+    expect(html).toContain('class="is-primary" type="button">Submit review');
+    expect(html).not.toContain('Add review text to request changes');
+  });
+
   it.each(['UNCERTAIN', 'RESERVED'] as const)('blocks review submission and editing for %s comments', state => {
     const review = reviewFixture();
     review.draft = { repo: review.repo, number: 42, body: 'Saved review', event: 'COMMENT', reviewPublication: null, postedSummaryFindingIds: [], version: 7, updatedAt: review.createdAt,
@@ -628,7 +666,7 @@ describe('PullOverview', () => {
       controls.submit();
       await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
       expect(saveReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 7, review.draft.body, 'COMMENT');
-      expect(submitReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 8, review.draft.body, 'COMMENT');
+      expect(submitReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 8, review.draft.body, 'COMMENT', 'displayed-head');
       expect(onReviewChange).toHaveBeenCalledWith(cleared);
     }
     finally { vi.unstubAllGlobals(); }
@@ -678,7 +716,7 @@ describe('PullOverview', () => {
         path: selected.path, side: selected.side, line: selected.line, startLine: selected.startLine, body: selected.body, commitId: 'old-head',
       });
       expect(onPendingCommentsChange).toHaveBeenCalledWith([]);
-      expect(submitReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 9, body, 'COMMENT');
+      expect(submitReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 9, body, 'COMMENT', 'displayed-head');
     }
     finally { vi.unstubAllGlobals(); }
   });

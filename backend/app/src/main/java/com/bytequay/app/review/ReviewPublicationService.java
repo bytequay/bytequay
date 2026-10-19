@@ -372,8 +372,11 @@ public class ReviewPublicationService
     }
 
     /** Publishes the included, eligible items with the user's chosen review text and event. */
-    public Publication submit(String repo, int number, long expectedVersion, String body, String event)
+    public Publication submit(String repo, int number, long expectedVersion, String body, String event, String headSha)
     {
+        if (headSha == null || headSha.isBlank()) {
+            throw new ReviewInvalidRequestException("Refresh the pull request before submitting a review");
+        }
         String chosen = requireEvent(event);
         String text = body == null ? "" : body.strip();
         // Before reserving, so a failed lookup leaves nothing to reconcile.
@@ -388,6 +391,10 @@ public class ReviewPublicationService
             requireSendable(sending);
             if (sending.isEmpty() && text.isEmpty() && !chosen.equals("APPROVE")) {
                 throw new ReviewInvalidRequestException("Add a comment or review text before submitting");
+            }
+            if (chosen.equals("REQUEST_CHANGES") && text.isEmpty()
+                    && sending.stream().noneMatch(item -> item.replyToCommentId().isPresent() || item.commitId().filter(headSha::equals).isPresent())) {
+                throw new ReviewInvalidRequestException("Add review text to request changes when your comments are on earlier commits");
             }
             String attemptId = UUID.randomUUID().toString();
             List<ReviewDraftItem> items = new ArrayList<>(draft.items());
@@ -406,10 +413,11 @@ public class ReviewPublicationService
                 }
                 groups.computeIfAbsent(item.commitId().orElseThrow(), ignored -> new ArrayList<>()).add(item);
             }
-            pullRequests.findHeadSha(repo, number).filter(groups::containsKey).ifPresent(head -> {
-                List<ReviewDraftItem> current = groups.remove(head);
-                groups.put(head, current);
-            });
+            // A verdict belongs to the revision the user saw, even when all inline comments refer to older commits.
+            List<ReviewDraftItem> current = groups.remove(headSha);
+            if (current != null || !chosen.equals("COMMENT")) {
+                groups.put(headSha, current == null ? ImmutableList.of() : current);
+            }
             List<List<ReviewDraftItem>> batches = new ArrayList<>(groups.values());
             if (batches.isEmpty()) {
                 batches.add(ImmutableList.of());
@@ -427,7 +435,8 @@ public class ReviewPublicationService
                 PullRequestService.Posted posted;
                 try {
                     posted = pullRequests.submitReview(repo, number, prId, last ? chosen : "COMMENT", last ? text : "",
-                            batch.stream().map(this::comment).collect(toImmutableList()));
+                            batch.stream().map(this::comment).collect(toImmutableList()),
+                            batch.stream().filter(item -> item.replyToCommentId().isEmpty()).flatMap(item -> item.commitId().stream()).findFirst().orElse(headSha));
                 }
                 catch (RuntimeException failure) {
                     // The review text rides the last batch, so a failure before it leaves the text unsent too.

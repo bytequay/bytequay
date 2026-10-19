@@ -193,6 +193,7 @@ describe('workspace model', () => {
   it('has no run route under the context tab', () => {
     expect(workspaceLocationFromRoute('#/workspaces/w/context/run/r')).toBeNull();
     expect(workspaceLocationFromRoute('#/workspaces/w/context')).toMatchObject({ tab: 'context', agentTaskId: null });
+    expect(workspaceLocationFromRoute('#/workspaces/w/artifacts')).toMatchObject({ tab: 'artifacts', agentTaskId: null });
   });
 
   it('keeps Jira ticket query parameters inside the workspace route', () => {

@@ -41,6 +41,8 @@ export type BrowserFixture = {
   height?: number;
   /** Preload source; the window gets it and `ipcMain` handlers can answer it from `setup`. */
   preload?: string;
+  /** Main-process source that runs before the app is ready, such as registering a privileged scheme. */
+  beforeReady?: string;
   /** Main-process source that runs after the window exists and before the page loads. */
   setup?: string;
   /**
@@ -102,6 +104,7 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
       nativeTheme.themeSource = 'light';
       app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
       app.setPath('userData', ${JSON.stringify(join(directory, 'profile'))});
+      ${fixture.beforeReady ?? ''}
       app.whenReady().then(async () => {
         const window = new BrowserWindow({ show: false, webPreferences: { backgroundThrottling: false${preload} } });
         ${size}

@@ -13,6 +13,7 @@
  */
 
 import type { LabBridge } from '@bytequay/lab/contracts';
+import type { ArtifactBridge } from './artifacts/contracts';
 import type { WorkItemBridge } from './workitems/contracts';
 import type { AppNoticeBounds, NoticeSnapshot } from './notices/contracts';
 import type { RunningTask } from './agents/runningTaskModel';
@@ -1610,7 +1611,7 @@ export type RecentDraftRequest = {
   body: string;
 };
 
-export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & {
+export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & ArtifactBridge & {
   onAppNoticeBounds: (callback: (bounds: AppNoticeBounds) => void) => () => void;
   onAppNoticeOpen: (callback: (target: { taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null }) => void) => () => void;
   setNoticeSource: (key: string, taskId: string | null) => Promise<void>;

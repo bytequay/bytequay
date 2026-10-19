@@ -15,7 +15,7 @@
 import type { WorkspaceDto } from '../types';
 
 export type WorkspaceTab =
-  | 'home' | 'tasks' | 'prs' | 'issues' | 'jira' | 'commits' | 'context';
+  | 'home' | 'tasks' | 'prs' | 'issues' | 'jira' | 'commits' | 'context' | 'artifacts';
 
 export function workspaceIsUpdating(workspace: WorkspaceDto): boolean {
   return !workspaceHasReadableCode(workspace);
@@ -125,7 +125,7 @@ export function workspaceLocationFromRoute(hash: string): {
         tab: related[3] as 'commits' | 'context', pullRequestNumber: null, issueNumber: null, agentTaskId: null };
     } catch { return null; }
   }
-  const match = /^#\/workspaces\/([^/?]+)(?:\/(home|tasks|prs|issues|jira|commits|context)(?:\/(?:agent\/([^/?]+)|(\d+)|review\/([^/?]+)|issue\/(\d+)|cherry\/([^/?]+)))?)?(?:\?[^#]*)?$/
+  const match = /^#\/workspaces\/([^/?]+)(?:\/(home|tasks|prs|issues|jira|commits|context|artifacts)(?:\/(?:agent\/([^/?]+)|(\d+)|review\/([^/?]+)|issue\/(\d+)|cherry\/([^/?]+)))?)?(?:\?[^#]*)?$/
     .exec(hash);
   if (!match) return null;
   const tab = match[2] as WorkspaceTab | undefined;

@@ -14,7 +14,7 @@
 import { RelatedWorkspaceNavigation } from './workspaces/RelatedWorkspaces';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, FlaskConical, GitBranch, Globe, History, House, KeyRound,
+  BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, FileText, FlaskConical, GitBranch, Globe, History, House, KeyRound,
   LayoutDashboard, LayoutGrid, ListChecks, MessageCircle, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Pin, Sparkles, Sun, Tags, TriangleAlert, Users,
 } from 'lucide-react';
@@ -101,6 +101,8 @@ const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode 
   { tab: 'issues', label: 'Work items', icon: <CircleDot size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'commits', label: 'Commits', icon: <GitBranch size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'context', label: 'Memory', icon: <BookMarked size={16} strokeWidth={1.7} aria-hidden="true" /> },
+  // Shown only in development until pages can be asked for.
+  ...(process.env.NODE_ENV !== 'production' ? [{ tab: 'artifacts' as const, label: 'Artifacts', icon: <FileText size={16} strokeWidth={1.7} aria-hidden="true" /> }] : []),
 ];
 
 export default function AppSidebar({

@@ -23,6 +23,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { spawn as spawnPty } from 'node-pty';
 import { IdeViews } from './ideViews';
+import { ArtifactView } from './artifactView';
+import { parseArtifactPage, parseArtifactSummaries } from './artifacts/contracts';
 import { repositoryAvatar } from './repositoryAvatars';
 import { NoticeHost } from './notices/host';
 import { isAssistantShortcut } from './assistantShortcut';
@@ -311,6 +313,8 @@ const appNotices = new NoticeHost(() => mainWindow,
     mainWindow?.webContents.focus();
   }, () => path.join(app.getPath('userData'), 'dismissed-notices.json'));
 const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.has(sender), () => appNotices.raise());
+const artifactView = new ArtifactView(() => mainWindow,
+  target => backendJson(workspaceUrl(target.workspaceId, `/artifacts/${encodeURIComponent(target.artifactId)}`)).then(parseArtifactPage), () => appNotices.raise());
 const browserTabs = new BrowserTabs(() => mainWindow, () => path.join(app.getPath('userData'), 'browser-tabs.json'), () => appNotices.raise());
 let pendingWindow: Promise<void> | null = null;
 
@@ -442,6 +446,7 @@ async function createWindow(): Promise<void> {
     draftAttachments.clear();
     browserTabs.releaseWindow();
     ideViews.releaseWindow();
+    artifactView.releaseWindow();
     mainWindow = null;
   });
   const sendFullScreen = (isFullScreen: boolean) => {
@@ -1831,6 +1836,8 @@ function registerIpc(): void {
     backendJson(workItemsUrl(workspaceId, '/epic'), jsonInit('POST', { epicId, kind, key })).then(parseEpicJoin));
   ipcMain.handle('work-items:assign-epic', (_event, workspaceId: string, itemId: string, epicId: string) =>
     backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/epic`), jsonInit('PUT', { epicId })).then(parseEpicJoin));
+  ipcMain.handle('artifacts:list', (_event, workspaceId: string) =>
+    backendJson(workspaceUrl(workspaceId, '/artifacts')).then(parseArtifactSummaries));
   const epicsUrl = (workspaceId: string, suffix = '') => workspaceUrl(workspaceId, `/epics${suffix}`);
   ipcMain.handle('work-items:mark-epic', (_event, workspaceId: string, itemId: string, isEpic: boolean) =>
     backendJson(epicsUrl(workspaceId, `/local/${encodeURIComponent(itemId)}`), jsonInit('PUT', { isEpic })).then((): void => undefined));
@@ -2068,6 +2075,7 @@ function registerIpc(): void {
   registerBrowserTabIpc(browserTabs, () => mainWindow);
   appNotices.register();
   ideViews.register();
+  artifactView.register();
   ipcMain.handle('inapp:popout', (_event, url: string) => openPopup(url));
 }
 

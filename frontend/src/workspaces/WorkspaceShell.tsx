@@ -19,6 +19,7 @@ import AgentTaskScreen from '../agents/AgentTaskScreen';
 import AgentTasksView, { type TaskLaunch } from '../agents/AgentTasksView';
 import ReviewTaskScreen from '../agents/ReviewTaskScreen';
 import TaskOverview from '../agents/TaskOverview';
+import ArtifactsPage from '../artifacts/ArtifactsPage';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import ProgressView from '../commits/ProgressView';
 import { zoomReference } from '../githubReference';
@@ -310,6 +311,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
         onViewTask={link => { window.location.hash = workspaceAgentTaskRoute(link.workspaceId, link.taskId); }}
       />} />;
     }
+    if (tab === 'artifacts') return <ArtifactsPage workspaceId={workspace.id} />;
     if (tab === 'context') {
       return <MemoryPage workspace={workspace} spec={specCheck} onSpecShown={specShown} />;
     }

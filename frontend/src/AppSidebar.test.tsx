@@ -97,9 +97,10 @@ describe('app sidebar', () => {
     expect(navLabels(app, 'Application navigation')).toEqual(['Pull requests']);
     expect(navLabels(connectedApp, 'Application navigation')).toEqual(['Pull requests', 'Jira']);
     expect(connectedApp).toContain('aria-label="Jira" aria-current="page"');
-    expect(navLabels(workspace, 'Workspace navigation')).toEqual(['Workspace home', 'Tasks', 'Pull requests', 'Work items', 'Commits', 'Memory']);
+    expect(navLabels(workspace, 'Workspace navigation')).toEqual(['Workspace home', 'Tasks', 'Pull requests', 'Work items', 'Commits', 'Memory',
+      'Artifacts']);
     expect(navLabels(connectedWorkspace, 'Workspace navigation')).toEqual(['Workspace home', 'Tasks', 'Pull requests', 'Work items', 'Commits',
-      'Memory']);
+      'Memory', 'Artifacts']);
     expect(connectedWorkspace).toContain('aria-label="Work items" aria-current="page"');
     expect(render('workspaces', WORKSPACE, { workspaceTab: 'jira' })).toContain('aria-label="Work items" aria-current="page"');
     expect(app).not.toContain('aria-label="Jira"');

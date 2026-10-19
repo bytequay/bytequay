@@ -115,7 +115,9 @@ class TestAgentRequestFilter
             "POST, /api/jira/connections/connection/refresh",
             "DELETE, /api/jira/connections/connection",
             "GET, /api/jira/connections/connection/sites/cloud/issues/1001",
-            "GET, /api/jira/attention"})
+            "GET, /api/jira/attention",
+            "POST, /api/workspaces/workspace-a/artifacts",
+            "POST, /api/workspaces/workspace-a/artifacts/a1/change"})
     void rejectsAgentOperationsUntilStartupRecoveryCompletes(String method, String path)
             throws Exception
     {
@@ -129,7 +131,8 @@ class TestAgentRequestFilter
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/agent/providers/status", "/api/jira/config", "/api/jira/connections"})
+    @ValueSource(strings = {"/agent/providers/status", "/api/jira/config", "/api/jira/connections", "/api/workspaces/workspace-a/artifacts",
+            "/api/workspaces/workspace-a/artifacts/a1"})
     void keepsAuthenticatedStatusReadsAvailableDuringRecovery(String path)
             throws Exception
     {

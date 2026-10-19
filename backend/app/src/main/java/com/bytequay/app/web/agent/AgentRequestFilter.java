@@ -83,7 +83,7 @@ public final class AgentRequestFilter
             reject(request, response, HttpStatus.UNAUTHORIZED, "Invalid desktop session");
             return;
         }
-        if (!servingGate.isReady() && waitsForAgentRecovery(requestPath(request)) && !isStartupStatusRequest(request)) {
+        if (!servingGate.isReady() && waitsForAgentRecovery(request) && !isStartupStatusRequest(request)) {
             reject(request, response, HttpStatus.SERVICE_UNAVAILABLE, "Agent startup recovery is not complete");
             return;
         }
@@ -102,8 +102,10 @@ public final class AgentRequestFilter
                 || (request.getMethod().equals("POST") && path.equals("/internal/agent/claude/mcp"));
     }
 
-    private static boolean waitsForAgentRecovery(String path)
+    private static boolean waitsForAgentRecovery(HttpServletRequest request)
     {
+        String path = requestPath(request);
+        boolean read = request.getMethod().equals("GET") || request.getMethod().equals("HEAD");
         return path.startsWith("/agent")
                 || path.startsWith("/api/agent-review")
                 || path.equals("/api/google") || path.startsWith("/api/google/")
@@ -113,7 +115,9 @@ public final class AgentRequestFilter
                 || path.equals("/api/assistant") || path.startsWith("/api/assistant/") || path.equals("/api/settings/assistant")
                 || path.startsWith("/api/ci-autofix")
                 || path.startsWith("/api/cherry-pick-ranges")
-                || (path.startsWith("/api/workspaces/") && (path.contains("/git/") || path.contains("/cherry-pick/")));
+                || (path.startsWith("/api/workspaces/") && (path.contains("/git/") || path.contains("/cherry-pick/")))
+                // Writing a page starts an agent session; reading saved pages does not.
+                || (path.startsWith("/api/workspaces/") && path.contains("/artifacts") && !read);
     }
 
     private static boolean isStartupStatusRequest(HttpServletRequest request)

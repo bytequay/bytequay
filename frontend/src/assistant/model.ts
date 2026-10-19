@@ -155,8 +155,20 @@ export function rowState(row: AssistantRowDto): string | null {
     if (row.mergeBlocked) return 'Merge blocked';
     if (row.review === 'approved') return 'Approved';
   }
-  if (row.kind === 'EPIC') return row.done === null || row.total === null ? null : `${row.done}/${row.total}`;
   return row.state === null ? null : capital(row.state);
+}
+
+/** What a row's or a card's tooltip says it is: a pull request's or issue's repository and number, or else its kind or agent. */
+export function rowTitle(row: AssistantRowDto): string {
+  switch (row.kind) {
+    case 'PULL':
+    case 'ISSUE': return row.target.repo === null || row.key === null ? row.title : `${row.target.repo} ${row.key} · ${row.title}`;
+    case 'JIRA': return row.key === null ? row.title : `Jira ${row.key} · ${row.title}`;
+    case 'TASK':
+    case 'REVIEW': return row.agent === null ? row.title : `${row.agent} · ${row.title}`;
+    case 'WORK': return `Work item · ${row.title}`;
+    case 'EPIC': return `Epic · ${row.title}`;
+  }
 }
 
 // The pages the assistant may open: the sidebar's, and each Settings section outside a workspace. AssistantShow.java holds the twin.

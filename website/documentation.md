@@ -125,7 +125,7 @@ message uses your model allowance.
    In cards, a pull request has its own **Approve** until you approve it,
    **Merge**, **Comment** and, on your own pull requests, **Close**. They act
    at once, as the pull request page's buttons do; **Comment** opens it at its
-   comment box.
+   comment box. When one cannot act, the card says why, with **Open**.
 5. Ask for a new GitHub issue as an Epic, and it drafts one for a watched
    repository. Edit the title and description, then click **Create issue** to
    create it on GitHub and mark it as an Epic. Nothing is created until you

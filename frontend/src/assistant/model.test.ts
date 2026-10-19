@@ -18,7 +18,7 @@ import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantR
 import { workspaceAgentTaskRoute, workspaceIssueRoute, workspacePullRequestRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
 import {
-  arrivedOpen, createdDrafts, dayLabel, entries, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, screenRef, stackOf, timelineDays, waitingCards,
+  arrivedOpen, createdDrafts, dayLabel, entries, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, rowTitle, screenRef, stackOf, timelineDays, waitingCards,
 } from './model';
 
 const target: AgendaTargetDto = { kind: 'PULL', workspaceId: 'ws', repo: 'trinodb/trino', number: 31402, id: null, connectionId: null, cloudId: null };
@@ -111,7 +111,8 @@ describe('stackOf', () => {
 
 describe('lists', () => {
   const row = (ref: string, kind: AssistantRowDto['kind'], at: string | null, fields: Partial<AssistantRowDto> = {}): AssistantRowDto => ({
-    ref, kind, title: ref, key: null, state: null, ci: null, review: null, approvals: null, mine: false, mergeBlocked: false, youApproved: false, agent: null, epic: null, done: null, total: null, at, latest: null, target,
+    ref, kind, title: ref, key: null, state: null, ci: null, review: null, approvals: null, mine: false, mergeBlocked: false, youApproved: false, agent: null, epic: null,
+    done: null, total: null, at, latest: null, target,
     ...fields,
   });
   const local = (day: number, hour: number): string => new Date(2026, 9, day, hour, 30).toISOString();
@@ -144,8 +145,18 @@ describe('lists', () => {
     expect(rowState(row('pr:a#1', 'PULL', null, { state: 'merged', review: 'approved' }))).toBe('Merged');
     expect(rowState(row('task:t1', 'TASK', null, { state: 'waiting' }))).toBe('Waiting');
     expect(rowState(row('work:w1', 'WORK', null, { state: 'planned' }))).toBe('Planned');
-    expect(rowState(row('epic:e1', 'EPIC', null, { done: 3, total: 6 }))).toBe('3/6');
+    // An Epic's done of total is a fact, so only its conclusion is a state.
+    expect(rowState(row('epic:e1', 'EPIC', null, { done: 3, total: 6 }))).toBeNull();
+    expect(rowState(row('epic:e1', 'EPIC', null, { state: 'concluded', done: 6, total: 6 }))).toBe('Concluded');
     expect(rowState(row('issue:a#2', 'ISSUE', null))).toBeNull();
+  });
+
+  it('names where each kind of row lives in its tooltip', () => {
+    expect(rowTitle(row('pr:trinodb/trino#31402', 'PULL', null, { key: '#31402', title: 'Retry commit' }))).toBe('trinodb/trino #31402 · Retry commit');
+    expect(rowTitle(row('jira:c:1', 'JIRA', null, { key: 'ICE-7', title: 'Expire snapshots' }))).toBe('Jira ICE-7 · Expire snapshots');
+    expect(rowTitle(row('task:t1', 'TASK', null, { agent: 'Claude Code', title: 'Expose ids' }))).toBe('Claude Code · Expose ids');
+    expect(rowTitle(row('work:w1', 'WORK', null, { title: 'Add a column' }))).toBe('Work item · Add a column');
+    expect(rowTitle(row('epic:e1', 'EPIC', null, { title: 'Write path' }))).toBe('Epic · Write path');
   });
 });
 

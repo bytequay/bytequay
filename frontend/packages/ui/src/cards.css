@@ -97,6 +97,13 @@
   color: var(--fg-link);
 }
 
+/* The chosen one of a set, such as a list's style: filled, as a pressed toggle is. */
+.card-iconbtn.is-selected,
+.card-iconbtn.is-selected:hover:not(:disabled) {
+  background: light-dark(#f0f1f3, var(--dark-hover));
+  color: var(--text-1);
+}
+
 .card-iconbtn:disabled {
   opacity: 0.35;
   cursor: not-allowed;

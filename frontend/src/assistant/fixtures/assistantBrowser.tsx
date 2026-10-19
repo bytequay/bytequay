@@ -381,8 +381,8 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
     await settle();
     const list = view.host.querySelector<HTMLElement>('.assistant-talk .assistant-items');
     assert(list !== null, 'The list shows in the conversation');
-    assert(list.querySelector('.assistant-items__title')?.textContent === 'Waiting on you' && list.querySelector('.assistant-items__count')?.textContent === '7',
-      'Its header names it and counts its refs');
+    assert(list.querySelector('.assistant-items__title')?.textContent === 'Waiting on you' && list.querySelector('.assistant-items__count')?.textContent === '6',
+      'Its header names it and counts what ByteQuay still holds');
     const switches = [...list.querySelectorAll<HTMLButtonElement>('.assistant-items__head .card-iconbtn')];
     const pressed = () => switches.map(button => button.getAttribute('aria-pressed'));
     assert(JSON.stringify(switches.map(button => button.getAttribute('aria-label'))) === '["Show as rows","Show as cards","Show as timeline"]', 'Three style switches');
@@ -390,14 +390,17 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
     assert(switches.every(button => getComputedStyle(button).borderStyle === 'none'), 'The switches are borderless icon buttons');
 
     const lines = [...list.querySelectorAll<HTMLElement>('.assistant-row')];
-    assert(lines.length === 7 && lines.every(line => line.getBoundingClientRect().height === 34), `Rows are one line each: ${lines.map(line => line.getBoundingClientRect().height)}`);
+    assert(lines.length === 7 && lines.every(line => line.getBoundingClientRect().height === 32), `Rows are one line each: ${lines.map(line => line.getBoundingClientRect().height)}`);
+    assert(lines[0].getAttribute('title') === 'trinodb/trino #31377 · Add Iceberg metadata cache', `A row's tooltip says where it lives: ${lines[0].getAttribute('title')}`);
     const [mine, red, task, ticket, work, epic, gone] = lines;
     assert(mine.textContent?.includes('#31377') === true && mine.querySelector('[title="Checks passing"]') !== null
       && mine.querySelector('[title="2 approvals"]')?.textContent === '2', `A pull request shows its checks and approvals: ${mine.textContent}`);
-    assert(red.querySelector('[title="Checks failing"]') !== null && red.querySelector('[title="Changes requested"]') !== null, 'Red checks and changes requested');
-    assert(task.querySelector('[title="Runs with Claude Code"]') !== null && task.querySelector('[title="Waiting"] .assistant-dot') !== null, 'A task shows its agent and phase');
-    assert(ticket.querySelector('.card-key')?.textContent === 'ICE-7' && ticket.querySelector('.pill')?.textContent === 'In progress', 'A ticket shows its key and status');
-    assert(work.querySelector('[title="Epic: Iceberg write path"]') !== null && work.querySelector('.pill')?.textContent === 'Planned', 'A work item shows its Epic and state');
+    assert(mine.querySelector('[title="Review decision: approved"]') !== null, 'And its review decision');
+    assert(red.querySelector('[title="Checks failing"]') !== null && red.querySelector('[title="Review decision: changes requested"]') !== null, 'Red checks and changes requested');
+    assert(task.querySelector('[title="Agent: Claude Code"]') !== null && task.querySelector('[title="Waiting for your answer"] .assistant-dot') !== null, 'A task shows its agent and phase');
+    assert(ticket.querySelector('.card-key')?.textContent === 'ICE-7' && ticket.querySelector('[title="Status: In progress"]')?.textContent === 'In progress',
+      'A ticket shows its key and status');
+    assert(work.querySelector('[title="Epic: Iceberg write path"]') !== null && work.querySelector('.pill') === null, 'A work item shows its Epic');
     assert(epic.querySelector('[title="3 of 6 done"]')?.textContent === '3/6', 'An Epic shows done of total');
     assert(gone.classList.contains('is-gone') && gone.textContent === '#1Gone' && gone.getAttribute('role') === null, `A ref that is gone draws as gone: ${gone.textContent}`);
     const bold = () => [...list.querySelectorAll('*')].filter(node => Number(getComputedStyle(node).fontWeight) > 400).map(node => node.className);
@@ -410,10 +413,18 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
     assert(cards.length === 6 && cards.every(card => card.classList.contains('card') && card.getAttribute('role') === 'button'), 'Each item is a card of the shared base');
     assert(list.querySelectorAll('.assistant-row.is-gone').length === 1, 'The gone ref stays a line among the cards');
     const strips = cards.map(card => card.querySelector('.assistant-item-card__strip .pill')?.textContent ?? null);
-    assert(JSON.stringify(strips) === '["Approved","Changes requested","Waiting","In progress","Planned","3/6"]', `Where each stands is in the strip: ${JSON.stringify(strips)}`);
-    assert(cards[2].querySelector('.assistant-item-card__latest')?.textContent?.startsWith('Claude CodeWhich table should hold the snapshot id?') === true,
-      `The latest event is in the body: ${cards[2].querySelector('.assistant-item-card__latest')?.textContent}`);
-    assert(cards[3].querySelector('.assistant-item-card__body .pill') === null, 'The body does not repeat the state');
+    assert(JSON.stringify(strips) === '["Approved","Changes requested","Waiting","In progress","Planned",null]', `Where each stands is in the strip: ${JSON.stringify(strips)}`);
+    const types = cards.map(card => card.querySelector('.assistant-item-card__strip')?.textContent ?? '').filter(text => /Task|Jira|Work item|Epic/.test(text));
+    assert(types.length === 0, `A strip names no type: ${JSON.stringify(types)}`);
+    assert(cards[2].querySelector('.assistant-item-card__lane')?.textContent === 'Claude Code'
+      && cards[2].querySelector('.assistant-item-card__latest')?.textContent === 'Which table should hold the snapshot id?',
+      `A task's strip names its agent, so its message needs no name: ${cards[2].querySelector('.assistant-item-card__latest')?.textContent}`);
+    assert(cards[3].querySelector('.assistant-item-card__body .pill') === null && cards[3].querySelector('.assistant-item-card__foot')?.textContent?.includes('In progress') === false,
+      'Below the strip, a ticket does not repeat its status');
+    assert(cards[5].textContent?.split('3/6').length === 2 && cards[5].querySelector('.assistant-item-card__foot [title="3 of 6 done"]') !== null, 'An Epic says done of total once');
+    const shown = [...cards[0].querySelectorAll<HTMLElement>('.assistant-item-card__foot button')];
+    assert(shown.length === 3 && shown.every(button => getComputedStyle(button).display !== 'none' && getComputedStyle(button).borderTopColor === 'rgba(0, 0, 0, 0)')
+      && cards[0].querySelector('.assistant-item-card__strip .card-age') !== null, 'A card\'s buttons always show, borderless, and its age moves to the strip');
     assert(bold().length === 0, `Nothing in a card is bold: ${bold().join(', ')}`);
 
     switches[2].click();
@@ -491,16 +502,14 @@ async function completesATaskFromItsCard(): Promise<void> {
     enter(type(view.host, 'close the snapshot task'));
     await settle();
     const cards = () => [...view.host.querySelectorAll<HTMLElement>('.assistant-item-card')];
-    const complete = (card: HTMLElement) => card.querySelector<HTMLButtonElement>('.card-actions button');
+    const complete = (card: HTMLElement) => card.querySelector<HTMLButtonElement>('.assistant-item-card__foot button');
     const [idle, running, ended] = cards();
     const button = complete(idle);
-    assert(button !== null && !button.disabled && button.title === 'Complete task' && button.getAttribute('aria-label') === 'Complete “Expose snapshot id in metadata”',
+    assert(button !== null && !button.disabled && button.textContent === 'Complete task' && button.getAttribute('aria-label') === 'Complete task “Expose snapshot id in metadata”',
       `An idle task's card has its own Complete task: ${button?.outerHTML.slice(0, 120)}`);
     assert(complete(running)?.disabled === true && complete(running)?.title === 'Available when the task is idle', 'A working task cannot be completed yet');
-    assert(complete(ended) === null, 'An ended task has nothing to complete');
-    const actions = idle.querySelector<HTMLElement>('.card-actions');
-    assert(actions !== null && getComputedStyle(actions).display === 'none' && actions.nextElementSibling?.className === 'card-age',
-      'Like every card action, it takes the age\'s place under the pointer or focus');
+    assert(complete(ended) === null && ended.querySelector('.assistant-item-card__foot .card-age') !== null, 'An ended task has nothing to complete, only its age');
+    assert(getComputedStyle(button).display !== 'none', 'Its button always shows');
 
     const hash = window.location.hash;
     button.click();
@@ -519,11 +528,13 @@ async function completesATaskFromItsCard(): Promise<void> {
     await settle();
     enter(type(refused.host, 'close it'));
     await settle();
-    refused.host.querySelector<HTMLButtonElement>('.assistant-item-card .card-actions button')?.click();
+    refused.host.querySelector<HTMLButtonElement>('.assistant-item-card .assistant-item-card__foot button')?.click();
     await settle();
-    assert(refused.host.querySelector('.assistant-error')?.textContent === 'Run or remove every waiting queued message first',
-      `A refused completion says why: ${refused.host.querySelector('.assistant-error')?.textContent}`);
-    assert(refused.host.querySelector<HTMLButtonElement>('.assistant-item-card .card-actions button')?.disabled === false, 'Its button can be tried again');
+    const refusal = refused.host.querySelector<HTMLElement>('.assistant-item-card__refusal');
+    assert(refusal?.querySelector('span')?.textContent === 'Run or remove every waiting queued message first' && refused.host.querySelector('.assistant-error') === null,
+      `A refused completion says why on its card: ${refusal?.textContent}`);
+    assert(refusal.querySelector('button')?.textContent === 'Open' && refused.host.querySelector('.assistant-item-card')?.querySelector('.assistant-item-card__foot') === null,
+      'In place of its button, with the way to the task');
   }
   finally { refused.dispose(); }
 }
@@ -629,6 +640,7 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
   const steps: unknown[][] = [];
   let ready = false;
   let unsettled = true;
+  let release = () => {};
   const draft: ReviewDraftDto = { repo: 'trinodb/trino', number: 31377, body: '', event: 'COMMENT', reviewPublication: null, items: [], postedSummaryFindingIds: [],
     version: 3, updatedAt: '2026-10-16T07:00:00Z' };
   // Someone else's pull request the user already approved.
@@ -643,7 +655,10 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
     refreshPullRequestDetailByRef: async () => { steps.push(['refresh']); return { full: true, detail: prDetail({}), status: null }; },
     fetchPullRequestDetailByRef: async (repo: string, number: number) => prDetail({ repo, number, viewerCanWrite: ready, headSha: 'abc123' }),
     fetchMergeMode: async () => ({ mergeQueue: false }),
-    mergePr: async (...args: unknown[]) => { steps.push(['merge', ...args]); },
+    mergePr: async (...args: unknown[]) => {
+      steps.push(['merge', ...args]);
+      await new Promise<void>(resolve => { release = () => resolve(); });
+    },
     closePr: async (...args: unknown[]) => { steps.push(['close', ...args]); },
   });
   try {
@@ -651,16 +666,26 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
     enter(type(view.host, 'show my pull requests as cards'));
     await settle();
     const card = (key: string) => [...view.host.querySelectorAll<HTMLElement>('.assistant-item-card')].find(each => each.querySelector('.card-key')?.textContent === key);
-    const buttons = (key: string) => [...(card(key)?.querySelectorAll<HTMLButtonElement>('.card-actions button') ?? [])].map(button => button.getAttribute('aria-label'));
+    const buttons = (key: string) => [...(card(key)?.querySelectorAll<HTMLButtonElement>('.assistant-item-card__foot button') ?? [])].map(button => button.getAttribute('aria-label'));
     assert(JSON.stringify(buttons('#31377')) === '["Approve #31377","Merge #31377","Comment on #31377"]', `Someone else's pull request: ${JSON.stringify(buttons('#31377'))}`);
     assert(JSON.stringify(buttons('#31402')) === '["Merge #31402","Comment on #31402","Close #31402"]', `The user's own: ${JSON.stringify(buttons('#31402'))}`);
     assert(JSON.stringify(buttons('#4127')) === '["Merge #4127","Comment on #4127"]', `One the user approved: ${JSON.stringify(buttons('#4127'))}`);
-    const press = (label: string) => view.host.querySelector<HTMLButtonElement>(`.card-actions button[aria-label="${label}"]`)?.click();
+    const press = (label: string) => view.host.querySelector<HTMLButtonElement>(`.assistant-item-card__foot button[aria-label="${label}"]`)?.click();
+    const refusal = (key: string) => card(key)?.querySelector('.assistant-item-card__refusal span')?.textContent;
+    // Opened again, a card has forgotten what refused it.
+    const reopen = async () => {
+      view.render(false);
+      view.render(true);
+      await settle();
+      enter(type(view.host, 'and again'));
+      await settle();
+    };
 
     press('Approve #31377');
     await settle();
-    assert(view.host.querySelector('.assistant-error')?.textContent === 'A review you sent has no answer yet. Open the pull request to settle it first.'
-      && steps.length === 0, 'A review whose outcome is unknown is settled on its page before another goes out');
+    assert(refusal('#31377') === 'A review you sent has no answer yet. Open the pull request to settle it first.' && steps.length === 0,
+      'A review whose outcome is unknown is settled on its page before another goes out');
+    await reopen();
     unsettled = false;
     press('Approve #31377');
     await settle();
@@ -671,12 +696,17 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
     steps.length = 0;
     press('Merge #31377');
     await settle();
-    assert(view.host.querySelector('.assistant-error')?.textContent === 'Not ready to merge. Open the pull request to see why.'
-      && JSON.stringify(steps) === '[["refresh"]]', `The merge sheet's own check refuses, after reading GitHub again: ${JSON.stringify(steps)}`);
+    assert(refusal('#31377') === 'Not ready to merge. Open the pull request to see why.' && JSON.stringify(steps) === '[["refresh"]]',
+      `The merge sheet's own check refuses, after reading GitHub again: ${JSON.stringify(steps)}`);
+    await reopen();
     ready = true;
     press('Merge #31377');
     await settle();
-    assert(JSON.stringify(steps.at(-1)) === '["merge",31377,"trinodb/trino",31377,"rebase","abc123"]' && view.host.querySelector('.assistant-error') === null,
+    const merging = [...(card('#31377')?.querySelectorAll<HTMLButtonElement>('.assistant-item-card__foot button') ?? [])];
+    assert(merging.some(button => button.textContent === 'Merging…') && merging.every(button => button.disabled), 'While it merges, the button says so and none can be pressed');
+    release();
+    await settle();
+    assert(JSON.stringify(steps.at(-1)) === '["merge",31377,"trinodb/trino",31377,"rebase","abc123"]' && refusal('#31377') === undefined,
       `Once ready, it merges only the head commit the check saw: ${JSON.stringify(steps.at(-1))}`);
 
     press('Close #31402');

@@ -51,8 +51,8 @@ export function Card({ compact = false, selected = false, className = '', ...pro
 export function IconButton({ label, title = label, tone, pressed, disabled, onClick, children }: {
   label: string;
   title?: string;
-  /** Ack turns green and danger red under the pointer; active is an on toggle. */
-  tone?: 'ack' | 'danger' | 'active';
+  /** Ack turns green and danger red under the pointer; active is an on toggle, and selected the chosen one of a set. */
+  tone?: 'ack' | 'danger' | 'active' | 'selected';
   pressed?: boolean;
   disabled?: boolean;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;

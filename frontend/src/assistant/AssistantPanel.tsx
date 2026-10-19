@@ -145,11 +145,10 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     event.preventDefault();
     if (ref in targets) show(targets[ref]);
   };
-  // The user's own click on a task's card; the list shows it completed once the day is read again.
+  // The user's own click on a task's card; the list shows it completed once the day is read again, and the card says why it could not.
   const completeTask = (target: AgendaTargetDto): Promise<void> => {
     if (target.id === null || target.workspaceId === null) return Promise.resolve();
-    setFailure(null);
-    return window.bridge.completeAgentTask(target.id, target.workspaceId).then(refresh).catch((cause: unknown) => setFailure(remoteErrorMessage(cause)));
+    return window.bridge.completeAgentTask(target.id, target.workspaceId).then(refresh);
   };
   // The user's own click on a pull request's card: Comment opens it at its comment box, and the others act as its page's controls do.
   const actOnPull = (target: AgendaTargetDto, action: PullAction): Promise<void> => {
@@ -159,9 +158,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
       show(target);
       return Promise.resolve();
     }
-    setFailure(null);
     const act = action === 'approve' ? approvePull : action === 'merge' ? mergePull : closePull;
-    return act(target.repo, target.number).then(refresh).catch((cause: unknown) => setFailure(remoteErrorMessage(cause)));
+    return act(target.repo, target.number).then(refresh);
   };
   const noticeAction = (action: Promise<void>, message: string, then?: () => void) => {
     setFailure(null);

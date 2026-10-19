@@ -374,7 +374,9 @@ public class ArtifactService
                     append(run, artifact, ArtifactItem.of(artifact.id(), ArtifactItem.Kind.REPLY, message.text().strip(), clock.instant()));
                 }
                 // A finished tool's summary is its output, never a label.
-                case ProviderAgentEvent.Tool tool when ended(tool.state()) && !tool.name().contains("artifact_") -> step(run, artifact, tool.description(), tool.name());
+                case ProviderAgentEvent.Tool tool when ended(tool.state()) && !tool.name().contains("artifact_") ->
+                        // "mcp__bytequay__bytequay_search" reads as "bytequay search".
+                        step(run, artifact, tool.description(), tool.name().replaceFirst("^mcp__.+?__", "").replace('_', ' '));
                 case ProviderAgentEvent.Command command when ended(command.state()) -> step(run, artifact, command.description(), String.join(" ", command.argv()));
                 default -> {
                 }

@@ -223,12 +223,15 @@ class TestArtifactService
         assertThat(prompts.getFirst()).contains("main at commit " + commit, "Teach me how Iceberg position deletes work").doesNotContain("Earlier in this conversation");
 
         agent.add(turn -> {
+            turn.step("mcp__bytequay__bytequay_list_tools", "[\"bytequay_search\"]", Optional.empty());
             turn.say("Then the read path it is.");
             assertThat(turn.call("artifact_offer", "{\"title\":\"Deletes on read\",\"covers\":\"How a scan skips deleted rows.\"}")).startsWith("Offered");
             return completed();
         });
         artifacts.send(WORKSPACE, id, "The read path, please");
         ArtifactView offered = waitUntilAnswered(id);
+        // A step with no description is named after its tool, without the MCP server prefix.
+        assertThat(offered.items()).extracting(ArtifactItem::kind, ArtifactItem::text).contains(tuple(ACTIVITY, "bytequay list tools · 1 step"));
         ArtifactItem offer = offered.items().getLast();
         assertThat(offer.kind()).isEqualTo(OFFER);
         assertThat(offer.offer().orElseThrow()).isEqualTo(new ArtifactItem.Offer("Deletes on read", "How a scan skips deleted rows.", ArtifactItem.Offer.State.SHOWN));

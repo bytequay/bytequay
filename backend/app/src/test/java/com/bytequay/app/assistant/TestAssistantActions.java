@@ -15,6 +15,7 @@ package com.bytequay.app.assistant;
 
 import com.bytequay.agent.core.AgentApproval;
 import com.bytequay.agent.core.AgentApprovalService;
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -24,7 +25,11 @@ import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
+import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.core.QueueAgentInputCommand;
+import com.bytequay.agent.core.QueuedAgentInput;
+import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
@@ -364,7 +369,7 @@ class TestAssistantActions
     }
 
     @Test
-    void sendsTheUsersWordsToAnIdleTaskAndRefusesABusyOne()
+    void sendsTheUsersWordsToAnIdleTaskAndQueuesThemBehindAWorkingOne()
     {
         AssistantItem message = message("tell it to use the hidden column", ImmutableList.of());
         AgendaTarget opens = AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", task.id().toString());
@@ -375,10 +380,25 @@ class TestAssistantActions
         verify(turns).start(sent.capture());
         assertThat(sent.getValue().message()).isEqualTo("use the hidden column");
 
+        // A task at work takes the words after its current turn, as its own page's send does.
         when(tasks.find(task.id())).thenReturn(Optional.of(task.claimWorktreeMutation(WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW)));
+        AgentTurnSettings settled = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO, ImmutableList.of());
+        when(turns.enqueue(any())).thenAnswer(call -> QueuedAgentInput.queued(QueuedInputId.random(), task.id(), 1, call.<QueueAgentInputCommand>getArgument(0).idempotencyKey(),
+                new BlobRef("reply.txt", "text/plain", 16), call.<QueueAgentInputCommand>getArgument(0).message(), settled, NOW));
         act(message("and also keep the old key", ImmutableList.of()), served, "{\"op\":\"reply_to_task\",\"task\":\"task:" + task.id() + "\",\"words\":\"keep the old key\"}");
-        assertRefused("Task is busy; steer it from the task", Optional.empty());
+        assertThat(receipts.getLast().text()).isEqualTo("Queued your words for Retry Iceberg commit on conflict");
+        assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("After its current turn");
+        assertThat(receipts.getLast().receipt().orElseThrow().target()).contains(opens);
+        ArgumentCaptor<QueueAgentInputCommand> queued = ArgumentCaptor.forClass(QueueAgentInputCommand.class);
+        verify(turns).enqueue(queued.capture());
+        assertThat(queued.getValue().message()).isEqualTo("keep the old key");
         verify(turns, times(1)).start(any());
+
+        // Anything else holding the task, such as a run in its working copy, is the turn service's refusal.
+        doThrow(new AgentConflictException("A run is using this working copy")).when(turns).enqueue(any());
+        act(message("and also drop the cache", ImmutableList.of()), served, "{\"op\":\"reply_to_task\",\"task\":\"task:" + task.id() + "\",\"words\":\"drop the cache\"}");
+        assertThat(receipts.getLast().receipt().orElseThrow().outcome()).isEqualTo(FAILED);
+        assertThat(receipts.getLast().text()).isEqualTo("A run is using this working copy");
     }
 
     @Test

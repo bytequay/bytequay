@@ -300,13 +300,15 @@ agent that names other tasks, and only through
 that message was sent or on references handed out that day. A task it starts or
 replies to receives only the user's own words, beside the first message the app
 already builds for an item, and task automation comes from the user's saved
-settings. Words the message says not to do, such as "push to main" in "don't
-push to main", are refused, and each receipt shows the exact words acted on. By words it answers only Claude shell commands that stay in the
-sandbox, with Allow once or Deny, and question cards; everything else stays a
-button. It may also mark an Epic, add work to one, create a work item titled
-with the user's words, and acknowledge or snooze a Needs attention item, all of
-it local. Each call is logged and leaves a receipt in the conversation, and the
-switches that let it act are off by default.
+settings. A reply to a task at work waits in its queue behind the current turn;
+steering it into that turn stays the task page's button. Words the message says
+not to do, such as "push to main" in "don't push to main", are refused, and each
+receipt shows the exact words acted on. By words it answers only Claude shell
+commands that stay in the sandbox, with Allow once or Deny, and question cards;
+everything else stays a button. It may also mark an Epic, add work to one,
+create a work item titled with the user's words, and acknowledge or snooze a
+Needs attention item, all of it local. Each call is logged and leaves a receipt
+in the conversation, and the switches that let it act are off by default.
 
 ## Trust and external services
 

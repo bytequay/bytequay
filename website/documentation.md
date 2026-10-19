@@ -142,9 +142,10 @@ default and are separate from enabling Assistant conversation.
 
 - **Start tasks:** ask it to start work on an item. The task uses your saved
   automation settings.
-- **Answer tasks:** send your reply to an idle task or answer a question. For
-  supported command approvals inside the sandbox, allow once or deny; other
-  approvals require the card's buttons.
+- **Answer tasks:** send your reply to a task or answer a question. A task
+  that is working gets your reply after its current turn; **Steer** on the
+  task's page sends it sooner. For supported command approvals inside the
+  sandbox, allow once or deny; other approvals require the card's buttons.
 - **Change Epics and work items:** mark an issue, ticket or work item as an
   Epic, add work to an Epic, or create a work item titled with your words. All
   of it stays in ByteQuay; unmarking an Epic stays a button.

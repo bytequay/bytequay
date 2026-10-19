@@ -546,7 +546,7 @@ class AssistantActions
             return Optional.empty();
         }
 
-        /** A reply waits for an open development task that is not working now; a running task is steered from its own page. */
+        /** A reply goes to an open development task; one at work takes it after its current turn, as its own page's send does. */
         private Optional<Result> taskState(Request request)
         {
             if (AgendaRefs.kind(request.target()).equals("review")) {
@@ -563,7 +563,7 @@ class AssistantActions
             if (!task.interactive()) {
                 return Optional.of(Result.refused(request.operation(), "Reply to a review from its page"));
             }
-            return task.worktreeMutationClaim().isPresent() ? Optional.of(Result.refused(request.operation(), "Task is busy; steer it from the task")) : Optional.empty();
+            return Optional.empty();
         }
 
         private Result act(Request request)
@@ -629,7 +629,14 @@ class AssistantActions
         private Result send(Request request)
         {
             AgentTask task = taskId(AgendaRefs.id(request.target())).flatMap(tasks::find).orElseThrow();
-            TaskInput.send(turns, task.id(), task.version(), request.words(), key(request), false, Optional.empty());
+            // Steering the words into the running turn stays a button on the task's page; the turn service refuses a queue behind anything but that turn.
+            boolean working = task.worktreeMutationClaim().isPresent();
+            TaskInput.send(turns, task.id(), task.version(), request.words(), key(request), working, Optional.empty());
+            if (working) {
+                return new Result("Queued your words for " + clip(task.title(), 80), new AssistantReceipt(Operation.REPLY_TO_TASK, Outcome.DONE,
+                        Optional.of("After its current turn"), target(task.id()), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+                        Optional.of(task.id().toString()));
+            }
             return new Result("Sent your words to " + clip(task.title(), 80), AssistantReceipt.done(Operation.REPLY_TO_TASK, target(task.id())), Optional.of(task.id().toString()));
         }
 

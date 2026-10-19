@@ -15,7 +15,7 @@
 import React from 'react';
 import { Archive, ArchiveRestore, Check, ChevronRight, Cherry, CodeXml, Eye, LayoutGrid, PanelLeft, Trash2, Wrench } from 'lucide-react';
 import { Card, CardActions, CardAge, Clickable, IconButton, InGoalBadge, LinkKey, Pill } from '../cards/Card';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import { taskArchived, taskBusy } from './taskStatus';
 import { TASK_TYPES, type TaskListItem, type TaskType } from './taskList';
 

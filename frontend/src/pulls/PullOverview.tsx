@@ -11,19 +11,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { shortSha } from '../displayText';
+import { shortSha } from '@bytequay/ui/displayText';
 import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, ExternalLink, Eye, FileText, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, RotateCw, SmilePlus, Tag, User } from 'lucide-react';
 import { remoteErrorMessage } from '../remoteError';
 import { useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { TaskDiscussionDto } from '../agents/discussions/contracts';
 import Avatar from '../Avatar';
-import CopyLinkButton from '../CopyLinkButton';
+import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import { parseUnifiedDiff } from '../diffParse';
 import { openWebLink } from '../githubReference';
 import { recordAttentionAction } from '../home/useAttentionVisit';
 import LearnFromPullButton from '../memory/LearnFromPullButton';
 import ReplayReviewButton from '../memory/ReplayReviewButton';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import RepoAvatar from '../RepoAvatar';
 import type {
   Bridge,
@@ -39,7 +39,7 @@ import type {
   RepoUserDto,
   UserProfileDto,
 } from '../types';
-import { usePopoverDismiss } from '../usePopoverDismiss';
+import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import UserAvatar from '../UserAvatar';
 import BetterWordsButton from './BetterWordsButton';
 import LocalReviewThreadCard from './local-review/LocalReviewThreadCard';

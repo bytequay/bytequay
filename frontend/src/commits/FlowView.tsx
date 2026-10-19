@@ -14,7 +14,7 @@
 import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import {
   developmentDefaults,
   displayModelName,
@@ -33,7 +33,7 @@ import type {
   ModelProviderDto,
 } from '../types';
 import { useModalDialog } from '../useModalDialog';
-import { usePopoverDismiss } from '../usePopoverDismiss';
+import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { shortSha } from './model';
 
 type FlowItem = {

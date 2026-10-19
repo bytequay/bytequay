@@ -19,7 +19,7 @@ import { CardActions, CardAge, GoalIcon, IconButton, InGoalBadge, ItemRow, LinkK
 import { jiraIssueLocation } from '../jira/contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
 import ReferenceCard, { previewMarkdown, toneChip, useHoverCard, type HoverCard, type ReferenceCardItem } from '../ReferenceCard';
-import { ago, relativeTime } from '../relativeTime';
+import { ago, relativeTime } from '@bytequay/ui/relativeTime';
 import { firstWords } from '../teams/activity';
 import type { TeamAttentionMatch } from '../teams/priority';
 import type { TeamCircle } from '../teams/types';

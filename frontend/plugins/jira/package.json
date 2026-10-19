@@ -1,0 +1,62 @@
+{
+  "name": "@bytequay/jira",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "default": "./dist/contracts.js"
+    },
+    "./main": {
+      "types": "./dist/main.d.ts",
+      "default": "./dist/main.js"
+    },
+    "./preload": {
+      "types": "./dist/preload.d.ts",
+      "default": "./dist/preload.js"
+    },
+    "./renderer": {
+      "types": "./dist/renderer.d.ts",
+      "default": "./dist/renderer.js"
+    },
+    "./styles.css": "./dist/renderer/jira.css"
+  },
+  "typesVersions": {
+    "*": {
+      "contracts": [
+        "dist/contracts.d.ts"
+      ],
+      "main": [
+        "dist/main.d.ts"
+      ],
+      "preload": [
+        "dist/preload.d.ts"
+      ],
+      "renderer": [
+        "dist/renderer.d.ts"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc -b && node ../../scripts/copy-plugin-assets.mjs",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
+    "lint": "eslint --ext .ts,.tsx src",
+    "test": "vitest run --config ../../vitest.config.ts",
+    "prebuild": "npm run build --workspace=@bytequay/ui",
+    "pretest": "npm run build",
+    "prelint": "npm run build"
+  },
+  "dependencies": {
+    "@bytequay/ui": "0.5.0",
+    "lucide-react": "^1.40.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "electron": "44.5.1"
+  }
+}

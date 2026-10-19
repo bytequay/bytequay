@@ -15,7 +15,7 @@ import { useAgentAvailability } from '../agents/availability';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, GitBranch, GitFork, ListChecks, RefreshCw, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '../css/commits.css';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import type {
   CherryPickPreview,
   CommitHistoryRefDto,
@@ -27,7 +27,7 @@ import type {
   WorkspaceDto,
   WorkspaceSettingsDto,
 } from '../types';
-import { usePopoverDismiss } from '../usePopoverDismiss';
+import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { githubSlug } from '../workspaces/model';
 import ChangesView from './ChangesView';
 import FlowView from './FlowView';

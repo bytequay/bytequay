@@ -11,46 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { CSSProperties, MouseEvent, ReactNode } from 'react';
-import { CircleDot, GitPullRequest, LoaderCircle, LockKeyhole, SquareCheck } from 'lucide-react';
-import JiraIcon from '../jira/JiraIcon';
-import { relativeTime } from '../relativeTime';
-import type { AttentionSource, AttentionTone } from '../home/attention';
-import '../css/cards.css';
+import type { ReactNode } from 'react';
+import { CircleDot, GitPullRequest, LockKeyhole, SquareCheck } from 'lucide-react';
+import { JiraIcon } from '@bytequay/jira/renderer';
+import { relativeTime } from '@bytequay/ui/relativeTime';
+import type { AttentionSource } from '../home/attention';
+import { Clickable } from '@bytequay/ui/cards';
+
+export { Card, Clickable, IconButton, Pill } from '@bytequay/ui/cards';
 
 /*
  * The one base every card and card row draws with: Needs attention, Circles, the Tasks page, a workspace's
  * open tasks and a goal's items. A surface keeps only its own layout; the box, its keyboard behaviour, its
  * hover actions, pills and badges come from here.
  */
-
-type ClickableProps = {
-  className?: string;
-  /** What a screen reader calls the whole card or row. */
-  label?: string;
-  title?: string;
-  onOpen: () => void;
-  children: ReactNode;
-};
-
-/** A card or row that opens on a click, Enter or Space, leaving keys meant for a control inside it alone. */
-export function Clickable({ className, label, title, onOpen, children }: ClickableProps): React.JSX.Element {
-  return (
-    <div className={className} role="button" tabIndex={0} aria-label={label} title={title} onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
-        event.preventDefault();
-        onOpen();
-      }}>
-      {children}
-    </div>
-  );
-}
-
-/** A card: the box every list of things to open draws. Compact ones are the small cards on Home and the goal board. */
-export function Card({ compact = false, selected = false, className = '', ...props }: ClickableProps & { compact?: boolean; selected?: boolean }): React.JSX.Element {
-  return <Clickable {...props} className={`card${compact ? ' is-compact' : ''}${selected ? ' is-selected' : ''} ${className}`.trim()} />;
-}
 
 /** When a card's item last moved. A card's actions take its place while the pointer or focus is inside. */
 export function CardAge({ at, now, title }: { at: string; now?: number; title?: string }): React.JSX.Element {
@@ -92,44 +66,6 @@ export function ItemRow({ className = '', label, onOpen, icon, title, marks, met
 /** The actions a card or row shows while the pointer or focus is inside it, in place of an age that follows them. */
 export function CardActions({ label, className = '', children }: { label?: string; className?: string; children: ReactNode }): React.JSX.Element {
   return <span className={`card-actions ${className}`.trim()} role="group" aria-label={label}>{children}</span>;
-}
-
-/** A small action on a card; it never opens the card it sits on. */
-export function IconButton({ label, title = label, tone, pressed, disabled, onClick, children }: {
-  label: string;
-  title?: string;
-  /** Ack turns green and danger red under the pointer; active is an on toggle. */
-  tone?: 'ack' | 'danger' | 'active';
-  pressed?: boolean;
-  disabled?: boolean;
-  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
-  children: ReactNode;
-}): React.JSX.Element {
-  return (
-    <button type="button" className={`card-iconbtn${tone === undefined ? '' : ` is-${tone}`}`} title={title} aria-label={label}
-      aria-pressed={pressed} disabled={disabled} onClick={(event) => { event.stopPropagation(); onClick(event); }}>
-      {children}
-    </button>
-  );
-}
-
-/** A short label in a tone, or a plain outline for where an item stands; a running state spins. */
-export function Pill({ tone = 'neutral', outline = false, spinning = false, className = '', style, title, children }: {
-  tone?: AttentionTone;
-  outline?: boolean;
-  spinning?: boolean;
-  /** `is-square` and `is-struck` draw a ticket's status as it moved. */
-  className?: string;
-  style?: CSSProperties;
-  title?: string;
-  children: ReactNode;
-}): React.JSX.Element {
-  return (
-    <span className={`pill ${outline ? 'is-outline' : `is-${tone}`} ${className}`.trim()} style={style} title={title}>
-      {spinning && <LoaderCircle className="agt-spin" aria-hidden="true" />}
-      {children}
-    </span>
-  );
 }
 
 /** A goal: a target of two rings. */

@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.recent;
 
-import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RecentItemType;
 import com.bytequay.core.domain.RecentReason;
@@ -28,6 +27,7 @@ import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RecentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.integration.jira.JiraIssue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

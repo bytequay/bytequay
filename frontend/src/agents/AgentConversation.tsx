@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { clock } from '../displayText';
+import { clock } from '@bytequay/ui/displayText';
 import type { JiraTaskSource } from '../jira/contracts';
 import { BackportRequestHint } from './BackportRequestHint';
 import { JiraRequestCard } from '../jira/JiraSourceAttachment';

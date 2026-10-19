@@ -15,7 +15,7 @@
 import React, { useEffect, useReducer, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import { getCached, setCached } from '../dataCache';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import { displayModelName, laneLabel } from '../settings/model';
 import { TurnView } from './AgentTaskScreen';
 import { taskStatePill } from './taskStatus';

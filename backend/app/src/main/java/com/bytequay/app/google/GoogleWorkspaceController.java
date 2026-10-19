@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.google;
 
+import com.bytequay.integration.google.GoogleSnapshot;
+import com.bytequay.integration.google.GoogleWorkspace;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,9 +31,9 @@ import static java.util.Objects.requireNonNull;
 @RequestMapping("/api/google")
 public class GoogleWorkspaceController
 {
-    private final GoogleWorkspaceService google;
+    private final GoogleWorkspace google;
 
-    public GoogleWorkspaceController(GoogleWorkspaceService google)
+    public GoogleWorkspaceController(GoogleWorkspace google)
     {
         this.google = requireNonNull(google, "google is null");
     }

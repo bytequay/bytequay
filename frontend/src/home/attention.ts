@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { plural } from '../displayText';
+import { plural } from '@bytequay/ui/displayText';
 import type { JiraIssue } from '../jira/contracts';
 import { pullRequestIsMine } from '../pulls/model';
 import { teamAttentionMatch, type TeamAttentionPreference } from '../teams/priority';

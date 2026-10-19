@@ -15,9 +15,15 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "postinstall": "install-electron --no && chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper",
-    "lint": "eslint --ext .ts,.tsx .",
+    "lint": "node --test scripts/workspace-resolver.check.cjs && eslint --ext .ts,.tsx .",
     "test": "vitest run",
-    "check:licenses": "license-checker-rseidelsohn --production --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;0BSD;CC-BY-4.0;CC-BY-3.0;Python-2.0;Unlicense;BlueOak-1.0.0' --excludePackagesStartingWith 'bytequay'"
+    "check:licenses": "license-checker-rseidelsohn --production --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;0BSD;CC-BY-4.0;CC-BY-3.0;Python-2.0;Unlicense;BlueOak-1.0.0' --excludePackagesStartingWith 'bytequay;@bytequay/'",
+    "build:plugins": "npm run build --workspaces --if-present",
+    "prestart": "npm run build:plugins",
+    "prepackage": "npm run build:plugins",
+    "premake": "npm run build:plugins",
+    "pretest": "npm run build:plugins",
+    "prelint": "npm run build:plugins"
   },
   "keywords": [],
   "author": {
@@ -88,6 +94,14 @@
     "node-pty": "1.1.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "vscode": "npm:@codingame/monaco-vscode-extension-api@33.0.9"
-  }
+    "vscode": "npm:@codingame/monaco-vscode-extension-api@33.0.9",
+    "@bytequay/ui": "0.5.0",
+    "@bytequay/google": "0.5.0",
+    "@bytequay/lab": "0.5.0",
+    "@bytequay/jira": "0.5.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "plugins/*"
+  ]
 }

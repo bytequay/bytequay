@@ -17,7 +17,6 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
-import com.bytequay.app.jira.JiraActivityLog;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.localreview.LocalReviewService;
 import com.bytequay.app.notices.AppNoticeService;
@@ -48,6 +47,7 @@ import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.RepositoryMetadataStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.integration.jira.JiraActivityReader;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -167,7 +167,7 @@ class TestAgendaReader
         ObjectProvider<JiraService> jira = mock(ObjectProvider.class);
         return new AgendaReader(pullRequests, details, credentials, workspaces, mock(AppNoticeService.class), mock(AgentTaskStore.class),
                 mock(TaskPullRequestOwnership.class), mock(LocalReviewService.class), items, work, epics,
-                markers, mock(RepositoryIssueStore.class), mock(IssueDevelopmentService.class), jira, mock(JiraActivityLog.class),
+                markers, mock(RepositoryIssueStore.class), mock(IssueDevelopmentService.class), jira, mock(JiraActivityReader.class),
                 new TeamService(new InMemoryAppSettingsStore(), mapper, credentials, github, mock(RepositoryMetadataStore.class)), mock(AgendaDone.class));
     }
 

@@ -15,11 +15,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from 'react-dom';
 import { CircleDot, GitPullRequest, SquareCheck } from 'lucide-react';
 import Avatar from './Avatar';
-import CopyLinkButton from './CopyLinkButton';
+import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import type { AttentionSource, AttentionTone } from './home/attention';
-import JiraIcon from './jira/JiraIcon';
+import { JiraIcon } from '@bytequay/jira/renderer';
 import RepoAvatar from './RepoAvatar';
-import { ago } from './relativeTime';
+import { ago } from '@bytequay/ui/relativeTime';
 
 /** The tallest a card opens; its anchor may leave less room, and then the description scrolls. */
 const CARD_MAX_HEIGHT = 720;

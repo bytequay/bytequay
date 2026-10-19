@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.agenda;
 
-import com.bytequay.app.google.GoogleBusyTime;
-import com.bytequay.app.google.GoogleWorkspaceService;
 import com.bytequay.core.domain.AgendaCalendar;
+import com.bytequay.integration.google.GoogleBusyTime;
+import com.bytequay.integration.google.GoogleWorkspace;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,9 +50,9 @@ class AgendaCalendarReader
     private static final int WORK_END = 18 * 60;
     private static final int SHORTEST_FREE = 30;
 
-    private final GoogleWorkspaceService google;
+    private final GoogleWorkspace google;
 
-    AgendaCalendarReader(GoogleWorkspaceService google)
+    AgendaCalendarReader(GoogleWorkspace google)
     {
         this.google = requireNonNull(google, "google is null");
     }

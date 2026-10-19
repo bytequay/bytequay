@@ -14,6 +14,11 @@
 package com.bytequay.app.jira;
 
 import com.bytequay.app.service.goal.WorkItemView;
+import com.bytequay.integration.jira.JiraActivity;
+import com.bytequay.integration.jira.JiraActivityReader;
+import com.bytequay.integration.jira.JiraConnections;
+import com.bytequay.integration.jira.JiraDtos;
+import com.bytequay.integration.jira.JiraIssue;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatus;
@@ -47,9 +52,9 @@ public class JiraController
     private static final String ISSUE = SITE + "/issues/{issueId}";
     private final JiraConnections connections;
     private final JiraService jira;
-    private final JiraActivityLog activity;
+    private final JiraActivityReader activity;
 
-    public JiraController(JiraConnections connections, JiraService jira, JiraActivityLog activity)
+    public JiraController(JiraConnections connections, JiraService jira, JiraActivityReader activity)
     {
         this.connections = requireNonNull(connections, "connections is null");
         this.jira = requireNonNull(jira, "jira is null");

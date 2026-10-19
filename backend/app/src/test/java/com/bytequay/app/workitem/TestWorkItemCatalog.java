@@ -13,8 +13,6 @@
  */
 package com.bytequay.app.workitem;
 
-import com.bytequay.app.jira.JiraDtos;
-import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.service.goal.GoalReferenceReader;
 import com.bytequay.app.service.goal.WorkItemService;
@@ -30,6 +28,8 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.integration.jira.JiraDtos;
+import com.bytequay.integration.jira.JiraIssue;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;

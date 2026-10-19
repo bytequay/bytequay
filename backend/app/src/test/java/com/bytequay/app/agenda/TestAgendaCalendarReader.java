@@ -13,10 +13,10 @@
  */
 package com.bytequay.app.agenda;
 
-import com.bytequay.app.google.GoogleBusyTime;
-import com.bytequay.app.google.GoogleSnapshot;
-import com.bytequay.app.google.GoogleWorkspaceService;
 import com.bytequay.core.domain.AgendaCalendar;
+import com.bytequay.integration.google.GoogleBusyTime;
+import com.bytequay.integration.google.GoogleSnapshot;
+import com.bytequay.integration.google.GoogleWorkspace;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
@@ -73,7 +73,7 @@ class TestAgendaCalendarReader
     @Test
     void saysWhyTheCalendarWasNotRead()
     {
-        GoogleWorkspaceService google = mock(GoogleWorkspaceService.class);
+        GoogleWorkspace google = mock(GoogleWorkspace.class);
         when(google.status()).thenReturn(new GoogleSnapshot.Status(true, "", Optional.empty(), Optional.empty(), ImmutableList.of(), ""));
         when(google.snapshot()).thenReturn(Optional.empty());
         AgendaCalendarReader reader = new AgendaCalendarReader(google);
@@ -90,7 +90,7 @@ class TestAgendaCalendarReader
     void interruptingTheAgendaCancelsItsCalendarRead()
             throws Exception
     {
-        GoogleWorkspaceService google = mock(GoogleWorkspaceService.class);
+        GoogleWorkspace google = mock(GoogleWorkspace.class);
         when(google.status()).thenReturn(new GoogleSnapshot.Status(true, "", Optional.empty(), Optional.empty(), ImmutableList.of(), ""));
         when(google.snapshot()).thenReturn(Optional.of(GoogleSnapshot.empty("people/one", "one@example.com", "One")));
         CountDownLatch started = new CountDownLatch(1);

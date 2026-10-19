@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { GoogleStatus } from '../google/contracts';
+import type { GoogleStatus } from '@bytequay/google/contracts';
 import type { AgendaDay, AgendaScheduleDto, QuietHoursDto } from '../types';
 import { SettingsCard, SettingsRow, TimePill, Toggle } from './primitives';
 

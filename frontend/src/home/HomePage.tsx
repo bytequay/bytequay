@@ -40,7 +40,7 @@ import { getCached, getCachedFresh, setCached } from '../dataCache';
 import WatchedReposGrid from './WatchedReposGrid';
 import CirclesGrid from './CirclesGrid';
 import { useTeams } from '../teams/useTeams';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import { openActivityLink, zoomReference } from '../githubReference';
 import { workspaceAgentTaskRoute, workspaceIsUpdating } from '../workspaces/model';
 import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';

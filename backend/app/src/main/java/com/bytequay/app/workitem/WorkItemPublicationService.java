@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.workitem;
 
-import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -26,6 +25,7 @@ import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.integration.jira.JiraIssue;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 

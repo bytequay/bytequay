@@ -28,9 +28,9 @@ import '../css/memory.css';
 import '../css/recent.css';
 import '../css/repository-context.css';
 import '../css/code-tests.css';
-import '../css/cards.css';
+import '@bytequay/ui/cards.css';
 import '../css/confirm-dialog.css';
-import '../jira/jira.css';
+import '@bytequay/jira/styles.css';
 import '../teams/teams.css';
 import '../css/today.css';
 

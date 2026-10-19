@@ -19,7 +19,7 @@ import {
   Pin, Sparkles, Sun, Tags, TriangleAlert, Users,
 } from 'lucide-react';
 import UsageMeter from './usage/UsageMeter';
-import JiraIcon from './jira/JiraIcon';
+import { JiraIcon } from '@bytequay/jira/renderer';
 import RepoAvatar from './RepoAvatar';
 import type { PullRequestDto, WorkspaceDto } from './types';
 import { PullRequestStateIcon } from './pulls/PullRequestStateIcon';
@@ -35,7 +35,8 @@ import PinButton from './home/PinButton';
 import { useMemoryNeeds } from './memory/needs';
 import { useTasksWaiting } from './agents/attention';
 import { openPinned, usePinnedItems } from './home/pinned';
-import { openLab, useLabLaunch, useLabLink } from './labLink';
+import { useLabLaunch, useLabLink } from '@bytequay/lab/renderer';
+import { openLab } from './lab';
 import RunningTasks from './agents/RunningTasks';
 
 /** What the sidebar needs to be the settings window's nav. Absent on every other page. */

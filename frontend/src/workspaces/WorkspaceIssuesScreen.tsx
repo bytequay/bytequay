@@ -22,7 +22,7 @@ import {
   type UIEvent as ReactUIEvent,
 } from 'react';
 import Avatar from '../Avatar';
-import CopyLinkButton from '../CopyLinkButton';
+import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import type { TaskLaunch } from '../agents/AgentTasksView';
 import StartDevelopmentDialog from '../agents/StartDevelopmentDialog';
@@ -46,7 +46,7 @@ import { remoteErrorMessage } from '../remoteError';
 import { CommentIcon, PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
 import { parsePullSearch, pullRequestMatchesSearch } from '../pulls/model';
 import { useRecentTouch } from '../recent/useRecentTouch';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import type {
   Bridge,
   IssueDevelopmentTaskDto,
@@ -59,7 +59,7 @@ import type {
   WorkspaceIssueTimelineEventDto,
   WorkspaceIssueTypeDto,
 } from '../types';
-import { usePopoverDismiss } from '../usePopoverDismiss';
+import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { useResizablePane } from '../useResizablePane';
 import { workItemRoute } from '../workitems/contracts';
 import { EpicTabs, workProgress } from './EpicTabs';

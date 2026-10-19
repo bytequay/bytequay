@@ -55,7 +55,7 @@ announcing a block.
 
 ## Backend organization
 
-The backend is a six-module Maven application. Modules define dependency and
+The backend is an eight-module Maven application. Modules define dependency and
 ownership boundaries; they are not independently deployed services.
 
 | Module | Responsibility |
@@ -65,20 +65,45 @@ ownership boundaries; they are not independently deployed services.
 | `agent-core` | Task and turn coordination, approvals, queues, lifecycle rules, and agent storage contracts. |
 | `agent-cli` | Provider protocols, process ownership, and translation into the shared agent contract. |
 | `persistence-sqlite` | Hibernate entities, repositories, credential persistence, and implementations of storage contracts. |
-| `app` | Spring composition, HTTP and event endpoints, external integrations, application workflows, and Git/worktree operations. |
+| `plugins/google` | Google connector processes, accounts, and bounded in-memory mail/calendar caches. |
+| `plugins/jira` | Jira authentication, remote API operations, mapping, and cached provider data. |
+| `app` | Spring composition, HTTP and event endpoints, GitHub, cross-feature workflows, and Git/worktree operations. |
 
 ```text
-app -> core, persistence-sqlite, agent-core, agent-cli
+app -> core, persistence-sqlite, agent-core, agent-cli, integration-google, integration-jira
 persistence-sqlite -> core, agent-core
 agent-spi -> core
 agent-core -> agent-spi
-agent-cli -> agent-spi
+agent-cli -> agent-spi, core
+integration-google -> core
+integration-jira -> core
 ```
 
 Dependencies point toward framework-free contracts. No module depends on `app`;
 it is the composition root and executable. Persistence details stay behind
 storage contracts, and provider adapters do not own application tables or
-user-interface transport. The frontend remains a separate npm project.
+user-interface transport. Integration APIs and domain values live in
+`com.bytequay.integration.google` and `com.bytequay.integration.jira`; concrete
+implementations stay in each module's `impl` package. The application explicitly
+assembles integrations and retains HTTP authentication, task authorization,
+agenda coordination, local work-item workflows, and background refresh policy.
+Jira operations and task admission share the same issue locks across this boundary.
+
+The frontend is an npm workspace. `plugins/google`, `plugins/jira`, and
+`plugins/lab` expose separate contracts, renderer, preload, and Electron main
+entry points. Each package builds and tests against its declared dependencies;
+implementations cannot import the application source tree. Existing neutral UI
+primitives live in `packages/ui`. The desktop shell supplies application-aware
+rendering, navigation, task/work-item actions, backend access, and lifecycle
+coordination through concrete integration contracts. It composes the typed
+preload bridge and preserves the existing IPC authorization checks.
+
+These are bundled, first-party modules with one ByteQuay release version. Build
+independence does not change activation or consent: Lab starts on Open Lab,
+connected Jira scopes keep their background refresh, and Google agenda/task
+access still requires its existing consent. Lab's separately locked Python
+project remains under `scripts/review-calibration`; its database and task-file
+readers are verified with the matching application release.
 
 ## Data ownership
 

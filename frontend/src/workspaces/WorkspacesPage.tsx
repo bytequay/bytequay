@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from 'react';
 import AddRepoModal from '../AddRepoModal';
 import { getCached, getCachedFresh, setCached } from '../dataCache';
 import { pullRequestNeedsReview } from '../pulls/model';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import RepoAvatar from '../RepoAvatar';
 import Toast from '../Toast';
 import type { CherryPickExecution, PullRequestDto, WorkspaceDto } from '../types';

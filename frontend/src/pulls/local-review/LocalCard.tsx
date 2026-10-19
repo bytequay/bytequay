@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { shortSha } from '../../displayText';
+import { shortSha } from '@bytequay/ui/displayText';
 import type { ReactNode } from 'react';
 import { Bot, GitCommitHorizontal, Lock, Target } from 'lucide-react';
 import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';

@@ -15,7 +15,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Diff } from 'lucide-react';
 import Avatar from '../Avatar';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { AgentTaskDto, AgentTurnDto, Bridge, DevelopmentLearningSummaryDto } from '../types';
 import MarkdownBody from '../pulls/MarkdownBody';
 import ReviewCommentIndex from '../pulls/ReviewCommentIndex';

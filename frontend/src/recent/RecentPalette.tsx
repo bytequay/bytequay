@@ -14,7 +14,7 @@
 import { Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '../css/recent.css';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import { PullRequestStateIcon } from '../pulls/PullRequestStateIcon';
 import type { RecentChangeDto, RecentRowDto, RecentWordHitDto } from '../types';
 import { useModalDialog } from '../useModalDialog';

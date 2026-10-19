@@ -31,9 +31,6 @@ import com.bytequay.app.agenda.AgendaSnapshot.Week;
 import com.bytequay.app.agenda.AgendaSnapshot.Working;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
-import com.bytequay.app.jira.JiraActivity;
-import com.bytequay.app.jira.JiraActivityLog;
-import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.localreview.LocalReviewService;
 import com.bytequay.app.notices.AppNotice;
@@ -70,6 +67,9 @@ import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.integration.jira.JiraActivity;
+import com.bytequay.integration.jira.JiraActivityReader;
+import com.bytequay.integration.jira.JiraIssue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -134,7 +134,7 @@ public class AgendaReader
     private final RepositoryIssueStore issues;
     private final IssueDevelopmentService issueDevelopment;
     private final ObjectProvider<JiraService> jira;
-    private final JiraActivityLog jiraActivity;
+    private final JiraActivityReader jiraActivity;
     private final TeamService teams;
     private final AgendaDone done;
 
@@ -154,7 +154,7 @@ public class AgendaReader
             RepositoryIssueStore issues,
             IssueDevelopmentService issueDevelopment,
             ObjectProvider<JiraService> jira,
-            JiraActivityLog jiraActivity,
+            JiraActivityReader jiraActivity,
             TeamService teams,
             AgendaDone done)
     {

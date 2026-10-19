@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { useNow } from '../../useNow';
-import { usePopoverDismiss } from '../../usePopoverDismiss';
+import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { useResizablePane } from '../../useResizablePane';
 import { shortSha } from './codeModel';
 import type { CodeHostRef, LocalRunDto, LocalRunMethodDto, LocalRunOutputDto, ReviewCodeFilesDto } from './contracts';

@@ -88,6 +88,8 @@ typings/
 # Vite
 .vite/
 frontend/dist/
+frontend/plugins/*/dist/
+frontend/packages/*/dist/
 
 # Electron-Forge
 out/

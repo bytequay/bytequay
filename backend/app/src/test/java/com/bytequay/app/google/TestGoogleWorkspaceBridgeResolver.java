@@ -18,6 +18,8 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.GoogleWorkspaceBridge;
+import com.bytequay.integration.google.GoogleSnapshot;
+import com.bytequay.integration.google.GoogleWorkspace;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
@@ -44,7 +46,7 @@ class TestGoogleWorkspaceBridgeResolver
         when(task.worktreeRemovedAt()).thenReturn(Optional.empty());
         AgentTaskStore tasks = mock(AgentTaskStore.class);
         when(tasks.find(TaskId.valueOf(id))).thenReturn(Optional.of(task));
-        GoogleWorkspaceService service = mock(GoogleWorkspaceService.class);
+        GoogleWorkspace service = mock(GoogleWorkspace.class);
         GoogleSnapshot snapshot = GoogleSnapshot.empty("people/one", "one@example.com", "One");
         when(service.snapshot()).thenReturn(Optional.of(snapshot));
         GoogleWorkspaceBridgeResolver resolver = new GoogleWorkspaceBridgeResolver(service, tasks, new ObjectMapper().findAndRegisterModules());

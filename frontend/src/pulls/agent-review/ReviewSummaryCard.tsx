@@ -13,7 +13,7 @@
  */
 import { useState, type ReactNode } from 'react';
 import { Diff, MessageSquare, RefreshCw } from 'lucide-react';
-import { relativeTime } from '../../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import MarkdownBody from '../MarkdownBody';
 import LocalCard, { LocalCardMessage, ReviewerAvatar, SummaryCardTitle } from '../local-review/LocalCard';
 import ReviewComposer from './ReviewComposer';

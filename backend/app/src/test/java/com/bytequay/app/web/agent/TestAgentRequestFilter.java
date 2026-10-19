@@ -15,11 +15,7 @@ package com.bytequay.app.web.agent;
 
 import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.agent.AgentServingGate;
-import com.bytequay.app.jira.JiraActivityLog;
-import com.bytequay.app.jira.JiraCache;
-import com.bytequay.app.jira.JiraConnections;
 import com.bytequay.app.jira.JiraController;
-import com.bytequay.app.jira.JiraHttpClient;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRateLimitInterceptor;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -28,6 +24,11 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.web.CredentialController;
 import com.bytequay.app.web.PullRequestController;
 import com.bytequay.core.store.JiraConnectionStore;
+import com.bytequay.integration.jira.JiraActivityReader;
+import com.bytequay.integration.jira.JiraConnections;
+import com.bytequay.integration.jira.impl.DefaultJiraConnections;
+import com.bytequay.integration.jira.impl.JiraCache;
+import com.bytequay.integration.jira.impl.JiraHttpClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -151,8 +152,8 @@ class TestAgentRequestFilter
         JiraConnectionStore store = mock(JiraConnectionStore.class);
         when(store.ids()).thenReturn(ImmutableList.of());
         JiraHttpClient http = mock(JiraHttpClient.class);
-        JiraConnections connections = new JiraConnections(store, mock(JiraCache.class), http, "");
-        MockMvc mvc = standaloneSetup(new JiraController(connections, mock(JiraService.class), mock(JiraActivityLog.class)))
+        JiraConnections connections = new DefaultJiraConnections(store, mock(JiraCache.class), http, "");
+        MockMvc mvc = standaloneSetup(new JiraController(connections, mock(JiraService.class), mock(JiraActivityReader.class)))
                 .addFilters(new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules(), new AgentServingGate()))
                 .build();
 

@@ -12,8 +12,9 @@
  * limitations under the License.
  */
 import { backendJson } from './backendJson';
-import { openLab, stopLab } from './labProcess';
-import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
+import { openLab, stopLab } from '@bytequay/lab/main';
+import type { JiraLocation } from './jira/contracts';
+import { registerJiraIpc } from '@bytequay/jira/main';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
 import { parseUnifiedWorkItem, parseWorkItemContextLink, type Publication } from './workitems/contracts';
 import { parseConcludedEpics, parseEpicDraftReply, parseEpicJoin, parseEpicRecord, type EpicDraftMessage, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
@@ -25,9 +26,7 @@ import { IdeViews } from './ideViews';
 import { repositoryAvatar } from './repositoryAvatars';
 import { NoticeHost } from './notices/host';
 import { isAssistantShortcut } from './assistantShortcut';
-import { GeminiSetup } from './google/geminiSetup';
-import { GeminiChat } from './google/geminiChat';
-import type { GoogleStatus } from './google/contracts';
+import { registerGoogleIpc } from '@bytequay/google/main';
 import { BrowserTabs, denyBrowserPermissions, registerBrowserTabIpc } from './browserTabs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -562,7 +561,7 @@ function prDiffUrl(pathname: string, repo: string, number: number, baseSha?: str
   return url;
 }
 
-let googleChat: GeminiChat | undefined;
+let stopGoogle = () => {};
 
 function registerIpc(): void {
   ipcMain.handle('window:fullscreen', () => mainWindow?.isFullScreen() ?? false);
@@ -1758,87 +1757,13 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/workspaces/watch-preview`, jsonInit('POST', { selectedRepositoryId, topology })));
   ipcMain.handle('workspaces:watch', (_event, command: WatchRepositoryCommand) =>
     backendJson(`${backendBase()}/api/workspaces`, jsonInit('POST', command)));
-  const geminiSetup = new GeminiSetup(os.homedir());
-  ipcMain.handle('gemini:status', () => geminiSetup.status());
-  ipcMain.handle('gemini:save', async (_event, key: unknown) => { const status = await geminiSetup.save(key); googleChat?.dispose(); return status; });
-  ipcMain.handle('gemini:remove', () => { googleChat?.dispose(); return geminiSetup.remove(); });
-  googleChat = new GeminiChat(app.getPath('userData'), geminiSetup, profile =>
-    backendJson<string[]>(`${backendBase()}/api/google/chat-command`, jsonInit('POST', { profile })));
-  ipcMain.handle('google-chat:status', (_event, profile: string) => googleChat?.status(profile));
-  ipcMain.handle('google-chat:prompt', (_event, profile: string, input: unknown) => googleChat?.prompt(profile, input));
-  ipcMain.handle('google-chat:approve', (_event, profile: string, id: string, option: string) => googleChat?.approve(profile, id, option));
-  ipcMain.handle('google-chat:stop', (_event, profile: string) => googleChat?.stop(profile));
-  ipcMain.handle('google-chat:clear', (_event, profile: string) => googleChat?.clear(profile));
-  ipcMain.handle('google:accounts:add', () => backendJson(`${backendBase()}/api/google/accounts`, jsonInit('POST', {})));
-  ipcMain.handle('google:account:select', (_event, profile: string) => backendJson(`${backendBase()}/api/google/account`, jsonInit('PUT', { profile })));
-  ipcMain.handle('google:archive', (_event, profile: string, messageId: string) => backendJson(`${backendBase()}/api/google/archive`, jsonInit('POST', { profile, messageId })));
-  ipcMain.handle('google:send', (_event, request: unknown) => backendJson(`${backendBase()}/api/google/send`, jsonInit('POST', request)));
-  ipcMain.handle('google:status', () => backendJson(`${backendBase()}/api/google`));
-  ipcMain.handle('google:install', () => backendJson(`${backendBase()}/api/google/install`, { method: 'POST' }));
-  ipcMain.handle('google:connect', () => backendJson(`${backendBase()}/api/google/connect`, { method: 'POST' }));
-  ipcMain.handle('google:disconnect', async () => {
-    const status = await backendJson<GoogleStatus>(`${backendBase()}/api/google`);
-    googleChat?.clear(status.profile);
-    return backendJson(`${backendBase()}/api/google`, { method: 'DELETE' });
+  stopGoogle = registerGoogleIpc({ ipc: ipcMain, home: os.homedir(), userData: app.getPath('userData'),
+    backend: (path, init) => backendJson(backendBase() + path, init) });
+  registerJiraIpc({ ipc: ipcMain, backend: (path, init) => backendJson(`${backendBase()}${path}`, init) });
+  ipcMain.handle('jira:issue:local-child', (_event, location: JiraLocation, id: string, title: string, description: string) => {
+    const path = `/api/jira/connections/${encodeURIComponent(location.connectionId)}/sites/${encodeURIComponent(location.cloudId)}/issues/${encodeURIComponent(location.issueId)}/local-children`;
+    return backendJson(`${backendBase()}${path}`, jsonInit('POST', { id, title, description })).then(parseWorkItem);
   });
-  ipcMain.handle('google:cancel', () => backendJson(`${backendBase()}/api/google/cancel`, { method: 'POST' }));
-  ipcMain.handle('google:agent-access', (_event, enabled: boolean) => backendJson(`${backendBase()}/api/google/agent-access`, jsonInit('PUT', { enabled })));
-  ipcMain.handle('google:mail', (_event, query: string, pageToken: string) => backendJson(`${backendBase()}/api/google/mail`, jsonInit('POST', { query, pageToken })));
-  ipcMain.handle('google:calendar', (_event, calendarId: string, timeMin: string, timeMax: string) =>
-    backendJson(`${backendBase()}/api/google/calendar`, jsonInit('POST', { calendarId, timeMin, timeMax })));
-  const jiraSitePath = (connectionId: string, cloudId: string) => `${backendBase()}/api/jira/connections/${encodeURIComponent(connectionId)}/sites/${encodeURIComponent(cloudId)}`;
-  const jiraIssuePath = (location: JiraLocation) => `${jiraSitePath(location.connectionId, location.cloudId)}/issues/${encodeURIComponent(location.issueId)}`;
-  ipcMain.handle('jira:config', () => backendJson(`${backendBase()}/api/jira/config`));
-  ipcMain.handle('jira:reconnect', (_event, id: string) => backendJson(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}/reconnect`, { method: 'POST' }));
-  ipcMain.handle('jira:connections', () => backendJson(`${backendBase()}/api/jira/connections`));
-  ipcMain.handle('jira:connect', () => backendJson(`${backendBase()}/api/jira/connections`, { method: 'POST' }));
-  ipcMain.handle('jira:token:connect', (_event, request: JiraTokenRequest) => backendJson(`${backendBase()}/api/jira/connections/token`, jsonInit('POST', request)));
-  ipcMain.handle('jira:token:replace', (_event, id: string, request: JiraTokenRequest) => backendJson(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}/token`, jsonInit('PUT', request)));
-  ipcMain.handle('jira:connection:refresh', (_event, id: string) => backendJson(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}/refresh`, { method: 'POST' }));
-  ipcMain.handle('jira:disconnect', (_event, id: string) => backendJson(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}`, { method: 'DELETE' }));
-  ipcMain.handle('jira:boards', (_event, connectionId: string, cloudId: string, refresh: boolean) =>
-    backendJson(`${jiraSitePath(connectionId, cloudId)}/boards${refresh ? '/refresh' : ''}`, { method: refresh ? 'POST' : 'GET' }));
-  ipcMain.handle('jira:sprints', (_event, connectionId: string, cloudId: string, boardId: number, refresh: boolean) =>
-    backendJson(`${jiraSitePath(connectionId, cloudId)}/boards/${encodeURIComponent(String(boardId))}/sprints${refresh ? '/refresh' : ''}`, { method: refresh ? 'POST' : 'GET' }));
-  ipcMain.handle('jira:issues', (_event, query: JiraQuery, refresh: boolean) => {
-    const params = new URLSearchParams({ boardId: String(query.boardId), mine: String(query.mine) });
-    if (query.sprintId !== null) params.set('sprintId', String(query.sprintId));
-    if (query.coassigned) params.set('coassigned', 'true');
-    if (query.completed) params.set('completed', 'true');
-    if (query.nextPageToken !== undefined) params.set('nextPageToken', query.nextPageToken);
-    return backendJson(`${jiraSitePath(query.connectionId, query.cloudId)}/issues${refresh ? '/refresh' : ''}?${params}`, {
-      method: refresh ? 'POST' : 'GET',
-      // A page can read custom fields, tickets, and descriptions, with OAuth token refreshes.
-      ...(refresh ? { signal: AbortSignal.timeout(3 * 60_000) } : {}),
-    });
-  });
-  ipcMain.handle('jira:issue', (_event, location: JiraLocation, refresh: boolean, automatic: boolean) =>
-    backendJson(`${jiraIssuePath(location)}${refresh ? '/refresh' : ''}${refresh && automatic ? '?automatic=true' : ''}`, { method: refresh ? 'POST' : 'GET' }));
-  ipcMain.handle('jira:key:refresh', (_event, connectionId: string, cloudId: string, key: string) =>
-    backendJson(`${jiraSitePath(connectionId, cloudId)}/keys/${encodeURIComponent(key)}/refresh`, { method: 'POST' }));
-  ipcMain.handle('jira:issue:recent', (_event, location: JiraLocation, dwellSeconds: number) =>
-    backendJson(`${jiraIssuePath(location)}/recent`, jsonInit('POST', { dwellSeconds })));
-  ipcMain.handle('jira:issue:update', (_event, location: JiraLocation, fields: Record<string, unknown>, expectedUpdatedAt: string) =>
-    backendJson(jiraIssuePath(location), jsonInit('PATCH', { fields, expectedUpdatedAt })));
-  ipcMain.handle('jira:issue:transition', (_event, location: JiraLocation, transitionId: string, fields: Record<string, unknown>, expectedUpdatedAt: string) =>
-    backendJson(`${jiraIssuePath(location)}/transitions`, jsonInit('POST', { transitionId, fields, expectedUpdatedAt })));
-  ipcMain.handle('jira:issue:sprint', (_event, location: JiraLocation, sprintId: number | null, boardId: number, expectedUpdatedAt: string) =>
-    backendJson(`${jiraIssuePath(location)}/sprint`, jsonInit('POST', { sprintId, boardId, expectedUpdatedAt })));
-  ipcMain.handle('jira:issue:comment', (_event, location: JiraLocation, body: string, operationId: string, parentId?: string) =>
-    backendJson(`${jiraIssuePath(location)}/comments`, jsonInit('POST', { body, operationId, parentId: parentId ?? null })));
-  ipcMain.handle('jira:comment:edit', (_event, location: JiraLocation, commentId: string, body: string, expectedUpdated: string) =>
-    backendJson(`${jiraIssuePath(location)}/comments/${encodeURIComponent(commentId)}`, jsonInit('PUT', { body, expectedUpdated })));
-  ipcMain.handle('jira:issue:epic', (_event, location: JiraLocation, isEpic: boolean) =>
-    backendJson(`${jiraIssuePath(location)}/epic`, jsonInit('PUT', { isEpic })));
-  ipcMain.handle('jira:issue:workspace', (_event, location: JiraLocation, workspaceId: string) =>
-    backendJson(`${jiraIssuePath(location)}/workspace`, jsonInit('PUT', { workspaceId })));
-  ipcMain.handle('jira:attention', () => backendJson(`${backendBase()}/api/jira/attention`));
-  ipcMain.handle('jira:issue:local-child', (_event, location: JiraLocation, id: string, title: string, description: string) =>
-    backendJson(`${jiraIssuePath(location)}/local-children`, jsonInit('POST', { id, title, description })).then(parseWorkItem));
-  ipcMain.handle('jira:link-types', (_event, connectionId: string, cloudId: string) =>
-    backendJson(`${jiraSitePath(connectionId, cloudId)}/link-types`, { method: 'POST' }));
-  ipcMain.handle('jira:issue:link', (_event, location: JiraLocation, typeId: string, outward: boolean, key: string) =>
-    backendJson(`${jiraIssuePath(location)}/links`, jsonInit('POST', { typeId, outward, key })));
   ipcMain.handle('workspaces:list', () => backendJson(`${backendBase()}/api/workspaces`));
   ipcMain.handle('workspaces:list-retired', () => backendJson(`${backendBase()}/api/workspaces/retired`));
   ipcMain.handle('workspaces:get', (_event, workspaceId: string) =>
@@ -2174,7 +2099,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   stopLab();
   appNotices.stop();
-  googleChat?.dispose();
+  stopGoogle();
   clearInterval(prNotificationTimer);
   // Streams read from the backend, so they stop before it does.
   agentSubscriptions.stopAll();

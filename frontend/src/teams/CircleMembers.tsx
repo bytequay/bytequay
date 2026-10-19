@@ -15,7 +15,7 @@ import { useState } from 'react';
 import { ChevronRight, Search, UserMinus, UserPlus } from 'lucide-react';
 import Avatar from '../Avatar';
 import { CardActions, Clickable, IconButton } from '../cards/Card';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import { contributionSummary } from './activity';
 import type { TeamCircle, TeamMember, TeamPersonStatistics } from './types';
 

@@ -11,15 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { shortSha } from '../displayText';
+import { shortSha } from '@bytequay/ui/displayText';
 import { Check, ChevronRight, FileDiff, Folder, GitCommitHorizontal, PanelLeft } from 'lucide-react';
 import { Fragment, useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import Avatar from '../Avatar';
-import CopyLinkButton from '../CopyLinkButton';
+import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import { parseUnifiedDiff, type DiffRow } from '../diffParse';
 import { recordAttentionAction } from '../home/useAttentionVisit';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import type {
   Bridge,
   DiffCommitDto,
@@ -30,7 +30,7 @@ import type {
   PullRequestDto,
   UserProfileDto,
 } from '../types';
-import { usePopoverDismiss } from '../usePopoverDismiss';
+import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { useResizablePane } from '../useResizablePane';
 import type { ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import type { AgentReviewDto, ReviewSide } from './agent-review/contracts';

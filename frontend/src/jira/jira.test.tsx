@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { jiraLocation, jiraRoute } from './contracts';
 import { jiraAttentionItems } from './attention';
-import { JiraIssueActions, supportedTransitionField, transitionPayload } from './JiraScreen';
+import { JiraIssueActions } from './JiraScreen';
 import { JiraRequestCard } from './JiraSourceAttachment';
 import { jiraIssue } from './fixtures/jira';
 import { parseAgentTask } from '../agents/contracts';
@@ -56,16 +56,6 @@ describe('Jira development', () => {
     expect(parsed.jiraSource).not.toHaveProperty('internalSecret');
     const markup = renderToStaticMarkup(<JiraRequestCard source={{ ...source, url: jiraIssue.url, initialTurnId: 'turn', instructions: 'Implement the ticket' }} />);
     expect(markup).toContain('Start development'); expect(markup).toContain('ENG-1007'); expect(markup).not.toContain(jiraIssue.body);
-  });
-  it('submits supported transition values and refuses complex required editors', () => {
-    const fields = [
-      { id: 'estimate', name: 'Estimate', required: true, schemaType: 'number', allowedValues: [] },
-      { id: 'resolution', name: 'Resolution', required: true, schemaType: 'resolution', allowedValues: [{ id: 'fixed', name: 'Fixed' }] },
-      { id: 'approvers', name: 'Approvers', required: true, schemaType: 'array', allowedValues: [{ id: 'user', name: 'Person' }] },
-      { id: 'description', name: 'Description', required: false, schemaType: 'string', allowedValues: [] },
-    ];
-    expect(fields.map(supportedTransitionField)).toEqual([true, true, false, false]);
-    expect(transitionPayload(fields, { estimate: '2.5', resolution: 'fixed', approvers: 'user', description: 'not a rich-text document' })).toEqual({ estimate: 2.5, resolution: 'fixed' });
   });
 
   it('keeps an ambiguous create request stable and renews identity when the source changes', () => {

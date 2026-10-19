@@ -24,6 +24,8 @@
         <module>agent-core</module>
         <module>agent-cli</module>
         <module>persistence-sqlite</module>
+        <module>plugins/google</module>
+        <module>plugins/jira</module>
         <module>app</module>
     </modules>
 

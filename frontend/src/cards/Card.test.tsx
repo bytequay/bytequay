@@ -18,7 +18,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { Card, Clickable, IconButton, ItemRow, Pill } from './Card';
 
-const css = readFileSync(resolve(process.cwd(), 'src/css/cards.css'), 'utf8');
+const css = readFileSync(resolve(process.cwd(), 'packages/ui/src/cards.css'), 'utf8');
 
 function press(element: ReactElement<{ onKeyDown: (event: KeyboardEvent) => void }>, key: string, fromInside = false) {
   const target = {};

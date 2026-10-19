@@ -1,0 +1,74 @@
+{
+  "name": "@bytequay/ui",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    "./settings": {
+      "types": "./dist/settings.d.ts",
+      "default": "./dist/settings.js"
+    },
+    "./Composer": {
+      "types": "./dist/Composer.d.ts",
+      "default": "./dist/Composer.js"
+    },
+    "./displayText": {
+      "types": "./dist/displayText.d.ts",
+      "default": "./dist/displayText.js"
+    },
+    "./relativeTime": {
+      "types": "./dist/relativeTime.d.ts",
+      "default": "./dist/relativeTime.js"
+    },
+    "./CopyLinkButton": {
+      "types": "./dist/CopyLinkButton.d.ts",
+      "default": "./dist/CopyLinkButton.js"
+    },
+    "./usePopoverDismiss": {
+      "types": "./dist/usePopoverDismiss.d.ts",
+      "default": "./dist/usePopoverDismiss.js"
+    },
+    "./cards": {
+      "types": "./dist/cards.d.ts",
+      "default": "./dist/cards.js"
+    },
+    "./cards.css": "./dist/cards.css"
+  },
+  "typesVersions": {
+    "*": {
+      "settings": [
+        "dist/settings.d.ts"
+      ],
+      "Composer": [
+        "dist/Composer.d.ts"
+      ],
+      "displayText": [
+        "dist/displayText.d.ts"
+      ],
+      "relativeTime": [
+        "dist/relativeTime.d.ts"
+      ],
+      "CopyLinkButton": [
+        "dist/CopyLinkButton.d.ts"
+      ],
+      "usePopoverDismiss": [
+        "dist/usePopoverDismiss.d.ts"
+      ],
+      "cards": [
+        "dist/cards.d.ts"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc -b && node ../../scripts/copy-plugin-assets.mjs",
+    "typecheck": "tsc -b --pretty false",
+    "lint": "eslint --ext .ts,.tsx src"
+  },
+  "dependencies": {
+    "lucide-react": "^1.40.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  }
+}

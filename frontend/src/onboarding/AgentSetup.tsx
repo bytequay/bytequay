@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import CopyLinkButton from '../CopyLinkButton';
+import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import ProviderSignInDialog from '../agents/ProviderSignInDialog';
 import type { ModelSettingsDto } from '../types';
 import ProviderRow from '../settings/ProviderRow';

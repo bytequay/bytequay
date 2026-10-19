@@ -15,7 +15,7 @@ import { forwardRef, useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { getCached, getCachedFresh, setCached } from './dataCache';
 import type { ContributionCalendarDto, ContributionDayDto, UserCommitDto } from './types';
-import { usePopoverDismiss } from './usePopoverDismiss';
+import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 
 const CELL = 12;
 const GAP = 2;

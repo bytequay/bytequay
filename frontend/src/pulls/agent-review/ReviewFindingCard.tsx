@@ -14,7 +14,7 @@
 import { useReviewDraft } from '../ReviewDrafts';
 import { useState } from 'react';
 import { Chevron } from '../../Chevron';
-import CopyLinkButton from '../../CopyLinkButton';
+import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import MarkdownBody, { type SuggestionBase } from '../MarkdownBody';
 import { CommentedCodeLine } from '../PullOverview';
 import LocalCard, { LocalCardMessage, ReviewerAvatar } from '../local-review/LocalCard';

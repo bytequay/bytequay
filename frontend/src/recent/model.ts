@@ -13,7 +13,7 @@
  */
 import { CircleDot, GitCommitHorizontal, GitPullRequest, SquareCheck, type LucideIcon } from 'lucide-react';
 import type { RecentItemType, RecentReason, RecentRowDto } from '../types';
-import JiraIcon from '../jira/JiraIcon';
+import { JiraIcon } from '@bytequay/jira/renderer';
 
 /** Fixed by the backend's retention sweep; the calendar greys everything older. */
 export const RETENTION_DAYS = 14;

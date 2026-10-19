@@ -14,7 +14,7 @@
 import { useEffect, useState } from 'react';
 import { MetadataPicker } from '../pulls/PullOverview';
 import { remoteErrorMessage } from '../remoteError';
-import { usePopoverDismiss } from '../usePopoverDismiss';
+import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import type { RepositoryMetadataDto } from '../types';
 import type { TeamCircle, TeamMemberInput } from './types';
 

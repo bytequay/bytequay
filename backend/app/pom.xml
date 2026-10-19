@@ -17,6 +17,18 @@
     <dependencies>
         <dependency>
             <groupId>com.bytequay</groupId>
+            <artifactId>integration-jira</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.bytequay</groupId>
+            <artifactId>integration-google</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.bytequay</groupId>
             <artifactId>core</artifactId>
             <version>${project.version}</version>
         </dependency>

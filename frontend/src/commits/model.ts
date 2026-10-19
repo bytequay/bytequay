@@ -233,4 +233,4 @@ export function completedExecutionItems(items: CherryPickExecutionItem[]): numbe
   return items.filter(item => item.result !== 'PENDING').length;
 }
 
-export { shortSha } from '../displayText';
+export { shortSha } from '@bytequay/ui/displayText';

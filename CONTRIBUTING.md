@@ -200,8 +200,11 @@ Key creation and billing remain in Google AI Studio.
 │   ├── agent-core/   # Agent task, turn, approval, queue, and retention logic
 │   ├── agent-cli/    # Codex App Server and Claude CLI adapters
 │   ├── persistence-sqlite/ # JPA, SQLite, and credential storage
-│   └── app/          # GitHub/PR services, agent HTTP, and executable packaging
-├── frontend/         # Electron + React + TypeScript
+│   ├── plugins/      # Independently built Google and Jira integration modules
+│   └── app/          # Application workflows, HTTP, and executable packaging
+├── frontend/         # Electron + React + TypeScript npm workspaces
+│   ├── plugins/      # Google, Jira, and Lab desktop integration packages
+│   ├── packages/ui/  # Shared host-independent UI primitives
 │   └── src/          # Main process, IPC bridge, Home, PR, and Settings UI
 ├── docs/             # Product design and system architecture
 ├── website/          # Static product website, documentation, and design overview
@@ -230,8 +233,16 @@ cd backend
 mvn verify
 ```
 
-This checks license headers, Checkstyle, the retained unit tests,
-and a full Spring context boot. Hibernate creates or updates the current SQLite
+To work on one backend integration and its shared dependencies without building
+the executable application:
+
+```bash
+mvn -pl :integration-google -am verify
+mvn -pl :integration-jira -am verify
+```
+
+The full backend verification checks license headers, Checkstyle, the retained
+unit tests, and a full Spring context boot. Hibernate creates or updates the current SQLite
 schema from the retained JPA entities. Since the app has no released user-data
 migration contract yet, there is no migration history to maintain.
 
@@ -244,6 +255,21 @@ npx tsc --noEmit
 npm test
 npm run package
 ```
+
+Desktop integration packages have their own build, type-check, lint, and test
+targets. From `frontend/`, for example:
+
+```bash
+npm run build --workspace @bytequay/google
+npm run typecheck --workspace @bytequay/google
+npm run lint --workspace @bytequay/google
+npm test --workspace @bytequay/google
+```
+
+Use `@bytequay/jira` or `@bytequay/lab` for the other integrations. Application
+builds assemble the workspace packages before bundling. Keep application wiring
+and cross-feature browser tests in the host, and provider behavior tests in the
+owning package. Run the complete checks above before delivering a change.
 
 Vitest runs one worker for every two cores, at most four, because browser
 suites each build a bundle and launch Electron. This keeps browser startup and

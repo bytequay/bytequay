@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { shortDate as formatDate, plural } from '../displayText';
+import { shortDate as formatDate, plural } from '@bytequay/ui/displayText';
 import { displayModelName, effortLabel, providerAvailable, providerRemedy } from '../settings/model';
 import type { ModelSettingsDto } from '../types';
 import type { ContextSpecCheckDto } from './contracts';
@@ -58,4 +58,4 @@ export function checkProgress(check: ContextSpecCheckDto): string {
   return `Reproduction ${check.reproductions} of up to ${Math.min(check.maxReproductions, check.reproductions + waiting)}`;
 }
 
-export { plural,shortSha } from '../displayText';
+export { plural,shortSha } from '@bytequay/ui/displayText';

@@ -20,7 +20,6 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
-import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.core.domain.AgendaDay;
 import com.bytequay.core.domain.AgendaItem;
@@ -35,6 +34,7 @@ import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RecentStore;
 import com.bytequay.core.store.WorkItemStore;
+import com.bytequay.integration.jira.JiraIssue;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 

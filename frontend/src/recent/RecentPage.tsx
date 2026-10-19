@@ -11,12 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { clock } from '../displayText';
+import { clock } from '@bytequay/ui/displayText';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDot, Copy, GitPullRequest, Sparkles } from 'lucide-react';
 import Avatar from '../Avatar';
 import RepoAvatar from '../RepoAvatar';
-import JiraIcon from '../jira/JiraIcon';
+import { JiraIcon } from '@bytequay/jira/renderer';
 import { PullRequestStateIcon } from '../pulls/PullRequestStateIcon';
 import type {
   RecentChangeDto,

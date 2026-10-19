@@ -13,6 +13,11 @@
  */
 package com.bytequay.app.jira;
 
+import com.bytequay.integration.jira.JiraActivity;
+import com.bytequay.integration.jira.JiraActivityReader;
+import com.bytequay.integration.jira.JiraConnections;
+import com.bytequay.integration.jira.JiraDtos;
+import com.bytequay.integration.jira.JiraIssue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -48,7 +53,7 @@ class TestJiraController
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules().disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     private final JiraService jira = mock(JiraService.class);
     private final JiraConnections connections = mock(JiraConnections.class);
-    private final JiraActivityLog activity = mock(JiraActivityLog.class);
+    private final JiraActivityReader activity = mock(JiraActivityReader.class);
     private MockMvc mvc;
 
     @BeforeEach

@@ -27,7 +27,7 @@ import JiraScreen from '../jira/JiraScreen';
 import type { JiraConnection } from '../jira/contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import { useResizablePane } from '../useResizablePane';
 import { epicWork, localEpicId, startEpicWork, useEpicGoals, useEpicLend } from '../workspaces/epics';
 import { EpicTabs, workProgress } from '../workspaces/EpicTabs';

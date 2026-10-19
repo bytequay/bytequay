@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { clock, shortDate } from '../displayText';
+import { clock, shortDate } from '@bytequay/ui/displayText';
 import { CircleCheck, CircleX } from 'lucide-react';
 import { Chevron } from '../Chevron';
 import type { AgentChildSummaryDto } from '../types';

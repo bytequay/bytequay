@@ -13,7 +13,7 @@
  */
 import type { ReactNode } from 'react';
 import { ChevronRight, CircleCheck } from 'lucide-react';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 
 /** Shared frame; callers supply destination badges, code, messages and their own actions. */
 export function ReviewThreadCard({ title, tone = 'github', icon, badges, chip, resolved, outdated = false, defaultOpen, code, children, controls, className, attributes }: {

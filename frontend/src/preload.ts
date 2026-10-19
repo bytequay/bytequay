@@ -11,7 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { createJiraBridge } from '@bytequay/jira/preload';
+import { createLabBridge } from '@bytequay/lab/preload';
 import { subscribe } from './ipcSubscribe';
+import { createGoogleBridge } from '@bytequay/google/preload';
 import type { IdeDesktopBridge } from './ide/contracts';
 import { contextBridge, ipcRenderer } from 'electron';
 import { createAgentStreamReceiver } from './agents/sse';
@@ -62,51 +65,9 @@ const bridge: Bridge = {
   setAssistantPanelOpen: open => ipcRenderer.send('notices:suppress', open),
   onAssistantToggle: callback => subscribe('assistant:toggle', callback),
   onAssistantOpenCard: callback => subscribe('assistant:open-card', callback),
-  getGeminiSetupStatus: () => ipcRenderer.invoke('gemini:status'),
-  saveGeminiSetupKey: key => ipcRenderer.invoke('gemini:save', key),
-  removeGeminiSetupKey: () => ipcRenderer.invoke('gemini:remove'),
-  getGoogleChat: profile => ipcRenderer.invoke('google-chat:status', profile),
-  promptGoogleChat: (profile, text) => ipcRenderer.invoke('google-chat:prompt', profile, text),
-  approveGoogleChat: (profile, id, option) => ipcRenderer.invoke('google-chat:approve', profile, id, option),
-  stopGoogleChat: profile => ipcRenderer.invoke('google-chat:stop', profile),
-  clearGoogleChat: profile => ipcRenderer.invoke('google-chat:clear', profile),
-  addGoogleAccount: () => ipcRenderer.invoke('google:accounts:add'),
-  selectGoogleAccount: profile => ipcRenderer.invoke('google:account:select', profile),
-  archiveGoogleMail: (profile, messageId) => ipcRenderer.invoke('google:archive', profile, messageId),
-  sendGoogleMail: request => ipcRenderer.invoke('google:send', request),
-  getGoogleStatus: () => ipcRenderer.invoke('google:status'),
-  installGoogleConnector: () => ipcRenderer.invoke('google:install'),
-  connectGoogle: () => ipcRenderer.invoke('google:connect'),
-  disconnectGoogle: () => ipcRenderer.invoke('google:disconnect'),
-  cancelGoogleOperation: () => ipcRenderer.invoke('google:cancel'),
-  setGoogleAgentAccess: enabled => ipcRenderer.invoke('google:agent-access', enabled),
-  refreshGoogleMail: (query, pageToken) => ipcRenderer.invoke('google:mail', query, pageToken),
-  refreshGoogleCalendar: (calendarId, timeMin, timeMax) => ipcRenderer.invoke('google:calendar', calendarId, timeMin, timeMax),
-  getJiraConfig: () => ipcRenderer.invoke('jira:config'),
-  listJiraConnections: () => ipcRenderer.invoke('jira:connections'),
-  connectJira: () => ipcRenderer.invoke('jira:connect'),
-  connectJiraToken: request => ipcRenderer.invoke('jira:token:connect', request),
-  replaceJiraToken: (id, request) => ipcRenderer.invoke('jira:token:replace', id, request),
-  reconnectJira: id => ipcRenderer.invoke('jira:reconnect', id),
-  refreshJiraConnection: id => ipcRenderer.invoke('jira:connection:refresh', id),
-  disconnectJira: id => ipcRenderer.invoke('jira:disconnect', id),
-  listJiraBoards: (connectionId, cloudId, refresh) => ipcRenderer.invoke('jira:boards', connectionId, cloudId, refresh),
-  listJiraSprints: (connectionId, cloudId, boardId, refresh) => ipcRenderer.invoke('jira:sprints', connectionId, cloudId, boardId, refresh),
-  listJiraIssues: (query, refresh) => ipcRenderer.invoke('jira:issues', query, refresh),
-  getJiraIssue: (location, refresh, automatic) => ipcRenderer.invoke('jira:issue', location, refresh, automatic),
-  recordJiraRecentTouch: (location, dwellSeconds) => ipcRenderer.invoke('jira:issue:recent', location, dwellSeconds),
-  refreshJiraIssueByKey: (connectionId, cloudId, key) => ipcRenderer.invoke('jira:key:refresh', connectionId, cloudId, key),
-  updateJiraIssue: (location, fields, expectedUpdatedAt) => ipcRenderer.invoke('jira:issue:update', location, fields, expectedUpdatedAt),
-  transitionJiraIssue: (location, transitionId, fields, expectedUpdatedAt) => ipcRenderer.invoke('jira:issue:transition', location, transitionId, fields, expectedUpdatedAt),
-  moveJiraIssue: (location, sprintId, boardId, expectedUpdatedAt) => ipcRenderer.invoke('jira:issue:sprint', location, sprintId, boardId, expectedUpdatedAt),
-  commentJiraIssue: (location, body, operationId, parentId) => ipcRenderer.invoke('jira:issue:comment', location, body, operationId, parentId),
-  editJiraComment: (location, commentId, body, expectedUpdated) => ipcRenderer.invoke('jira:comment:edit', location, commentId, body, expectedUpdated),
-  setJiraEpic: (location, isEpic) => ipcRenderer.invoke('jira:issue:epic', location, isEpic),
-  assignJiraWorkspace: (location, workspaceId) => ipcRenderer.invoke('jira:issue:workspace', location, workspaceId),
-  listJiraAttention: () => ipcRenderer.invoke('jira:attention'),
+  ...createGoogleBridge(ipcRenderer),
+  ...createJiraBridge(ipcRenderer),
   createLocalJiraChild: (location, id, title, description) => ipcRenderer.invoke('jira:issue:local-child', location, id, title, description),
-  listJiraLinkTypes: (connectionId, cloudId) => ipcRenderer.invoke('jira:link-types', connectionId, cloudId),
-  linkJiraIssue: (location, typeId, outward, key) => ipcRenderer.invoke('jira:issue:link', location, typeId, outward, key),
   savePat: pat => ipcRenderer.invoke('pat:save', pat),
   hasPat: () => ipcRenderer.invoke('pat:has'),
   fetchPrs: (workspaceId, page, pageSize) => ipcRenderer.invoke('prs:list', workspaceId, page, pageSize),
@@ -291,7 +252,7 @@ const bridge: Bridge = {
   getGitHubCliAvailable: () => ipcRenderer.invoke('github:cli-available'),
   importGitHubCliToken: () => ipcRenderer.invoke('github:cli-import'),
 
-  openLab: () => ipcRenderer.invoke('lab:open'),
+  ...createLabBridge(channel => ipcRenderer.invoke(channel)),
   openInAppBrowser: url => ipcRenderer.invoke('inapp:open', url),
   openExternal: url => ipcRenderer.invoke('external:open', url),
   getInAppBrowserState: () => ipcRenderer.invoke('inapp:state'),

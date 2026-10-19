@@ -50,7 +50,7 @@ import { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThrea
 import { canSubmitReview } from '../pulls/model';
 import { pullRequestDiffRevision, usePullRequestChanges } from '../pulls/usePullRequestChanges';
 import { gitHubRetryAt, usePullRequestDetail } from '../pulls/usePullRequestDetail';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import { useRenameDraft } from '../renameDraft';
 import {
   isDeepSeekKeyLane,

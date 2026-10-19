@@ -82,14 +82,14 @@ afterEach(() => {
 
 it('imports login-shell tool directories before constructing Gemini setup', async () => {
   const backend = await import('./backendProcess');
-  const gemini = await import('./google/geminiSetup');
-  const Setup = gemini.GeminiSetup;
+  const gemini = await import('@bytequay/google/main');
+  const register = gemini.registerGoogleIpc;
   const paths: Array<string | undefined> = [];
   vi.stubEnv('PATH', '/usr/bin:/bin');
   vi.mocked(backend.spawnBackend).mockImplementationOnce(() => { process.env.PATH = '/Users/me/.nvm/bin:/usr/bin:/bin'; });
-  vi.spyOn(gemini, 'GeminiSetup').mockImplementation(function (...args) {
+  vi.spyOn(gemini, 'registerGoogleIpc').mockImplementation((...args) => {
     paths.push(process.env.PATH);
-    return new Setup(...args);
+    return register(...args);
   });
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
@@ -815,7 +815,7 @@ it('reads API-key usage by stable ID while retaining the alias and desktop authe
 });
 
 it('authenticates Google account, mail and Gemini connector requests without exposing the session token', async () => {
-  const { GeminiSetup } = await import('./google/geminiSetup');
+  const { GeminiSetup } = await import('@bytequay/google/main');
   vi.spyOn(GeminiSetup.prototype, 'status').mockResolvedValue({ configured: true, installed: true });
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');

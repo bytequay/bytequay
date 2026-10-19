@@ -15,7 +15,7 @@
 
 import React from 'react';
 
-import { relativeTime } from '../../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { DiscussionMessageDto, TaskDiscussionDto } from './contracts';
 
 /** The label budget, before the row's own pixel-width ellipsis. */

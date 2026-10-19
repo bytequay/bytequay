@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import AppSidebar, { type AppPage } from './AppSidebar';
 import { loadPinned, openPinned, PINNED_CHANGED, setPinned, type PinnedItem } from './home/pinned';
-import { saveLabLink } from './labLink';
+import { saveLabLink } from '@bytequay/lab/renderer';
 import { ZOOM_REFERENCE } from './githubReference';
 import type { WorkspaceDto } from './types';
 import type { WorkspaceTab } from './workspaces/model';

@@ -15,7 +15,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { useReviewDraft } from '../ReviewDrafts';
 import Avatar from '../../Avatar';
 import UserAvatar from '../../UserAvatar';
-import CopyLinkButton from '../../CopyLinkButton';
+import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import BetterWordsButton from '../BetterWordsButton';
 import MarkdownBody from '../MarkdownBody';
 import MarkdownEditor from '../MarkdownEditor';

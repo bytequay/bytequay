@@ -15,7 +15,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { getCached, setCached } from '../dataCache';
 import { ChevronRight, LoaderCircle, MessagesSquare } from 'lucide-react';
 import Avatar from '../Avatar';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import { ANSWERING_ELSEWHERE, isSummaryRequest, parseCommentSummary, type CommentSummaryDto, type TaskDiscussionDto } from '../agents/discussions/contracts';
 import { replyCount, retryTarget } from '../agents/discussions/DiscussionFooter';
 import type { DiscussionBridgePort, TaskDiscussions } from '../agents/discussions/useTaskDiscussions';

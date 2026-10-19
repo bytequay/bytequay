@@ -11,11 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { shortSha } from '../../displayText';
+import { shortSha } from '@bytequay/ui/displayText';
 import { useCallback, useEffect, useState } from 'react';
 import { Check, Eye, Lock, PanelsTopLeft } from 'lucide-react';
 import type { ReviewCardFocus } from '../../agents/ReviewRequestCard';
-import { relativeTime } from '../../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { AgentTaskDto } from '../../types';
 import { workspaceReviewTaskRoute } from '../../workspaces/model';
 import { remoteErrorMessage } from '../../remoteError';

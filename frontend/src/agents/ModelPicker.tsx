@@ -17,7 +17,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { displayModelName, effortLabel } from '../settings/model';
 import type { ModelOptionDto } from '../types';
-import { usePopoverDismiss } from '../usePopoverDismiss';
+import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 
 type PickerView = 'menu' | 'models' | 'effort';
 

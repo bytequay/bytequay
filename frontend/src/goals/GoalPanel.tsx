@@ -18,7 +18,7 @@ import { GoalIcon, SourceIcon } from '../cards/Card';
 import Composer from '../Composer';
 import { ConfirmDialog } from '../ConfirmDialog';
 import MarkdownBody, { linkIssueNumbers } from '../pulls/MarkdownBody';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { ContextBuildViewDto } from '../repository-context/contracts';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { AgentModelControls, type ModelChoice } from '../settings/ModelsPage';

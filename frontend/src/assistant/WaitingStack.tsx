@@ -23,7 +23,7 @@ import { useTodayAgenda } from '../home/useTodayAgenda';
 import { pollVisible } from '../ide/pollVisible';
 import { APPROVAL_NOTICE, NOTICE_ACTIONS, noticeLabel, type AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../remoteError';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { AgentPendingApprovalDto } from '../types';
 import { GROUPS, stackOf, waitingCards, type Group, type WaitingCard } from './model';
 

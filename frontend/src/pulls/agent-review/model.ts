@@ -13,7 +13,7 @@
  */
 import type { ReviewRequest, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
 import { formatDuration } from '../../agents/transcript';
-import { shortSha } from '../../displayText';
+import { shortSha } from '@bytequay/ui/displayText';
 import type {
   AgentReviewDto,
   ReviewDraftDto,
@@ -508,4 +508,4 @@ export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
   return [...questions, ...generated];
 }
 
-export { shortSha } from '../../displayText';
+export { shortSha } from '@bytequay/ui/displayText';

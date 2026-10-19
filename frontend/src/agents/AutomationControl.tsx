@@ -15,7 +15,7 @@ import { useId, useState } from 'react';
 import '../css/development-automation.css';
 import type { DevelopmentAutomationDto, ModelProviderDto } from '../types';
 import { providerAvailable } from '../settings/model';
-import { usePopoverDismiss } from '../usePopoverDismiss';
+import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { AUTOMATION_OPTIONS, automationForSubmission, automationSummary } from './developmentAutomation';
 
 export function CiProviderSelect({ value, providers, disabled, onChange }: {

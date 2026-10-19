@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 
 export function canSubmitReview(pr: PullRequestDto, detail: PullRequestDetailDto | null) {
   return pr.origin !== 'AUTHORED' && detail?.state?.toLowerCase() === 'open';

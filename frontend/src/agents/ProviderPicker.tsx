@@ -17,7 +17,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { isDeepSeekKeyLane, laneLabel, providerAvailable, providerRemedy, providerStatusLabel } from '../settings/model';
 import type { ModelProviderDto } from '../types';
-import { usePopoverDismiss } from '../usePopoverDismiss';
+import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 
 /** The row that receives focus when the popover opens: current when usable, else first usable. */
 export function providerFocusTarget(providers: ModelProviderDto[], selectedId: string): string | null {

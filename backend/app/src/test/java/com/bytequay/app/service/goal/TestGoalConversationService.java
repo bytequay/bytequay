@@ -15,7 +15,6 @@ package com.bytequay.app.service.goal;
 
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.context.ContextSpecModule;
-import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -32,6 +31,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalExchangeStore;
 import com.bytequay.core.store.GoalTopicStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.integration.jira.JiraIssue;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

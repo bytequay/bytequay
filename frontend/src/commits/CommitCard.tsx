@@ -17,7 +17,7 @@ import Avatar from '../Avatar';
 import { useHoverCard } from '../ReferenceCard';
 import { ReferencePreviewCard, useReferencePreview } from '../pulls/MarkdownBody';
 import type { GitHubReference } from '../githubReference';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { GitCommitDto } from '../types';
 import { shortSha } from './model';
 

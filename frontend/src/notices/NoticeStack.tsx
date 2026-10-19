@@ -13,7 +13,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { X } from 'lucide-react';
-import { ago } from '../relativeTime';
+import { ago } from '@bytequay/ui/relativeTime';
 import { APPROVAL_NOTICE, NOTICE_ACTIONS as ACTIONS, needsAction, noticeLabel as label, type AppNotice, type NoticeBridge, type NoticeSnapshot } from './contracts';
 
 const describe = (notice: AppNotice): string => `${label(notice)}: ${notice.pullRequestTitle ?? notice.title}`;

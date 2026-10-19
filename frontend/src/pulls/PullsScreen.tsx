@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { shortSha } from '../displayText';
+import { shortSha } from '@bytequay/ui/displayText';
 import type { LucideIcon } from 'lucide-react';
 import { Bell, Bot, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
@@ -31,7 +31,7 @@ import type { NavigationMode } from '../navigationHistory';
 import { useRecentTouch } from '../recent/useRecentTouch';
 import Toast from '../Toast';
 import type { AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullRequestTaskLink, UserProfileDto } from '../types';
-import { usePopoverDismiss } from '../usePopoverDismiss';
+import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import UserAvatar from '../UserAvatar';
 import { useResizablePane } from '../useResizablePane';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';

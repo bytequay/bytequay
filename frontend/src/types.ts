@@ -12,10 +12,11 @@
  * limitations under the License.
  */
 
+import type { LabBridge } from '@bytequay/lab/contracts';
 import type { WorkItemBridge } from './workitems/contracts';
 import type { AppNoticeBounds, NoticeSnapshot } from './notices/contracts';
 import type { RunningTask } from './agents/runningTaskModel';
-import type { GoogleBridge } from './google/contracts';
+import type { GoogleBridge } from '@bytequay/google/contracts';
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
 import type { CreateWorkItem, EpicDraftMessage, EpicDraftReply, EpicJoinDto, EpicRecordDto, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto, TopicLevel } from './goals/contracts';
@@ -1541,7 +1542,7 @@ export type RecentDraftRequest = {
   body: string;
 };
 
-export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
+export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & {
   onAppNoticeBounds: (callback: (bounds: AppNoticeBounds) => void) => () => void;
   onAppNoticeOpen: (callback: (target: { taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null }) => void) => () => void;
   setNoticeSource: (key: string, taskId: string | null) => Promise<void>;
@@ -1770,7 +1771,6 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   getGitHubCliAvailable: () => Promise<{ available: boolean }>;
   importGitHubCliToken: () => Promise<{ login: string }>;
 
-  openLab: () => Promise<string>;
   openInAppBrowser: (url: string) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   getInAppBrowserState: () => Promise<InAppBrowserState>;

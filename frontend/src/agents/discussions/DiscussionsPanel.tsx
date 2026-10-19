@@ -16,7 +16,7 @@
 import React, { useEffect, useState } from 'react';
 import Composer from '../../Composer';
 
-import { relativeTime } from '../../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import { renderMarkdown } from '../markdown';
 import type { TranscriptTurn } from '../transcript';
 import { ANSWERING_ELSEWHERE, type DiscussionMessageDto, type TaskDiscussionDto } from './contracts';

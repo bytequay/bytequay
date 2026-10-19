@@ -19,7 +19,7 @@ import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, Pull
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import { canSubmitReview, EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model';
 import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, replaceMention, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import PullsScreen, { hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 import type { AgentReviewDto } from './agent-review/contracts';
 import { reviewFixture, runningReviewFixture } from './agent-review/fixtures/review';

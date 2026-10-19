@@ -25,7 +25,7 @@ import type { AttentionItem, Handled } from '../home/attention';
 import type { WorkspaceAttention } from '../workspaces/workspaceAttention';
 import { zoomReference } from '../githubReference';
 import { jiraIssueLocation } from '../jira/contracts';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import { useRenameDraft } from '../renameDraft';
 import { displayModelName, laneLabel } from '../settings/model';
 import { BackportButton } from './BackportRequestHint';

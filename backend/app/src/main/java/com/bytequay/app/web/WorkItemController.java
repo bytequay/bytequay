@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.service.goal.WorkItemCommand;
 import com.bytequay.app.service.goal.WorkItemService;
@@ -25,6 +24,7 @@ import com.bytequay.app.workitem.WorkItemContextView;
 import com.bytequay.app.workitem.WorkItemPublicationService;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.integration.jira.JiraDtos;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;

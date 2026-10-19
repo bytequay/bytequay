@@ -14,7 +14,6 @@
 package com.bytequay.app.service.epic;
 
 import com.bytequay.agent.core.store.AgentUnitOfWork;
-import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -33,6 +32,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.integration.jira.JiraDtos;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

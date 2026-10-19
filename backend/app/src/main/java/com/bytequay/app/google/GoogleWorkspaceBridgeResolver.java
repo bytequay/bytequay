@@ -18,6 +18,8 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.GoogleWorkspaceBridge;
+import com.bytequay.integration.google.GoogleSnapshot;
+import com.bytequay.integration.google.GoogleWorkspace;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,11 +39,11 @@ import static java.util.Objects.requireNonNull;
 public class GoogleWorkspaceBridgeResolver
         implements BridgeResolver<GoogleWorkspaceBridge>
 {
-    private final GoogleWorkspaceService google;
+    private final GoogleWorkspace google;
     private final AgentTaskStore tasks;
     private final ObjectMapper mapper;
 
-    public GoogleWorkspaceBridgeResolver(GoogleWorkspaceService google, AgentTaskStore tasks, ObjectMapper mapper)
+    public GoogleWorkspaceBridgeResolver(GoogleWorkspace google, AgentTaskStore tasks, ObjectMapper mapper)
     {
         this.google = requireNonNull(google, "google is null");
         this.tasks = requireNonNull(tasks, "tasks is null");

@@ -15,8 +15,6 @@ package com.bytequay.app.service.epic;
 
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
-import com.bytequay.app.jira.JiraDtos;
-import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -35,6 +33,8 @@ import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.integration.jira.JiraDtos;
+import com.bytequay.integration.jira.JiraIssue;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;

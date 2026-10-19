@@ -118,4 +118,4 @@ export function githubCommentBlocker(facts: CommentAnchorFacts): string | null {
   return inOneHunk ? null : "GitHub accepts line comments only on lines in this pull request's diff";
 }
 
-export { shortSha } from '../../displayText';
+export { shortSha } from '@bytequay/ui/displayText';

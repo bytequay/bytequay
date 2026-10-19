@@ -16,7 +16,7 @@ import { ArrowUpRight, ChevronDown, ChevronRight, CircleCheck, CircleDot, GitMer
 import Avatar from '../Avatar';
 import { ItemRow, Pill } from '../cards/Card';
 import { openActivityLink } from '../githubReference';
-import { relativeTime } from '../relativeTime';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import { activityVerb, actorRole, dayHeader, groupTeamActivity, workByline, workState } from './activity';
 import type { TeamActivityEvent, TeamActivitySnapshot, TeamMember } from './types';
 

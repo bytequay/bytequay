@@ -19,8 +19,7 @@ import { anchorPanel, previewMarkdown, useHoverCard } from '../ReferenceCard';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { zoomReference } from '../githubReference';
 import type { JiraTaskSource } from './contracts';
-import JiraIcon from './JiraIcon';
-import './jira.css';
+import { JiraIcon } from '@bytequay/jira/renderer';
 
 type Source = Pick<JiraTaskSource, 'connectionId' | 'cloudId' | 'issueId' | 'key' | 'title' | 'body'>;
 export function JiraSourceAttachment({ source }: { source: Source }) {

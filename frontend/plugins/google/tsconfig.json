@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.plugin.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/fixtures/**"
+  ],
+  "references": [
+    {
+      "path": "../../packages/ui"
+    }
+  ]
+}

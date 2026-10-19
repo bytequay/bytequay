@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { clock } from '../displayText';
+import { clock } from '@bytequay/ui/displayText';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   DevelopmentAutomationDto,
@@ -33,8 +33,9 @@ import SkillsPage from './SkillsPage';
 import WorkflowPage from './WorkflowPage';
 import GitHubPage from './GitHubPage';
 import JiraPage from './JiraPage';
-import GooglePage from './GooglePage';
-import LabPage from './LabPage';
+import { GooglePage } from '../integrations/google';
+import { LabPage } from '@bytequay/lab/renderer';
+import { openLab } from '../lab';
 import { AppearancePage, BrowserPage, GeneralPage } from './PersonalPages';
 import {
   WorkspaceAdvancedPage,
@@ -371,7 +372,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
           )}
           {section === 'jira' && <JiraPage />}
           {section === 'google' && <GooglePage />}
-          {section === 'lab' && <LabPage />}
+          {section === 'lab' && <LabPage onOpen={openLab} />}
           {section === 'github' && preferences !== null && (
             <GitHubPage
               account={account}

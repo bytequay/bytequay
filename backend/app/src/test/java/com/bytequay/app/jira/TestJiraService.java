@@ -18,7 +18,6 @@ import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
-import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
@@ -27,51 +26,36 @@ import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.integration.jira.JiraClient;
+import com.bytequay.integration.jira.JiraDtos;
+import com.bytequay.integration.jira.JiraIssue;
+import com.bytequay.integration.jira.impl.DefaultJiraConnections;
+import com.bytequay.integration.jira.impl.JiraActivityLog;
+import com.bytequay.integration.jira.impl.JiraCache;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -80,7 +64,7 @@ class TestJiraService
 {
     private static final Instant UPDATED = Instant.parse("2026-09-26T01:00:00Z");
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
-    private final JiraConnections remote = mock(JiraConnections.class);
+    private final DefaultJiraConnections remote = mock(DefaultJiraConnections.class);
     private final AppSettingsStore settings = mock(AppSettingsStore.class);
     private final JiraIssueTaskStore tasks = mock(JiraIssueTaskStore.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
@@ -91,13 +75,15 @@ class TestJiraService
     private final WorkItemStore workItems = mock(WorkItemStore.class);
     private final WorkItemService workService = mock(WorkItemService.class);
     private final ObjectProvider<WorkItemService> work = mock(ObjectProvider.class);
-    private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider, new JiraActivityLog(cache), workItems, recent, work);
+    private final JiraIssueContextImpl context = new JiraIssueContextImpl(settings, mapper, tasks, workspaces, workItems, recent);
+    private final JiraClient client = new JiraIntegrationConfiguration().jiraClient(remote, cache, new JiraActivityLog(cache), context);
+    private final JiraService jira = new JiraService(client, context, tasks, workspaces, settingsProvider, workItems, work);
     private final Map<String, String> saved = new ConcurrentHashMap<>();
 
     @AfterEach
     void stopReads()
     {
-        jira.close();
+        client.close();
     }
 
     @BeforeEach
@@ -139,99 +125,13 @@ class TestJiraService
         });
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {
-            "{}", "[]", "{\"values\":{}}", "{\"values\":[null]}", "{\"values\":[{}]}",
-            "{\"values\":[{\"id\":1,\"name\":123,\"type\":\"scrum\"}]}",
-            "{\"values\":[{\"id\":1.5,\"name\":\"Board\",\"type\":\"scrum\"}]}",
-            "{\"values\":[],\"isLast\":\"true\"}", "{\"values\":[],\"total\":1.5}", "{\"values\":[],\"total\":-1}"})
-    void malformedBoardPagesFailWithoutReplacingTheCache(String response)
-            throws Exception
-    {
-        var board = new JiraDtos.Board(7, "Product", "scrum");
-        cache.write("connection.cloud.boards", ImmutableList.of(board));
-        doReturn(json(response)).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/agile/1.0/board?"), eq("GET"), any());
-        assertThatThrownBy(() -> jira.boards("connection", "cloud", true)).isInstanceOfSatisfying(ResponseStatusException.class,
-                failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
-        assertThat(jira.boards("connection", "cloud", false)).containsExactly(board);
-    }
-
-    @Test
-    void boardPagesAcceptAdditionalFieldsAndAnExplicitEmptyPage()
-            throws Exception
-    {
-        doReturn(json("{\"values\":[{\"id\":7,\"name\":\"Product\",\"type\":\"scrum\",\"location\":{}}],\"isLast\":true,\"extra\":1}"))
-                .when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/agile/1.0/board?"), eq("GET"), any());
-        assertThat(jira.boards("connection", "cloud", true)).containsExactly(new JiraDtos.Board(7, "Product", "scrum"));
-        doReturn(json("{\"values\":[],\"total\":0}"))
-                .when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/agile/1.0/board?"), eq("GET"), any());
-        assertThat(jira.boards("connection", "cloud", true)).isEmpty();
-    }
-
-    @Test
-    void cacheReadsNeverFetchCredentialsOrRemoteData()
-            throws Exception
-    {
-        JiraIssue issue = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
-        cache.write("connection.cloud.issue.1001", issue);
-        assertThat(jira.issue("connection", "cloud", "1001").title()).isEqualTo("A ticket");
-        verifyNoInteractions(remote, settingsProvider);
-    }
-
-    @Test
-    void attentionIncludesConnectedBoardRowsAssignedToTheAccountWithoutRemoteReads()
-            throws Exception
-    {
-        saved.put("jira.scopes", """
-                [{"connectionId":"connection","cloudId":"cloud","boardId":82,"sprintId":null,"mine":false,"completed":false},
-                 {"connectionId":"connection","cloudId":"cloud","boardId":82,"sprintId":9,"mine":true,"completed":false},
-                 {"connectionId":"disconnected","cloudId":"cloud","boardId":82,"sprintId":9,"mine":true,"completed":false}]
-                """);
-        JiraIssue unassigned = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
-        JiraIssue doneParent = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", assigned(completedTicket("2001"), "me")).withChildren(true);
-        JiraIssue theirs = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", assigned(completedTicket("4001"), "alice"));
-        JiraIssueSource source = new JiraIssueSource("connection", "cloud", "2001", doneParent.key(), doneParent.url(), doneParent.title(), doneParent.body(), UPDATED);
-        when(tasks.findBySource("cloud", "2001")).thenReturn(Optional.of(new JiraIssueTask("task", "workspace", source, "Implement", UPDATED)));
-        cache.write("goal.cloud.2001", true);
-        cache.write("connection.cloud.issue.1001", unassigned);
-        cache.write("connection.cloud.issue.2001", doneParent);
-        cache.write("connection.cloud.issue.4001", theirs);
-        cache.write("connection.cloud.scope.82.backlog.false", new JiraDtos.IssuePage(ImmutableList.of(unassigned, doneParent, theirs), Optional.of(UPDATED), Optional.empty(), Optional.empty()));
-        cache.write("connection.cloud.scope.82.9.true", new JiraDtos.IssuePage(ImmutableList.of(unassigned), Optional.of(UPDATED), Optional.empty(), Optional.empty()));
-        JiraIssue disconnected = JiraMapping.issue("disconnected", "cloud", "https://example.atlassian.net", completedTicket("3001"));
-        cache.write("disconnected.cloud.issue.3001", disconnected);
-        cache.write("disconnected.cloud.scope.82.9.true", new JiraDtos.IssuePage(ImmutableList.of(disconnected), Optional.of(UPDATED), Optional.empty(), Optional.empty()));
-        JiraDtos.Connection connection = remote.get("connection");
-        when(remote.list()).thenReturn(ImmutableList.of(connection));
-
-        List<JiraIssue> attention = jira.attention();
-        assertThat(attention).extracting(JiraIssue::id).containsExactly("2001");
-        assertThat(attention.getLast().assignee().map(JiraDtos.Person::accountId)).contains("me");
-        assertThat(attention.getLast().isEpic()).isTrue();
-        assertThat(attention.getLast().hasChildren()).isTrue();
-        assertThat(attention.getLast().status().category()).isEqualTo("done");
-        assertThat(attention.getLast().task()).contains(new JiraDtos.TaskLink("task", "workspace"));
-        verify(remote, never()).request(anyString(), anyString(), anyString(), anyString(), any());
-    }
-
-    @Test
-    void ticketLinkKeyResolvesToTheIssueIdItIsCachedUnder()
-            throws Exception
-    {
-        doReturn(ticket()).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/ENG-7?"), eq("GET"), any());
-        assertThat(jira.refreshIssueByKey("connection", "cloud", "ENG-7").id()).isEqualTo("1001");
-        assertThat(jira.issue("connection", "cloud", "1001").key()).isEqualTo("ENG-7");
-        assertThatThrownBy(() -> jira.issue("connection", "cloud", "ENG-7")).isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> jira.refreshIssueByKey("connection", "cloud", "1001")).isInstanceOf(IllegalArgumentException.class);
-    }
-
     @Test
     void workspaceAssignmentSurvivesRefreshAndIsSharedAcrossConnections()
             throws Exception
     {
-        JiraIssue issue = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
+        JiraIssue issue = ticketIssue("connection");
         cache.write("connection.cloud.issue.1001", issue);
-        cache.write("other.cloud.issue.1001", JiraMapping.issue("other", "cloud", "https://example.atlassian.net", ticket()));
+        cache.write("other.cloud.issue.1001", ticketIssue("other"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "ByteQuay")));
         assertThatThrownBy(() -> jira.epic("connection", "cloud", "1001", true)).hasMessageContaining("Assign a ByteQuay workspace");
         assertThatThrownBy(() -> jira.assignWorkspace("connection", "cloud", "1001", "missing")).hasMessageContaining("missing");
@@ -245,19 +145,22 @@ class TestJiraService
         verifyNoInteractions(remote);
         assertThat(jira.refreshIssue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         JiraCache reopenedCache = new JiraCache(settings, mapper);
-        JiraService reopened = new JiraService(remote, reopenedCache, tasks, workspaces, settingsProvider, new JiraActivityLog(reopenedCache), workItems, recent, work);
-        assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
-        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "Renamed")));
-        assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "Renamed"));
-        when(workspaces.findById("workspace")).thenReturn(Optional.empty());
-        assertThat(reopened.issue("other", "cloud", "1001").workspace()).isEmpty();
+        JiraIssueContextImpl reopenedContext = new JiraIssueContextImpl(settings, mapper, tasks, workspaces, workItems, recent);
+        try (JiraClient reopenedClient = new JiraIntegrationConfiguration().jiraClient(remote, reopenedCache, new JiraActivityLog(reopenedCache), reopenedContext)) {
+            JiraService reopened = new JiraService(reopenedClient, reopenedContext, tasks, workspaces, settingsProvider, workItems, work);
+            assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
+            when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "Renamed")));
+            assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "Renamed"));
+            when(workspaces.findById("workspace")).thenReturn(Optional.empty());
+            assertThat(reopened.issue("other", "cloud", "1001").workspace()).isEmpty();
+        }
     }
 
     @Test
     void linkedTaskOwnsWorkspaceAndCannotBeReassigned()
             throws Exception
     {
-        JiraIssue issue = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
+        JiraIssue issue = ticketIssue("connection");
         cache.write("connection.cloud.issue.1001", issue);
         cache.write("workspace.cloud.1001", "old-workspace");
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "ByteQuay")));
@@ -274,7 +177,7 @@ class TestJiraService
     void workItemOwnsWorkspaceSoTheTicketStaysStartable()
             throws Exception
     {
-        JiraIssue issue = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
+        JiraIssue issue = ticketIssue("connection");
         cache.write("connection.cloud.issue.1001", issue);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "ByteQuay")));
         when(workspaces.findById("other-workspace")).thenReturn(Optional.of(workspace("other-workspace", "Other")));
@@ -321,7 +224,7 @@ class TestJiraService
     void quietHoursKeepAutomaticDetailCachedButAllowManualRefresh()
             throws Exception
     {
-        JiraIssue cached = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
+        JiraIssue cached = ticketIssue("connection");
         saved.put("jira.connection.cloud.issue.1001", mapper.writeValueAsString(cached));
         Map<String, String> before = ImmutableMap.copyOf(saved);
         when(appSettings.inQuietHours()).thenReturn(true);
@@ -340,117 +243,6 @@ class TestJiraService
         when(appSettings.inQuietHours()).thenReturn(false);
         assertThat(jira.refreshDetail("connection", "cloud", "1001", true).fetchedAt()).isPresent();
         verify(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?"), eq("GET"), any());
-    }
-
-    @Test
-    void childSearchPreventsTreatingParentStoryAsLeaf()
-            throws Exception
-    {
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/search/jql"), eq("GET"), any()))
-                .thenReturn(json("{\"issues\":[{\"id\":\"1002\"}]}"));
-        assertThat(jira.refreshIssue("connection", "cloud", "1001").hasChildren()).isTrue();
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/search/jql"), eq("GET"), any()))
-                .thenReturn(json("{\"issues\":[]}"));
-        assertThat(jira.refreshIssue("connection", "cloud", "1001").hasChildren()).isFalse();
-    }
-
-    @Test
-    void detailListsChildrenAndLinksAsThisTicketReadsThem()
-            throws Exception
-    {
-        assertThat(jira.detail("connection", "cloud", "1001", true).children()).isEmpty();
-        verify(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/search/jql"), eq("GET"), any());
-
-        ObjectNode parent = (ObjectNode) ticket();
-        ((ObjectNode) parent.path("fields")).set("subtasks", json("[{\"id\":\"1002\"}]"));
-        ((ObjectNode) parent.path("fields")).set("issuelinks", json("""
-                [{"id":"1","type":{"inward":"is blocked by","outward":"blocks"},"outwardIssue":{"id":"2001","key":"ENG-9","fields":{"summary":"Blocked"}}},
-                 {"id":"2","type":{"inward":"is blocked by","outward":"blocks"},"inwardIssue":{"id":"2002","key":"ENG-10","fields":{"summary":"Blocker"}}}]
-                """));
-        doReturn(parent).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?"), eq("GET"), any());
-        List<String> searches = new ArrayList<>();
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/search/jql"), eq("GET"), any())).thenAnswer(call -> {
-            searches.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
-            return json("""
-                    {"issues":[{"id":"1002","key":"ENG-8","fields":{"summary":"Add the flag","issuetype":{"name":"Subtask"},"priority":{"id":"2","name":"P2"},
-                      "status":{"id":"3","name":"In Progress","statusCategory":{"key":"indeterminate"}},"assignee":{"accountId":"alice","displayName":"Alice"}}}],
-                     "nextPageToken":"next"}
-                    """);
-        });
-
-        JiraDtos.Detail detail = jira.detail("connection", "cloud", "1001", true);
-        assertThat(searches).singleElement().asString().contains("parent = 1001 ORDER BY created ASC", "fields=summary,issuetype,status,priority,assignee");
-        assertThat(detail.children()).containsExactly(new JiraDtos.RelatedIssue("1002", "ENG-8", "Add the flag", "Subtask", new JiraDtos.Status("3", "In Progress", "indeterminate"),
-                Optional.of(new JiraDtos.Choice("2", "P2")), Optional.of(new JiraDtos.Person("alice", "Alice", Optional.empty()))));
-        assertThat(detail.childrenTruncated()).isTrue();
-        assertThat(detail.links()).extracting(link -> link.relation() + " " + link.issue().key()).containsExactly("blocks ENG-9", "is blocked by ENG-10");
-        JiraDtos.Detail cached = jira.detail("connection", "cloud", "1001", false);
-        assertThat(cached.children()).isEqualTo(detail.children());
-        assertThat(cached.links()).isEqualTo(detail.links());
-    }
-
-    @Test
-    void detailShowsNamedRichTextCustomFields()
-            throws Exception
-    {
-        ObjectNode value = (ObjectNode) ticket();
-        ((ObjectNode) value.path("fields")).setAll((ObjectNode) json("""
-                {"customfield_1":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Tested on 8 workers"}]}]},
-                 "customfield_2":"single line","customfield_3":{"type":"doc","content":[]},"customfield_4":null}
-                """));
-        value.set("names", json("{\"customfield_1\":\"Additional Context\",\"customfield_2\":\"Team note\",\"customfield_3\":\"Feature Description\"}"));
-        List<String> reads = new ArrayList<>();
-        doAnswer(call -> {
-            reads.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
-            return value;
-        }).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?"), eq("GET"), any());
-
-        List<JiraDtos.RichTextField> expected = ImmutableList.of(new JiraDtos.RichTextField("customfield_1", "Additional Context", "Tested on 8 workers"));
-        assertThat(jira.detail("connection", "cloud", "1001", true).richTextFields()).isEqualTo(expected);
-        assertThat(reads).singleElement().asString().contains("fields=*all,-comment,-worklog", "expand=names,schema");
-        assertThat(jira.detail("connection", "cloud", "1001", false).richTextFields()).isEqualTo(expected);
-    }
-
-    @Test
-    void detailShowsReporterProjectPeopleAndTeamFields()
-            throws Exception
-    {
-        ObjectNode value = (ObjectNode) ticket();
-        ((ObjectNode) value.path("fields")).setAll((ObjectNode) json("""
-                {"project":{"key":"ENG","name":"Engineering"},"reporter":{"accountId":"anu","displayName":"Anu"},
-                 "parent":{"id":"1000","key":"ENG-3802","fields":{"summary":"Lakekeeper","issuetype":{"name":"Epic"}}},
-                 "customfield_1":[{"accountId":"vlad","displayName":"Vlad"}],"customfield_2":{"accountId":"sam","displayName":"Sam"},"customfield_3":[],
-                 "customfield_4":{"id":"t1","name":"ENG-Connectors","title":"ENG-Connectors"},"customfield_5":{"id":"7","value":"Option"}}
-                """));
-        value.set("names", json("{\"customfield_1\":\"Co-Assignee(s)\",\"customfield_2\":\"Approver\",\"customfield_4\":\"Team\",\"customfield_5\":\"Pillars\"}"));
-        value.set("schema", json("{\"customfield_4\":{\"type\":\"team\",\"custom\":\"com.atlassian.jira.plugin.system.customfieldtypes:atlassian-team\"}}"));
-        List<String> reads = new ArrayList<>();
-        doAnswer(call -> {
-            reads.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
-            return value;
-        }).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?"), eq("GET"), any());
-
-        JiraDtos.Detail detail = jira.detail("connection", "cloud", "1001", true);
-        assertThat(reads).singleElement().asString().contains("expand=names,schema");
-        assertThat(detail.project()).contains("Engineering");
-        assertThat(detail.reporter()).contains(new JiraDtos.Person("anu", "Anu", Optional.empty()));
-        assertThat(detail.issue().parent()).contains(new JiraDtos.Parent("1000", "ENG-3802", "Lakekeeper", Optional.of("Epic")));
-        assertThat(detail.peopleFields()).containsExactly(
-                new JiraDtos.PeopleField("customfield_2", "Approver", ImmutableList.of(new JiraDtos.Person("sam", "Sam", Optional.empty()))),
-                new JiraDtos.PeopleField("customfield_1", "Co-Assignee(s)", ImmutableList.of(new JiraDtos.Person("vlad", "Vlad", Optional.empty()))));
-        assertThat(detail.teamFields()).containsExactly(new JiraDtos.TeamField("customfield_4", "Team", "ENG-Connectors"));
-        assertThat(jira.detail("connection", "cloud", "1001", false).peopleFields()).isEqualTo(detail.peopleFields());
-
-        // A detail cached before these fields existed still opens, without them.
-        String key = "jira.connection.cloud.issue.1001.detail";
-        ObjectNode cached = (ObjectNode) json(saved.get(key));
-        cached.remove(ImmutableList.of("project", "reporter", "peopleFields", "teamFields"));
-        saved.put(key, cached.toString());
-        JiraDtos.Detail legacy = jira.detail("connection", "cloud", "1001", false);
-        assertThat(legacy.project()).isEmpty();
-        assertThat(legacy.reporter()).isEmpty();
-        assertThat(legacy.peopleFields()).isEmpty();
-        assertThat(legacy.teamFields()).isEmpty();
     }
 
     @Test
@@ -476,582 +268,21 @@ class TestJiraService
     }
 
     @Test
-    void linksPutThisTicketOnTheSideItsRelationReads()
-            throws Exception
-    {
-        doReturn(json("{\"issueLinkTypes\":[{\"id\":\"10000\",\"name\":\"Blocks\",\"inward\":\"is blocked by\",\"outward\":\"blocks\"}]}")).when(remote)
-                .request("connection", "cloud", "/rest/api/3/issueLinkType", "GET", Optional.empty());
-        assertThat(jira.linkTypes("connection", "cloud")).containsExactly(new JiraDtos.LinkType("10000", "Blocks", "is blocked by", "blocks"));
-        jira.refreshIssue("connection", "cloud", "1001");
-
-        jira.link("connection", "cloud", "1001", "10000", true, "ENG-9");
-        verify(remote).request("connection", "cloud", "/rest/api/3/issueLink", "POST", Optional.of(ImmutableMap.of("type", ImmutableMap.of("id", "10000"),
-                "inwardIssue", ImmutableMap.of("id", "1001"), "outwardIssue", ImmutableMap.of("key", "ENG-9"))));
-        jira.link("connection", "cloud", "1001", "10000", false, "ENG-10");
-        verify(remote).request("connection", "cloud", "/rest/api/3/issueLink", "POST", Optional.of(ImmutableMap.of("type", ImmutableMap.of("id", "10000"),
-                "inwardIssue", ImmutableMap.of("key", "ENG-10"), "outwardIssue", ImmutableMap.of("id", "1001"))));
-        assertThatThrownBy(() -> jira.link("connection", "cloud", "1001", "10000", true, "ENG-7")).hasMessageContaining("itself");
-        assertThatThrownBy(() -> jira.link("connection", "cloud", "1001", "10000", true, "eng-9")).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
     void recordsTicketReadsFromCacheWithoutFetchingJira()
             throws Exception
     {
-        JiraIssue cached = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
+        JiraIssue cached = ticketIssue("connection");
         saved.put("jira.connection.cloud.issue.1001", mapper.writeValueAsString(cached));
         jira.recordRead("connection", "cloud", "1001", 65);
         verify(recent).jiraRead(cached, 65);
         verifyNoInteractions(remote);
     }
 
-    @Test
-    void staleEditNeverSendsMutation()
+    private static JiraIssue ticketIssue(String connectionId)
     {
-        assertThatThrownBy(() -> jira.update("connection", "cloud", "1001", UPDATED.minusSeconds(1), ImmutableMap.of("assignee", "alice")))
-                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
-        verify(remote, never()).request(anyString(), anyString(), anyString(), eq("PUT"), any());
-        verifyNoInteractions(recent);
-    }
-
-    @Test
-    void assigneeUsesAccountIdEvenWhenEditMetadataContainsUserChoices()
-    {
-        jira.update("connection", "cloud", "1001", UPDATED, ImmutableMap.of("assignee", "alice"));
-        verify(recent).jiraAction(argThat(issue -> issue.id().equals("1001")), eq(RecentReason.EDITED), eq(0));
-        verify(remote).request("connection", "cloud", "/rest/api/3/issue/1001", "PUT",
-                Optional.of(ImmutableMap.of("fields", ImmutableMap.of("assignee", ImmutableMap.of("accountId", "alice")))));
-    }
-
-    @Test
-    void numericWorkflowFieldPreservesJsonNumber()
-            throws Exception
-    {
-        when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.contains("/transitions?"), eq("GET"), any()))
-                .thenReturn(json("""
-                        {"transitions":[{"id":"2","name":"Start","to":{"id":"2","name":"Working"},
-                        "fields":{"customfield_1":{"name":"Estimate","required":true,"schema":{"type":"number"}}}}]}
-                        """));
-        jira.transition("connection", "cloud", "1001", UPDATED, "2", ImmutableMap.of("customfield_1", 3));
-        verify(remote).request("connection", "cloud", "/rest/api/3/issue/1001/transitions", "POST",
-                Optional.of(ImmutableMap.of("transition", ImmutableMap.of("id", "2"), "fields", ImmutableMap.of("customfield_1", 3))));
-    }
-
-    @Test
-    void uncertainCommentIsNotRetriedAcrossConnections()
-    {
-        jira.refreshIssue("connection", "cloud", "1001");
-        when(remote.request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/comment"), eq("POST"), any()))
-                .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Connection lost"));
-        assertThatThrownBy(() -> jira.comment("connection", "cloud", "1001", "Please check", "operation-123456789", Optional.empty()))
-                .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> jira.comment("replacement", "cloud", "1001", "Please check", "operation-123456789", Optional.empty()))
-                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("unknown result");
-        verify(remote, never()).request(eq("replacement"), anyString(), anyString(), eq("POST"), any());
-        verifyNoInteractions(recent);
-    }
-
-    @Test
-    void repliesNameTheirParentAndSayWhenJiraPostsThemAtTopLevel()
-            throws Exception
-    {
-        jira.refreshIssue("connection", "cloud", "1001");
-        when(remote.request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/comment"), eq("POST"), any()))
-                .thenReturn(json("{\"id\":\"9\",\"parentId\":\"5\"}"), json("{\"id\":\"10\"}"));
-
-        assertThat(jira.comment("connection", "cloud", "1001", "Agreed", "operation-reply-000001", Optional.of("5")).error()).isEmpty();
-        verify(recent).wroteOnJira(argThat(issue -> issue.id().equals("1001")), eq("9"), eq("Agreed"));
-        verify(remote).request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/comment"), eq("POST"),
-                argThat(body -> body.orElseThrow() instanceof Map<?, ?> request && "5".equals(request.get("parentId"))));
-        assertThat(jira.comment("connection", "cloud", "1001", "Agreed", "operation-reply-000002", Optional.of("5")).error())
-                .contains("Jira saved your reply as a new comment instead of a reply.");
-    }
-
-    @Test
-    void editsOnlyFreshPlainOwnCommentsAndKeepsTheirMentions()
-            throws Exception
-    {
-        jira.refreshIssue("connection", "cloud", "1001");
-        String own = """
-                {"id":"5","author":{"accountId":"me"},"updated":"U1","body":{"type":"doc","version":1,"content":[
-                  {"type":"paragraph","content":[{"type":"mention","attrs":{"id":"alex","text":"@Alex Kim"}},{"type":"text","text":" please check"}]}]}}
-                """;
-        doReturn(json(own)).when(remote).request("connection", "cloud", "/rest/api/3/issue/1001/comment/5", "GET", Optional.empty());
-
-        jira.editComment("connection", "cloud", "1001", "5", "@Alex Kim fixed now", "U1");
-        verify(recent).wroteOnJira(argThat(issue -> issue.id().equals("1001")), eq("5"), eq("@Alex Kim fixed now"));
-        List<Map<String, Object>> edited = ImmutableList.of(ImmutableMap.of("type", "mention", "attrs", ImmutableMap.of("id", "alex", "text", "@Alex Kim")),
-                ImmutableMap.of("type", "text", "text", " fixed now"));
-        verify(remote).request("connection", "cloud", "/rest/api/3/issue/1001/comment/5", "PUT", Optional.of(ImmutableMap.of("body",
-                ImmutableMap.of("version", 1, "type", "doc", "content", ImmutableList.of(ImmutableMap.of("type", "paragraph", "content", edited))))));
-        assertThatThrownBy(() -> jira.editComment("connection", "cloud", "1001", "5", "Again", "U0")).hasMessageContaining("changed in Jira");
-        doReturn(json(own.replace("\"me\"", "\"alex\""))).when(remote).request("connection", "cloud", "/rest/api/3/issue/1001/comment/5", "GET", Optional.empty());
-        assertThatThrownBy(() -> jira.editComment("connection", "cloud", "1001", "5", "Again", "U1")).hasMessageContaining("your own");
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void coassignmentQueriesUseSiteFieldsAcrossScopesAndKeepSeparateCaches(boolean mine)
-            throws Exception
-    {
-        doReturn(json("""
-                [{"id":"customfield_123","name":"Co-Assignees","schema":{"type":"array","items":"user"}},
-                 {"id":"customfield_456","name":"Co assignee","schema":{"type":"user"}},
-                 {"id":"customfield_789","name":"Co-assignee","schema":{"type":"string"}},
-                 {"id":"customfield_999","name":"Reviewer","schema":{"type":"user"}}]
-                """)).when(remote).request("connection", "cloud", "/rest/api/3/field", "GET", Optional.empty());
-        List<String> requests = new ArrayList<>();
-        doAnswer(call -> {
-            String path = URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8);
-            requests.add(path);
-            return json("{\"issues\":[" + completedTicket("2001") + "]," + (path.contains("nextPageToken") ? "\"isLast\":true}" : "\"nextPageToken\":\"next/token\"}"));
-        }).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any());
-        String assignment = "(" + (mine ? "assignee = currentUser() OR " : "") + "cf[123] = currentUser() OR cf[456] = currentUser())";
-        JiraDtos.IssuePage sprint = jira.issues("connection", "cloud", 82, Optional.of(9L), mine, true, false, true, Optional.empty());
-        assertThat(sprint.error()).isEmpty();
-        assertThat(sprint.issues()).extracting(JiraIssue::id).containsExactly("2001");
-        JiraDtos.IssuePage next = jira.issues("connection", "cloud", 82, Optional.of(9L), mine, true, false, true, sprint.nextPageToken());
-        assertThat(next.error()).isEmpty();
-        assertThat(next.nextPageToken()).isEmpty();
-        assertThat(requests).allSatisfy(path -> assertThat(path).contains("/sprint/9/issue?", "jql=" + assignment));
-        assertThat(requests.getLast()).contains("nextPageToken=next/token");
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), mine, false, false, false, Optional.empty()).issues()).isEmpty();
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), mine, true, false, false, Optional.empty()).issues()).hasSize(1);
-        verify(remote, times(2)).request("connection", "cloud", "/rest/api/3/field", "GET", Optional.empty());
-        jira.issues("connection", "cloud", 82, Optional.empty(), mine, true, false, true, Optional.empty());
-        assertThat(requests.getLast()).contains("/backlog?", "jql=" + assignment);
-        jira.issues("connection", "cloud", 82, Optional.empty(), mine, true, true, true, Optional.empty());
-        assertThat(requests.getLast()).contains("/board/82/issue?", "jql=statusCategory = Done AND " + assignment + " ORDER BY");
-        doThrow(new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY)).when(remote)
-                .request(eq("connection"), eq("cloud"), startsWith("/rest/software/1.0/board/82/backlog?"), eq("GET"), any());
-        jira.issues("connection", "cloud", 82, Optional.empty(), mine, true, false, true, Optional.empty());
-        assertThat(requests.getLast()).contains("/board/82/issue?", "jql=statusCategory != Done AND " + assignment);
-        doReturn(json("[]")).when(remote).request("connection", "cloud", "/rest/api/3/field", "GET", Optional.empty());
-        JiraDtos.IssuePage failed = jira.issues("connection", "cloud", 82, Optional.of(9L), mine, true, false, true, Optional.empty());
-        assertThat(failed.issues()).isEqualTo(sprint.issues());
-        assertThat(failed.error()).hasValueSatisfying(error -> assertThat(error).contains("No accessible Co-assignee user field"));
-    }
-
-    @Test
-    void requestsOnePageAtATimeAndPreservesTheCursorAfterFailure()
-            throws Exception
-    {
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any()))
-                .thenReturn(json("{\"issues\":[" + ticket() + "],\"nextPageToken\":\"next/token\"}"))
-                .thenThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS));
-        JiraDtos.IssuePage first = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, true, Optional.empty());
-        assertThat(first.issues()).hasSize(1);
-        assertThat(first.nextPageToken()).contains("next/token");
-        verify(remote, times(1)).request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any());
-
-        JiraDtos.IssuePage stale = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, true, first.nextPageToken());
-        assertThat(stale.issues()).isEqualTo(first.issues());
-        assertThat(stale.fetchedAt()).isEqualTo(first.fetchedAt());
-        assertThat(stale.nextPageToken()).isEqualTo(first.nextPageToken());
-        assertThat(stale.error()).contains("Jira refresh failed. Showing saved tickets. Refresh to try again.");
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, false, Optional.empty())).isEqualTo(stale);
-
-        doReturn(json("{\"issues\":[],\"isLast\":true}"))
-                .when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any());
-        JiraDtos.IssuePage recovered = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, true, stale.nextPageToken());
-        assertThat(recovered.issues()).isEqualTo(first.issues());
-        assertThat(recovered.nextPageToken()).isEmpty();
-        assertThat(recovered.error()).isEmpty();
-        verify(remote, times(2)).request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.contains("nextPageToken=next%2Ftoken"), eq("GET"), any());
-    }
-
-    @Test
-    void boardWithoutSprintsOrBacklogShowsItsOpenTickets()
-            throws Exception
-    {
-        ResponseStatusException rejected = new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Jira request was rejected (HTTP 400).");
-        doThrow(rejected).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/agile/1.0/board/82/sprint"), eq("GET"), any());
-        doThrow(rejected).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/software/1.0/board/82/backlog?"), eq("GET"), any());
-        List<String> requests = new ArrayList<>();
-        doAnswer(call -> {
-            requests.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
-            return json("{\"issues\":[" + ticket() + "],\"isLast\":true}");
-        }).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/software/1.0/board/82/issue?"), eq("GET"), any());
-        assertThat(jira.sprints("connection", "cloud", 82, true)).isEmpty();
-        JiraDtos.IssuePage page = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, false, true, Optional.empty());
-        assertThat(page.error()).isEmpty();
-        assertThat(page.issues()).extracting(JiraIssue::id).containsExactly("1001");
-        assertThat(requests).singleElement().asString().contains("statusCategory != Done AND assignee = currentUser()");
-    }
-
-    @Test
-    void completedHistoryUsesBoardScopeAndAppendsWithoutDuplicates()
-            throws Exception
-    {
-        List<String> requests = new ArrayList<>();
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any())).thenAnswer(call -> {
-            String path = URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8);
-            requests.add(path);
-            return path.contains("nextPageToken")
-                    ? json("{\"issues\":[" + completedTicket("2001") + "," + completedTicket("2002") + "],\"isLast\":true}")
-                    : json("{\"issues\":[" + completedTicket("2001") + "],\"nextPageToken\":\"next/token + value\"}");
-        });
-        JiraDtos.IssuePage first = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true, true, Optional.empty());
-        assertThat(first.issues()).extracting(JiraIssue::id).containsExactly("2001");
-        assertThat(first.nextPageToken()).contains("next/token + value");
-        assertThat(requests).hasSize(1);
-        JiraDtos.IssuePage result = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true, true, first.nextPageToken());
-        assertThat(result.issues()).extracting(JiraIssue::id).containsExactly("2001", "2002");
-        assertThat(result.nextPageToken()).isEmpty();
-        assertThat(requests).allSatisfy(path -> {
-            assertThat(path).startsWith("/rest/software/1.0/board/82/issue?").doesNotContain("/sprint/");
-            assertThat(path).contains("statusCategory = Done AND assignee = currentUser()", "ORDER BY statusCategoryChangedDate DESC, resolved DESC", "resolutiondate");
-        });
-        assertThat(requests.get(1)).contains("nextPageToken=next/token + value");
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(45L), true, false, true, false, Optional.empty()).issues()).hasSize(2);
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, false, Optional.empty()).issues()).isEmpty();
-        // A delayed reader with an already consumed cursor uses the newer cached projection.
-        assertThat(jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, first.nextPageToken())).isEqualTo(result);
-        assertThat(saved).doesNotContainKey("jira.scopes");
-        assertThat(jira.attention()).isEmpty();
-        jira.poll();
-        assertThat(requests).hasSize(2);
-        JiraDtos.IssuePage refreshed = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, Optional.empty());
-        assertThat(refreshed.issues()).hasSize(1);
-        assertThat(refreshed.nextPageToken()).isEqualTo(first.nextPageToken());
-        jira.issues("connection", "cloud", 82, Optional.empty(), false, false, true, true, Optional.empty());
-        assertThat(requests.getLast()).contains("statusCategory = Done").doesNotContain("assignee =");
-    }
-
-    @Test
-    void completedHistoryCanContinuePastTheBackgroundPageLimitAndDropsReopenedTickets()
-            throws Exception
-    {
-        AtomicInteger pages = new AtomicInteger();
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any())).thenAnswer(call -> {
-            int page = pages.incrementAndGet();
-            return json("{\"issues\":[" + completedTicket("200" + page) + "],\"nextPageToken\":\"page-" + page + "\"}");
-        });
-        Optional<String> next = Optional.empty();
-        for (int page = 0; page < 25; page++) {
-            JiraDtos.IssuePage result = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, next);
-            assertThat(result.issues()).hasSize(page + 1);
-            next = result.nextPageToken();
-        }
-        assertThat(pages).hasValue(25);
-        ObjectNode reopened = (ObjectNode) ticket();
-        reopened.put("id", "2001");
-        ((ObjectNode) reopened.path("fields")).put("updated", "2026-09-26T02:00:00Z");
-        cache.write("connection.cloud.issue.2001", JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", reopened));
-        JiraDtos.IssuePage cached = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, false, Optional.empty());
-        assertThat(cached.nextPageToken()).isEqualTo(next);
-        assertThat(cached.issues()).hasSize(24).noneMatch(issue -> issue.id().equals("2001"));
-        assertThat(jira.issue("connection", "cloud", "2001").completedAt()).isEmpty();
-    }
-
-    @Test
-    void emptyPageCanContinueAndRepeatedCursorRetainsLoadedTickets()
-            throws Exception
-    {
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any()))
-                .thenReturn(json("{\"issues\":[],\"nextPageToken\":\"next\"}"))
-                .thenReturn(json("{\"issues\":[" + completedTicket("2001") + "],\"nextPageToken\":\"last\"}"))
-                .thenReturn(json("{\"issues\":[],\"nextPageToken\":\"last\"}"));
-        JiraDtos.IssuePage first = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, Optional.empty());
-        assertThat(first.issues()).isEmpty();
-        assertThat(first.nextPageToken()).contains("next");
-        JiraDtos.IssuePage second = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, first.nextPageToken());
-        JiraDtos.IssuePage failed = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, second.nextPageToken());
-        assertThat(failed.issues()).isEqualTo(second.issues());
-        assertThat(failed.nextPageToken()).isEqualTo(second.nextPageToken());
-        assertThat(failed.error()).hasValueSatisfying(error -> assertThat(error).contains("repeated a page token"));
-    }
-
-    @Test
-    void scheduledRefreshKeepsItsPageLimitAndLeavesTheCursorAvailable()
-            throws Exception
-    {
-        JiraDtos.Connection connection = remote.get("connection");
-        when(remote.list()).thenReturn(ImmutableList.of(connection));
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/agile/1.0/board/82/sprint"), eq("GET"), any()))
-                .thenReturn(json("{\"values\":[],\"isLast\":true}"));
-        AtomicInteger pages = new AtomicInteger();
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any())).thenAnswer(call -> {
-            int page = pages.incrementAndGet();
-            return json("{\"issues\":[" + completedTicket("200" + page) + "],\"nextPageToken\":\"page-" + page + "\"}");
-        });
-        jira.issues("connection", "cloud", 82, Optional.empty(), true, false, false, true, Optional.empty());
-        jira.poll();
-        assertThat(pages).hasValue(21);
-        JiraDtos.IssuePage cached = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, false, false, Optional.empty());
-        assertThat(cached.issues()).hasSize(20);
-        assertThat(cached.nextPageToken()).contains("page-21");
-        assertThat(jira.issues("connection", "cloud", 82, Optional.empty(), true, false, false, true, cached.nextPageToken()).issues()).hasSize(21);
-    }
-
-    @Test
-    void failedFirstPageDoesNotClaimAnEmptySuccessfulRefresh()
-    {
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any()))
-                .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Jira could not be reached."));
-        JiraDtos.IssuePage result = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, Optional.empty());
-        assertThat(result.issues()).isEmpty();
-        assertThat(result.fetchedAt()).isEmpty();
-        assertThat(result.nextPageToken()).isEmpty();
-        assertThat(result.error()).isPresent();
-    }
-
-    @Test
-    void historyRefreshSharesWorkWithoutBlockingAnotherScope()
-            throws Exception
-    {
-        CountDownLatch started = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/1.0/board/82/issue?"), eq("GET"), any())).thenAnswer(call -> {
-            started.countDown();
-            assertThat(release.await(5, SECONDS)).isTrue();
-            return json("{\"issues\":[" + completedTicket("2001") + "],\"isLast\":true}");
-        });
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/1.0/board/82/sprint/9/issue?"), eq("GET"), any()))
-                .thenReturn(json("{\"issues\":[],\"isLast\":true}"));
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            try {
-                var first = executor.submit(() -> jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, Optional.empty()));
-                assertThat(started.await(2, SECONDS)).isTrue();
-                var duplicate = executor.submit(() -> jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true, true, Optional.empty()));
-                var sprint = executor.submit(() -> jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, true, Optional.empty()));
-                assertThat(sprint.get(2, SECONDS).fetchedAt()).isPresent();
-                assertThatThrownBy(() -> duplicate.get(100, MILLISECONDS)).isInstanceOf(TimeoutException.class);
-                release.countDown();
-                assertThat(duplicate.get(2, SECONDS)).isEqualTo(first.get(2, SECONDS));
-                verify(remote, times(1)).request(eq("connection"), eq("cloud"), startsWith("/rest/software/1.0/board/82/issue?"), eq("GET"), any());
-            }
-            finally {
-                release.countDown();
-            }
-        }
-    }
-
-    private JsonNode completedTicket(String id)
-            throws Exception
-    {
-        ObjectNode ticket = (ObjectNode) ticket();
-        ticket.put("id", id);
-        ObjectNode fields = (ObjectNode) ticket.path("fields");
-        ((ObjectNode) fields.path("status").path("statusCategory")).put("key", "done");
-        fields.put("resolutiondate", "2026-09-25T01:00:00Z");
-        fields.put("statuscategorychangedate", "2026-09-26T00:00:00Z");
-        return ticket;
-    }
-
-    @Test
-    void boardRefreshCachesTheRichTextDescriptionTicketReadsShow()
-            throws Exception
-    {
-        List<String> requests = new ArrayList<>();
-        ObjectNode card = (ObjectNode) ticket();
-        ((ObjectNode) card.path("fields")).put("description", "[runbook|https://example.com/runbook]");
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any())).thenAnswer(call -> {
-            requests.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
-            return json("{\"issues\":[" + card + "],\"isLast\":true}");
-        });
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/search/jql"), eq("GET"), any())).thenAnswer(call -> {
-            requests.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
-            return json("""
-                    {"issues":[{"id":"1001","fields":{"description":{"type":"doc","content":[{"type":"paragraph","content":[
-                    {"type":"text","text":"runbook","marks":[{"type":"link","attrs":{"href":"https://example.com/runbook"}}]}]}]}}}]}
-                    """);
-        });
-        jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, true, Optional.empty());
-        assertThat(requests).hasSize(2);
-        assertThat(requests.getFirst()).doesNotContain("description");
-        assertThat(requests.getLast()).contains("id in (1001)", "fields=description");
-        assertThat(jira.detail("connection", "cloud", "1001", false).issue().body()).isEqualTo("[runbook](https://example.com/runbook)");
-    }
-
-    @Test
-    void olderPollCannotReplaceNewerCachedRevision()
-            throws Exception
-    {
-        JsonNode fresh = ticket().deepCopy();
-        ((com.fasterxml.jackson.databind.node.ObjectNode) fresh.path("fields")).put("updated", "2026-09-26T02:00:00Z").put("summary", "Already edited");
-        cache.write("connection.cloud.issue.1001", JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", fresh));
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any()))
-                .thenReturn(json("{\"issues\":[" + ticket() + "],\"isLast\":true}"));
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, true, Optional.empty()).issues().getFirst().title()).isEqualTo("Already edited");
-        assertThat(jira.issue("connection", "cloud", "1001").title()).isEqualTo("Already edited");
-    }
-
-    @Test
-    void commentMentionsKeepTheConnectedSiteInCachedContext()
-            throws Exception
-    {
-        when(remote.site("connection", "cloud")).thenReturn(new JiraDtos.Site("cloud", "Team", "https://team.atlassian.net"));
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001/comment?"), eq("GET"), any()))
-                .thenReturn(json("""
-                        {"comments":[{"id":"comment","author":{"accountId":"alice"},"body":{"type":"doc","content":[
-                          {"type":"paragraph","content":[{"type":"mention","attrs":{"id":"712020:jack","text":"@Jack Chen"}}]}
-                        ]},"created":"2026-09-26T01:00:00Z","updated":"2026-09-26T01:00:00Z"}],"total":1}
-                        """));
-        String expected = "[@Jack Chen](https://team.atlassian.net/jira/people/712020%3Ajack)";
-
-        assertThat(jira.detail("connection", "cloud", "1001", true).comments().getFirst().body()).isEqualTo(expected);
-        assertThat(jira.detail("connection", "cloud", "1001", false).comments().getFirst().body()).isEqualTo(expected);
-        assertThat(jira.issue("connection", "cloud", "1001").comments().getFirst().body()).isEqualTo(expected);
-    }
-
-    @Test
-    void commentRepliesKeepTheirParentInCachedContext()
-            throws Exception
-    {
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001/comment?"), eq("GET"), any()))
-                .thenReturn(json("""
-                        {"comments":[
-                          {"id":"2","parentId":"1","author":{"accountId":"bob"},"body":{"type":"doc","content":[]},
-                           "created":"2026-09-26T02:00:00Z","updated":"2026-09-26T02:00:00Z"},
-                          {"id":"1","author":{"accountId":"alice"},"body":{"type":"doc","content":[]},
-                           "created":"2026-09-26T01:00:00Z","updated":"2026-09-26T01:00:00Z"}
-                        ],"total":2}
-                        """));
-
-        assertThat(jira.detail("connection", "cloud", "1001", true).comments()).extracting(JiraDtos.Comment::parentId).containsExactly(Optional.empty(), Optional.of("1"));
-        assertThat(jira.detail("connection", "cloud", "1001", false).comments()).extracting(JiraDtos.Comment::parentId).containsExactly(Optional.empty(), Optional.of("1"));
-    }
-
-    @Test
-    void commentPageLimitReturnsVisiblePartialResult()
-            throws Exception
-    {
-        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001/comment?"), eq("GET"), any()))
-                .thenReturn(json("""
-                        {"comments":[{"id":"comment","author":{"accountId":"alice"},"body":{"type":"doc","content":[]},
-                        "created":"2026-09-26T01:00:00Z","updated":"2026-09-26T01:00:00Z"}],"total":3000}
-                        """));
-        JiraDtos.Detail detail = jira.detail("connection", "cloud", "1001", true);
-        assertThat(detail.commentsTruncated()).isTrue();
-        assertThat(detail.comments()).hasSize(20);
-        assertThat(jira.issue("connection", "cloud", "1001").commentsTruncated()).isTrue();
-    }
-
-    @Test
-    void detailReadsRunTogetherAndEditMetadataFailureOnlyDisablesEditing()
-    {
-        CountDownLatch started = new CountDownLatch(4);
-        doAnswer(call -> {
-            started.countDown();
-            // Reads made one at a time would each wait here alone.
-            assertThat(started.await(5, SECONDS)).isTrue();
-            if (call.<String>getArgument(2).endsWith("/editmeta")) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-            }
-            if (call.<String>getArgument(2).contains("/comment?")) {
-                return json("{\"comments\":[],\"total\":0}");
-            }
-            if (call.<String>getArgument(2).contains("/transitions")) {
-                return json("{\"transitions\":[]}");
-            }
-            return json("[{\"accountId\":\"alice\",\"displayName\":\"Alice\"}]");
-        }).when(remote).request(eq("connection"), eq("cloud"), argThat(path -> path.startsWith("/rest/api/3/issue/1001/") || path.startsWith("/rest/api/3/user/")),
-                eq("GET"), any());
-        JiraDtos.Detail detail = jira.detail("connection", "cloud", "1001", true);
-        assertThat(detail.error()).get().asString().contains("Some editing options are unavailable");
-        assertThat(detail.editableFields()).isEmpty();
-        assertThat(detail.assignees()).isEmpty();
-    }
-
-    @Test
-    void aFailedDetailReadCancelsItsSiblings()
-            throws Exception
-    {
-        CountDownLatch started = new CountDownLatch(4);
-        CountDownLatch interrupted = new CountDownLatch(3);
-        doAnswer(call -> {
-            started.countDown();
-            try {
-                assertThat(started.await(5, SECONDS)).isTrue();
-                if (call.<String>getArgument(2).contains("/comment?")) {
-                    throw new ResponseStatusException(HttpStatus.BAD_GATEWAY);
-                }
-                new CountDownLatch(1).await();
-                return json("{}");
-            }
-            catch (InterruptedException failure) {
-                interrupted.countDown();
-                throw failure;
-            }
-        }).when(remote).request(eq("connection"), eq("cloud"), argThat(path -> path.startsWith("/rest/api/3/issue/1001/") || path.startsWith("/rest/api/3/user/")),
-                eq("GET"), any());
-
-        assertThatThrownBy(() -> jira.detail("connection", "cloud", "1001", true)).isInstanceOf(ResponseStatusException.class);
-        assertThat(interrupted.await(5, SECONDS)).isTrue();
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void detailReadsStopWhenTheCallerOrServiceStops(boolean shutdown)
-            throws Exception
-    {
-        CountDownLatch started = new CountDownLatch(1);
-        CountDownLatch interrupted = new CountDownLatch(1);
-        doAnswer(call -> {
-            started.countDown();
-            try {
-                new CountDownLatch(1).await();
-                return json("{}");
-            }
-            catch (InterruptedException failure) {
-                interrupted.countDown();
-                throw failure;
-            }
-        }).when(remote).request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/editmeta"), eq("GET"), any());
-        AtomicReference<RuntimeException> failure = new AtomicReference<>();
-        AtomicBoolean interruptRestored = new AtomicBoolean();
-        Thread caller = Thread.startVirtualThread(() -> {
-            try {
-                jira.detail("connection", "cloud", "1001", true);
-            }
-            catch (RuntimeException caught) {
-                failure.set(caught);
-                interruptRestored.set(Thread.currentThread().isInterrupted());
-            }
-        });
-        try {
-            assertThat(started.await(5, SECONDS)).isTrue();
-            if (shutdown) {
-                jira.close();
-            }
-            else {
-                caller.interrupt();
-            }
-            assertThat(caller.join(Duration.ofSeconds(5))).isTrue();
-            assertThat(failure).doesNotHaveNullValue();
-            if (!shutdown) {
-                assertThat(failure.get()).isInstanceOf(ResponseStatusException.class);
-                assertThat(interruptRestored).isTrue();
-            }
-            assertThat(interrupted.await(5, SECONDS)).isTrue();
-            assertThat(cache.read("connection.cloud.issue.1001.detail", JiraDtos.Detail.class)).isEmpty();
-        }
-        finally {
-            caller.interrupt();
-            jira.close();
-        }
-    }
-
-    @Test
-    void richTextPreservesUsefulLinksWithoutRenderingHtml()
-            throws Exception
-    {
-        JsonNode text = json("""
-                {"type":"doc","content":[{"type":"paragraph","content":[
-                  {"type":"text","text":"<design>","marks":[{"type":"link","attrs":{"href":"https://example.com/design"}}]},
-                  {"type":"text","text":" bad","marks":[{"type":"link","attrs":{"href":"javascript:alert(1)"}}]}
-                ]}]}
-                """);
-        assertThat(JiraMapping.markdown("https://example.atlassian.net", text)).contains("[&lt;design&gt;](https://example.com/design)").doesNotContain("javascript:", "<design>");
-        assertThat(mapper.valueToTree(JiraMapping.document("first\n\nthird")).path("content")).hasSize(3);
-    }
-
-    private JsonNode assigned(JsonNode ticket, String accountId)
-            throws Exception
-    {
-        ((ObjectNode) ticket.path("fields")).set("assignee", json("{\"accountId\":\"" + accountId + "\",\"displayName\":\"" + accountId + "\"}"));
-        return ticket;
+        return new JiraIssue(connectionId, "cloud", "1001", "ENG-7", "https://example.atlassian.net/browse/ENG-7", "A ticket", "", "Story",
+                new JiraDtos.Status("1", "To do", "new"), Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty(), false, false,
+                UPDATED, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), Optional.empty());
     }
 
     private JsonNode ticket()

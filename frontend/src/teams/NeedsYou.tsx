@@ -23,7 +23,7 @@ import {
 import { usePinnedItems } from '../home/pinned';
 import { useSnoozedAttention } from '../home/useSnoozedAttention';
 import { remoteErrorMessage } from '../remoteError';
-import { ago } from '../relativeTime';
+import { ago } from '@bytequay/ui/relativeTime';
 import type { PullRequestDto } from '../types';
 import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';
 import type { CircleNeed } from './priority';

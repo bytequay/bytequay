@@ -233,6 +233,24 @@ class TestEpicService
     }
 
     @Test
+    void aNewLocalEpicIsCreatedAndMarkedInOneStep()
+    {
+        WorkItem item = localItem(Optional.empty());
+        when(work.requireItem("workspace", item.id())).thenReturn(item);
+        String epicId = EpicSources.localEpicId(item.id());
+        service.createLocalEpic("workspace", item.id(), "Cache metadata", " Cache per catalog. ", " Hive keeps its own cache. ");
+        verify(work).create("workspace", item.id(), Optional.empty(), "Cache metadata", WorkItem.Kind.DEVELOP, "Cache per catalog.\n\n### Context\n\nHive keeps its own cache.",
+                WorkItem.CompletionRule.MERGED_DELIVERY);
+        assertThat(records.find(epicId)).contains(Epic.of(epicId, "workspace"));
+
+        service.createLocalEpic("workspace", item.id(), "Cache metadata", "", "Only context");
+        verify(work).create("workspace", item.id(), Optional.empty(), "Cache metadata", WorkItem.Kind.DEVELOP, "### Context\n\nOnly context", WorkItem.CompletionRule.MERGED_DELIVERY);
+        assertThatThrownBy(() -> service.createLocalEpic("workspace", "work-2", "Too long", "x".repeat(65_537), ""))
+                .hasMessageContaining("exceed 65536 characters");
+        verifyNoInteractions(github, jira, credentials, tickets, markers, issues);
+    }
+
+    @Test
     void localRefreshStaysLocalAndBreakdownReadsTheSavedTitleAndDescription()
     {
         WorkItem item = localItem(Optional.empty());

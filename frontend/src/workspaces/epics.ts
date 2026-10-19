@@ -68,6 +68,13 @@ export async function joinEpic(workspaceId: string, epicId: string, reference: G
   return joined;
 }
 
+/** New Local work that is an Epic from the start. */
+export async function createLocalEpic(workspaceId: string, request: { id: string; title: string; description: string; context: string },
+  bridge: Pick<Bridge, 'createLocalEpic'> = window.bridge): Promise<void> {
+  await bridge.createLocalEpic(workspaceId, request);
+  changed(workspaceId);
+}
+
 export async function assignWorkItemEpic(workspaceId: string, epicId: string, itemId: string, bridge: EpicBridge = window.bridge): Promise<EpicJoinDto> {
   const joined = await bridge.assignWorkItemEpic(workspaceId, itemId, epicId);
   changed(workspaceId);

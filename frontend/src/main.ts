@@ -16,7 +16,7 @@ import { openLab, stopLab } from './labProcess';
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
 import { parseUnifiedWorkItem, parseWorkItemContextLink, type Publication } from './workitems/contracts';
-import { parseConcludedEpics, parseEpicJoin, parseEpicRecord, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
+import { parseConcludedEpics, parseEpicDraftReply, parseEpicJoin, parseEpicRecord, type EpicDraftMessage, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1894,6 +1894,11 @@ function registerIpc(): void {
   const epicsUrl = (workspaceId: string, suffix = '') => workspaceUrl(workspaceId, `/epics${suffix}`);
   ipcMain.handle('work-items:mark-epic', (_event, workspaceId: string, itemId: string, isEpic: boolean) =>
     backendJson(epicsUrl(workspaceId, `/local/${encodeURIComponent(itemId)}`), jsonInit('PUT', { isEpic })).then((): void => undefined));
+  ipcMain.handle('epics:create-local', (_event, workspaceId: string, request: { id: string; title: string; description: string; context: string }) =>
+    backendJson(epicsUrl(workspaceId, '/local'), jsonInit('POST', request)).then((): void => undefined));
+  // The model may think for minutes before it answers.
+  ipcMain.handle('epics:draft', (_event, workspaceId: string, messages: EpicDraftMessage[]) =>
+    backendJson(epicsUrl(workspaceId, '/draft'), { ...jsonInit('POST', { messages }), signal: AbortSignal.timeout(6 * 60_000) }).then(parseEpicDraftReply));
   ipcMain.handle('epics:get', (_event, workspaceId: string, epicId: string) =>
     backendJson(epicsUrl(workspaceId, `?epicId=${encodeURIComponent(epicId)}`)).then(parseEpicRecord));
   // Reading a Jira Epic's children refreshes its ticket detail, which can take a while.

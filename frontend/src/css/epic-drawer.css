@@ -64,6 +64,56 @@
   opacity: 0;
 }
 
+/* No Epic yet: one hollow tick where the drawer will be. */
+.epic-cue.is-empty .epic-cue__tick {
+  box-sizing: border-box;
+  border: 1px solid light-dark(#8250df, #7045ae);
+  border-left: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0.6;
+}
+
+.epic-cue.is-empty:is(:hover, :focus-visible) .epic-cue__tick {
+  opacity: 1;
+}
+
+/* Starts at the cue's own edge, so the pointer crosses no gap on its way to it. */
+.epic-create {
+  position: absolute;
+  top: 6px;
+  left: 100%;
+  padding-left: 4px;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 100ms linear, visibility 0s linear 100ms;
+}
+
+.epic-cue.is-empty:is(:hover, :focus-visible) .epic-create {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 100ms linear, visibility 0s;
+}
+
+.epic-create__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px 4px 7px;
+  border: 1px solid light-dark(#e3e3e6, var(--dark-border));
+  border-radius: 6px;
+  background: var(--surface-canvas);
+  box-shadow: 0 4px 12px light-dark(rgba(31, 35, 40, 0.1), rgb(0 0 0 / 18%));
+  color: var(--text-1);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.epic-create__label:hover {
+  background: light-dark(#f6f7f8, var(--dark-subtle));
+}
+
 /* Where "Epics" will appear once the panel is out. */
 .epic-tip {
   position: absolute;
@@ -129,6 +179,10 @@
 
 .epic-drawer__head > .card-iconbtn {
   margin-left: auto;
+}
+
+.epic-drawer__head > .card-iconbtn + .card-iconbtn {
+  margin-left: 0;
 }
 
 .epic-drawer__list {

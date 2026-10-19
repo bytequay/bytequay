@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.service.epic.EpicDrafts;
 import com.bytequay.app.service.epic.EpicService;
 import com.bytequay.app.service.epic.EpicView;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,10 +36,12 @@ import static java.util.Objects.requireNonNull;
 public class EpicController
 {
     private final EpicService epics;
+    private final EpicDrafts drafts;
 
-    public EpicController(EpicService epics)
+    public EpicController(EpicService epics, EpicDrafts drafts)
     {
         this.epics = requireNonNull(epics, "epics is null");
+        this.drafts = requireNonNull(drafts, "drafts is null");
     }
 
     @GetMapping
@@ -54,6 +57,25 @@ public class EpicController
     }
 
     public record MarkLocalEpic(boolean isEpic) {}
+
+    @PostMapping("/local")
+    public void createLocalEpic(@PathVariable String workspaceId, @RequestBody CreateLocalEpic request)
+    {
+        checkArgument(request.id() != null && request.title() != null && request.description() != null && request.context() != null,
+                "id, title, description and context are required");
+        epics.createLocalEpic(workspaceId, request.id(), request.title(), request.description(), request.context());
+    }
+
+    public record CreateLocalEpic(String id, String title, String description, String context) {}
+
+    @PostMapping("/draft")
+    public EpicDrafts.Reply draft(@PathVariable String workspaceId, @RequestBody DraftRequest request)
+    {
+        checkArgument(request.messages() != null, "messages are required");
+        return drafts.answer(workspaceId, request.messages());
+    }
+
+    public record DraftRequest(List<EpicDrafts.Message> messages) {}
 
     @PostMapping("/children")
     public EpicView refreshChildren(@PathVariable String workspaceId, @RequestBody ReadChildren request)

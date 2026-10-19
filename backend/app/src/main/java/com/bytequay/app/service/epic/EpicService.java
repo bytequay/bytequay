@@ -44,10 +44,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 /**
  * An Epic's children: reads the sub-issues or child tickets its source reports, and on the user's Sync makes each one work of the Epic.
@@ -57,6 +59,8 @@ import static java.util.Objects.requireNonNull;
 public class EpicService
 {
     private static final String HOST = "github.com";
+    // The most a Local work item's context holds, as its own form allows.
+    private static final int MAX_CONTEXT = 65_536;
 
     private final EpicStore epics;
     private final EpicSources sources;
@@ -108,6 +112,20 @@ public class EpicService
             else {
                 work.releaseEpic(workspaceId, epicId);
             }
+            return null;
+        });
+    }
+
+    /** New Local work that is an Epic from the start, in one step, so a failed mark never leaves a plain item behind. */
+    public void createLocalEpic(String workspaceId, String itemId, String title, String description, String context)
+    {
+        String body = Stream.of(description.strip(), context.isBlank() ? "" : "### Context\n\n" + context.strip())
+                .filter(part -> !part.isEmpty())
+                .collect(joining("\n\n"));
+        checkArgument(body.length() <= MAX_CONTEXT, "The description and context exceed %s characters", MAX_CONTEXT);
+        unitOfWork.execute(() -> {
+            work.create(workspaceId, itemId, Optional.empty(), title, WorkItem.Kind.DEVELOP, body, WorkItem.CompletionRule.MERGED_DELIVERY);
+            setLocalEpic(workspaceId, itemId, true);
             return null;
         });
     }

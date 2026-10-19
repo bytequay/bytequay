@@ -1,0 +1,304 @@
+/* ── Create Epic ──
+   The dialog Home's Epic cue opens (workspaces/CreateEpicDialog.tsx). It takes the confirm dialog's frame and adds a conversation
+   with the Development model and a form. Nothing here is bold. */
+
+.create-epic {
+  flex-direction: column;
+  gap: 12px;
+  width: 600px;
+  height: min(680px, calc(100vh - 32px));
+  padding: 18px 20px 20px;
+  overflow: hidden;
+}
+
+.create-epic:focus {
+  outline: none;
+}
+
+/* Only an open dialog lays out; a closed one keeps the browser's display: none. */
+.create-epic[open] {
+  display: flex;
+}
+
+.create-epic__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.create-epic__head .bq-confirm-dialog__title {
+  margin: 0;
+  font-weight: 500;
+}
+
+.create-epic__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.create-epic__close:hover:not(:disabled) {
+  background: light-dark(#eff1f3, var(--dark-subtle));
+  color: var(--text-1);
+}
+
+.create-epic__tabs,
+.create-epic__sources {
+  flex: none;
+  display: flex;
+  gap: 3px;
+}
+
+.create-epic__tabs {
+  padding: 3px;
+  border-radius: 8px;
+  background: light-dark(#f1f2f3, var(--dark-subtle));
+}
+
+:is(.create-epic__tabs, .create-epic__sources) > button {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.create-epic__tabs > button {
+  flex: 1;
+}
+
+.create-epic__tabs > button.is-active {
+  background: var(--surface-canvas);
+  box-shadow: 0 1px 2px light-dark(rgba(31, 35, 40, 0.12), rgb(0 0 0 / 30%));
+  color: var(--text-1);
+}
+
+.create-epic__sources > button:is(:hover, .is-active) {
+  background: light-dark(#f1f2f3, var(--dark-subtle));
+}
+
+.create-epic__sources > button.is-active {
+  color: var(--text-1);
+}
+
+/* The conversation scrolls; the composer stays at the bottom. */
+.create-epic__talk {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.create-epic__log {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.create-epic__message {
+  max-width: 88%;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.create-epic__message.is-user {
+  align-self: flex-end;
+  padding: 7px 11px;
+  border-radius: 12px;
+  background: light-dark(#f1f2f3, var(--dark-subtle));
+}
+
+.create-epic__message.is-user > p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.create-epic__message.is-agent {
+  align-self: flex-start;
+  color: var(--text-1);
+}
+
+.create-epic__message.is-waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-muted);
+}
+
+.create-epic__message.is-waiting > svg {
+  animation: bq-spin 1s linear infinite;
+}
+
+.create-epic__draft {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid light-dark(#e3e3e6, var(--dark-border));
+  border-radius: 10px;
+  background: var(--surface-canvas);
+}
+
+.create-epic__label {
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+
+.create-epic__draft-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.create-epic__draft-body {
+  font-size: 12.5px;
+}
+
+.create-epic__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.create-epic__retry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+}
+
+.create-epic__quiet {
+  margin-right: auto;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.create-epic__quiet:hover:not(:disabled) {
+  background: light-dark(#eff1f3, var(--dark-subtle));
+  color: var(--text-1);
+}
+
+.create-epic__hint {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.create-epic__talk.is-unavailable {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.create-epic__form,
+.create-epic__picker {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.create-epic__form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.create-epic__form textarea.bq-input {
+  height: auto;
+  padding: 8px 10px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.create-epic__note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.create-epic__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-muted);
+}
+
+.create-epic__search > input {
+  flex: 1;
+}
+
+.create-epic__results {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.create-epic__result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  border-bottom: 1px solid light-dark(#f0f0f2, var(--dark-border-muted));
+  font-size: 13px;
+}
+
+.create-epic__ref {
+  flex: none;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+/* Long titles keep the button in place. */
+.create-epic__result-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.create-epic__error {
+  flex: none;
+  color: var(--red);
+  font-size: 12.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .create-epic__message.is-waiting > svg { animation: none; }
+}

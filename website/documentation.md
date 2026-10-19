@@ -354,8 +354,14 @@ ByteQuay. A Local work item, GitHub issue, or Jira ticket can be an Epic. The
 Epic designation and its work assignments stay on your Mac; a Local Epic does
 not need a published issue or ticket.
 
-1. Open a work item and choose **Mark as Epic**, then open its **Work** view.
-   For GitHub or Jira Epics, review offered source children before **Sync**.
+1. On workspace Home, point at the Epic tab on the sidebar edge and choose
+   **Create Epic**. Choose **Talk it through** to let the Development agent ask
+   about the Epic and draft it; approve the draft with **Create Epic** or by
+   saying yes. Or choose **Create yourself** for a Local Epic with a title,
+   description, and context, or mark one of the workspace's GitHub issues or
+   Jira tickets. You can also open any work item and choose **Mark as Epic**.
+   For GitHub or Jira Epics, review offered source children in **Work** before
+   **Sync**.
 2. Add a Local item, **Add existing**, or **Suggest work**. Inspect suggestions
    before **Accept as Local**.
 3. Use **Planned**, **Working**, and **Done** to track progress. **Run** on

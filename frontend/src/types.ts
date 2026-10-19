@@ -18,7 +18,7 @@ import type { RunningTask } from './agents/runningTaskModel';
 import type { GoogleBridge } from './google/contracts';
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
-import type { CreateWorkItem, EpicJoinDto, EpicRecordDto, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto, TopicLevel } from './goals/contracts';
+import type { CreateWorkItem, EpicDraftMessage, EpicDraftReply, EpicJoinDto, EpicRecordDto, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto, TopicLevel } from './goals/contracts';
 import { AgentEventEnvelope } from './agents/events';
 import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
@@ -1653,6 +1653,10 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   /** The workspace's goals with every item read locally; nothing here writes to GitHub or Jira. */
   listWorkItems: (workspaceId: string) => Promise<WorkItemDto[]>;
   setLocalWorkItemEpic: (workspaceId: string, itemId: string, isEpic: boolean) => Promise<void>;
+  /** New Local work that is an Epic from the start; the context is saved under its own heading. */
+  createLocalEpic: (workspaceId: string, request: { id: string; title: string; description: string; context: string }) => Promise<void>;
+  /** The Development model's next reply in the Create Epic conversation, which ends with the user's message. Nothing is saved. */
+  draftEpic: (workspaceId: string, messages: EpicDraftMessage[]) => Promise<EpicDraftReply>;
   assignWorkItemEpic: (workspaceId: string, itemId: string, epicId: string) => Promise<EpicJoinDto>;
   createWorkItem: (workspaceId: string, request: CreateWorkItem) => Promise<WorkItemDto>;
   decideWorkItem: (workspaceId: string, itemId: string, command: WorkItemDecision) => Promise<WorkItemDto>;

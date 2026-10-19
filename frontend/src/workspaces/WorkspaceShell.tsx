@@ -36,6 +36,7 @@ import MemoryPage from '../memory/MemoryPage';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { settingsRoute } from '../settings/routes';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
+import CreateEpicDialog from './CreateEpicDialog';
 import EpicDrawer from './EpicDrawer';
 import { EPIC_START, epicIdentity, lendEpicWorkspace, takeEpicStart, useConcludedEpics } from './epics';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
@@ -75,6 +76,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
   const [openCherryPick, setOpenCherryPick] = useState<string | null>(null);
   // The Epic whose view is open over Home, by the identity its work names it with.
   const [openEpic, setOpenEpic] = useState<string | null>(null);
+  const [creatingEpic, setCreatingEpic] = useState(false);
   const [initialCommitsRepo, setInitialCommitsRepo] = useState<'workspace' | 'upstream' | null>(null);
   const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>();
   // Every agent screen can show every task as a window; ⇧⌘\ toggles it, Escape puts it away.
@@ -406,11 +408,18 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
         ? <EpicDrawer items={epics} concluded={concludedEpics} work={goals.workItems} onOpen={item => {
           if ('acceptanceCriteria' in item) zoomReference({ kind: 'work', workspaceId: workspace.id, itemId: item.id });
           else setOpenEpic(epicIdentity(item));
-        }} />
+        }} onCreate={() => setCreatingEpic(true)} />
         : 'acceptanceCriteria' in epic ? null : epic.jira
           ? <JiraTicketLayer key={openEpic} location={jiraIssueLocation(epic.jira)} onClose={() => setOpenEpic(null)} openOnWork />
           : <WorkspaceIssuesScreen key={openEpic} workspaceId={workspace.id} repository={epic.repo} initialIssueNumber={epic.number} onClose={() => setOpenEpic(null)}
             openOnWork />}
+      {creatingEpic && <CreateEpicDialog workspaceId={workspace.id} marked={new Set(epics.map(epicIdentity))}
+        jiraConnected={attention.jiraConnected} onClose={() => setCreatingEpic(false)} onCreated={(created) => {
+          setCreatingEpic(false);
+          // A marked issue or ticket opens once Home's list knows it as an Epic.
+          if (created.kind === 'local') zoomReference({ kind: 'work', workspaceId: workspace.id, itemId: created.itemId });
+          else if (created.epicId !== null) setOpenEpic(created.epicId);
+        }} />}
       <AgentHome
         workspaceId={workspace.id}
         headerAction={overviewOpen ? undefined : overviewToggle}

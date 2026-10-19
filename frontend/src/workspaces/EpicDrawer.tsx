@@ -13,7 +13,7 @@
  */
 
 import React, { useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ListTree, X } from 'lucide-react';
+import { ListTree, Plus, X } from 'lucide-react';
 import { Card, CardAge, IconButton, LinkKey, LocalBadge, Pill } from '../cards/Card';
 import type { WorkItemDto } from '../goals/contracts';
 import { progressWidths, summarize } from '../goals/model';
@@ -32,9 +32,9 @@ const MAX_TICKS = 4;
 /**
  * Workspace Home's Epics in a drawer tucked under the sidebar's right hairline: one tick per Epic peeks out
  * collapsed, and hover, click or the keyboard slides it out over the page without moving anything. A
- * workspace without Epics shows no cue at all.
+ * workspace without Epics shows one hollow tick that offers Create Epic instead.
  */
-export default function EpicDrawer({ items, concluded, work, onOpen }: {
+export default function EpicDrawer({ items, concluded, work, onOpen, onCreate }: {
   items: EpicItem[];
   /** Concluded Epics, which leave the drawer. */
   concluded: ReadonlySet<string>;
@@ -42,13 +42,26 @@ export default function EpicDrawer({ items, concluded, work, onOpen }: {
   work: WorkItemDto[];
   /** Opens the Epic's view, where its work is added and decided. */
   onOpen: (epic: EpicItem) => void;
-}): React.JSX.Element | null {
+  onCreate: () => void;
+}): React.JSX.Element {
   const epics = useMemo(() => items.filter(item => item.isEpic === true && !concluded.has(epicIdentity(item))), [concluded, items]);
   // Unmounting at zero closes it, so a first Epic marked later fades its tick in closed.
-  return epics.length === 0 ? null : <Drawer epics={epics} work={work} onOpen={onOpen} />;
+  return epics.length === 0 ? <EmptyCue onCreate={onCreate} /> : <Drawer epics={epics} work={work} onOpen={onOpen} onCreate={onCreate} />;
 }
 
-function Drawer({ epics, work, onOpen }: { epics: EpicItem[]; work: WorkItemDto[]; onOpen: (epic: EpicItem) => void }): React.JSX.Element {
+/** No Epic yet: the pointer coming near the hollow tick shows Create Epic beside it, joined to the tick so reaching it never closes it. */
+function EmptyCue({ onCreate }: { onCreate: () => void }): React.JSX.Element {
+  return (
+    <div className="epic-drawer">
+      <button type="button" className="epic-cue is-empty" aria-label="Create Epic" onClick={onCreate}>
+        <span className="epic-cue__ticks" aria-hidden="true"><span className="epic-cue__tick" /></span>
+        <span className="epic-create" aria-hidden="true"><span className="epic-create__label"><Plus size={13} />Create Epic</span></span>
+      </button>
+    </div>
+  );
+}
+
+function Drawer({ epics, work, onOpen, onCreate }: { epics: EpicItem[]; work: WorkItemDto[]; onOpen: (epic: EpicItem) => void; onCreate: () => void }): React.JSX.Element {
   const covered = useContext(LayerCovered);
   const panelId = useId();
   const layer = useRef<HTMLDivElement>(null);
@@ -162,6 +175,7 @@ function Drawer({ epics, work, onOpen }: { epics: EpicItem[]; work: WorkItemDto[
           <EpicGlyph />
           <span>Epics</span>
           <Pill>{epics.length}</Pill>
+          <IconButton label="Create Epic" title="Create Epic" onClick={() => { dismiss(); onCreate(); }}><Plus size={14} aria-hidden="true" /></IconButton>
           <IconButton label="Close Epics" title="Close (Esc)" onClick={dismiss}><X size={14} aria-hidden="true" /></IconButton>
         </div>
         <div className="epic-drawer__list">

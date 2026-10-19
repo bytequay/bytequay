@@ -541,6 +541,12 @@ export type EpicProposalDto = {
   evidence: string | null;
   reproduceSteps: string | null;
 };
+/** An Epic the Development model drafted from a conversation; only the user's approval creates it. */
+export type EpicDraftDto = { title: string; description: string; context: string };
+/** One turn of the Create Epic conversation; an agent turn keeps the draft it showed, so the model knows what the user answers. */
+export type EpicDraftMessage = { role: 'USER' | 'AGENT'; text: string; draft?: EpicDraftDto };
+/** `create`: the user's latest message approved the draft shown before this reply. */
+export type EpicDraftReply = { message: string; draft: EpicDraftDto | null; create: boolean };
 /** An Epic's children: which were synced into work, which the source dropped since, and whether to offer syncing. */
 export type EpicRecordDto = {
   id: string;
@@ -651,6 +657,17 @@ export function parseEpicRecord(value: unknown): EpicRecordDto {
     breakdownError: optionalText(record.breakdownError),
     breakdownNote: optionalText(record.breakdownNote),
   };
+}
+
+function parseEpicDraft(value: unknown): EpicDraftDto {
+  const draft = object(value, 'Epic draft');
+  return { title: text(draft.title, 'Epic draft title'), description: typeof draft.description === 'string' ? draft.description : '',
+    context: typeof draft.context === 'string' ? draft.context : '' };
+}
+
+export function parseEpicDraftReply(value: unknown): EpicDraftReply {
+  const reply = object(value, 'Epic draft reply');
+  return { message: text(reply.message, 'Epic draft message'), draft: reply.draft == null ? null : parseEpicDraft(reply.draft), create: reply.create === true };
 }
 
 export function parseConcludedEpics(value: unknown): string[] {

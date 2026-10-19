@@ -87,6 +87,9 @@ export async function run(): Promise<boolean> {
   document.body.append(host);
   const root = createRoot(host);
   const openedEpics: string[] = [];
+  let created = 0;
+  // Read through a call, so an assertion on one count never narrows the next one.
+  const createdCount = (): number => created;
   const children = Array.from({ length: 6 }, (_, index): JiraRelatedIssue => ({ id: `c${index}`, key: `TRINO-${2000 + index}`, title: 'Child', type: 'Story',
     status: { id: 'todo', name: 'To Do', category: 'new' }, priority: null, assignee: null }));
   window.bridge = {
@@ -98,7 +101,7 @@ export async function run(): Promise<boolean> {
       <nav className="app-sidebar"><button type="button" id="sidebar-control">Workspace home</button><div className="app-sidebar__resize" /></nav>
       <main className="app-content">
         <div style={{ position: 'relative', height: '100%' }}>
-          <EpicDrawer items={items} concluded={concluded} work={workItems} onOpen={item => openedEpics.push(epicIdentity(item))} />
+          <EpicDrawer items={items} concluded={concluded} work={workItems} onOpen={item => openedEpics.push(epicIdentity(item))} onCreate={() => { created++; }} />
           <div style={{ padding: '24px 32px' }}><h1>trinodb/trino</h1><button type="button" id="page-control">Composer</button></div>
         </div>
       </main>
@@ -106,10 +109,29 @@ export async function run(): Promise<boolean> {
   </LayerCovered.Provider>));
   try {
     render(PLAIN); await settle();
-    assert(document.querySelector('.epic-drawer, .epic-cue') === null, 'A workspace without Epics has no cue, hit target or tab stop');
+    const pane = element('main').getBoundingClientRect();
+    const empty = element<HTMLButtonElement>('.epic-cue.is-empty');
+    const spot = empty.getBoundingClientRect();
+    assert(empty.getAttribute('aria-label') === 'Create Epic' && document.querySelectorAll('.epic-cue__tick').length === 1
+      && spot.left === pane.left && spot.top === pane.top + 40, 'A workspace without Epics shows one hollow tick at the hairline that offers Create Epic');
+    const offer = element('.epic-create');
+    assert(getComputedStyle(offer).visibility === 'hidden', 'Create Epic waits for the pointer');
+    await mouse('mouseMove', spot.left + 10, spot.top + 30);
+    await wait(150);
+    assert(getComputedStyle(offer).visibility === 'visible', 'The pointer near the tick shows Create Epic');
+    const label = element('.epic-create__label').getBoundingClientRect();
+    assert(label.left >= spot.right && label.left - spot.right <= 6, 'Create Epic sits right beside the tick');
+    await mouse('mouseMove', spot.right + 1, spot.top + 30);
+    await mouse('mouseMove', label.left + label.width / 2, label.top + label.height / 2);
+    await wait(150);
+    assert(getComputedStyle(offer).visibility === 'visible', 'Moving onto Create Epic keeps it shown');
+    await click(label.left + label.width / 2, label.top + label.height / 2);
+    assert(createdCount() === 1, 'Clicking Create Epic asks to create one');
+    await mouse('mouseMove', pane.left + 600, pane.top + 500);
+    await wait(200);
+    assert(getComputedStyle(offer).visibility === 'hidden', 'Leaving hides Create Epic again');
 
     render([...PLAIN, ...EPICS]); await settle();
-    const pane = element('main').getBoundingClientRect();
     const cue = element<HTMLButtonElement>('.epic-cue');
     const at = cue.getBoundingClientRect();
     assert(at.left === pane.left && at.top === pane.top + 40 && at.width === 22 && at.height === 64,
@@ -219,7 +241,14 @@ export async function run(): Promise<boolean> {
     assert(opened(), 'Return opens the drawer');
     await still();
     await key('Tab');
-    assert(document.activeElement?.getAttribute('aria-label') === 'Close Epics', 'Tab moves into the drawer');
+    assert(document.activeElement?.getAttribute('aria-label') === 'Create Epic', 'Tab moves into the drawer');
+    await key('Enter');
+    assert(createdCount() === 2 && !opened() && document.activeElement === cue, 'The header offers Create Epic too; it puts the drawer away and focus back on the trigger');
+    await wait(250);
+    await key('Enter');
+    await still();
+    await key('Tab'); await key('Tab');
+    assert(document.activeElement?.getAttribute('aria-label') === 'Close Epics', 'Close follows Create Epic');
     await key('Escape');
     assert(!opened() && document.activeElement === cue, 'Escape closes the drawer and returns focus to the trigger');
     await wait(250);
@@ -245,13 +274,14 @@ export async function run(): Promise<boolean> {
 
     await click(at.left + 10, at.top + 30);
     render(PLAIN); await settle();
-    assert(document.querySelector('.epic-drawer') === null, 'Unmarking the last Epic removes the drawer');
+    assert(document.querySelector('.epic-drawer__panel') === null && document.querySelector('.epic-cue.is-empty') !== null,
+      'Unmarking the last Epic leaves only the hollow tick');
     render(EPICS.slice(0, 1)); await settle();
     assert(!opened() && document.querySelectorAll('.epic-cue__tick').length === 1, 'A first Epic marked again shows one tick, closed');
     render(EPICS.slice(0, 2), false, ICEBERG_WORK, new Set([epicIdentity(EPICS[0])])); await settle();
     assert(document.querySelectorAll('.epic-cue__tick').length === 1 && element('.epic-cue').getAttribute('aria-label') === 'Epics · 1', 'A concluded Epic leaves the drawer');
     render(EPICS.slice(0, 1), false, ICEBERG_WORK, new Set([epicIdentity(EPICS[0])])); await settle();
-    assert(document.querySelector('.epic-cue') === null, 'With every Epic concluded there is no cue');
+    assert(document.querySelector('.epic-cue:not(.is-empty)') === null, 'With every Epic concluded only the hollow tick is left');
 
     const localEpic: WorkItemDto = { ...work('local-parent', '', 'PLANNED'), isEpic: true, title: 'Private connector cleanup', epicId: null };
     render([localEpic], false, [work('child', 'LOCAL:local-parent', 'DONE')]); await settle();
@@ -261,7 +291,7 @@ export async function run(): Promise<boolean> {
     localCard.click();
     assert(openedEpics.at(-1) === 'LOCAL:local-parent', 'A local Epic opens by its stable local identity');
     render([localEpic], false, [], new Set(['LOCAL:local-parent'])); await settle();
-    assert(document.querySelector('.epic-cue') === null, 'A concluded local Epic leaves the drawer');
+    assert(document.querySelector('.epic-cue:not(.is-empty)') === null, 'A concluded local Epic leaves the drawer');
 
     // Many Epics in a short, narrow window: the width clamps and the list scrolls under the header.
     const shell = element('.app-shell');

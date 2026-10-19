@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { AgentEventEnvelope } from '../agents/events';
 import { count, flag, object, oneOf, optionalText, text } from '../pulls/wireParse';
 
 /** A conversation; its title becomes its first page's title once there is one. */
@@ -19,17 +20,14 @@ export type ArtifactDto = { id: string; title: string; working: boolean; updated
 /** A conversation in the list, with how many pages it made (versions not counted). */
 export type ArtifactRowDto = { artifact: ArtifactDto; pages: number };
 
-export type ArtifactItemKind = 'USER' | 'REPLY' | 'ACTIVITY' | 'OFFER' | 'PAGE' | 'FAILURE';
+/** A page the agent offered in a turn, and the user's answer; it shows at the end of that turn. */
+export type ArtifactOfferDto = { id: string; turnId: string; title: string; covers: string; state: 'SHOWN' | 'ACCEPTED' | 'DISMISSED' };
 
-export type ArtifactOfferDto = { title: string; covers: string; state: 'SHOWN' | 'ACCEPTED' | 'DISMISSED' };
+/** One saved version of a page; `key` names the page across its versions, and `turnId` the turn that saved it, when known. */
+export type ArtifactPageDto = { id: string; key: string; version: number; title: string; commit: string; writtenAt: string; turnId: string | null };
 
-/** One line of the conversation; an offer carries its card, and a page line the version it shows. */
-export type ArtifactItemDto = { id: string; kind: ArtifactItemKind; text: string; offer: ArtifactOfferDto | null; pageId: string | null; at: string };
-
-/** One saved version of a page; `key` names the page across its versions. */
-export type ArtifactPageDto = { id: string; key: string; version: number; title: string; commit: string; writtenAt: string };
-
-export type ArtifactViewDto = { artifact: ArtifactDto; items: ArtifactItemDto[]; pages: ArtifactPageDto[] };
+/** A conversation apart from its agent events, which are read on their own; `questions` are the approval ids still open. */
+export type ArtifactViewDto = { artifact: ArtifactDto; offers: ArtifactOfferDto[]; pages: ArtifactPageDto[]; questions: string[] };
 
 /** Which page version to show. */
 export type ArtifactTarget = { workspaceId: string; artifactId: string; pageId: string };
@@ -42,7 +40,11 @@ export type ArtifactBridge = {
   startArtifact: (workspaceId: string, text: string) => Promise<ArtifactViewDto>;
   viewArtifact: (workspaceId: string, artifactId: string) => Promise<ArtifactViewDto>;
   sendArtifact: (workspaceId: string, artifactId: string, text: string) => Promise<ArtifactViewDto>;
-  answerArtifactOffer: (workspaceId: string, artifactId: string, itemId: string, accept: boolean) => Promise<ArtifactViewDto>;
+  /** The conversation's agent events after a sequence, in the form a task's history has. */
+  artifactEvents: (workspaceId: string, artifactId: string, after: number) => Promise<AgentEventEnvelope[]>;
+  answerArtifactOffer: (workspaceId: string, artifactId: string, offerId: string, accept: boolean) => Promise<ArtifactViewDto>;
+  /** Answers a question the agent asked with choices; `answers` is keyed by each question's text. */
+  answerArtifactQuestion: (workspaceId: string, artifactId: string, approvalId: string, allow: boolean, answers: Record<string, string>) => Promise<ArtifactViewDto>;
   stopArtifact: (workspaceId: string, artifactId: string) => Promise<void>;
   /** Lays the page over these bounds; null for either hides it. */
   showArtifact: (target: ArtifactTarget | null, bounds: ArtifactBounds | null) => Promise<void>;
@@ -70,24 +72,17 @@ export function parseArtifactView(value: unknown): ArtifactViewDto {
   const view = object(value, 'artifact view');
   return {
     artifact: parseArtifact(view.artifact),
-    items: list(view.items, 'artifact items').map(entry => {
-      const item = object(entry, 'artifact item');
-      const offer = item.offer === null || item.offer === undefined ? null : object(item.offer, 'artifact offer');
-      return {
-        id: text(item.id, 'item id'),
-        kind: oneOf(item.kind, ['USER', 'REPLY', 'ACTIVITY', 'OFFER', 'PAGE', 'FAILURE'] as const, 'item kind'),
-        text: typeof item.text === 'string' ? item.text : '',
-        offer: offer === null ? null : { title: text(offer.title, 'offer title'), covers: text(offer.covers, 'offer covers'),
-          state: oneOf(offer.state, ['SHOWN', 'ACCEPTED', 'DISMISSED'] as const, 'offer state') },
-        pageId: optionalText(item.pageId, 'item page'),
-        at: text(item.at, 'item time'),
-      };
+    offers: list(view.offers, 'artifact offers').map(entry => {
+      const offer = object(entry, 'artifact offer');
+      return { id: text(offer.id, 'offer id'), turnId: text(offer.turnId, 'offer turn'), title: text(offer.title, 'offer title'), covers: text(offer.covers, 'offer covers'),
+        state: oneOf(offer.state, ['SHOWN', 'ACCEPTED', 'DISMISSED'] as const, 'offer state') };
     }),
     pages: list(view.pages, 'artifact pages').map(entry => {
       const page = object(entry, 'artifact page');
       return { id: text(page.id, 'page id'), key: text(page.key, 'page key'), version: count(page.version, 'page version'), title: text(page.title, 'page title'),
-        commit: text(page.commit, 'page commit'), writtenAt: text(page.writtenAt, 'page time') };
+        commit: text(page.commit, 'page commit'), writtenAt: text(page.writtenAt, 'page time'), turnId: optionalText(page.turnId, 'page turn') };
     }),
+    questions: list(view.questions, 'artifact questions').map(entry => text(entry, 'question id')),
   };
 }
 

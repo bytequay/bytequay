@@ -43,7 +43,7 @@ window.checks = (async () => ({
 </script>
 </body></html>`;
 
-// Main answers the page's bridge from these conversations, as the backend would, and records each call.
+// Main answers the page's bridge from these conversations, as the backend would: a view and an agent event log each, and records each call.
 const SETUP = `
 const html = { v1: ${JSON.stringify(PAGE)}, v2: '<!doctype html><link rel="stylesheet" href="theme.css"><main><h1>Deletes on read, simpler</h1></main>' };
 const artifactView = new ArtifactView(() => window, async target => {
@@ -52,51 +52,83 @@ const artifactView = new ArtifactView(() => window, async target => {
 });
 artifactView.register();
 const at = minutes => new Date(Date.now() - minutes * 60_000).toISOString();
+const root = { providerThreadId: null, parentProviderThreadId: null, logicalAgentPath: null, providerTurnId: null, providerItemId: null, providerEventId: null };
+const QUESTION = JSON.stringify({ questions: [{ question: 'Which path?', header: 'Path', multiSelect: false,
+  options: [{ label: 'Read path', description: 'How a scan skips rows' }, { label: 'Write path', description: 'How deletes are written' }] }] });
+const conversations = {};
 let next = 0;
-const item = (artifactId, kind, text, extra = {}) => ({ id: 'i' + (++next), artifactId, kind, text, offer: null, pageId: null, at: at(0), ...extra });
-const page = (id, key, version, title) => ({ id, artifactId: 'a1', key, version, title, commit: '8bafef5c0ffee', writtenAt: at(0) });
-const conversation = (id, title, minutes, items, pages = []) => ({ artifact: { id, title, working: false, updatedAt: at(minutes) }, items, pages });
-const views = {
-  a1: conversation('a1', 'Help me learn how Iceberg position deletes work', 12, [
-    item('a1', 'USER', 'Help me learn how Iceberg position deletes work'),
-    item('a1', 'ACTIVITY', 'IcebergPageSourceProvider.java · 6 steps'),
-    item('a1', 'REPLY', 'Position deletes are applied per data file (\`DeleteManager.java:118\`). Read path, write path, or both?'),
-    item('a1', 'USER', 'The read path, and how it differs from equality deletes'),
-    item('a1', 'OFFER', '', { offer: { title: 'Deletes on read', covers: 'How a scan skips rows named by position deletes.', state: 'SHOWN' } }),
-  ]),
-  a2: conversation('a2', 'Snapshots and manifests', 90, [item('a2', 'USER', 'Explain snapshots'), item('a2', 'PAGE', 'Snapshots · v1', { pageId: 'gone' })],
-    [{ ...page('gone', 'p1', 1, 'Snapshots'), artifactId: 'a2' }]),
-  a3: conversation('a3', 'Explain manifests', 3000, [item('a3', 'USER', 'Explain manifests'), item('a3', 'FAILURE', 'Stopped')]),
+const conversation = (id, title, minutes) => {
+  conversations[id] = { view: { artifact: { id, title, working: false, updatedAt: at(minutes) }, offers: [], pages: [], questions: [] }, events: [] };
+  return conversations[id];
 };
+// The same events a task's turn records.
+const emit = (id, turnId, type, payload) => {
+  const log = conversations[id].events;
+  log.push({ schemaVersion: 2, eventId: 'e' + (++next), sequence: log.length + 1, taskId: id, turnId, source: root, occurredAt: at(0), type, payload });
+};
+const turn = (id, turnId, text) => {
+  emit(id, turnId, 'user_message', { text, attachments: [], deliveryKind: 'TURN' });
+  emit(id, turnId, 'lifecycle', { phase: 'TURN_STARTED', message: 'Turn started' });
+  conversations[id].view.artifact.working = true;
+};
+const answer = (id, turnId, text) => emit(id, turnId, 'assistant_message', { messageKind: 'ANSWER', phase: 'FINAL', text });
+const done = (id, turnId, message = 'Turn completed') => {
+  emit(id, turnId, 'lifecycle', { phase: 'TURN_COMPLETED', message });
+  conversations[id].view.artifact.working = false;
+};
+const page = (id, version, turnId) => ({ id, key: 'p1', version, title: 'Deletes on read', commit: '8bafef5c0ffee', writtenAt: at(0), turnId });
+
+conversation('a1', 'Help me learn how Iceberg position deletes work', 12);
+turn('a1', 't1', 'Help me learn how Iceberg position deletes work');
+emit('a1', 't1', 'tool', { name: 'Grep', state: 'COMPLETED', summary: '74:import io.trino.plugin.iceberg.delete.DeleteManager;', durationMs: null, description: 'Find where deletes are read' });
+answer('a1', 't1', 'Position deletes are applied per data file (\`DeleteManager.java:118\`).');
+done('a1', 't1');
+turn('a1', 't2', 'The read path, and how it differs from equality deletes');
+emit('a1', 't2', 'approval_requested', { approvalId: 'q1', approvalKind: 'OTHER', title: 'Allow Claude AskUserQuestion', detail: QUESTION, scope: ['AskUserQuestion'],
+  sandboxed: false, actionable: true, availableDecisions: ['ALLOW_ONCE', 'DENY'] });
+conversations.a1.view.questions = ['q1'];
+conversation('a2', 'Snapshots and manifests', 90);
+turn('a2', 't21', 'Explain snapshots');
+answer('a2', 't21', 'Here is the page.');
+conversations.a2.view.pages.push({ ...page('gone', 1, 't21'), title: 'Snapshots' });
+done('a2', 't21');
+conversation('a3', 'Explain manifests', 3000);
+turn('a3', 't31', 'Explain manifests');
+emit('a3', 't31', 'error', { code: 'TURN_FAILED', message: 'Claude turn timed out', retryable: false });
+done('a3', 't31', 'Turn failed: Claude turn timed out');
+
 let busy = false;
+let turns = 4;
 const calls = [];
-const working = (id, text) => {
-  views[id].artifact.working = true;
-  views[id].items.push(item(id, 'USER', text));
-  return views[id];
-};
-// What the agent does at the end of a turn: say, save, and stop working.
-const finish = (id, ...items) => {
-  views[id].items.push(...items);
-  views[id].artifact.working = false;
-};
-ipcMain.handle('fixture:list', () => Object.values(views).reverse().map(view => ({ artifact: view.artifact, pages: new Set(view.pages.map(entry => entry.key)).size })));
-ipcMain.handle('fixture:view', (_event, workspaceId, id) => views[id]);
+ipcMain.handle('fixture:list', () => Object.values(conversations).map(entry => entry.view)
+  .sort((left, right) => right.artifact.updatedAt.localeCompare(left.artifact.updatedAt))
+  .map(view => ({ artifact: view.artifact, pages: new Set(view.pages.map(entry => entry.key)).size })));
+ipcMain.handle('fixture:view', (_event, workspaceId, id) => conversations[id].view);
+ipcMain.handle('fixture:events', (_event, workspaceId, id, after) => conversations[id].events.filter(event => event.sequence > after));
 ipcMain.handle('fixture:start', (_event, workspaceId, text) => {
   calls.push(['start', text]);
-  views.a4 = conversation('a4', text, 0, []);
-  return working('a4', text);
+  conversation('a4', text, 0);
+  turn('a4', 't41', text);
+  return conversations.a4.view;
 });
 ipcMain.handle('fixture:send', (_event, workspaceId, id, text) => {
   calls.push(['send', id, text]);
   if (busy) throw new Error('Wait for “Help me learn how Iceberg position deletes work” to finish');
-  return working(id, text);
+  turn(id, 't' + (++turns), text);
+  return conversations[id].view;
 });
-ipcMain.handle('fixture:offer', (_event, workspaceId, id, itemId, accept) => {
-  calls.push(['offer', id, itemId, accept]);
-  const offered = views[id].items.find(entry => entry.id === itemId);
-  offered.offer = { ...offered.offer, state: accept ? 'ACCEPTED' : 'DISMISSED' };
-  return accept ? working(id, 'Make the page.') : views[id];
+ipcMain.handle('fixture:offer', (_event, workspaceId, id, offerId, accept) => {
+  calls.push(['offer', id, offerId, accept]);
+  const offered = conversations[id].view.offers.find(entry => entry.id === offerId);
+  offered.state = accept ? 'ACCEPTED' : 'DISMISSED';
+  if (accept) turn(id, 't3', 'Make the page.');
+  return conversations[id].view;
+});
+ipcMain.handle('fixture:question', (_event, workspaceId, id, approvalId, allow, answers) => {
+  calls.push(['question', id, approvalId, allow, answers]);
+  conversations[id].view.questions = [];
+  emit(id, 't2', 'approval_resolved', { approvalId, outcome: allow ? 'ALLOWED' : 'DENIED', forTask: false });
+  return conversations[id].view;
 });
 ipcMain.handle('fixture:stop', (_event, workspaceId, id) => { calls.push(['stop', id]); });`;
 
@@ -113,17 +145,21 @@ const shown = (host, heading) => until(async () => {
 }, heading);
 const inApp = script => window.webContents.executeJavaScript(script);
 const text = selector => inApp('[...document.querySelectorAll(' + JSON.stringify(selector) + ')].map(element => element.textContent)');
-const click = selector => inApp('document.querySelector(' + JSON.stringify(selector) + ').click()');
-const press = name => inApp('[...document.querySelectorAll("button")].find(button => button.textContent.trim() === ' + JSON.stringify(name) + ').click()');
+const click = selector => until(() => inApp('(() => { const element = document.querySelector(' + JSON.stringify(selector) + '); element?.click(); return !!element; })()'), selector);
+const press = name => until(() => inApp('(() => { const button = [...document.querySelectorAll("button")].find(button => button.textContent.trim() === ' + JSON.stringify(name)
+  + ' && !button.disabled); button?.click(); return !!button; })()'), name);
 const open = title => until(() => inApp('(() => { const row = [...document.querySelectorAll(".artifacts-row")].find(row => row.querySelector(".artifacts-row__title").textContent === '
   + JSON.stringify(title) + '); row?.click(); return !!row; })()'), title);
 const type = async (label, value) => {
   window.webContents.focus();
+  // A sent message leaves the box once its answer is read; typing waits for that, as a person would.
+  await until(() => inApp('document.querySelector(' + JSON.stringify('textarea[aria-label="' + label + '"]') + ')?.value === ""'), 'an empty ' + label);
+  await click('textarea[aria-label="' + label + '"]');
   await inApp('document.querySelector(' + JSON.stringify('textarea[aria-label="' + label + '"]') + ').focus()');
   await window.webContents.insertText(value);
 };
-const send = () => until(() => inApp("(() => { const button = document.querySelector('[aria-label=\\"Send\\"]'); if (!button || button.disabled) return false; button.click(); return true; })()"),
-  'the send button');
+const send = label => until(() => inApp('(() => { const button = document.querySelector(' + JSON.stringify('[aria-label="' + label + '"]')
+  + '); if (!button || button.disabled) return false; button.click(); return true; })()'), label);
 const capture = async name => {
   if (!process.env.BYTEQUAY_ARTIFACT_CAPTURE) return;
   await sleep(300);
@@ -147,20 +183,35 @@ await inApp('ArtifactTests.render()');
 const rows = await until(async () => { const titles = await text('.artifacts-row'); return titles.length === 3 && titles; }, 'the list');
 await capture('list');
 await open('Help me learn how Iceberg position deletes work');
-const talk = await until(async () => { const lines = await text('.artifacts-chat__column > *'); return lines.length === 5 && lines; }, 'the conversation');
+
+// The conversation is a task's transcript: a turn per message, and the agent's question as the task's question card.
+await until(() => inApp("!!document.querySelector('.agt-ask')"), 'the question card');
+const turnCount = (await text('.agt-turn')).length;
+const asked = await text('.agt-user__bubble');
+const answered = await text('.agt-turn > .agt-answer');
+await capture('question');
+await click('.agt-ask__option');
+await send('Send answer: Which path?');
+await until(() => calls.some(call => call[0] === 'question'), 'the answer');
+answer('a1', 't2', 'Then the read path.');
+conversations.a1.view.offers.push({ id: 'o1', turnId: 't2', title: 'Deletes on read', covers: 'How a scan skips rows named by position deletes.', state: 'SHOWN' });
+done('a1', 't2');
+const offered = await until(() => inApp("document.querySelectorAll('.agt-turn')[1]?.querySelector('.artifacts-offer')?.textContent ?? ''"), 'the offer under its turn');
+const questionClosed = await inApp("!document.querySelector('[aria-label=\\"Send answer: Which path?\\"]')");
 await capture('offer');
 
 await press('Make the page');
 const making = await until(() => inApp("document.querySelector('.artifacts-panel__placeholder')?.textContent ?? ''"), 'the placeholder');
 const writingVersion = (await text('.artifacts-versions'))[0];
 await capture('making');
-views.a1.pages.push(page('v1', 'p1', 1, 'Deletes on read'));
-views.a1.artifact.title = 'Deletes on read';
-finish('a1', item('a1', 'ACTIVITY', 'IcebergSplitSource.java · 5 steps'), item('a1', 'PAGE', 'Deletes on read · v1', { pageId: 'v1' }), item('a1', 'REPLY', "Here's the page."));
+conversations.a1.view.pages.push(page('v1', 1, 't3'));
+conversations.a1.view.artifact.title = 'Deletes on read';
+answer('a1', 't3', "Here's the page.");
+done('a1', 't3');
 
 const first = await shown('a1', 'Deletes on read');
 const checks = await first.executeJavaScript('window.checks');
-const answered = await first.executeJavaScript("document.getElementById('toggle').click(); !document.getElementById('answer').hidden");
+const tried = await first.executeJavaScript("document.getElementById('toggle').click(); !document.getElementById('answer').hidden");
 await first.executeJavaScript("location.href = 'https://example.com/'; true");
 await sleep(300);
 const stayed = first.getURL();
@@ -175,15 +226,15 @@ const dark = await until(async () => { const value = await colour(); return valu
 await capture('page-dark');
 nativeTheme.themeSource = 'light';
 const panel = await text('.artifacts-panel__bar');
+const pageLine = await until(async () => inApp("document.querySelectorAll('.agt-turn')[2]?.querySelector('.artifacts-pageline')?.textContent ?? ''"), 'the page line under its turn');
 
-await type('Reply', 'Make the diagram simpler');
-await send();
-const reading = await until(() => inApp("document.querySelector('.artifacts-line[role=status]')?.textContent ?? ''"), 'the turn');
+await type('Message the agent', 'Make the diagram simpler');
+await send('Send message');
+await send('Stop');
 const keptVisible = artifactView.view.getVisible();
-await capture('reading');
-await click('[aria-label="Stop"]');
-views.a1.pages.push(page('v2', 'p1', 2, 'Deletes on read'));
-finish('a1', item('a1', 'PAGE', 'Deletes on read · v2', { pageId: 'v2' }));
+await capture('working');
+conversations.a1.view.pages.push(page('v2', 2, 't5'));
+done('a1', 't5');
 await shown('a1', 'Deletes on read, simpler');
 const versions = await text('.artifacts-versions button');
 await press('v1');
@@ -191,10 +242,10 @@ await shown('a1', 'Deletes on read');
 await capture('versions');
 
 busy = true;
-await type('Reply', 'And the write path?');
-await send();
-const refused = await until(() => inApp("document.querySelector('.artifacts-line[role=alert]')?.textContent ?? ''"), 'the refusal');
-const kept = await inApp('document.querySelector(\\'textarea[aria-label="Reply"]\\').value');
+await type('Message the agent', 'And the write path?');
+await send('Send message');
+const refused = await until(() => inApp("document.querySelector('.artifacts-notice [role=alert]')?.textContent ?? ''"), 'the refusal');
+const kept = await inApp('document.querySelector(\\'textarea[aria-label="Message the agent"]\\').value');
 busy = false;
 
 await click('[aria-label="Back to Artifacts"]');
@@ -205,20 +256,17 @@ await open('Snapshots and manifests');
 const missing = await until(() => inApp("document.querySelector('.artifacts-page__view [role=alert] span')?.textContent ?? ''"), 'the missing page');
 await click('[aria-label="Back to Artifacts"]');
 await open('Explain manifests');
-const failure = await until(() => inApp("document.querySelector('.artifacts-line.is-failure')?.textContent ?? ''"), 'the failure');
+const failure = await until(() => inApp("document.querySelector('.agt-error')?.textContent ?? ''"), 'the failure');
 await capture('failure');
-await press('Try again');
-await until(() => calls.some(call => call[0] === 'send' && call[1] === 'a3'), 'the retry');
 
 await click('[aria-label="Back to Artifacts"]');
-await until(() => inApp("!!document.querySelector('textarea[aria-label=\\"Ask about this repository\\"]')"), 'the start box');
 await type('Ask about this repository', 'Where are dynamic filters applied?');
-await send();
-const started = await until(async () => { const lines = await text('.artifacts-chat__column .agt-user__bubble'); return lines.length === 1 && lines; }, 'the new conversation');
-const results = { rows, talk, making: making.replace(/\\d+:\\d\\d/, 'm:ss'), writingVersion, checks, answered, stayed, placed, light, dark, panel,
-  reading: reading.replace(/\\d+:\\d\\d/, 'm:ss'), keptVisible, versions, refused, kept, counted, hiddenOnList, missing, failure, started, calls };`;
+await send('Send');
+const started = await until(async () => { const bubbles = await text('.agt-user__bubble'); return bubbles.length === 1 && bubbles; }, 'the new conversation');
+const results = { rows, turnCount, asked, answered, offered, questionClosed, making: making.replace(/\\d+:\\d\\d/, 'm:ss'), writingVersion, checks, tried, stayed, placed,
+  light, dark, panel, pageLine, keptVisible, versions, refused, kept, counted, hiddenOnList, missing, failure, started, calls };`;
 
-it('talks, offers a page, then shows its versions beside the chat while the page stays locked down', async () => {
+it('renders a conversation as a task transcript, asks with the question card, then shows its page versions beside it, locked down', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-artifact-view-'));
   try {
     // The view is main-process code; registering its scheme has to happen before the app is ready.
@@ -232,44 +280,44 @@ contextBridge.exposeInMainWorld('bridge', {
   listArtifacts: id => ipcRenderer.invoke('fixture:list', id),
   startArtifact: (id, text) => ipcRenderer.invoke('fixture:start', id, text),
   viewArtifact: (id, artifactId) => ipcRenderer.invoke('fixture:view', id, artifactId),
+  artifactEvents: (id, artifactId, after) => ipcRenderer.invoke('fixture:events', id, artifactId, after),
   sendArtifact: (id, artifactId, text) => ipcRenderer.invoke('fixture:send', id, artifactId, text),
-  answerArtifactOffer: (id, artifactId, itemId, accept) => ipcRenderer.invoke('fixture:offer', id, artifactId, itemId, accept),
+  answerArtifactOffer: (id, artifactId, offerId, accept) => ipcRenderer.invoke('fixture:offer', id, artifactId, offerId, accept),
+  answerArtifactQuestion: (id, artifactId, approvalId, allow, answers) => ipcRenderer.invoke('fixture:question', id, artifactId, approvalId, allow, answers),
   stopArtifact: (id, artifactId) => ipcRenderer.invoke('fixture:stop', id, artifactId),
   showArtifact: (target, bounds) => ipcRenderer.invoke('artifacts:show', target, bounds),
 });`,
-      setup: SETUP, body: BODY, timeoutMs: 60_000,
+      setup: SETUP, body: BODY, timeoutMs: 90_000,
     });
     expect(result).toEqual({
-      rows: ['Explain manifests2d ago', 'Snapshots and manifests11h ago', 'Help me learn how Iceberg position deletes work12m ago'],
-      talk: [
-        'Help me learn how Iceberg position deletes work',
-        'IcebergPageSourceProvider.java·6 steps',
-        'Position deletes are applied per data file (DeleteManager.java:118). Read path, write path, or both?',
-        'The read path, and how it differs from equality deletes',
-        'Deletes on readHow a scan skips rows named by position deletes.Make the pageNot yet',
-      ],
+      rows: ['Help me learn how Iceberg position deletes work12m ago', 'Snapshots and manifests11h ago', 'Explain manifests2d ago'],
+      turnCount: 2,
+      asked: ['Help me learn how Iceberg position deletes work', 'The read path, and how it differs from equality deletes'],
+      answered: ['Position deletes are applied per data file (DeleteManager.java:118).'],
+      offered: 'Deletes on readHow a scan skips rows named by position deletes.Make the pageNot yet',
+      questionClosed: true,
       making: 'Writing the page…m:ss',
       writingVersion: 'v1 writing…',
       checks: { ran: true, network: true, backend: true, popup: true, evalBlocked: true, bridge: true },
-      answered: true,
+      tried: true,
       stayed: 'bytequay-artifact://a1/w1/',
       placed: true,
       light: 'rgb(31, 35, 40)',
       dark: 'rgb(201, 205, 212)',
       panel: ['Deletes on read8bafef5v1'],
-      reading: 'Reading…m:ss',
+      pageLine: 'Deletes on read· v1',
       keptVisible: true,
       versions: ['v1', 'v2'],
       refused: 'Wait for “Help me learn how Iceberg position deletes work” to finish',
       kept: 'And the write path?',
-      counted: ['Explain manifests2d ago', 'Snapshots and manifests11h ago', 'Deletes on read112m ago'],
+      counted: ['Deletes on read112m ago', 'Snapshots and manifests11h ago', 'Explain manifests2d ago'],
       hiddenOnList: true,
       missing: 'This page could not be opened: This page no longer exists',
-      failure: 'StoppedTry again',
+      failure: 'Claude turn timed out',
       started: ['Where are dynamic filters applied?'],
-      calls: [['offer', 'a1', 'i5', true], ['send', 'a1', 'Make the diagram simpler'], ['stop', 'a1'], ['send', 'a1', 'And the write path?'], ['send', 'a3', 'Explain manifests'],
-        ['start', 'Where are dynamic filters applied?']],
+      calls: [['question', 'a1', 'q1', true, { 'Which path?': 'Read path' }], ['offer', 'a1', 'o1', true], ['send', 'a1', 'Make the diagram simpler'], ['stop', 'a1'],
+        ['send', 'a1', 'And the write path?'], ['start', 'Where are dynamic filters applied?']],
     });
   }
   finally { await rm(directory, { recursive: true, force: true }); }
-}, deadline(120_000));
+}, deadline(150_000));

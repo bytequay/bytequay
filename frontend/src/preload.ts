@@ -180,7 +180,10 @@ const bridge: Bridge = {
   startArtifact: (workspaceId, text) => ipcRenderer.invoke('artifacts:start', workspaceId, text),
   viewArtifact: (workspaceId, artifactId) => ipcRenderer.invoke('artifacts:view', workspaceId, artifactId),
   sendArtifact: (workspaceId, artifactId, text) => ipcRenderer.invoke('artifacts:send', workspaceId, artifactId, text),
-  answerArtifactOffer: (workspaceId, artifactId, itemId, accept) => ipcRenderer.invoke('artifacts:offer', workspaceId, artifactId, itemId, accept),
+  artifactEvents: (workspaceId, artifactId, after) => ipcRenderer.invoke('artifacts:events', workspaceId, artifactId, after),
+  answerArtifactOffer: (workspaceId, artifactId, offerId, accept) => ipcRenderer.invoke('artifacts:offer', workspaceId, artifactId, offerId, accept),
+  answerArtifactQuestion: (workspaceId, artifactId, approvalId, allow, answers) =>
+    ipcRenderer.invoke('artifacts:question', workspaceId, artifactId, approvalId, allow, answers),
   stopArtifact: (workspaceId, artifactId) => ipcRenderer.invoke('artifacts:stop', workspaceId, artifactId),
   showArtifact: (target, bounds) => ipcRenderer.invoke('artifacts:show', target, bounds),
   refreshEpicChildren: (workspaceId, epicId, connectionId) => ipcRenderer.invoke('epics:children', workspaceId, epicId, connectionId),

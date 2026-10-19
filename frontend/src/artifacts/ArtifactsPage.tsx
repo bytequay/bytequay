@@ -11,15 +11,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { ArrowLeft, ArrowUp, ChevronRight, Clock, FileText, Files, LoaderCircle, Lock, TriangleAlert } from 'lucide-react';
-import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowLeft, ArrowUp, Clock, FileText, Files, LoaderCircle, Lock, TriangleAlert } from 'lucide-react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Composer from '../Composer';
-import { renderMarkdown } from '../agents/markdown';
+import { AgentConversation, ConversationComposer, useConversationHistory, type ApprovalDecider, type ConversationHistory } from '../agents/AgentConversation';
+import type { AgentEventEnvelope } from '../agents/events';
+import type { PendingMessage } from '../agents/model';
+import { projectTranscript } from '../agents/transcript';
 import { ago } from '@bytequay/ui/relativeTime';
 import { remoteErrorMessage } from '../remoteError';
 import { useResizablePane } from '../useResizablePane';
 import { LayerCovered } from '../Zoom';
-import type { ArtifactItemDto, ArtifactPageDto, ArtifactRowDto, ArtifactViewDto } from './contracts';
+import type { ArtifactOfferDto, ArtifactPageDto, ArtifactRowDto, ArtifactViewDto } from './contracts';
 import '../css/artifacts.css';
 
 const LIST_POLL_MS = 2_000;
@@ -27,6 +30,10 @@ const VIEW_POLL_MS = 1_000;
 // The backend's limit on one message.
 const MAXIMUM_MESSAGE = 4_000;
 const BUSY = 'Wait for';
+// The backend's page of events; a full page means more are waiting.
+const EVENT_PAGE = 500;
+// The whole log is loaded, so there are no older or newer pages to fetch.
+const WHOLE_LOG: ConversationHistory = { before: null, after: null, loading: false, onLoad: () => {}, onFollow: () => {} };
 
 /** Artifacts: the conversations of a workspace, then one conversation with its pages beside it. */
 export default function ArtifactsPage({ workspaceId }: { workspaceId: string }) {
@@ -80,56 +87,106 @@ function ConversationList({ workspaceId, onOpen }: { workspaceId: string; onOpen
   </section>;
 }
 
+/** One conversation, rendered as a task's transcript is: the same turns, steps, answers and question cards, with the page beside it. */
 function Conversation({ workspaceId, artifactId, initial, onBack }: {
   workspaceId: string; artifactId: string; initial: ArtifactViewDto | null; onBack: () => void;
 }) {
   const [view, setView] = useState<ArtifactViewDto | null>(initial);
+  const [events, setEvents] = useState<AgentEventEnvelope[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [sendError, setSendError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [pending, setPending] = useState<PendingMessage | null>(null);
   const [shown, setShown] = useState<string | null>(null);
+  const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
+  const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const live = useLive();
-  // Each answer bumps this, so a poll that left before a send cannot bring back the idle state the send ended.
+  const held = useRef<AgentEventEnvelope[]>([]);
+  const reading = useRef<Promise<void> | null>(null);
+  // Each answer bumps this, so a read that left before a send cannot bring back the idle state the send ended.
   const latest = useRef(0);
   const took = useCallback((next: ArtifactViewDto) => {
     latest.current++;
     if (live.current) setView(next);
   }, [live]);
-  const refresh = useCallback(() => {
+  // One read at a time, so pages of events arrive in order and none is fetched twice.
+  const refresh = useCallback((): Promise<void> => reading.current ?? (reading.current = (async () => {
     const asked = ++latest.current;
-    return window.bridge.viewArtifact(workspaceId, artifactId).then(next => {
-      if (!live.current || asked !== latest.current) return;
-      setView(next);
+    try {
+      const next = await window.bridge.viewArtifact(workspaceId, artifactId);
+      for (;;) {
+        const more = await window.bridge.artifactEvents(workspaceId, artifactId, held.current.at(-1)?.sequence ?? 0);
+        held.current = [...held.current, ...more];
+        if (more.length < EVENT_PAGE) break;
+      }
+      if (!live.current) return;
+      setEvents(held.current);
+      if (asked === latest.current) setView(next);
       setLoadError(null);
-    }, failure => { if (live.current) setLoadError(remoteErrorMessage(failure)); });
-  }, [artifactId, live, workspaceId]);
+    }
+    catch (failure) {
+      if (live.current) setLoadError(remoteErrorMessage(failure));
+    }
+    finally {
+      reading.current = null;
+    }
+  })()), [artifactId, live, workspaceId]);
   useEffect(() => { void refresh(); }, [refresh]);
   const working = view?.artifact.working ?? false;
-  usePoll(refresh, working, VIEW_POLL_MS);
+  usePoll(refresh, working || pending !== null, VIEW_POLL_MS);
+  const now = useNow(working);
 
-  const items = view?.items ?? [];
+  // The sent message shows at once, until its own event arrives.
+  useEffect(() => {
+    if (pending !== null && events.some(event => event.type === 'user_message' && event.sequence > pending.after)) setPending(null);
+  }, [events, pending]);
+
+  const turns = useMemo(() => projectTranscript(events), [events]);
+  const scroll = useConversationHistory(events, null, WHOLE_LOG);
+  const current = working ? turns.at(-1) : undefined;
+  const activeTurn = current?.turnId != null ? { id: current.turnId, state: 'RUNNING', cancellationRequestedAt: null as string | null } : null;
   const pages = view?.pages ?? [];
+  const offers = view?.offers ?? [];
   // A new save shows at once; until the next one the panel stays on what the user picked.
   const newest = pages.length === 0 ? null : pages[pages.length - 1].id;
   useEffect(() => { setShown(newest); }, [newest]);
   const page = pages.find(entry => entry.id === shown) ?? pages[pages.length - 1] ?? null;
-  const offer = [...items].reverse().find(item => item.kind === 'OFFER')?.offer ?? null;
+  const offer = offers.at(-1) ?? null;
   const making = working && pages.length === 0 && offer?.state === 'ACCEPTED';
-  const since = [...items].reverse().find(item => item.kind === 'USER')?.at ?? view?.artifact.updatedAt ?? new Date().toISOString();
+  const since = [...events].reverse().find(event => event.type === 'user_message')?.occurredAt ?? view?.artifact.updatedAt ?? new Date().toISOString();
 
   const act = (work: Promise<ArtifactViewDto>): Promise<void> => {
-    setSendError(null);
-    return work.then(took, failure => {
-      if (live.current) setSendError(remoteErrorMessage(failure));
+    setNotice(null);
+    return work.then(next => { took(next); return refresh(); }, failure => {
+      if (live.current) setNotice(remoteErrorMessage(failure));
       throw failure;
     });
   };
-  const send = (text: string) => act(window.bridge.sendArtifact(workspaceId, artifactId, text));
-  const answer = (itemId: string, accept: boolean) => { act(window.bridge.answerArtifactOffer(workspaceId, artifactId, itemId, accept)).catch(() => {}); };
-  const stop = () => { window.bridge.stopArtifact(workspaceId, artifactId).catch(failure => { if (live.current) setSendError(remoteErrorMessage(failure)); }); };
+  const send = (text: string) => {
+    scroll.followSend();
+    setPending({ text, attachments: [], after: held.current.at(-1)?.sequence ?? 0 });
+    return act(window.bridge.sendArtifact(workspaceId, artifactId, text)).catch(failure => {
+      setPending(null);
+      throw failure;
+    });
+  };
+  const submit = () => {
+    const text = draft.trim();
+    if (text === '' || working || pending !== null) return;
+    send(text).then(() => setDraft(current => current.trim() === text ? '' : current), () => {});
+  };
+  const answer = (offerId: string, accept: boolean) => { act(window.bridge.answerArtifactOffer(workspaceId, artifactId, offerId, accept)).catch(() => {}); };
+  const decide: ApprovalDecider = (approvalId, decision, answers) => {
+    act(window.bridge.answerArtifactQuestion(workspaceId, artifactId, approvalId, decision !== 'DENY', answers ?? {})).catch(() => {});
+  };
+  const stop = () => { window.bridge.stopArtifact(workspaceId, artifactId).catch(failure => { if (live.current) setNotice(remoteErrorMessage(failure)); }); };
 
   const container = useRef<HTMLElement>(null);
   const { width, startResize } = useResizablePane(window.innerWidth < 1100 ? 340 : 420, 300, () => (container.current?.clientWidth ?? 1000) - 360);
   const split = pages.length > 0 || making;
+  // Offers and pages show at the end of the turn that made them; pages saved before turns were recorded follow the transcript.
+  const marks = (turnId: string | null) => <TurnMarks offers={offers.filter(entry => entry.turnId === turnId)} pages={pages.filter(entry => entry.turnId === turnId)}
+    shown={page?.id ?? null} working={working} onShow={setShown} onAnswer={answer} />;
 
   return <section ref={container} className={`artifacts-page artifacts-conversation${split ? ' has-page' : ''}`} aria-label={view?.artifact.title ?? 'Conversation'}>
     <div className="artifacts-chat" style={split ? { width: width ?? 420 } : undefined}>
@@ -139,20 +196,19 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
         </button>
         <span className="artifacts-bar__title">{view?.artifact.title}</span>
       </header>
-      <div className="artifacts-chat__scroll">
-        <div className="artifacts-chat__column">
-          {items.map((item, index) => <Item key={item.id} item={item} items={items} index={index} pages={pages} shown={page?.id ?? null} working={working}
-            onShow={setShown} onAnswer={answer} onRetry={text => { send(text).catch(() => {}); }} />)}
-          {working && <div className="artifacts-line" role="status">
-            <LoaderCircle size={13} className="artifacts-spin artifacts-line__icon is-accent" aria-hidden="true" />Reading…<Elapsed since={since} />
-          </div>}
-          {sendError !== null && <Notice text={sendError} />}
-          {loadError !== null && <Notice text={loadError} />}
-        </div>
-      </div>
-      <div className="artifacts-chat__composer">
-        <MessageBox label="Reply" placeholder="Reply, or ask for a change…" working={working} onStop={stop} send={send} />
-      </div>
+      <AgentConversation label="Conversation" turns={turns} durableTurns={{}} models={[]} now={now} scroll={scroll} connection="open"
+        running={working} activeTurn={activeTurn} waiting={(view?.questions.length ?? 0) > 0} pendingMessage={pending}
+        activityChoice={activityChoice} turnChoice={turnChoice}
+        onToggleTurn={(id, open) => setTurnChoice(current => ({ ...current, [id]: open }))}
+        onToggleActivity={(id, open) => setActivityChoice(current => ({ ...current, [id]: open }))}
+        onDecide={decide} turnFooter={marks}
+        transcriptFooter={<>{marks(null)}{loadError !== null && <Notice text={loadError} />}</>}>
+        {notice !== null && <div className="artifacts-notice"><Notice text={notice} /></div>}
+        <ConversationComposer value={draft} onChange={setDraft} onSend={submit} onStop={stop} onSteer={() => {}} onQueue={() => {}}
+          running={working} sending={pending !== null} disabled={false} sendEnabled={draft.trim() !== '' && !working && pending === null}
+          steerEnabled={false} queueEnabled={false} models={[]} model={null} connection="open" placeholder="Reply, or ask for a change…"
+          stopLabel="Stop" stopTitle="Stops the answer; what it said or saved stays" turnControls={false} />
+      </AgentConversation>
     </div>
     {split && <>
       <div className="artifacts-divider" role="separator" aria-orientation="vertical" aria-label="Resize the conversation" title="Drag to resize"
@@ -163,36 +219,23 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
   </section>;
 }
 
-/** One line of the conversation. */
-function Item({ item, items, index, pages, shown, working, onShow, onAnswer, onRetry }: {
-  item: ArtifactItemDto; items: ArtifactItemDto[]; index: number; pages: ArtifactPageDto[]; shown: string | null; working: boolean;
-  onShow: (pageId: string) => void; onAnswer: (itemId: string, accept: boolean) => void; onRetry: (text: string) => void;
+/** What a turn made beside its answer: the page it offered, as a card until answered, and each page version it saved. */
+function TurnMarks({ offers, pages, shown, working, onShow, onAnswer }: {
+  offers: ArtifactOfferDto[]; pages: ArtifactPageDto[]; shown: string | null; working: boolean;
+  onShow: (pageId: string) => void; onAnswer: (offerId: string, accept: boolean) => void;
 }) {
-  switch (item.kind) {
-    case 'USER':
-      return <div className="agt-user"><div className="agt-user__bubble">{item.text}</div></div>;
-    case 'REPLY':
-      return <div className="artifacts-reply">{renderMarkdown(item.text)}</div>;
-    case 'ACTIVITY': {
-      // "DeleteManager.java · 4 steps": the file in front, the count after.
-      const [what, steps] = item.text.split(' · ');
-      const growing = working && index === items.length - 1;
-      return <div className="artifacts-line" title={item.text}>
-        {growing ? <LoaderCircle size={13} className="artifacts-spin artifacts-line__icon" aria-hidden="true" /> : <ChevronRight size={13} className="artifacts-line__icon" aria-hidden="true" />}
-        <span className="artifacts-line__what">{what}</span>
-        {steps !== undefined && <><span className="artifacts-dim" aria-hidden="true">·</span><span>{steps}</span></>}
-      </div>;
-    }
-    case 'OFFER': {
-      const offer = item.offer;
-      if (offer === null) return null;
-      if (offer.state !== 'SHOWN') {
-        const made = offer.state === 'ACCEPTED';
-        return <div className="artifacts-line" title={`Offered “${offer.title}”; ${made ? 'you made it' : 'you said not yet'}`}>
-          <FileText size={13} className="artifacts-line__icon" aria-hidden="true" />Page offered<span className="artifacts-dim" aria-hidden="true">·</span>{made ? 'made' : 'not yet'}
-        </div>;
-      }
-      return <div className="artifacts-offer">
+  if (offers.length === 0 && pages.length === 0) return null;
+  return <div className="artifacts-marks">
+    {pages.map(page => <button key={page.id} type="button" className={`artifacts-pageline${page.id === shown ? ' is-shown' : ''}`} title={`Show v${page.version} in the panel`}
+      onClick={() => onShow(page.id)}>
+      <FileText size={15} className="artifacts-pageline__icon" aria-hidden="true" />{page.title}<span className="artifacts-dim">· v{page.version}</span>
+    </button>)}
+    {offers.map(offer => offer.state !== 'SHOWN'
+      ? <div key={offer.id} className="artifacts-line" title={`Offered “${offer.title}”; ${offer.state === 'ACCEPTED' ? 'you made it' : 'you said not yet'}`}>
+        <FileText size={13} className="artifacts-line__icon" aria-hidden="true" />Page offered<span className="artifacts-dim" aria-hidden="true">·</span>
+        {offer.state === 'ACCEPTED' ? 'made' : 'not yet'}
+      </div>
+      : <div key={offer.id} className="artifacts-offer">
         <div className="artifacts-offer__head">
           <FileText size={15} className="artifacts-offer__icon" aria-hidden="true" />
           <div className="artifacts-offer__text">
@@ -201,31 +244,11 @@ function Item({ item, items, index, pages, shown, working, onShow, onAnswer, onR
           </div>
         </div>
         <div className="artifacts-offer__actions">
-          <button type="button" className="artifacts-button is-accent" disabled={working} onClick={() => onAnswer(item.id, true)}>Make the page</button>
-          <button type="button" className="artifacts-button" disabled={working} onClick={() => onAnswer(item.id, false)}>Not yet</button>
+          <button type="button" className="artifacts-button is-accent" disabled={working} onClick={() => onAnswer(offer.id, true)}>Make the page</button>
+          <button type="button" className="artifacts-button" disabled={working} onClick={() => onAnswer(offer.id, false)}>Not yet</button>
         </div>
-      </div>;
-    }
-    case 'PAGE': {
-      const page = pages.find(entry => entry.id === item.pageId);
-      if (page === undefined) return <div className="artifacts-line">{item.text}</div>;
-      return <button type="button" className={`artifacts-pageline${page.id === shown ? ' is-shown' : ''}`} title={`Show v${page.version} in the panel`} onClick={() => onShow(page.id)}>
-        <FileText size={15} className="artifacts-pageline__icon" aria-hidden="true" />{page.title}<span className="artifacts-dim">· v{page.version}</span>
-      </button>;
-    }
-    case 'FAILURE': {
-      // Try again sends the message this failure answered once more.
-      const asked = items.slice(0, index).reverse().find(entry => entry.kind === 'USER')?.text ?? null;
-      const stopped = item.text.startsWith('Stopped');
-      return <div className="artifacts-line is-failure" title={stopped ? 'This turn was stopped. What it said or saved stays.' : item.text}>
-        <TriangleAlert size={14} className={`artifacts-line__icon${stopped ? '' : ' is-warn'}`} aria-hidden="true" />
-        <span className="artifacts-line__what">{item.text}</span>
-        {asked !== null && <button type="button" className="artifacts-button is-small" disabled={working} onClick={() => onRetry(asked)}>Try again</button>}
-      </div>;
-    }
-    default:
-      return null;
-  }
+      </div>)}
+  </div>;
 }
 
 /** A message the backend refused, said where it was sent; a busy workspace gets a clock, anything else a warning. */
@@ -305,6 +328,17 @@ function Elapsed({ since }: { since: string }) {
   }, []);
   const seconds = Math.max(0, Math.floor((now - Date.parse(since)) / 1_000));
   return <span className="artifacts-elapsed">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</span>;
+}
+
+/** The clock a running transcript counts its turn's time by; it stands still while nothing runs. */
+function useNow(running: boolean): number {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+  return now;
 }
 
 function useLive() {

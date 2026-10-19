@@ -207,47 +207,22 @@
 
 .artifacts-conversation.has-page .artifacts-chat { flex: 0 0 auto; }
 
-/* One scroll that starts at the bottom; only the composer is pinned under it. */
-.artifacts-chat__scroll {
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column-reverse;
-  overflow: auto;
-}
-
-.artifacts-chat__column,
-.artifacts-chat__composer {
-  width: 100%;
-  max-width: 760px;
-  box-sizing: border-box;
-  margin: 0 auto;
-}
-
-.artifacts-conversation.has-page .artifacts-chat__column,
-.artifacts-conversation.has-page .artifacts-chat__composer { max-width: none; }
-
-.artifacts-chat__column {
+/* The transcript is the task's own; these are what a turn made, under its answer. */
+.artifacts-marks {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-bottom: auto;
-  padding: 24px 20px 18px;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
 }
 
-.artifacts-chat__column .agt-user { margin-top: 0; }
-.artifacts-chat__column .agt-user__bubble { white-space: pre-wrap; }
-.artifacts-chat__composer { padding: 0 20px 16px; }
+.artifacts-marks > .artifacts-offer { align-self: stretch; }
 
-.artifacts-reply {
-  font-size: 13.5px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  text-wrap: pretty;
+.artifacts-notice {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto 8px;
 }
-
-.artifacts-reply > :first-child { margin-top: 0; }
-.artifacts-reply > :last-child { margin-bottom: 0; }
 
 .artifacts-line {
   display: flex;
@@ -259,8 +234,6 @@
   line-height: 20px;
 }
 
-.artifacts-line.is-failure,
-.artifacts-line[role='status'],
 .artifacts-line[role='alert'] { gap: 8px; font-size: 12.5px; }
 
 .artifacts-line__icon {

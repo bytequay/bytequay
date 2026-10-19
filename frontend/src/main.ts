@@ -61,7 +61,7 @@ import {
 } from './agents/contracts';
 import { parseDiscussionReplyDraft, parseTaskDiscussion, parseTaskDiscussions, type AskCommentDiscussionRequest, type AskDiscussionRequest, type DiscussionQuery, type DraftDiscussionReplyRequest, type OpenDiscussionRequest, type ResolveDiscussionRequest, type RetryDiscussionRequest } from './agents/discussions/contracts';
 import { parseLocalReviewThread, parseLocalReviewThreads, type CreateDevelopmentLearningCommentRequest, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
-import { parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
+import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import {
   parseContextBuildView,
   parseContextSpecCheck,
@@ -1845,8 +1845,14 @@ function registerIpc(): void {
   ipcMain.handle('artifacts:view', (_event, workspaceId: string, artifactId: string) => backendJson(artifactUrl(workspaceId, artifactId)).then(parseArtifactView));
   ipcMain.handle('artifacts:send', (_event, workspaceId: string, artifactId: string, text: string) =>
     backendJson(artifactUrl(workspaceId, artifactId, '/messages'), jsonInit('POST', { text })).then(parseArtifactView));
-  ipcMain.handle('artifacts:offer', (_event, workspaceId: string, artifactId: string, itemId: string, accept: boolean) =>
-    backendJson(artifactUrl(workspaceId, artifactId, `/offers/${encodeURIComponent(itemId)}`), jsonInit('POST', { accept: accept === true })).then(parseArtifactView));
+  ipcMain.handle('artifacts:events', (_event, workspaceId: string, artifactId: string, after: number) =>
+    // The same checks as a task's history page: one conversation, in order, with no gap after `after`.
+    backendJson(artifactUrl(workspaceId, artifactId, `/events?after=${Number(after)}`)).then(events => parseAgentEventSequence(events, Number(after))));
+  ipcMain.handle('artifacts:offer', (_event, workspaceId: string, artifactId: string, offerId: string, accept: boolean) =>
+    backendJson(artifactUrl(workspaceId, artifactId, `/offers/${encodeURIComponent(offerId)}`), jsonInit('POST', { accept: accept === true })).then(parseArtifactView));
+  ipcMain.handle('artifacts:question', (_event, workspaceId: string, artifactId: string, approvalId: string, allow: boolean, answers: Record<string, string>) =>
+    backendJson(artifactUrl(workspaceId, artifactId, `/questions/${encodeURIComponent(approvalId)}`), jsonInit('POST', { allow: allow === true, answers }))
+      .then(parseArtifactView));
   ipcMain.handle('artifacts:stop', (_event, workspaceId: string, artifactId: string) =>
     backendJson(artifactUrl(workspaceId, artifactId, '/stop'), { method: 'POST' }).then((): void => undefined));
   const epicsUrl = (workspaceId: string, suffix = '') => workspaceUrl(workspaceId, `/epics${suffix}`);

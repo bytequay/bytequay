@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.artifact.ArtifactRow;
 import com.bytequay.app.artifact.ArtifactService;
 import com.bytequay.app.artifact.ArtifactView;
-import com.bytequay.core.domain.Artifact;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -41,7 +41,7 @@ public class ArtifactController
     }
 
     @GetMapping
-    public List<Artifact> list(@PathVariable String workspaceId)
+    public List<ArtifactRow> list(@PathVariable String workspaceId)
     {
         return artifacts.list(workspaceId);
     }

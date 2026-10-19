@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.artifact.ArtifactRow;
 import com.bytequay.app.artifact.ArtifactService;
 import com.bytequay.app.artifact.ArtifactView;
 import com.bytequay.core.domain.Artifact;
@@ -48,12 +49,13 @@ class TestArtifactController
     void listsConversationsAndShowsOneWithItsItems()
             throws Exception
     {
-        when(artifacts.list("workspace")).thenReturn(ImmutableList.of(ARTIFACT));
+        when(artifacts.list("workspace")).thenReturn(ImmutableList.of(new ArtifactRow(ARTIFACT, 2)));
         when(artifacts.view("workspace", "a1")).thenReturn(VIEW);
         mvc.perform(get("/api/workspaces/workspace/artifacts"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value("a1"))
-                .andExpect(jsonPath("$[0].working").value(true));
+                .andExpect(jsonPath("$[0].artifact.id").value("a1"))
+                .andExpect(jsonPath("$[0].artifact.working").value(true))
+                .andExpect(jsonPath("$[0].pages").value(2));
         mvc.perform(get("/api/workspaces/workspace/artifacts/a1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.artifact.title").value("Teach me position deletes"))

@@ -69,6 +69,7 @@ import java.util.concurrent.ExecutorService;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -140,9 +141,12 @@ public class ArtifactService
         this.checkouts = properties.runtimeRoot().toAbsolutePath().normalize().resolve("artifacts");
     }
 
-    public List<Artifact> list(String workspaceId)
+    public List<ArtifactRow> list(String workspaceId)
     {
-        return store.list(workspaceId);
+        // ponytail: one page query per conversation; count in the store if the list grows past a few hundred.
+        return store.list(workspaceId).stream()
+                .map(artifact -> new ArtifactRow(artifact, (int) store.pages(workspaceId, artifact.id()).stream().map(ArtifactPage::key).distinct().count()))
+                .collect(toImmutableList());
     }
 
     public ArtifactView view(String workspaceId, String artifactId)

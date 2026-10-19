@@ -253,6 +253,8 @@ class TestArtifactService
         artifacts.send(WORKSPACE, id, "Make the diagram simpler");
         ArtifactView changed = waitUntilAnswered(id);
         assertThat(changed.pages()).extracting(ArtifactPage::key, ArtifactPage::version).containsExactly(tuple("p1", 1), tuple("p1", 2));
+        // Two versions of one page are one page in the list.
+        assertThat(artifacts.list(WORKSPACE)).extracting(ArtifactRow::pages).containsExactly(1);
         // No reply event came, so the turn's final answer is the reply.
         assertThat(changed.items().getLast()).extracting(ArtifactItem::kind, ArtifactItem::text).containsExactly(REPLY, "Here is what I found.");
     }

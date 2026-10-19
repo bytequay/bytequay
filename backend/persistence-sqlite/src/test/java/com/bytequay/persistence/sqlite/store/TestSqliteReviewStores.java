@@ -49,6 +49,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -547,6 +549,32 @@ class TestSqliteReviewStores
         assertThat(storedRun.endedAt()).contains(NOW.plusSeconds(2));
         assertThat(storedRun.version()).isEqualTo(1);
         assertThat(store.listRuns("review-1")).containsExactly(storedRun);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void publicationAndFindingResolutionCommitTogetherOrBothRollBack()
+    {
+        store.insertReview(newReview("review-published", "workspace-published", "bytequay/published", 7, "task-published", NOW).closed(NOW));
+        store.insertRun(newRun("run-published", "review-published"));
+        ReviewFinding finding = store.insertFinding(newFinding("finding-published", "review-published", "run-published"));
+        ReviewDraft pending = draftStore.save(ReviewDraft.empty("bytequay/published", 7, NOW).withSummaryFindings(ImmutableList.of(finding.id()), ImmutableList.of(), NOW));
+        ReviewDraft published = pending.withSummaryFindings(ImmutableList.of(), ImmutableList.of(finding.id()), NOW.plusSeconds(1));
+        ReviewFinding concurrent = store.updateFinding(finding.withMemories(ImmutableList.of(new ReviewFinding.MemoryCitation("m1", "Keep the guard"))));
+
+        assertThatThrownBy(() -> draftStore.savePublished(published,
+                ImmutableList.of(finding.withState(ReviewFinding.State.RESOLVED, Optional.empty(), NOW.plusSeconds(1)))))
+                .isInstanceOf(ReviewConflictException.class);
+
+        assertThat(draftStore.find(pending.repo(), pending.number())).contains(pending);
+        assertThat(store.findFinding(finding.id())).contains(concurrent);
+
+        ReviewFinding resolved = concurrent.withState(ReviewFinding.State.RESOLVED, Optional.of("Accepted and posted to GitHub"), NOW.plusSeconds(2));
+        ReviewDraft saved = draftStore.savePublished(published, ImmutableList.of(resolved));
+
+        assertThat(draftStore.find(pending.repo(), pending.number())).contains(saved);
+        assertThat(saved.postedSummaryFindingIds()).containsExactly(finding.id());
+        assertThat(store.findFinding(finding.id())).contains(resolved.withVersion(concurrent.version() + 1));
     }
 
     private static AgentReview newReview(String id, String workspaceId, String repo, int number, String taskId, Instant createdAt)

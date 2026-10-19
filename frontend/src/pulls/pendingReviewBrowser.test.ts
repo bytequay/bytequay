@@ -34,3 +34,10 @@ it('edits saved review comments and retries unconfirmed delivery only after conf
   });
   expect(result).toContain('Saved draft comments support editing');
 }, deadline(40_000));
+
+it('refreshes resolved findings after confirming GitHub publication in Chromium', async () => {
+  const result = await fixture.run<string>({
+    body: "const results = await window.webContents.executeJavaScript('PendingReviewTests.runConfirmedPublication()');",
+  });
+  expect(result).toContain('Confirmed publications refresh resolved findings');
+}, deadline(40_000));

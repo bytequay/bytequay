@@ -1836,6 +1836,7 @@ export function ReviewDialog({
         : await window.bridge.confirmReviewDraftCommentNotPosted(detail.repo, detail.number, version, itemId);
       if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current.event) savedDraft.current = updated;
       showDraft(updated);
+      if (posted && review !== null) reloadReview();
     }
     catch (value) {
       failed(value);
@@ -1859,6 +1860,7 @@ export function ReviewDialog({
       setBody(updated.body);
       setEvent(authored ? 'COMMENT' : updated.event);
       showDraft(updated);
+      if (posted && review !== null) reloadReview();
     }
     catch (value) {
       failed(value);

@@ -204,6 +204,8 @@ class TestReviewPublicationService
         assertThat(submitted.body()).isEmpty();
         assertThat(submitted.postedSummaryFindingIds()).containsExactly("f-whole");
         assertThat(submitted.summaryFindingIds()).containsExactly("f-removed");
+        assertThat(reviews.findFinding("f-whole")).map(ReviewFinding::state).contains(ReviewFinding.State.RESOLVED);
+        assertThat(reviews.findFinding("f-removed")).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
         assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, submitted.version(), REVIEW_ID, "f-whole"))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("already posted to GitHub");
         assertThat(service.addFinding(REPO, NUMBER, submitted.version(), REVIEW_ID, "f-removed").body()).isEqualTo("Nit: description\n\nDescribe the migration.");
@@ -479,7 +481,10 @@ class TestReviewPublicationService
         reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case"));
         ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class))).thenReturn(posted());
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class))).thenAnswer(invocation -> {
+            assertThat(reviews.findFinding(FINDING_ID)).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
+            return posted();
+        });
 
         service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
 
@@ -493,6 +498,35 @@ class TestReviewPublicationService
         assertThat(comment.line()).isEqualTo(131);
         assertThat(comment.startLine()).isEqualTo(118);
         assertThat(comment.commitId()).isEqualTo(REVIEWED_HEAD);
+        assertThat(reviews.findFinding(FINDING_ID)).hasValueSatisfying(finding -> {
+            assertThat(finding.state()).isEqualTo(ReviewFinding.State.RESOLVED);
+            assertThat(finding.stateReason()).contains("Accepted and posted to GitHub");
+            assertThat(finding.resolvedByTaskId()).isEmpty();
+        });
+    }
+
+    @Test
+    void submittingResolvesOnlyNewlyPublishedFindingsAndPreservesAUserReopening()
+    {
+        reviews.put(finding(FINDING_ID, 1, "src/A.java", 1, 1, "First"));
+        reviews.put(finding("excluded", 2, "src/B.java", 2, 2, "Excluded"));
+        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "excluded");
+        draft = service.editItem(REPO, NUMBER, draft.version(), lastItemId(draft), "Not included", false);
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(posted());
+
+        ReviewDraft published = service.submit(REPO, NUMBER, draft.version(), "", "COMMENT").draft();
+
+        assertThat(reviews.findFinding(FINDING_ID)).map(ReviewFinding::state).contains(ReviewFinding.State.RESOLVED);
+        assertThat(reviews.findFinding("excluded")).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
+        ReviewFinding reopened = reviews.findFinding(FINDING_ID).orElseThrow().withState(ReviewFinding.State.OPEN, Optional.empty(), NOW);
+        reviews.put(reopened);
+
+        service.submit(REPO, NUMBER, published.version(), "Another review", "COMMENT");
+
+        assertThat(reviews.findFinding(FINDING_ID)).contains(reopened);
+        assertThat(reviews.findFinding("excluded")).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
     }
 
     @Test
@@ -659,7 +693,8 @@ class TestReviewPublicationService
     @Test
     void aFailedSendLeavesTheItemUncertainAndBlocksAResend()
     {
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
+        reviews.put(finding(FINDING_ID, 1, "src/A.java", 10, 10, "Rename this"));
+        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
         String itemId = lastItemId(draft);
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
         when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class))).thenThrow(new IllegalStateException("github is unreachable"));
@@ -671,7 +706,8 @@ class TestReviewPublicationService
         ReviewDraft after = service.draft(REPO, NUMBER);
         assertThat(after.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
         assertThat(after.items().getFirst().published()).isFalse();
-        assertThat(after.items().getFirst().body()).isEqualTo("Rename this");
+        assertThat(after.items().getFirst().body()).isEqualTo("Finding 1\n\nRename this");
+        assertThat(reviews.findFinding(FINDING_ID)).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
         // A send whose outcome is unknown is never retried from here; the refusal is what keeps a duplicate comment off GitHub.
         assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, after.version(), itemId)).hasMessageContaining("unknown outcome");
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
@@ -723,6 +759,7 @@ class TestReviewPublicationService
         when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenThrow(new IllegalStateException("Read timed out"));
         assertThatThrownBy(() -> service.submit(REPO, NUMBER, added.version(), added.body(), "COMMENT")).hasMessage("Read timed out");
         ReviewDraft uncertain = service.draft(REPO, NUMBER);
+        assertThat(reviews.findFinding("f-whole")).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
 
         ReviewDraft found = service.confirmReview(REPO, NUMBER, uncertain.version(), true);
 
@@ -730,6 +767,7 @@ class TestReviewPublicationService
         assertThat(found.body()).isEmpty();
         assertThat(found.event()).isEqualTo(ReviewDraft.DEFAULT_EVENT);
         assertThat(found.postedSummaryFindingIds()).containsExactly("f-whole");
+        assertThat(reviews.findFinding("f-whole")).map(ReviewFinding::state).contains(ReviewFinding.State.RESOLVED);
         assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, found.version(), REVIEW_ID, "f-whole")).hasMessageContaining("already posted to GitHub");
         assertThatThrownBy(() -> service.submit(REPO, NUMBER, found.version(), found.body(), found.event())).hasMessageContaining("Add a comment or review text");
         verify(pullRequests, times(1)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any());
@@ -805,14 +843,17 @@ class TestReviewPublicationService
     @Test
     void aCommentFoundOnGitHubIsRecordedAsPostedAndNeverSentAgain()
     {
+        reviews.put(finding(FINDING_ID, 1, "src/A.java", 10, 10, "Delivered after all"));
+        ReviewDraft added = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
         ReviewPublication uncertain = new ReviewPublication("failed-send", ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW);
-        ReviewDraftItem original = manual("src/A.java", 10, "Delivered after all").withPublication(Optional.of(uncertain));
-        ReviewDraft saved = drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withItems(ImmutableList.of(original), NOW));
+        ReviewDraftItem original = added.items().getFirst().withPublication(Optional.of(uncertain));
+        ReviewDraft saved = drafts.save(added.withItems(ImmutableList.of(original), NOW));
 
         ReviewDraft confirmed = service.confirmPosted(REPO, NUMBER, saved.version(), original.id());
 
         assertThat(confirmed.items().getFirst().published()).isTrue();
         assertThat(confirmed.items().getFirst().publication().orElseThrow().attemptId()).isEqualTo("failed-send");
+        assertThat(reviews.findFinding(FINDING_ID)).map(ReviewFinding::state).contains(ReviewFinding.State.RESOLVED);
         assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, confirmed.version(), original.id())).hasMessageContaining("already posted to GitHub");
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
         when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Thanks"), any())).thenReturn(posted());
@@ -850,7 +891,8 @@ class TestReviewPublicationService
     @Test
     void aSendWhoseResultCannotBeSavedReadsAsUncertainInsteadOfSending()
     {
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
+        reviews.put(finding(FINDING_ID, 1, "src/A.java", 10, 10, "Rename this"));
+        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
         IllegalStateException locked = new IllegalStateException("database is locked");
         when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenAnswer(invocation -> {
             drafts.failNextSave(locked);
@@ -861,6 +903,7 @@ class TestReviewPublicationService
 
         ReviewDraft after = service.draft(REPO, NUMBER);
         assertThat(after.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
+        assertThat(reviews.findFinding(FINDING_ID)).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
         assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, after.version(), lastItemId(after))).hasMessageContaining("unknown outcome");
         verify(pullRequests, times(1)).createReviewComment(eq(REPO), eq(NUMBER), any());
     }
@@ -868,7 +911,8 @@ class TestReviewPublicationService
     @Test
     void aSendGitHubRefusedReturnsToThePendingReview()
     {
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
+        reviews.put(finding(FINDING_ID, 1, "src/A.java", 10, 10, "Rename this"));
+        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
         ResponseStatusException invalid = new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Line could not be resolved");
         when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenThrow(invalid);
 
@@ -882,6 +926,7 @@ class TestReviewPublicationService
         assertThat(service.draft(REPO, NUMBER).items().getFirst().publication()).isEmpty();
         assertThat(service.draft(REPO, NUMBER).reviewPublication()).isEmpty();
         assertThat(service.draft(REPO, NUMBER).body()).isEqualTo("Review");
+        assertThat(reviews.findFinding(FINDING_ID)).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
     }
 
     @Test
@@ -1278,7 +1323,7 @@ class TestReviewPublicationService
                 true);
     }
 
-    private static final class InMemoryReviewDraftStore
+    private final class InMemoryReviewDraftStore
             implements ReviewDraftStore
     {
         private final Map<String, ReviewDraft> stored = new HashMap<>();
@@ -1311,9 +1356,17 @@ class TestReviewPublicationService
             stored.put(saved.id(), saved);
             return saved;
         }
+
+        @Override
+        public ReviewDraft savePublished(ReviewDraft draft, List<ReviewFinding> findings)
+        {
+            ReviewDraft saved = save(draft);
+            findings.forEach(finding -> reviews.put(finding.withVersion(finding.version() + 1)));
+            return saved;
+        }
     }
 
-    /** The publication service reads review acceptance and finding state without changing either. */
+    /** Review acceptance and findings read by the publication service and updated by the draft store. */
     private static final class InMemoryAgentReviewStore
     {
         private final AgentReviewStore service = mock(AgentReviewStore.class, invocation -> {

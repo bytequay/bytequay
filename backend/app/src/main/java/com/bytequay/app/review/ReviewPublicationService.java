@@ -54,9 +54,11 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.Lock;
+import java.util.stream.Stream;
 
 import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -146,21 +148,22 @@ public class ReviewPublicationService
 
     /**
      * Snapshots a finding into the draft as an editable outgoing comment. The finding keeps its own
-     * identity and body; edits and resolution on either side never change the other.
+     * identity and body; editing either side never changes the other. Confirmed publication resolves
+     * the source finding locally.
      */
     public ReviewDraft addFinding(String repo, int number, long expectedVersion, String reviewId, String findingId)
     {
         return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             ReviewFinding finding = requireFinding(reviewId, findingId);
+            if (publishedFindings(draft).contains(findingId)) {
+                throw new ReviewConflictException("This finding was already posted to GitHub");
+            }
             requirePromotable(finding);
             requireAcceptedReview(repo, number, finding);
             String text = body(finding.title().strip() + "\n\n" + finding.body().strip());
             if (finding.anchor().isEmpty()) {
                 // A finding about the whole pull request has no line to comment on, so it joins the review's own text, which the user edits before submitting.
-                if (draft.postedSummaryFindingIds().contains(findingId)) {
-                    throw new ReviewConflictException("This finding was already posted to GitHub");
-                }
                 if (draft.body().contains(body(finding.body()))) {
                     throw new ReviewConflictException("This finding is already in your review");
                 }
@@ -174,9 +177,6 @@ public class ReviewPublicationService
             ReviewAnchor anchor = finding.anchor().orElseThrow();
             if (draft.items().stream().anyMatch(existing -> existing.findingId().equals(Optional.of(findingId)) && !existing.published())) {
                 throw new ReviewConflictException("This finding is already in your review");
-            }
-            if (draft.items().stream().anyMatch(existing -> existing.findingId().equals(Optional.of(findingId)) && existing.published())) {
-                throw new ReviewConflictException("This finding was already posted to GitHub");
             }
             ReviewDraftItem item = new ReviewDraftItem(
                     UUID.randomUUID().toString(),
@@ -246,7 +246,7 @@ public class ReviewPublicationService
             ReviewDraftItem item = requireUncertain(draft, itemId);
             ReviewPublication posted = new ReviewPublication(
                     item.publication().orElseThrow().attemptId(), ReviewPublication.State.PUBLISHED, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), now());
-            return drafts.save(draft.withItems(replace(draft.items(), item.withPublication(Optional.of(posted))), now()));
+            return savePublished(draft, draft.withItems(replace(draft.items(), item.withPublication(Optional.of(posted))), now()));
         });
     }
 
@@ -262,7 +262,7 @@ public class ReviewPublicationService
                 throw new ReviewConflictException("Only a review with unconfirmed delivery can be marked as posted or not posted");
             }
             ReviewDraft confirmed = draft.withReviewPublication(Optional.empty(), now());
-            return drafts.save(posted ? submitted(confirmed, draft.body(), draft.event()) : confirmed);
+            return posted ? savePublished(draft, submitted(confirmed, draft.body(), draft.event())) : drafts.save(confirmed);
         });
     }
 
@@ -507,7 +507,25 @@ public class ReviewPublicationService
         if (carriedReview) {
             settled = withReviewOutcome(submitted(settled, reservation.draft().body(), reservation.draft().event()), reservation.attemptId(), Optional.empty());
         }
-        return new Publication(drafts.save(settled), ImmutableList.copyOf(published), uncertain);
+        return new Publication(savePublished(draft, settled), ImmutableList.copyOf(published), uncertain);
+    }
+
+    private ReviewDraft savePublished(ReviewDraft previous, ReviewDraft published)
+    {
+        Set<String> alreadyPublished = publishedFindings(previous);
+        List<ReviewFinding> resolved = publishedFindings(published).stream()
+                .filter(findingId -> !alreadyPublished.contains(findingId))
+                .flatMap(findingId -> reviews.findFinding(findingId).stream())
+                .filter(finding -> finding.state() != ReviewFinding.State.RESOLVED)
+                .map(finding -> finding.withState(ReviewFinding.State.RESOLVED, Optional.of("Accepted and posted to GitHub"), now()))
+                .collect(toImmutableList());
+        return drafts.savePublished(published, resolved);
+    }
+
+    private static Set<String> publishedFindings(ReviewDraft draft)
+    {
+        return Stream.concat(draft.postedSummaryFindingIds().stream(),
+                draft.items().stream().filter(ReviewDraftItem::published).flatMap(item -> item.findingId().stream())).collect(toImmutableSet());
     }
 
     /**

@@ -13,9 +13,11 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewDraft;
 import com.bytequay.core.review.ReviewDraftStore;
+import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.persistence.sqlite.entity.PrReviewDraftEntity;
 import com.bytequay.persistence.sqlite.repository.PrReviewDraftJpaRepository;
 import org.springframework.dao.DataAccessException;
@@ -23,6 +25,7 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -34,10 +37,12 @@ public class SqliteReviewDraftStore
         implements ReviewDraftStore
 {
     private final PrReviewDraftJpaRepository repository;
+    private final AgentReviewStore reviews;
 
-    public SqliteReviewDraftStore(PrReviewDraftJpaRepository repository)
+    public SqliteReviewDraftStore(PrReviewDraftJpaRepository repository, AgentReviewStore reviews)
     {
         this.repository = requireNonNull(repository, "repository is null");
+        this.reviews = requireNonNull(reviews, "reviews is null");
     }
 
     @Override
@@ -45,6 +50,15 @@ public class SqliteReviewDraftStore
     public Optional<ReviewDraft> find(String repo, int number)
     {
         return repository.findById(repo.toLowerCase(Locale.ROOT) + "#" + number).map(PrReviewDraftEntity::toDomain);
+    }
+
+    @Override
+    @Transactional
+    public ReviewDraft savePublished(ReviewDraft draft, List<ReviewFinding> findings)
+    {
+        ReviewDraft saved = save(draft);
+        findings.forEach(reviews::updateFinding);
+        return saved;
     }
 
     @Override

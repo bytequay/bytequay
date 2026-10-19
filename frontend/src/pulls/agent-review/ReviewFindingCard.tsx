@@ -85,6 +85,7 @@ export default function ReviewFindingCard({
   const [editVersion, setEditVersion] = useReviewDraft<number | null>(`finding:${finding.id}:version`, null);
   const [error, setError] = useState<string | null>(null);
   const pill = findingPill(review, finding);
+  const accepted = pill.text === 'Accepted';
   const publication = findingPublication(review, finding);
   const awaitingConfirmation = publication.kind === 'sending' || publication.kind === 'uncertain';
   const messages = messagesFor(review, finding.id);
@@ -183,9 +184,10 @@ export default function ReviewFindingCard({
           : inDiff
             ? <span className="lrc__title">Comment on {lines.startLine === lines.endLine ? 'line' : 'lines'} <strong>{lines.range}</strong></span>
             : <code className="lrc__title" title={lines.path}>{shortPath(lines.path)} {lines.range}</code>}
-        badges={<>{pill.text !== 'Private' && finding.state !== 'RESOLVED' && <span className={`lrc__badge is-${pill.tone}`}>{pill.text}</span>}
+        badges={<>{!accepted && pill.text !== 'Private' && finding.state !== 'RESOLVED' && <span className={`lrc__badge is-${pill.tone}`}>{pill.text}</span>}
           {finding.severity !== null && <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>}
-          <CopyLinkButton label="conversation" value={findingConversation(review, finding)} /></>}
+          <CopyLinkButton label="conversation" value={findingConversation(review, finding)} />
+          {accepted && <span className="lrc__badge is-ready" title="Posted to GitHub in your review">Accepted</span>}</>}
         code={!inDiff && lines !== null && finding.excerpt.length > 0 && <div className="lrc__code">
           {finding.excerpt.map((text, index) => <CommentedCodeLine key={lines.startLine + index}
             line={{ lineNumber: completeExcerpt ? lines.startLine + index : null, prefix: lines.side === 'LEFT' ? '-' : ' ', text }} />)}

@@ -13,6 +13,7 @@
  */
 package com.bytequay.core.review;
 
+import java.util.List;
 import java.util.Optional;
 
 /** Durable storage for one pull request's local pending review. */
@@ -27,4 +28,7 @@ public interface ReviewDraftStore
      * @throws ReviewConflictException when the stored version moved
      */
     ReviewDraft save(ReviewDraft draft);
+
+    /** Commits confirmed publication and its source finding resolutions in one transaction. */
+    ReviewDraft savePublished(ReviewDraft draft, List<ReviewFinding> findings);
 }

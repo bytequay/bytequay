@@ -392,3 +392,60 @@ export async function runDraftCommentEdit(): Promise<string> {
     Object.assign(window, { bridge: previous });
   }
 }
+
+export async function runConfirmedPublication(): Promise<string> {
+  const previous = window.bridge;
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    for (const summary of [false, true]) {
+      const finding = { ...reviewFixture().findings[0], state: 'OPEN' as const };
+      const uncertain: NonNullable<ReviewDraftDto['reviewPublication']> = { state: 'UNCERTAIN', remoteReviewId: null, remoteCommentId: null, url: null, at: finding.updatedAt };
+      const draft: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: 'Review summary', event: 'COMMENT',
+        reviewPublication: summary ? uncertain : null, postedSummaryFindingIds: [], version: 4, updatedAt: finding.updatedAt,
+        items: summary ? [] : [{ id: 'confirmed-finding', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
+          path: files[0].filename, side: 'RIGHT', line: 1, startLine: null, commitId: 'two', body: finding.body, included: true,
+          published: false, publication: uncertain }] };
+      let currentReview = reviewFixture({ findings: [finding], draft });
+      let savedReview = currentReview;
+      let reads = 0;
+      const confirm = () => {
+        const updated: ReviewDraftDto = { ...draft, body: summary ? '' : draft.body, reviewPublication: null, version: draft.version + 1,
+          postedSummaryFindingIds: summary ? [finding.id] : [],
+          items: draft.items.map(item => ({ ...item, published: true, publication: { ...uncertain, state: 'PUBLISHED' } })) };
+        savedReview = { ...savedReview, draft: updated, findings: [{ ...finding, state: 'RESOLVED', version: finding.version + 1 }] };
+        return updated;
+      };
+      const bridge = {
+        getUserProfile: async () => null,
+        fetchPrDiffFiles: async () => files,
+        fetchPrDiffCommits: async () => commits,
+        getAgentReview: async () => { reads++; return savedReview; },
+        confirmReviewDraftCommentPosted: async () => confirm(),
+        confirmReviewDraftReview: async (_repo, _number, _version, posted) => {
+          assert(posted, 'This scenario confirms a posted review');
+          return confirm();
+        },
+      } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getAgentReview'
+        | 'confirmReviewDraftCommentPosted' | 'confirmReviewDraftReview'>;
+      Object.assign(window, { bridge });
+      const render = () => root.render(<ReviewDialog key={String(summary)} pr={remotePullRequest(stored, 'bob')} detail={stored}
+        review={currentReview} onReviewChange={value => { currentReview = value; render(); }} onReviewSubmitted={() => {}} onClose={() => {}} />);
+      flushSync(render); await settle();
+      const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === 'Confirmed posted');
+      assert(button !== undefined && reads === 0 && currentReview.findings[0].state === 'OPEN', 'An uncertain send must leave its finding open');
+      button.click(); await settle();
+      assert(Number(reads) === 1 && String(currentReview.findings[0].state) === 'RESOLVED' && currentReview.findings[0].version === finding.version + 1,
+        `Confirming a posted ${summary ? 'review summary' : 'comment'} must refresh the resolved finding, not only the draft`);
+      assert(currentReview.draft?.version === draft.version + 1 && host.textContent?.includes('Confirmed posted') === false,
+        'The refreshed review must preserve the confirmed publication and clear its recovery controls');
+    }
+    return 'Confirmed publications refresh resolved findings for comments and review summaries';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    Object.assign(window, { bridge: previous });
+  }
+}

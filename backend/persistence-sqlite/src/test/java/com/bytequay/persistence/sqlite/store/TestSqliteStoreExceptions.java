@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.rebase.BranchRebaseException;
+import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewDraft;
 import com.bytequay.core.store.StorageException;
@@ -99,7 +100,7 @@ class TestSqliteStoreExceptions
         DataIntegrityViolationException failure = rejected(reason);
         when(repository.saveAndFlush(any(PrReviewDraftEntity.class))).thenThrow(failure);
 
-        assertThatThrownBy(() -> new SqliteReviewDraftStore(repository).save(ReviewDraft.empty("owner/repo", 1, Instant.EPOCH)))
+        assertThatThrownBy(() -> new SqliteReviewDraftStore(repository, mock(AgentReviewStore.class)).save(ReviewDraft.empty("owner/repo", 1, Instant.EPOCH)))
                 .isInstanceOf(StorageException.class)
                 .hasCause(failure);
     }
@@ -110,7 +111,7 @@ class TestSqliteStoreExceptions
         PrReviewDraftJpaRepository repository = mock(PrReviewDraftJpaRepository.class);
         when(repository.saveAndFlush(any(PrReviewDraftEntity.class))).thenThrow(rejected("[SQLITE_CONSTRAINT_PRIMARYKEY] duplicate draft"));
 
-        assertThatThrownBy(() -> new SqliteReviewDraftStore(repository).save(ReviewDraft.empty("owner/repo", 1, Instant.EPOCH)))
+        assertThatThrownBy(() -> new SqliteReviewDraftStore(repository, mock(AgentReviewStore.class)).save(ReviewDraft.empty("owner/repo", 1, Instant.EPOCH)))
                 .isInstanceOf(ReviewConflictException.class);
     }
 

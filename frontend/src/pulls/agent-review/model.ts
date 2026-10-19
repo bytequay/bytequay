@@ -434,11 +434,11 @@ export function findingPublication(review: AgentReviewDto, finding: ReviewFindin
 /** The pill on a finding card header; at most one, in the order the design ranks them. */
 export function findingPill(review: AgentReviewDto, finding: ReviewFindingDto): { text: string; tone: 'neutral' | 'warn' | 'ready' | 'danger' } {
   const publication = findingPublication(review, finding);
+  if (publication.kind === 'published' || review.draft?.postedSummaryFindingIds.includes(finding.id)) return { text: 'Accepted', tone: 'ready' };
   if (finding.state === 'WITHDRAWN') return { text: 'Withdrawn', tone: 'neutral' };
   if (finding.state === 'RESOLVED') return { text: 'Resolved locally', tone: 'neutral' };
   if (publication.kind === 'uncertain') return { text: 'Delivery unconfirmed', tone: 'warn' };
   if (publication.kind === 'sending') return { text: 'Sending…', tone: 'neutral' };
-  if (publication.kind === 'published' || review.draft?.postedSummaryFindingIds.includes(finding.id)) return { text: 'Published', tone: 'ready' };
   if (finding.outdated) return { text: 'Needs reassessment', tone: 'warn' };
   if (draftItemFor(review.draft, finding.id) !== null
     || (finding.path === null && review.draft?.body.includes(finding.body.trim()))) return { text: 'Pending · in your review', tone: 'warn' };

@@ -694,6 +694,13 @@ subject to current evidence/head checks and the exact previewed revision. Raw
 hypotheses cannot bypass those checks. This workflow grants no additional GitHub-write or
 child-tool permissions.
 
+Adding a finding to the user's review leaves it open. Confirmed publication, or
+the user's confirmation that an uncertain send reached GitHub, resolves its source
+finding locally and displays Accepted beside Resolved. Draft publication and source
+resolution commit together; failed or uncertain sends leave the source unchanged.
+Existing resolutions keep their reason and attribution, and later publications do
+not undo a user's decision to reopen an accepted finding.
+
 ## Implementation boundaries
 
 The implementation is concentrated in the current review service:

@@ -445,7 +445,7 @@ describe('publication eligibility', () => {
     const whole: typeof finding = { ...finding, path: null };
     const submitted = { ...review, draft: { ...draft([]), postedSummaryFindingIds: [whole.id] } };
     expect(findingPublication(submitted, whole)).toEqual({ kind: 'blocked', reason: 'Posted in your review summary' });
-    expect(findingPill(submitted, whole)).toEqual({ text: 'Published', tone: 'ready' });
+    expect(findingPill(submitted, whole)).toEqual({ text: 'Accepted', tone: 'ready' });
   });
 
   it('blocks a provisional result from publication', () => {
@@ -530,7 +530,7 @@ describe('publication eligibility', () => {
     expect(findingPill(withFindings(outdated), outdated)).toEqual({ text: 'Needs reassessment', tone: 'warn' });
   });
 
-  it('shows a promoted finding as pending, and a sent one as published', () => {
+  it('shows a promoted finding as pending, and a sent one as accepted', () => {
     const pending = reviewFixture({ draft: draft([draftItem()]) });
     expect(findingPublication(pending, finding).kind).toBe('draft');
     expect(findingPill(pending, finding)).toEqual({ text: 'Pending · in your review', tone: 'warn' });
@@ -539,7 +539,7 @@ describe('publication eligibility', () => {
       draft: draft([draftItem({ published: true, publication: { state: 'PUBLISHED', remoteReviewId: 1, remoteCommentId: 2, url: null, at: '2026-09-06T16:32:00Z' } })]),
     });
     expect(findingPublication(sent, finding).kind).toBe('published');
-    expect(findingPill(sent, finding)).toEqual({ text: 'Published', tone: 'ready' });
+    expect(findingPill(sent, finding)).toEqual({ text: 'Accepted', tone: 'ready' });
   });
 
   it('keeps a published finding published even after the user resolves it locally', () => {
@@ -548,6 +548,7 @@ describe('publication eligibility', () => {
       draft: draft([draftItem({ published: true, publication: { state: 'PUBLISHED', remoteReviewId: 1, remoteCommentId: 2, url: null, at: '2026-09-06T16:32:00Z' } })]),
     });
     expect(findingPublication(sent, sent.findings[0]).kind).toBe('published');
+    expect(findingPill(sent, sent.findings[0])).toEqual({ text: 'Accepted', tone: 'ready' });
   });
 
   it.each(['UNCERTAIN', 'RESERVED'] as const)('does not treat %s delivery as published', state => {

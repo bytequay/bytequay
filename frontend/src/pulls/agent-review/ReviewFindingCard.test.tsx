@@ -24,10 +24,10 @@ const draftItem: ReviewDraftItemDto = { id: 'draft-suggestion', source: 'AGENT_F
   findingRevision: finding.revision, commitId: finding.validatedHeadSha, path: finding.path, side: 'RIGHT', line: finding.endLine, startLine: finding.startLine,
   body, included: true, published: false, publication: null };
 
-function render(value = finding, item?: ReviewDraftItemDto, projection: 'review' | 'changes' = 'review', messages: ReviewMessageDto[] = []) {
+function render(value = finding, item?: ReviewDraftItemDto, projection: 'review' | 'changes' = 'review', messages: ReviewMessageDto[] = [], overrides: Partial<AgentReviewDto> = {}) {
   const review: AgentReviewDto = reviewFixture({ findings: [value], messages, draft: item === undefined ? null : {
     repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items: [item], reviewPublication: null, postedSummaryFindingIds: [], version: 1, updatedAt: value.updatedAt,
-  } });
+  }, ...overrides });
   return renderToStaticMarkup(<ReviewFindingCard review={review} finding={value} projection={projection}
     viewerLogin="reviewer" viewerAvatarUrl={null} actions={{
       onAsk: async () => {}, onResolve: async () => {}, onReopen: async () => {}, onAddToReview: async () => {},
@@ -50,6 +50,41 @@ describe('finding suggestions', () => {
     expect(html).not.toContain('is-published');
     expect(html).not.toContain('Post comment now');
     expect(html).not.toContain('Add to my review');
+    expect(html).not.toContain('>Accepted</span>');
+    expect(html).not.toContain('lrc__resolved');
+  });
+
+  it.each(['review', 'changes'] as const)('shows Accepted beside Resolved after confirmed publication in %s', projection => {
+    const html = render({ ...finding, state: 'RESOLVED' }, { ...draftItem, published: true, publication: {
+      state: 'PUBLISHED', remoteReviewId: 1, remoteCommentId: 2, url: null, at: finding.updatedAt,
+    } }, projection);
+    expect(html).toContain('>Accepted</span><span class="lrc__resolved">');
+    expect(html).toContain('Resolved</span>');
+    expect(html).toContain('data-review-closed="true"');
+    expect(html).not.toContain('open=""');
+    expect(html).toContain('Posted to GitHub as a review comment');
+    expect(html).toContain('>Reopen</button>');
+    expect(html).not.toContain('Add to my review');
+  });
+
+  it('marks a finding accepted when it was posted in the review summary', () => {
+    const whole: ReviewFindingDto = { ...finding, state: 'RESOLVED', path: null, side: null, startLine: null, endLine: null, range: null, excerpt: [] };
+    const html = render(whole, undefined, 'review', [], { draft: {
+      repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items: [], reviewPublication: null,
+      postedSummaryFindingIds: [whole.id], version: 2, updatedAt: whole.updatedAt,
+    } });
+    expect(html).toContain('>Accepted</span><span class="lrc__resolved">');
+    expect(html).toContain('Whole change');
+    expect(html).toContain('Posted in your review summary');
+  });
+
+  it('does not show Accepted while a comment is pending or sending, or when only resolved locally', () => {
+    const sending: ReviewDraftItemDto = { ...draftItem, publication: {
+      state: 'RESERVED', remoteReviewId: null, remoteCommentId: null, url: null, at: finding.updatedAt,
+    } };
+    for (const html of [render(finding, draftItem), render(finding, sending), render({ ...finding, state: 'RESOLVED' })]) {
+      expect(html).not.toContain('>Accepted</span>');
+    }
   });
 
   it.each(['review', 'changes'] as const)('compares a suggestion with its exact reviewed range in %s', projection => {

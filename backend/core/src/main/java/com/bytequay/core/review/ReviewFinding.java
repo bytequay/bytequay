@@ -185,7 +185,7 @@ public record ReviewFinding(
     public enum State
     {
         OPEN,
-        /** Resolved locally, by the user or by a development agent that fixed it; cannot be newly promoted, but existing user drafts are independent. */
+        /** Resolved locally by the user, confirmed publication, or a development agent's fix; cannot be newly promoted, but existing user drafts remain sendable. */
         RESOLVED,
         /** Withdrawn by the agent with an explanation; cannot be newly promoted. */
         WITHDRAWN

@@ -198,7 +198,9 @@ Agents → Models**.
 2. Read the explanation and findings. Use **View in Changes** for code, **Review
    details** for evidence, or **Ask reviewer** for a private discussion.
 3. Choose **Add to my review** to edit a finding before **Submit review**
-   publishes it. **Request fix → Send to developer** asks the development agent
+   publishes it. Once GitHub publication is confirmed, the private finding is
+   marked **Resolved**, with **Accepted** beside it on the card.
+   **Request fix → Send to developer** asks the development agent
    to address it privately.
 4. Choose **Update review** after the PR changes, or **Review again** for local
    development changes.

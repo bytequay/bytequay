@@ -15,7 +15,7 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.Artifact;
-import com.bytequay.core.domain.ArtifactItem;
+import com.bytequay.core.domain.ArtifactOffer;
 import com.bytequay.core.domain.ArtifactPage;
 import com.bytequay.core.domain.ArtifactSession;
 import jakarta.persistence.EntityManager;
@@ -26,6 +26,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,7 +50,7 @@ class TestSqliteArtifactStore
     }
 
     @Test
-    void keepsConversationsItemsInOrderAndPageVersionsApartFromTheirHtml()
+    void keepsConversationsEventsOffersAndPageVersionsApartFromTheirHtml()
     {
         // A whole second and a fraction of it: their text does not sort by time.
         Artifact older = Artifact.started("a1", "workspace", "Teach me position deletes", AT).working(true, AT);
@@ -58,16 +59,17 @@ class TestSqliteArtifactStore
         store.save(older);
         store.save(newer);
         store.save(elsewhere);
-        ArtifactItem asked = ArtifactItem.of("a1", ArtifactItem.Kind.USER, "Teach me position deletes", AT);
-        ArtifactItem read = ArtifactItem.of("a1", ArtifactItem.Kind.ACTIVITY, "DeleteManager.java · 1 step", AT);
-        ArtifactItem offer = ArtifactItem.offered("a1", "Deletes on read", "How a scan skips deleted rows.", AT);
-        store.add("workspace", asked);
-        store.add("workspace", read);
-        store.add("workspace", offer);
-        store.update(read.withText("DeleteManager.java · 2 steps"));
-        store.update(offer.answered(ArtifactItem.Offer.State.ACCEPTED));
-        ArtifactPage first = new ArtifactPage("v1", "a1", "p1", 1, "Deletes on read", "abc123", AT);
-        ArtifactPage second = new ArtifactPage("v2", "a1", "p1", 2, "Deletes on read", "abc123", AT.plusSeconds(60));
+        store.addEvent("workspace", "a1", 1, "{\"sequence\":1}");
+        store.addEvent("workspace", "a1", 2, "{\"sequence\":2}");
+        store.addEvent("workspace", "a1", 3, "{\"sequence\":3}");
+        ArtifactOffer offer = ArtifactOffer.offered("a1", "t2", "Deletes on read", "How a scan skips deleted rows.", AT);
+        ArtifactOffer later = ArtifactOffer.offered("a1", "t3", "Equality deletes", "How equality deletes match rows.", AT);
+        store.saveOffer("workspace", offer);
+        store.saveOffer("workspace", later);
+        store.saveOffer("workspace", offer.answered(ArtifactOffer.State.ACCEPTED));
+        ArtifactPage first = new ArtifactPage("v1", "a1", "p1", 1, "Deletes on read", "abc123", AT, Optional.of("t3"));
+        // Saved before turns were recorded.
+        ArtifactPage second = new ArtifactPage("v2", "a1", "p1", 2, "Deletes on read", "abc123", AT.plusSeconds(60), Optional.empty());
         store.savePage("workspace", first, "<p>one</p>");
         store.savePage("workspace", second, "<p>two</p>");
         flush();
@@ -75,8 +77,13 @@ class TestSqliteArtifactStore
         assertThat(store.list("workspace")).containsExactly(newer, older);
         assertThat(store.working()).containsExactly(older);
         assertThat(store.find("workspace", "a3")).isEmpty();
-        assertThat(store.items("workspace", "a1")).containsExactly(asked, read.withText("DeleteManager.java · 2 steps"), offer.answered(ArtifactItem.Offer.State.ACCEPTED));
-        assertThat(store.items("other", "a1")).isEmpty();
+        assertThat(store.events("workspace", "a1", 0, 10)).containsExactly("{\"sequence\":1}", "{\"sequence\":2}", "{\"sequence\":3}");
+        assertThat(store.events("workspace", "a1", 1, 1)).containsExactly("{\"sequence\":2}");
+        assertThat(store.events("other", "a1", 0, 10)).isEmpty();
+        assertThat(store.lastEvent("workspace", "a1")).isEqualTo(3);
+        assertThat(store.lastEvent("workspace", "a2")).isZero();
+        assertThat(store.offers("workspace", "a1")).containsExactly(offer.answered(ArtifactOffer.State.ACCEPTED), later);
+        assertThat(store.offers("other", "a1")).isEmpty();
         assertThat(store.pages("workspace", "a1")).containsExactly(first, second);
         assertThat(store.pageHtml("workspace", "a1", "v2")).contains("<p>two</p>");
         assertThat(store.pageHtml("other", "a1", "v2")).isEmpty();
@@ -90,7 +97,8 @@ class TestSqliteArtifactStore
         store.deleteWorkspace("workspace");
         flush();
         assertThat(store.list("workspace")).isEmpty();
-        assertThat(store.items("workspace", "a1")).isEmpty();
+        assertThat(store.events("workspace", "a1", 0, 10)).isEmpty();
+        assertThat(store.offers("workspace", "a1")).isEmpty();
         assertThat(store.pages("workspace", "a1")).isEmpty();
         assertThat(store.list("other")).containsExactly(elsewhere);
     }

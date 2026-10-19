@@ -14,15 +14,18 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.Artifact;
-import com.bytequay.core.domain.ArtifactItem;
+import com.bytequay.core.domain.ArtifactOffer;
 import com.bytequay.core.domain.ArtifactPage;
 import com.bytequay.core.store.ArtifactStore;
 import com.bytequay.persistence.sqlite.entity.ArtifactEntity;
-import com.bytequay.persistence.sqlite.entity.ArtifactItemEntity;
+import com.bytequay.persistence.sqlite.entity.ArtifactEventEntity;
+import com.bytequay.persistence.sqlite.entity.ArtifactOfferEntity;
 import com.bytequay.persistence.sqlite.entity.ArtifactPageEntity;
-import com.bytequay.persistence.sqlite.repository.ArtifactItemJpaRepository;
+import com.bytequay.persistence.sqlite.repository.ArtifactEventJpaRepository;
 import com.bytequay.persistence.sqlite.repository.ArtifactJpaRepository;
+import com.bytequay.persistence.sqlite.repository.ArtifactOfferJpaRepository;
 import com.bytequay.persistence.sqlite.repository.ArtifactPageJpaRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,13 +41,15 @@ public class SqliteArtifactStore
         implements ArtifactStore
 {
     private final ArtifactJpaRepository artifacts;
-    private final ArtifactItemJpaRepository items;
+    private final ArtifactEventJpaRepository events;
+    private final ArtifactOfferJpaRepository offers;
     private final ArtifactPageJpaRepository pages;
 
-    public SqliteArtifactStore(ArtifactJpaRepository artifacts, ArtifactItemJpaRepository items, ArtifactPageJpaRepository pages)
+    public SqliteArtifactStore(ArtifactJpaRepository artifacts, ArtifactEventJpaRepository events, ArtifactOfferJpaRepository offers, ArtifactPageJpaRepository pages)
     {
         this.artifacts = requireNonNull(artifacts, "artifacts is null");
-        this.items = requireNonNull(items, "items is null");
+        this.events = requireNonNull(events, "events is null");
+        this.offers = requireNonNull(offers, "offers is null");
         this.pages = requireNonNull(pages, "pages is null");
     }
 
@@ -83,25 +88,39 @@ public class SqliteArtifactStore
 
     @Override
     @Transactional(readOnly = true)
-    public List<ArtifactItem> items(String workspaceId, String artifactId)
+    public List<String> events(String workspaceId, String artifactId, long afterSequence, int limit)
     {
-        return items.items(workspaceId, artifactId);
+        return events.events(workspaceId, artifactId, afterSequence, PageRequest.of(0, limit));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long lastEvent(String workspaceId, String artifactId)
+    {
+        return events.lastSequence(workspaceId, artifactId);
     }
 
     @Override
     @Transactional
-    public void add(String workspaceId, ArtifactItem item)
+    public void addEvent(String workspaceId, String artifactId, long sequence, String json)
     {
-        items.save(new ArtifactItemEntity(workspaceId, item, items.countByArtifactId(item.artifactId())));
+        events.save(new ArtifactEventEntity(workspaceId, artifactId, sequence, json));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ArtifactOffer> offers(String workspaceId, String artifactId)
+    {
+        return offers.offers(workspaceId, artifactId);
     }
 
     @Override
     @Transactional
-    public void update(ArtifactItem item)
+    public void saveOffer(String workspaceId, ArtifactOffer offer)
     {
-        ArtifactItemEntity entity = items.findById(item.id()).orElseThrow(() -> new IllegalArgumentException("Unknown artifact item"));
-        entity.update(item);
-        items.save(entity);
+        ArtifactOfferEntity entity = offers.findById(offer.id()).orElseGet(() -> new ArtifactOfferEntity(workspaceId, offer, offers.countByArtifactId(offer.artifactId())));
+        entity.update(offer);
+        offers.save(entity);
     }
 
     @Override
@@ -129,7 +148,8 @@ public class SqliteArtifactStore
     @Transactional
     public void deleteWorkspace(String workspaceId)
     {
-        items.deleteWorkspace(workspaceId);
+        events.deleteWorkspace(workspaceId);
+        offers.deleteWorkspace(workspaceId);
         pages.deleteWorkspace(workspaceId);
         artifacts.deleteWorkspace(workspaceId);
     }

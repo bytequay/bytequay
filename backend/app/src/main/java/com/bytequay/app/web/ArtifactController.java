@@ -16,17 +16,20 @@ package com.bytequay.app.web;
 import com.bytequay.app.artifact.ArtifactRow;
 import com.bytequay.app.artifact.ArtifactService;
 import com.bytequay.app.artifact.ArtifactView;
+import com.bytequay.app.web.agent.AgentHttpModels;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -58,6 +61,13 @@ public class ArtifactController
         return artifacts.view(workspaceId, artifactId);
     }
 
+    /** The conversation's agent events after a sequence, in the form a task's event history has. */
+    @GetMapping("/{artifactId}/events")
+    public List<AgentHttpModels.EventResponse> events(@PathVariable String workspaceId, @PathVariable String artifactId, @RequestParam(defaultValue = "0") long after)
+    {
+        return artifacts.events(workspaceId, artifactId, after).stream().map(AgentHttpModels::event).collect(toImmutableList());
+    }
+
     @PostMapping("/{artifactId}/messages")
     public ArtifactView send(@PathVariable String workspaceId, @PathVariable String artifactId, @RequestBody Message request)
     {
@@ -66,10 +76,10 @@ public class ArtifactController
 
     public record Message(String text) {}
 
-    @PostMapping("/{artifactId}/offers/{itemId}")
-    public ArtifactView answerOffer(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String itemId, @RequestBody OfferAnswer request)
+    @PostMapping("/{artifactId}/offers/{offerId}")
+    public ArtifactView answerOffer(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String offerId, @RequestBody OfferAnswer request)
     {
-        return artifacts.answerOffer(workspaceId, artifactId, itemId, request.accept());
+        return artifacts.answerOffer(workspaceId, artifactId, offerId, request.accept());
     }
 
     public record OfferAnswer(boolean accept) {}

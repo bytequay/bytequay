@@ -14,7 +14,7 @@
 package com.bytequay.app.artifact;
 
 import com.bytequay.core.domain.Artifact;
-import com.bytequay.core.domain.ArtifactItem;
+import com.bytequay.core.domain.ArtifactOffer;
 import com.bytequay.core.domain.ArtifactPage;
 import com.bytequay.core.store.ArtifactStore;
 import com.google.common.collect.ImmutableList;
@@ -33,7 +33,9 @@ final class MemoryArtifactStore
         implements ArtifactStore
 {
     private final Map<String, Artifact> artifacts = new LinkedHashMap<>();
-    private final List<ArtifactItem> items = new ArrayList<>();
+    // Each event as its conversation id and stored JSON, in the order they were added.
+    private final List<Map.Entry<String, String>> events = new ArrayList<>();
+    private final List<ArtifactOffer> offers = new ArrayList<>();
     private final List<ArtifactPage> pages = new ArrayList<>();
     private final Map<String, String> html = new LinkedHashMap<>();
 
@@ -63,21 +65,44 @@ final class MemoryArtifactStore
     }
 
     @Override
-    public synchronized List<ArtifactItem> items(String workspaceId, String artifactId)
+    public synchronized List<String> events(String workspaceId, String artifactId, long afterSequence, int limit)
     {
-        return find(workspaceId, artifactId).isEmpty() ? ImmutableList.of() : items.stream().filter(item -> item.artifactId().equals(artifactId)).collect(toImmutableList());
+        // Sequences start at one and follow each other, so the entry after a sequence is at that index.
+        List<String> all = find(workspaceId, artifactId).isEmpty() ? ImmutableList.of()
+                : events.stream().filter(event -> event.getKey().equals(artifactId)).map(Map.Entry::getValue).collect(toImmutableList());
+        return all.subList((int) Math.min(afterSequence, all.size()), (int) Math.min(all.size(), afterSequence + limit));
     }
 
     @Override
-    public synchronized void add(String workspaceId, ArtifactItem item)
+    public synchronized long lastEvent(String workspaceId, String artifactId)
     {
-        items.add(item);
+        return events.stream().filter(event -> event.getKey().equals(artifactId)).count();
     }
 
     @Override
-    public synchronized void update(ArtifactItem item)
+    public synchronized void addEvent(String workspaceId, String artifactId, long sequence, String json)
     {
-        items.replaceAll(existing -> existing.id().equals(item.id()) ? item : existing);
+        if (sequence != lastEvent(workspaceId, artifactId) + 1) {
+            throw new IllegalStateException("Event " + sequence + " is out of order");
+        }
+        events.add(Map.entry(artifactId, json));
+    }
+
+    @Override
+    public synchronized List<ArtifactOffer> offers(String workspaceId, String artifactId)
+    {
+        return find(workspaceId, artifactId).isEmpty() ? ImmutableList.of() : offers.stream().filter(offer -> offer.artifactId().equals(artifactId)).collect(toImmutableList());
+    }
+
+    @Override
+    public synchronized void saveOffer(String workspaceId, ArtifactOffer offer)
+    {
+        if (offers.stream().anyMatch(existing -> existing.id().equals(offer.id()))) {
+            offers.replaceAll(existing -> existing.id().equals(offer.id()) ? offer : existing);
+        }
+        else {
+            offers.add(offer);
+        }
     }
 
     @Override
@@ -104,7 +129,8 @@ final class MemoryArtifactStore
     {
         List<String> gone = artifacts.values().stream().filter(artifact -> artifact.workspaceId().equals(workspaceId)).map(Artifact::id).collect(toImmutableList());
         artifacts.keySet().removeAll(gone);
-        items.removeIf(item -> gone.contains(item.artifactId()));
+        events.removeIf(event -> gone.contains(event.getKey()));
+        offers.removeIf(offer -> gone.contains(offer.artifactId()));
         pages.removeIf(page -> gone.contains(page.artifactId()));
     }
 }

@@ -14,6 +14,8 @@
 package com.bytequay.app.artifact;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.spi.AgentCapabilities;
@@ -42,7 +44,7 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.Artifact;
-import com.bytequay.core.domain.ArtifactItem;
+import com.bytequay.core.domain.ArtifactOffer;
 import com.bytequay.core.domain.ArtifactPage;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,9 +60,11 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -70,12 +74,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
-import static com.bytequay.core.domain.ArtifactItem.Kind.ACTIVITY;
-import static com.bytequay.core.domain.ArtifactItem.Kind.FAILURE;
-import static com.bytequay.core.domain.ArtifactItem.Kind.OFFER;
-import static com.bytequay.core.domain.ArtifactItem.Kind.PAGE;
-import static com.bytequay.core.domain.ArtifactItem.Kind.REPLY;
-import static com.bytequay.core.domain.ArtifactItem.Kind.USER;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
@@ -196,24 +195,31 @@ class TestArtifactService
     {
         agent.add(turn -> {
             turn.step("Grep", "74:import io.trino.plugin.iceberg.delete.DeleteManager;", Optional.of("Find where deletes are read"));
-            turn.step("Read", "public class IcebergPageSourceProvider", Optional.empty());
             turn.step("Read", "public class DeleteManager", Optional.empty());
             turn.events().emit(new ProviderAgentEvent.Message(Optional.empty(), ProviderAgentEvent.MessagePhase.FINAL, "a child's notes", CHILD));
-            turn.say("They are applied per data file at scan time. The read path or the write path?");
-            // The final answer can reach the conversation twice; it shows once.
+            turn.events().emit(new ProviderAgentEvent.Message(Optional.empty(), ProviderAgentEvent.MessagePhase.PARTIAL, "They are", ProviderAgentEventSource.root()));
             turn.say("They are applied per data file at scan time. The read path or the write path?");
             return completed();
         });
         ArtifactView started = artifacts.start(WORKSPACE, "Teach me how Iceberg position deletes work");
         assertThat(started.artifact().working()).isTrue();
-        assertThat(started.items()).extracting(ArtifactItem::kind).containsExactly(USER);
         String id = started.artifact().id();
         ArtifactView answered = waitUntilAnswered(id);
 
-        assertThat(answered.items()).extracting(ArtifactItem::kind, ArtifactItem::text).containsExactly(
-                tuple(USER, "Teach me how Iceberg position deletes work"),
-                tuple(ACTIVITY, "Find where deletes are read · 3 steps"),
-                tuple(REPLY, "They are applied per data file at scan time. The read path or the write path?"));
+        // The turn reads as a task's turn does; streamed pieces stay out, and the reply event makes the final answer redundant.
+        assertThat(transcript(id)).containsExactly(
+                "user: Teach me how Iceberg position deletes work",
+                "turn_started: Turn started",
+                "tool Grep completed",
+                "tool Read completed",
+                "child answer: a child's notes",
+                "answer: They are applied per data file at scan time. The read path or the write path?",
+                "turn_completed: Turn completed");
+        List<AgentEventEnvelope> events = artifacts.events(WORKSPACE, id, 0);
+        assertThat(events).extracting(AgentEventEnvelope::sequence).containsExactly(1L, 2L, 3L, 4L, 5L, 6L, 7L);
+        assertThat(events).extracting(event -> event.taskId().toString()).containsOnly(id);
+        assertThat(events).extracting(event -> event.turnId().orElseThrow()).containsOnly(events.getFirst().turnId().orElseThrow());
+        assertThat(artifacts.events(WORKSPACE, id, 5)).extracting(AgentEventEnvelope::sequence).containsExactly(6L, 7L);
         AgentSessionContext first = opened.getFirst();
         assertThat(first.access()).isEqualTo(SessionAccess.READ_ONLY);
         assertThat(first.worktree()).isEqualTo(runtime.resolve("artifacts").resolve(WORKSPACE));
@@ -221,20 +227,19 @@ class TestArtifactService
         assertThat(first.sessionTools()).extracting(ReviewTool::name, ReviewTool::childCallable)
                 .containsExactly(tuple("artifact_offer", false), tuple("artifact_save", false));
         assertThat(prompts.getFirst()).contains("main at commit " + commit, "Teach me how Iceberg position deletes work").doesNotContain("Earlier in this conversation");
+        assertThat(answered.offers()).isEmpty();
 
         agent.add(turn -> {
-            turn.step("mcp__bytequay__bytequay_list_tools", "[\"bytequay_search\"]", Optional.empty());
             turn.say("Then the read path it is.");
             assertThat(turn.call("artifact_offer", "{\"title\":\"Deletes on read\",\"covers\":\"How a scan skips deleted rows.\"}")).startsWith("Offered");
             return completed();
         });
         artifacts.send(WORKSPACE, id, "The read path, please");
         ArtifactView offered = waitUntilAnswered(id);
-        // A step with no description is named after its tool, without the MCP server prefix.
-        assertThat(offered.items()).extracting(ArtifactItem::kind, ArtifactItem::text).contains(tuple(ACTIVITY, "bytequay list tools · 1 step"));
-        ArtifactItem offer = offered.items().getLast();
-        assertThat(offer.kind()).isEqualTo(OFFER);
-        assertThat(offer.offer().orElseThrow()).isEqualTo(new ArtifactItem.Offer("Deletes on read", "How a scan skips deleted rows.", ArtifactItem.Offer.State.SHOWN));
+        ArtifactOffer offer = offered.offers().getFirst();
+        // The offer belongs to the turn that made it, so it shows at the end of that turn.
+        assertThat(offer).extracting(ArtifactOffer::title, ArtifactOffer::covers, ArtifactOffer::state, ArtifactOffer::turnId)
+                .containsExactly("Deletes on read", "How a scan skips deleted rows.", ArtifactOffer.State.SHOWN, lastTurn(id));
         // The conversation goes on in the same session rather than starting over.
         assertThat(opened.getLast().sessionReference().orElseThrow().providerValue()).isEqualTo("session-1");
 
@@ -246,11 +251,11 @@ class TestArtifactService
         artifacts.answerOffer(WORKSPACE, id, offer.id(), true);
         ArtifactView made = waitUntilAnswered(id);
         assertThat(prompts.getLast()).contains(ArtifactService.MAKE_THE_PAGE);
-        assertThat(made.items().stream().filter(item -> item.kind() == OFFER).findFirst().orElseThrow().offer().orElseThrow().state())
-                .isEqualTo(ArtifactItem.Offer.State.ACCEPTED);
-        assertThat(made.pages()).extracting(ArtifactPage::key, ArtifactPage::version, ArtifactPage::commit).containsExactly(tuple("p1", 1, commit));
+        assertThat(made.offers()).extracting(ArtifactOffer::state).containsExactly(ArtifactOffer.State.ACCEPTED);
+        assertThat(made.pages()).extracting(ArtifactPage::key, ArtifactPage::version, ArtifactPage::commit, ArtifactPage::turnId)
+                .containsExactly(tuple("p1", 1, commit, Optional.of(lastTurn(id))));
         assertThat(made.artifact().title()).isEqualTo("Deletes on read");
-        assertThat(made.items()).extracting(ArtifactItem::kind).endsWith(USER, PAGE, REPLY);
+        assertThat(transcript(id)).endsWith("user: Make the page.", "turn_started: Turn started", "answer: Here is the page.", "turn_completed: Turn completed");
         assertThat(artifacts.pageHtml(WORKSPACE, id, made.pages().getFirst().id())).contains(PAGE_HTML);
 
         agent.add(turn -> {
@@ -264,7 +269,7 @@ class TestArtifactService
         // Two versions of one page are one page in the list.
         assertThat(artifacts.list(WORKSPACE)).extracting(ArtifactRow::pages).containsExactly(1);
         // No reply event came, so the turn's final answer is the reply.
-        assertThat(changed.items().getLast()).extracting(ArtifactItem::kind, ArtifactItem::text).containsExactly(REPLY, "Here is what I found.");
+        assertThat(transcript(id)).endsWith("answer: Here is what I found.", "turn_completed: Turn completed");
     }
 
     @Test
@@ -279,12 +284,12 @@ class TestArtifactService
         conversationLost.set(true);
 
         artifacts.send(WORKSPACE, id, "Add a quiz");
-        ArtifactView answered = waitUntilAnswered(id);
+        waitUntilAnswered(id);
 
         assertThat(opened.getLast().sessionReference()).isEmpty();
-        assertThat(prompts.getLast()).contains("Earlier in this conversation", "[user] Make a page about position deletes", "[you saved] Deletes on read · v1",
-                "Your page p1, version 1", "<page>\n" + PAGE_HTML + "\n</page>", "The user's message:\nAdd a quiz");
-        assertThat(answered.items().getLast().kind()).isEqualTo(REPLY);
+        assertThat(prompts.getLast()).contains("Earlier in this conversation", "[user] Make a page about position deletes", "[you] Here is what I found.",
+                "Your page p1, version 1", "<page>\n" + PAGE_HTML + "\n</page>", "The user's message:\nAdd a quiz").doesNotContain("[user] Add a quiz");
+        assertThat(transcript(id)).last().isEqualTo("turn_completed: Turn completed");
     }
 
     @Test
@@ -304,9 +309,10 @@ class TestArtifactService
         artifacts.stop(WORKSPACE, id);
         verify(turns.getFirst()).cancel();
         pending.complete(new AgentTurnResult(AgentTurnResult.State.CANCELLED, Optional.empty(), Optional.of("Cancelled"), Duration.ofSeconds(1), true));
-        ArtifactView stopped = waitUntilAnswered(id);
+        waitUntilAnswered(id);
 
-        assertThat(stopped.items()).extracting(ArtifactItem::kind, ArtifactItem::text).endsWith(tuple(REPLY, "Looking at the read path."), tuple(FAILURE, "Stopped"));
+        // A stopped turn ends as a task's interrupted turn does.
+        assertThat(transcript(id)).endsWith("answer: Looking at the read path.", "interrupted: Stopped");
         waitUntilAnswered(artifacts.start(WORKSPACE, "Explain snapshots").artifact().id());
     }
 
@@ -320,12 +326,11 @@ class TestArtifactService
         });
         String id = artifacts.start(WORKSPACE, "Teach me position deletes").artifact().id();
         ArtifactView failed = waitUntilAnswered(id);
-        assertThat(failed.items().getLast()).extracting(ArtifactItem::kind, ArtifactItem::text).containsExactly(FAILURE, "Claude turn timed out");
+        assertThat(transcript(id)).endsWith("error: Claude turn timed out", "turn_completed: Turn failed: Claude turn timed out");
 
-        ArtifactItem offer = failed.items().stream().filter(item -> item.kind() == OFFER).findFirst().orElseThrow();
+        ArtifactOffer offer = failed.offers().getFirst();
         ArtifactView dismissed = artifacts.answerOffer(WORKSPACE, id, offer.id(), false);
-        assertThat(dismissed.items().stream().filter(item -> item.kind() == OFFER).findFirst().orElseThrow().offer().orElseThrow().state())
-                .isEqualTo(ArtifactItem.Offer.State.DISMISSED);
+        assertThat(dismissed.offers()).extracting(ArtifactOffer::state).containsExactly(ArtifactOffer.State.DISMISSED);
         assertThatThrownBy(() -> artifacts.answerOffer(WORKSPACE, id, offer.id(), true)).isInstanceOf(IllegalArgumentException.class);
         assertThat(dismissed.artifact().working()).isFalse();
     }
@@ -334,16 +339,44 @@ class TestArtifactService
     void startupEndsTurnsARestartCutShortAndDeletionRemovesConversationsAndCheckout()
     {
         String id = artifacts.start(WORKSPACE, "Teach me position deletes").artifact().id();
-        waitUntilAnswered(id);
-        store.save(Artifact.started("cut", WORKSPACE, "Explain snapshots", Instant.now()).working(true, Instant.now()));
+        ArtifactView answered = waitUntilAnswered(id);
+        String turn = lastTurn(id);
+        // As if ByteQuay closed while the turn was still answering.
+        store.save(answered.artifact().working(true, Instant.now()));
+        // Conversation ids are UUIDs, as a task's are, since its events carry it as their task id.
+        String cut = UUID.randomUUID().toString();
+        store.save(Artifact.started(cut, WORKSPACE, "Explain snapshots", Instant.now()).working(true, Instant.now()));
 
         artifacts.settleInterrupted();
-        assertThat(artifacts.view(WORKSPACE, "cut").artifact().working()).isFalse();
-        assertThat(artifacts.view(WORKSPACE, "cut").items()).extracting(ArtifactItem::text).containsExactly("Stopped when ByteQuay closed");
+        assertThat(artifacts.view(WORKSPACE, id).artifact().working()).isFalse();
+        assertThat(transcript(id)).last().isEqualTo("interrupted: Stopped when ByteQuay closed");
+        assertThat(lastTurn(id)).isEqualTo(turn);
+        assertThat(artifacts.view(WORKSPACE, cut).artifact().working()).isFalse();
+        assertThat(transcript(cut)).containsExactly("interrupted: Stopped when ByteQuay closed");
 
         artifacts.deleteWorkspaceData(WORKSPACE);
         assertThat(artifacts.list(WORKSPACE)).isEmpty();
         assertThat(runtime.resolve("artifacts").resolve(WORKSPACE)).doesNotExist();
+    }
+
+    /** The conversation's events as short lines, in order: what its transcript shows. */
+    private List<String> transcript(String id)
+    {
+        return artifacts.events(WORKSPACE, id, 0).stream()
+                .map(event -> (event.source().parentProviderThreadId().isPresent() ? "child " : "") + switch (event.payload()) {
+                    case AgentEventPayload.UserMessage message -> "user: " + message.text();
+                    case AgentEventPayload.AssistantMessage message -> message.messageKind().name().toLowerCase(Locale.ROOT) + ": " + message.text();
+                    case AgentEventPayload.ToolActivity tool -> "tool " + tool.name() + " " + tool.state().name().toLowerCase(Locale.ROOT);
+                    case AgentEventPayload.Lifecycle lifecycle -> lifecycle.phase().name().toLowerCase(Locale.ROOT) + ": " + lifecycle.message();
+                    case AgentEventPayload.Error error -> "error: " + error.message();
+                    default -> event.type().name().toLowerCase(Locale.ROOT);
+                })
+                .collect(toImmutableList());
+    }
+
+    private String lastTurn(String id)
+    {
+        return artifacts.events(WORKSPACE, id, 0).getLast().turnId().orElseThrow().toString();
     }
 
     private static CompletableFuture<AgentTurnResult> completed()

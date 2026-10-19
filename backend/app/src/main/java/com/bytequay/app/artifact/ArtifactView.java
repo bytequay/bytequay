@@ -14,7 +14,7 @@
 package com.bytequay.app.artifact;
 
 import com.bytequay.core.domain.Artifact;
-import com.bytequay.core.domain.ArtifactItem;
+import com.bytequay.core.domain.ArtifactOffer;
 import com.bytequay.core.domain.ArtifactPage;
 import com.google.common.collect.ImmutableList;
 
@@ -22,13 +22,16 @@ import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
-/** A conversation as its page shows it: the conversation, its items in order, and its saved page versions without their HTML. */
-public record ArtifactView(Artifact artifact, List<ArtifactItem> items, List<ArtifactPage> pages)
+/**
+ * A conversation as its page shows it, apart from its agent events, which are read on their own: the conversation, the pages it offered,
+ * and its saved page versions without their HTML.
+ */
+public record ArtifactView(Artifact artifact, List<ArtifactOffer> offers, List<ArtifactPage> pages)
 {
     public ArtifactView
     {
         requireNonNull(artifact, "artifact is null");
-        items = ImmutableList.copyOf(items);
+        offers = ImmutableList.copyOf(offers);
         pages = ImmutableList.copyOf(pages);
     }
 }

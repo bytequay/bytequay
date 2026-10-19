@@ -14,7 +14,7 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.Artifact;
-import com.bytequay.core.domain.ArtifactItem;
+import com.bytequay.core.domain.ArtifactOffer;
 import com.bytequay.core.domain.ArtifactPage;
 
 import java.util.List;
@@ -32,14 +32,21 @@ public interface ArtifactStore
 
     void save(Artifact artifact);
 
-    /** The conversation's items in the order they were added. */
-    List<ArtifactItem> items(String workspaceId, String artifactId);
+    /**
+     * The conversation's agent events after a sequence, oldest first, as their stored JSON. The events have the same form as a task's,
+     * so a conversation renders like a task transcript.
+     */
+    List<String> events(String workspaceId, String artifactId, long afterSequence, int limit);
 
-    /** Appends the item after the conversation's last one. */
-    void add(String workspaceId, ArtifactItem item);
+    /** The conversation's last event sequence; zero before its first event. */
+    long lastEvent(String workspaceId, String artifactId);
 
-    /** Replaces an item in place, such as a growing activity line or an answered offer. */
-    void update(ArtifactItem item);
+    void addEvent(String workspaceId, String artifactId, long sequence, String json);
+
+    /** The conversation's offered pages in the order they were offered. */
+    List<ArtifactOffer> offers(String workspaceId, String artifactId);
+
+    void saveOffer(String workspaceId, ArtifactOffer offer);
 
     /** The conversation's saved page versions, oldest first; pages stay out. */
     List<ArtifactPage> pages(String workspaceId, String artifactId);

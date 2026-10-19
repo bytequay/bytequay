@@ -14,8 +14,16 @@
 package com.bytequay.app.artifact;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventJson;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.OneShotSession;
+import com.bytequay.agent.core.ProviderAgentEventAdapter;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
@@ -38,10 +46,11 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.Artifact;
-import com.bytequay.core.domain.ArtifactItem;
+import com.bytequay.core.domain.ArtifactOffer;
 import com.bytequay.core.domain.ArtifactPage;
 import com.bytequay.core.domain.ArtifactSession;
 import com.bytequay.core.store.ArtifactStore;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.MoreFiles;
@@ -54,10 +63,12 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -70,6 +81,7 @@ import java.util.concurrent.ExecutorService;
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -86,7 +98,8 @@ public class ArtifactService
     static final String MAKE_THE_PAGE = "Make the page.";
     private static final Duration MAXIMUM_RUNTIME = Duration.ofMinutes(20);
     private static final int REASON = 200;
-    private static final int ACTIVITY = 80;
+    // Events the window reads at once; it asks again from the last one it has.
+    private static final int EVENT_PAGE = 500;
     private static final int SEED_ITEMS = 20;
     private static final int SEED_TEXT = 600;
     // Fixed, so every turn runs with the same setup.
@@ -162,7 +175,14 @@ public class ArtifactService
     public ArtifactView view(String workspaceId, String artifactId)
     {
         Artifact artifact = require(workspaceId, artifactId);
-        return new ArtifactView(artifact, store.items(workspaceId, artifactId), store.pages(workspaceId, artifactId));
+        return new ArtifactView(artifact, store.offers(workspaceId, artifactId), store.pages(workspaceId, artifactId));
+    }
+
+    /** The conversation's agent events after a sequence, in the form a task's transcript reads. */
+    public List<AgentEventEnvelope> events(String workspaceId, String artifactId, long afterSequence)
+    {
+        require(workspaceId, artifactId);
+        return store.events(workspaceId, artifactId, afterSequence, EVENT_PAGE).stream().map(ArtifactService::event).collect(toImmutableList());
     }
 
     public Optional<String> pageHtml(String workspaceId, String artifactId, String pageId)
@@ -193,20 +213,18 @@ public class ArtifactService
     }
 
     /** Answers an offered page: accepting asks the agent to make it; Not yet only hides the offer. */
-    public ArtifactView answerOffer(String workspaceId, String artifactId, String itemId, boolean accept)
+    public ArtifactView answerOffer(String workspaceId, String artifactId, String offerId, boolean accept)
     {
         Artifact artifact = require(workspaceId, artifactId);
-        ArtifactItem offer = store.items(workspaceId, artifactId).stream()
-                .filter(item -> item.id().equals(itemId) && item.offer().filter(value -> value.state() == ArtifactItem.Offer.State.SHOWN).isPresent())
+        ArtifactOffer offer = store.offers(workspaceId, artifactId).stream()
+                .filter(value -> value.id().equals(offerId) && value.state() == ArtifactOffer.State.SHOWN)
                 .findFirst().orElseThrow(() -> new IllegalArgumentException("This offer is no longer open"));
-        if (!accept) {
-            store.update(offer.answered(ArtifactItem.Offer.State.DISMISSED));
-            return view(workspaceId, artifactId);
+        if (accept) {
+            // Sent before the offer changes, so a refused turn leaves the offer open.
+            send(artifact, MAKE_THE_PAGE, false);
         }
-        // Taken before the offer changes, so a refused turn leaves the offer open.
-        ArtifactView sent = send(artifact, MAKE_THE_PAGE, false);
-        store.update(offer.answered(ArtifactItem.Offer.State.ACCEPTED));
-        return new ArtifactView(sent.artifact(), store.items(workspaceId, artifactId), sent.pages());
+        store.saveOffer(workspaceId, offer.answered(accept ? ArtifactOffer.State.ACCEPTED : ArtifactOffer.State.DISMISSED));
+        return view(workspaceId, artifactId);
     }
 
     /** Stops the agent's answer; anything it already said or saved stays. */
@@ -227,7 +245,11 @@ public class ArtifactService
     public void settleInterrupted()
     {
         for (Artifact artifact : store.working()) {
-            store.add(artifact.workspaceId(), ArtifactItem.of(artifact.id(), ArtifactItem.Kind.FAILURE, "Stopped when ByteQuay closed", clock.instant()));
+            // The turn cut short is the one the log's last event belongs to.
+            long last = store.lastEvent(artifact.workspaceId(), artifact.id());
+            Optional<TurnId> turn = store.events(artifact.workspaceId(), artifact.id(), Math.max(0, last - 1), 1).stream().findFirst()
+                    .flatMap(json -> event(json).turnId());
+            write(artifact, turn, lifecycle(AgentEventPayload.LifecyclePhase.INTERRUPTED, "Stopped when ByteQuay closed"));
             store.save(artifact.working(false, clock.instant()));
         }
     }
@@ -257,7 +279,9 @@ public class ArtifactService
         try {
             Artifact working = artifact.working(true, clock.instant());
             store.save(working);
-            store.add(workspaceId, ArtifactItem.of(artifact.id(), ArtifactItem.Kind.USER, message, clock.instant()));
+            // A task's turn opens the same way: the message, then the turn's start.
+            write(working, Optional.of(run.turnId), new AgentEventPayload.UserMessage(message, ImmutableList.of(), AgentEventPayload.DeliveryKind.TURN));
+            write(working, Optional.of(run.turnId), lifecycle(AgentEventPayload.LifecyclePhase.TURN_STARTED, "Turn started"));
             executor.execute(() -> {
                 try {
                     turn(run, working, message, first);
@@ -300,7 +324,8 @@ public class ArtifactService
             AgentTurnResult result = answer.result();
             if (!run.replied && result.state() == AgentTurnResult.State.COMPLETED) {
                 result.finalResponse().map(String::strip).filter(text -> !text.isEmpty())
-                        .ifPresent(text -> append(run, artifact, ArtifactItem.of(artifact.id(), ArtifactItem.Kind.REPLY, text, clock.instant())));
+                        .ifPresent(text -> record(run, artifact, AgentEventSource.root(),
+                                new AgentEventPayload.AssistantMessage(ProviderAgentEvent.MessageKind.ANSWER, ProviderAgentEvent.MessagePhase.FINAL, text)));
             }
             failure = run.stopped ? Optional.of("Stopped") : result.state() == AgentTurnResult.State.COMPLETED ? Optional.empty()
                     : Optional.of(result.terminalReason().orElse("The agent stopped before it finished"));
@@ -321,7 +346,15 @@ public class ArtifactService
         if (current.isEmpty()) {
             return;
         }
-        failure.ifPresent(reason -> store.add(artifact.workspaceId(), ArtifactItem.of(artifact.id(), ArtifactItem.Kind.FAILURE, clip(reason, REASON), clock.instant())));
+        // A task's turn ends the same way: interrupted when stopped, otherwise completed, after the reason it failed.
+        Optional<TurnId> turn = Optional.of(run.turnId);
+        if (run.stopped) {
+            write(artifact, turn, lifecycle(AgentEventPayload.LifecyclePhase.INTERRUPTED, "Stopped"));
+        }
+        else {
+            failure.ifPresent(reason -> write(artifact, turn, new AgentEventPayload.Error("TURN_FAILED", clip(reason, REASON), true)));
+            write(artifact, turn, lifecycle(AgentEventPayload.LifecyclePhase.TURN_COMPLETED, failure.map(reason -> "Turn failed: " + clip(reason, REASON)).orElse("Turn completed")));
+        }
         Artifact ended = current.orElseThrow().working(false, clock.instant());
         store.save(conversation.map(value -> ended.continuing(value, clock.instant())).orElse(ended));
     }
@@ -359,73 +392,76 @@ public class ArtifactService
                 prompt, MAXIMUM_RUNTIME, run::started, events(run, artifact));
     }
 
-    /** Turns the root agent's replies and steps into conversation items as they happen; a child agent's work stays out. */
+    /** Records the session's events as a task records its turn's, so the conversation renders as a task's transcript does. */
     private AgentEventSink events(Run run, Artifact artifact)
     {
         return event -> {
-            if (event.source().parentProviderThreadId().isPresent()) {
+            if (!shown(event)) {
                 return;
             }
-            switch (event) {
-                case ProviderAgentEvent.Message message when message.phase() == ProviderAgentEvent.MessagePhase.FINAL
-                        && (message.messageKind() == ProviderAgentEvent.MessageKind.ANSWER || message.messageKind() == ProviderAgentEvent.MessageKind.COMMENTARY)
-                        && !message.text().isBlank() -> {
-                    run.replied = true;
-                    append(run, artifact, ArtifactItem.of(artifact.id(), ArtifactItem.Kind.REPLY, message.text().strip(), clock.instant()));
-                }
-                // A finished tool's summary is its output, never a label.
-                case ProviderAgentEvent.Tool tool when ended(tool.state()) && !tool.name().contains("artifact_") ->
-                        // "mcp__bytequay__bytequay_search" reads as "bytequay search".
-                        step(run, artifact, tool.description(), tool.name().replaceFirst("^mcp__.+?__", "").replace('_', ' '));
-                case ProviderAgentEvent.Command command when ended(command.state()) -> step(run, artifact, command.description(), String.join(" ", command.argv()));
-                default -> {
-                }
+            if (event instanceof ProviderAgentEvent.Message message && message.messageKind() == ProviderAgentEvent.MessageKind.ANSWER
+                    && event.source().parentProviderThreadId().isEmpty()) {
+                run.replied = true;
             }
+            ProviderAgentEventAdapter.CanonicalEvent canonical = ProviderAgentEventAdapter.adapt(event);
+            record(run, artifact, canonical.source(), canonical.payload());
         };
     }
 
-    private static boolean ended(ProviderAgentEvent.ActivityState state)
-    {
-        return state == ProviderAgentEvent.ActivityState.COMPLETED || state == ProviderAgentEvent.ActivityState.FAILED;
-    }
-
     /**
-     * Grows the activity line that follows the last reply, or starts one, so steps between two replies read as one line. A step without
-     * a description of its own keeps the line's last one, falling back to the step's name.
+     * What a transcript shows: whole messages and each step's start and end.
+     * ponytail: streamed pieces and progress ticks stay out, a row each would be thousands per turn; the answer shows once it is whole.
      */
-    private synchronized void step(Run run, Artifact artifact, Optional<String> described, String name)
+    private static boolean shown(ProviderAgentEvent event)
     {
-        if (run.ended) {
-            return;
-        }
-        Optional<ArtifactItem> last = run.activity.filter(item -> run.lastItem.equals(item.id()));
-        run.steps = last.isPresent() ? run.steps + 1 : 1;
-        run.label = described.map(String::strip).filter(text -> !text.isEmpty())
-                .orElse(last.isPresent() ? run.label : clip(name.strip().replace('\n', ' '), ACTIVITY));
-        String text = clip(run.label.replace('\n', ' '), ACTIVITY) + " · " + run.steps + (run.steps == 1 ? " step" : " steps");
-        ArtifactItem line = last.map(item -> item.withText(text)).orElseGet(() -> ArtifactItem.of(artifact.id(), ArtifactItem.Kind.ACTIVITY, text, clock.instant()));
-        if (last.isPresent()) {
-            store.update(line);
-        }
-        else {
-            store.add(artifact.workspaceId(), line);
-            run.lastItem = line.id();
-        }
-        run.activity = Optional.of(line);
+        return switch (event) {
+            case ProviderAgentEvent.Message message -> message.phase() == ProviderAgentEvent.MessagePhase.FINAL;
+            case ProviderAgentEvent.Tool tool -> tool.state() != ProviderAgentEvent.ActivityState.PROGRESS;
+            case ProviderAgentEvent.Command command -> command.state() != ProviderAgentEvent.ActivityState.PROGRESS;
+            default -> true;
+        };
     }
 
-    private synchronized void append(Run run, Artifact artifact, ArtifactItem item)
+    /** Records an event of the run's turn; a turn that has ended records nothing more. */
+    private synchronized void record(Run run, Artifact artifact, AgentEventSource source, AgentEventPayload payload)
     {
-        // The turn's final answer and its reply event can come in either order; the second one is the same reply.
-        boolean repeated = item.kind() == ArtifactItem.Kind.REPLY && item.text().equals(run.lastReply);
-        if (run.ended || repeated) {
-            return;
+        if (!run.ended) {
+            write(artifact, Optional.of(run.turnId), source, payload);
         }
-        store.add(artifact.workspaceId(), item);
-        run.lastItem = item.id();
-        if (item.kind() == ArtifactItem.Kind.REPLY) {
-            run.lastReply = item.text();
+    }
+
+    private void write(Artifact artifact, Optional<TurnId> turn, AgentEventPayload payload)
+    {
+        write(artifact, turn, AgentEventSource.root(), payload);
+    }
+
+    /** Appends an event after the conversation's last; every write holds the service's lock, so sequences never repeat. */
+    private synchronized void write(Artifact artifact, Optional<TurnId> turn, AgentEventSource source, AgentEventPayload payload)
+    {
+        long sequence = store.lastEvent(artifact.workspaceId(), artifact.id()) + 1;
+        AgentEventEnvelope envelope = new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), sequence, TaskId.valueOf(artifact.id()), turn,
+                source, clock.instant(), payload);
+        try {
+            store.addEvent(artifact.workspaceId(), artifact.id(), sequence, new String(AgentEventJson.write(envelope), UTF_8));
         }
+        catch (JsonProcessingException failure) {
+            throw new UncheckedIOException(failure);
+        }
+    }
+
+    private static AgentEventEnvelope event(String json)
+    {
+        try {
+            return AgentEventJson.read(json.getBytes(UTF_8));
+        }
+        catch (IOException failure) {
+            throw new UncheckedIOException(failure);
+        }
+    }
+
+    private static AgentEventPayload.Lifecycle lifecycle(AgentEventPayload.LifecyclePhase phase, String message)
+    {
+        return new AgentEventPayload.Lifecycle(phase, message);
     }
 
     private synchronized String offer(Run run, Artifact artifact, ArtifactTools.Offer offer)
@@ -433,7 +469,7 @@ public class ArtifactService
         if (run.stopped || run.ended) {
             return "Not offered: the user stopped this answer.";
         }
-        append(run, artifact, ArtifactItem.offered(artifact.id(), offer.title(), offer.covers(), clock.instant()));
+        store.saveOffer(artifact.workspaceId(), ArtifactOffer.offered(artifact.id(), run.turnId.toString(), offer.title(), offer.covers(), clock.instant()));
         return "Offered. End your reply now; the user answers with a button.";
     }
 
@@ -453,10 +489,9 @@ public class ArtifactService
         }
         String key = page.key().orElseGet(() -> "p" + (pages.stream().map(ArtifactPage::key).distinct().count() + 1));
         int version = (int) pages.stream().filter(saved -> saved.key().equals(key)).count() + 1;
-        ArtifactPage saved = new ArtifactPage(UUID.randomUUID().toString(), artifact.id(), key, version, page.title(), commit, clock.instant());
+        ArtifactPage saved = new ArtifactPage(UUID.randomUUID().toString(), artifact.id(), key, version, page.title(), commit, clock.instant(), Optional.of(run.turnId.toString()));
         store.savePage(artifact.workspaceId(), saved, page.html());
         run.wrote = true;
-        append(run, artifact, ArtifactItem.page(artifact.id(), saved.id(), page.title() + " · v" + version, clock.instant()));
         if (pages.isEmpty()) {
             // The first page names the conversation, which until then carried its first message's words.
             store.save(current.orElseThrow().named(page.title(), clock.instant()));
@@ -467,10 +502,33 @@ public class ArtifactService
     /** For a fresh session: the conversation so far and the latest version of each page, since the session knows none of it. */
     private String seed(Artifact artifact)
     {
-        List<ArtifactItem> items = store.items(artifact.workspaceId(), artifact.id());
+        List<String> lines = new ArrayList<>();
+        // ponytail: reads the whole log; a conversation stays short enough for that.
+        for (String json : store.events(artifact.workspaceId(), artifact.id(), 0, Integer.MAX_VALUE)) {
+            AgentEventEnvelope event = event(json);
+            if (event.source().parentProviderThreadId().isPresent()) {
+                continue;
+            }
+            switch (event.payload()) {
+                case AgentEventPayload.UserMessage message -> lines.add("[user] " + clip(message.text(), SEED_TEXT));
+                case AgentEventPayload.AssistantMessage message when message.messageKind() == ProviderAgentEvent.MessageKind.ANSWER -> lines.add("[you] " + clip(message.text(), SEED_TEXT));
+                case AgentEventPayload.Error error -> lines.add("[no answer] " + error.message());
+                case AgentEventPayload.Lifecycle lifecycle when lifecycle.phase() == AgentEventPayload.LifecyclePhase.INTERRUPTED -> lines.add("[no answer] " + lifecycle.message());
+                default -> {
+                }
+            }
+        }
+        // The message being answered is the last user line and is sent below the seed.
+        for (int index = lines.size() - 1; index >= 0; index--) {
+            if (lines.get(index).startsWith("[user] ")) {
+                lines.remove(index);
+                break;
+            }
+        }
+        store.offers(artifact.workspaceId(), artifact.id())
+                .forEach(offer -> lines.add("[you offered a page] " + offer.title() + " (" + offer.state().name().toLowerCase(Locale.ROOT) + ")"));
         StringBuilder seed = new StringBuilder("Earlier in this conversation:\n");
-        // The message being answered is the last item and is sent below it.
-        items.subList(Math.max(0, items.size() - 1 - SEED_ITEMS), Math.max(0, items.size() - 1)).forEach(item -> seed.append(line(item)).append('\n'));
+        lines.subList(Math.max(0, lines.size() - SEED_ITEMS), lines.size()).forEach(line -> seed.append(line).append('\n'));
         List<ArtifactPage> pages = store.pages(artifact.workspaceId(), artifact.id());
         pages.stream().map(ArtifactPage::key).distinct().forEach(key -> {
             ArtifactPage latest = pages.stream().filter(page -> page.key().equals(key)).reduce((first, second) -> second).orElseThrow();
@@ -478,18 +536,6 @@ public class ArtifactService
                     .append(store.pageHtml(artifact.workspaceId(), artifact.id(), latest.id()).orElse("")).append("\n</page>\n");
         });
         return seed.toString();
-    }
-
-    private static String line(ArtifactItem item)
-    {
-        return switch (item.kind()) {
-            case USER -> "[user] " + clip(item.text(), SEED_TEXT);
-            case REPLY -> "[you] " + clip(item.text(), SEED_TEXT);
-            case ACTIVITY -> "[you read] " + item.text();
-            case OFFER -> "[you offered a page] " + item.offer().map(offer -> offer.title() + " (" + offer.state().name().toLowerCase(Locale.ROOT) + ")").orElse("");
-            case PAGE -> "[you saved] " + item.text();
-            case FAILURE -> "[no answer] " + item.text();
-        };
     }
 
     private static String prompt(Checkout checkout, String message, Optional<String> seed)
@@ -573,12 +619,7 @@ public class ArtifactService
         private volatile boolean ended;
         private volatile boolean replied;
         private volatile boolean wrote;
-        // Touched only under the service's lock.
-        private Optional<ArtifactItem> activity = Optional.empty();
-        private String label = "";
-        private String lastItem = "";
-        private String lastReply = "";
-        private int steps;
+        private final TurnId turnId = TurnId.random();
 
         Run(String artifactId)
         {

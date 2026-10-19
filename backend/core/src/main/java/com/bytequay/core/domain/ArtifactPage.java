@@ -14,6 +14,7 @@
 package com.bytequay.core.domain;
 
 import java.time.Instant;
+import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -25,8 +26,9 @@ import static java.util.Objects.requireNonNull;
  * @param id this version's own id, which is also the viewer's origin, so versions cannot read each other's storage
  * @param key the page this version belongs to, such as {@code p1}; the agent names it to save a new version
  * @param commit the default-branch commit the agent read
+ * @param turnId the turn that saved it, so its line shows at the end of that turn; absent on pages saved before turns were recorded
  */
-public record ArtifactPage(String id, String artifactId, String key, int version, String title, String commit, Instant writtenAt)
+public record ArtifactPage(String id, String artifactId, String key, int version, String title, String commit, Instant writtenAt, Optional<String> turnId)
 {
     public ArtifactPage
     {
@@ -37,5 +39,6 @@ public record ArtifactPage(String id, String artifactId, String key, int version
         checkText(title, "title");
         checkText(commit, "commit");
         requireNonNull(writtenAt, "writtenAt is null");
+        requireNonNull(turnId, "turnId is null");
     }
 }

@@ -13,11 +13,17 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.app.artifact.ArtifactRow;
 import com.bytequay.app.artifact.ArtifactService;
 import com.bytequay.app.artifact.ArtifactView;
 import com.bytequay.core.domain.Artifact;
-import com.bytequay.core.domain.ArtifactItem;
+import com.bytequay.core.domain.ArtifactOffer;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -39,8 +45,9 @@ class TestArtifactController
 {
     private static final Instant NOW = Instant.parse("2026-10-19T10:00:00Z");
     private static final Artifact ARTIFACT = Artifact.started("a1", "workspace", "Teach me position deletes", NOW).working(true, NOW);
+    private static final String ID = "8bafef5c-0000-4000-8000-000000000001";
     private static final ArtifactView VIEW = new ArtifactView(ARTIFACT,
-            ImmutableList.of(ArtifactItem.of("a1", ArtifactItem.Kind.USER, "Teach me position deletes", NOW)), ImmutableList.of());
+            ImmutableList.of(ArtifactOffer.offered("a1", "t1", "Deletes on read", "How a scan skips deleted rows.", NOW)), ImmutableList.of());
 
     private final ArtifactService artifacts = mock(ArtifactService.class);
     private final MockMvc mvc = standaloneSetup(new ArtifactController(artifacts)).build();
@@ -59,8 +66,24 @@ class TestArtifactController
         mvc.perform(get("/api/workspaces/workspace/artifacts/a1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.artifact.title").value("Teach me position deletes"))
-                .andExpect(jsonPath("$.items[0].kind").value("USER"))
+                .andExpect(jsonPath("$.offers[0].title").value("Deletes on read"))
+                .andExpect(jsonPath("$.offers[0].state").value("SHOWN"))
                 .andExpect(jsonPath("$.pages").isEmpty());
+    }
+
+    @Test
+    void readsEventsInTheFormOfATasksHistory()
+            throws Exception
+    {
+        AgentEventEnvelope event = new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 3, TaskId.valueOf(ID), Optional.of(TurnId.random()),
+                AgentEventSource.root(), NOW, new AgentEventPayload.UserMessage("The read path", ImmutableList.of(), AgentEventPayload.DeliveryKind.TURN));
+        when(artifacts.events("workspace", ID, 2)).thenReturn(ImmutableList.of(event));
+        mvc.perform(get("/api/workspaces/workspace/artifacts/" + ID + "/events").param("after", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].sequence").value(3))
+                .andExpect(jsonPath("$[0].taskId").value(ID))
+                .andExpect(jsonPath("$[0].type").value("user_message"))
+                .andExpect(jsonPath("$[0].payload.text").value("The read path"));
     }
 
     @Test

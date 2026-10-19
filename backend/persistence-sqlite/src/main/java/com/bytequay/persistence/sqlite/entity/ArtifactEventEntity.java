@@ -13,20 +13,17 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.core.domain.ArtifactItem;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.ArtifactItemConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 
-/** One entry of an artifact conversation. Items written in one millisecond keep their order through the ordinal. */
+/** One agent event of an artifact conversation, kept as the same JSON a task's event log holds. */
 @Entity
-@Table(name = "artifact_item", uniqueConstraints = @UniqueConstraint(name = "uq_artifact_item_ordinal", columnNames = {"artifact_id", "ordinal"}))
-public class ArtifactItemEntity
+@Table(name = "artifact_event", uniqueConstraints = @UniqueConstraint(name = "uq_artifact_event_sequence", columnNames = {"artifact_id", "sequence"}))
+public class ArtifactEventEntity
         extends AssignedIdEntity<String>
 {
     @Id
@@ -40,30 +37,20 @@ public class ArtifactItemEntity
     private String artifactId;
 
     @Column(nullable = false)
-    private long ordinal;
+    private long sequence;
 
+    @Getter
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = ArtifactItemConverter.class)
-    private ArtifactItem value;
+    private String json;
 
-    protected ArtifactItemEntity() {}
+    protected ArtifactEventEntity() {}
 
-    public ArtifactItemEntity(String workspaceId, ArtifactItem item, long ordinal)
+    public ArtifactEventEntity(String workspaceId, String artifactId, long sequence, String json)
     {
-        id = item.id();
+        id = artifactId + "/" + sequence;
         this.workspaceId = workspaceId;
-        artifactId = item.artifactId();
-        this.ordinal = ordinal;
-        value = item;
-    }
-
-    public void update(ArtifactItem item)
-    {
-        value = item;
-    }
-
-    public ArtifactItem toDomain()
-    {
-        return value;
+        this.artifactId = artifactId;
+        this.sequence = sequence;
+        this.json = json;
     }
 }

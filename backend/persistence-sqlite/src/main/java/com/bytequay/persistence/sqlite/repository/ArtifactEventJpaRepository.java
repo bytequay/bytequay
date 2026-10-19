@@ -13,23 +13,24 @@
  */
 package com.bytequay.persistence.sqlite.repository;
 
-import com.bytequay.core.domain.ArtifactItem;
-import com.bytequay.persistence.sqlite.entity.ArtifactItemEntity;
+import com.bytequay.persistence.sqlite.entity.ArtifactEventEntity;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 
-public interface ArtifactItemJpaRepository
-        extends JpaRepository<ArtifactItemEntity, String>
+public interface ArtifactEventJpaRepository
+        extends JpaRepository<ArtifactEventEntity, String>
 {
-    @Query("select i.value from ArtifactItemEntity i where i.workspaceId = :workspaceId and i.artifactId = :artifactId order by i.ordinal")
-    List<ArtifactItem> items(String workspaceId, String artifactId);
+    @Query("select e.json from ArtifactEventEntity e where e.workspaceId = :workspaceId and e.artifactId = :artifactId and e.sequence > :after order by e.sequence")
+    List<String> events(String workspaceId, String artifactId, long after, Pageable page);
 
-    long countByArtifactId(String artifactId);
+    @Query("select coalesce(max(e.sequence), 0) from ArtifactEventEntity e where e.workspaceId = :workspaceId and e.artifactId = :artifactId")
+    long lastSequence(String workspaceId, String artifactId);
 
     @Modifying
-    @Query("delete from ArtifactItemEntity i where i.workspaceId = :workspaceId")
+    @Query("delete from ArtifactEventEntity e where e.workspaceId = :workspaceId")
     void deleteWorkspace(String workspaceId);
 }

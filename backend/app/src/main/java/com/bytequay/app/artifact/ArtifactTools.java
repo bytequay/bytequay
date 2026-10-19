@@ -35,7 +35,8 @@ final class ArtifactTools
     private static final Pattern KEY = Pattern.compile("p[1-9][0-9]{0,3}");
     private static final Pattern THEME = Pattern.compile("<link\\b[^>]*\\bhref\\s*=\\s*[\"']?theme\\.css(?=[\"'\\s/>])", Pattern.CASE_INSENSITIVE);
     private static final Pattern REFERENCE = Pattern.compile(
-            "\\b(?:src|href|action|poster|srcset)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))|url\\(\\s*[\"']?([^\"')\\s]*)", Pattern.CASE_INSENSITIVE);
+            // Not after a hyphen either, so data-action or data-src is plain data.
+            "(?<![\\w-])(?:src|href|action|poster|srcset)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))|url\\(\\s*[\"']?([^\"')\\s]*)", Pattern.CASE_INSENSITIVE);
 
     /**
      * A page the agent saves.

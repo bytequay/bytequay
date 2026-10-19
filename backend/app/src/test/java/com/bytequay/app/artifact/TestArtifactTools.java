@@ -45,7 +45,8 @@ class TestArtifactTools
             throws Exception
     {
         String html = THEMED.formatted("<a href=\"#steps\">Steps</a><img src=\"data:image/png;base64,AA==\">"
-                + "<svg><use href=\"#arrow\"/><rect fill=\"url(#shade)\"/></svg><script>document.title = 'x';</script>");
+                + "<svg><use href=\"#arrow\"/><rect fill=\"url(#shade)\"/></svg><button data-action=\"delete\" data-src=\"orders\">Delete</button>"
+                + "<script>document.title = 'x';</script>");
 
         assertThat(call(save, ImmutableMap.of("title", " Delete files ", "html", html))).isEqualTo("Saved");
         assertThat(call(save, ImmutableMap.of("title", "Delete files", "html", html, "page", "p2"))).isEqualTo("Saved");

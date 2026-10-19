@@ -173,6 +173,30 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void artifactWriterReadsItsCheckoutAsControlWorkAndAloneMaySave()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSessionContext plain = context(Optional.empty(), AgentPermissionPolicy.AUTO);
+        Path checkout = Files.createDirectories(runtimeDirectory().resolveSibling("artifacts").resolve("ws1"));
+        AgentSessionContext writer = new AgentSessionContext(plain.taskId(), checkout, plain.runtimeDirectory(), plain.providerDirectory(),
+                plain.permissionPolicy(), plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), SessionAccess.READ_ONLY,
+                Optional.empty(), "Write the page.", Optional.empty(),
+                ImmutableList.of(new ReviewTool("artifact_save", "Save the page", ImmutableMap.of("type", "object"), page -> "Saved", false)));
+        try (AgentSession session = driver.open(writer, event -> {})) {
+            assertThat(await(session.start(command("teach me delete files"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            ProcessSpec spec = supervisor.turns().getLast().spec();
+            // The checkout outlives each run so a later ask can resume, but no task owns it: a leftover process blocks no task.
+            assertThat(spec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
+            assertThat(spec.argv()).containsSequence("--tools", "Bash,Glob,Grep,Read");
+            assertThat(spec.argv()).anyMatch(argument -> argument.contains("mcp__bytequay__artifact_save"));
+            assertThat(spec.argv()).noneMatch(argument -> argument.contains("Edit") || argument.contains("Write,"));
+        }
+        driver.close();
+    }
+
+    @Test
     void toolsOnlySessionResumesWithOnlyItsByteQuayToolsAndNoChildren()
             throws Exception
     {

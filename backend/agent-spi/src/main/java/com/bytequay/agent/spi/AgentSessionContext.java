@@ -100,9 +100,14 @@ public record AgentSessionContext(
         return access.restricted();
     }
 
-    /** Whether the worktree is a scratch folder inside the runtime directory rather than a task's checkout. */
+    /**
+     * Whether the worktree is no task's checkout: a scratch folder inside the runtime directory, or the artifact writer's checkout in
+     * {@code <runtime root>/artifacts}, beside the run's directory.
+     */
     public boolean scratchWorktree()
     {
-        return worktree.toAbsolutePath().normalize().startsWith(runtimeDirectory.toAbsolutePath().normalize());
+        Path folder = worktree.toAbsolutePath().normalize();
+        Path runtime = runtimeDirectory.toAbsolutePath().normalize();
+        return folder.startsWith(runtime) || folder.startsWith(runtime.resolveSibling("artifacts"));
     }
 }

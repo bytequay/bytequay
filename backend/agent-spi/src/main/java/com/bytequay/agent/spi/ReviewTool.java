@@ -38,6 +38,8 @@ public record ReviewTool(String name, String description, Map<String, Object> in
     public static final String NAME_PREFIX = "review_";
     /** The reads a read-only one-shot session may carry: a review pass's captured context, or the user's day for an agenda. */
     private static final Set<String> SESSION_CONTEXT_TOOLS = ImmutableSet.of("review_get_context", "agenda_context");
+    /** The one save a read-only session may carry, kept from its children: the artifact writer's page. */
+    private static final Set<String> SESSION_SAVE_TOOLS = ImmutableSet.of("artifact_save");
     /** The tools a tools-only session may carry: the assistant's read, its action, and what it shows the user. */
     private static final Set<String> ASSISTANT_TOOLS = ImmutableSet.of("assistant_context", "assistant_act", "assistant_show");
     private static final Set<String> CONTEXT_TOOLS = ImmutableSet.of(
@@ -48,6 +50,7 @@ public record ReviewTool(String name, String description, Map<String, Object> in
             "repository_context_harvest_threads",
             "repository_context_harvest_save",
             "goal_knowledge_save",
+            "artifact_save",
             "agenda_context",
             "assistant_context",
             "assistant_act",
@@ -75,8 +78,8 @@ public record ReviewTool(String name, String description, Map<String, Object> in
     }
 
     /**
-     * Checks the tools a one-shot session carries. A read-only session may start exploration children, so it carries only
-     * context reads a child may also call; a tools-only session has no children, so only it may carry a root-only tool.
+     * Checks the tools a one-shot session carries. A read-only session may start exploration children, so it carries context reads a
+     * child may also call, and at most the artifact save, which only its root agent may call; a tools-only session has no children.
      */
     public static void checkSessionTools(SessionAccess access, List<ReviewTool> tools)
     {
@@ -86,7 +89,8 @@ public record ReviewTool(String name, String description, Map<String, Object> in
                 checkArgument(ASSISTANT_TOOLS.contains(tool.name()), "Only assistant tools are allowed in a tools-only session");
             }
             else {
-                checkArgument(SESSION_CONTEXT_TOOLS.contains(tool.name()) && tool.childCallable(), "Only context reads are allowed");
+                checkArgument(SESSION_CONTEXT_TOOLS.contains(tool.name()) && tool.childCallable()
+                        || SESSION_SAVE_TOOLS.contains(tool.name()) && !tool.childCallable(), "Only context reads and a root-only artifact save are allowed");
             }
         }
     }

@@ -14,12 +14,12 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentApproval;
+import com.bytequay.agent.core.AgentApprovalEvents;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
-import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalNotFoundException;
@@ -33,7 +33,6 @@ import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
-import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.google.common.collect.ImmutableList;
 
@@ -403,16 +402,8 @@ public final class DefaultAgentApprovalService
                 eventId,
                 request.taskId(),
                 Optional.of(request.turnId()),
-                source(providerRequest),
-                new AgentEventPayload.ApprovalRequested(
-                        request.id().toString(),
-                        approvalKind(providerRequest.kind()),
-                        providerRequest.title(),
-                        providerRequest.detail(),
-                        providerRequest.requestedPermissions(),
-                        providerRequest.sandboxed(),
-                        true,
-                        availableDecisions(providerRequest)),
+                AgentApprovalEvents.source(providerRequest),
+                AgentApprovalEvents.requested(request.id().toString(), providerRequest),
                 request.requestedAt());
     }
 
@@ -422,41 +413,9 @@ public final class DefaultAgentApprovalService
                 eventId,
                 request.taskId(),
                 Optional.of(request.turnId()),
-                source(request.providerRequest()),
+                AgentApprovalEvents.source(request.providerRequest()),
                 new AgentEventPayload.ApprovalResolved(request.id().toString(), outcome, decision.forTask()),
                 decision.resolvedAt());
-    }
-
-    private static List<AgentEventPayload.ApprovalOption> availableDecisions(ProviderApprovalRequest request)
-    {
-        return request.availableDecisions().stream()
-                .map(decision -> switch (decision) {
-                    case ALLOW_ONCE -> AgentEventPayload.ApprovalOption.ALLOW_ONCE;
-                    case ALLOW_FOR_TASK -> AgentEventPayload.ApprovalOption.ALLOW_FOR_TASK;
-                    case DENY -> AgentEventPayload.ApprovalOption.DENY;
-                })
-                .collect(toImmutableList());
-    }
-
-    private static AgentEventSource source(ProviderApprovalRequest request)
-    {
-        ProviderAgentEventSource source = request.source();
-        return new AgentEventSource(
-                source.providerThreadId(),
-                source.parentProviderThreadId(),
-                source.logicalAgentPath(),
-                source.providerTurnId(),
-                source.providerItemId(),
-                Optional.empty());
-    }
-
-    private static AgentEventPayload.ApprovalKind approvalKind(ProviderApprovalRequest.Kind kind)
-    {
-        return switch (kind) {
-            case COMMAND -> AgentEventPayload.ApprovalKind.COMMAND;
-            case FILE_CHANGE -> AgentEventPayload.ApprovalKind.FILE_CHANGE;
-            case TOOL, OTHER -> AgentEventPayload.ApprovalKind.OTHER;
-        };
     }
 
     private static boolean sameDecision(ApprovalDecision previous, ResolveApprovalCommand command)

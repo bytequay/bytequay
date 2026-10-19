@@ -48,8 +48,7 @@ public final class CiAutofixHttpModels
                 run.terminalAt(),
                 new AuthorizationResponse(
                         CiAutofixRun.MAX_FIX_ATTEMPTS,
-                        run.authorization().authorizedAt(),
-                        run.authorization().expiresAt()),
+                        run.authorization().authorizedAt()),
                 run.expectedRemoteHead(),
                 run.latestObservedBaseSha(),
                 run.attemptsUsed(),
@@ -218,8 +217,7 @@ public final class CiAutofixHttpModels
 
     record AuthorizationResponse(
             int maxAttempts,
-            Instant authorizedAt,
-            Instant expiresAt) {}
+            Instant authorizedAt) {}
 
     record WarningResponse(String code, String message, Instant occurredAt) {}
 

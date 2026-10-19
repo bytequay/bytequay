@@ -145,7 +145,7 @@ class TestBranchRebaseService
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new DevelopmentCiOwnership(ciRuns, mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
                         mock(AgentEventService.class),
-                        new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}), Clock.fixed(NOW, ZoneOffset.UTC)));
+                        new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {})));
     }
 
     @Test
@@ -157,7 +157,7 @@ class TestBranchRebaseService
                 new CiAutofixRun.Scope(PullRequestRef.of("trinodb", "trino", 1), RepoRef.of("trinodb", "trino"), "workspace-1", RepoRef.of("trinodb", "trino"),
                         "author", workBranch(), "main", "claude-cli", Optional.of("parent")),
                 tips.original(), tips.original(), tips.base(),
-                new CiAutofixRun.Authorization(NOW, NOW.plusSeconds(8 * 3600)), NOW).assignAgentTask(taskId.toString(), NOW);
+                new CiAutofixRun.Authorization(NOW), NOW).assignAgentTask(taskId.toString(), NOW);
         when(ciRuns.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(owner));
 
         assertThatThrownBy(() -> service.start(command("blocked-start"))).isInstanceOf(CiAutofixConflictException.class);

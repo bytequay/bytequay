@@ -57,7 +57,6 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.sql.SQLException;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -385,7 +384,7 @@ class TestSqliteCiAutofixStore
                 HEAD,
                 HEAD,
                 BASE,
-                new Authorization(now, now.plus(Duration.ofHours(8))),
+                new Authorization(now),
                 now);
     }
 

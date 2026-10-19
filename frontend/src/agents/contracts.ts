@@ -378,7 +378,7 @@ export function parseCiAutofixRun(value: unknown): CiAutofixRunDto {
     headRef: text(source.headRef, 'ciRun.headRef'),
     status: enumText(source.status, ['ACTIVE', 'PAUSED', 'FINISHED'] as const, 'ciRun.status'),
     activity: text(source.activity, 'ciRun.activity'), version: count(source.version, 'ciRun.version'),
-    authorization: { maxAttempts: count(authorization.maxAttempts, 'ciRun.authorization.maxAttempts'), expiresAt: text(authorization.expiresAt, 'ciRun.authorization.expiresAt') },
+    authorization: { maxAttempts: count(authorization.maxAttempts, 'ciRun.authorization.maxAttempts') },
     attemptsUsed: count(source.attemptsUsed, 'ciRun.attemptsUsed'), rerunsUsed: count(source.rerunsUsed, 'ciRun.rerunsUsed'),
     agentTaskId: optionalText(source.agentTaskId, 'ciRun.agentTaskId'), currentTurnId: optionalText(source.currentTurnId, 'ciRun.currentTurnId'),
     parentTaskId: optionalText(source.parentTaskId, 'ciRun.parentTaskId'), canMessage: flag(source.canMessage, 'ciRun.canMessage'),

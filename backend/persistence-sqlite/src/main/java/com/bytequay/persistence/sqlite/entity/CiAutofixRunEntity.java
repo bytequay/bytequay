@@ -133,9 +133,6 @@ public class CiAutofixRunEntity
     private Instant authorizedAt;
 
     @Column(nullable = false)
-    private Instant authorizationExpiresAt;
-
-    @Column(nullable = false)
     private int attemptsUsed;
 
     private String rerunHeadSha;
@@ -240,7 +237,6 @@ public class CiAutofixRunEntity
         latestObservedBaseSha = run.latestObservedBaseSha();
         Authorization authorization = run.authorization();
         authorizedAt = authorization.authorizedAt();
-        authorizationExpiresAt = authorization.expiresAt();
         attemptsUsed = run.attemptsUsed();
         rerunHeadSha = run.rerunCounter().headSha().orElse(null);
         rerunsUsed = run.rerunCounter().used();
@@ -260,7 +256,7 @@ public class CiAutofixRunEntity
         Scope scope = new Scope(
                 PullRequestRef.of(repositoryOwner, repositoryName, pullRequestNumber), headRepository(), workspaceId, RepoRef.of(physicalRepositoryOwner, physicalRepositoryName),
                 author, headRef, baseRef, laneId, Optional.ofNullable(parentTaskId));
-        Authorization authorization = new Authorization(authorizedAt, authorizationExpiresAt);
+        Authorization authorization = new Authorization(authorizedAt);
         return new CiAutofixRun(
                 CiAutofixRunId.valueOf(id), startIdempotencyKey, scope, Optional.ofNullable(agentTaskId), status, Optional.ofNullable(pauseReason),
                 Optional.ofNullable(finishReason), Optional.ofNullable(summary), taskStartCommit, expectedRemoteHead, latestObservedBaseSha, authorization, attemptsUsed,

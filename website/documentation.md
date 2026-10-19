@@ -310,6 +310,14 @@ and review each task's choices before sending. Automatic analysis and repairs
 use your model allowance. Use **Stop automation and continue…** to resume
 development. You review and merge the PR.
 
+CI monitoring runs locally while ByteQuay is open. It waits while the Mac is
+asleep and retries temporary failures when reading check status after waking.
+Monitoring has no time limit, including overnight sleep. It continues when the
+Mac wakes until CI passes or you stop it, subject to the repair-attempt limits
+and any errors that need your input. Quitting or restarting ByteQuay stops a
+development task's automatic delivery; inspect the task and send a new
+instruction to continue.
+
 <a id="commits-and-backports"></a>
 
 ## Cherry-pick and backport

@@ -272,7 +272,7 @@ class TestCiAutofixService
         turnStore = mock(AgentTurnStore.class);
         runtimes = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
         ownership = new DevelopmentCiOwnership(store, taskStore, turnStore, mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
-                eventService, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
+                eventService, runtimes);
         service = new CiAutofixService(
                 store,
                 gitHub,
@@ -305,7 +305,7 @@ class TestCiAutofixService
         assertThat(run.currentTurnId()).contains(turnId.toString());
         assertThat(run.attempts()).hasSize(1);
         assertThat(run.attemptsUsed()).isEqualTo(1);
-        assertThat(run.authorization().expiresAt()).isEqualTo(NOW.plus(CiAutofixService.AUTHORIZATION_PERIOD));
+        assertThat(run.authorization().authorizedAt()).isEqualTo(NOW);
 
         ArgumentCaptor<CreateAgentTaskCommand> task = ArgumentCaptor.forClass(CreateAgentTaskCommand.class);
         verify(taskService).create(task.capture());
@@ -674,14 +674,18 @@ class TestCiAutofixService
         verify(turnService, times(1)).start(any());
     }
 
-    @Test
-    void watchesPendingCiWithoutRebasingAndStartsFixingAfterAFailure()
+    @ParameterizedTest
+    @ValueSource(ints = {1, 7})
+    void watchesPendingCiForDaysWithoutRebasingAndStartsFixingAfterAFailure(int days)
     {
         when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
 
         CiAutofixRun run = service.start(startCommand("pending-to-failed"));
+        service = service(store, Clock.fixed(NOW.plus(Duration.ofDays(days)), ZoneOffset.UTC));
+        run = service.advance(run.id());
 
         assertThat(run.status()).isEqualTo(Status.ACTIVE);
+        assertThat(run.authorization().authorizedAt()).isEqualTo(NOW);
         assertThat(run.agentTaskId()).contains(taskId.toString());
         assertThat(run.attempts()).isEmpty();
         assertThat(run.currentTurnId()).isEmpty();
@@ -702,11 +706,16 @@ class TestCiAutofixService
         verify(turnService).start(any());
     }
 
-    @Test
-    void finishesAPendingWatchWhenCiBecomesGreenWithoutStartingAFix()
+    @ParameterizedTest
+    @ValueSource(ints = {1, 7})
+    void finishesADaysLongPendingWatchWhenCiBecomesGreenWithoutStartingAFix(int days)
     {
         when(gitHub.inspect(any())).thenReturn(pendingSnapshot(HEAD, BASE));
         CiAutofixRun run = service.start(startCommand("pending-to-green"));
+        service = service(store, Clock.fixed(NOW.plus(Duration.ofDays(days)), ZoneOffset.UTC));
+        run = service.advance(run.id());
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
+        assertThat(run.attempts()).isEmpty();
 
         when(gitHub.inspect(any())).thenReturn(greenSnapshot(HEAD, BASE));
         when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.valid(HEAD));
@@ -1093,9 +1102,11 @@ class TestCiAutofixService
     }
 
     @Test
-    void descriptionRepairWaitsForANewWorkflowAndAllRemainingCiWithoutRerunningTheOldEvent()
+    void descriptionRepairAfterDaysWaitsForANewWorkflowAndAllRemainingCiWithoutRerunningTheOldEvent()
     {
         CiAutofixRun run = descriptionProposal();
+        service = service(store, Clock.fixed(NOW.plus(Duration.ofDays(3)), ZoneOffset.UTC));
+        service.proposeDescription(taskId, turnId, new CiDescriptionProposal(200, "Fixes #31178.", "- Fixes #31178."));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         run = service.advance(run.id());
@@ -1182,12 +1193,10 @@ class TestCiAutofixService
     }
 
     @Test
-    void cancelledExpiredOrDifferentAccountCannotApplyADescriptionProposal()
+    void cancelledOrDifferentAccountCannotApplyADescriptionProposal()
     {
         CiAutofixRun run = descriptionProposal();
-        CiAutofixService expired = service(store, Clock.fixed(NOW.plus(Duration.ofHours(8)), ZoneOffset.UTC));
-        assertThatThrownBy(() -> expired.proposeDescription(taskId, turnId, new CiDescriptionProposal(200, "Fixes #31178.", "- Fixes #31178.")))
-                .hasMessageContaining("authorization expired");
+        service = service(store, Clock.fixed(NOW.plus(Duration.ofDays(3)), ZoneOffset.UTC));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential("another-token", profile("another-user")));
@@ -1425,24 +1434,17 @@ class TestCiAutofixService
     }
 
     @Test
-    void stopsAnActiveTurnWhenAuthorizationExpiresOrTheRemoteHeadChanges()
+    void keepsAnActiveTurnAfterDaysAndStopsWhenTheRemoteHeadChanges()
     {
-        CiAutofixRun expiring = service.start(startCommand("expire-active"));
-        CiAutofixRun expired = service(store, Clock.fixed(NOW.plus(Duration.ofHours(9)), ZoneOffset.UTC)).advance(expiring.id());
-        assertThat(expired.finishReason()).contains(FinishReason.AUTHORIZATION_EXPIRED);
-        verify(turnService).cancel(turnId);
-        verify(gitHub, times(1)).inspect(any());
-
-        reset(turnService);
-        InMemoryCiAutofixStore staleStore = new InMemoryCiAutofixStore();
-        CiAutofixService staleService = service(staleStore);
-        when(turnService.start(any())).thenReturn(runningTurn);
-        when(turnService.get(turnId)).thenReturn(runningTurn);
-        when(gitHub.inspect(any())).thenReturn(snapshot);
-        CiAutofixRun stale = staleService.start(startCommand("stale-active"));
+        CiAutofixRun run = service.start(startCommand("long-active"));
+        service = service(store, Clock.fixed(NOW.plus(Duration.ofDays(3)), ZoneOffset.UTC));
+        run = service.advance(run.id());
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
+        assertThat(run.currentTurnId()).contains(turnId.toString());
+        verify(turnService, never()).cancel(any());
         when(gitHub.inspect(any())).thenReturn(failedSnapshot(FIXED_HEAD, BASE, 1));
 
-        stale = staleService.advance(stale.id());
+        CiAutofixRun stale = service.advance(run.id());
         assertThat(stale.finishReason()).contains(FinishReason.STALE_HEAD);
         verify(turnService).cancel(turnId);
         verify(gitService, never()).inspectAgentResult(any());
@@ -1644,18 +1646,21 @@ class TestCiAutofixService
     }
 
     @Test
-    void refusesCiSteeringAfterAuthorizationExpiresOrTheAgentStops()
+    void permitsCiSteeringAfterDaysUntilTheAgentStops()
     {
         enableSteering();
-        CiAutofixRun run = service.start(startCommand("steer-expired"));
+        CiAutofixRun run = service.start(startCommand("steer-after-days"));
         SendCiAutofixMessageCommand command = new SendCiAutofixMessageCommand(run.id(), "Check Docker", "steer", Optional.of(turnId));
-        CiAutofixService expired = service(store, Clock.fixed(NOW.plus(Duration.ofHours(9)), ZoneOffset.UTC));
-        assertThat(expired.canMessage(run)).isFalse();
-        assertThatThrownBy(() -> expired.sendMessage(command)).isInstanceOf(CiAutofixConflictException.class);
-        CiAutofixRun waiting = store.update(run.clearCurrentTurn(turnId.toString(), NOW));
+        Instant later = NOW.plus(Duration.ofDays(3));
+        service = service(store, Clock.fixed(later, ZoneOffset.UTC));
+        AgentInputDelivery delivered = AgentInputDelivery.accepted(InputDeliveryId.random(), taskId, turnId, "steer", later).sending(later).delivered(later);
+        when(turnService.steer(any())).thenReturn(delivered);
+        assertThat(service.canMessage(run)).isTrue();
+        assertThat(service.sendMessage(command)).isEqualTo(run);
+        CiAutofixRun waiting = store.update(run.clearCurrentTurn(turnId.toString(), later));
         assertThat(service.canMessage(waiting)).isFalse();
         assertThatThrownBy(() -> service.sendMessage(command)).isInstanceOf(CiAutofixConflictException.class);
-        verify(turnService, never()).steer(any());
+        verify(turnService, times(1)).steer(any());
     }
 
     @ParameterizedTest
@@ -1697,12 +1702,14 @@ class TestCiAutofixService
     }
 
     @Test
-    void resumesOnlyAPausedAuthorizedRunAndKeepsMessageIdempotency()
+    void resumesAPausedRunAfterDaysAndKeepsMessageIdempotency()
     {
         CiAutofixRun initial = service.start(startCommand("message"));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("failed")));
         CiAutofixRun paused = service.advance(initial.id());
         assertThat(paused.status()).isEqualTo(Status.PAUSED);
+        service = service(store, Clock.fixed(NOW.plus(Duration.ofDays(3)), ZoneOffset.UTC));
+        assertThat(service.canMessage(paused)).isTrue();
 
         TurnId recoveryId = TurnId.random();
         AgentTurn recovery = runningTurn(recoveryId, "recovery", "message-key");
@@ -1794,28 +1801,18 @@ class TestCiAutofixService
     }
 
     @Test
-    void expiresPausedAuthorizationAndRejectsAnUnreadyTask()
+    void rejectsAnUnreadyTaskAfterDays()
     {
-        CiAutofixRun active = service.start(startCommand("message-safety"));
+        CiAutofixRun openRun = service.start(startCommand("closed"));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("failed")));
-        CiAutofixRun paused = service.advance(active.id());
-
-        CiAutofixService expiredService = service(store, Clock.fixed(NOW.plus(Duration.ofHours(9)), ZoneOffset.UTC));
-        CiAutofixRun expired = expiredService.sendMessage(new SendCiAutofixMessageCommand(paused.id(), "retry", "expired-key", Optional.empty()));
-        assertThat(expired.finishReason()).contains(FinishReason.AUTHORIZATION_EXPIRED);
-        verify(turnService, times(1)).start(any());
-
-        InMemoryCiAutofixStore closedStore = new InMemoryCiAutofixStore();
-        CiAutofixService closedService = service(closedStore);
-        when(turnService.start(any())).thenReturn(runningTurn);
-        CiAutofixRun openRun = closedService.start(startCommand("closed"));
-        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("failed")));
-        CiAutofixRun pausedRun = closedService.advance(openRun.id());
+        CiAutofixRun pausedRun = service.advance(openRun.id());
+        service = service(store, Clock.fixed(NOW.plus(Duration.ofDays(3)), ZoneOffset.UTC));
         when(taskService.get(taskId)).thenReturn(openTask.fail("task failed", NOW, NOW.plus(Duration.ofDays(7))));
 
-        assertThatThrownBy(() -> closedService.sendMessage(new SendCiAutofixMessageCommand(pausedRun.id(), "retry", "closed-key", Optional.empty())))
+        assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(pausedRun.id(), "retry", "closed-key", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class)
                 .hasMessageContaining("not open");
+        verify(turnService, times(1)).start(any());
     }
 
     private void assertPausedAfterTerminal(TurnState state, PauseReason reason)
@@ -1936,11 +1933,11 @@ class TestCiAutofixService
     }
 
     @Test
-    void persistsDevelopmentOwnerBeforeCreatingWorkAndKeepsItsOriginalBudget()
+    void persistsDevelopmentOwnerAfterDaysAndKeepsItsOriginalAuthorizationTime()
     {
         AgentTask parent = developmentParent();
         TurnId source = reserveParent(parent);
-        Instant activated = NOW.minusSeconds(3600);
+        Instant activated = NOW.minus(Duration.ofDays(3));
         doAnswer(invocation -> {
             assertThat(store.run.scope().parentTaskId()).contains(parent.id().toString());
             return task(invocation.getArgument(0));
@@ -1948,7 +1945,7 @@ class TestCiAutofixService
 
         CiAutofixRun run = service.startDevelopment(startCommand("development"), parent.id(), source, publishedPr(), activated);
         assertThat(run.authorization().authorizedAt()).isEqualTo(activated);
-        assertThat(run.authorization().expiresAt()).isEqualTo(activated.plus(Duration.ofHours(8)));
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
         assertThat(service.startDevelopment(startCommand("development"), parent.id(), source, publishedPr(), NOW).authorization()).isEqualTo(run.authorization());
         assertThatThrownBy(() -> service.start(startCommand("development"))).isInstanceOf(CiAutofixConflictException.class);
         verify(taskService).create(any());
@@ -2131,12 +2128,12 @@ class TestCiAutofixService
     }
 
     @Test
-    void rejectsExpiredOrChangedDevelopmentScopeBeforeProvisioning()
+    void rejectsFutureOrChangedDevelopmentScopeBeforeProvisioning()
     {
         AgentTask parent = developmentParent();
         TurnId source = reserveParent(parent);
-        assertThatThrownBy(() -> service.startDevelopment(startCommand("expired-owned"), parent.id(), source, publishedPr(), NOW.minus(Duration.ofHours(8))))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("expired");
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("future-owned"), parent.id(), source, publishedPr(), NOW.plusSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("future");
         GitHubPullRequestIdentity expected = publishedPr();
         GitHubPullRequestIdentity moved = new GitHubPullRequestIdentity(expected.pullRequest(), expected.url(), expected.headRepository(), expected.headBranch(),
                 FIXED_HEAD, expected.baseRepository(), expected.baseBranch(), expected.baseSha(), expected.state(), expected.draft(), expected.author());
@@ -2235,7 +2232,7 @@ class TestCiAutofixService
                 credentials,
                 requestedClock,
                 new DevelopmentCiOwnership(requestedStore, taskStore, turnStore, mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
-                        eventService, runtimes, requestedClock),
+                        eventService, runtimes),
                 recovery);
     }
 

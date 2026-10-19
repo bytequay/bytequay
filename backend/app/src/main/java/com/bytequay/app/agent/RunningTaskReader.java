@@ -177,7 +177,7 @@ public class RunningTaskReader
             case FINISHED -> switch (run.finishReason().orElseThrow()) {
                 case GREEN -> Status.COMPLETED;
                 case ERROR, MAX_ATTEMPTS -> Status.FAILED;
-                case CANCELLED, STALE_HEAD, AUTHORIZATION_EXPIRED -> Status.STOPPED;
+                case CANCELLED, STALE_HEAD -> Status.STOPPED;
             };
         };
         return item(task, Kind.CI_FIX, Integer.toString(run.scope().pullRequest().number()), "Get CI green on #" + run.scope().pullRequest().number(),

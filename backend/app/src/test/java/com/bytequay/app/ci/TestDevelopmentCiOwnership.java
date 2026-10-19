@@ -51,10 +51,8 @@ import org.mockito.MockMakers;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.file.Path;
-import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -83,7 +81,7 @@ class TestDevelopmentCiOwnership
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final AgentEventService events = mock(AgentEventService.class);
     private final AgentRuntimeRegistry runtimes = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
-    private final DevelopmentCiOwnership ownership = new DevelopmentCiOwnership(store, tasks, turns, assignments, pullRequests, events, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final DevelopmentCiOwnership ownership = new DevelopmentCiOwnership(store, tasks, turns, assignments, pullRequests, events, runtimes);
 
     @Test
     void acceptsAssignedParentWithSeparateLocalBranch()
@@ -235,7 +233,7 @@ class TestDevelopmentCiOwnership
         return CiAutofixRun.create(CiAutofixRunId.random(), "fork-ci",
                 new CiAutofixRun.Scope(PullRequestRef.of(BASE.owner(), BASE.repo(), 1), headRepository, "workspace", FORK, "author",
                         headBranch, "main", AgentLaneId.CLAUDE_CLI.toString(), parent),
-                HEAD, HEAD, "b".repeat(40), new CiAutofixRun.Authorization(NOW, NOW.plus(Duration.ofHours(8))), NOW);
+                HEAD, HEAD, "b".repeat(40), new CiAutofixRun.Authorization(NOW), NOW);
     }
 
     private void assign(AgentTask source)

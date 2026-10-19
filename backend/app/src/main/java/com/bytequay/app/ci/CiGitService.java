@@ -16,7 +16,6 @@ package com.bytequay.app.ci;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
-import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
@@ -28,8 +27,6 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Clock;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -52,12 +49,10 @@ public class CiGitService
     private static final int MAXIMUM_CHANGED_PATHS = 1000;
 
     private final GitCommandRunner runner;
-    private final Clock clock;
 
-    CiGitService(GitCommandRunner runner, Clock clock)
+    CiGitService(GitCommandRunner runner)
     {
         this.runner = requireNonNull(runner, "runner is null");
-        this.clock = requireNonNull(clock, "clock is null");
     }
 
     /** Fetches the reported base SHA and points a private branch at it without moving the PR branch. */
@@ -139,12 +134,11 @@ public class CiGitService
 
     /**
      * Pushes the journaled head with an exact lease. The caller persists the journal first; this call rechecks
-     * authorization, repository, branch, fingerprint, remote SHA and push routing, rejecting URL rewrites.
+     * repository, branch, fingerprint, remote SHA and push routing, rejecting URL rewrites.
      */
     public CiPushResult push(PushCiHeadCommand command)
     {
         requireNonNull(command, "command is null");
-        Authorization authorization = command.authorization();
         PushJournal journal = command.journal();
         try {
             Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
@@ -160,10 +154,6 @@ public class CiGitService
             if (!remote.orElseThrow().equals(journal.expectedRemoteSha())) {
                 return CiPushResult.failed(STALE, "Remote branch changed outside this CI Autofix run");
             }
-            if (!Instant.now(clock).isBefore(authorization.expiresAt())) {
-                return CiPushResult.failed(REJECTED, "CI Autofix authorization expired");
-            }
-
             requireCleanAndResolved(worktree);
             String head = requiredOutput(worktree, "rev-parse", "HEAD");
             if (!head.equals(journal.localHeadSha())) {
@@ -174,9 +164,6 @@ public class CiGitService
                 return CiPushResult.failed(REJECTED, "Local Git fingerprint changed after inspection");
             }
 
-            if (!Instant.now(clock).isBefore(authorization.expiresAt())) {
-                return CiPushResult.failed(REJECTED, "CI Autofix push authorization is no longer valid");
-            }
             worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
             requireCleanAndResolved(worktree);
             head = requiredOutput(worktree, "rev-parse", "HEAD");

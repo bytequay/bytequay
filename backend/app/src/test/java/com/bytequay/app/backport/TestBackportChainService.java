@@ -530,7 +530,7 @@ class TestBackportChainService
         var repo = RepoRef.of("test", "p3");
         var stopped = CiAutofixRun.create(CiAutofixRunId.random(), "cherry-pick-delivery-ci:" + children.get(chain.executionKey(0)).id(),
                 new CiAutofixRun.Scope(PullRequestRef.of("test", "p3", 3), repo, "p3", repo, "test", "backport-p3", "main", "codex", Optional.empty()),
-                TARGET, TARGET, BASE, new CiAutofixRun.Authorization(NOW, NOW.plusSeconds(300)), NOW)
+                TARGET, TARGET, BASE, new CiAutofixRun.Authorization(NOW), NOW)
                 .finish(CiAutofixRun.FinishReason.CANCELLED, "CI cancelled; inspect retained work", NOW);
         when(ciStore.findByIdempotencyKey(anyString())).thenReturn(Optional.of(stopped));
         service.advance(chain.id());

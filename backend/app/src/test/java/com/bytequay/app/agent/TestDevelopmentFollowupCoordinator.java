@@ -57,8 +57,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -71,6 +75,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.AUTO_COMMIT;
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR;
@@ -1102,13 +1107,17 @@ class TestDevelopmentFollowupCoordinator
 
     @ParameterizedTest
     @ValueSource(strings = {"claude", "codex"})
-    void coordinatorDrivesCiUsingAcceptedRepairAgentAndOriginalActivation(String laneId)
+    void coordinatorDrivesCiAcrossOvernightWaitUsingAcceptedRepairAgentAndOriginalActivation(String laneId)
     {
         AgentLaneId lane = new AgentLaneId(laneId);
         preparePublished(new DevelopmentAutomation(true, true, true, Optional.of(lane)));
         CiAutofixRun run = ciRun();
         doReturn(run).when(ci).startDevelopment(any(), any(), any(), any(), any());
         when(ci.advance(run.id())).thenReturn(run, run.finish(CiAutofixRun.FinishReason.GREEN, "Checks passed", NOW));
+        doAnswer(ignored -> {
+            when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(24)));
+            return null;
+        }).when(waitForCi).run();
         advance();
         var order = inOrder(ci, waitForCi, turns);
         order.verify(ci).startDevelopment(eq(new StartCiAutofixCommand(
@@ -1120,6 +1129,89 @@ class TestDevelopmentFollowupCoordinator
         order.verify(waitForCi).run();
         order.verify(ci).advance(run.id());
         order.verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @ParameterizedTest
+    @MethodSource("transientGitHubFailures")
+    void ciMonitoringContinuesAfterOvernightGitHubOutage(RuntimeException failure)
+    {
+        preparePublished(FULL);
+        CiAutofixRun run = ciRun();
+        doReturn(run).when(ci).startDevelopment(any(), any(), any(), any(), any());
+        when(ci.advance(run.id())).thenThrow(failure).thenReturn(run.finish(CiAutofixRun.FinishReason.GREEN, "Checks passed", NOW));
+        doAnswer(ignored -> {
+            when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(24)));
+            return null;
+        }).when(waitForCi).run();
+
+        advance();
+
+        var order = inOrder(ci, waitForCi);
+        order.verify(ci).advance(run.id());
+        order.verify(waitForCi).run();
+        order.verify(ci).advance(run.id());
+        verify(ci, times(1)).startDevelopment(any(), any(), any(), any(), any());
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    static Stream<RuntimeException> transientGitHubFailures()
+    {
+        return Stream.of(
+                new ResourceAccessException("Network unavailable after waking"),
+                new ResponseStatusException(HttpStatus.REQUEST_TIMEOUT, "Request timed out"),
+                new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Rate limited"),
+                new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub temporarily unavailable"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("permanentCiFailures")
+    void ciMonitoringDoesNotRetryPermanentFailures(RuntimeException failure)
+    {
+        preparePublished(FULL);
+        CiAutofixRun run = ciRun();
+        doReturn(run).when(ci).startDevelopment(any(), any(), any(), any(), any());
+        when(ci.advance(run.id())).thenThrow(failure);
+
+        advance();
+
+        verify(ci, times(1)).advance(run.id());
+        verifyNoInteractions(waitForCi);
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains(failure.getMessage()));
+        verify(turns, never()).finishDevelopmentContinuation(any(), any());
+    }
+
+    static Stream<RuntimeException> permanentCiFailures()
+    {
+        return Stream.of(
+                new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token expired"),
+                new ResponseStatusException(HttpStatus.FORBIDDEN, "Repository access denied"),
+                new IllegalStateException("Pull request ownership changed"));
+    }
+
+    @Test
+    void transientCiFailureRespectsStopAfterOvernightOutage()
+    {
+        preparePublished(FULL);
+        CiAutofixRun run = ciRun();
+        doReturn(run).when(ci).startDevelopment(any(), any(), any(), any(), any());
+        when(ci.advance(run.id())).thenThrow(new ResourceAccessException("Network unavailable"));
+        doAnswer(ignored -> {
+            when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(24)));
+            return null;
+        }).doAnswer(ignored -> {
+            when(turns.ownsDevelopmentContinuation(taskId, source.id())).thenReturn(false);
+            return null;
+        }).when(waitForCi).run();
+
+        advance();
+
+        verify(ci, times(2)).advance(run.id());
+        verify(waitForCi, times(2)).run();
+        verify(git, never()).synchronizeSource(any(), anyString(), anyString(), any());
+        verify(writes, never()).markReadyForReview(anyString(), anyString());
+        verify(turns, never()).finishDevelopmentContinuation(any(), any());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
@@ -1152,24 +1244,15 @@ class TestDevelopmentFollowupCoordinator
     }
 
     @Test
-    void timeSpentBeforeCiAttachmentDoesNotRenewAuthorization()
+    void overnightDelayBeforeCiAttachmentPreservesOriginalAuthorization()
     {
         preparePublished(FULL);
         coordinator.completed(outcome);
-        when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(2)));
+        when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(24)));
         pending.remove().run();
         verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
-    }
-
-    @Test
-    void expiredContinuationCannotAttachCi()
-    {
-        preparePublished(FULL);
-        coordinator.completed(outcome);
-        when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(8)));
-        pending.remove().run();
-        verify(ci, never()).startDevelopment(any(), any(), any(), any(), any());
-        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("authorization expired"));
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
     @ParameterizedTest
@@ -1310,7 +1393,7 @@ class TestDevelopmentFollowupCoordinator
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
-    void fullCheckGateWaitsForMissingChecksOrNewQueuedWorkflow(boolean missing)
+    void fullCheckGateWaitsOvernightForMissingChecksOrNewQueuedWorkflow(boolean missing)
     {
         preparePublished(FULL);
         if (missing) {
@@ -1321,6 +1404,7 @@ class TestDevelopmentFollowupCoordinator
             when(actions.inspect(any())).thenReturn(actionsSnapshot(HEAD, true));
         }
         doAnswer(ignored -> {
+            when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(24)));
             verify(git, never()).synchronizeSource(any(), anyString(), anyString(), any());
             verify(writes, never()).markReadyForReview(anyString(), anyString());
             verify(turns, never()).finishDevelopmentContinuation(any(), any());
@@ -1334,18 +1418,57 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"checks", "actions", "publication"})
+    void fullCheckGateRetriesTransientReadsAfterOvernightOutage(String read)
+    {
+        preparePublished(FULL);
+        doAnswer(ignored -> {
+            RuntimeException failure = new ResourceAccessException("Network unavailable after waking");
+            switch (read) {
+                case "checks" -> when(pullRequests.fetchDeliveryChecks(eq("token"), any())).thenThrow(failure).thenAnswer(call -> checks(pr(HEAD, !promoted)));
+                case "actions" -> when(actions.inspect(any())).thenThrow(failure).thenReturn(actionsSnapshot(HEAD, false));
+                case "publication" -> when(git.inspectPublication(worktree, route)).thenThrow(failure)
+                        .thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+                default -> throw new IllegalArgumentException("Unknown read: " + read);
+            }
+            return ciRun().finish(CiAutofixRun.FinishReason.GREEN, "Checks passed", NOW);
+        }).when(ci).startDevelopment(any(), any(), any(), any(), any());
+        doAnswer(ignored -> {
+            when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(24)));
+            verify(git, never()).synchronizeSource(any(), anyString(), anyString(), any());
+            verify(writes, never()).markReadyForReview(anyString(), anyString());
+            return null;
+        }).when(waitForCi).run();
+
+        advance();
+
+        verify(waitForCi, times(1)).run();
+        verify(git, times(1)).synchronizeSource(any(), eq(HEAD), eq(HEAD), any());
+        verify(writes, times(1)).markReadyForReview("token", "node-7");
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
     @Test
-    void missingChecksExpireWithoutPromotionOrSourceMutation()
+    void missingChecksKeepWaitingUntilStoppedAfterOvernightDelay()
     {
         preparePublished(FULL);
         when(pullRequests.fetchDeliveryChecks(eq("token"), any())).thenReturn(
                 new GitHubDeliveryChecks("node-7", pr(HEAD, true), ImmutableList.of("Required workflow excludes draft PRs"), ImmutableList.of()));
         doAnswer(ignored -> {
-            when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(8)));
+            when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(24)));
+            return null;
+        }).doAnswer(ignored -> {
+            when(turns.ownsDevelopmentContinuation(taskId, source.id())).thenReturn(false);
             return null;
         }).when(waitForCi).run();
         advance();
-        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Required workflow excludes draft PRs"));
+        verify(pullRequests, times(2)).fetchDeliveryChecks("token", pr(HEAD, true).pullRequest());
+        verify(waitForCi, times(2)).run();
+        verify(turns).reportDevelopmentProgress(eq(taskId), eq(source.id()), contains("Required workflow excludes draft PRs"));
+        verify(turns, never()).finishDevelopmentContinuation(any(), any());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
         verify(git, never()).synchronizeSource(any(), anyString(), anyString(), any());
         verify(writes, never()).markReadyForReview(anyString(), anyString());
     }
@@ -1436,7 +1559,7 @@ class TestDevelopmentFollowupCoordinator
     void uncertainPromotionIsNeverRetriedOrRolledBack()
     {
         preparePublished(FULL);
-        doThrow(new IllegalStateException("Connection closed after request")).when(writes).markReadyForReview(anyString(), anyString());
+        doThrow(new ResourceAccessException("Connection closed after request")).when(writes).markReadyForReview(anyString(), anyString());
         advance();
         verify(writes, times(1)).markReadyForReview("token", "node-7");
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Ready-for-review result may have changed"));
@@ -1497,7 +1620,7 @@ class TestDevelopmentFollowupCoordinator
         return CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
                 new CiAutofixRun.Scope(pr(HEAD, true).pullRequest(), route.headRepository(), "workspace", route.headRepository(), "owner", route.headBranch(), "main",
                         source.settings().orElseThrow().developmentAutomation().orElseThrow().ciLaneId().orElse(task.laneId()).value(), Optional.of(taskId.toString())),
-                deliveredHead, deliveredHead, BASE, new CiAutofixRun.Authorization(NOW, NOW.plus(Duration.ofHours(8))), NOW);
+                deliveredHead, deliveredHead, BASE, new CiAutofixRun.Authorization(NOW), NOW);
     }
 
     private void prepare(DevelopmentLocalFacts before, DevelopmentLocalFacts after, DevelopmentAutomation automation, boolean ready)

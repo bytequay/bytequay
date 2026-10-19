@@ -14,7 +14,6 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.RepositoryIdentity;
-import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 
 import java.nio.file.Path;
@@ -30,7 +29,6 @@ public record PushCiHeadCommand(
         String remote,
         RepositoryIdentity remoteRepository,
         String remoteHeadRef,
-        Authorization authorization,
         PushJournal journal)
 {
     public PushCiHeadCommand
@@ -43,7 +41,6 @@ public record PushCiHeadCommand(
         checkArgument(!remote.startsWith("-"), "remote is invalid");
         requireNonNull(remoteRepository, "remoteRepository is null");
         checkText(remoteHeadRef, "remoteHeadRef", 255);
-        requireNonNull(authorization, "authorization is null");
         requireNonNull(journal, "journal is null");
     }
 }

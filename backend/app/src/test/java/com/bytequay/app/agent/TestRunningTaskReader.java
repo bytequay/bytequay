@@ -229,7 +229,7 @@ class TestRunningTaskReader
         RepoRef repo = new RepoRef("owner", "repo");
         CiAutofixRun run = CiAutofixRun.create(CiAutofixRunId.random(), "ci", new CiAutofixRun.Scope(new PullRequestRef("owner", "repo", 42), repo,
                 "workspace", repo, "user", "feature", "main", "codex", Optional.empty()), sha, sha, sha,
-                new CiAutofixRun.Authorization(NOW, NOW.plusSeconds(3600)), NOW);
+                new CiAutofixRun.Authorization(NOW), NOW);
         show(task, turn(task, NOW));
         when(ciFixes.findByAgentTaskId(task.id().toString())).thenReturn(Optional.of(run));
         assertThat(reader.current()).singleElement().satisfies(item -> {

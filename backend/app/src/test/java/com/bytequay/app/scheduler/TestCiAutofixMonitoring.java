@@ -248,7 +248,7 @@ class TestCiAutofixMonitoring
                 "a".repeat(40),
                 "a".repeat(40),
                 "b".repeat(40),
-                new Authorization(now, now.plus(Duration.ofHours(8))),
+                new Authorization(now),
                 now);
     }
 }

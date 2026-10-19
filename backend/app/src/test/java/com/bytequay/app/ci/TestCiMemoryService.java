@@ -186,7 +186,7 @@ class TestCiMemoryService
                 HEAD,
                 HEAD,
                 BASE,
-                new Authorization(NOW, NOW.plus(Duration.ofHours(8))),
+                new Authorization(NOW),
                 NOW);
         return run.assignAgentTask(taskId.toString(), NOW.plusSeconds(1));
     }

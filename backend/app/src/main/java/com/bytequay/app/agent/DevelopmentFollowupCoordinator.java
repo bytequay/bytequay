@@ -40,9 +40,10 @@ import com.bytequay.core.ci.CiAutofixRun;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -61,6 +62,7 @@ import static java.util.Objects.requireNonNull;
 public class DevelopmentFollowupCoordinator
 {
     private static final Logger log = LoggerFactory.getLogger(DevelopmentFollowupCoordinator.class);
+    private static final String CI_CONNECTION_WAIT = "Waiting for GitHub; CI monitoring will retry automatically";
     private static final Pattern ATTRIBUTION = Pattern.compile("(?im)^.*(?:generated with[^\\n]{0,40}claude code|co-authored-by:\\s*claude\\b).*$\\R?");
 
     private final AgentTurnService turns;
@@ -286,7 +288,7 @@ public class DevelopmentFollowupCoordinator
                     action = "Verify CI and finish delivery";
                     String sourceHead = local.headSha();
                     turns.executeDevelopmentAction(completion.task().id(), completion.turn().id(),
-                            () -> finishDelivery(completion, baseline, sourceHead, publishedPr, green.orElseThrow(), activatedAt));
+                            () -> finishDelivery(completion, baseline, sourceHead, publishedPr, green.orElseThrow()));
                 }
             }
             finish(completion);
@@ -305,13 +307,13 @@ public class DevelopmentFollowupCoordinator
     {
         checkState(owns(source), "Development automation was stopped");
         var lane = automation.ciLaneId().orElse(source.task().laneId());
-        checkState(Instant.now(clock).isBefore(activatedAt.plus(Duration.ofHours(8))), "CI Autofix authorization expired before attachment");
         CiAutofixRun run = ci.startDevelopment(new StartCiAutofixCommand(
                 source.task().workspaceId().orElseThrow(),
                 pullRequest.pullRequest().number(),
                 lane,
                 "development-ci:" + source.task().id() + ":" + source.turn().id()),
                 source.task().id(), source.turn().id(), pullRequest, activatedAt);
+        boolean waitingForGitHub = false;
         while (owns(source)) {
             if (run.status() == CiAutofixRun.Status.FINISHED) {
                 checkState(run.finishReason().filter(reason -> reason == CiAutofixRun.FinishReason.GREEN).isPresent(),
@@ -328,7 +330,26 @@ public class DevelopmentFollowupCoordinator
                 throw new IllegalStateException("CI Autofix cannot continue: " + run.summary().orElseGet(() -> latest.pauseReason().map(Enum::name).orElse("Unknown result")));
             }
             // The coordinator owns polling; a renderer reload or an independent monitor cannot drive this run.
-            run = ci.advance(run.id());
+            try {
+                // Each advance reloads durable state and reconciles any uncertain writes before progressing.
+                run = ci.advance(run.id());
+            }
+            catch (RuntimeException failure) {
+                if (!retryableCiFailure(failure)) {
+                    throw failure;
+                }
+                if (!waitingForGitHub) {
+                    progress(source, CI_CONNECTION_WAIT);
+                    log.warn("Cannot poll CI for development task {}; waiting for GitHub", source.task().id(), failure);
+                }
+                waitingForGitHub = true;
+                waitForCi.run();
+                continue;
+            }
+            if (waitingForGitHub) {
+                progress(source, "GitHub connection restored; continuing CI Autofix");
+                waitingForGitHub = false;
+            }
             if (run.status() != CiAutofixRun.Status.FINISHED) {
                 waitForCi.run();
             }
@@ -337,14 +358,10 @@ public class DevelopmentFollowupCoordinator
     }
 
     private void finishDelivery(DevelopmentTurnCompletion source, DevelopmentBaseline baseline, String sourceHead,
-            GitHubPullRequestIdentity publishedPr, CiAutofixRun green, Instant activatedAt)
+            GitHubPullRequestIdentity publishedPr, CiAutofixRun green)
     {
         // CI persists GREEN only after completing its child task and proving its writers stopped.
-        Runnable requireAuthority = () -> {
-            checkState(owns(source), "Development automation was stopped");
-            checkState(Instant.now(clock).isBefore(activatedAt.plus(Duration.ofHours(8)))
-                    && Instant.now(clock).isBefore(green.authorization().expiresAt()), "Development CI authorization expired");
-        };
+        Runnable requireAuthority = () -> checkState(owns(source), "Development automation was stopped");
         progress(source, "Verifying all pull request checks");
         String token = credentials.resolveGitHubToken(baseline.worktree().workspaceId());
         awaitDeliveryChecks(source, baseline, publishedPr, green, token, requireAuthority);
@@ -381,16 +398,27 @@ public class DevelopmentFollowupCoordinator
     {
         String waiting = "Full pull request check evidence is unavailable";
         while (owns(source)) {
+            requireAuthority.run();
+            GitHubDeliveryChecks checks;
+            CiHeadSnapshot snapshot;
             try {
-                requireAuthority.run();
+                checks = pullRequests.fetchDeliveryChecks(token, publishedPr.pullRequest());
+                verifyDeliveryPr(baseline.route(), publishedPr, green, checks.pullRequest());
+                snapshot = inspectDeliveryActions(publishedPr, green);
+                verifyDeliveryPublication(baseline, publishedPr, green);
             }
-            catch (IllegalStateException expired) {
-                throw new IllegalStateException(expired.getMessage() + ". " + waiting, expired);
+            catch (RuntimeException failure) {
+                if (!retryableCiFailure(failure)) {
+                    throw failure;
+                }
+                if (!waiting.equals(CI_CONNECTION_WAIT)) {
+                    progress(source, CI_CONNECTION_WAIT);
+                    log.warn("Cannot read PR checks for development task {}; waiting for GitHub", source.task().id(), failure);
+                    waiting = CI_CONNECTION_WAIT;
+                }
+                waitForCi.run();
+                continue;
             }
-            GitHubDeliveryChecks checks = pullRequests.fetchDeliveryChecks(token, publishedPr.pullRequest());
-            verifyDeliveryPr(baseline.route(), publishedPr, green, checks.pullRequest());
-            CiHeadSnapshot snapshot = inspectDeliveryActions(publishedPr, green);
-            verifyDeliveryPublication(baseline, publishedPr, green);
             checkState(checks.failures().isEmpty(), "Pull request checks need attention: %s", String.join("; ", checks.failures()));
             requireAuthority.run();
             checkState(snapshot.actionableFailures().isEmpty(), "Actions checks failed after the CI repair finished");
@@ -406,6 +434,18 @@ public class DevelopmentFollowupCoordinator
             waitForCi.run();
         }
         throw new IllegalStateException("Development automation was stopped");
+    }
+
+    private static boolean retryableCiFailure(RuntimeException failure)
+    {
+        if (Thread.currentThread().isInterrupted()) {
+            return false;
+        }
+        if (failure instanceof ResourceAccessException) {
+            return true;
+        }
+        return failure instanceof ResponseStatusException response
+                && (response.getStatusCode().is5xxServerError() || response.getStatusCode().value() == 408 || response.getStatusCode().value() == 429);
     }
 
     private CiHeadSnapshot inspectDeliveryActions(GitHubPullRequestIdentity publishedPr, CiAutofixRun green)

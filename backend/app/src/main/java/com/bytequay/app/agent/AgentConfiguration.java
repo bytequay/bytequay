@@ -232,9 +232,9 @@ public class AgentConfiguration
     @Bean
     public DevelopmentCiOwnership developmentCiOwnership(
             CiAutofixStore store, AgentTaskStore tasks, AgentTurnStore turns, PullRequestTaskStore assignments, PullRequestStore pullRequests,
-            AgentEventService events, AgentRuntimeRegistry runtimes, Clock agentClock)
+            AgentEventService events, AgentRuntimeRegistry runtimes)
     {
-        return new DevelopmentCiOwnership(store, tasks, turns, assignments, pullRequests, events, runtimes, agentClock);
+        return new DevelopmentCiOwnership(store, tasks, turns, assignments, pullRequests, events, runtimes);
     }
 
     @Bean(destroyMethod = "close")

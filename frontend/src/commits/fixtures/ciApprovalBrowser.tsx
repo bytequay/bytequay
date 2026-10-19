@@ -40,7 +40,7 @@ const approval: AgentPendingApprovalDto = {
 
 const ciRun: CiAutofixRunDto = {
   id: 'run-1', workspaceId: 'workspace-1', repository: 'acme/demo', pullRequestNumber: 17, headRef: 'ci-branch',
-  status: 'ACTIVE', activity: 'FIXING', version: 1, authorization: { maxAttempts: 3, expiresAt: '2099-01-01T12:00:00Z' },
+  status: 'ACTIVE', activity: 'FIXING', version: 1, authorization: { maxAttempts: 3 },
   attemptsUsed: 1, rerunsUsed: 0, agentTaskId: approval.taskId, currentTurnId: approval.turnId, parentTaskId: null,
   canMessage: false, summary: null, pauseReason: null, finishReason: null, createdAt: '2026-01-01T12:00:00Z', updatedAt: '2026-01-01T12:00:00Z',
 };

@@ -22,7 +22,7 @@ export const CI_PROJECTION: AgentDevelopmentCiDto = {
 
 export const CI_RUN: CiAutofixRunDto = {
   id: CI_PROJECTION.runId, workspaceId: 'workspace-1', repository: 'acme/demo', pullRequestNumber: 17, headRef: CI_PROJECTION.headRef,
-  status: 'PAUSED', activity: 'PAUSED', version: 1, authorization: { maxAttempts: 3, expiresAt: '2099-01-01T12:00:00Z' },
+  status: 'PAUSED', activity: 'PAUSED', version: 1, authorization: { maxAttempts: 3 },
   attemptsUsed: 1, rerunsUsed: 0, agentTaskId: 'ci-task', currentTurnId: null, parentTaskId: 'source-task', canMessage: true,
   summary: CI_PROJECTION.summary, pauseReason: 'INVALID_GIT_RESULT', finishReason: null,
   createdAt: '2026-01-01T12:00:00Z', updatedAt: '2026-01-01T12:05:00Z',

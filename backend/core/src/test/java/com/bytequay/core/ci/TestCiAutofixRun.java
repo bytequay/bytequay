@@ -31,7 +31,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -178,8 +177,9 @@ class TestCiAutofixRun
     @Test
     void validatesAuthorizationAndDurableEvidence()
     {
-        assertThatThrownBy(() -> new Authorization(NOW, NOW))
-                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Authorization(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("authorizedAt is null");
         assertThatThrownBy(() -> CiAutofixAttempt.create(CiAutofixAttemptId.random(), CiAutofixRunId.random(), 1, "short", ImmutableList.of(failure("signature")), NOW))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("full Git SHA");
@@ -271,7 +271,7 @@ class TestCiAutofixRun
                 HEAD,
                 HEAD,
                 BASE,
-                new Authorization(now, now.plus(Duration.ofHours(8))),
+                new Authorization(now),
                 now);
     }
 

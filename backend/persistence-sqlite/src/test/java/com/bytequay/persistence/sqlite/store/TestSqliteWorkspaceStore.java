@@ -427,7 +427,7 @@ class TestSqliteWorkspaceStore
                 new CiAutofixRun.Scope(PullRequestRef.of("owner", "project", index + 1), RepoRef.of("owner", "project"), workspaceId, RepoRef.of("owner", "project"),
                         "author", "branch-" + index, "main", "codex", Optional.empty()),
                 "a".repeat(40), "a".repeat(40), "b".repeat(40),
-                new CiAutofixRun.Authorization(NOW, NOW.plusSeconds(3600)), NOW);
+                new CiAutofixRun.Authorization(NOW), NOW);
     }
 
     @Test

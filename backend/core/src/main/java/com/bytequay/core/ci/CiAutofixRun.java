@@ -529,7 +529,6 @@ public record CiAutofixRun(
         CANCELLED,
         STALE_HEAD,
         MAX_ATTEMPTS,
-        AUTHORIZATION_EXPIRED,
         ERROR
     }
 
@@ -572,15 +571,11 @@ public record CiAutofixRun(
         }
     }
 
-    public record Authorization(
-            Instant authorizedAt,
-            Instant expiresAt)
+    public record Authorization(Instant authorizedAt)
     {
         public Authorization
         {
             requireNonNull(authorizedAt, "authorizedAt is null");
-            requireNonNull(expiresAt, "expiresAt is null");
-            checkArgument(expiresAt.isAfter(authorizedAt), "expiresAt must be after authorizedAt");
         }
     }
 

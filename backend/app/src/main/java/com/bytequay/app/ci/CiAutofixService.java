@@ -110,7 +110,6 @@ public class CiAutofixService
 {
     private static final Logger log = LoggerFactory.getLogger(CiAutofixService.class);
 
-    static final Duration AUTHORIZATION_PERIOD = Duration.ofHours(8);
     static final int MAXIMUM_MESSAGE_CHARACTERS = 16 * 1024;
 
     private static final int MAXIMUM_SUMMARY_CHARACTERS = 8 * 1024;
@@ -252,15 +251,14 @@ public class CiAutofixService
         return start(command, Optional.empty());
     }
 
-    /** Starts only under the live source continuation, retaining its original authorization deadline. */
+    /** Starts only under the live source continuation, retaining when it was authorized. */
     public CiAutofixRun startDevelopment(StartCiAutofixCommand command, TaskId parentTaskId, TurnId sourceTurnId, GitHubPullRequestIdentity expectedPr, Instant activatedAt)
     {
         requireNonNull(parentTaskId, "parentTaskId is null");
         requireNonNull(sourceTurnId, "sourceTurnId is null");
         requireNonNull(expectedPr, "expectedPr is null");
         requireNonNull(activatedAt, "activatedAt is null");
-        checkArgument(!activatedAt.isAfter(clock.instant()) && clock.instant().isBefore(activatedAt.plus(AUTHORIZATION_PERIOD)),
-                "Development CI authorization is expired or invalid");
+        checkArgument(!activatedAt.isAfter(clock.instant()), "Development CI authorization cannot be in the future");
         checkArgument(expectedPr.state() == GitHubPullRequestIdentity.State.OPEN, "Development CI requires an open pull request");
         ownership.requireParent(parentTaskId, sourceTurnId);
         return start(command, Optional.of(new DevelopmentStart(parentTaskId, sourceTurnId, expectedPr, activatedAt)));
@@ -313,9 +311,7 @@ public class CiAutofixService
                 snapshot.headSha(),
                 snapshot.headSha(),
                 snapshot.baseSha(),
-                new Authorization(
-                        development.map(DevelopmentStart::activatedAt).orElse(now),
-                        development.map(DevelopmentStart::activatedAt).orElse(now).plus(AUTHORIZATION_PERIOD)),
+                new Authorization(development.map(DevelopmentStart::activatedAt).orElse(now)),
                 now)
                 .assignAgentTask(taskId.toString(), now);
         try {
@@ -400,7 +396,7 @@ public class CiAutofixService
 
     private boolean canMessageLocked(CiAutofixRun run)
     {
-        if (run.status() == Status.FINISHED || !ownership.authorized(run) || !clock.instant().isBefore(run.authorization().expiresAt())
+        if (run.status() == Status.FINISHED || !ownership.authorized(run)
                 || run.pushJournal().isPresent() || run.rerunJournal().isPresent() || run.agentTaskId().isEmpty()
                 || (run.attempts().isEmpty() && run.currentRebaseId().isEmpty())) {
             return false;
@@ -555,10 +551,6 @@ public class CiAutofixService
             throw new CiAutofixConflictException("The pending remote outcome must be reconciled or cancelled first");
         }
 
-        Instant now = Instant.now(clock);
-        if (!now.isBefore(run.authorization().expiresAt())) {
-            return finishRun(run, FinishReason.AUTHORIZATION_EXPIRED, "CI Autofix authorization expired", now);
-        }
         if (run.attempts().isEmpty() || run.agentTaskId().isEmpty()) {
             if (run.currentRebaseId().isEmpty()) {
                 throw new CiAutofixConflictException("CI Autofix run has no resumable work");
@@ -581,7 +573,7 @@ public class CiAutofixService
         }
         inspectWorktree(task, run);
 
-        requireWriteAuthority(run);
+        ownership.require(run);
         AgentTurn turn = turnService.start(new StartAgentTurnCommand(task.id(), command.message().strip(), ImmutableList.of(), command.idempotencyKey()));
         CiAutofixRun resumed = run.resume(Instant.now(clock))
                 .linkUserTurn(turn.id().toString(), Instant.now(clock));
@@ -605,7 +597,7 @@ public class CiAutofixService
                 throw new CiAutofixConflictException("This CI turn is no longer accepting steering input; refresh before sending another message");
             }
             requireOpenTask(run);
-            requireWriteAuthority(run);
+            ownership.require(run);
             delivery = turnService.steer(new SteerAgentTurnCommand(target, command.message().strip(), ImmutableList.of(), command.idempotencyKey()));
         }
         switch (delivery.state()) {
@@ -688,7 +680,7 @@ public class CiAutofixService
             ensureAgentTask(run);
         }
         if (run.status() == Status.PAUSED) {
-            return now.isBefore(run.authorization().expiresAt()) ? run : finishRun(run, FinishReason.AUTHORIZATION_EXPIRED, "CI Autofix authorization expired", now);
+            return run;
         }
         Optional<CiAutofixRun> reconciledGreen = reconcileCompletedGreenTask(run, now);
         if (reconciledGreen.isPresent()) {
@@ -712,10 +704,6 @@ public class CiAutofixService
         if (unpublishedTimeline.isPresent()) {
             return recordTimelineEvent(run, unpublishedTimeline.orElseThrow(), now);
         }
-        if (!now.isBefore(run.authorization().expiresAt())) {
-            return finishRun(run, FinishReason.AUTHORIZATION_EXPIRED, "CI Autofix authorization expired", now);
-        }
-
         CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
         Optional<CiAutofixRun> rejected = rejectChangedPullRequest(run, snapshot, now);
         if (rejected.isPresent()) {
@@ -928,8 +916,8 @@ public class CiAutofixService
     private String repairToken(CiAutofixRun run)
     {
         CredentialService.GitHubCredential credential = credentials.resolveGitHubCredential();
-        requireWriteAuthority(run);
-        checkState(run.status() == Status.ACTIVE && clock.instant().isBefore(run.authorization().expiresAt()), "CI repair authorization expired or stopped");
+        ownership.require(run);
+        checkState(run.status() == Status.ACTIVE, "CI repair authorization stopped");
         checkState(run.scope().author().equalsIgnoreCase(credential.profile().login()), "The authenticated GitHub account changed");
         return credential.token();
     }
@@ -969,13 +957,13 @@ public class CiAutofixService
         }
         CiRerunResult result;
         try {
-            requireWriteAuthority(run);
+            ownership.require(run);
             result = gitHub.rerunFailedJobs(new RerunFailedJobsCommand(
                     run.scope().pullRequest(),
                     workflow.id(),
                     snapshot.headSha(),
                     workflow.attempt(),
-                    now.isBefore(run.authorization().expiresAt())));
+                    true));
         }
         catch (RuntimeException failure) {
             refreshMemory(journaled);
@@ -1004,7 +992,7 @@ public class CiAutofixService
         }
         WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
         WorkspaceRepositoryContext workspace = requireWorkspace(run);
-        requireWriteAuthority(run);
+        ownership.require(run);
         CiPushResult result = gitService.push(new PushCiHeadCommand(
                 worktree.worktree().canonicalWorktree(),
                 worktree.worktree().physicalRepository(),
@@ -1012,19 +1000,13 @@ public class CiAutofixService
                 run.scope().headRepository().fullName().equalsIgnoreCase(run.scope().pullRequest().repoFullName()) ? workspace.sourceRemote() : workspace.targetRemote(),
                 new RepositoryIdentity(run.scope().headRepository().owner(), run.scope().headRepository().repo()),
                 run.scope().headRef(),
-                run.authorization(),
                 run.pushJournal().orElseThrow()));
         return switch (result.outcome()) {
             case PUSHED -> refreshMemory(store.update(run.recordPublishedAttempt(result.pushedSha().orElseThrow(), now, now)));
             case RETRYABLE -> retryPush(run, now);
             case STALE -> finishRun(run, FinishReason.STALE_HEAD, summary("Pull request head changed before the CI push", result.reason()), now);
             case UNCERTAIN -> run;
-            case REJECTED -> now.isBefore(run.authorization().expiresAt())
-                    ? store.update(run.clearPushJournal(now).pause(
-                            PauseReason.ERROR,
-                            summary("CI push was rejected", result.reason()),
-                            now))
-                    : finishRun(run, FinishReason.AUTHORIZATION_EXPIRED, "CI Autofix authorization expired before the push", now);
+            case REJECTED -> store.update(run.clearPushJournal(now).pause(PauseReason.ERROR, summary("CI push was rejected", result.reason()), now));
         };
     }
 
@@ -1061,9 +1043,6 @@ public class CiAutofixService
         if (journal.observedAttempt().isEmpty()) {
             if (later.isPresent()) {
                 return refreshMemory(store.update(run.observeRerunAttempt(later.orElseThrow().attempt(), now)));
-            }
-            if (!now.isBefore(run.authorization().expiresAt())) {
-                return finishRun(run, FinishReason.AUTHORIZATION_EXPIRED, "CI Autofix authorization expired while the rerun outcome was uncertain", now);
             }
             if (!now.isBefore(journal.startedAt().plus(RERUN_OBSERVATION_PERIOD))) {
                 return store.update(run.clearRerunJournal(now).pause(
@@ -1145,7 +1124,7 @@ public class CiAutofixService
     private RebaseGate ensureBranchRebase(CiAutofixRun run, AgentTask task, CiHeadSnapshot snapshot, Instant now)
     {
         SynchronizeCiBaseCommand syncCommand = synchronizeBaseCommand(run, snapshot.baseSha());
-        requireWriteAuthority(run);
+        ownership.require(run);
         CiBaseSynchronization synchronization = gitService.synchronizeBase(syncCommand);
         if (synchronization.outcome() != CiBaseSynchronization.Outcome.READY) {
             return RebaseGate.waiting(store.update(run.pause(
@@ -1158,7 +1137,7 @@ public class CiAutofixService
             return RebaseGate.waiting(store.update(run.pause(PauseReason.REBASE_PAUSED, "The worktree is dirty or another Git operation is open before the target rebase", now)));
         }
         try {
-            requireWriteAuthority(run);
+            ownership.require(run);
             BranchRebase rebase = rebaseService.start(new StartBranchRebaseCommand(
                     workspace.worktree(),
                     synchronization.localBaseBranch().orElseThrow(),
@@ -1183,7 +1162,7 @@ public class CiAutofixService
             log.debug("CI Autofix run {} is finishing rebase {} before observing newer base {}", run.id(), rebase.id(), snapshot.baseSha());
         }
         if (rebase.status() == BranchRebase.Status.RUNNING) {
-            requireWriteAuthority(run);
+            ownership.require(run);
             rebase = rebaseService.advance(rebase.id());
         }
         if (rebase.status() == BranchRebase.Status.FINISHED) {
@@ -1217,7 +1196,7 @@ public class CiAutofixService
         BranchRebase rebase = rebaseService.get(BranchRebaseId.valueOf(run.currentRebaseId().orElseThrow()));
         verifyBranchRebaseScope(run, rebase, rebase.baseSha());
         if (rebase.status() == BranchRebase.Status.PAUSED) {
-            requireWriteAuthority(run);
+            ownership.require(run);
             rebase = rebaseService.sendMessage(rebase.id(), message.strip());
         }
         if (rebase.status() == BranchRebase.Status.PAUSED) {
@@ -1436,7 +1415,7 @@ public class CiAutofixService
     {
         CiAutofixAttempt attempt = run.attempts().getLast();
         inspectWorktree(task, run);
-        requireWriteAuthority(run);
+        ownership.require(run);
         AgentTurn turn = turnService.start(new StartAgentTurnCommand(task.id(), promptBuilder.build(snapshot, attempt), ImmutableList.of(), attempt.id().toString()));
         return store.update(run.linkAttemptTurn(attempt.id(), turn.id().toString(), Instant.now(clock)));
     }
@@ -1522,7 +1501,7 @@ public class CiAutofixService
 
     private AgentTask createAgentTask(CiAutofixRun run, RepositoryIdentity repository, String startCommit)
     {
-        requireWriteAuthority(run);
+        ownership.require(run);
         TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
         String title = "CI Autofix " + run.scope().pullRequest().fullName();
         return taskService.create(new CreateAgentTaskCommand(
@@ -1612,14 +1591,6 @@ public class CiAutofixService
     {
         if (!run.scope().workspaceId().equals(workspaceId)) {
             throw new CiAutofixConflictException("CI Autofix idempotency key belongs to another workspace");
-        }
-    }
-
-    private void requireWriteAuthority(CiAutofixRun run)
-    {
-        ownership.require(run);
-        if (run.scope().parentTaskId().isPresent() && !clock.instant().isBefore(run.authorization().expiresAt())) {
-            throw new CiAutofixConflictException("Development CI authorization expired");
         }
     }
 

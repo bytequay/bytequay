@@ -22,7 +22,6 @@ export function ciActivity(ci: Pick<AgentDevelopmentCiDto, 'status' | 'activity'
       case 'CANCELLED': return 'CI Autofix stopped';
       case 'ERROR': return 'CI Autofix failed';
       case 'MAX_ATTEMPTS': return 'CI repair limit reached';
-      case 'AUTHORIZATION_EXPIRED': return 'CI Autofix authorization expired';
       case 'STALE_HEAD': return 'CI Autofix stopped: PR branch changed';
       default: return 'CI Autofix ended';
     }

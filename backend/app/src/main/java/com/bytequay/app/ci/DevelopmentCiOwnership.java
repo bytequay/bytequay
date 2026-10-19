@@ -32,7 +32,6 @@ import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 
-import java.time.Clock;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -60,11 +59,10 @@ public final class DevelopmentCiOwnership
     private final PullRequestStore pullRequests;
     private final AgentEventService events;
     private final AgentRuntimeRegistry runtimes;
-    private final Clock clock;
     private final ConcurrentMap<CiAutofixRunId, Owner> owners = new ConcurrentHashMap<>();
 
     public DevelopmentCiOwnership(CiAutofixStore store, AgentTaskStore tasks, AgentTurnStore turns, PullRequestTaskStore assignments, PullRequestStore pullRequests,
-            AgentEventService events, AgentRuntimeRegistry runtimes, Clock clock)
+            AgentEventService events, AgentRuntimeRegistry runtimes)
     {
         this.store = requireNonNull(store, "store is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -73,7 +71,6 @@ public final class DevelopmentCiOwnership
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.events = requireNonNull(events, "events is null");
         this.runtimes = requireNonNull(runtimes, "runtimes is null");
-        this.clock = requireNonNull(clock, "clock is null");
     }
 
     public boolean authorized(CiAutofixRun run)
@@ -83,7 +80,6 @@ public final class DevelopmentCiOwnership
         }
         Owner owner = owners.get(run.id());
         return owner != null && !owner.revoked().get()
-                && clock.instant().isBefore(run.authorization().expiresAt())
                 && run.scope().parentTaskId().orElseThrow().equals(owner.parentTaskId().toString())
                 && runtimes.ownsDevelopmentContinuation(owner.parentTaskId(), owner.sourceTurnId());
     }

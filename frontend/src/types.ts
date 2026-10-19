@@ -784,7 +784,7 @@ export type CiAutofixRunDto = {
   status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
   activity: string;
   version: number;
-  authorization: { maxAttempts: number; expiresAt: string };
+  authorization: { maxAttempts: number };
   attemptsUsed: number;
   rerunsUsed: number;
   agentTaskId: string | null;

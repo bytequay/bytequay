@@ -16,7 +16,6 @@ package com.bytequay.app.ci;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.core.ci.CiAutofixAttemptId;
-import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -26,9 +25,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
 
 import static com.bytequay.app.ci.CiGitInspection.Outcome.INVALID;
 import static com.bytequay.app.ci.CiGitInspection.Outcome.NO_CHANGE;
@@ -208,20 +206,21 @@ class TestCiGitService
     }
 
     @Test
-    void pushesDescendantAndReconcilesAlreadyPushedHead()
+    void pushesOldJournalAndReconcilesAlreadyPushedHead()
             throws IOException
     {
         Repository fixture = repository("normal-push");
         write(fixture.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
         commit(fixture.worktree(), "fixup! Target change");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
-        PushCiHeadCommand command = push(fixture, inspection, 0, authorization());
+        PushJournal journal = new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.localHead().orElseThrow(),
+                inspection.fingerprint().orElseThrow(), NOW.minus(Duration.ofDays(1)), 0);
+        PushCiHeadCommand command = new PushCiHeadCommand(fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, journal);
 
         CiPushResult pushed = service().push(command);
         write(fixture.worktree().resolve("later.txt"), "later local work\n");
         commit(fixture.worktree(), "Later local change");
-        Authorization expired = new Authorization(NOW.minusSeconds(120), NOW.minusSeconds(60));
-        CiPushResult reconciled = service().push(new PushCiHeadCommand(fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, expired, command.journal()));
+        CiPushResult reconciled = service().push(command);
 
         assertThat(pushed.outcome()).isEqualTo(PUSHED);
         assertThat(reconciled.outcome()).isEqualTo(PUSHED);
@@ -240,7 +239,7 @@ class TestCiGitService
         commit(fixture.worktree(), "fixup! Target change");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
 
-        CiPushResult pushed = service().push(push(fixture, inspection, 0, authorization()));
+        CiPushResult pushed = service().push(push(fixture, inspection, 0));
 
         assertThat(pushed.outcome()).isEqualTo(PUSHED);
         assertThat(remoteHead(fixture)).isEqualTo(inspection.localHead().orElseThrow());
@@ -291,7 +290,7 @@ class TestCiGitService
         assertThat(inspection.outcome()).isEqualTo(READY);
         gitFailure(worktree, "merge-base", "--is-ancestor", original, inspection.localHead().orElseThrow());
 
-        CiPushResult result = service.push(push(fixture, inspection, 0, authorization()));
+        CiPushResult result = service.push(push(fixture, inspection, 0));
 
         assertThat(result.outcome()).isEqualTo(PUSHED);
         assertThat(remoteHead(fixture)).isEqualTo(inspection.localHead().orElseThrow());
@@ -314,7 +313,7 @@ class TestCiGitService
         git(stale.worktree(), "push", stale.remote().toString(), "HEAD:refs/heads/" + HEAD_REF);
         git(stale.worktree(), "switch", HEAD_REF);
 
-        assertThat(service().push(push(stale, local, 0, authorization())).outcome())
+        assertThat(service().push(push(stale, local, 0)).outcome())
                 .isEqualTo(STALE);
     }
 
@@ -330,15 +329,15 @@ class TestCiGitService
         write(hook, "#!/bin/sh\nexit 1\n");
         assertThat(hook.toFile().setExecutable(true)).isTrue();
 
-        assertThat(service().push(push(fixture, inspection, 0, authorization())).outcome())
+        assertThat(service().push(push(fixture, inspection, 0)).outcome())
                 .isEqualTo(RETRYABLE);
-        assertThat(service().push(push(fixture, inspection, 1, authorization())).outcome())
+        assertThat(service().push(push(fixture, inspection, 1)).outcome())
                 .isEqualTo(REJECTED);
         assertThat(remoteHead(fixture)).isEqualTo(fixture.inputSha());
     }
 
     @Test
-    void rechecksConsentExpiryAndFingerprintBeforePush()
+    void rechecksFingerprintBeforePush()
             throws IOException
     {
         Repository fixture = repository("push-guards");
@@ -346,11 +345,8 @@ class TestCiGitService
         commit(fixture.worktree(), "fixup! Target change");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
 
-        Authorization expired = new Authorization(NOW.minusSeconds(120), NOW.minusSeconds(60));
-        assertThat(service().push(push(fixture, inspection, 0, expired)).outcome()).isEqualTo(REJECTED);
-
         PushJournal altered = new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.localHead().orElseThrow(), "changed-fingerprint", NOW, 0);
-        PushCiHeadCommand alteredCommand = new PushCiHeadCommand(fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, authorization(), altered);
+        PushCiHeadCommand alteredCommand = new PushCiHeadCommand(fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, altered);
         assertThat(service().push(alteredCommand).outcome()).isEqualTo(REJECTED);
         assertThat(remoteHead(fixture)).isEqualTo(fixture.inputSha());
     }
@@ -363,7 +359,7 @@ class TestCiGitService
         write(fixture.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
         commit(fixture.worktree(), "fixup! Target change");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
-        PushCiHeadCommand command = push(fixture, inspection, 0, authorization());
+        PushCiHeadCommand command = push(fixture, inspection, 0);
         Path redirected = fixture.remote().getParent().resolve("redirected.git");
         git(fixture.remote().getParent(), "init", "--bare", redirected.toString());
 
@@ -389,7 +385,7 @@ class TestCiGitService
         write(fixture.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
         commit(fixture.worktree(), "fixup! Target change");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
-        PushCiHeadCommand command = push(fixture, inspection, 0, authorization());
+        PushCiHeadCommand command = push(fixture, inspection, 0);
         Path redirected = fixture.remote().getParent().resolve("redirected.git");
         git(fixture.remote().getParent(), "init", "--bare", redirected.toString());
         for (String rewrite : ImmutableList.of("pushInsteadOf", "insteadOf")) {
@@ -465,7 +461,6 @@ class TestCiGitService
                 "origin",
                 REPOSITORY,
                 "feature:refs/heads/other",
-                authorization(),
                 journal(fixture, inspection, 0));
         assertThat(service().push(unsafe).outcome()).isEqualTo(REJECTED);
         assertThat(remoteHead(fixture)).isEqualTo(fixture.inputSha());
@@ -477,7 +472,7 @@ class TestCiGitService
 
     private CiGitService service()
     {
-        return new CiGitService(new RoutedGitCommandRunner(), Clock.fixed(NOW, ZoneOffset.UTC));
+        return new CiGitService(new RoutedGitCommandRunner());
     }
 
     private Repository repository(String name)
@@ -533,19 +528,14 @@ class TestCiGitService
         return new CiWorktreeRange(fixture.worktree(), REPOSITORY, HEAD_REF, fixture.baseSha(), head(fixture.worktree()));
     }
 
-    private static PushCiHeadCommand push(Repository fixture, CiGitInspection inspection, int retries, Authorization authorization)
+    private static PushCiHeadCommand push(Repository fixture, CiGitInspection inspection, int retries)
     {
-        return new PushCiHeadCommand(fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, authorization, journal(fixture, inspection, retries));
+        return new PushCiHeadCommand(fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, journal(fixture, inspection, retries));
     }
 
     private static PushJournal journal(Repository fixture, CiGitInspection inspection, int retries)
     {
         return new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.localHead().orElseThrow(), inspection.fingerprint().orElseThrow(), NOW, retries);
-    }
-
-    private static Authorization authorization()
-    {
-        return new Authorization(NOW.minusSeconds(60), NOW.plusSeconds(3600));
     }
 
     private static void assertInvalid(CiGitService service, Repository fixture, String message)

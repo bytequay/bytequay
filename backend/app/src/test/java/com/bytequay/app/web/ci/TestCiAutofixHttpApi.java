@@ -133,6 +133,9 @@ class TestCiAutofixHttpApi
                 .andExpect(jsonPath("$.workspaceId").value("workspace-1"))
                 .andExpect(jsonPath("$.repository").value("bytequay/sample"))
                 .andExpect(jsonPath("$.activity").value("PREPARING_AGENT"))
+                .andExpect(jsonPath("$.authorization.maxAttempts").value(3))
+                .andExpect(jsonPath("$.authorization.authorizedAt").exists())
+                .andExpect(jsonPath("$.authorization.expiresAt").doesNotExist())
                 .andExpect(content().string(not(containsString("secret-worktree"))))
                 .andExpect(content().string(not(containsString("start-key"))))
                 .andExpect(content().string(not(containsString("log.path"))));
@@ -305,7 +308,7 @@ class TestCiAutofixHttpApi
                 "a".repeat(40),
                 "a".repeat(40),
                 "b".repeat(40),
-                new Authorization(NOW, NOW.plus(Duration.ofHours(8))),
+                new Authorization(NOW),
                 NOW);
     }
 }

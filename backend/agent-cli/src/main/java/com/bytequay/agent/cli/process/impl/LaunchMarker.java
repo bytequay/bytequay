@@ -51,7 +51,7 @@ record LaunchMarker(
         Optional<Long> pid,
         Optional<String> startToken,
         Optional<String> launcherCommand,
-        Optional<Long> processGroup,
+        Optional<Long> processSession,
         Map<Long, String> descendantStartTokens,
         boolean descendantTrackingIncomplete,
         boolean workFinished,
@@ -61,7 +61,7 @@ record LaunchMarker(
         Optional<String> recoveryBootSessionId)
 {
     /** Only this exact format proves what a marker's absent fields mean. */
-    static final int CURRENT_FORMAT = 4;
+    static final int CURRENT_FORMAT = 5;
 
     LaunchMarker
     {
@@ -76,7 +76,7 @@ record LaunchMarker(
         requireNonNull(pid, "pid is null");
         requireNonNull(startToken, "startToken is null");
         requireNonNull(launcherCommand, "launcherCommand is null");
-        requireNonNull(processGroup, "processGroup is null");
+        requireNonNull(processSession, "processSession is null");
         descendantStartTokens = ImmutableMap.copyOf(descendantStartTokens);
         requireNonNull(exitCode, "exitCode is null");
         requireNonNull(exitReason, "exitReason is null");
@@ -114,14 +114,14 @@ record LaunchMarker(
                 Optional.empty());
     }
 
-    LaunchMarker gated(ProcessIdentity identity, String launcherCommand, long processGroup)
+    LaunchMarker gated(ProcessIdentity identity, String launcherCommand, long processSession)
     {
         return toBuilder()
                 .phase(LaunchPhase.GATED)
                 .pid(Optional.of(identity.pid()))
                 .startToken(Optional.of(identity.startToken().toString()))
                 .launcherCommand(Optional.of(launcherCommand))
-                .processGroup(Optional.of(processGroup))
+                .processSession(Optional.of(processSession))
                 .descendantStartTokens(ImmutableMap.of())
                 .descendantTrackingIncomplete(false)
                 .workFinished(false)

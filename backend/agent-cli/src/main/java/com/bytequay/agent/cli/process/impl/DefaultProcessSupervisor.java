@@ -63,6 +63,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.LongFunction;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -73,9 +74,9 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>Every payload is spawned behind a gated launcher so a crash between the durable launch intent
  * and the operating-system process can never leave an unrecorded writer running. The launcher makes
- * the payload its own process-group leader for bounded cleanup. Process observations retain known
- * identities; a provider-confirmed end of work can resolve observation gaps without claiming that
- * a process group contains every native descendant.
+ * the payload its own session leader for bounded cleanup across job-control process groups.
+ * Observations retain known identities, including children seen leaving that session. This is
+ * lifecycle ownership, not containment of code deliberately creating an unobserved new session.
  */
 public final class DefaultProcessSupervisor
         implements ProcessSupervisor
@@ -84,11 +85,7 @@ public final class DefaultProcessSupervisor
 
     /** Gated launcher script; see {@code launcher.sh} for what it does and why. */
     private static final String LAUNCHER_SCRIPT = readLauncherScript();
-    /**
-     * Bash, not {@code /bin/sh}: the launcher needs {@code set -m} to put the payload in its own
-     * process group, and dash, which is {@code /bin/sh} on Debian and Ubuntu, turns job control
-     * off when it has no controlling terminal. Bash creates the group without one.
-     */
+    /** Bash supplies the gated read timeout without launching polling helpers. */
     private static final String LAUNCHER_SHELL = "/bin/bash";
     /** Exit status the launcher script uses when the gate closed and the payload never ran. */
     private static final int GATE_CLOSED_EXIT_CODE = 70;
@@ -100,6 +97,7 @@ public final class DefaultProcessSupervisor
     private final LaunchMarkerStore store;
     private final LaunchIntentRecorder intents;
     private final Optional<String> bootSessionId;
+    private final LongFunction<Optional<List<Long>>> sessionMembers;
     private final String backendId = UUID.randomUUID().toString();
 
     public DefaultProcessSupervisor(Path launchDirectory, LaunchIntentRecorder intents)
@@ -109,9 +107,15 @@ public final class DefaultProcessSupervisor
 
     DefaultProcessSupervisor(Path launchDirectory, LaunchIntentRecorder intents, Optional<String> bootSessionId)
     {
+        this(launchDirectory, intents, bootSessionId, ProcessSessions::members);
+    }
+
+    DefaultProcessSupervisor(Path launchDirectory, LaunchIntentRecorder intents, Optional<String> bootSessionId, LongFunction<Optional<List<Long>>> sessionMembers)
+    {
         this.store = new LaunchMarkerStore(launchDirectory);
         this.intents = requireNonNull(intents, "intents is null");
         this.bootSessionId = requireNonNull(bootSessionId, "bootSessionId is null").flatMap(DefaultProcessSupervisor::validBootSessionId);
+        this.sessionMembers = requireNonNull(sessionMembers, "sessionMembers is null");
     }
 
     @Override
@@ -315,7 +319,7 @@ public final class DefaultProcessSupervisor
     private OwnedProcessRecovery stopRecordedTree(LaunchMarker marker)
     {
         Optional<ProcessIdentity> identity = marker.identity();
-        Optional<Long> group = marker.processGroup();
+        Optional<Long> group = marker.processSession();
         Optional<List<ProcessIdentity>> descendants = marker.descendants();
         if (identity.isEmpty() || group.isEmpty()) {
             return unresolved(marker, "Released marker has no process receipt");
@@ -331,15 +335,18 @@ public final class DefaultProcessSupervisor
             if (!matchesRecordedExecutable(marker, handle.info())) {
                 return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Recorded PID runs an unrecognized executable");
             }
+            if (group.orElseThrow() != leader.pid() || ProcessSessions.sessionOf(leader.pid()).orElse(-1) != leader.pid()) {
+                return unresolved(marker, "Recorded PID no longer leads its owned process session");
+            }
         }
-        ProcessExit.TreeTermination groupTermination = liveLeader ? terminateGroup(group.orElseThrow(), Duration.ofSeconds(1)) : verifyGroupEmpty(group.orElseThrow());
         ProcessExit.TreeTermination descendantTermination = descendants
                 .map(identities -> terminateIdentities(identities, Duration.ofSeconds(1)))
                 .orElse(ProcessExit.TreeTermination.UNVERIFIABLE);
+        ProcessExit.TreeTermination groupTermination = liveLeader ? terminateSession(group.orElseThrow(), Duration.ofSeconds(1)) : verifySessionEmpty(group.orElseThrow());
         boolean verified = groupTermination == ProcessExit.TreeTermination.VERIFIED_STOPPED
                         && descendantTermination == ProcessExit.TreeTermination.VERIFIED_STOPPED
                         && (!marker.descendantTrackingIncomplete() || marker.workFinished());
-        String detail = "Reconciled the recorded process group and descendants";
+        String detail = "Reconciled the recorded process session and descendants";
         return verified ? result(marker, OwnedProcessRecovery.Outcome.VERIFIED_STOPPED, detail) : unresolved(marker, detail);
     }
 
@@ -365,33 +372,33 @@ public final class DefaultProcessSupervisor
     }
 
     /**
-     * Terminates every live member of one process group and reports whether the group emptied.
+     * Terminates every live member of the owned session, including reparented process groups.
      *
-     * <p>A group identifier is never reused while the group still has a member, so an empty scan is
-     * a proof rather than an inference. A scan that cannot be read is unverifiable.
+     * <p>A session identifier is not reused while it still has members. A failed scan is
+     * unverifiable. Descendants observed in another session are terminated by their start tokens.
      */
-    private static ProcessExit.TreeTermination terminateGroup(long processGroup, Duration grace)
+    private ProcessExit.TreeTermination terminateSession(long processSession, Duration grace)
     {
-        Optional<List<Long>> initial = ProcessGroups.members(processGroup);
+        Optional<List<Long>> initial = sessionMembers.apply(processSession);
         if (initial.isEmpty()) {
             return ProcessExit.TreeTermination.UNVERIFIABLE;
         }
         initial.orElseThrow().forEach(pid -> ProcessHandle.of(pid).ifPresent(ProcessHandle::destroy));
-        if (!await(() -> ProcessGroups.members(processGroup).filter(List::isEmpty).isPresent(), grace, 50)) {
+        if (!await(() -> sessionMembers.apply(processSession).filter(List::isEmpty).isPresent(), grace, 50)) {
             // A member spawned during the grace period is still owned work, so the forced pass
             // uses current membership rather than the first snapshot.
-            ProcessGroups.members(processGroup)
+            sessionMembers.apply(processSession)
                     .ifPresent(current -> current.forEach(pid -> ProcessHandle.of(pid).ifPresent(ProcessHandle::destroyForcibly)));
         }
         return await(
-                () -> ProcessGroups.members(processGroup).filter(List::isEmpty).isPresent(),
+                () -> sessionMembers.apply(processSession).filter(List::isEmpty).isPresent(),
                 TREE_VERIFICATION_TIMEOUT,
                 50) ? ProcessExit.TreeTermination.VERIFIED_STOPPED : ProcessExit.TreeTermination.UNVERIFIABLE;
     }
 
-    private static ProcessExit.TreeTermination verifyGroupEmpty(long processGroup)
+    private ProcessExit.TreeTermination verifySessionEmpty(long processSession)
     {
-        return ProcessGroups.members(processGroup).filter(List::isEmpty).isPresent() ? ProcessExit.TreeTermination.VERIFIED_STOPPED : ProcessExit.TreeTermination.UNVERIFIABLE;
+        return sessionMembers.apply(processSession).filter(List::isEmpty).isPresent() ? ProcessExit.TreeTermination.VERIFIED_STOPPED : ProcessExit.TreeTermination.UNVERIFIABLE;
     }
 
     private static ProcessExit.TreeTermination terminateIdentities(List<ProcessIdentity> identities, Duration grace)
@@ -529,9 +536,9 @@ public final class DefaultProcessSupervisor
                 ProcessHandle.Info info = ProcessHandle.of(identity.pid())
                         .orElseThrow(() -> new AgentUnavailableException("Gated launcher exited before it could be recorded"))
                         .info();
-                long group = ProcessGroups.groupOf(identity.pid())
-                        .orElseThrow(() -> new AgentUnavailableException("Unable to read the launcher process group"));
-                checkState(group == identity.pid(), "Gated launcher is not its own process-group leader");
+                long group = ProcessSessions.sessionOf(identity.pid())
+                        .orElseThrow(() -> new AgentUnavailableException("Unable to read the launcher process session"));
+                checkState(group == identity.pid(), "Gated launcher is not its own session leader");
                 recorded = prepared.gated(identity, info.command().orElse(LAUNCHER_SHELL), group);
                 store.write(recorded);
                 recorded = recorded.toBuilder().phase(LaunchPhase.RELEASE_PENDING).build();
@@ -555,8 +562,8 @@ public final class DefaultProcessSupervisor
             if (released) {
                 // The gate may already have executed the payload, so the launch keeps a durable
                 // terminal receipt instead of being deleted as known unsent.
-                ProcessExit.TreeTermination termination = recorded.processGroup()
-                        .map(group -> terminateGroup(group, spec.cancellationGrace()))
+                ProcessExit.TreeTermination termination = recorded.processSession()
+                        .map(group -> terminateSession(group, spec.cancellationGrace()))
                         .orElse(ProcessExit.TreeTermination.UNVERIFIABLE);
                 launcher.destroyForcibly();
                 store.write(recorded.terminal(new ProcessExit(-1, ProcessExit.Reason.CANCELLED, termination, Duration.ZERO, false, false)));
@@ -588,7 +595,13 @@ public final class DefaultProcessSupervisor
             try {
                 ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
                         .add(
+                                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                                "--enable-native-access=ALL-UNNAMED",
+                                "-cp",
+                                store.sessionLauncher(launchId()).toString(),
+                                ProcessSessionLauncher.class.getName(),
                                 LAUNCHER_SHELL,
+                                "-p",
                                 "-c",
                                 LAUNCHER_SCRIPT,
                                 "bytequay-launch",
@@ -601,6 +614,9 @@ public final class DefaultProcessSupervisor
                         .redirectErrorStream(false);
                 builder.environment().clear();
                 builder.environment().putAll(spec.environment());
+                // Bootstrap JVM options must not load code before the durable gate exists.
+                ImmutableList.of("JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS")
+                        .forEach(builder.environment()::remove);
                 return builder.start();
             }
             catch (IOException | RuntimeException e) {
@@ -644,7 +660,7 @@ public final class DefaultProcessSupervisor
         private volatile LaunchMarker marker;
         private final Process launcher;
         private final long payloadPid;
-        private final long processGroup;
+        private final long processSession;
         private final ProcessSpec spec;
         private final ProcessOutputSink output;
         private final Instant startedAt = Instant.now();
@@ -672,12 +688,12 @@ public final class DefaultProcessSupervisor
         private final Thread outputDispatcher;
         private final Thread descendantObserver;
 
-        private DefaultManagedProcess(LaunchMarker marker, Process launcher, long payloadPid, long processGroup, ProcessSpec spec, ProcessOutputSink output)
+        private DefaultManagedProcess(LaunchMarker marker, Process launcher, long payloadPid, long processSession, ProcessSpec spec, ProcessOutputSink output)
         {
             this.marker = marker;
             this.launcher = launcher;
             this.payloadPid = payloadPid;
-            this.processGroup = processGroup;
+            this.processSession = processSession;
             this.spec = spec;
             this.output = output;
             this.inputExecutor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("bytequay-process-stdin-" + payloadPid).factory());
@@ -694,8 +710,8 @@ public final class DefaultProcessSupervisor
                 CompletableFuture.delayedExecutor(spec.maximumRuntime().toMillis(), TimeUnit.MILLISECONDS)
                         .execute(() -> {
                             // The launcher can exit while a payload descendant keeps running, so the
-                            // runtime bound follows the owned process group rather than the root.
-                            if (!groupEmpty()
+                            // runtime bound follows the owned process session rather than the root.
+                            if (!sessionEmpty()
                                     && reason.compareAndSet(ProcessExit.Reason.EXITED, ProcessExit.Reason.TIMED_OUT)) {
                                 terminate();
                             }
@@ -722,6 +738,7 @@ public final class DefaultProcessSupervisor
                 return Optional.empty();
             }
             sampleDescendants();
+            sampleSession();
             synchronized (markerLock) {
                 return marker.descendantTrackingIncomplete() ? Optional.empty() : marker.descendants();
             }
@@ -775,7 +792,7 @@ public final class DefaultProcessSupervisor
         @Override
         public void cancel()
         {
-            // Root exit is not quiescence: a caller may still need to stop group members that
+            // Root exit is not quiescence: a caller may still need to stop session members that
             // outlived the launcher, so cancellation stays available after the root is reaped.
             if (verifiedStopped.get()) {
                 return;
@@ -931,8 +948,13 @@ public final class DefaultProcessSupervisor
 
         private void observeDescendants()
         {
+            long nextSessionScan = 0;
             while (observingDescendants.get()) {
                 sampleDescendants();
+                if (System.nanoTime() >= nextSessionScan) {
+                    sampleSession();
+                    nextSessionScan = System.nanoTime() + Duration.ofMillis(250).toNanos();
+                }
                 if (!sleep(10)) {
                     return;
                 }
@@ -942,15 +964,26 @@ public final class DefaultProcessSupervisor
         private void sampleDescendants()
         {
             try {
-                // The outer launcher can still be reaping its identity-file publisher. Only
-                // the gated payload's descendants can belong to the provider's task tree.
-                launcher.children()
-                        .filter(child -> child.pid() == payloadPid)
-                        .flatMap(ProcessHandle::descendants)
-                        .forEach(this::rememberDescendant);
+                launcher.descendants().forEach(this::rememberDescendant);
             }
             catch (RuntimeException failure) {
                 markDescendantTrackingIncomplete("Unable to enumerate descendants: " + failure.getClass().getSimpleName());
+            }
+        }
+
+        private void sampleSession()
+        {
+            try {
+                Optional<List<Long>> members = sessionMembers.apply(processSession);
+                if (members.isEmpty()) {
+                    markDescendantTrackingIncomplete("Unable to enumerate the process session");
+                    return;
+                }
+                members.orElseThrow().stream().map(ProcessHandle::of).flatMap(Optional::stream)
+                        .forEach(this::rememberDescendant);
+            }
+            catch (RuntimeException failure) {
+                markDescendantTrackingIncomplete("Unable to enumerate the process session: " + failure.getClass().getSimpleName());
             }
         }
 
@@ -1005,6 +1038,7 @@ public final class DefaultProcessSupervisor
         private void finish()
         {
             stopObservingDescendants();
+            sampleSession();
             CompletableFuture.allOf(stdoutDone, stderrDone).whenComplete((ignored, failure) -> {
                 try {
                     outputDispatcher.join();
@@ -1050,7 +1084,7 @@ public final class DefaultProcessSupervisor
             if (verifiedStopped.get()) {
                 return ProcessExit.TreeTermination.VERIFIED_STOPPED;
             }
-            if (!await(() -> ProcessGroups.members(processGroup).filter(List::isEmpty).isPresent(), TREE_VERIFICATION_TIMEOUT, 50)) {
+            if (!await(() -> sessionMembers.apply(processSession).filter(List::isEmpty).isPresent(), TREE_VERIFICATION_TIMEOUT, 50)) {
                 return ProcessExit.TreeTermination.UNVERIFIABLE;
             }
             Optional<List<ProcessIdentity>> descendants = marker.descendants();
@@ -1063,9 +1097,9 @@ public final class DefaultProcessSupervisor
             return ProcessExit.TreeTermination.VERIFIED_STOPPED;
         }
 
-        private boolean groupEmpty()
+        private boolean sessionEmpty()
         {
-            return ProcessGroups.members(processGroup).filter(List::isEmpty).isPresent();
+            return sessionMembers.apply(processSession).filter(List::isEmpty).isPresent();
         }
 
         /** Requests idempotent tree termination without blocking the caller for the grace period. */
@@ -1084,7 +1118,8 @@ public final class DefaultProcessSupervisor
                     return ProcessExit.TreeTermination.VERIFIED_STOPPED;
                 }
                 // A blocked stdin write owns inputLock; stop the readers before closing their pipe.
-                terminateGroup(processGroup, spec.cancellationGrace());
+                sampleSession();
+                terminateSession(processSession, spec.cancellationGrace());
                 launcher.descendants().forEach(ProcessHandle::destroyForcibly);
                 stopObservingDescendants();
                 marker.descendants().ifPresent(identities -> terminateIdentities(identities, spec.cancellationGrace()));

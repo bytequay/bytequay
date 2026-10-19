@@ -44,7 +44,7 @@ public record OwnedProcessRecovery(String launchId, Optional<ProcessOwner> owner
     {
         /** The gate never opened, so the payload provably never executed. */
         KNOWN_UNLAUNCHED,
-        /** Every recorded process-group member and the root are observed gone. */
+        /** The owned process session and recorded identities are observed gone. */
         VERIFIED_STOPPED,
         /** Identity, membership, or termination could not be proven; the owner stays blocked. */
         UNVERIFIABLE

@@ -38,7 +38,7 @@ public record ProcessExit(int exitCode, Reason reason, TreeTermination treeTermi
     }
 
     /**
-     * Whether the process group and recorded identities were observed gone and any observation
+     * Whether the process session and recorded identities were observed gone and any observation
      * gaps were resolved by provider-confirmed work completion. This is not native containment.
      */
     public enum TreeTermination

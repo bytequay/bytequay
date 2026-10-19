@@ -178,6 +178,13 @@ or closed on GitHub, as read from the stored pull requests after each list
 refresh; completion keeps its refusals, so a running turn, queued input or
 uncommitted changes keep the task open until a later refresh.
 
+Each supervised provider starts in its own operating-system process session.
+Cleanup checks every process group in that session and the recorded identities
+of observed descendants, including children reparented after a shell exits.
+Failed session inspection keeps cleanup unverified. This is lifecycle ownership:
+code deliberately creating a fresh session before observation can still escape
+tracking. Provider filesystem and network sandboxes remain separate boundaries.
+
 The IDE, local tests, private review, and development work remain associated with
 the relevant task and working copy. They reuse existing services rather than
 creating a separate task engine for each feature. User-started local tools and

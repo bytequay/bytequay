@@ -30,6 +30,8 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Optional;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -69,6 +71,29 @@ final class LaunchMarkerStore
     Path identityFile(String launchId)
     {
         return directory.resolve(launchId + IDENTITY_SUFFIX);
+    }
+
+    /** A single dependency-free class works both from the Spring jar and the development classpath. */
+    Path sessionLauncher(String launchId)
+            throws IOException
+    {
+        Path target = directory.resolve(launchId + ".jar");
+        Path staged = Files.createTempFile(directory, "session-launcher-", ".part");
+        String resource = ProcessSessionLauncher.class.getName().replace('.', '/') + ".class";
+        try {
+            try (var source = ProcessSessionLauncher.class.getResourceAsStream("/" + resource);
+                    JarOutputStream jar = new JarOutputStream(Files.newOutputStream(staged))) {
+                requireNonNull(source, "process session launcher is missing");
+                jar.putNextEntry(new JarEntry(resource));
+                source.transferTo(jar);
+                jar.closeEntry();
+            }
+            Files.move(staged, target, StandardCopyOption.ATOMIC_MOVE);
+            return target;
+        }
+        finally {
+            Files.deleteIfExists(staged);
+        }
     }
 
     /** Writes and fsyncs the marker so the recorded phase survives an immediate crash. */
@@ -153,7 +178,7 @@ final class LaunchMarkerStore
     /** Deletes the marker, gate, and identity handoff of one launch, ignoring absent files. */
     void delete(String launchId)
     {
-        for (String suffix : ImmutableList.of(MARKER_SUFFIX, GATE_SUFFIX, IDENTITY_SUFFIX)) {
+        for (String suffix : ImmutableList.of(MARKER_SUFFIX, GATE_SUFFIX, IDENTITY_SUFFIX, ".jar")) {
             try {
                 Files.deleteIfExists(directory.resolve(launchId + suffix));
             }

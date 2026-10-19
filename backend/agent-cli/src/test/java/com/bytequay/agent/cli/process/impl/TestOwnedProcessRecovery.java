@@ -28,9 +28,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -191,7 +189,7 @@ class TestOwnedProcessRecovery
                 marker.pid(),
                 marker.startToken(),
                 Optional.of("/bin/never-the-launcher"),
-                marker.processGroup(),
+                marker.processSession(),
                 marker.descendantStartTokens(),
                 marker.descendantTrackingIncomplete(),
                 marker.workFinished(),
@@ -293,7 +291,7 @@ class TestOwnedProcessRecovery
         LaunchMarker marker = marker(LaunchPhase.RUNNING, Optional.of(ProcessHandle.current().pid()), Optional.of(Instant.EPOCH), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep");
         write(marker);
         Path file = launches.resolve(marker.launchId() + ".json");
-        Files.writeString(file, Files.readString(file).replace("\"format\":4", "\"format\":3"));
+        Files.writeString(file, Files.readString(file).replace("\"format\":5", "\"format\":3"));
 
         assertThat(recover().detail()).contains("undecodable");
         assertThat(Files.readString(file)).contains("\"format\":3");
@@ -447,7 +445,7 @@ class TestOwnedProcessRecovery
         assertThat(store.read(bound.launchId()).orElseThrow().recoveryBootSessionId()).isEmpty();
 
         intents.commit(bound.launchId(), true);
-        Files.writeString(launches.resolve(bound.launchId() + ".json"), "{\"format\":4");
+        Files.writeString(launches.resolve(bound.launchId() + ".json"), "{\"format\":5");
         assertThat(recoverOnBoot(Optional.of(SECOND_BOOT)).outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
         assertThat(store.read(bound.launchId())).isEmpty();
     }
@@ -513,7 +511,7 @@ class TestOwnedProcessRecovery
         intents.commit(marker.launchId(), marker.phase() != LaunchPhase.PREPARED);
     }
 
-    private static LaunchMarker marker(LaunchPhase phase, Optional<Long> pid, Optional<Instant> startToken, Optional<Long> processGroup, String executable)
+    private static LaunchMarker marker(LaunchPhase phase, Optional<Long> pid, Optional<Instant> startToken, Optional<Long> processSession, String executable)
     {
         return new LaunchMarker(
                 LaunchMarker.CURRENT_FORMAT,
@@ -527,7 +525,7 @@ class TestOwnedProcessRecovery
                 pid,
                 startToken.map(Instant::toString),
                 Optional.of("/bin/sh"),
-                processGroup,
+                processSession,
                 ImmutableMap.of(),
                 false,
                 false,
@@ -578,15 +576,24 @@ class TestOwnedProcessRecovery
         return process;
     }
 
-    /** Starts a process that leads its own group, the way the gated launcher does. */
+    /** Starts a session leader without involving the supervisor being tested. */
     private long spawnGroupLeader(String payload)
             throws Exception
     {
-        Process process = spawn("set -m; " + payload + " & printf '%s\\n' \"$!\"; wait");
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            return Long.parseLong(reader.readLine().trim());
+        Path launcher = new LaunchMarkerStore(launches).sessionLauncher("test-helper");
+        Process process = new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "--enable-native-access=ALL-UNNAMED", "-cp", launcher.toString(),
+                ProcessSessionLauncher.class.getName(), SHELL, "-c", "exec " + payload).start();
+        spawned.add(process);
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while ((ProcessSessions.sessionOf(process.pid()).orElse(-1) != process.pid()
+                || process.info().command().filter(command -> command.endsWith("/java")).isPresent())
+                && System.nanoTime() < deadline) {
+            Thread.sleep(5);
         }
+        assertThat(ProcessSessions.sessionOf(process.pid())).hasValue(process.pid());
+        return process.pid();
     }
 
     private static boolean awaitDead(long pid)

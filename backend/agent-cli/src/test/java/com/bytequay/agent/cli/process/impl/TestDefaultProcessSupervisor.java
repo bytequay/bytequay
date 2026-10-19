@@ -483,6 +483,57 @@ class TestDefaultProcessSupervisor
         assertThat(awaitDead(descendantPid, Duration.ofSeconds(5))).isTrue();
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void findsAReparentedProcessGroupAfterTheIntermediateShellExits(boolean recover)
+            throws Exception
+    {
+        StringBuilder stdout = new StringBuilder();
+        CountDownLatch reported = new CountDownLatch(1);
+        ManagedProcess process = supervisor
+                .prepare(spec("sleep 0.1; /bin/bash -c 'set -m; sleep 45 >/dev/null 2>&1 & printf \"%s\\n\" \"$!\"'; sleep 0.1"))
+                .start(firstStdoutLine(stdout, reported));
+        assertThat(reported.await(5, TimeUnit.SECONDS)).isTrue();
+        long descendantPid = Long.parseLong(stdout.toString().trim());
+        try {
+            assertThat(ProcessGroups.groupOf(descendantPid)).hasValue(descendantPid);
+            assertThat(ProcessSessions.sessionOf(descendantPid)).hasValue(process.pid());
+            assertThat(process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS).treeTermination())
+                    .isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
+            assertThat(ProcessHandle.of(descendantPid).orElseThrow().isAlive()).isTrue();
+            assertThat(new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow().descendants().orElseThrow())
+                    .extracting(ProcessIdentity::pid).contains(descendantPid);
+            if (recover) {
+                assertThat(new DefaultProcessSupervisor(launches, intents).recoverOwnedProcess(process.launchId()).outcome())
+                        .isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
+            }
+            else {
+                assertThat(process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS))
+                        .isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+            }
+            assertThat(awaitDead(descendantPid, Duration.ofSeconds(5))).isTrue();
+        }
+        finally {
+            ProcessHandle.of(descendantPid).ifPresent(ProcessHandle::destroyForcibly);
+            process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void failedSessionInspectionNeverVerifiesCleanupEvenAfterWorkFinished()
+            throws Exception
+    {
+        DefaultProcessSupervisor unavailable = new DefaultProcessSupervisor(launches, intents, Optional.empty(), ignored -> Optional.empty());
+        ManagedProcess process = unavailable.prepare(spec("exit 0")).start((stream, bytes) -> {});
+        assertThat(process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS).treeTermination())
+                .isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
+        assertThat(process.stopAfterWorkFinished().toCompletableFuture().get(15, TimeUnit.SECONDS))
+                .isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
+        assertThat(new DefaultProcessSupervisor(launches, intents, Optional.empty(), ignored -> Optional.empty())
+                .recoverOwnedProcess(process.launchId()).outcome())
+                .isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+    }
+
     @Test
     void cliProbeShortLivedDescendantsDoNotInvalidateTreeVerification()
             throws Exception
@@ -526,7 +577,7 @@ class TestDefaultProcessSupervisor
     }
 
     @Test
-    void tracksPayloadDescendantsWithoutTheLaunchersIdentityPublisher()
+    void publishesTheIdentityWithoutRunningAWorktreePathHelper()
             throws Exception
     {
         Path publisher = worktree.resolve("mv");
@@ -558,11 +609,10 @@ class TestDefaultProcessSupervisor
                     && System.nanoTime() < deadline) {
                 Thread.sleep(10);
             }
-            long publisherPid = Long.parseLong(Files.readString(worktree.resolve("mv.pid")));
+            assertThat(worktree.resolve("mv.pid")).doesNotExist();
             assertThat(store.read(process.launchId()).orElseThrow().descendants().orElseThrow())
                     .extracting(ProcessIdentity::pid)
-                    .contains(childPid)
-                    .doesNotContain(publisherPid);
+                    .contains(childPid);
         }
         finally {
             process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS);
@@ -865,7 +915,7 @@ class TestDefaultProcessSupervisor
 
         assertThat(running.phase()).isEqualTo(LaunchPhase.RUNNING);
         assertThat(running.pid()).contains(process.pid());
-        assertThat(running.processGroup()).contains(process.pid());
+        assertThat(running.processSession()).contains(process.pid());
         assertThat(running.startToken()).isPresent();
         assertThat(running.launcherCommand()).isPresent();
         assertThat(running.identity().orElseThrow().liveness()).isEqualTo(ProcessIdentity.Liveness.MATCHES);

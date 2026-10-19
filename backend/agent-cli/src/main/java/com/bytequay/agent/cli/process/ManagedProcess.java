@@ -30,7 +30,7 @@ public interface ManagedProcess
     String launchId();
 
     /**
-     * Returns the operating-system process ID of the payload, which also leads its process group.
+     * Returns the operating-system process ID of the payload, which also leads its process session.
      *
      * @return payload process ID
      */
@@ -66,7 +66,7 @@ public interface ManagedProcess
      *
      * <p>Root exit alone is never sufficient: the result distinguishes
      * {@code VERIFIED_STOPPED} from {@code UNVERIFIABLE} so a caller can keep a worktree-mutation
-     * claim held when a group member survives.
+     * claim held when a session member survives.
      *
      * @return stage completed exactly once with the terminal result
      */
@@ -76,7 +76,7 @@ public interface ManagedProcess
     void cancel();
 
     /**
-     * Stops the process group and recorded descendants and returns a fresh verification result.
+     * Stops the process session and recorded descendants and returns a fresh verification result.
      *
      * <p>Unlike {@link #exit()}, this operation is retryable after an earlier exit result could not
      * verify the tree.

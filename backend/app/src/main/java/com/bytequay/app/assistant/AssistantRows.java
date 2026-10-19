@@ -26,6 +26,7 @@ import com.bytequay.app.agent.TaskMessage;
 import com.bytequay.app.assistant.AssistantRow.Kind;
 import com.bytequay.app.assistant.AssistantRow.Latest;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.epic.EpicSources;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.AgendaTarget;
@@ -36,6 +37,7 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
+import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReview;
@@ -109,6 +111,7 @@ class AssistantRows
     private final WorkspaceStore workspaces;
     private final AgendaReader agenda;
     private final ModelSettingsService models;
+    private final CredentialService credentials;
 
     AssistantRows(
             PullRequestStore pullRequests,
@@ -124,7 +127,8 @@ class AssistantRows
             EpicStore epics,
             WorkspaceStore workspaces,
             AgendaReader agenda,
-            ModelSettingsService models)
+            ModelSettingsService models,
+            CredentialService credentials)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.details = requireNonNull(details, "details is null");
@@ -140,6 +144,7 @@ class AssistantRows
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.agenda = requireNonNull(agenda, "agenda is null");
         this.models = requireNonNull(models, "models is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
     }
 
     /**
@@ -190,22 +195,31 @@ class AssistantRows
 
     private AssistantRow pullRequest(PullRequest pr, Shared shared)
     {
+        Optional<String> viewer = credentials.cachedLogin();
+        Optional<StoredPrDetail> detail = details.find(pr.id());
         // Each reviewer's latest verdict, as the pull request's page counts approvals; none until its reviews have been read once.
-        Optional<Integer> approvals = details.find(pr.id())
-                .map(detail -> (int) PrReviewState.latestVerdicts(detail.reviews()).stream().filter(review -> review.state().equals("APPROVED")).count());
-        Optional<Latest> latest = Optional.ofNullable(details.findLatestActivities(ImmutableSet.of(pr.id())).get(pr.id())).map(AssistantRows::latest);
+        List<PrReviewState> approving = detail.map(stored -> PrReviewState.latestVerdicts(stored.reviews()).stream().filter(review -> review.state().equals("APPROVED"))
+                .collect(toImmutableList())).orElse(ImmutableList.of());
+        Optional<Integer> approvals = detail.map(stored -> approving.size());
+        boolean youApproved = viewer.filter(login -> approving.stream().anyMatch(review -> login.equalsIgnoreCase(review.login()))).isPresent();
+        boolean mergeBlocked = detail.filter(stored -> "blocked".equalsIgnoreCase(stored.raw().mergeableState())).isPresent();
+        // As the pull request list decides it: by the signed-in login, or by how the pull request was found until that login is known.
+        boolean mine = viewer.map(login -> login.equalsIgnoreCase(pr.author())).orElse(pr.origin() == PullRequest.Origin.AUTHORED);
+        Optional<Latest> latest = Optional.ofNullable(details.findLatestActivities(ImmutableSet.of(pr.id())).get(pr.id())).map(activity -> latest(activity, viewer));
         return new AssistantRow(AgendaRefs.pull(pr.repo(), pr.number()), Kind.PULL, pr.title(), Optional.of("#" + pr.number()), Optional.of(state(pr)),
                 Optional.ofNullable(pr.ciStatus()).filter(ci -> ci != PullRequestDetail.CiStatus.NONE).map(ci -> lower(ci.name())),
-                Optional.ofNullable(pr.reviewDecision()).map(AssistantRows::lower), approvals, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), at(pr),
-                latest, AgendaTarget.pull(pr.repo(), pr.number(), workspace(shared.watched.get(), pr.repo()).map(Workspace::id)));
+                Optional.ofNullable(pr.reviewDecision()).map(AssistantRows::lower), approvals, mine, mergeBlocked, youApproved, Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), at(pr), latest, AgendaTarget.pull(pr.repo(), pr.number(), workspace(shared.watched.get(), pr.repo()).map(Workspace::id)));
     }
 
-    private static Latest latest(PrActivitySummary activity)
+    private static Latest latest(PrActivitySummary activity, Optional<String> viewer)
     {
         // A review's verdict says more than that someone reviewed.
         String event = (activity.event().equals("reviewed") ? activity.state().map(AssistantRows::lower).orElse(activity.event()) : activity.event()).replace('_', ' ');
         String text = activity.excerpt().filter(excerpt -> !excerpt.isBlank()).map(excerpt -> event + ": " + excerpt).orElse(event);
-        return new Latest(activity.actor(), clip(text, LINE), activity.timestamp());
+        // The user's own events read as theirs, the way a task's own messages do.
+        Optional<String> by = activity.actor().map(actor -> viewer.filter(actor::equalsIgnoreCase).isPresent() ? "You" : actor);
+        return new Latest(by, clip(text, LINE), activity.timestamp());
     }
 
     private static AssistantRow issue(Workspace workspace, RepositoryIssue issue)
@@ -213,8 +227,8 @@ class AssistantRows
         String repo = workspace.monitoredRepository().fullName();
         // The store keeps a repository's open issues only.
         return new AssistantRow(AgendaRefs.issue(repo, issue.number()), Kind.ISSUE, issue.title(), Optional.of("#" + issue.number()), Optional.of("open"), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(issue.updatedAt()), Optional.empty(),
-                AgendaTarget.issue(repo, issue.number(), workspace.id()));
+                Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(issue.updatedAt()),
+                Optional.empty(), AgendaTarget.issue(repo, issue.number(), workspace.id()));
     }
 
     private AssistantRow ticket(JiraIssue ticket)
@@ -222,8 +236,8 @@ class AssistantRows
         Optional<Latest> latest = jiraActivity.latest(ticket)
                 .map(activity -> new Latest(activity.actor().map(person -> person.displayName()), clip(said(activity), LINE), activity.at()));
         return new AssistantRow(AgendaRefs.jira(ticket.cloudId(), ticket.id()), Kind.JIRA, ticket.title(), Optional.of(ticket.key()), Optional.of(ticket.status().name()),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(ticket.updatedAt()),
-                latest, AgendaTarget.jira(ticket.connectionId(), ticket.cloudId(), ticket.id(), ticket.workspace().map(link -> link.id())));
+                Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.of(ticket.updatedAt()), latest, AgendaTarget.jira(ticket.connectionId(), ticket.cloudId(), ticket.id(), ticket.workspace().map(link -> link.id())));
     }
 
     /** What a ticket's latest change did. */
@@ -241,8 +255,8 @@ class AssistantRows
         return task.workspaceId().map(workspace -> {
             Phase phase = phase(task, shared);
             return new AssistantRow(AgendaRefs.task(task.id().toString()), Kind.TASK, task.title(), Optional.empty(), Optional.of(phase.name()), Optional.empty(),
-                    Optional.empty(), Optional.empty(), Optional.of(phase.agent()), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(phase.since()),
-                    phase.latest(), AgendaTarget.of(AgendaTarget.Kind.TASK, workspace, task.id().toString()));
+                    Optional.empty(), Optional.empty(), false, false, false, Optional.of(phase.agent()), Optional.empty(), Optional.empty(), Optional.empty(),
+                    Optional.of(phase.since()), phase.latest(), AgendaTarget.of(AgendaTarget.Kind.TASK, workspace, task.id().toString()));
         });
     }
 
@@ -250,8 +264,8 @@ class AssistantRows
     {
         Phase phase = phase(task, shared);
         return new AssistantRow(AgendaRefs.review(review.id()), Kind.REVIEW, task.title(), review.number().stream().mapToObj(number -> "#" + number).findFirst(),
-                Optional.of(phase.name()), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(phase.agent()), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.of(phase.since()), phase.latest(), AgendaTarget.of(AgendaTarget.Kind.REVIEW, review.workspaceId(), review.id()));
+                Optional.of(phase.name()), Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.of(phase.agent()), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.of(phase.since()), phase.latest(), AgendaTarget.of(AgendaTarget.Kind.REVIEW, review.workspaceId(), review.id()));
     }
 
     /**
@@ -276,8 +290,8 @@ class AssistantRows
         Optional<String> epic = item.epicId().flatMap(epicId -> workspaces.findById(item.workspaceId()).flatMap(workspace -> agenda.epicSource(workspace, epicId)))
                 .map(AgendaReader.EpicSource::title);
         return new AssistantRow(AgendaRefs.work(item.id()), Kind.WORK, item.title(), Optional.empty(), Optional.of(lower(item.state().name())), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty(), epic, Optional.empty(), Optional.empty(), Optional.of(item.updatedAt()), Optional.empty(),
-                AgendaTarget.of(AgendaTarget.Kind.WORK, item.workspaceId(), item.id()));
+                Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), epic, Optional.empty(), Optional.empty(), Optional.of(item.updatedAt()),
+                Optional.empty(), AgendaTarget.of(AgendaTarget.Kind.WORK, item.workspaceId(), item.id()));
     }
 
     /**
@@ -317,8 +331,8 @@ class AssistantRows
             int total = (int) work.stream().filter(item -> item.state() != WorkItem.State.DROPPED).count();
             Optional<String> state = epics.find(epicId).flatMap(Epic::concludedAt).map(ignored -> "concluded");
             return new AssistantRow(AgendaRefs.epic(epicId), Kind.EPIC, source.title(), Optional.empty(), state, Optional.empty(), Optional.empty(), Optional.empty(),
-                    Optional.empty(), Optional.empty(), Optional.of(done), Optional.of(total), work.stream().map(WorkItem::updatedAt).max(Comparator.naturalOrder()),
-                    Optional.empty(), source.target());
+                    false, false, false, Optional.empty(), Optional.empty(), Optional.of(done), Optional.of(total),
+                    work.stream().map(WorkItem::updatedAt).max(Comparator.naturalOrder()), Optional.empty(), source.target());
         }));
     }
 

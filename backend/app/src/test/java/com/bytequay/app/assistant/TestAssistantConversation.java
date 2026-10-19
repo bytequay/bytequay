@@ -441,8 +441,8 @@ class TestAssistantConversation
 
         AgendaTarget pull = AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"));
         AssistantRow row = new AssistantRow("pr:trinodb/trino#31402", AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict", Optional.of("#31402"), Optional.of("open"),
-                Optional.of("failing"), Optional.empty(), Optional.of(0), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), pull);
+                Optional.of("failing"), Optional.empty(), Optional.of(0), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), pull);
         AssistantList shown = new AssistantList(AssistantList.Style.CARDS, ImmutableList.of("pr:trinodb/trino#31402", "task:gone"));
         store.add(AssistantItem.user(DAY, now.get(), "what is red?", ImmutableList.of(), Optional.empty(), "key-1"));
         store.add(AssistantItem.list(DAY, now.get(), "Red pull requests", shown));

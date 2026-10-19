@@ -29,6 +29,9 @@ import java.util.Optional;
  * @param ci a pull request's checks: passing, failing or pending
  * @param review a pull request's review decision
  * @param approvals how many reviewers approve a pull request, from its cached reviews
+ * @param mine whether a pull request is the user's own
+ * @param mergeBlocked whether GitHub blocks merging a pull request, as its cached detail says
+ * @param youApproved whether the user's own latest review approves a pull request
  * @param agent the agent a task runs with
  * @param epic the title of the Epic a work item belongs to
  * @param done an Epic's finished work items
@@ -46,6 +49,9 @@ public record AssistantRow(
         Optional<String> ci,
         Optional<String> review,
         Optional<Integer> approvals,
+        boolean mine,
+        boolean mergeBlocked,
+        boolean youApproved,
         Optional<String> agent,
         Optional<String> epic,
         Optional<Integer> done,

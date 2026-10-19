@@ -152,6 +152,7 @@ export function rowState(row: AssistantRowDto): string | null {
   if (row.kind === 'PULL' && row.state === 'open') {
     if (row.review === 'changes_requested') return 'Changes requested';
     if (row.ci === 'failing') return 'Checks failing';
+    if (row.mergeBlocked) return 'Merge blocked';
     if (row.review === 'approved') return 'Approved';
   }
   if (row.kind === 'EPIC') return row.done === null || row.total === null ? null : `${row.done}/${row.total}`;

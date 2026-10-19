@@ -65,13 +65,13 @@ const VIEW: AssistantViewDto = {
 // Relative to now, so a timeline's Today and Yesterday hold whenever the fixture runs.
 const ago = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
 const row = (fields: Pick<AssistantRowDto, 'ref' | 'kind' | 'title' | 'target'> & Partial<AssistantRowDto>): AssistantRowDto => ({
-  key: null, state: null, ci: null, review: null, approvals: null, agent: null, epic: null, done: null, total: null, at: null, latest: null, ...fields,
+  key: null, state: null, ci: null, review: null, approvals: null, mine: false, mergeBlocked: false, youApproved: false, agent: null, epic: null, done: null, total: null, at: null, latest: null, ...fields,
 });
 const ROWS: Record<string, AssistantRowDto> = Object.fromEntries([
   row({ ref: 'pr:trinodb/trino#31377', kind: 'PULL', title: 'Add Iceberg metadata cache', target: PULL, key: '#31377', state: 'open', ci: 'passing',
     review: 'approved', approvals: 2, at: ago(20), latest: { by: 'marlo-t', text: 'approved these changes', at: ago(20) } }),
   row({ ref: 'pr:trinodb/trino#31402', kind: 'PULL', title: 'Retry Iceberg commit on conflict', target: target('PULL', { repo: 'trinodb/trino', number: 31402 }),
-    key: '#31402', state: 'open', ci: 'failing', review: 'changes_requested', at: ago(60 * 26) }),
+    key: '#31402', state: 'open', ci: 'failing', review: 'changes_requested', mine: true, at: ago(60 * 26) }),
   row({ ref: 'task:t1', kind: 'TASK', title: 'Expose snapshot id in metadata', target: target('TASK', { id: 't1' }), agent: 'Claude Code', state: 'waiting',
     at: ago(45), latest: { by: 'Claude Code', text: 'Which table should hold the snapshot id?', at: ago(45) } }),
   row({ ref: 'jira:cloud:10042', kind: 'JIRA', title: 'Expire snapshots by branch', target: target('JIRA', { id: '10042', connectionId: 'c1', cloudId: 'cloud' }),
@@ -81,10 +81,10 @@ const ROWS: Record<string, AssistantRowDto> = Object.fromEntries([
   row({ ref: 'epic:LOCAL:w1', kind: 'EPIC', title: 'Iceberg write path', target: target('WORK', { id: 'w1' }), done: 3, total: 6 }),
 ].map(each => [each.ref, each]));
 const REFS = ['pr:trinodb/trino#31377', 'pr:trinodb/trino#31402', 'task:t1', 'jira:cloud:10042', 'work:w22', 'epic:LOCAL:w1', 'pr:trinodb/trino#1'];
-const listView = (style: AssistantListStyle): AssistantViewDto => {
+const listView = (style: AssistantListStyle, extra: AssistantRowDto[] = []): AssistantViewDto => {
   const list: AssistantItemDto = { id: 'l1', day: '2026-10-16', at: '2026-10-16T07:06:10Z', kind: 'LIST', text: 'Waiting on you', targets: {}, notReady: false,
-    receipt: null, list: { style, refs: REFS }, draft: null };
-  return { ...VIEW, items: [VIEW.items[0], list], rows: ROWS };
+    receipt: null, list: { style, refs: [...REFS, ...extra.map(each => each.ref)] }, draft: null };
+  return { ...VIEW, items: [VIEW.items[0], list], rows: { ...ROWS, ...Object.fromEntries(extra.map(each => [each.ref, each])) } };
 };
 
 const notice = (id: string, kind: AppNotice['kind'], taskId: string, title: string): AppNotice => ({
@@ -631,9 +631,11 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
   let unsettled = true;
   const draft: ReviewDraftDto = { repo: 'trinodb/trino', number: 31377, body: '', event: 'COMMENT', reviewPublication: null, items: [], postedSummaryFindingIds: [],
     version: 3, updatedAt: '2026-10-16T07:00:00Z' };
-  const view = mount(listView('CARDS'), 0, [], [], undefined, undefined, {
-    // The second pull request is the user's own.
-    findStoredPullRequest: async (repo: string, number: number) => pr({ id: number, repo, number, origin: number === 31402 ? 'AUTHORED' : 'REVIEW_REQUESTED' }),
+  // Someone else's pull request the user already approved.
+  const approved = row({ ref: 'pr:example/catalogs#4127', kind: 'PULL', title: 'Retry catalog loads after a timeout', key: '#4127', state: 'open',
+    target: target('PULL', { repo: 'example/catalogs', number: 4127 }), review: 'approved', approvals: 1, youApproved: true, at: ago(60) });
+  const view = mount(listView('CARDS', [approved]), 0, [], [], undefined, undefined, {
+    findStoredPullRequest: async (repo: string, number: number) => pr({ id: number, repo, number }),
     getReviewDraft: async () => unsettled
       ? { ...draft, reviewPublication: { state: 'UNCERTAIN', remoteReviewId: null, remoteCommentId: null, url: null, at: '2026-10-16T06:00:00Z' } } : draft,
     saveReviewDraft: async (...args: unknown[]) => { steps.push(['save', ...args]); return { ...draft, version: 4, event: 'APPROVE' }; },
@@ -652,6 +654,7 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
     const buttons = (key: string) => [...(card(key)?.querySelectorAll<HTMLButtonElement>('.card-actions button') ?? [])].map(button => button.getAttribute('aria-label'));
     assert(JSON.stringify(buttons('#31377')) === '["Approve #31377","Merge #31377","Comment on #31377"]', `Someone else's pull request: ${JSON.stringify(buttons('#31377'))}`);
     assert(JSON.stringify(buttons('#31402')) === '["Merge #31402","Comment on #31402","Close #31402"]', `The user's own: ${JSON.stringify(buttons('#31402'))}`);
+    assert(JSON.stringify(buttons('#4127')) === '["Merge #4127","Comment on #4127"]', `One the user approved: ${JSON.stringify(buttons('#4127'))}`);
     const press = (label: string) => view.host.querySelector<HTMLButtonElement>(`.card-actions button[aria-label="${label}"]`)?.click();
 
     press('Approve #31377');

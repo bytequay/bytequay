@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   CalendarClock, Check, CircleCheck, CircleDashed, CircleOff, CircleX, FileDiff, GitMerge, GitPullRequestClosed, LayoutGrid, ListChecks, ListTodo, ListTree,
   MessageSquare, Rows3, TriangleAlert,
@@ -19,8 +19,7 @@ import {
 import { Card, CardActions, CardAge, Clickable, IconButton, Pill, SourceIcon } from '../cards/Card';
 import type { AttentionSource } from '../home/attention';
 import { clockTime } from '../home/today';
-import { pullRequestIsMine } from '../pulls/model';
-import type { AgendaTargetDto, AssistantItemDto, AssistantListStyle, AssistantRowDto, PullRequestDto } from '../types';
+import type { AgendaTargetDto, AssistantItemDto, AssistantListStyle, AssistantRowDto } from '../types';
 import { dayLabel, refLabel, rowState, timelineDays } from './model';
 import type { PullAction } from './pullActions';
 
@@ -156,20 +155,12 @@ function CompleteTask({ row, onComplete }: { row: AssistantRowDto; onComplete: C
 
 /**
  * Acting on a pull request stays the user's click, and each button does what the pull request page's own control does. Approve skips
- * the user's own pull requests, which GitHub refuses, and Close shows on them only, as the page's Close does without write access.
+ * the user's own pull requests, which GitHub refuses, and those the user already approved; Close shows on the user's own only, as the
+ * page's Close does without write access.
  */
 function PullActions({ row, onPull }: { row: AssistantRowDto; onPull: Pull }) {
-  const [stored, setStored] = useState<PullRequestDto | null>(null);
   const [busy, setBusy] = useState(false);
-  const { repo, number } = row.target;
-  useEffect(() => {
-    if (repo === null || number === null) return;
-    let live = true;
-    void window.bridge.findStoredPullRequest(repo, number).then(found => { if (live) setStored(found); }, () => {});
-    return () => { live = false; };
-  }, [repo, number]);
   const open = row.state === 'open' || row.state === 'draft';
-  const mine = stored !== null && pullRequestIsMine(stored);
   const act = (action: PullAction) => {
     setBusy(true);
     void onPull(row.target, action).finally(() => setBusy(false));
@@ -177,14 +168,14 @@ function PullActions({ row, onPull }: { row: AssistantRowDto; onPull: Pull }) {
   const name = row.key ?? row.title;
   return (
     <CardActions label={`Actions for ${row.title}`}>
-      {open && stored !== null && !mine && row.state !== 'draft' && (
+      {row.state === 'open' && !row.mine && !row.youApproved && (
         <IconButton label={`Approve ${name}`} title="Approve" tone="ack" disabled={busy} onClick={() => act('approve')}><Check size={14} aria-hidden="true" /></IconButton>
       )}
       {row.state === 'open' && (
         <IconButton label={`Merge ${name}`} title="Merge" disabled={busy} onClick={() => act('merge')}><GitMerge size={14} aria-hidden="true" /></IconButton>
       )}
       <IconButton label={`Comment on ${name}`} title="Comment" disabled={busy} onClick={() => act('comment')}><MessageSquare size={14} aria-hidden="true" /></IconButton>
-      {open && mine && (
+      {open && row.mine && (
         <IconButton label={`Close ${name}`} title="Close pull request" tone="danger" disabled={busy} onClick={() => act('close')}>
           <GitPullRequestClosed size={14} aria-hidden="true" />
         </IconButton>

@@ -31,6 +31,7 @@ import com.bytequay.app.agent.TaskMessage;
 import com.bytequay.app.assistant.AssistantRow.Kind;
 import com.bytequay.app.assistant.AssistantRow.Latest;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.Epic;
@@ -105,8 +106,9 @@ class TestAssistantRows
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final AgendaReader agenda = mock(AgendaReader.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
+    private final CredentialService credentials = mock(CredentialService.class);
     private final AssistantRows rows = new AssistantRows(pullRequests, details, issues, jira, jiraActivity, tasks, reviews, running, activities, workItems, epics, workspaces,
-            agenda, models);
+            agenda, models, credentials);
 
     @BeforeEach
     void storesHoldOneOfEach()
@@ -174,12 +176,12 @@ class TestAssistantRows
         // A ref that no longer resolves has no row, so the panel draws it as gone; a repeated ref is read once.
         assertThat(read).containsOnlyKeys("pr:trinodb/trino#31402", "issue:trinodb/trino#77", "jira:cloud:10042", waiting, "review:r7", "work:w22", "epic:LOCAL:w1");
         assertThat(read.get("pr:trinodb/trino#31402")).isEqualTo(new AssistantRow("pr:trinodb/trino#31402", Kind.PULL, "Retry Iceberg commit on conflict",
-                Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.of("changes_requested"), Optional.of(1), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(60)), Optional.of(new Latest(Optional.of("bo-t"),
+                Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.of("changes_requested"), Optional.of(1), true, false, false, Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(60)), Optional.of(new Latest(Optional.of("bo-t"),
                         "changes requested: Please split the retry into its own commit", NOW.minusSeconds(300))), AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"))));
         assertThat(read.get("issue:trinodb/trino#77")).isEqualTo(new AssistantRow("issue:trinodb/trino#77", Kind.ISSUE, "Snapshot ids in $snapshots", Optional.of("#77"),
-                Optional.of("open"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.of(NOW.minusSeconds(900)), Optional.empty(), AgendaTarget.issue("trinodb/trino", 77, "ws1")));
+                Optional.of("open"), Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.of(NOW.minusSeconds(900)), Optional.empty(), AgendaTarget.issue("trinodb/trino", 77, "ws1")));
         AssistantRow ticket = read.get("jira:cloud:10042");
         assertThat(ticket.key()).contains("ICE-7");
         assertThat(ticket.state()).contains("In progress");
@@ -188,7 +190,7 @@ class TestAssistantRows
 
         // A task's phase is how it runs now, since it began; its last message is the latest event.
         assertThat(read.get(waiting)).isEqualTo(new AssistantRow(waiting, Kind.TASK, "Expose snapshot id in metadata", Optional.empty(), Optional.of("waiting"),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("Claude Code"), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.of("Claude Code"), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.of(NOW.minusSeconds(240)), Optional.of(new Latest(Optional.of("Claude Code"), "Which table should hold the snapshot id?", NOW.minusSeconds(240))),
                 AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", WAITING.id().toString())));
         AssistantRow review = read.get("review:r7");
@@ -213,6 +215,24 @@ class TestAssistantRows
         // Tickets come from Jira's cache; reading rows never asks Jira.
         verify(jira).cachedIssue("cloud", "10042");
         verifyNoMoreInteractions(jira);
+    }
+
+    @Test
+    void readsAPullRequestAsTheSignedInUserSeesIt()
+    {
+        when(details.find(7L).orElseThrow().raw().mergeableState()).thenReturn("blocked");
+        when(credentials.cachedLogin()).thenReturn(Optional.of("Alba-T"));
+
+        AssistantRow approver = rows.rows(ImmutableList.of("pr:trinodb/trino#31402")).get("pr:trinodb/trino#31402");
+        // The signed-in login decides whose pull request it is, over how it was found, as the pull request list does.
+        assertThat(approver.mine()).isFalse();
+        assertThat(approver.youApproved()).isTrue();
+        assertThat(approver.mergeBlocked()).isTrue();
+
+        when(credentials.cachedLogin()).thenReturn(Optional.of("bo-t"));
+        AssistantRow reviewer = rows.rows(ImmutableList.of("pr:trinodb/trino#31402")).get("pr:trinodb/trino#31402");
+        assertThat(reviewer.youApproved()).isFalse();
+        assertThat(reviewer.latest().map(Latest::by)).contains(Optional.of("You"));
     }
 
     @Test

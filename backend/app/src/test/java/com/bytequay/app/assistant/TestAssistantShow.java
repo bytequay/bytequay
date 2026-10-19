@@ -98,8 +98,8 @@ class TestAssistantShow
                 "/managed/trino", Optional.empty(), Optional.empty(), 0, NOW, NOW)));
         AgendaTarget pull = AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"));
         when(rows.rows(ImmutableList.of(PULL))).thenReturn(ImmutableMap.of(PULL, new AssistantRow(PULL, AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict",
-                Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty(), pull)));
+                Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), pull)));
     }
 
     @Test

@@ -46,6 +46,7 @@ import com.bytequay.app.agent.TaskMessage;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -136,7 +137,7 @@ class TestAssistantContext
     private final EpicStore epics = mock(EpicStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final AssistantRows rows = new AssistantRows(pullRequests, mock(PrDetailStore.class), issues, jira, mock(JiraActivityReader.class), tasks, reviews, running, activities,
-            workItems, epics, workspaces, agenda, models);
+            workItems, epics, workspaces, agenda, models, mock(CredentialService.class));
     private final AssistantReader reader = new AssistantReader(agenda, agendas, running, notices, approvals, tasks, activities, reviews, pullRequests, workItems, workspaces,
             rows, models, settings, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
 

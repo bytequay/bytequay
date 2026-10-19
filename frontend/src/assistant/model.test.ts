@@ -111,7 +111,7 @@ describe('stackOf', () => {
 
 describe('lists', () => {
   const row = (ref: string, kind: AssistantRowDto['kind'], at: string | null, fields: Partial<AssistantRowDto> = {}): AssistantRowDto => ({
-    ref, kind, title: ref, key: null, state: null, ci: null, review: null, approvals: null, agent: null, epic: null, done: null, total: null, at, latest: null, target,
+    ref, kind, title: ref, key: null, state: null, ci: null, review: null, approvals: null, mine: false, mergeBlocked: false, youApproved: false, agent: null, epic: null, done: null, total: null, at, latest: null, target,
     ...fields,
   });
   const local = (day: number, hour: number): string => new Date(2026, 9, day, hour, 30).toISOString();
@@ -138,6 +138,8 @@ describe('lists', () => {
   it('names where a row stands, a pull request by what it needs first', () => {
     expect(rowState(row('pr:a#1', 'PULL', null, { state: 'open', ci: 'failing', review: 'changes_requested' }))).toBe('Changes requested');
     expect(rowState(row('pr:a#1', 'PULL', null, { state: 'open', ci: 'failing', review: 'approved' }))).toBe('Checks failing');
+    expect(rowState(row('pr:a#1', 'PULL', null, { state: 'open', ci: 'failing', mergeBlocked: true }))).toBe('Checks failing');
+    expect(rowState(row('pr:a#1', 'PULL', null, { state: 'open', ci: 'passing', review: 'approved', mergeBlocked: true }))).toBe('Merge blocked');
     expect(rowState(row('pr:a#1', 'PULL', null, { state: 'open', ci: 'passing', review: 'approved' }))).toBe('Approved');
     expect(rowState(row('pr:a#1', 'PULL', null, { state: 'merged', review: 'approved' }))).toBe('Merged');
     expect(rowState(row('task:t1', 'TASK', null, { state: 'waiting' }))).toBe('Waiting');

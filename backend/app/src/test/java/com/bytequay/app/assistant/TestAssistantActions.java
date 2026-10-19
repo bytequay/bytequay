@@ -756,8 +756,8 @@ class TestAssistantActions
     private void named(String ref, String title, AgendaTarget target)
     {
         when(rows.rows(ImmutableList.of(ref))).thenReturn(ImmutableMap.of(ref, new AssistantRow(ref, AssistantRow.Kind.WORK, title, Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), target)));
+                Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), target)));
     }
 
     private static JiraIssue ticket()

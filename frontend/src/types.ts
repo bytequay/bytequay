@@ -1522,6 +1522,12 @@ export type AssistantRowDto = {
   review: string | null;
   /** How many reviewers approve a pull request, from its cached reviews. */
   approvals: number | null;
+  /** Whether a pull request is the user's own. */
+  mine: boolean;
+  /** Whether GitHub blocks merging a pull request, as its cached detail says. */
+  mergeBlocked: boolean;
+  /** Whether the user's own latest review approves a pull request. */
+  youApproved: boolean;
   /** The agent a task runs with. */
   agent: string | null;
   /** The Epic a work item belongs to. */

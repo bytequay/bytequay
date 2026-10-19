@@ -14,14 +14,18 @@
 package com.bytequay.agent.core;
 
 import com.bytequay.agent.spi.AgentDriver;
+import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
+import com.bytequay.agent.spi.AgentSessionRef;
+import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.RunningTurn;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -112,6 +116,22 @@ class TestOneShotSession
         assertThat(Thread.currentThread().isInterrupted()).isTrue();
         verify(session).close();
         verify(resources).delete(any());
+    }
+
+    @Test
+    void handsTheSessionItsCallersEventSink()
+    {
+        RunningTurn turn = mock(RunningTurn.class);
+        AgentEventSink events = event -> {};
+        when(driver.open(context, events)).thenReturn(session);
+        when(session.start(any())).thenReturn(turn);
+        when(session.reference()).thenReturn(mock(AgentSessionRef.class));
+        when(turn.completion()).thenReturn(CompletableFuture.completedFuture(
+                new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("done"), Optional.empty(), Duration.ofSeconds(1), true)));
+
+        OneShotSession.run(resources, driver, (taskId, scratch) -> context, "prompt", Duration.ofSeconds(5), started -> {}, events);
+
+        verify(driver).open(context, events);
     }
 
     private void run()

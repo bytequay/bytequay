@@ -14,6 +14,7 @@
 package com.bytequay.agent.core;
 
 import com.bytequay.agent.spi.AgentDriver;
+import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
@@ -64,6 +65,17 @@ public final class OneShotSession
     public static Answer run(AgentResourceService resources, AgentDriver driver, BiFunction<TaskId, TaskResources, AgentSessionContext> context,
             String prompt, Duration maximumRuntime, Consumer<RunningTurn> started)
     {
+        return run(resources, driver, context, prompt, maximumRuntime, started, event -> {});
+    }
+
+    /**
+     * As {@link #run(AgentResourceService, AgentDriver, BiFunction, String, Duration, Consumer)}, with the session's events as they happen.
+     *
+     * @param events receives the provider's normalized events in order, on the driver's thread
+     */
+    public static Answer run(AgentResourceService resources, AgentDriver driver, BiFunction<TaskId, TaskResources, AgentSessionContext> context,
+            String prompt, Duration maximumRuntime, Consumer<RunningTurn> started, AgentEventSink events)
+    {
         checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(), "One-shot sessions require a positive maximum runtime");
         checkInterrupted();
         TaskId scratchId = TaskId.random();
@@ -73,7 +85,7 @@ public final class OneShotSession
             AgentSessionContext sessionContext = context.apply(scratchId, resources.allocate(scratchId));
             checkInterrupted();
             processMayBeRunning = true;
-            session = driver.open(sessionContext, event -> {});
+            session = driver.open(sessionContext, events);
             checkInterrupted();
             RunningTurn turn = session.start(new AgentTurnCommand(TaskId.random().toString(), prompt, ImmutableList.of(), maximumRuntime));
             started.accept(turn);

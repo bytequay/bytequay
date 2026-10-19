@@ -15,13 +15,21 @@ package com.bytequay.app.web.agent;
 
 import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.jira.JiraActivityLog;
+import com.bytequay.app.jira.JiraCache;
+import com.bytequay.app.jira.JiraConnections;
+import com.bytequay.app.jira.JiraController;
+import com.bytequay.app.jira.JiraHttpClient;
+import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRateLimitInterceptor;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.web.CredentialController;
 import com.bytequay.app.web.PullRequestController;
+import com.bytequay.core.store.JiraConnectionStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -57,6 +65,7 @@ class TestAgentRequestFilter
             "/agent/tasks",
             "/agent/usage",
             "/agent/usage/codex",
+            "/api/jira/config",
             "/api/jira/connections",
             "/api/google",
             "/api/google/mail",
@@ -93,35 +102,67 @@ class TestAgentRequestFilter
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {
-            "/agent/tasks",
-            "/agent/tasks/task-id/stream",
-            "/agent/approvals/approval-id",
-            "/api/assistant/messages",
-            "/api/ci-autofix/runs",
-            "/api/cherry-pick-ranges/previews"})
-    void rejectsAgentOperationsUntilStartupRecoveryCompletes(String path)
+    @CsvSource({
+            "GET, /agent/tasks",
+            "GET, /agent/tasks/task-id/stream",
+            "GET, /agent/approvals/approval-id",
+            "GET, /api/assistant/messages",
+            "GET, /api/ci-autofix/runs",
+            "GET, /api/cherry-pick-ranges/previews",
+            "POST, /api/jira/connections",
+            "POST, /api/jira/connections/token",
+            "POST, /api/jira/connections/connection/refresh",
+            "DELETE, /api/jira/connections/connection",
+            "GET, /api/jira/connections/connection/sites/cloud/issues/1001",
+            "GET, /api/jira/attention"})
+    void rejectsAgentOperationsUntilStartupRecoveryCompletes(String method, String path)
             throws Exception
     {
         MockHttpServletResponse response = new MockHttpServletResponse();
         MockFilterChain chain = new MockFilterChain();
         new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules(), new AgentServingGate())
-                .doFilter(request(path, SESSION, null), response, chain);
+                .doFilter(request(method, path, SESSION, null), response, chain);
 
         assertThat(response.getStatus()).isEqualTo(503);
         assertThat(chain.getRequest()).isNull();
     }
 
-    @Test
-    void keepsAuthenticatedProviderStatusAvailableDuringRecovery()
+    @ParameterizedTest
+    @ValueSource(strings = {"/agent/providers/status", "/api/jira/config", "/api/jira/connections"})
+    void keepsAuthenticatedStatusReadsAvailableDuringRecovery(String path)
             throws Exception
     {
+        assertThat(filter(SESSION, request(path, null, null)).getStatus()).isEqualTo(401);
+        assertThat(filter(SESSION, request(path, "wrong", null)).getStatus()).isEqualTo(401);
+        assertThat(filter(SESSION, request(path, SESSION, "https://example.com")).getStatus()).isEqualTo(403);
+
         MockFilterChain chain = new MockFilterChain();
-        MockHttpServletRequest request = request("/agent/providers/status", SESSION, null);
+        MockHttpServletRequest request = request(path, SESSION, null);
         new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules(), new AgentServingGate())
                 .doFilter(request, new MockHttpServletResponse(), chain);
 
         assertThat(chain.getRequest()).isSameAs(request);
+    }
+
+    @Test
+    void unconnectedJiraSettingsRemainAvailableDuringRecovery()
+            throws Exception
+    {
+        JiraConnectionStore store = mock(JiraConnectionStore.class);
+        when(store.ids()).thenReturn(ImmutableList.of());
+        JiraHttpClient http = mock(JiraHttpClient.class);
+        JiraConnections connections = new JiraConnections(store, mock(JiraCache.class), http, "");
+        MockMvc mvc = standaloneSetup(new JiraController(connections, mock(JiraService.class), mock(JiraActivityLog.class)))
+                .addFilters(new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules(), new AgentServingGate()))
+                .build();
+
+        mvc.perform(get("/api/jira/config").header(AgentController.SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.configured").value(false));
+        mvc.perform(get("/api/jira/connections").header(AgentController.SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+        verifyNoInteractions(http);
     }
 
     @ParameterizedTest

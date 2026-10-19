@@ -17,6 +17,6 @@ import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/br
 
 it('manages Jira accounts and shared quiet hours in Chromium', async () => {
   const result = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-jira-settings-', entry: 'src/settings/fixtures/jiraSettingsBrowser.tsx', global: 'JiraSettingsTests', styles: true, charset: true, width: 760, height: 950 });
-  expect(result).toHaveLength(12);
+  expect(result).toHaveLength(13);
   expect(result.filter(value => value.error)).toEqual([]);
 }, deadline(30_000));

@@ -109,6 +109,13 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   const changed = () => { changedEvents += 1; }; window.addEventListener(JIRA_CHANGED, changed);
   for (const [name, test] of Object.entries({
+    async 'keeps an unused Jira integration in its empty state'() {
+      await mountPreview([], false);
+      assert(document.body.textContent?.includes('No Jira accounts connected') && !document.body.textContent?.includes('Loading accounts'), 'An unused integration finishes loading into its empty state');
+      assert(!document.querySelector('[role="alert"]') && !button('Add account').disabled, 'No integration is a normal state and adding an account remains available');
+      assert(accounts.length === 0 && tokenRequests.length === 0 && opened.length === 0, 'Opening settings does not start sign-in');
+      assert(reads === 1 && refreshIds.length === 0 && jobs.size === 0, 'An unused integration does not poll');
+    },
     async 'adds an account in the browser and completes without a manual check'() {
       await mountPreview([]); assert(document.querySelector('[aria-label="Settings navigation"] .is-active')?.textContent === 'Jira', 'Jira lives in the shared Settings navigation'); assert(!document.querySelector('input[type="url"]'), 'No service URL is requested');
       button('Sign in with browser').click(); await settled(); assert(opened[0] === pending.authorizationUrl, 'Browser sign-in opens system browser');

@@ -83,7 +83,7 @@ public final class AgentRequestFilter
             reject(request, response, HttpStatus.UNAUTHORIZED, "Invalid desktop session");
             return;
         }
-        if (!servingGate.isReady() && waitsForAgentRecovery(requestPath(request)) && !isProviderStatusRequest(request)) {
+        if (!servingGate.isReady() && waitsForAgentRecovery(requestPath(request)) && !isStartupStatusRequest(request)) {
             reject(request, response, HttpStatus.SERVICE_UNAVAILABLE, "Agent startup recovery is not complete");
             return;
         }
@@ -116,9 +116,12 @@ public final class AgentRequestFilter
                 || (path.startsWith("/api/workspaces/") && (path.contains("/git/") || path.contains("/cherry-pick/")));
     }
 
-    private static boolean isProviderStatusRequest(HttpServletRequest request)
+    private static boolean isStartupStatusRequest(HttpServletRequest request)
     {
-        return request.getMethod().equals("GET") && requestPath(request).equals("/agent/providers/status");
+        String path = requestPath(request);
+        // Saved Jira account metadata does not depend on provider process recovery.
+        return request.getMethod().equals("GET")
+                && (path.equals("/agent/providers/status") || path.equals("/api/jira/config") || path.equals("/api/jira/connections"));
     }
 
     private static String requestPath(HttpServletRequest request)

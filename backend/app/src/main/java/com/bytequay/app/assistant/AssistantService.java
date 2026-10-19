@@ -33,7 +33,9 @@ import com.bytequay.app.service.settings.SetupSettingsService;
 import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantDay;
+import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
+import com.bytequay.core.domain.AssistantReceipt;
 import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.store.AssistantStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -104,6 +106,7 @@ public class AssistantService
             Show several items with assistant_show list, not as text.
             Open a page or item with assistant_show open, only when the user's latest message asks.
             Completing a task is the user's click: show the task with assistant_show list in the cards style, whose card has Complete task.
+            A new GitHub issue as an Epic is the user's click too: draft it with assistant_show draft_epic for them to edit and create.
             """;
 
     private final AssistantStore store;
@@ -112,6 +115,7 @@ public class AssistantService
     private final SetupSettingsService setup;
     private final AssistantShow show;
     private final AssistantRows rows;
+    private final AssistantWork work;
     private final AgentDriverRegistry drivers;
     private final AgentResourceService resources;
     private final ObjectMapper mapper;
@@ -121,8 +125,8 @@ public class AssistantService
     // ponytail: one reply at a time, held in memory; a restart drops it, so no running row is ever left behind.
     private final AtomicReference<Run> running = new AtomicReference<>();
 
-    AssistantService(AssistantStore store, AssistantReader reader, AssistantActions actions, AssistantShow show, AssistantRows rows, SetupSettingsService setup,
-            AgentDriverRegistry drivers, AgentResourceService resources, AgentProperties properties, ObjectMapper mapper, Clock clock,
+    AssistantService(AssistantStore store, AssistantReader reader, AssistantActions actions, AssistantShow show, AssistantRows rows, AssistantWork work,
+            SetupSettingsService setup, AgentDriverRegistry drivers, AgentResourceService resources, AgentProperties properties, ObjectMapper mapper, Clock clock,
             @Qualifier(IO_EXECUTOR) ExecutorService executor)
     {
         this.store = requireNonNull(store, "store is null");
@@ -130,6 +134,7 @@ public class AssistantService
         this.actions = requireNonNull(actions, "actions is null");
         this.show = requireNonNull(show, "show is null");
         this.rows = requireNonNull(rows, "rows is null");
+        this.work = requireNonNull(work, "work is null");
         this.setup = requireNonNull(setup, "setup is null");
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.resources = requireNonNull(resources, "resources is null");
@@ -206,6 +211,25 @@ public class AssistantService
     public void answered(String approvalId)
     {
         append(actions.buttonReceipt(ApprovalId.valueOf(approvalId), currentDay()));
+    }
+
+    /**
+     * Keeps a receipt for a draft the user created with its own button, once, so the conversation shows the Epic it became.
+     *
+     * @throws IllegalArgumentException when the item is not one of today's drafts, or the draft was not created yet
+     */
+    // Under append's lock, so two clicks recorded at once still keep one receipt.
+    public synchronized void drafted(String itemId)
+    {
+        LocalDate day = currentDay();
+        List<AssistantItem> items = store.items(day);
+        AssistantDraft draft = items.stream().filter(item -> item.id().equals(itemId)).findFirst().flatMap(AssistantItem::draft)
+                .orElseThrow(() -> new IllegalArgumentException("That is not one of today's drafts"));
+        boolean kept = items.stream().flatMap(item -> item.receipt().stream()).filter(receipt -> receipt.operation() == AssistantReceipt.Operation.CREATE_EPIC)
+                .anyMatch(receipt -> receipt.target().flatMap(AgendaTarget::id).filter(draft.workItemId()::equals).isPresent());
+        if (!kept) {
+            append(work.drafted(draft, day, clock.instant()));
+        }
     }
 
     // ponytail: one lock for every item written, by the run or by a button's receipt, since the next ordinal is the day's count.
@@ -349,6 +373,7 @@ public class AssistantService
             case RECEIPT -> "app";
             case FAILURE -> "no reply";
             case LIST -> "you listed";
+            case DRAFT -> "you drafted";
         };
         String text = item.list().map(list -> item.text() + ": " + String.join(", ", list.refs())).orElse(item.text());
         return "[" + who + " " + CLOCK.format(item.at().atZone(ZoneId.systemDefault())) + "] " + clip(text, SEED_TEXT);

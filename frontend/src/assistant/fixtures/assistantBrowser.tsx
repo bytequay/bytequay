@@ -15,6 +15,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import '../../index.css';
 import { changeInput } from '../../fixtures/harness';
+import type { WorkItemDto } from '../../goals/contracts';
 import AssistantPanel from '../AssistantPanel';
 import type { RunningTask } from '../../agents/runningTaskModel';
 import type { AppNotice } from '../../notices/contracts';
@@ -47,14 +48,14 @@ const AGENDA: AgendaDto = {
 const VIEW: AssistantViewDto = {
   day: '2026-10-16', model: 'Claude Sonnet', running: false,
   items: [
-    { id: 'u1', day: '2026-10-16', at: '2026-10-16T07:06:00Z', kind: 'USER', text: 'What should I look at first?', targets: {}, notReady: false, receipt: null, list: null },
+    { id: 'u1', day: '2026-10-16', at: '2026-10-16T07:06:00Z', kind: 'USER', text: 'What should I look at first?', targets: {}, notReady: false, receipt: null, list: null, draft: null },
     { id: 'r1', day: '2026-10-16', at: '2026-10-16T07:06:20Z', kind: 'REPLY', targets: { 'pr:trinodb/trino#31377': PULL, 'task:t1': target('TASK', { id: 't1' }) },
-      text: 'Start with [#31377](pr:trinodb/trino#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null, list: null },
+      text: 'Start with [#31377](pr:trinodb/trino#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null, list: null, draft: null },
     { id: 'c1', day: '2026-10-16', at: '2026-10-16T07:08:00Z', kind: 'RECEIPT', text: 'Started “Expose snapshot id in metadata”', targets: {}, notReady: false,
       receipt: { operation: 'START_TASK', outcome: 'DONE', detail: 'trinodb/trino · Claude Code Opus 5.5 · Auto draft PR', target: target('TASK', { id: 't9' }),
-        page: null, turnId: 'turn-9', fix: null, words: 'start the snapshot id one' }, list: null },
+        page: null, turnId: 'turn-9', fix: null, words: 'start the snapshot id one' }, list: null, draft: null },
     { id: 'c2', day: '2026-10-16', at: '2026-10-16T07:08:01Z', kind: 'RECEIPT', text: 'Use the buttons: this one runs outside the sandbox', targets: {}, notReady: false,
-      receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, page: null, turnId: null, fix: 'BUTTONS', words: 'allow it' }, list: null },
+      receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, page: null, turnId: null, fix: 'BUTTONS', words: 'allow it' }, list: null, draft: null },
   ],
   rows: {},
 };
@@ -80,7 +81,7 @@ const ROWS: Record<string, AssistantRowDto> = Object.fromEntries([
 const REFS = ['pr:trinodb/trino#31377', 'pr:trinodb/trino#31402', 'task:t1', 'jira:cloud:10042', 'work:w22', 'epic:LOCAL:w1', 'pr:trinodb/trino#1'];
 const listView = (style: AssistantListStyle): AssistantViewDto => {
   const list: AssistantItemDto = { id: 'l1', day: '2026-10-16', at: '2026-10-16T07:06:10Z', kind: 'LIST', text: 'Waiting on you', targets: {}, notReady: false,
-    receipt: null, list: { style, refs: REFS } };
+    receipt: null, list: { style, refs: REFS }, draft: null };
   return { ...VIEW, items: [VIEW.items[0], list], rows: ROWS };
 };
 
@@ -110,7 +111,7 @@ type Calls = {
 type Mounted = { host: HTMLElement; calls: Calls; render: (open: boolean, openCard?: { id: string }) => void; dispose: () => void };
 
 function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, running: RunningTask[] = [], replied: () => AssistantViewDto = () => view,
-  completed: () => AssistantViewDto = () => view): Mounted {
+  completed: () => AssistantViewDto = () => view, scripted: Partial<Bridge> = {}): Mounted {
   const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [], completed: [] };
   let failures = failSends;
   let today = view;
@@ -135,6 +136,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     completeAgentTask: async (...args: unknown[]) => { calls.completed.push(args); today = completed(); return {}; },
     openAppNotice: async (id: string) => { calls.opened.push(id); },
     removeAppNotice: async (id: string) => { calls.removed.push(id); },
+    ...scripted,
   } as unknown as Bridge;
   const host = document.createElement('div');
   document.body.append(host);
@@ -434,7 +436,7 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
 }
 
 const opened = (id: string, at: string, page: string | null, item: AgendaTargetDto | null, words: string): AssistantItemDto => ({
-  id, day: '2026-10-16', at, kind: 'RECEIPT', text: page === null ? 'Opened “Add Iceberg metadata cache”' : 'Opened Settings · Models', targets: {}, notReady: false, list: null,
+  id, day: '2026-10-16', at, kind: 'RECEIPT', text: page === null ? 'Opened “Add Iceberg metadata cache”' : 'Opened Settings · Models', targets: {}, notReady: false, list: null, draft: null,
   receipt: { operation: 'OPEN', outcome: 'DONE', detail: null, target: item, page, turnId: null, fix: null, words },
 });
 
@@ -475,7 +477,7 @@ const taskView = (first: string): AssistantViewDto => {
   const rows = [taskRow('t1', 'Expose snapshot id in metadata', first), taskRow('t2', 'Retry Iceberg commit on conflict', 'running'),
     taskRow('t3', 'Drop the old cache key', 'completed')];
   const list: AssistantItemDto = { id: 'l2', day: '2026-10-16', at: '2026-10-16T07:06:10Z', kind: 'LIST', text: 'Your tasks', targets: {}, notReady: false, receipt: null,
-    list: { style: 'CARDS', refs: rows.map(each => each.ref) } };
+    list: { style: 'CARDS', refs: rows.map(each => each.ref) }, draft: null };
   return { ...VIEW, items: [VIEW.items[0], list], rows: Object.fromEntries(rows.map(each => [each.ref, each])) };
 };
 
@@ -523,6 +525,87 @@ async function completesATaskFromItsCard(): Promise<void> {
   finally { refused.dispose(); }
 }
 
+const draftView = (created: boolean): AssistantViewDto => {
+  const draft: AssistantItemDto = { id: 'd1', day: '2026-10-16', at: '2026-10-16T07:06:10Z', kind: 'DRAFT', text: 'Iceberg snapshot metadata', targets: {}, notReady: false,
+    receipt: null, list: null, draft: { workspaceId: 'ws1', repository: 'trinodb/trino', body: 'Track the work that exposes snapshot ids.', workItemId: 'w-new' } };
+  const receipt: AssistantItemDto = { id: 'c9', day: '2026-10-16', at: '2026-10-16T07:07:00Z', kind: 'RECEIPT', text: 'Created “Iceberg snapshot ids” as an Epic',
+    targets: {}, notReady: false, list: null, draft: null,
+    receipt: { operation: 'CREATE_EPIC', outcome: 'DONE', detail: 'trinodb/trino#77', target: target('WORK', { id: 'w-new' }), page: null, turnId: null, fix: null, words: null } };
+  return { ...VIEW, items: created ? [VIEW.items[0], draft, receipt] : [VIEW.items[0], draft] };
+};
+
+async function createsADraftedIssueAsAnEpic(): Promise<void> {
+  const steps: unknown[][] = [];
+  let created = false;
+  let made: WorkItemDto | null = null;
+  let publishFails = 1;
+  const view = mount(draftView(false), 0, [], [], () => draftView(created), () => draftView(created), {
+    getAssistantToday: async () => draftView(created),
+    listWorkItems: async () => { steps.push(['list']); return made === null ? [] : [made]; },
+    createWorkItem: async (...args: unknown[]) => {
+      steps.push(['create', ...args]);
+      made = { id: 'w-new', revision: 1, links: [] } as unknown as WorkItemDto;
+      return made;
+    },
+    setLocalWorkItemEpic: async (...args: unknown[]) => { steps.push(['epic', ...args]); },
+    publishWorkItem: async (...args: unknown[]) => {
+      steps.push(['publish', ...args]);
+      if (publishFails-- > 0) throw new Error("Error invoking remote method 'work-items:publish': Error: GitHub's rate limit was reached; try again in a minute");
+      return { id: 'w-new', revision: 2, links: [{ kind: 'ISSUE', key: 'trinodb/trino#77' }] } as unknown as WorkItemDto;
+    },
+    recordAssistantDraft: async (id: string) => { steps.push(['drafted', id]); created = true; },
+  });
+  try {
+    await settle();
+    enter(type(view.host, 'make a new issue for the snapshot work, as an epic'));
+    await settle();
+    const form = view.host.querySelector<HTMLFormElement>('.assistant-talk form.assistant-draft');
+    const title = form?.querySelector<HTMLInputElement>('.assistant-draft__title');
+    const body = form?.querySelector<HTMLTextAreaElement>('.assistant-draft__body');
+    assert(form !== null && title?.value === 'Iceberg snapshot metadata' && body?.value === 'Track the work that exposes snapshot ids.'
+      && form.querySelector('.assistant-draft__repo')?.textContent === 'trinodb/trino', 'The draft shows what the assistant wrote, for the repository it goes to');
+    assert(steps.length === 0, 'Nothing is created until the user clicks');
+    changeInput(title, 'Iceberg snapshot ids');
+    await settle();
+    const button = () => view.host.querySelector<HTMLButtonElement>('.assistant-draft button[type="submit"]');
+    assert(button()?.textContent === 'Create issue', 'Its one button creates the issue');
+    button()?.click();
+    await settle();
+    assert(view.host.querySelector('.assistant-draft .assistant-error')?.textContent === "GitHub's rate limit was reached; try again in a minute",
+      'A failed step says why, and the draft stays');
+    assert(JSON.stringify(steps.map(step => step[0])) === '["list","create","epic","publish"]', `The click made the work and its Epic before the push failed: ${JSON.stringify(steps)}`);
+    const [, workspace, request] = steps[1] as [string, string, Record<string, unknown>];
+    assert(workspace === 'ws1' && request.id === 'w-new' && request.title === 'Iceberg snapshot ids' && request.acceptanceCriteria === 'Track the work that exposes snapshot ids.',
+      `The work takes the user's edits and the draft's id: ${JSON.stringify(request)}`);
+    assert(JSON.stringify(steps[3]) === '["publish","ws1","w-new",{"source":"GITHUB","expectedRevision":1}]', `It is pushed to GitHub as an issue: ${JSON.stringify(steps[3])}`);
+    assert(view.host.querySelector<HTMLInputElement>('.assistant-draft__title')?.disabled === true
+      && view.host.querySelector('.assistant-draft__note')?.textContent === 'Saved as a local Epic', 'Once made, the work keeps the words it was made with');
+
+    const opened: unknown[] = [];
+    const listener = (event: Event) => { opened.push((event as CustomEvent).detail); };
+    window.addEventListener('bytequay:zoom-reference', listener);
+    try { [...view.host.querySelectorAll<HTMLButtonElement>('.assistant-draft button')].find(each => each.textContent === 'Open work item')?.click(); }
+    finally { window.removeEventListener('bytequay:zoom-reference', listener); }
+    assert(JSON.stringify(opened) === '[{"kind":"work","workspaceId":"ws1","itemId":"w-new"}]' && view.calls.closed === 1,
+      `A failed push can be finished from the work item's page: ${JSON.stringify(opened)}`);
+
+    // Opened again, the card has forgotten its click, and trying again still finds the work it made.
+    view.render(true);
+    await settle();
+    enter(type(view.host, 'try it again'));
+    await settle();
+    button()?.click();
+    await settle();
+    assert(JSON.stringify(steps.slice(4).map(step => step[0])) === '["list","epic","publish","drafted"]' && JSON.stringify(steps.at(-1)) === '["drafted","d1"]',
+      `Trying again finishes the push and keeps a receipt: ${JSON.stringify(steps.slice(4))}`);
+    const done = view.host.querySelector<HTMLElement>('.assistant-draft.is-created');
+    assert(done?.textContent === 'Created on GitHub as an Epictrinodb/trino' && view.host.querySelector('form.assistant-draft') === null,
+      `Once created, the draft gives way to the receipt: ${done?.textContent}`);
+    assert(view.host.querySelector('.assistant-receipt')?.textContent?.startsWith('Created “Iceberg snapshot ids” as an Epic') === true, 'The receipt names the Epic it became');
+  }
+  finally { view.dispose(); }
+}
+
 async function stopsARunningReply(): Promise<void> {
   const view = mount({ ...VIEW, running: true });
   try {
@@ -543,7 +626,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
     ['moves with the keyboard', movesWithTheKeyboard], ['opens at a card from its alert', opensAtACardFromItsAlert],
     ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline],
-    ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard]] as const) {
+    ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard],
+    ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }
@@ -552,12 +636,12 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
 
 let preview: { dispose: () => void } | null = null;
 
-/** Draws a list the assistant showed in one style, for a screenshot; `tasks` is a list of task cards with an idle one focused. */
-export async function showListPreview(style: AssistantListStyle | 'tasks'): Promise<void> {
+/** Draws a list the assistant showed in one style, for a screenshot; `tasks` is a list of task cards with an idle one focused, and `draft` a drafted issue. */
+export async function showListPreview(style: AssistantListStyle | 'tasks' | 'draft'): Promise<void> {
   preview?.dispose();
   document.body.style.margin = '0';
   document.body.style.background = 'var(--bg)';
-  const mounted = mount(style === 'tasks' ? taskView('idle') : listView(style), 0, []);
+  const mounted = mount(style === 'tasks' ? taskView('idle') : style === 'draft' ? draftView(false) : listView(style), 0, []);
   preview = mounted;
   await new Promise(resolve => setTimeout(resolve, 150));
   enter(type(mounted.host, 'What is waiting on me?'));

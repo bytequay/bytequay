@@ -1474,8 +1474,8 @@ export type AssistantItemDto = {
   id: string;
   day: string;
   at: string;
-  kind: 'USER' | 'REPLY' | 'RECEIPT' | 'FAILURE' | 'LIST';
-  /** The user's words, the reply's Markdown, a receipt's line, a list's title, or why the reply failed. */
+  kind: 'USER' | 'REPLY' | 'RECEIPT' | 'FAILURE' | 'LIST' | 'DRAFT';
+  /** The user's words, the reply's Markdown, a receipt's line, a list's or a draft's title, or why the reply failed. */
   text: string;
   /** Where each ref a reply names opens; only refs the day served. */
   targets: Record<string, AgendaTargetDto>;
@@ -1484,7 +1484,12 @@ export type AssistantItemDto = {
   receipt: AssistantReceiptDto | null;
   /** The style a list shows first and its refs in order; their rows come with the day. */
   list: AssistantListDto | null;
+  /** A new GitHub issue the assistant drafted, which the user edits and creates as an Epic with a click. */
+  draft: AssistantDraftDto | null;
 };
+
+/** The repository a drafted issue goes to, its description as drafted, and the local work item the click creates. */
+export type AssistantDraftDto = { workspaceId: string; repository: string; body: string; workItemId: string };
 
 export type AssistantListStyle = 'ROWS' | 'CARDS' | 'TIMELINE';
 
@@ -1521,7 +1526,7 @@ export type AssistantRowDto = {
 
 /** What one action left, done or refused: by the assistant from the user's words, or by a card's own button. */
 export type AssistantReceiptDto = {
-  operation: 'START_TASK' | 'ANSWER_APPROVAL' | 'ANSWER_QUESTION' | 'REPLY_TO_TASK' | 'OPEN' | 'MARK_EPIC' | 'ADD_TO_EPIC' | 'CREATE_WORK_ITEM';
+  operation: 'START_TASK' | 'ANSWER_APPROVAL' | 'ANSWER_QUESTION' | 'REPLY_TO_TASK' | 'OPEN' | 'MARK_EPIC' | 'ADD_TO_EPIC' | 'CREATE_WORK_ITEM' | 'CREATE_EPIC';
   outcome: 'DONE' | 'REFUSED' | 'FAILED';
   /** A second line, such as where a started task runs. */
   detail: string | null;
@@ -2016,6 +2021,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & {
   retryAssistant: () => Promise<{ itemId: string }>;
   /** Keeps a receipt for a card answered with its own button in the panel. */
   recordAssistantAnswer: (approvalId: string) => Promise<void>;
+  /** Keeps the receipt for a draft the user created with its own button. */
+  recordAssistantDraft: (itemId: string) => Promise<void>;
   getAssistantPermissions: () => Promise<AssistantPermissionsDto>;
   saveAssistantPermissions: (permissions: AssistantPermissionsDto) => Promise<AssistantPermissionsDto>;
 

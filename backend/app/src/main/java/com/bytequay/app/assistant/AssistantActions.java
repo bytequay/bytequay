@@ -315,7 +315,7 @@ class AssistantActions
                 case START_TASK -> optional("from").orElse(text("workspace"));
                 case ANSWER_APPROVAL, ANSWER_QUESTION -> text("approval");
                 case REPLY_TO_TASK -> text("task");
-                case OPEN -> text("ref");
+                case OPEN, CREATE_EPIC -> text("ref");
                 case MARK_EPIC, ADD_TO_EPIC -> text("item");
                 case CREATE_WORK_ITEM -> optional("epic").orElse(text("workspace"));
             };
@@ -417,7 +417,7 @@ class AssistantActions
             Optional<String> off = switch (operation) {
                 case START_TASK -> allowed.startTasks() ? Optional.empty() : Optional.of("Starting tasks is off");
                 case MARK_EPIC, ADD_TO_EPIC, CREATE_WORK_ITEM -> allowed.changeWork() ? Optional.empty() : Optional.of("Changing Epics and work items is off");
-                case ANSWER_APPROVAL, ANSWER_QUESTION, REPLY_TO_TASK, OPEN -> allowed.answerTasks() ? Optional.empty() : Optional.of("Answering tasks is off");
+                case ANSWER_APPROVAL, ANSWER_QUESTION, REPLY_TO_TASK, OPEN, CREATE_EPIC -> allowed.answerTasks() ? Optional.empty() : Optional.of("Answering tasks is off");
             };
             if (off.isPresent()) {
                 return Optional.of(Result.refused(operation, off.orElseThrow(), Fix.SETTINGS));
@@ -431,7 +431,7 @@ class AssistantActions
             }
             // An item's own rules, such as a ticket that already has a task, are its service's, and a refusal there reads as a failure.
             Optional<Result> state = switch (operation) {
-                case START_TASK, OPEN, MARK_EPIC, ADD_TO_EPIC, CREATE_WORK_ITEM -> Optional.empty();
+                case START_TASK, OPEN, MARK_EPIC, ADD_TO_EPIC, CREATE_WORK_ITEM, CREATE_EPIC -> Optional.empty();
                 case ANSWER_APPROVAL, ANSWER_QUESTION -> approvalState(request);
                 case REPLY_TO_TASK -> taskState(request);
             };
@@ -556,8 +556,8 @@ class AssistantActions
                 case ADD_TO_EPIC -> done(request, work.addToEpic(request.text("epic"), request.text("item")));
                 case CREATE_WORK_ITEM -> done(request, work.createWorkItem(request.optional("epic"), request.optional("workspace"), request.words(),
                         UUID.nameUUIDFromBytes(identity(request).getBytes(StandardCharsets.UTF_8)).toString()));
-                // Opening changes nothing, so assistant_show does it; this tool never parses that op.
-                case OPEN -> throw new IllegalStateException("assistant_act does not open");
+                // Opening changes nothing, so assistant_show does it, and only the user's click creates a draft's issue; this tool parses neither.
+                case OPEN, CREATE_EPIC -> throw new IllegalStateException("assistant_act does not " + request.operation());
             };
         }
 

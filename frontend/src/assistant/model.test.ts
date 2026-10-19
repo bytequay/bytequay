@@ -17,7 +17,9 @@ import type { AppNotice } from '../notices/contracts';
 import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantRowDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceIssueRoute, workspacePullRequestRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
-import { arrivedOpen, dayLabel, entries, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, screenRef, stackOf, timelineDays, waitingCards } from './model';
+import {
+  arrivedOpen, createdDrafts, dayLabel, entries, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, screenRef, stackOf, timelineDays, waitingCards,
+} from './model';
 
 const target: AgendaTargetDto = { kind: 'PULL', workspaceId: 'ws', repo: 'trinodb/trino', number: 31402, id: null, connectionId: null, cloudId: null };
 
@@ -70,7 +72,7 @@ describe('linkRefs', () => {
 
 describe('entries', () => {
   const item = (id: string, kind: AssistantItemDto['kind'], outcome?: AssistantReceiptDto['outcome']): AssistantItemDto => ({
-    id, day: '2026-10-17', at: '2026-10-17T07:00:00Z', kind, text: id, targets: {}, notReady: false, list: null,
+    id, day: '2026-10-17', at: '2026-10-17T07:00:00Z', kind, text: id, targets: {}, notReady: false, list: null, draft: null,
     receipt: outcome === undefined ? null : { operation: 'ANSWER_APPROVAL', outcome, detail: null, target: null, page: null, turnId: null, fix: null, words: null },
   });
 
@@ -147,7 +149,7 @@ describe('lists', () => {
 
 describe('opens', () => {
   const receipt = (id: string, at: string, outcome: AssistantReceiptDto['outcome'], operation: AssistantReceiptDto['operation'] = 'OPEN'): AssistantItemDto => ({
-    id, day: '2026-10-17', at, kind: 'RECEIPT', text: id, targets: {}, notReady: false, list: null,
+    id, day: '2026-10-17', at, kind: 'RECEIPT', text: id, targets: {}, notReady: false, list: null, draft: null,
     receipt: { operation, outcome, detail: null, target, page: null, turnId: null, fix: null, words: 'open it' },
   });
 
@@ -167,5 +169,15 @@ describe('opens', () => {
     expect(arrivedOpen(items, opened, new Set())?.id).toBe('second');
     expect(arrivedOpen(items, opened, new Set(['second']))?.id).toBe('first');
     expect(arrivedOpen(items.slice(0, 1), opened, new Set())).toBeNull();
+  });
+});
+
+describe('createdDrafts', () => {
+  it('names the work of each draft a receipt says the user created', () => {
+    const receipt = (id: string, operation: AssistantReceiptDto['operation'], work: string | null): AssistantItemDto => ({
+      id, day: '2026-10-17', at: '2026-10-17T07:00:00Z', kind: 'RECEIPT', text: id, targets: {}, notReady: false, list: null, draft: null,
+      receipt: { operation, outcome: 'DONE', detail: null, target: work === null ? null : { ...target, kind: 'WORK', id: work }, page: null, turnId: null, fix: null, words: null },
+    });
+    expect([...createdDrafts([receipt('c1', 'CREATE_EPIC', 'w1'), receipt('c2', 'CREATE_WORK_ITEM', 'w2'), receipt('c3', 'CREATE_EPIC', null)])]).toEqual(['w1']);
   });
 });

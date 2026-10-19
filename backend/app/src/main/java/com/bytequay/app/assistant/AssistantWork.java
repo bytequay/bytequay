@@ -20,6 +20,9 @@ import com.bytequay.app.service.epic.EpicService;
 import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.core.domain.AgendaTarget;
+import com.bytequay.core.domain.AssistantDraft;
+import com.bytequay.core.domain.AssistantItem;
+import com.bytequay.core.domain.AssistantReceipt;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
@@ -31,6 +34,8 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -132,6 +137,21 @@ class AssistantWork
         epic.flatMap(this::row).ifPresent(found -> where.add(clip(found.title(), TITLE)));
         return new Done("Created “" + clip(created.title(), TITLE) + "”", Optional.of(String.join(" · ", where.build())),
                 Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, workspace.id(), created.id())), created.id());
+    }
+
+    /**
+     * The receipt for a draft the user created with its own button: the Epic it became, and the GitHub issue it was published as.
+     *
+     * @throws IllegalArgumentException when the draft's work item was not created
+     */
+    AssistantItem drafted(AssistantDraft draft, LocalDate day, Instant at)
+    {
+        WorkItem created = items.find(draft.workItemId()).orElseThrow(() -> new IllegalArgumentException("That draft was not created yet"));
+        Optional<String> issue = created.links().stream().map(link -> link.reference()).filter(reference -> reference.kind() == GoalItemKind.ISSUE)
+                .map(GoalItem::key).findFirst();
+        AssistantReceipt receipt = new AssistantReceipt(AssistantReceipt.Operation.CREATE_EPIC, AssistantReceipt.Outcome.DONE, Optional.of(issue.orElse(draft.repository())),
+                Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, created.workspaceId(), created.id())), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        return AssistantItem.receipt(day, at, "Created “" + clip(created.title(), TITLE) + "” as an Epic", receipt);
     }
 
     /** What the item is called and where it opens, read now from the stores. */

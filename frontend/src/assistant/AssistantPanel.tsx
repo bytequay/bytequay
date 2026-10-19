@@ -22,7 +22,8 @@ import { remoteErrorMessage } from '../remoteError';
 import { settingsRoute, type SettingsSection } from '../settings/routes';
 import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantRowDto } from '../types';
 import AssistantList from './AssistantList';
-import { arrivedOpen, entries, linkRefs, pageRoute, refFromHref, refLabel } from './model';
+import DraftCard from './DraftCard';
+import { arrivedOpen, createdDrafts, entries, linkRefs, pageRoute, refFromHref, refLabel } from './model';
 import { useAssistant } from './useAssistant';
 import WaitingStack from './WaitingStack';
 import '../css/assistant.css';
@@ -128,6 +129,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   };
   const targets: Record<string, AgendaTargetDto> = {};
   for (const item of items) Object.assign(targets, item.targets);
+  const drafts = createdDrafts(items);
   // Reply links carry refs, so they open where the item's work lives instead of as a web page.
   const openLink = (event: ReactMouseEvent) => {
     const anchor = event.target instanceof Element ? event.target.closest('a') : null;
@@ -151,8 +153,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     <div ref={scroller} className="assistant-sheet assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
       {entries(items).map(entry => Array.isArray(entry)
         ? <div key={entry[0].id} className="assistant-receipts">{entry.map(item => <Receipt key={item.id} item={item} onOpen={openReceipt} />)}</div>
-        : <Entry key={entry.id} item={entry} rows={view?.rows ?? {}} retryable={chatEnabled && !running && entry.id === lastExchange} onRetry={retry} onSettings={openSettings}
-          onOpen={show} onComplete={completeTask} />)}
+        : <Entry key={entry.id} item={entry} rows={view?.rows ?? {}} drafts={drafts} retryable={chatEnabled && !running && entry.id === lastExchange} onRetry={retry}
+          onSettings={openSettings} onOpen={show} onComplete={completeTask} onRefresh={refresh} />)}
       {running && <p className="assistant-thinking" role="status">Thinking…</p>}
     </div>
   );
@@ -209,14 +211,17 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   );
 }
 
-function Entry({ item, rows, retryable, onRetry, onSettings, onOpen, onComplete }: {
+function Entry({ item, rows, drafts, retryable, onRetry, onSettings, onOpen, onComplete, onRefresh }: {
   item: AssistantItemDto;
   rows: Record<string, AssistantRowDto>;
+  /** The work items of the drafts the user already created. */
+  drafts: ReadonlySet<string>;
   retryable: boolean;
   onRetry: () => void;
   onSettings: (section: SettingsSection) => void;
   onOpen: (target: AgendaTargetDto) => void;
   onComplete: (target: AgendaTargetDto) => Promise<void>;
+  onRefresh: () => void;
 }) {
   if (item.kind === 'USER') return <>
     <div className="assistant-time">{clockTime(item.at)}</div>
@@ -224,6 +229,7 @@ function Entry({ item, rows, retryable, onRetry, onSettings, onOpen, onComplete 
   </>;
   if (item.kind === 'REPLY') return <div className="assistant-reply">{renderMarkdown(linkRefs(item.text, item.targets))}</div>;
   if (item.kind === 'LIST') return <AssistantList item={item} rows={rows} onOpen={onOpen} onComplete={onComplete} />;
+  if (item.kind === 'DRAFT') return <DraftCard item={item} created={item.draft !== null && drafts.has(item.draft.workItemId)} onCreated={onRefresh} onOpen={onOpen} />;
   if (item.kind === 'RECEIPT') {
     // What was refused or failed: one muted line, pointing down at the card's buttons when they are the way to do it.
     const failed = item.receipt?.outcome === 'FAILED';

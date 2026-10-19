@@ -417,6 +417,7 @@ const bridge: Bridge = {
   stopAssistant: () => ipcRenderer.invoke('assistant:stop'),
   retryAssistant: () => ipcRenderer.invoke('assistant:retry'),
   recordAssistantAnswer: approvalId => ipcRenderer.invoke('assistant:answered', approvalId),
+  recordAssistantDraft: itemId => ipcRenderer.invoke('assistant:drafted', itemId),
   getAssistantPermissions: () => ipcRenderer.invoke('settings:assistant'),
   saveAssistantPermissions: permissions => ipcRenderer.invoke('settings:assistant:save', permissions),
 

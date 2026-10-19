@@ -15,11 +15,14 @@ package com.bytequay.app.assistant;
 
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.agenda.AgendaRefs;
+import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantList;
 import com.bytequay.core.domain.AssistantReceipt;
 import com.bytequay.core.domain.AssistantReceipt.Operation;
 import com.bytequay.core.domain.AssistantReceipt.Outcome;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,6 +38,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 import static com.bytequay.app.agenda.AgendaReader.clip;
@@ -44,7 +48,8 @@ import static java.util.Objects.requireNonNull;
 /**
  * The {@code assistant_show} tool: what the assistant shows the user, which changes no data. A list names refs the user could see, on
  * screen or handed out that day, and the panel draws each from ByteQuay's own data, so the assistant never writes a row. An open goes
- * to a page or such an item only on the user's own words, and leaves a receipt either way.
+ * to a page or such an item only on the user's own words, and leaves a receipt either way. A draft is a new GitHub issue the user
+ * edits and creates as an Epic with a click.
  */
 @Component
 class AssistantShow
@@ -52,6 +57,8 @@ class AssistantShow
     static final String NAME = "assistant_show";
     private static final int MAXIMUM_ARGUMENTS = 16 * 1024;
     private static final int TITLE = 80;
+    private static final int DRAFT_TITLE = 200;
+    private static final int DRAFT_BODY = 8000;
     /** What a list can draw: the items ByteQuay keeps, not the cards and repositories a message may also name. */
     private static final Set<String> LISTED = ImmutableSet.of("pr", "issue", "jira", "task", "review", "work", "epic");
     private static final Map<String, AssistantList.Style> STYLES = ImmutableMap.of(
@@ -60,7 +67,8 @@ class AssistantShow
             "timeline", AssistantList.Style.TIMELINE);
     private static final Map<String, Set<String>> FIELDS = ImmutableMap.of(
             "list", ImmutableSet.of("op", "style", "title", "refs"),
-            "open", ImmutableSet.of("op", "ref", "page", "words"));
+            "open", ImmutableSet.of("op", "ref", "page", "words"),
+            "draft_epic", ImmutableSet.of("op", "workspace", "title", "body"));
     // Twins of the sidebar's AppPage in AppSidebar.tsx and the Settings sections in settings/routes.ts, by the names the app shows; change them together.
     private static final Map<String, String> PAGES = ImmutableMap.<String, String>builder()
             .put("home", "Home")
@@ -85,13 +93,15 @@ class AssistantShow
 
     private final AssistantActions actions;
     private final AssistantRows rows;
+    private final WorkspaceStore workspaces;
     private final ObjectMapper mapper;
     private final Clock clock;
 
-    AssistantShow(AssistantActions actions, AssistantRows rows, ObjectMapper mapper, Clock clock)
+    AssistantShow(AssistantActions actions, AssistantRows rows, WorkspaceStore workspaces, ObjectMapper mapper, Clock clock)
     {
         this.actions = requireNonNull(actions, "actions is null");
         this.rows = requireNonNull(rows, "rows is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -109,16 +119,19 @@ class AssistantShow
                         "op", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(FIELDS.keySet())),
                         "style", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(STYLES.keySet()),
                                 "description", "rows by default; cards for a few items that need the user; timeline for history"),
-                        "title", ImmutableMap.of("type", "string", "description", "A few words that name the list"),
+                        "title", ImmutableMap.of("type", "string", "description", "list: a few words that name the list; draft_epic: the issue's title"),
                         "refs", ImmutableMap.of("type", "array", "items", ImmutableMap.of("type", "string"), "maxItems", AssistantList.MAXIMUM_REFS,
                                 "description", "list: refs that assistant_context returned or that are on screen, in the order to show them"),
                         "ref", ImmutableMap.of("type", "string", "description", "open: an item's ref that assistant_context returned or that is on screen"),
                         "page", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(PAGES.keySet()), "description", "open: a page of the app or a Settings section"),
-                        "words", ImmutableMap.of("type", "string", "description", "open: the user's exact words in their latest message that ask for it")),
+                        "words", ImmutableMap.of("type", "string", "description", "open: the user's exact words in their latest message that ask for it"),
+                        "workspace", ImmutableMap.of("type", "string", "description", "draft_epic: the ws: ref from start_options of the repository the issue goes to"),
+                        "body", ImmutableMap.of("type", "string", "description", "draft_epic: the issue's description for the user to edit")),
                 "required", ImmutableList.of("op"),
                 "additionalProperties", false);
-        return new ReviewTool(NAME, "Show the user several items as a list in the panel, which the app draws from its own data, or open a page or an item when the "
-                + "user's latest message asks. The app shows the user a receipt for every open.", schema, arguments -> call(message, context, items, arguments), false);
+        return new ReviewTool(NAME, "Show the user several items as a list in the panel, which the app draws from its own data; open a page or an item when the "
+                + "user's latest message asks, with a receipt; or draft a new GitHub issue that the user edits and creates as an Epic with a click.", schema,
+                arguments -> call(message, context, items, arguments), false);
     }
 
     private String call(AssistantItem message, AssistantContext context, Consumer<AssistantItem> items, String arguments)
@@ -130,7 +143,11 @@ class AssistantShow
             String op = body.path("op").asText("");
             checkArgument(FIELDS.containsKey(op), "op must be one of %s", String.join(", ", FIELDS.keySet()));
             body.fieldNames().forEachRemaining(field -> checkArgument(FIELDS.get(op).contains(field), "%s takes no %s", op, field));
-            return op.equals("list") ? list(message, context, items, body) : open(message, context, items, body);
+            return switch (op) {
+                case "list" -> list(message, context, items, body);
+                case "open" -> open(message, context, items, body);
+                default -> draft(message, context, items, body);
+            };
         }
         catch (JsonProcessingException invalid) {
             return reply("error", "arguments are not JSON", ImmutableList.of());
@@ -195,6 +212,26 @@ class AssistantShow
         }
         return receipt(message, items, "Opened “" + clip(row.orElseThrow().title(), TITLE) + "”", AssistantReceipt.done(Operation.OPEN, Optional.of(row.orElseThrow().target())),
                 words);
+    }
+
+    /** Puts a new GitHub issue in front of the user to edit and create as an Epic; the assistant itself creates nothing. */
+    private String draft(AssistantItem message, AssistantContext context, Consumer<AssistantItem> items, JsonNode body)
+    {
+        String repository = body.path("workspace").asText("").strip();
+        String title = body.path("title").asText("").strip();
+        checkArgument(repository.startsWith("ws:"), "draft_epic needs a ws: ref");
+        checkArgument(!title.isEmpty(), "draft_epic needs a title");
+        if (!actions.shown(message, context).contains(repository)) {
+            return reply("refused", "That repository isn't on screen or handed out today; read start_options first", ImmutableList.of());
+        }
+        Optional<Workspace> watched = workspaces.findById(repository.substring("ws:".length()));
+        if (watched.isEmpty()) {
+            return reply("refused", "That repository is not watched any more", ImmutableList.of());
+        }
+        AssistantDraft draft = new AssistantDraft(watched.orElseThrow().id(), watched.orElseThrow().monitoredRepository().fullName(),
+                clip(body.path("body").asText("").strip(), DRAFT_BODY), UUID.randomUUID().toString());
+        items.accept(AssistantItem.draft(message.day(), clock.instant(), clip(title, DRAFT_TITLE), draft));
+        return reply("done", "Showed the draft; the user edits it and creates the issue as an Epic with a click", ImmutableList.of());
     }
 
     /** Leaves the receipt the user reads, with the words the assistant acted on, and tells the assistant the same line. */

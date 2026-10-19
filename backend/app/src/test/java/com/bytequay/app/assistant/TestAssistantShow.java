@@ -25,10 +25,13 @@ import com.bytequay.app.notices.AppNoticeService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.AgendaTarget;
+import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantList;
 import com.bytequay.core.domain.AssistantReceipt;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.ServedRef;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
@@ -48,6 +51,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.IntStream;
 
 import static com.bytequay.core.domain.AssistantReceipt.Operation.OPEN;
@@ -72,6 +76,7 @@ class TestAssistantShow
 
     private final AppNoticeService notices = mock(AppNoticeService.class);
     private final AssistantRows rows = mock(AssistantRows.class);
+    private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final ObjectMapper mapper = AgendaFixtures.mapper();
     private final List<AssistantItem> shown = new ArrayList<>();
     private AssistantShow show;
@@ -87,7 +92,10 @@ class TestAssistantShow
                 mock(AgentApprovalService.class), mock(AgentTaskStore.class), mock(AgentTurnService.class), mock(InteractiveAgentTaskStarter.class), notices,
                 mock(AgentReviewStore.class), mock(WorkspaceStore.class), mock(WorkItemStore.class), mock(RepositoryIssueStore.class), mock(JiraService.class),
                 mock(ModelSettingsService.class), mock(AppSettingsService.class), mock(AssistantWork.class), mapper, clock);
-        show = new AssistantShow(actions, rows, mapper, clock);
+        show = new AssistantShow(actions, rows, workspaces, mapper, clock);
+        when(workspaces.findById("ws1")).thenReturn(Optional.of(new Workspace("ws1", "Trino", 1, RepoRef.of("trinodb", "trino"), Optional.empty(), Optional.empty(), 1,
+                RepoRef.of("trinodb", "trino"), Workspace.Topology.DIRECT, "master", "https://github.com/trinodb/trino.git", Optional.empty(), Optional.empty(),
+                "/managed/trino", Optional.empty(), Optional.empty(), 0, NOW, NOW)));
         AgendaTarget pull = AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"));
         when(rows.rows(ImmutableList.of(PULL))).thenReturn(ImmutableMap.of(PULL, new AssistantRow(PULL, AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict",
                 Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
@@ -144,7 +152,7 @@ class TestAssistantShow
     void rejectsAMalformedCall()
             throws Exception
     {
-        assertThat(error(show(message(), "{\"op\":\"merge\"}"))).isEqualTo("op must be one of list, open");
+        assertThat(error(show(message(), "{\"op\":\"merge\"}"))).isEqualTo("op must be one of list, open, draft_epic");
         assertThat(error(show(message(), "{\"op\":\"list\",\"title\":\"Mine\",\"refs\":[\"work:w22\"],\"words\":\"show them\"}"))).isEqualTo("list takes no words");
         assertThat(error(show(message(), "{\"op\":\"list\",\"refs\":[\"work:w22\"]}"))).isEqualTo("list needs a title");
         assertThat(error(show(message(), "{\"op\":\"list\",\"title\":\"Mine\",\"refs\":\"work:w22\"}"))).isEqualTo("list needs refs");
@@ -217,6 +225,32 @@ class TestAssistantShow
         assertThat(error(show(message(), "{\"op\":\"open\",\"ref\":\"ws:ws1\",\"words\":\"waiting\"}"))).isEqualTo("open takes an item's ref or a page");
         assertThat(error(show(message(), "{\"op\":\"open\",\"page\":\"home\",\"words\":\"waiting\",\"title\":\"Home\"}"))).isEqualTo("open takes no title");
         assertThat(shown).hasSize(2);
+    }
+
+    @Test
+    void draftsANewGitHubIssueForTheUserToEditAndCreate()
+            throws Exception
+    {
+        JsonNode answer = show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"ws:ws1\",\"title\":\"Iceberg snapshot metadata\",\"body\":\"Track the snapshot work.\"}");
+
+        assertThat(answer.path("outcome").asText()).isEqualTo("done");
+        AssistantItem draft = shown.getLast();
+        assertThat(draft.kind()).isEqualTo(AssistantItem.Kind.DRAFT);
+        assertThat(draft.text()).isEqualTo("Iceberg snapshot metadata");
+        AssistantDraft drafted = draft.draft().orElseThrow();
+        assertThat(drafted.workspaceId()).isEqualTo("ws1");
+        assertThat(drafted.repository()).isEqualTo("trinodb/trino");
+        assertThat(drafted.body()).isEqualTo("Track the snapshot work.");
+        // The work item the user's click creates is named now, so a retried click creates it once.
+        assertThat(UUID.fromString(drafted.workItemId())).isNotNull();
+
+        // Only a repository the day handed out, and the assistant writes nothing to GitHub itself.
+        assertThat(show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"ws:ws2\",\"title\":\"Elsewhere\"}").path("outcome").asText()).isEqualTo("refused");
+        assertThat(error(show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"ws:ws1\"}"))).isEqualTo("draft_epic needs a title");
+        assertThat(error(show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"trino\",\"title\":\"Mine\"}"))).isEqualTo("draft_epic needs a ws: ref");
+        assertThat(error(show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"ws:ws1\",\"title\":\"Mine\",\"words\":\"draft it\"}")))
+                .isEqualTo("draft_epic takes no words");
+        assertThat(shown).hasSize(1);
     }
 
     private void assertRefused(JsonNode answer, String reason, String words)

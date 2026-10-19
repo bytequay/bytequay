@@ -17,6 +17,7 @@ import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantAction;
 import com.bytequay.core.domain.AssistantDay;
+import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantList;
 import com.bytequay.core.domain.AssistantReceipt;
@@ -104,6 +105,11 @@ class TestSqliteAssistantStore
         entities.clear();
 
         assertThat(store.items(DAY).getLast()).isEqualTo(list);
+        AssistantItem draft = AssistantItem.draft(DAY, AT, "Iceberg snapshot metadata", new AssistantDraft("ws1", "trinodb/trino", "Track the snapshot work.", "w9"));
+        store.add(draft);
+        entities.flush();
+        entities.clear();
+        assertThat(store.items(DAY).getLast()).isEqualTo(draft);
         Object stored = entities.createNativeQuery("select value from assistant_item where id = ?").setParameter(1, list.id()).getSingleResult();
         // The refs alone: each row's text is read from the stores when the day is drawn.
         assertThat(stored.toString()).contains("\"text\":\"Waiting on you\"")
@@ -123,6 +129,7 @@ class TestSqliteAssistantStore
             assertThat(item.kind()).isEqualTo(AssistantItem.Kind.REPLY);
             assertThat(item.receipt()).isEmpty();
             assertThat(item.list()).isEmpty();
+            assertThat(item.draft()).isEmpty();
         });
     }
 

@@ -45,6 +45,7 @@ import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantDay;
+import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantList;
 import com.bytequay.core.domain.AssistantReceipt;
@@ -118,6 +119,7 @@ class TestAssistantConversation
     private final AssistantActions actions = mock(AssistantActions.class);
     private final AssistantShow show = mock(AssistantShow.class);
     private final AssistantRows rows = mock(AssistantRows.class);
+    private final AssistantWork work = mock(AssistantWork.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
     private final AgentDriver driver = mock(AgentDriver.class);
@@ -192,7 +194,7 @@ class TestAssistantConversation
         CredentialStore credentials = mock(CredentialStore.class);
         when(credentials.exists()).thenReturn(true);
         setup = new SetupSettingsService(new InMemoryAppSettingsStore(), credentials, mock(AppSettingsService.class), models, drivers, AgendaFixtures.mapper());
-        assistant = new AssistantService(store, reader, actions, show, rows, setup, drivers, resources,
+        assistant = new AssistantService(store, reader, actions, show, rows, work, setup, drivers, resources,
                 new AgentProperties(runtime, Duration.ZERO, "", "codex", "0.159.3", temporaryDirectory.resolve("codex-home"), "claude", temporaryDirectory.resolve("claude-home")),
                 AgendaFixtures.mapper(), clock, executor);
     }
@@ -455,6 +457,28 @@ class TestAssistantConversation
         assistant.send("and now?", ImmutableList.of(), Optional.empty(), "key-2");
         waitForReply();
         assertThat(prompts.getFirst()).contains("[you listed 12:00] Red pull requests: pr:trinodb/trino#31402, task:gone");
+    }
+
+    @Test
+    void keepsOneReceiptForADraftTheUserCreated()
+            throws Exception
+    {
+        AssistantDraft draft = new AssistantDraft("ws1", "trinodb/trino", "Track the snapshot work.", "w9");
+        AssistantItem drafted = AssistantItem.draft(DAY, now.get(), "Iceberg snapshot metadata", draft);
+        store.add(AssistantItem.user(DAY, now.get(), "a new issue for the snapshot work, as an epic", ImmutableList.of(), Optional.empty(), "key-1"));
+        store.add(drafted);
+        when(work.drafted(eq(draft), eq(DAY), any())).thenReturn(AssistantItem.receipt(DAY, now.get(), "Created “Iceberg snapshot ids” as an Epic",
+                new AssistantReceipt(AssistantReceipt.Operation.CREATE_EPIC, AssistantReceipt.Outcome.DONE, Optional.of("trinodb/trino#123"),
+                        Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w9")), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())));
+
+        MockMvc http = standaloneSetup(new AssistantController(assistant, mock(AssistantSettings.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
+        http.perform(post("/api/assistant/drafts").contentType(MediaType.APPLICATION_JSON).content("{\"itemId\": \"" + drafted.id() + "\"}"))
+                .andExpect(status().isNoContent());
+        // A click recorded twice, such as after a lost reply, still leaves one receipt.
+        assistant.drafted(drafted.id());
+        assertThat(store.items(DAY)).extracting(AssistantItem::kind).containsExactly(USER, AssistantItem.Kind.DRAFT, RECEIPT);
+        assertThatThrownBy(() -> assistant.drafted(store.items(DAY).getFirst().id())).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("That is not one of today's drafts");
     }
 
     @Test

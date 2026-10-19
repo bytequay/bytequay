@@ -95,6 +95,16 @@ public class AssistantController
         assistant.answered(request.approvalId());
     }
 
+    /** A draft the user created with its own button in the panel; the conversation keeps its receipt. */
+    @PostMapping("/assistant/drafts")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void drafted(@RequestBody DraftedRequest request)
+    {
+        checkArgument(request != null, "itemId is required");
+        checkText(request.itemId(), "itemId", REF);
+        assistant.drafted(request.itemId());
+    }
+
     @GetMapping("/settings/assistant")
     public AssistantPermissions permissions()
     {
@@ -118,4 +128,6 @@ public class AssistantController
     public record Accepted(String itemId) {}
 
     public record AnsweredRequest(String approvalId) {}
+
+    public record DraftedRequest(String itemId) {}
 }

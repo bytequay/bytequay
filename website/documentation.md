@@ -122,6 +122,10 @@ message uses your model allowance.
    as a list; switch between rows, cards and a timeline from the list's header,
    and click an item to open it. Ask it to take you to a page or an item, such
    as model settings, and it opens it; the receipt's **Open** goes there again.
+5. Ask for a new GitHub issue as an Epic, and it drafts one for a watched
+   repository. Edit the title and description, then click **Create issue** to
+   create it on GitHub and mark it as an Epic. Nothing is created until you
+   click.
 
 When chat is off or your agent needs reconnecting, task notices and approval
 buttons remain available. Saved conversation history is preserved.

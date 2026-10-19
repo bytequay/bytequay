@@ -176,3 +176,8 @@ export function arrivedOpen(items: AssistantItemDto[], openedAt: number, followe
   return items.findLast(item => item.kind === 'RECEIPT' && item.receipt?.operation === 'OPEN' && item.receipt.outcome === 'DONE'
     && Date.parse(item.at) > openedAt && !followed.has(item.id)) ?? null;
 }
+
+/** The work items of the day's drafts that the user created, named by the receipts their clicks left. */
+export function createdDrafts(items: AssistantItemDto[]): ReadonlySet<string> {
+  return new Set(items.flatMap(item => item.receipt?.operation === 'CREATE_EPIC' && item.receipt.target?.id != null ? [item.receipt.target.id] : []));
+}

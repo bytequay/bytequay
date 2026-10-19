@@ -54,13 +54,16 @@ import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantAction;
+import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantReceipt;
+import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -98,6 +101,7 @@ import static com.bytequay.core.domain.AssistantReceipt.Outcome.DONE;
 import static com.bytequay.core.domain.AssistantReceipt.Outcome.FAILED;
 import static com.bytequay.core.domain.AssistantReceipt.Outcome.REFUSED;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -148,6 +152,7 @@ class TestAssistantActions
             Workspace.Topology.DIRECT, "master", "https://github.com/trinodb/trino.git", Optional.empty(), Optional.empty(), "/managed/trino", Optional.empty(),
             Optional.empty(), 0, NOW, NOW);
     private AssistantActions actions;
+    private AssistantWork work;
 
     @BeforeEach
     void setUp()
@@ -176,8 +181,9 @@ class TestAssistantActions
         when(turns.findTurnByIdempotencyKey(any(), any())).thenAnswer(call -> Optional.of(turn(call.getArgument(0))));
         when(turns.start(any())).thenAnswer(call -> turn(call.<StartAgentTurnCommand>getArgument(0).taskId()));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        work = new AssistantWork(issueDevelopment, jira, epics, workItemService, workItems, workspaces, rows);
         actions = new AssistantActions(store, permissions, approvals, approvalService, tasks, turns, starter, notices, reviews, workspaces, workItems, issues, jira, models,
-                settings, new AssistantWork(issueDevelopment, jira, epics, workItemService, workItems, workspaces, rows), mapper, clock);
+                settings, work, mapper, clock);
     }
 
     @Test
@@ -579,6 +585,26 @@ class TestAssistantActions
         assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("trinodb/trino");
         assertThat(act(message("new work: x y", ImmutableList.of()), served, "{\"op\":\"create_work_item\",\"workspace\":\"trino\",\"words\":\"x y\"}"))
                 .contains("create_work_item needs a ws: or epic: ref");
+    }
+
+    @Test
+    void namesTheEpicADraftBecameAndTheIssueItWasPublishedAs()
+    {
+        AssistantDraft draft = new AssistantDraft("ws1", "trinodb/trino", "Track the snapshot work.", "w9");
+        assertThatThrownBy(() -> work.drafted(draft, DAY, NOW)).isInstanceOf(IllegalArgumentException.class).hasMessage("That draft was not created yet");
+
+        WorkItem published = new WorkItem("w9", "ws1", Optional.empty(), "Iceberg snapshot ids", WorkItem.Kind.DEVELOP, "Track the snapshot work.",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 2, ImmutableList.of(new WorkItemLink("ISSUE:github.com:901",
+                        new GoalItem(GoalItemKind.ISSUE, "trinodb/trino#123", "#123", "Iceberg snapshot ids", NOW), Optional.empty(), Optional.empty())),
+                ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
+        when(workItems.find("w9")).thenReturn(Optional.of(published));
+        AssistantItem receipt = work.drafted(draft, DAY, NOW);
+
+        // The user may have edited the title before the click: the receipt names the work as created.
+        assertThat(receipt.text()).isEqualTo("Created “Iceberg snapshot ids” as an Epic");
+        assertThat(receipt.receipt().orElseThrow().operation()).isEqualTo(AssistantReceipt.Operation.CREATE_EPIC);
+        assertThat(receipt.receipt().orElseThrow().detail()).contains("trinodb/trino#123");
+        assertThat(receipt.receipt().orElseThrow().target()).contains(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w9"));
     }
 
     @Test

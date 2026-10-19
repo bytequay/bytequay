@@ -750,3 +750,69 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* A new GitHub issue the assistant drafted: the user edits it, and only their click creates it. */
+.assistant-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line-subtle);
+  border-radius: 8px;
+}
+
+.assistant-draft__head,
+.assistant-draft__actions,
+.assistant-draft.is-created {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.assistant-draft__repo,
+.assistant-draft__note {
+  flex: none;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.assistant-draft__title,
+.assistant-draft__body {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 6px;
+  background: var(--surface-canvas);
+  color: var(--fg-default);
+  font: inherit;
+  font-size: 13px;
+}
+
+.assistant-draft__body {
+  resize: vertical;
+  line-height: 18px;
+}
+
+.assistant-draft .assistant-button.is-primary {
+  border-color: light-dark(rgba(31, 35, 40, 0.15), rgb(210 220 235 / 15%));
+  background: light-dark(#1f883d, #287a43);
+  color: var(--on-solid);
+}
+
+.assistant-draft .assistant-button.is-primary:hover:not(:disabled) { background: light-dark(#1a7f37, #32894f); }
+.assistant-draft .assistant-button.is-primary:disabled { background: light-dark(#94d3a2, var(--dark-green-soft)); }
+.assistant-draft.is-created { padding: 8px 12px; color: var(--fg-muted); }
+.assistant-draft.is-created svg { color: var(--fg-success); }
+
+.assistant-draft__done {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-default);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1523,6 +1523,8 @@ function registerIpc(): void {
   ipcMain.handle('assistant:retry', () => backendJson(`${backendBase()}/api/assistant/retry`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('assistant:answered', (_event, approvalId: unknown) =>
     backendJson(`${backendBase()}/api/assistant/answers`, jsonInit('POST', { approvalId }, agentHeaders())));
+  ipcMain.handle('assistant:drafted', (_event, itemId: unknown) =>
+    backendJson(`${backendBase()}/api/assistant/drafts`, jsonInit('POST', { itemId }, agentHeaders())));
   ipcMain.handle('settings:assistant', () => backendJson(`${backendBase()}/api/settings/assistant`, { headers: agentHeaders() }));
   ipcMain.handle('settings:assistant:save', (_event, permissions: unknown) => {
     const value = permissions as Partial<Record<'startTasks' | 'answerTasks' | 'changeWork', unknown>> | null;

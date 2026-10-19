@@ -22,6 +22,6 @@ it('keeps workspace settings loaded when the picker is used in Chromium', async 
     global: 'WorkspacePickerTests',
     styles: true,
   });
-  expect(results).toHaveLength(6);
+  expect(results).toHaveLength(8);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, deadline(30_000));

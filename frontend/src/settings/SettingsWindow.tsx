@@ -394,6 +394,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
           )}
           {section === 'ws-repository' && workspace !== null && (
             <WorkspaceRepositoryPage
+              key={workspace.id}
               workspace={workspace}
               settings={wsSettings}
               error={error}
@@ -444,6 +445,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
           )}
           {section === 'ws-token' && workspace !== null && (
             <WorkspaceTokenPage
+              key={workspace.id}
               workspace={workspace}
               settings={wsSettings}
               login={login}

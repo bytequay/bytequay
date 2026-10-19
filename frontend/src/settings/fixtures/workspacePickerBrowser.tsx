@@ -19,7 +19,7 @@ import type { WorkspaceDto, WorkspaceSettingsDto } from '../../types';
 import SettingsWindow from '../SettingsWindow';
 import '../../css/base.css';
 import '../../css/settings-window.css';
-import { assert } from '../../fixtures/harness';
+import { assert, changeInput } from '../../fixtures/harness';
 
 const settle = () => new Promise<void>(resolve => setTimeout(() => requestAnimationFrame(() => resolve()), 0));
 
@@ -40,11 +40,13 @@ const WORKSPACES = [workspace('ws-1', 'chenjian2664', 'trino_new'), workspace('w
 
 /** Counts what the window asked for, so a reload can be told apart from a stuck page. */
 function stubBridge(reads: string[]) {
+  const writes: { workspaceId: string; value: string }[] = [];
   const bridge = {
     getAppVersion: async () => ({ version: '0.4.0' }),
     listWorkspaces: async () => WORKSPACES,
     getWorkspaceRelationships: async (): Promise<[]> => [],
     getAppPreferences: async () => ({ taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 as const, theme: 'SYSTEM' }),
+    getGitHubAccount: async () => ({ configured: false }),
     getWorkspaceSettings: async (id: string): Promise<WorkspaceSettingsDto> => {
       reads.push(id);
       return {
@@ -54,9 +56,12 @@ function stubBridge(reads: string[]) {
         githubToken: null,
       };
     },
+    setWorkspaceCommitsTarget: async (workspaceId: string, value: string) => { writes.push({ workspaceId, value }); },
+    saveWorkspaceGitHubToken: async (workspaceId: string, value: string) => { writes.push({ workspaceId, value }); },
     controlWindow: async (): Promise<void> => undefined,
   };
   Object.defineProperty(window, 'bridge', { value: bridge, configurable: true });
+  return writes;
 }
 
 /**
@@ -64,7 +69,7 @@ function stubBridge(reads: string[]) {
  * SettingsWindow alone would no longer exercise the picker — settings shares the
  * app sidebar instead of carrying one of its own.
  */
-function Harness({ exits }: { exits: () => void }) {
+function Harness({ exits, section }: { exits: () => void; section: 'ws-repository' | 'ws-token' }) {
   const [workspaceId, setWorkspaceId] = useState('ws-1');
   const picked = (WORKSPACES.find(candidate => candidate.id === workspaceId) ?? WORKSPACES[0]) as WorkspaceDto;
   return (
@@ -82,7 +87,7 @@ function Harness({ exits }: { exits: () => void }) {
         workspaceTab="home"
         onWorkspaceTab={() => {}}
         settings={{
-          section: 'ws-repository',
+          section,
           workspaces: WORKSPACES as WorkspaceDto[],
           workspaceId: picked.id,
           onSection: () => {},
@@ -91,23 +96,24 @@ function Harness({ exits }: { exits: () => void }) {
         }}
       />
       <main className="app-content">
-        <SettingsWindow section="ws-repository" workspace={picked} onWorkspacesChanged={() => {}} />
+        <SettingsWindow section={section} workspace={picked} onWorkspacesChanged={() => {}} />
       </main>
     </>
   );
 }
 
-function fixture(reads: string[], onExit: () => void = () => {}) {
-  stubBridge(reads);
+function fixture(reads: string[], onExit: () => void = () => {}, section: 'ws-repository' | 'ws-token' = 'ws-repository') {
+  const writes = stubBridge(reads);
   const host = document.createElement('div');
   host.className = 'app-shell';
   host.style.cssText = 'display:flex;height:600px;width:1200px;overflow:hidden';
   document.body.append(host);
   const root = createRoot(host);
-  flushSync(() => root.render(<Harness exits={onExit} />));
+  flushSync(() => root.render(<Harness exits={onExit} section={section} />));
 
   return {
     host,
+    writes,
     text: () => host.textContent ?? '',
     sidebar: () => host.querySelector<HTMLElement>('.app-sidebar'),
     async click(label: string) {
@@ -126,6 +132,12 @@ function fixture(reads: string[], onExit: () => void = () => {}) {
       await settle();
     },
     menu: () => host.querySelector<HTMLElement>('.setw-menu'),
+    async type(label: string, value: string) {
+      const input = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
+      assert(input !== null, `Input ${label} must be available`);
+      changeInput(input, value);
+      await settle();
+    },
     /** Drags the sidebar's right edge the way a person would. */
     async dragBoundary(byPixels: number) {
       const handle = host.querySelector('.app-sidebar__resize');
@@ -145,10 +157,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const check = async (
     name: string,
     test: (view: ReturnType<typeof fixture>, reads: string[]) => Promise<void>,
-    onExit?: () => void,
+    section: 'ws-repository' | 'ws-token' = 'ws-repository',
   ) => {
     const reads: string[] = [];
-    const view = fixture(reads, onExit);
+    const view = fixture(reads, undefined, section);
     try {
       await settle();
       await settle();
@@ -182,6 +194,39 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(view.text().includes('ws-2'), 'The chosen workspace remotes must be shown');
     assert(!view.text().includes('Loading remotes'), 'The page must not stay in its loading state');
   });
+
+  await check('switching workspace clears repository drafts before saving another target', async view => {
+    await view.type('Default target branch', 'release-for-first');
+    await view.click('Add remote');
+    await view.type('Remote name', 'first-only');
+    await view.type('Remote URL', 'https://github.com/first/repo.git');
+    await view.click('Workspace being edited');
+    await view.pick('trinodb/charts');
+    await settle();
+
+    assert(view.host.querySelector<HTMLInputElement>('[aria-label="Default target branch"]')?.value === 'master', 'The target must come from the chosen workspace');
+    assert(view.host.querySelector('[aria-label="Remote name"]') === null, 'An unfinished remote must not follow the workspace picker');
+    assert(view.writes.length === 0, 'Switching workspaces must not save drafts');
+    await view.type('Default target branch', 'release-for-second');
+    await view.click('Save');
+    assert(JSON.stringify(view.writes) === JSON.stringify([{ workspaceId: 'ws-2', value: 'release-for-second' }]), 'Only the new workspace draft may be saved');
+  });
+
+  await check('switching workspace clears an unfinished token', async view => {
+    await view.click('Use a workspace token…');
+    await view.type('Workspace GitHub token', 'fake-first-workspace-token');
+    await view.click('Workspace being edited');
+    await view.pick('trinodb/charts');
+    await settle();
+
+    assert(view.host.querySelector('[aria-label="Workspace GitHub token"]') === null, 'The previous workspace token editor must close');
+    await view.click('Use a workspace token…');
+    assert(view.host.querySelector<HTMLInputElement>('[aria-label="Workspace GitHub token"]')?.value === '', 'The new workspace token draft must be empty');
+    assert(view.writes.length === 0, 'Switching workspaces must not save credentials');
+    await view.type('Workspace GitHub token', 'fake-second-workspace-token');
+    await view.click('Save');
+    assert(JSON.stringify(view.writes) === JSON.stringify([{ workspaceId: 'ws-2', value: 'fake-second-workspace-token' }]), 'Only the newly entered token may reach the selected workspace');
+  }, 'ws-token');
 
   await check('the workspace menu is not clipped by the sidebar it opens in', async view => {
     await view.click('Workspace being edited');

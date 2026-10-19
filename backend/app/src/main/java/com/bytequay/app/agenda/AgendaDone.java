@@ -19,6 +19,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.core.domain.AgendaDay;
@@ -33,7 +34,9 @@ import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RecentStore;
+import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.integration.jira.JiraIssue;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -64,10 +67,14 @@ class AgendaDone
     private final RecentStore recent;
     private final TaskPullRequestOwnership ownership;
     private final ObjectProvider<JiraService> jira;
+    private final WorkspaceStore workspaces;
+    private final RepositoryIssueStore issues;
+    private final IssueDevelopmentService issueDevelopment;
     private final Clock clock;
 
     AgendaDone(PullRequestStore pullRequests, AgentTaskStore tasks, AgentTurnStore turns, AgentReviewStore reviews, WorkItemStore workItems, EpicStore epics,
-            RecentStore recent, TaskPullRequestOwnership ownership, ObjectProvider<JiraService> jira, Clock clock)
+            RecentStore recent, TaskPullRequestOwnership ownership, ObjectProvider<JiraService> jira, WorkspaceStore workspaces, RepositoryIssueStore issues,
+            IssueDevelopmentService issueDevelopment, Clock clock)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -78,6 +85,9 @@ class AgendaDone
         this.recent = requireNonNull(recent, "recent is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
         this.jira = requireNonNull(jira, "jira is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.issues = requireNonNull(issues, "issues is null");
+        this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -129,6 +139,7 @@ class AgendaDone
             case "pr" -> AgendaRefs.numbered(item.ref()).flatMap(ref -> pullRequest(ref.repo(), ref.number())).flatMap(pr -> pullRequest(item, pr, after));
             case "task" -> tasks.find(TaskId.valueOf(id)).flatMap(task -> task(item, task, after));
             case "review" -> reviews.findReview(id).flatMap(review -> review(review, after));
+            case "issue" -> AgendaRefs.numbered(item.ref()).flatMap(this::issue);
             case "work" -> workItems.find(id).flatMap(AgendaDone::work);
             case "epic" -> epics.find(id).flatMap(epic -> epic(item, epic));
             case "jira" -> jira(id);
@@ -216,6 +227,15 @@ class AgendaDone
             return Optional.of(Status.done("Decided", Optional.empty()));
         }
         return Optional.empty();
+    }
+
+    /** An issue whose development task has started, from its row's Start or its own. */
+    private Optional<Status> issue(AgendaRefs.Numbered ref)
+    {
+        return workspaces.findAll().stream().filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(ref.repo())).findFirst()
+                .flatMap(workspace -> issues.find(workspace.monitoredRepositoryId(), ref.number()))
+                .flatMap(issue -> issueDevelopment.metadata(issue.id()).developmentTask())
+                .map(task -> Status.done("Started", Optional.empty()));
     }
 
     private Optional<Status> jira(String id)

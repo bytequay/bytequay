@@ -279,7 +279,10 @@ names its fields; bodies, diffs, commit messages, logs and transcripts stay out.
 The reply keeps only references a page handed out, and stored facts decide whether
 an item is done. Each run records its tool calls and refused items, so the pages
 can be judged against real mornings. Nothing in the session writes to GitHub,
-starts a task or changes work.
+starts a task or changes work. A row that suggests starting work offers Start,
+the user's own click, which starts the task as the item's own Start does, through
+the same path the Assistant uses: the item's first message, the repository's
+development model and the saved automation, one task per row a day.
 
 The Assistant panel holds one conversation per local day with a tools-only
 session: it has no shell, file or web tools, only `assistant_context`, which reads

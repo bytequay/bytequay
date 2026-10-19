@@ -66,6 +66,15 @@ public class AgendaController
     /** An empty mark clears the user's own, so stored facts decide again. */
     public record MarkRequest(String ref, Optional<AgendaDay.Mark> mark) {}
 
+    @PostMapping("/agenda/today/start")
+    public AgendaView start(@RequestBody StartRequest request)
+    {
+        checkArgument(request.ref() != null && !request.ref().isBlank(), "ref is required");
+        return agenda.start(request.ref());
+    }
+
+    public record StartRequest(String ref) {}
+
     @GetMapping("/settings/agenda")
     public AgendaSchedule schedule()
     {

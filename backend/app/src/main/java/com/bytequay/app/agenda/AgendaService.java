@@ -15,6 +15,7 @@ package com.bytequay.app.agenda;
 
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.OneShotSession;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -44,6 +45,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -118,6 +120,7 @@ public class AgendaService
     private final ModelSettingsService models;
     private final AgentDriverRegistry drivers;
     private final AgentResourceService resources;
+    private final ItemTaskStarter starts;
     private final ObjectMapper mapper;
     private final Clock clock;
     private final Instant started;
@@ -126,8 +129,8 @@ public class AgendaService
     private volatile Optional<Failure> lastFailure = Optional.empty();
 
     public AgendaService(AgendaStore store, AgendaReader reader, AgendaCalendarReader calendars, TeamService teams, AgendaDone done, AgendaSettings settings,
-            AppSettingsService appSettings, ModelSettingsService models, AgentDriverRegistry drivers, AgentResourceService resources, ObjectMapper mapper, Clock clock,
-            @Qualifier(IO_EXECUTOR) ExecutorService executor)
+            AppSettingsService appSettings, ModelSettingsService models, AgentDriverRegistry drivers, AgentResourceService resources, ItemTaskStarter starts,
+            ObjectMapper mapper, Clock clock, @Qualifier(IO_EXECUTOR) ExecutorService executor)
     {
         this.store = requireNonNull(store, "store is null");
         this.reader = requireNonNull(reader, "reader is null");
@@ -139,6 +142,7 @@ public class AgendaService
         this.models = requireNonNull(models, "models is null");
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.resources = requireNonNull(resources, "resources is null");
+        this.starts = requireNonNull(starts, "starts is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.started = clock.instant();
@@ -207,6 +211,25 @@ public class AgendaService
         Map<String, AgendaDay.Mark> marks = new HashMap<>(day.marks());
         mark.ifPresentOrElse(value -> marks.put(ref, value), () -> marks.remove(ref));
         store.save(day.withMarks(marks));
+        return today(Optional.empty());
+    }
+
+    /**
+     * Starts the task a row suggests, on the user's own click, as the item's own Start button does. A row starts at most one task a day:
+     * a click repeated after an unknown outcome finds the task the first one began. The row reads Started once the task is there.
+     */
+    public AgendaView start(String ref)
+    {
+        requireNonNull(ref, "ref is null");
+        LocalDate today = today();
+        AgendaDay day = store.find(today).filter(value -> value.state() == AgendaDay.State.READY)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Today's agenda is not ready"));
+        AgendaItem item = day.items().stream().filter(each -> each.ref().equals(ref)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("That item is not on today's agenda"));
+        checkArgument(item.action() == AgendaItem.Action.START && ItemTaskStarter.SOURCES.contains(AgendaRefs.kind(ref)), "That row does not start work");
+        TaskId taskId = new TaskId(UUID.nameUUIDFromBytes(("agenda\n" + today + "\n" + ref).getBytes(StandardCharsets.UTF_8)));
+        starts.start(starts.item(ref), Optional.empty(), taskId, "agenda:" + taskId.value())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "The development agent isn't ready; check Settings → Models"));
         return today(Optional.empty());
     }
 

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { CardActions, CardAge, Clickable, IconButton, ItemRow } from '../cards/Card';
 import { zoomReference } from '../githubReference';
+import { remoteErrorMessage } from '../remoteError';
 import type { AgendaAction, AgendaDto, AgendaItemDto, AgendaTargetDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import {
@@ -37,6 +38,9 @@ export const ACTION_ICONS: Record<AgendaAction, LucideIcon> = {
   decide: ListChecks,
   follow_up: ArrowUpRight,
 };
+
+/** The kinds of item a row's Start begins a task for, as the item's own Start button does. */
+const STARTS: readonly AgendaTargetDto['kind'][] = ['WORK', 'ISSUE', 'JIRA'];
 
 /** Opens an item where its work already lives; nothing starts or runs from here. */
 export function openTarget(target: AgendaTargetDto): void {
@@ -67,7 +71,7 @@ export default function TodayList({ today, scope, onOpen = openTarget }: {
   onOpen?: (target: AgendaTargetDto) => void;
 }): React.JSX.Element | null {
   const availability = useAgentAvailability();
-  const { agenda, error, makeAgain, mark, showHidden } = today;
+  const { agenda, error, makeAgain, mark, start, showHidden } = today;
   const [expanded, setExpanded] = useState(false);
   const [recapOpen, setRecapOpen] = useState(false);
   if (!showsToday(agenda, scope) || !availability.development && agenda.items.length === 0) return null;
@@ -141,7 +145,7 @@ export default function TodayList({ today, scope, onOpen = openTarget }: {
         {agenda.state === 'READY' && items.length === 0 && <div className="today-line">Nothing pressing today</div>}
         {ready && rows.length > 0 && (
           <div className="item-list today-list" role="list">
-            {rows.map(item => <TodayRow key={item.ref} item={item} scope={scope} onMark={mark} onOpen={onOpen} />)}
+            {rows.map(item => <TodayRow key={item.ref} item={item} scope={scope} onMark={mark} onStart={availability.development ? start : undefined} onOpen={onOpen} />)}
             {global && agenda.recap !== null && (
               <div role="listitem">
                 <Clickable className="card-row today-recap" label="This week" onOpen={() => setRecapOpen(value => !value)}>
@@ -159,15 +163,30 @@ export default function TodayList({ today, scope, onOpen = openTarget }: {
   );
 }
 
-function TodayRow({ item, scope, onMark, onOpen }: {
+/**
+ * One row of the agenda. A row that suggests starting work also offers Start, which begins the task with the user's saved settings on
+ * their click; what refuses it shows under the row.
+ */
+function TodayRow({ item, scope, onMark, onStart, onOpen }: {
   item: AgendaItemDto;
   scope: TodayScope;
   onMark: (ref: string, mark: 'DONE' | 'DISMISSED' | null) => void;
+  /** Starts the task the row suggests; absent while the development agent is unavailable. */
+  onStart?: (ref: string) => Promise<void>;
   onOpen: (target: AgendaTargetDto) => void;
 }) {
+  const [starting, setStarting] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
   const Icon = ACTION_ICONS[item.action];
   const isDone = item.status === 'done';
   const where = whereText(item.target, scope, item.where);
+  const startable = onStart !== undefined && !isDone && item.action === 'start' && STARTS.includes(item.target.kind);
+  const start = () => {
+    if (onStart === undefined) return;
+    setStarting(true);
+    setRefusal(null);
+    void onStart(item.ref).catch((cause: unknown) => setRefusal(remoteErrorMessage(cause))).finally(() => setStarting(false));
+  };
   return (
     <div role="listitem">
       <ItemRow className={`today-row${isDone ? ' is-done' : ''}`} label={`${item.title}: ${item.why}`} onOpen={() => onOpen(item.target)}
@@ -182,6 +201,11 @@ function TodayRow({ item, scope, onMark, onOpen }: {
         </>}
         actions={isDone ? undefined : (
           <CardActions label={`Actions for ${item.title}`}>
+            {startable && (
+              <IconButton label={`Start a task for “${item.label}”`} title="Start a task with your saved settings" disabled={starting} onClick={start}>
+                {starting ? <LoaderCircle size={14} className="today-spin" aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
+              </IconButton>
+            )}
             <IconButton label={`Mark “${item.title}” done`} title="Done" tone="ack" onClick={() => onMark(item.ref, 'DONE')}>
               <Check size={14} aria-hidden="true" />
             </IconButton>
@@ -198,7 +222,9 @@ function TodayRow({ item, scope, onMark, onOpen }: {
               </IconButton>
             </span>
           )
-          : item.at === null ? null : <CardAge at={item.at} />} />
+          : item.at === null ? null : <CardAge at={item.at} />}>
+        {refusal !== null && <div className="today-row__refusal" role="alert"><TriangleAlert size={12} aria-hidden="true" /><span>{refusal}</span></div>}
+      </ItemRow>
     </div>
   );
 }

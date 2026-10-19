@@ -14,6 +14,9 @@
 package com.bytequay.app.agenda;
 
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
@@ -43,7 +46,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.mockito.MockMakers;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -70,11 +76,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 class TestAgendaService
 {
@@ -107,6 +118,7 @@ class TestAgendaService
     private final AgentSession session = mock(AgentSession.class);
     private final RunningTurn turn = mock(RunningTurn.class);
     private final AgentResourceService resources = mock(AgentResourceService.class);
+    private final ItemTaskStarter starts = mock(ItemTaskStarter.class);
     private final AtomicReference<Instant> now = new AtomicReference<>(FRIDAY_MORNING.minusSeconds(3600));
     private final AtomicReference<AgentSessionContext> opened = new AtomicReference<>();
     private final AtomicReference<String> answer = new AtomicReference<>(REPLY);
@@ -167,8 +179,7 @@ class TestAgendaService
             }
         };
         agenda = new AgendaService(store, reader, calendars, teams, done, new AgendaSettings(settings, AgendaFixtures.mapper(), mock(SetupSettingsService.class)), appSettings,
-                models, drivers, resources,
-                AgendaFixtures.mapper(), clock, executor);
+                models, drivers, resources, starts, AgendaFixtures.mapper(), clock, executor);
     }
 
     @AfterEach
@@ -322,6 +333,44 @@ class TestAgendaService
 
         agenda.mark("task:t1", Optional.empty());
         assertThat(store.days.get(LocalDate.parse("2026-10-16")).marks()).isEmpty();
+    }
+
+    @Test
+    void aStartRowStartsItsItemOnceADay()
+    {
+        answer.set("""
+                {"summary": "", "items": [
+                  {"ref": "work:w22", "action": "start", "title": "Start “Expose snapshot id in metadata”", "label": "Expose snapshot id", "why": "Ready, and unblocks 2."},
+                  {"ref": "task:t1", "action": "answer", "title": "Answer the retry question", "label": "the retry question", "why": "The agent waits on you."}]}
+                """);
+        // The ready work item is named on the Epics page, so the agent reads that one too.
+        doAnswer(call -> {
+            AgentSessionContext context = call.getArgument(0);
+            context.sessionTools().getFirst().call().apply("{\"kind\":\"tasks\"}");
+            context.sessionTools().getFirst().call().apply("{\"kind\":\"epics\"}");
+            return session;
+        }).when(driver).open(any(), any());
+        now.set(FRIDAY_MORNING);
+        agenda.runIfDue(Optional.of(FRIDAY_MORNING));
+        ItemTaskStarter.Start start = new ItemTaskStarter.Start("ws1", "Develop this work item", Optional.empty(), Optional.empty(), Optional.of("w22"));
+        ItemTaskStarter.Started started = new ItemTaskStarter.Started(mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE)), true, "Claude Sonnet", DevelopmentAutomation.DEFAULT);
+        when(starts.item("work:w22")).thenReturn(start);
+        when(starts.start(eq(start), eq(Optional.empty()), any(), anyString())).thenReturn(Optional.of(started));
+
+        agenda.start("work:w22");
+        agenda.start("work:w22");
+
+        // A row starts one task a day: a click repeated after an unknown outcome names the same task and first turn.
+        ArgumentCaptor<TaskId> ids = ArgumentCaptor.forClass(TaskId.class);
+        ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
+        verify(starts, times(2)).start(eq(start), eq(Optional.empty()), ids.capture(), keys.capture());
+        assertThat(ids.getAllValues()).containsOnly(ids.getValue());
+        assertThat(keys.getAllValues()).containsOnly("agenda:" + ids.getValue().value());
+
+        assertThatThrownBy(() -> agenda.start("task:t1")).isInstanceOf(IllegalArgumentException.class).hasMessage("That row does not start work");
+        assertThatThrownBy(() -> agenda.start("work:w99")).isInstanceOf(IllegalArgumentException.class).hasMessage("That item is not on today's agenda");
+        when(starts.start(eq(start), eq(Optional.empty()), any(), anyString())).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> agenda.start("work:w22")).isInstanceOf(ResponseStatusException.class).hasMessageContaining("isn't ready");
     }
 
     private void waitForRuns(int runs)

@@ -47,6 +47,6 @@ it('opens, marks, folds and suns the Today rows in Chromium', async () => {
       }
     `,
   });
-  expect(results).toHaveLength(4);
+  expect(results).toHaveLength(5);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, deadline(SCREENSHOTS ? 120_000 : 30_000));

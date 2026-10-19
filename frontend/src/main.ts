@@ -1516,6 +1516,7 @@ function registerIpc(): void {
   ipcMain.handle('agenda:again', () => backendJson(`${backendBase()}/api/agenda/today/run`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('agenda:mark', (_event, ref: unknown, mark: unknown) =>
     backendJson(`${backendBase()}/api/agenda/today/marks`, jsonInit('PUT', { ref, mark: mark === 'DONE' || mark === 'DISMISSED' ? mark : null }, agentHeaders())));
+  ipcMain.handle('agenda:start', (_event, ref: unknown) => backendJson(`${backendBase()}/api/agenda/today/start`, jsonInit('POST', { ref }, agentHeaders())));
   ipcMain.handle('assistant:today', () => backendJson(`${backendBase()}/api/assistant/today`, { headers: agentHeaders() }));
   ipcMain.handle('assistant:send', (_event, text: unknown, visible: unknown, onScreen: unknown, key: unknown) =>
     backendJson(`${backendBase()}/api/assistant/messages`, jsonInit('POST', { text, visible, onScreen, key }, agentHeaders())));

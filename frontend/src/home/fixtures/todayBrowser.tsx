@@ -77,19 +77,22 @@ const ATTENTION: AttentionItem[] = [31377, 31411].map((number): AttentionItem =>
   createdAt: '2026-10-10T00:00:00Z', updatedAt: '2026-10-15T00:00:00Z', labels: [], pr: null, body: '', commentCount: 0, workspaceId: 'ws1',
 }));
 
-type Mounted = { host: HTMLElement; marks: [string, string | null][]; render: (agenda: AgendaDto) => void; dispose: () => void };
+type Mounted = { host: HTMLElement; marks: [string, string | null][]; starts: string[]; render: (agenda: AgendaDto) => void; dispose: () => void };
 
-function mount(scope: TodayScope, agenda: AgendaDto = AGENDA): Mounted {
+const settle = () => new Promise(resolve => setTimeout(resolve, 30));
+
+function mount(scope: TodayScope, agenda: AgendaDto = AGENDA, start: (ref: string) => Promise<void> = async () => {}): Mounted {
   const host = document.createElement('div');
   host.className = 'home-main';
   host.style.cssText = `width:${scope === 'global' ? 932 : 836}px;padding:16px 24px;`;
   document.body.append(host);
   const root = createRoot(host);
   const marks: [string, string | null][] = [];
+  const starts: string[] = [];
   const render = (value: AgendaDto) => {
     const today: TodayAgenda = {
       agenda: scope === 'workspace' ? { ...value, items: value.items.filter(item => item.workspaceId === 'ws1') } : value, error: null,
-      makeAgain: () => {}, mark: (ref, mark) => { marks.push([ref, mark]); }, showHidden: () => {},
+      makeAgain: () => {}, mark: (ref, mark) => { marks.push([ref, mark]); }, start: ref => { starts.push(ref); return start(ref); }, showHidden: () => {},
     };
     flushSync(() => root.render(<>
       <TodayList today={today} scope={scope} />
@@ -97,7 +100,7 @@ function mount(scope: TodayScope, agenda: AgendaDto = AGENDA): Mounted {
     </>));
   };
   render(agenda);
-  return { host, marks, render, dispose: () => { flushSync(() => root.unmount()); host.remove(); } };
+  return { host, marks, starts, render, dispose: () => { flushSync(() => root.unmount()); host.remove(); } };
 }
 
 function button(host: HTMLElement, label: string): HTMLButtonElement {
@@ -145,6 +148,32 @@ async function marksWithoutOpening(): Promise<void> {
   finally { view.dispose(); }
 }
 
+async function startsWorkFromItsRow(): Promise<void> {
+  let refuse = true;
+  const started = { ...AGENDA, items: ITEMS.map(item => item.ref === 'work:w22' ? { ...item, status: 'done' as const, doneText: 'Started' } : item) };
+  const view = mount('global', AGENDA, async () => {
+    if (refuse) throw new Error("Error invoking remote method 'agenda:start': Error: The development agent isn't ready; check Settings → Models");
+    view.render(started);
+  });
+  const offered = () => [...view.host.querySelectorAll<HTMLButtonElement>('.today-row button')].map(each => each.getAttribute('aria-label') ?? '')
+    .filter(label => label.startsWith('Start a task'));
+  try {
+    assert(JSON.stringify(offered()) === '["Start a task for “Expose snapshot id”"]', `Only the row that starts work offers Start: ${JSON.stringify(offered())}`);
+    const opened = zoomed(() => button(view.host, 'Start a task for “Expose snapshot id”').click());
+    await settle();
+    assert(opened.length === 0 && JSON.stringify(view.starts) === '["work:w22"]', `Start begins the task without opening the row: ${JSON.stringify(view.starts)}`);
+    const refusal = view.host.querySelector('.today-row__refusal');
+    assert(refusal?.textContent === "The development agent isn't ready; check Settings → Models", `What refused it shows under the row: ${refusal?.textContent}`);
+
+    refuse = false;
+    button(view.host, 'Start a task for “Expose snapshot id”').click();
+    await settle();
+    assert(view.host.querySelector('.today-row__refusal') === null && offered().length === 0, 'Once started, the row reads done and offers Start no more');
+    assert(view.host.textContent?.includes('Started') === true, 'The row says it started');
+  }
+  finally { view.dispose(); }
+}
+
 async function recapAndSun(): Promise<void> {
   const view = mount('global');
   try {
@@ -173,7 +202,7 @@ async function foldsWhenDone(): Promise<void> {
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of [['rows open their work', opensWork], ['marks without opening', marksWithoutOpening], ['recap and sun', recapAndSun],
-    ['folds when done', foldsWhenDone]] as const) {
+    ['folds when done', foldsWhenDone], ['starts work from its row', startsWorkFromItsRow]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }

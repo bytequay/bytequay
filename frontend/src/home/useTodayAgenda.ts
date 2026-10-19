@@ -27,6 +27,8 @@ export type TodayAgenda = {
   error: string | null;
   makeAgain: () => void;
   mark: (ref: string, mark: 'DONE' | 'DISMISSED' | null) => void;
+  /** Starts the task a row suggests; rejects with why it could not, which the row says. */
+  start: (ref: string) => Promise<void>;
   /** Brings back every item set aside for today. */
   showHidden: () => void;
 };
@@ -83,6 +85,10 @@ export function useTodayAgenda(workspaceId?: string): TodayAgenda {
 
   const makeAgain = useCallback(() => { if (availability.development) act(() => window.bridge.makeAgendaAgain()); }, [act, availability.development]);
   const mark = useCallback((ref: string, value: 'DONE' | 'DISMISSED' | null) => act(() => window.bridge.markAgendaItem(ref, value)), [act]);
+  const start = useCallback(async (ref: string) => {
+    await window.bridge.startAgendaItem(ref);
+    await load();
+  }, [load]);
   const showHidden = useCallback(() => {
     const hidden = agenda?.items.filter(item => item.status === 'dismissed').map(item => item.ref) ?? [];
     act(async () => {
@@ -92,5 +98,5 @@ export function useTodayAgenda(workspaceId?: string): TodayAgenda {
     });
   }, [act, agenda, workspaceId]);
 
-  return { agenda, error, makeAgain, mark, showHidden };
+  return { agenda, error, makeAgain, mark, start, showHidden };
 }

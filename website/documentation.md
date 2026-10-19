@@ -95,6 +95,9 @@ If ByteQuay was closed at that time, Today is made when you return.
 
 - Click a row to open its PR, task, issue, ticket, or work item. Hover it for
   **Done** or **Not today**; a row also closes when its work happens.
+- A row that suggests starting work also has **Start**, which starts the task
+  with your Development model and saved automation, as the item's own Start
+  does. The row then reads **Started**.
 - The circular arrow makes the list again. A workspace Home shows only its
   repository's rows; **Needs attention** marks Today rows with a sun.
 - On the last working day, **This week** looks back at what merged and slipped.

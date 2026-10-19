@@ -38,7 +38,7 @@ function agenda(extra: Partial<AgendaDto> = {}): AgendaDto {
 }
 
 function render(value: AgendaDto, scope: 'global' | 'workspace' = 'global', error: string | null = null): string {
-  const today: TodayAgenda = { agenda: value, error, makeAgain: () => {}, mark: () => {}, showHidden: () => {} };
+  const today: TodayAgenda = { agenda: value, error, makeAgain: () => {}, mark: () => {}, start: async () => {}, showHidden: () => {} };
   return renderToStaticMarkup(<TodayList today={today} scope={scope} />);
 }
 
@@ -159,7 +159,7 @@ describe('the workspace composer', () => {
       item('work:w22', 'open', { action: 'start', label: 'Expose snapshot id', why: 'It is next.' }),
       item('pr:trinodb/trino#31390', 'done', { label: 'maven-checks' }),
     ] });
-    const today: TodayAgenda = { agenda: value, error: null, makeAgain: () => {}, mark: () => {}, showHidden: () => {} };
+    const today: TodayAgenda = { agenda: value, error: null, makeAgain: () => {}, mark: () => {}, start: async () => {}, showHidden: () => {} };
     const html = renderToStaticMarkup(
       <AgentHomeView repository="trinodb/trino" workspaceId="ws1" laneId="codex" providers={[]} tasks={[]} models={[]} selection={null} draft=""
         blocker={null} onDraftChange={() => {}} onSelectProvider={() => {}} onSelectModel={() => {}} onCreate={() => {}} onOpenTask={() => {}}

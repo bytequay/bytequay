@@ -2034,6 +2034,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & {
   makeAgendaAgain: () => Promise<AgendaDto>;
   /** An empty mark lets stored facts decide again. */
   markAgendaItem: (ref: string, mark: 'DONE' | 'DISMISSED' | null) => Promise<AgendaDto>;
+  /** Starts the task a row suggests, as its item's own Start button does. */
+  startAgendaItem: (ref: string) => Promise<AgendaDto>;
   getAgendaSchedule: () => Promise<AgendaScheduleDto>;
   saveAgendaSchedule: (schedule: AgendaScheduleDto) => Promise<AgendaScheduleDto>;
   getAssistantToday: () => Promise<AssistantViewDto>;

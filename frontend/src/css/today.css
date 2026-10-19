@@ -305,3 +305,21 @@
   margin: 0 4px;
   background: light-dark(#e3e3e6, var(--dark-border));
 }
+
+/* Why a row's Start could not begin its task, under the row. */
+.today-row__refusal {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.today-row__refusal > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-3);
+}

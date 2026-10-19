@@ -412,6 +412,7 @@ const bridge: Bridge = {
   getAgendaToday: workspaceId => ipcRenderer.invoke('agenda:today', workspaceId),
   makeAgendaAgain: () => ipcRenderer.invoke('agenda:again'),
   markAgendaItem: (ref, mark) => ipcRenderer.invoke('agenda:mark', ref, mark),
+  startAgendaItem: ref => ipcRenderer.invoke('agenda:start', ref),
   getAgendaSchedule: () => ipcRenderer.invoke('settings:agenda'),
   saveAgendaSchedule: schedule => ipcRenderer.invoke('settings:agenda:save', schedule),
   getAssistantToday: () => ipcRenderer.invoke('assistant:today'),

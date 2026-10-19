@@ -15,6 +15,7 @@ package com.bytequay.app.agenda;
 
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.core.domain.AgendaDay;
@@ -22,12 +23,17 @@ import com.bytequay.core.domain.AgendaItem;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RecentStore;
+import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -54,8 +60,12 @@ class TestAgendaDone
     private final WorkItemStore workItems = mock(WorkItemStore.class);
     @SuppressWarnings("unchecked")
     private final ObjectProvider<JiraService> jira = mock(ObjectProvider.class);
+    private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
+    private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
+    private final IssueDevelopmentService issueDevelopment = mock(IssueDevelopmentService.class);
     private final AgendaDone done = new AgendaDone(pullRequests, mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(AgentReviewStore.class), workItems,
-            mock(EpicStore.class), mock(RecentStore.class), mock(TaskPullRequestOwnership.class), jira, Clock.fixed(MADE.plusSeconds(3600), ZoneOffset.UTC));
+            mock(EpicStore.class), mock(RecentStore.class), mock(TaskPullRequestOwnership.class), jira, workspaces, issues, issueDevelopment,
+            Clock.fixed(MADE.plusSeconds(3600), ZoneOffset.UTC));
 
     @Test
     void theUsersOwnMarkWins()
@@ -98,6 +108,24 @@ class TestAgendaDone
         when(workItems.find("w22")).thenReturn(Optional.of(started));
         AgendaItem start = new AgendaItem("work:w22", AgendaItem.Action.START, "Start “Expose snapshot id”", "Expose snapshot id", "", Optional.empty(), Optional.of("ws1"),
                 AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"), Optional.of("Iceberg write path · 3/6"));
+        assertThat(status(day(start, ImmutableMap.of()), start).text()).contains("Started");
+    }
+
+    @Test
+    void anIssueReadsStartedOnceItHasATask()
+    {
+        Workspace trino = new Workspace("ws1", "Trino", 1, RepoRef.of("trinodb", "trino"), Optional.empty(), Optional.empty(), 1, RepoRef.of("trinodb", "trino"),
+                Workspace.Topology.DIRECT, "master", "https://github.com/trinodb/trino.git", Optional.empty(), Optional.empty(), "/managed/trino", Optional.empty(),
+                Optional.empty(), 0, MADE, MADE);
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(trino));
+        when(issues.find(1, 77)).thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "",
+                "https://github.com/trinodb/trino/issues/77", ImmutableList.of(), ImmutableList.of(), 0, MADE, MADE)));
+        AgendaItem start = new AgendaItem("issue:trinodb/trino#77", AgendaItem.Action.START, "Start “Snapshot ids in $snapshots”", "Snapshot ids", "", Optional.empty(),
+                Optional.of("ws1"), AgendaTarget.issue("trinodb/trino", 77, "ws1"), Optional.empty());
+
+        when(issueDevelopment.metadata(901)).thenReturn(new IssueDevelopmentService.Metadata(false, Optional.empty()));
+        assertThat(status(day(start, ImmutableMap.of()), start).state()).isEqualTo(AgendaDone.Status.State.OPEN);
+        when(issueDevelopment.metadata(901)).thenReturn(new IssueDevelopmentService.Metadata(false, Optional.of(new IssueDevelopmentService.TaskLink("t1", "ws1"))));
         assertThat(status(day(start, ImmutableMap.of()), start).text()).contains("Started");
     }
 

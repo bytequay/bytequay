@@ -124,9 +124,11 @@ class TestArtifactService
             events.emit(new ProviderAgentEvent.Message(Optional.empty(), ProviderAgentEvent.MessagePhase.FINAL, text, ProviderAgentEventSource.root()));
         }
 
-        void read(String file)
+        /** A finished step as Claude reports one: its output as the summary, and a description only when the agent gave one. */
+        void step(String name, String output, Optional<String> description)
         {
-            events.emit(new ProviderAgentEvent.Tool(Optional.empty(), "Read", ProviderAgentEvent.ActivityState.COMPLETED, file, ProviderAgentEventSource.root()));
+            events.emit(new ProviderAgentEvent.Tool(Optional.empty(), name, ProviderAgentEvent.ActivityState.COMPLETED, output, ProviderAgentEventSource.root(), Optional.empty(),
+                    description));
         }
 
         String call(String name, String arguments)
@@ -193,9 +195,12 @@ class TestArtifactService
     void talksThenOffersThenMakesThePageBesideTheChat()
     {
         agent.add(turn -> {
-            turn.read("IcebergPageSourceProvider.java");
-            turn.read("DeleteManager.java");
+            turn.step("Grep", "74:import io.trino.plugin.iceberg.delete.DeleteManager;", Optional.of("Find where deletes are read"));
+            turn.step("Read", "public class IcebergPageSourceProvider", Optional.empty());
+            turn.step("Read", "public class DeleteManager", Optional.empty());
             turn.events().emit(new ProviderAgentEvent.Message(Optional.empty(), ProviderAgentEvent.MessagePhase.FINAL, "a child's notes", CHILD));
+            turn.say("They are applied per data file at scan time. The read path or the write path?");
+            // The final answer can reach the conversation twice; it shows once.
             turn.say("They are applied per data file at scan time. The read path or the write path?");
             return completed();
         });
@@ -207,7 +212,7 @@ class TestArtifactService
 
         assertThat(answered.items()).extracting(ArtifactItem::kind, ArtifactItem::text).containsExactly(
                 tuple(USER, "Teach me how Iceberg position deletes work"),
-                tuple(ACTIVITY, "DeleteManager.java · 2 steps"),
+                tuple(ACTIVITY, "Find where deletes are read · 3 steps"),
                 tuple(REPLY, "They are applied per data file at scan time. The read path or the write path?"));
         AgentSessionContext first = opened.getFirst();
         assertThat(first.access()).isEqualTo(SessionAccess.READ_ONLY);

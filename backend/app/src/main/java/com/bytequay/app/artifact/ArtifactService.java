@@ -371,10 +371,9 @@ public class ArtifactService
                     run.replied = true;
                     append(run, artifact, ArtifactItem.of(artifact.id(), ArtifactItem.Kind.REPLY, message.text().strip(), clock.instant()));
                 }
-                case ProviderAgentEvent.Tool tool when ended(tool.state()) && !tool.name().contains("artifact_") ->
-                        step(run, artifact, tool.description().or(() -> Optional.of(tool.summary()).filter(text -> !text.isBlank())).orElse(tool.name()));
-                case ProviderAgentEvent.Command command when ended(command.state()) ->
-                        step(run, artifact, command.description().orElse(String.join(" ", command.argv())));
+                // A finished tool's summary is its output, never a label.
+                case ProviderAgentEvent.Tool tool when ended(tool.state()) && !tool.name().contains("artifact_") -> step(run, artifact, tool.description(), tool.name());
+                case ProviderAgentEvent.Command command when ended(command.state()) -> step(run, artifact, command.description(), String.join(" ", command.argv()));
                 default -> {
                 }
             }
@@ -386,15 +385,20 @@ public class ArtifactService
         return state == ProviderAgentEvent.ActivityState.COMPLETED || state == ProviderAgentEvent.ActivityState.FAILED;
     }
 
-    /** Grows the activity line that follows the last reply, or starts one, so steps between two replies read as one line. */
-    private synchronized void step(Run run, Artifact artifact, String what)
+    /**
+     * Grows the activity line that follows the last reply, or starts one, so steps between two replies read as one line. A step without
+     * a description of its own keeps the line's last one, falling back to the step's name.
+     */
+    private synchronized void step(Run run, Artifact artifact, Optional<String> described, String name)
     {
         if (run.ended) {
             return;
         }
         Optional<ArtifactItem> last = run.activity.filter(item -> run.lastItem.equals(item.id()));
         run.steps = last.isPresent() ? run.steps + 1 : 1;
-        String text = clip(what.strip().replace('\n', ' '), ACTIVITY) + " · " + run.steps + (run.steps == 1 ? " step" : " steps");
+        run.label = described.map(String::strip).filter(text -> !text.isEmpty())
+                .orElse(last.isPresent() ? run.label : clip(name.strip().replace('\n', ' '), ACTIVITY));
+        String text = clip(run.label.replace('\n', ' '), ACTIVITY) + " · " + run.steps + (run.steps == 1 ? " step" : " steps");
         ArtifactItem line = last.map(item -> item.withText(text)).orElseGet(() -> ArtifactItem.of(artifact.id(), ArtifactItem.Kind.ACTIVITY, text, clock.instant()));
         if (last.isPresent()) {
             store.update(line);
@@ -408,11 +412,16 @@ public class ArtifactService
 
     private synchronized void append(Run run, Artifact artifact, ArtifactItem item)
     {
-        if (run.ended) {
+        // The turn's final answer and its reply event can come in either order; the second one is the same reply.
+        boolean repeated = item.kind() == ArtifactItem.Kind.REPLY && item.text().equals(run.lastReply);
+        if (run.ended || repeated) {
             return;
         }
         store.add(artifact.workspaceId(), item);
         run.lastItem = item.id();
+        if (item.kind() == ArtifactItem.Kind.REPLY) {
+            run.lastReply = item.text();
+        }
     }
 
     private synchronized String offer(Run run, Artifact artifact, ArtifactTools.Offer offer)
@@ -562,7 +571,9 @@ public class ArtifactService
         private volatile boolean wrote;
         // Touched only under the service's lock.
         private Optional<ArtifactItem> activity = Optional.empty();
+        private String label = "";
         private String lastItem = "";
+        private String lastReply = "";
         private int steps;
 
         Run(String artifactId)

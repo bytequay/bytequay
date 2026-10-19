@@ -20,7 +20,6 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
-import java.util.Optional;
 
 public interface ArtifactJpaRepository
         extends JpaRepository<ArtifactEntity, String>
@@ -28,11 +27,8 @@ public interface ArtifactJpaRepository
     @Query("select a.value from ArtifactEntity a where a.workspaceId = :workspaceId")
     List<Artifact> records(String workspaceId);
 
-    @Query("select a.value from ArtifactEntity a where a.state = :state")
-    List<Artifact> inState(Artifact.State state);
-
-    @Query("select a.html from ArtifactEntity a where a.id = :id and a.workspaceId = :workspaceId and a.html is not null")
-    Optional<String> page(String id, String workspaceId);
+    @Query("select a.value from ArtifactEntity a where a.working = true")
+    List<Artifact> working();
 
     @Modifying
     @Query("delete from ArtifactEntity a where a.workspaceId = :workspaceId")

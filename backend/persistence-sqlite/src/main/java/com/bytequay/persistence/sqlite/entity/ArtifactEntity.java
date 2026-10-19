@@ -18,18 +18,14 @@ import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.ArtifactCo
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Getter;
 
-import java.util.Optional;
-
-/** The record as JSON, with the workspace and state beside it for queries and the page in its own column so lists never read it. */
+/** One artifact conversation as JSON, with its workspace and whether it is answering beside it for queries. */
 @Entity
-@Table(name = "artifact", indexes = @Index(name = "idx_artifact_workspace", columnList = "workspace_id"))
+@Table(name = "artifact_conversation", indexes = @Index(name = "idx_artifact_conversation_workspace", columnList = "workspace_id"))
 public class ArtifactEntity
         extends AssignedIdEntity<String>
 {
@@ -40,31 +36,26 @@ public class ArtifactEntity
     @Column(name = "workspace_id", nullable = false)
     private String workspaceId;
 
-    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private Artifact.State state;
+    private boolean working;
 
     @Column(nullable = false, columnDefinition = "TEXT")
     @Convert(converter = ArtifactConverter.class)
     private Artifact value;
-
-    @Column(columnDefinition = "TEXT")
-    private String html;
 
     protected ArtifactEntity() {}
 
     public ArtifactEntity(Artifact artifact)
     {
         id = artifact.id();
-        update(artifact, Optional.empty());
+        update(artifact);
     }
 
-    public void update(Artifact artifact, Optional<String> page)
+    public void update(Artifact artifact)
     {
         workspaceId = artifact.workspaceId();
-        state = artifact.state();
+        working = artifact.working();
         value = artifact;
-        page.ifPresent(text -> html = text);
     }
 
     public Artifact toDomain()

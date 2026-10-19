@@ -14,7 +14,9 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.artifact.ArtifactService;
+import com.bytequay.app.artifact.ArtifactView;
 import com.bytequay.core.domain.Artifact;
+import com.bytequay.core.domain.ArtifactItem;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -34,53 +36,59 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 class TestArtifactController
 {
-    private static final Artifact ASKED = Artifact.asked("a1", "workspace", "Teach me delete files", Instant.parse("2026-10-19T10:00:00Z"));
+    private static final Instant NOW = Instant.parse("2026-10-19T10:00:00Z");
+    private static final Artifact ARTIFACT = Artifact.started("a1", "workspace", "Teach me position deletes", NOW).working(true, NOW);
+    private static final ArtifactView VIEW = new ArtifactView(ARTIFACT,
+            ImmutableList.of(ArtifactItem.of("a1", ArtifactItem.Kind.USER, "Teach me position deletes", NOW)), ImmutableList.of());
 
     private final ArtifactService artifacts = mock(ArtifactService.class);
     private final MockMvc mvc = standaloneSetup(new ArtifactController(artifacts)).build();
 
     @Test
-    void listsRecordsWithoutPages()
+    void listsConversationsAndShowsOneWithItsItems()
             throws Exception
     {
-        when(artifacts.list("workspace")).thenReturn(ImmutableList.of(ASKED));
+        when(artifacts.list("workspace")).thenReturn(ImmutableList.of(ARTIFACT));
+        when(artifacts.view("workspace", "a1")).thenReturn(VIEW);
         mvc.perform(get("/api/workspaces/workspace/artifacts"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value("a1"))
-                .andExpect(jsonPath("$[0].state").value("WRITING"))
-                .andExpect(jsonPath("$[0].ask").value("Teach me delete files"))
-                .andExpect(jsonPath("$[0].html").doesNotExist());
+                .andExpect(jsonPath("$[0].working").value(true));
+        mvc.perform(get("/api/workspaces/workspace/artifacts/a1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.artifact.title").value("Teach me position deletes"))
+                .andExpect(jsonPath("$.items[0].kind").value("USER"))
+                .andExpect(jsonPath("$.pages").isEmpty());
     }
 
     @Test
-    void readsAPageOnlyOnceWritten()
+    void readsAPageVersionOnlyWhileItExists()
             throws Exception
     {
-        when(artifacts.page("workspace", "a1")).thenReturn(Optional.of("<p>Readers merge deletes.</p>"));
-        when(artifacts.page("workspace", "a2")).thenReturn(Optional.empty());
-        mvc.perform(get("/api/workspaces/workspace/artifacts/a1"))
+        when(artifacts.pageHtml("workspace", "a1", "v1")).thenReturn(Optional.of("<p>Readers merge deletes.</p>"));
+        when(artifacts.pageHtml("workspace", "a1", "gone")).thenReturn(Optional.empty());
+        mvc.perform(get("/api/workspaces/workspace/artifacts/a1/pages/v1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.html").value("<p>Readers merge deletes.</p>"));
-        mvc.perform(get("/api/workspaces/workspace/artifacts/a2"))
+        mvc.perform(get("/api/workspaces/workspace/artifacts/a1/pages/gone"))
                 .andExpect(status().isNotFound());
     }
 
     @Test
-    void asksChangesStopsAndAnswersCards()
+    void startsSendsAnswersOffersAndStops()
             throws Exception
     {
-        when(artifacts.ask("workspace", "Teach me delete files")).thenReturn(ASKED);
-        mvc.perform(post("/api/workspaces/workspace/artifacts").contentType(MediaType.APPLICATION_JSON).content("{\"ask\":\"Teach me delete files\"}"))
+        when(artifacts.start("workspace", "Teach me position deletes")).thenReturn(VIEW);
+        mvc.perform(post("/api/workspaces/workspace/artifacts").contentType(MediaType.APPLICATION_JSON).content("{\"text\":\"Teach me position deletes\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value("a1"));
-        mvc.perform(post("/api/workspaces/workspace/artifacts/a1/change").contentType(MediaType.APPLICATION_JSON).content("{\"ask\":\"Simpler diagram\"}"))
+                .andExpect(jsonPath("$.artifact.id").value("a1"));
+        mvc.perform(post("/api/workspaces/workspace/artifacts/a1/messages").contentType(MediaType.APPLICATION_JSON).content("{\"text\":\"The read path\"}"))
                 .andExpect(status().isOk());
-        verify(artifacts).change("workspace", "a1", "Simpler diagram");
+        verify(artifacts).send("workspace", "a1", "The read path");
+        mvc.perform(post("/api/workspaces/workspace/artifacts/a1/offers/i3").contentType(MediaType.APPLICATION_JSON).content("{\"accept\":true}"))
+                .andExpect(status().isOk());
+        verify(artifacts).answerOffer("workspace", "a1", "i3", true);
         mvc.perform(post("/api/workspaces/workspace/artifacts/a1/stop")).andExpect(status().isOk());
         verify(artifacts).stop("workspace", "a1");
-        mvc.perform(post("/api/workspaces/workspace/artifacts/a1/next/c1/write")).andExpect(status().isOk());
-        verify(artifacts).writeNext("workspace", "a1", "c1");
-        mvc.perform(post("/api/workspaces/workspace/artifacts/a1/next/c1/dismiss")).andExpect(status().isOk());
-        verify(artifacts).dismissNext("workspace", "a1", "c1");
     }
 }

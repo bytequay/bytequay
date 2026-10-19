@@ -19,6 +19,7 @@ import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
@@ -27,6 +28,9 @@ import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderAgentEventSource;
+import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.agent.AgentProperties;
@@ -38,7 +42,8 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.Artifact;
-import com.bytequay.core.domain.ArtifactNext;
+import com.bytequay.core.domain.ArtifactItem;
+import com.bytequay.core.domain.ArtifactPage;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -65,6 +70,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
+import static com.bytequay.core.domain.ArtifactItem.Kind.ACTIVITY;
+import static com.bytequay.core.domain.ArtifactItem.Kind.FAILURE;
+import static com.bytequay.core.domain.ArtifactItem.Kind.OFFER;
+import static com.bytequay.core.domain.ArtifactItem.Kind.PAGE;
+import static com.bytequay.core.domain.ArtifactItem.Kind.REPLY;
+import static com.bytequay.core.domain.ArtifactItem.Kind.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
@@ -77,7 +88,9 @@ class TestArtifactService
 {
     private static final AgentLaneId LANE = new AgentLaneId("claude");
     private static final String WORKSPACE = "ws1";
-    private static final String PAGE = "<!doctype html><link rel=\"stylesheet\" href=\"theme.css\"><h1>Delete files</h1>";
+    private static final String PAGE_HTML = "<!doctype html><link rel=\"stylesheet\" href=\"theme.css\"><h1>Deletes on read</h1>";
+    private static final ProviderAgentEventSource CHILD =
+            new ProviderAgentEventSource(Optional.empty(), Optional.of("parent"), Optional.empty(), Optional.empty(), Optional.empty());
 
     @TempDir
     private Path temporaryDirectory;
@@ -93,14 +106,34 @@ class TestArtifactService
     private final ContextBuildService builds = mock(ContextBuildService.class);
     private final GitCommandRunner git = new GitCommandRunner();
     private final List<AgentSessionContext> opened = new CopyOnWriteArrayList<>();
+    private final List<AgentEventSink> sinks = new CopyOnWriteArrayList<>();
     private final List<String> prompts = new CopyOnWriteArrayList<>();
     private final List<RunningTurn> turns = new CopyOnWriteArrayList<>();
-    // What the agent does in each turn, in order; past the queue it saves PAGE and finishes.
-    private final Queue<Function<AgentSessionContext, CompletableFuture<AgentTurnResult>>> agent = new ConcurrentLinkedQueue<>();
+    // What the agent does in each turn, in order; past the queue it only finishes.
+    private final Queue<Function<Turn, CompletableFuture<AgentTurnResult>>> agent = new ConcurrentLinkedQueue<>();
     private final AtomicBoolean conversationLost = new AtomicBoolean();
     private Path runtime;
     private String commit;
     private ArtifactService artifacts;
+
+    /** What the fake agent has in a turn: its session's tools and the sink its events go to. */
+    private record Turn(AgentSessionContext context, AgentEventSink events)
+    {
+        void say(String text)
+        {
+            events.emit(new ProviderAgentEvent.Message(Optional.empty(), ProviderAgentEvent.MessagePhase.FINAL, text, ProviderAgentEventSource.root()));
+        }
+
+        void read(String file)
+        {
+            events.emit(new ProviderAgentEvent.Tool(Optional.empty(), "Read", ProviderAgentEvent.ActivityState.COMPLETED, file, ProviderAgentEventSource.root()));
+        }
+
+        String call(String name, String arguments)
+        {
+            return context.sessionTools().stream().filter(tool -> tool.name().equals(name)).findFirst().map(ReviewTool::call).orElseThrow().apply(arguments);
+        }
+    }
 
     @BeforeEach
     void setUp()
@@ -132,14 +165,15 @@ class TestArtifactService
                 throw new AgentUnavailableException("Codex App Server thread/resume failed: no rollout found for thread");
             }
             opened.add(context);
+            sinks.add(call.getArgument(1));
             return session;
         });
         when(session.reference()).thenAnswer(call -> new AgentSessionRef(LANE, 1, "session-" + opened.size()));
         when(session.start(any())).thenAnswer(call -> {
             prompts.add(call.<AgentTurnCommand>getArgument(0).message());
             RunningTurn turn = mock(RunningTurn.class);
-            CompletableFuture<AgentTurnResult> result = Optional.ofNullable(agent.poll()).orElse(TestArtifactService::savesThePage).apply(opened.getLast());
-            when(turn.completion()).thenReturn(result);
+            Turn seen = new Turn(opened.getLast(), sinks.getLast());
+            when(turn.completion()).thenReturn(Optional.ofNullable(agent.poll()).orElse(ignored -> completed()).apply(seen));
             turns.add(turn);
             return turn;
         });
@@ -156,133 +190,156 @@ class TestArtifactService
     }
 
     @Test
-    void writesAPageReadOnlyInTheWorkspaceCheckoutAndContinuesItsConversation()
+    void talksThenOffersThenMakesThePageBesideTheChat()
     {
-        Artifact asked = artifacts.ask(WORKSPACE, "Teach me how Iceberg deletes rows");
-        assertThat(asked.state()).isEqualTo(Artifact.State.WRITING);
-        assertThat(asked.title()).isEqualTo("Teach me how Iceberg deletes rows");
-        Artifact ready = waitUntilEnded(asked.id());
+        agent.add(turn -> {
+            turn.read("IcebergPageSourceProvider.java");
+            turn.read("DeleteManager.java");
+            turn.events().emit(new ProviderAgentEvent.Message(Optional.empty(), ProviderAgentEvent.MessagePhase.FINAL, "a child's notes", CHILD));
+            turn.say("They are applied per data file at scan time. The read path or the write path?");
+            return completed();
+        });
+        ArtifactView started = artifacts.start(WORKSPACE, "Teach me how Iceberg position deletes work");
+        assertThat(started.artifact().working()).isTrue();
+        assertThat(started.items()).extracting(ArtifactItem::kind).containsExactly(USER);
+        String id = started.artifact().id();
+        ArtifactView answered = waitUntilAnswered(id);
 
-        assertThat(ready.state()).isEqualTo(Artifact.State.READY);
-        assertThat(ready.title()).isEqualTo("Delete files");
-        assertThat(ready.commit()).contains(commit);
-        assertThat(ready.session().orElseThrow().laneId()).isEqualTo("claude");
-        assertThat(artifacts.page(WORKSPACE, asked.id())).contains(PAGE);
+        assertThat(answered.items()).extracting(ArtifactItem::kind, ArtifactItem::text).containsExactly(
+                tuple(USER, "Teach me how Iceberg position deletes work"),
+                tuple(ACTIVITY, "DeleteManager.java · 2 steps"),
+                tuple(REPLY, "They are applied per data file at scan time. The read path or the write path?"));
         AgentSessionContext first = opened.getFirst();
         assertThat(first.access()).isEqualTo(SessionAccess.READ_ONLY);
         assertThat(first.worktree()).isEqualTo(runtime.resolve("artifacts").resolve(WORKSPACE));
-        assertThat(first.worktree().resolve("Deletes.java")).exists();
         assertThat(first.scratchWorktree()).isTrue();
-        assertThat(first.sessionTools()).singleElement().satisfies(tool -> {
-            assertThat(tool.name()).isEqualTo("artifact_save");
-            assertThat(tool.childCallable()).isFalse();
+        assertThat(first.sessionTools()).extracting(ReviewTool::name, ReviewTool::childCallable)
+                .containsExactly(tuple("artifact_offer", false), tuple("artifact_save", false));
+        assertThat(prompts.getFirst()).contains("main at commit " + commit, "Teach me how Iceberg position deletes work").doesNotContain("Earlier in this conversation");
+
+        agent.add(turn -> {
+            turn.say("Then the read path it is.");
+            assertThat(turn.call("artifact_offer", "{\"title\":\"Deletes on read\",\"covers\":\"How a scan skips deleted rows.\"}")).startsWith("Offered");
+            return completed();
         });
-        assertThat(prompts.getFirst()).contains("main at commit " + commit, "Teach me how Iceberg deletes rows").doesNotContain("<page>");
-
-        artifacts.change(WORKSPACE, asked.id(), "Make the diagram simpler");
-        Artifact changed = waitUntilEnded(asked.id());
-
-        assertThat(changed.state()).isEqualTo(Artifact.State.READY);
-        assertThat(changed.ask()).isEqualTo("Make the diagram simpler");
-        // The same conversation goes on, so the agent is not sent the page it wrote.
+        artifacts.send(WORKSPACE, id, "The read path, please");
+        ArtifactView offered = waitUntilAnswered(id);
+        ArtifactItem offer = offered.items().getLast();
+        assertThat(offer.kind()).isEqualTo(OFFER);
+        assertThat(offer.offer().orElseThrow()).isEqualTo(new ArtifactItem.Offer("Deletes on read", "How a scan skips deleted rows.", ArtifactItem.Offer.State.SHOWN));
+        // The conversation goes on in the same session rather than starting over.
         assertThat(opened.getLast().sessionReference().orElseThrow().providerValue()).isEqualTo("session-1");
-        assertThat(prompts.getLast()).contains("Make the diagram simpler").doesNotContain("<page>");
+
+        agent.add(turn -> {
+            assertThat(turn.call("artifact_save", "{\"title\":\"Deletes on read\",\"html\":" + quoted(PAGE_HTML) + "}")).startsWith("Saved page p1 version 1");
+            turn.say("Here is the page.");
+            return completed();
+        });
+        artifacts.answerOffer(WORKSPACE, id, offer.id(), true);
+        ArtifactView made = waitUntilAnswered(id);
+        assertThat(prompts.getLast()).contains(ArtifactService.MAKE_THE_PAGE);
+        assertThat(made.items().stream().filter(item -> item.kind() == OFFER).findFirst().orElseThrow().offer().orElseThrow().state())
+                .isEqualTo(ArtifactItem.Offer.State.ACCEPTED);
+        assertThat(made.pages()).extracting(ArtifactPage::key, ArtifactPage::version, ArtifactPage::commit).containsExactly(tuple("p1", 1, commit));
+        assertThat(made.artifact().title()).isEqualTo("Deletes on read");
+        assertThat(made.items()).extracting(ArtifactItem::kind).endsWith(USER, PAGE, REPLY);
+        assertThat(artifacts.pageHtml(WORKSPACE, id, made.pages().getFirst().id())).contains(PAGE_HTML);
+
+        agent.add(turn -> {
+            assertThat(turn.call("artifact_save", "{\"title\":\"Deletes on read\",\"html\":" + quoted(PAGE_HTML) + ",\"page\":\"p1\"}")).startsWith("Saved page p1 version 2");
+            assertThat(turn.call("artifact_save", "{\"title\":\"Nope\",\"html\":" + quoted(PAGE_HTML) + ",\"page\":\"p7\"}")).contains("there is no page p7");
+            return completed();
+        });
+        artifacts.send(WORKSPACE, id, "Make the diagram simpler");
+        ArtifactView changed = waitUntilAnswered(id);
+        assertThat(changed.pages()).extracting(ArtifactPage::key, ArtifactPage::version).containsExactly(tuple("p1", 1), tuple("p1", 2));
+        // No reply event came, so the turn's final answer is the reply.
+        assertThat(changed.items().getLast()).extracting(ArtifactItem::kind, ArtifactItem::text).containsExactly(REPLY, "Here is what I found.");
     }
 
     @Test
-    void aLostConversationGoesOnFreshWithTheCurrentPage()
+    void aLostConversationGoesOnFreshWithItsHistoryAndPages()
     {
-        String id = artifacts.ask(WORKSPACE, "Teach me delete files").id();
-        waitUntilEnded(id);
+        agent.add(turn -> {
+            turn.call("artifact_save", "{\"title\":\"Deletes on read\",\"html\":" + quoted(PAGE_HTML) + "}");
+            return completed();
+        });
+        String id = artifacts.start(WORKSPACE, "Make a page about position deletes").artifact().id();
+        waitUntilAnswered(id);
         conversationLost.set(true);
 
-        artifacts.change(WORKSPACE, id, "Add a quiz");
-        Artifact changed = waitUntilEnded(id);
+        artifacts.send(WORKSPACE, id, "Add a quiz");
+        ArtifactView answered = waitUntilAnswered(id);
 
-        assertThat(changed.state()).isEqualTo(Artifact.State.READY);
         assertThat(opened.getLast().sessionReference()).isEmpty();
-        assertThat(prompts.getLast()).contains("<page>\n" + PAGE + "\n</page>", "Add a quiz");
+        assertThat(prompts.getLast()).contains("Earlier in this conversation", "[user] Make a page about position deletes", "[you saved] Deletes on read · v1",
+                "Your page p1, version 1", "<page>\n" + PAGE_HTML + "\n</page>", "The user's message:\nAdd a quiz");
+        assertThat(answered.items().getLast().kind()).isEqualTo(REPLY);
     }
 
     @Test
-    void writesOnePageAtATimeInAWorkspaceAndStopKeepsNoHalfPage()
+    void answersOneConversationAtATimeInAWorkspaceAndStopKeepsWhatWasSaid()
     {
         CompletableFuture<AgentTurnResult> pending = new CompletableFuture<>();
-        agent.add(context -> pending);
-        String id = artifacts.ask(WORKSPACE, "Teach me delete files").id();
+        agent.add(turn -> {
+            turn.say("Looking at the read path.");
+            return pending;
+        });
+        String id = artifacts.start(WORKSPACE, "Teach me position deletes").artifact().id();
         waitUntil(() -> !turns.isEmpty());
 
-        assertThatThrownBy(() -> artifacts.ask(WORKSPACE, "Explain snapshots"))
-                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Wait for “Teach me delete files” to finish");
+        assertThatThrownBy(() -> artifacts.start(WORKSPACE, "Explain snapshots"))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Wait for “Teach me position deletes” to finish");
 
         artifacts.stop(WORKSPACE, id);
         verify(turns.getFirst()).cancel();
         pending.complete(new AgentTurnResult(AgentTurnResult.State.CANCELLED, Optional.empty(), Optional.of("Cancelled"), Duration.ofSeconds(1), true));
-        Artifact stopped = waitUntilEnded(id);
+        ArtifactView stopped = waitUntilAnswered(id);
 
-        assertThat(stopped.state()).isEqualTo(Artifact.State.FAILED);
-        assertThat(stopped.failure()).contains("Stopped");
-        assertThat(artifacts.page(WORKSPACE, id)).isEmpty();
-        // The slot is free again.
-        waitUntilEnded(artifacts.ask(WORKSPACE, "Explain snapshots").id());
+        assertThat(stopped.items()).extracting(ArtifactItem::kind, ArtifactItem::text).endsWith(tuple(REPLY, "Looking at the read path."), tuple(FAILURE, "Stopped"));
+        waitUntilAnswered(artifacts.start(WORKSPACE, "Explain snapshots").artifact().id());
     }
 
     @Test
-    void aWriteThatEndsWithoutSavingFailsWithAReason()
+    void aFailedTurnSaysWhyAndAnOfferCanWait()
     {
-        agent.add(context -> CompletableFuture.completedFuture(completed()));
-        Artifact failed = waitUntilEnded(artifacts.ask(WORKSPACE, "Teach me delete files").id());
-
-        assertThat(failed.state()).isEqualTo(Artifact.State.FAILED);
-        assertThat(failed.failure()).contains("The agent finished without saving a page");
-    }
-
-    @Test
-    void nextCardsStartTheirPageOrGoAway()
-    {
-        agent.add(context -> {
-            save(context, "{\"title\":\"Delete files\",\"html\":" + quoted(PAGE) + ",\"next\":[{\"title\":\"Equality deletes\",\"ask\":\"Explain equality deletes\"},"
-                    + "{\"title\":\"Position deletes\",\"ask\":\"Explain position deletes\"}]}");
-            return CompletableFuture.completedFuture(completed());
+        agent.add(turn -> {
+            turn.call("artifact_offer", "{\"title\":\"Deletes on read\",\"covers\":\"How a scan skips deleted rows.\"}");
+            return CompletableFuture.completedFuture(new AgentTurnResult(AgentTurnResult.State.INTERRUPTED, Optional.empty(), Optional.of("Claude turn timed out"),
+                    Duration.ofMinutes(20), true));
         });
-        String id = artifacts.ask(WORKSPACE, "Teach me delete files").id();
-        List<ArtifactNext> cards = waitUntilEnded(id).next();
-        assertThat(cards).extracting(ArtifactNext::title).containsExactly("Equality deletes", "Position deletes");
+        String id = artifacts.start(WORKSPACE, "Teach me position deletes").artifact().id();
+        ArtifactView failed = waitUntilAnswered(id);
+        assertThat(failed.items().getLast()).extracting(ArtifactItem::kind, ArtifactItem::text).containsExactly(FAILURE, "Claude turn timed out");
 
-        Artifact written = artifacts.writeNext(WORKSPACE, id, cards.getFirst().id());
-        assertThat(written.ask()).isEqualTo("Explain equality deletes");
-        waitUntilEnded(written.id());
-        artifacts.dismissNext(WORKSPACE, id, cards.getLast().id());
-
-        assertThat(store.find(WORKSPACE, id).orElseThrow().next()).extracting(ArtifactNext::state, ArtifactNext::artifactId)
-                .containsExactly(tuple(ArtifactNext.State.WRITTEN, Optional.of(written.id())), tuple(ArtifactNext.State.DISMISSED, Optional.empty()));
-        assertThatThrownBy(() -> artifacts.dismissNext(WORKSPACE, id, cards.getLast().id())).isInstanceOf(IllegalArgumentException.class);
+        ArtifactItem offer = failed.items().stream().filter(item -> item.kind() == OFFER).findFirst().orElseThrow();
+        ArtifactView dismissed = artifacts.answerOffer(WORKSPACE, id, offer.id(), false);
+        assertThat(dismissed.items().stream().filter(item -> item.kind() == OFFER).findFirst().orElseThrow().offer().orElseThrow().state())
+                .isEqualTo(ArtifactItem.Offer.State.DISMISSED);
+        assertThatThrownBy(() -> artifacts.answerOffer(WORKSPACE, id, offer.id(), true)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(dismissed.artifact().working()).isFalse();
     }
 
     @Test
-    void startupFailsWritesARestartCutShortAndDeletionRemovesPagesAndCheckout()
+    void startupEndsTurnsARestartCutShortAndDeletionRemovesConversationsAndCheckout()
     {
-        String id = artifacts.ask(WORKSPACE, "Teach me delete files").id();
-        waitUntilEnded(id);
-        store.save(Artifact.asked("cut", WORKSPACE, "Explain snapshots", Instant.now()));
+        String id = artifacts.start(WORKSPACE, "Teach me position deletes").artifact().id();
+        waitUntilAnswered(id);
+        store.save(Artifact.started("cut", WORKSPACE, "Explain snapshots", Instant.now()).working(true, Instant.now()));
 
         artifacts.settleInterrupted();
-        assertThat(store.find(WORKSPACE, "cut").orElseThrow().failure()).contains("Stopped when ByteQuay closed");
+        assertThat(artifacts.view(WORKSPACE, "cut").artifact().working()).isFalse();
+        assertThat(artifacts.view(WORKSPACE, "cut").items()).extracting(ArtifactItem::text).containsExactly("Stopped when ByteQuay closed");
 
         artifacts.deleteWorkspaceData(WORKSPACE);
         assertThat(artifacts.list(WORKSPACE)).isEmpty();
         assertThat(runtime.resolve("artifacts").resolve(WORKSPACE)).doesNotExist();
     }
 
-    private static CompletableFuture<AgentTurnResult> savesThePage(AgentSessionContext context)
+    private static CompletableFuture<AgentTurnResult> completed()
     {
-        save(context, "{\"title\":\"Delete files\",\"html\":" + quoted(PAGE) + "}");
-        return CompletableFuture.completedFuture(completed());
-    }
-
-    private static void save(AgentSessionContext context, String arguments)
-    {
-        assertThat(context.sessionTools().getFirst().call().apply(arguments)).startsWith("Saved");
+        return CompletableFuture.completedFuture(new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("Here is what I found."), Optional.empty(),
+                Duration.ofSeconds(1), true));
     }
 
     private static String quoted(String text)
@@ -295,15 +352,10 @@ class TestArtifactService
         }
     }
 
-    private static AgentTurnResult completed()
+    private ArtifactView waitUntilAnswered(String id)
     {
-        return new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("A page on delete files."), Optional.empty(), Duration.ofSeconds(1), true);
-    }
-
-    private Artifact waitUntilEnded(String id)
-    {
-        waitUntil(() -> store.find(WORKSPACE, id).filter(artifact -> artifact.state() != Artifact.State.WRITING).isPresent());
-        return store.find(WORKSPACE, id).orElseThrow();
+        waitUntil(() -> !artifacts.view(WORKSPACE, id).artifact().working());
+        return artifacts.view(WORKSPACE, id);
     }
 
     private static void waitUntil(BooleanSupplier condition)

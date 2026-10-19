@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.artifact.ArtifactService;
+import com.bytequay.app.artifact.ArtifactView;
 import com.bytequay.core.domain.Artifact;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -45,28 +46,33 @@ public class ArtifactController
         return artifacts.list(workspaceId);
     }
 
-    @GetMapping("/{artifactId}")
-    public Page page(@PathVariable String workspaceId, @PathVariable String artifactId)
-    {
-        return artifacts.page(workspaceId, artifactId).map(Page::new)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "This page is not written yet"));
-    }
-
-    public record Page(String html) {}
-
     @PostMapping
-    public Artifact ask(@PathVariable String workspaceId, @RequestBody Ask request)
+    public ArtifactView start(@PathVariable String workspaceId, @RequestBody Message request)
     {
-        return artifacts.ask(workspaceId, request.ask());
+        return artifacts.start(workspaceId, request.text());
     }
 
-    @PostMapping("/{artifactId}/change")
-    public Artifact change(@PathVariable String workspaceId, @PathVariable String artifactId, @RequestBody Ask request)
+    @GetMapping("/{artifactId}")
+    public ArtifactView view(@PathVariable String workspaceId, @PathVariable String artifactId)
     {
-        return artifacts.change(workspaceId, artifactId, request.ask());
+        return artifacts.view(workspaceId, artifactId);
     }
 
-    public record Ask(String ask) {}
+    @PostMapping("/{artifactId}/messages")
+    public ArtifactView send(@PathVariable String workspaceId, @PathVariable String artifactId, @RequestBody Message request)
+    {
+        return artifacts.send(workspaceId, artifactId, request.text());
+    }
+
+    public record Message(String text) {}
+
+    @PostMapping("/{artifactId}/offers/{itemId}")
+    public ArtifactView answerOffer(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String itemId, @RequestBody OfferAnswer request)
+    {
+        return artifacts.answerOffer(workspaceId, artifactId, itemId, request.accept());
+    }
+
+    public record OfferAnswer(boolean accept) {}
 
     @PostMapping("/{artifactId}/stop")
     public void stop(@PathVariable String workspaceId, @PathVariable String artifactId)
@@ -74,15 +80,12 @@ public class ArtifactController
         artifacts.stop(workspaceId, artifactId);
     }
 
-    @PostMapping("/{artifactId}/next/{cardId}/write")
-    public Artifact writeNext(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String cardId)
+    @GetMapping("/{artifactId}/pages/{pageId}")
+    public Page page(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String pageId)
     {
-        return artifacts.writeNext(workspaceId, artifactId, cardId);
+        return artifacts.pageHtml(workspaceId, artifactId, pageId).map(Page::new)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "This page no longer exists"));
     }
 
-    @PostMapping("/{artifactId}/next/{cardId}/dismiss")
-    public Artifact dismissNext(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String cardId)
-    {
-        return artifacts.dismissNext(workspaceId, artifactId, cardId);
-    }
+    public record Page(String html) {}
 }

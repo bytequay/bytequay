@@ -14,9 +14,15 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.Artifact;
+import com.bytequay.core.domain.ArtifactItem;
+import com.bytequay.core.domain.ArtifactPage;
 import com.bytequay.core.store.ArtifactStore;
 import com.bytequay.persistence.sqlite.entity.ArtifactEntity;
+import com.bytequay.persistence.sqlite.entity.ArtifactItemEntity;
+import com.bytequay.persistence.sqlite.entity.ArtifactPageEntity;
+import com.bytequay.persistence.sqlite.repository.ArtifactItemJpaRepository;
 import com.bytequay.persistence.sqlite.repository.ArtifactJpaRepository;
+import com.bytequay.persistence.sqlite.repository.ArtifactPageJpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,10 +38,14 @@ public class SqliteArtifactStore
         implements ArtifactStore
 {
     private final ArtifactJpaRepository artifacts;
+    private final ArtifactItemJpaRepository items;
+    private final ArtifactPageJpaRepository pages;
 
-    public SqliteArtifactStore(ArtifactJpaRepository artifacts)
+    public SqliteArtifactStore(ArtifactJpaRepository artifacts, ArtifactItemJpaRepository items, ArtifactPageJpaRepository pages)
     {
         this.artifacts = requireNonNull(artifacts, "artifacts is null");
+        this.items = requireNonNull(items, "items is null");
+        this.pages = requireNonNull(pages, "pages is null");
     }
 
     @Override
@@ -49,6 +59,7 @@ public class SqliteArtifactStore
     @Transactional(readOnly = true)
     public List<Artifact> list(String workspaceId)
     {
+        // Sorted here: ISO-8601 text with varying fraction digits does not sort by time in SQL.
         return artifacts.records(workspaceId).stream()
                 .sorted(Comparator.comparing(Artifact::updatedAt).reversed())
                 .collect(toImmutableList());
@@ -56,43 +67,70 @@ public class SqliteArtifactStore
 
     @Override
     @Transactional(readOnly = true)
-    public List<Artifact> writing()
+    public List<Artifact> working()
     {
-        return artifacts.inState(Artifact.State.WRITING);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public Optional<String> page(String workspaceId, String id)
-    {
-        return artifacts.page(id, workspaceId);
+        return artifacts.working();
     }
 
     @Override
     @Transactional
     public void save(Artifact artifact)
     {
-        save(artifact, Optional.empty());
+        ArtifactEntity entity = artifacts.findById(artifact.id()).orElseGet(() -> new ArtifactEntity(artifact));
+        entity.update(artifact);
+        artifacts.save(entity);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ArtifactItem> items(String workspaceId, String artifactId)
+    {
+        return items.items(workspaceId, artifactId);
     }
 
     @Override
     @Transactional
-    public void save(Artifact artifact, String page)
+    public void add(String workspaceId, ArtifactItem item)
     {
-        save(artifact, Optional.of(page));
+        items.save(new ArtifactItemEntity(workspaceId, item, items.countByArtifactId(item.artifactId())));
     }
 
-    private void save(Artifact artifact, Optional<String> page)
+    @Override
+    @Transactional
+    public void update(ArtifactItem item)
     {
-        ArtifactEntity entity = artifacts.findById(artifact.id()).orElseGet(() -> new ArtifactEntity(artifact));
-        entity.update(artifact, page);
-        artifacts.save(entity);
+        ArtifactItemEntity entity = items.findById(item.id()).orElseThrow(() -> new IllegalArgumentException("Unknown artifact item"));
+        entity.update(item);
+        items.save(entity);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ArtifactPage> pages(String workspaceId, String artifactId)
+    {
+        return pages.pages(workspaceId, artifactId);
+    }
+
+    @Override
+    @Transactional
+    public void savePage(String workspaceId, ArtifactPage page, String html)
+    {
+        pages.save(new ArtifactPageEntity(workspaceId, page, html, pages.countByArtifactId(page.artifactId())));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<String> pageHtml(String workspaceId, String artifactId, String pageId)
+    {
+        return pages.html(workspaceId, artifactId, pageId);
     }
 
     @Override
     @Transactional
     public void deleteWorkspace(String workspaceId)
     {
+        items.deleteWorkspace(workspaceId);
+        pages.deleteWorkspace(workspaceId);
         artifacts.deleteWorkspace(workspaceId);
     }
 }

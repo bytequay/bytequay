@@ -14,6 +14,8 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.Artifact;
+import com.bytequay.core.domain.ArtifactItem;
+import com.bytequay.core.domain.ArtifactPage;
 
 import java.util.List;
 import java.util.Optional;
@@ -22,20 +24,29 @@ public interface ArtifactStore
 {
     Optional<Artifact> find(String workspaceId, String id);
 
-    /** Newest change first; pages stay out so a long list reads only the records. */
+    /** Newest change first. */
     List<Artifact> list(String workspaceId);
 
-    /** Every artifact still marked as being written, in any workspace. */
-    List<Artifact> writing();
+    /** Every conversation still marked as answering, in any workspace. */
+    List<Artifact> working();
 
-    /** The saved page; absent until the writer first saves one. */
-    Optional<String> page(String workspaceId, String id);
-
-    /** Saves the record and keeps its page. */
     void save(Artifact artifact);
 
-    /** Saves the record with a new page. */
-    void save(Artifact artifact, String page);
+    /** The conversation's items in the order they were added. */
+    List<ArtifactItem> items(String workspaceId, String artifactId);
+
+    /** Appends the item after the conversation's last one. */
+    void add(String workspaceId, ArtifactItem item);
+
+    /** Replaces an item in place, such as a growing activity line or an answered offer. */
+    void update(ArtifactItem item);
+
+    /** The conversation's saved page versions, oldest first; pages stay out. */
+    List<ArtifactPage> pages(String workspaceId, String artifactId);
+
+    void savePage(String workspaceId, ArtifactPage page, String html);
+
+    Optional<String> pageHtml(String workspaceId, String artifactId, String pageId);
 
     void deleteWorkspace(String workspaceId);
 }

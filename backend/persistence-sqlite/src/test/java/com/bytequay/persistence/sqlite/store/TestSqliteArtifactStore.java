@@ -15,10 +15,9 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.Artifact;
-import com.bytequay.core.domain.ArtifactNext;
+import com.bytequay.core.domain.ArtifactItem;
+import com.bytequay.core.domain.ArtifactPage;
 import com.bytequay.core.domain.ArtifactSession;
-import com.bytequay.persistence.sqlite.repository.ArtifactJpaRepository;
-import com.google.common.collect.ImmutableList;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +26,6 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,12 +34,10 @@ class TestSqliteArtifactStore
         extends AbstractTestSqliteStore
 {
     private static final String DATABASE = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-artifact-store-" + UUID.randomUUID() + ".db").toString();
+    private static final Instant AT = Instant.parse("2026-10-19T10:00:00Z");
 
     @Autowired
     private SqliteArtifactStore store;
-
-    @Autowired
-    private ArtifactJpaRepository rows;
 
     @Autowired
     private EntityManager entities;
@@ -53,40 +49,50 @@ class TestSqliteArtifactStore
     }
 
     @Test
-    void keepsPagesApartFromRecordsAndListsNewestChangeFirst()
+    void keepsConversationsItemsInOrderAndPageVersionsApartFromTheirHtml()
     {
         // A whole second and a fraction of it: their text does not sort by time.
-        Artifact older = Artifact.asked("a1", "workspace", "Teach me delete files", Instant.parse("2026-10-19T10:00:00Z"));
-        Artifact newer = Artifact.asked("a2", "workspace", "Explain snapshots", Instant.parse("2026-10-19T10:00:00.500Z"));
-        Artifact elsewhere = Artifact.asked("a3", "other", "Elsewhere", Instant.parse("2026-10-19T11:00:00Z"));
+        Artifact older = Artifact.started("a1", "workspace", "Teach me position deletes", AT).working(true, AT);
+        Artifact newer = Artifact.started("a2", "workspace", "Explain snapshots", AT.plusMillis(500));
+        Artifact elsewhere = Artifact.started("a3", "other", "Elsewhere", AT);
         store.save(older);
         store.save(newer);
         store.save(elsewhere);
+        ArtifactItem asked = ArtifactItem.of("a1", ArtifactItem.Kind.USER, "Teach me position deletes", AT);
+        ArtifactItem read = ArtifactItem.of("a1", ArtifactItem.Kind.ACTIVITY, "DeleteManager.java · 1 step", AT);
+        ArtifactItem offer = ArtifactItem.offered("a1", "Deletes on read", "How a scan skips deleted rows.", AT);
+        store.add("workspace", asked);
+        store.add("workspace", read);
+        store.add("workspace", offer);
+        store.update(read.withText("DeleteManager.java · 2 steps"));
+        store.update(offer.answered(ArtifactItem.Offer.State.ACCEPTED));
+        ArtifactPage first = new ArtifactPage("v1", "a1", "p1", 1, "Deletes on read", "abc123", AT);
+        ArtifactPage second = new ArtifactPage("v2", "a1", "p1", 2, "Deletes on read", "abc123", AT.plusSeconds(60));
+        store.savePage("workspace", first, "<p>one</p>");
+        store.savePage("workspace", second, "<p>two</p>");
         flush();
 
         assertThat(store.list("workspace")).containsExactly(newer, older);
-        assertThat(store.writing()).containsExactlyInAnyOrder(older, newer, elsewhere);
-        assertThat(store.page("workspace", "a1")).isEmpty();
+        assertThat(store.working()).containsExactly(older);
         assertThat(store.find("workspace", "a3")).isEmpty();
+        assertThat(store.items("workspace", "a1")).containsExactly(asked, read.withText("DeleteManager.java · 2 steps"), offer.answered(ArtifactItem.Offer.State.ACCEPTED));
+        assertThat(store.items("other", "a1")).isEmpty();
+        assertThat(store.pages("workspace", "a1")).containsExactly(first, second);
+        assertThat(store.pageHtml("workspace", "a1", "v2")).contains("<p>two</p>");
+        assertThat(store.pageHtml("other", "a1", "v2")).isEmpty();
 
-        ArtifactNext card = new ArtifactNext("c1", "Equality deletes", "Explain equality deletes", ArtifactNext.State.SHOWN, Optional.empty());
-        Artifact saved = older.saved("Delete files", "abc123", ImmutableList.of(card), Instant.parse("2026-10-19T12:00:00Z"));
-        store.save(saved, "<p>Readers merge deletes.</p>");
-        Artifact ready = saved.ended(true, "", Optional.of(new ArtifactSession("claude", new DiscussionSession(1, "session-1"))), Instant.parse("2026-10-19T12:01:00Z"));
-        // Saving the record alone keeps the page.
-        store.save(ready);
+        Artifact ended = older.working(false, AT.plusSeconds(120)).continuing(new ArtifactSession("claude", new DiscussionSession(1, "session-1")), AT.plusSeconds(120));
+        store.save(ended);
         flush();
-
-        assertThat(store.find("workspace", "a1")).contains(ready);
-        assertThat(store.page("workspace", "a1")).contains("<p>Readers merge deletes.</p>");
-        assertThat(store.page("other", "a1")).isEmpty();
-        assertThat(store.list("workspace")).containsExactly(ready, newer);
-        assertThat(store.writing()).containsExactlyInAnyOrder(newer, elsewhere);
+        assertThat(store.find("workspace", "a1")).contains(ended);
+        assertThat(store.working()).isEmpty();
 
         store.deleteWorkspace("workspace");
         flush();
         assertThat(store.list("workspace")).isEmpty();
-        assertThat(rows.count()).isEqualTo(1);
+        assertThat(store.items("workspace", "a1")).isEmpty();
+        assertThat(store.pages("workspace", "a1")).isEmpty();
+        assertThat(store.list("other")).containsExactly(elsewhere);
     }
 
     private void flush()

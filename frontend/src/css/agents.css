@@ -366,7 +366,6 @@
 .agt-pr-chip[aria-pressed="true"] { background: light-dark(#f6f8fa, var(--dark-subtle)); }
 .agt-pr-chip { max-width: 100%; }
 .agt-pr-chip > svg, .agt-pr-chip__number { flex-shrink: 0; }
-.agt-pr-chip__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agt-pr-chip__number { color: var(--fg-subtle); font-weight: 400; }
 
 .agt-pr-chip:focus-visible {

@@ -68,7 +68,7 @@ import PullOverview, { CommentedCodeLine, commentedCodeLines, isQueued, mergePul
 import { remoteErrorMessage } from '../remoteError';
 import PullRequestConflictFiles from './PullRequestConflictFiles';
 import MergeQueueRemoval from './MergeQueueRemoval';
-import { PullRequestStateIcon } from './PullRequestStateIcon';
+import { PullRequestChip } from './PullRequestChip';
 import PullRequestTaskActions from './PullRequestTaskActions';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
 import { PendingReviewComments } from './ReviewDrafts';
@@ -1139,11 +1139,8 @@ export default function PullsScreen({
         </header>
         {detail !== null && review !== null ? <AgentReviewTab detail={detail} workspaceId={workspaceId} viewer={viewer}
           review={review} onReviewChange={updateReview} mode="conversation" localReview={localReview}
-          composerContext={selectedPr === null ? undefined : <button type="button" className="agt-pr-chip" aria-pressed={paneShown && detailTab === 'overview'}
-            title={`#${selectedPr.number} ${selectedPr.title}`} onClick={() => { setDetailTab('overview'); setPaneOpen(true); }}>
-            <PullRequestStateIcon pullRequest={selectedPr} size={16} />
-            PR <span className="agt-pr-chip__number">#{selectedPr.number}</span>
-          </button>}
+          composerContext={selectedPr === null ? undefined : <PullRequestChip pullRequest={selectedPr} pressed={paneShown && detailTab === 'overview'}
+            onClick={() => { setDetailTab('overview'); setPaneOpen(true); }} />}
           conversationPanel={{ tabTarget: agentTabTarget, bodyTarget: agentBodyTarget, active: detailTab === 'agents' || detailTab === 'discussions' ? detailTab : null,
             onSelect: tab => { setDetailTab(tab); setPaneOpen(true); },
             onClose: tab => { if (detailTab === tab) setDetailTab(coveredAgentTab.current); } }}

@@ -667,11 +667,12 @@ describe('agent task side panel', () => {
     const draft = [pullRequest(31105, 'Clean up nits in Delta Lake', 'open', true)];
     const chip = (extra: object = {}) => renderToStaticMarkup(
       <AgentTaskBody state={state} pullRequests={draft} {...extra} {...props} />);
-    // GitHub's own pill on the composer: the state mark, PR, and the number, and nothing dated.
+    // Both task composers show the state mark and number, with the title only on hover.
     const closed = chip();
     expect(closed).toMatch(/<button type="button" class="agt-pr-chip" aria-pressed="false" title="#31105 Clean up nits in Delta Lake">/);
     expect(closed).toContain('agt-pr-icon is-draft');
     expect(closed).toContain('class="agt-pr-chip__number">#31105<');
+    expect(closed).toMatch(/class="agt-pr-chip__number">#31105<\/span><\/button>/);
     expect(closed.indexOf('agt-pr-chip')).toBeLessThan(closed.indexOf('agt-compose__input'));
     expect(closed).not.toContain('Last checked');
     // It reads as pressed only where clicking it folds the panel away again.

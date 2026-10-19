@@ -32,7 +32,7 @@ import { useNoticeSource } from '../notices/useNoticeSource';
 import { privateThreadSource } from '../pulls/PrivateThread';
 import { pullReviewThreads, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import { remoteErrorMessage } from '../remoteError';
-import { PullRequestStateIcon } from '../pulls/PullRequestStateIcon';
+import { PullRequestChip } from '../pulls/PullRequestChip';
 import { carriedPanelTab, PullDetailHeader } from '../pulls/PullsScreen';
 import ReviewCommentIndex from '../pulls/ReviewCommentIndex';
 import { PendingReviewComments } from '../pulls/ReviewDrafts';
@@ -1338,17 +1338,11 @@ export function AgentTaskBody({
       )}
 
       {taskPr !== null && (
-        <button
-          type="button"
-          className="agt-pr-chip"
-          aria-pressed={pullRequestShowing}
-          title={`#${taskPr.number} ${taskPr.title}`}
+        <PullRequestChip
+          pullRequest={taskPr}
+          pressed={pullRequestShowing}
           onClick={() => { if (pullRequestShowing) onTogglePanel(); else showPullRequest(); }}
-        >
-          <PullRequestStateIcon pullRequest={taskPr} size={16} />
-          PR <span className="agt-pr-chip__number">#{taskPr.number}</span>
-          <span className="agt-pr-chip__title">{taskPr.title}</span>
-        </button>
+        />
       )}
 
       {state.task?.jiraSource != null && <JiraSourceAttachment source={state.task.jiraSource} />}

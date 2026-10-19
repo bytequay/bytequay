@@ -108,7 +108,8 @@ public class ArtifactService
               <ol class="steps"><li><strong>Title.</strong> What happens. <span class="cite">path:line</span></li></ol>;
               <div class="card">, or several in <div class="cards">, to compare; for diagrams, <figure><svg>…</svg><figcaption>…</figcaption>
               </figure> drawn with <g class="node"><rect/><text/></g>, <path class="edge"/>, <text class="label"> and markers holding
-              <path class="arrowhead"/>, adding is-accent to stress a part or is-quiet to mute one; and <div class="try-it"> around a small
+              <path class="arrowhead"/>, adding is-accent to stress a part or is-quiet to mute one, and placing text with its x, y and
+              text-anchor attributes, sized so it fits its box; and <div class="try-it"> around a small
               interactive part, with buttons, checkboxes, a <div class="segmented"> of buttons marked aria-pressed, and <output>.
             - Any colour comes from the theme's variables: --bq-fg, --bq-muted, --bq-dim, --bq-page, --bq-surface, --bq-inset, --bq-border,
               --bq-line, --bq-accent, --bq-ok, --bq-danger and --bq-warn; fonts from --bq-sans and --bq-mono. No other colours or fonts:

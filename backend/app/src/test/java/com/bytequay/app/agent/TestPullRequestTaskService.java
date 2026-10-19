@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
@@ -38,6 +39,7 @@ import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -98,13 +100,14 @@ class TestPullRequestTaskService
     private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
+    private final AppSettingsService settings = mock(AppSettingsService.class);
     private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
     private final AgentDriver driver = mock(AgentDriver.class);
     private final GitCommandRunner git = mock(GitCommandRunner.class);
     private final PullRequestDetail detail = mock(PullRequestDetail.class, withSettings().mockMaker(MockMakers.INLINE));
     private final AtomicReference<AgentTask> created = new AtomicReference<>();
     private final PullRequestTaskService service = new PullRequestTaskService(assignments, taskStore, tasks, workspaces, repositories, worktrees,
-            rows, pullRequests, refresh, credentials, models, drivers, git);
+            rows, pullRequests, refresh, credentials, models, settings, drivers, git);
 
     @BeforeEach
     void setUp()
@@ -124,6 +127,7 @@ class TestPullRequestTaskService
         when(pullRequests.findHeadSha("upstream/repo", 7)).thenReturn(Optional.of(HEAD));
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("workspace")))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, false, "codex", "Codex", "model", "Model", Optional.of("high")));
+        when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
         when(drivers.require(AgentLaneId.CODEX_CLI)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(AgentCapabilities.none());
         when(driver.probe()).thenReturn(new AgentProviderStatus(AgentLaneId.CODEX_CLI, AgentProviderStatus.Readiness.READY,
@@ -153,14 +157,17 @@ class TestPullRequestTaskService
         }).when(assignments).insert(any());
     }
 
-    @Test
-    void opensLinkedTaskWithoutStartingAnAgentOrEnablingPublication()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void opensLinkedTaskWithGlobalAutomationWithoutStartingAnAgent(boolean enabled)
     {
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, enabled, enabled, Optional.of(AgentLaneId.CLAUDE_CLI), enabled, enabled);
+        when(settings.developmentAutomation()).thenReturn(automation);
+
         AgentTask task = service.assign("workspace", "Upstream/Repo", 7);
         assertThat(task.taskWorktree().orElseThrow().startCommit()).isEqualTo(HEAD);
         assertThat(task.repository().owner()).isEqualTo("alice");
-        assertThat(task.defaults().developmentAutomation().orElseThrow().autoDraftPr()).isFalse();
-        assertThat(task.defaults().developmentAutomation().orElseThrow().autoCiFix()).isFalse();
+        assertThat(task.defaults().developmentAutomation()).contains(automation);
         verify(git).run(REPOSITORY, ImmutableList.of("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "upstream",
                 "+refs/pull/7/head:refs/bytequay/assigned-pr/7", "+refs/heads/main:refs/remotes/upstream/main"));
         ArgumentCaptor<PullRequestTask> assignment = ArgumentCaptor.forClass(PullRequestTask.class);
@@ -178,8 +185,10 @@ class TestPullRequestTaskService
         AgentTask task = service.assign("workspace", "upstream/repo", 7)
                 .withSessionReference(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "saved-conversation"), Instant.now());
         created.set(task);
+        when(settings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CLAUDE_CLI), true, true));
 
         assertThat(service.assign("workspace", "upstream/repo", 7)).isEqualTo(task);
+        assertThat(created.get().defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
         assertThat(created.get().sessionReference()).contains(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "saved-conversation"));
         verify(tasks, times(1)).createInteractive(any());
         verify(refresh, times(1)).refreshAllDetail("upstream/repo", 7);
@@ -209,6 +218,8 @@ class TestPullRequestTaskService
                 .thenReturn(new GitCommandRunner.Result(0, BASE, false));
         when(pullRequests.findHeadSha("upstream/repo", 7)).thenReturn(Optional.of(currentHead));
         when(detail.body()).thenReturn("Current PR context");
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CLAUDE_CLI), true, true);
+        when(settings.developmentAutomation()).thenReturn(automation);
 
         AgentTask fresh = service.assign("workspace", "upstream/repo", 7);
 
@@ -216,6 +227,7 @@ class TestPullRequestTaskService
         assertThat(fresh.state()).isEqualTo(TaskState.OPEN);
         assertThat(fresh.sessionReference()).isEmpty();
         assertThat(fresh.summary()).isEmpty();
+        assertThat(fresh.defaults().developmentAutomation()).contains(automation);
         assertThat(fresh.taskWorktree().orElseThrow().startCommit()).isEqualTo(currentHead);
         assertThat(assignments.findByTaskId(fresh.id().toString()).orElseThrow().initialContext()).contains(currentHead, "Current PR context");
         assertThat(assignments.findByTaskId(completed.id().toString()).orElseThrow().initialContext()).contains(HEAD, "Why this change matters");

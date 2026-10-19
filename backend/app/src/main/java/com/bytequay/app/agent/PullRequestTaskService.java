@@ -18,7 +18,6 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
-import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
@@ -32,6 +31,7 @@ import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
@@ -72,12 +72,13 @@ public class PullRequestTaskService
     private final PullRequestRefreshService refresh;
     private final CredentialService credentials;
     private final ModelSettingsService models;
+    private final AppSettingsService settings;
     private final AgentDriverRegistry drivers;
     private final GitCommandRunner git;
 
     public PullRequestTaskService(PullRequestTaskStore assignments, AgentTaskStore taskStore, AgentTaskService tasks,
             WorkspaceStore workspaces, WorkspaceRepositoryService repositories, ManagedWorktreeService worktrees, PullRequestStore rows,
-            PullRequestService pullRequests, PullRequestRefreshService refresh, CredentialService credentials, ModelSettingsService models,
+            PullRequestService pullRequests, PullRequestRefreshService refresh, CredentialService credentials, ModelSettingsService models, AppSettingsService settings,
             AgentDriverRegistry drivers, GitCommandRunner git)
     {
         this.assignments = requireNonNull(assignments, "assignments is null");
@@ -91,6 +92,7 @@ public class PullRequestTaskService
         this.refresh = requireNonNull(refresh, "refresh is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.models = requireNonNull(models, "models is null");
+        this.settings = requireNonNull(settings, "settings is null");
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.git = requireNonNull(git, "git is null");
     }
@@ -153,7 +155,7 @@ public class PullRequestTaskService
             String continuation = existing.map(task -> ":after:" + task.id()).orElse("");
             TaskId id = TaskId.valueOf(UUID.nameUUIDFromBytes(("assigned-pr:" + workspaceId + ":" + repository + "#" + number + continuation).getBytes(UTF_8)).toString());
             AgentTaskDefaults defaults = new AgentTaskDefaults(Optional.of(model.model()), model.effort(), AgentPermissionPolicy.AUTO)
-                    .withDevelopmentAutomation(new DevelopmentAutomation(true, false, false, Optional.empty()));
+                    .withDevelopmentAutomation(settings.developmentAutomation());
             String title = detail.title();
             AgentTask task = taskStore.find(id).orElseGet(() -> tasks.createInteractive(new CreateInteractiveAgentTaskCommand(
                     id, workspaceId, lane, WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), head,

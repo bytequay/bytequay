@@ -30,11 +30,15 @@ import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspacePaths;
+import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -43,6 +47,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockMakers;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -57,11 +62,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 class TestDevelopmentGitInspector
 {
@@ -78,6 +88,8 @@ class TestDevelopmentGitInspector
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private final GitHubPullRequestReadClient pullRequests = mock(GitHubPullRequestReadClient.class);
+    private final PullRequestTaskStore assignments = mock(PullRequestTaskStore.class);
+    private final PullRequestService cachedPullRequests = mock(PullRequestService.class);
     private TestGitRunner git;
     private ManagedWorktreeService worktreeService;
     private DevelopmentGitInspector inspector;
@@ -117,7 +129,7 @@ class TestDevelopmentGitInspector
                 taskId, WORKSPACE_ID, RepositoryIdentity.valueOf(REPOSITORY.fullName()), baseSha, TaskBranches.generate(taskId, "user", "Development test")));
         task = AgentTask.created(worktree.taskId(), true, "Development test", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
-        inspector = new DevelopmentGitInspector(worktreeService, workspaces, git, credentials, pullRequests);
+        inspector = new DevelopmentGitInspector(worktreeService, workspaces, git, credentials, pullRequests, assignments, cachedPullRequests);
     }
 
     @Test
@@ -133,6 +145,88 @@ class TestDevelopmentGitInspector
         assertThat(baseline.route().headRepository()).isEqualTo(REPOSITORY);
         assertThat(baseline.route().baseRepository()).isEqualTo(REPOSITORY);
         assertThat(baseline.route().pushUrl()).isEqualTo(ORIGIN);
+        verifyNoInteractions(credentials, pullRequests);
+        assertThat(git.remoteReads).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void assignedPullRequestKeepsItsRemoteHeadAndBaseWhileUsingTheGeneratedLocalBranch(boolean fork)
+            throws IOException
+    {
+        GitHubPullRequestIdentity assigned = assignPullRequest(fork);
+        run(repository, "push", bareRemote.toString(), baseSha + ":refs/heads/" + assigned.headBranch());
+
+        DevelopmentBaseline baseline = inspector.capture(task);
+
+        assertThat(baseline.route().assignedPullRequest()).contains(assigned.pullRequest());
+        assertThat(baseline.route().headBranch()).isEqualTo("existing-pr");
+        assertThat(baseline.route().baseBranch()).isEqualTo("release");
+        assertThat(baseline.local().branch()).isEqualTo(worktree.generatedBranch());
+        verifyNoInteractions(credentials, pullRequests);
+        assertThat(git.remoteReads).isZero();
+        when(pullRequests.fetchPullRequestIdentity("test-token", assigned.pullRequest())).thenReturn(assigned);
+        DevelopmentPublicationFacts facts = inspector.inspectPublication(worktree, baseline.route());
+        assertThat(facts.matchingPullRequests()).containsExactly(assigned);
+        assertThat(facts.remoteHeadSha()).contains(baseSha);
+        String head = commit("update assigned PR");
+
+        inspector.pushDevelopmentHead(worktree, baseline.route(), head, facts.remoteHeadSha());
+
+        assertThat(run(bareRemote, "rev-parse", "refs/heads/" + assigned.headBranch())).isEqualTo(head);
+        assertThat(git.run(bareRemote, "show-ref", "--verify", "--quiet", "refs/heads/" + worktree.generatedBranch()).exitCode()).isEqualTo(1);
+        assertThat(worktreeService.currentBranch(worktree)).contains(worktree.generatedBranch());
+        verify(pullRequests, never()).fetchPullRequestIdentities(anyString(), any(), any(), anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"closed", "head", "base", "fork", "number"})
+    void assignedPullRequestPublicationRefusesChangedTargets(String change)
+    {
+        GitHubPullRequestIdentity assigned = assignPullRequest(false);
+        DevelopmentPublicationRoute route = inspector.capture(task).route();
+        GitHubPullRequestIdentity changed = new GitHubPullRequestIdentity(
+                change.equals("number") ? PullRequestRef.of("alice", "project", 13) : assigned.pullRequest(), assigned.url(),
+                change.equals("fork") ? BASE_REPOSITORY : assigned.headRepository(), change.equals("head") ? "other-head" : assigned.headBranch(), assigned.headSha(),
+                assigned.baseRepository(), change.equals("base") ? "other-base" : assigned.baseBranch(), assigned.baseSha(),
+                change.equals("closed") ? GitHubPullRequestIdentity.State.CLOSED : assigned.state(), assigned.draft(), assigned.author());
+        when(pullRequests.fetchPullRequestIdentity("test-token", assigned.pullRequest())).thenReturn(changed);
+
+        assertThatThrownBy(() -> inspector.inspectPublication(worktree, route)).hasMessageContaining("Assigned pull request destination changed");
+
+        assertThat(git.remoteReads).isZero();
+        verify(pullRequests, never()).fetchPullRequestIdentities(anyString(), any(), any(), anyString());
+    }
+
+    @Test
+    void assignedPullRequestCannotBeReplacedWithGeneratedBranchPublication()
+    {
+        assignPullRequest(false);
+        DevelopmentPublicationRoute route = inspector.capture(task).route();
+        when(assignments.findByTaskId(task.id().toString())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> inspector.inspectPublication(worktree, route)).hasMessageContaining("routing changed");
+
+        verifyNoInteractions(credentials, pullRequests);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"details", "head", "base"})
+    void assignedPullRequestCaptureRequiresItsCachedDestination(String missing)
+    {
+        GitHubPullRequestIdentity assigned = assignPullRequest(false);
+        PullRequestDetail cached = cachedPullRequests.findPullRequestDetail(assigned.pullRequest().repoFullName(), assigned.pullRequest().number()).orElseThrow();
+        switch (missing) {
+            case "details" -> when(cachedPullRequests.findPullRequestDetail(assigned.pullRequest().repoFullName(), assigned.pullRequest().number()))
+                    .thenReturn(Optional.empty());
+            case "head" -> when(cached.headRef()).thenReturn(null);
+            case "base" -> when(cached.baseRef()).thenReturn(null);
+            default -> throw new AssertionError(missing);
+        }
+
+        String expected = missing.equals("details") ? "details are unavailable" : missing + " is unavailable";
+        assertThatThrownBy(() -> inspector.capture(task)).hasMessageContaining("Assigned pull request " + expected);
+
         verifyNoInteractions(credentials, pullRequests);
         assertThat(git.remoteReads).isZero();
     }
@@ -657,6 +751,25 @@ class TestDevelopmentGitInspector
         run(ci, "config", "user.email", "ci@example.invalid");
         run(ci, "checkout", "-b", worktree.generatedBranch());
         return ci;
+    }
+
+    private GitHubPullRequestIdentity assignPullRequest(boolean fork)
+    {
+        RepoRef baseRepository = fork ? BASE_REPOSITORY : REPOSITORY;
+        if (fork) {
+            when(workspaces.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace(true, "main")));
+            run(repository, "remote", "add", "upstream", UPSTREAM);
+        }
+        run(repository, "update-ref", "refs/remotes/" + (fork ? "upstream" : "origin") + "/release", baseSha);
+        PullRequestRef ref = PullRequestRef.of(baseRepository.owner(), baseRepository.repo(), 12);
+        when(assignments.findByTaskId(task.id().toString())).thenReturn(Optional.of(new PullRequestTask(
+                task.id().toString(), WORKSPACE_ID, baseRepository.fullName(), 12, "Assigned pull request")));
+        PullRequestDetail cached = mock(PullRequestDetail.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(cached.headRef()).thenReturn("existing-pr");
+        when(cached.baseRef()).thenReturn("release");
+        when(cachedPullRequests.findPullRequestDetail(baseRepository.fullName(), 12)).thenReturn(Optional.of(cached));
+        return new GitHubPullRequestIdentity(ref, "https://github.com/" + baseRepository.fullName() + "/pull/12", REPOSITORY,
+                "existing-pr", baseSha, baseRepository, "release", baseSha, GitHubPullRequestIdentity.State.OPEN, false, "alice");
     }
 
     private String publishCi(Path ci, String contents)

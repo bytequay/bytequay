@@ -20,9 +20,14 @@ import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hasher;
@@ -53,19 +58,25 @@ public class DevelopmentGitInspector
     private final GitCommandRunner git;
     private final CredentialService credentials;
     private final GitHubPullRequestReadClient pullRequests;
+    private final PullRequestTaskStore assignments;
+    private final PullRequestService cachedPullRequests;
 
     public DevelopmentGitInspector(
             WorktreeService worktrees,
             WorkspaceStore workspaces,
             GitCommandRunner git,
             CredentialService credentials,
-            GitHubPullRequestReadClient pullRequests)
+            GitHubPullRequestReadClient pullRequests,
+            PullRequestTaskStore assignments,
+            PullRequestService cachedPullRequests)
     {
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.assignments = requireNonNull(assignments, "assignments is null");
+        this.cachedPullRequests = requireNonNull(cachedPullRequests, "cachedPullRequests is null");
     }
 
     /** Captures only local Git and persisted workspace routing; no fetch or GitHub read occurs. */
@@ -75,12 +86,20 @@ public class DevelopmentGitInspector
         worktrees.inspect(worktree);
         Workspace workspace = workspace(worktree);
         String sourceRemote = workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin";
-        String baseBranch = workspace.upstreamDefaultBranch().orElse(workspace.defaultBranch());
+        Optional<PullRequestRef> assigned = assignedPullRequest(worktree);
+        Optional<PullRequestDetail> detail = assigned.map(pr -> cachedPullRequests.findPullRequestDetail(pr.repoFullName(), pr.number())
+                .orElseThrow(() -> new IllegalStateException("Assigned pull request details are unavailable; reload the PR before continuing")));
+        String baseBranch = detail.map(pr -> Optional.ofNullable(pr.baseRef())
+                        .orElseThrow(() -> new IllegalStateException("Assigned pull request base is unavailable; reload the PR before continuing")))
+                .orElseGet(() -> workspace.upstreamDefaultBranch().orElse(workspace.defaultBranch()));
+        String headBranch = detail.map(pr -> Optional.ofNullable(pr.headRef())
+                        .orElseThrow(() -> new IllegalStateException("Assigned pull request head is unavailable; reload the PR before continuing")))
+                .orElse(worktree.generatedBranch());
         String baseSha = output(worktree, "rev-parse", "--verify", "refs/remotes/" + sourceRemote + "/" + baseBranch + "^{commit}").strip();
         checkSha(baseSha, "sha");
         DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(
                 workspace.selectedRepository(), workspace.monitoredRepository(), workspace.originCloneUrl(), sourceRemote,
-                baseBranch, baseSha, worktree.generatedBranch());
+                baseBranch, baseSha, headBranch, assigned);
         return new DevelopmentBaseline(worktree, route, inspectLocal(worktree, route));
     }
 
@@ -180,6 +199,14 @@ public class DevelopmentGitInspector
 
     private DevelopmentPublicationFacts readPublication(TaskWorktree worktree, DevelopmentPublicationRoute route)
     {
+        Optional<GitHubPullRequestIdentity> assigned = route.assignedPullRequest().map(pr -> {
+            GitHubPullRequestIdentity current = pullRequests.fetchPullRequestIdentity(credentials.resolveGitHubToken(worktree.workspaceId()), pr);
+            checkState(current.pullRequest().equals(pr) && current.state() == GitHubPullRequestIdentity.State.OPEN
+                            && current.headRepository().equals(route.headRepository()) && current.headBranch().equals(route.headBranch())
+                            && current.baseRepository().equals(route.baseRepository()) && current.baseBranch().equals(route.baseBranch()),
+                    "Assigned pull request destination changed or is unavailable; reload the PR before continuing");
+            return current;
+        });
         String ref = "refs/heads/" + route.headBranch();
         Result result = git.run(worktree.canonicalWorktree(), Duration.ofSeconds(30),
                 credentials.gitAuthenticationEnvironment(worktree.workspaceId(), ImmutableList.of(route.pushUrl())),
@@ -196,8 +223,8 @@ public class DevelopmentGitInspector
             checkSha(values[0], "remote SHA");
             remoteHead = Optional.of(values[0]);
         }
-        var matches = pullRequests.fetchPullRequestIdentities(
-                credentials.resolveGitHubToken(worktree.workspaceId()), route.baseRepository(), route.headRepository(), route.headBranch());
+        List<GitHubPullRequestIdentity> matches = assigned.map(ImmutableList::of).orElseGet(() -> ImmutableList.copyOf(pullRequests.fetchPullRequestIdentities(
+                credentials.resolveGitHubToken(worktree.workspaceId()), route.baseRepository(), route.headRepository(), route.headBranch())));
         return new DevelopmentPublicationFacts(remoteHead, matches);
     }
 
@@ -286,8 +313,10 @@ public class DevelopmentGitInspector
         String sourceRemote = workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin";
         checkState(workspace.selectedRepository().equals(route.headRepository()) && workspace.monitoredRepository().equals(route.baseRepository())
                         && workspace.originCloneUrl().equals(route.pushUrl()) && sourceRemote.equals(route.sourceRemote())
-                        && workspace.upstreamDefaultBranch().orElse(workspace.defaultBranch()).equals(route.baseBranch())
-                        && worktree.generatedBranch().equals(route.headBranch()),
+                        && assignedPullRequest(worktree).equals(route.assignedPullRequest())
+                        && (route.assignedPullRequest().isPresent()
+                        || (workspace.upstreamDefaultBranch().orElse(workspace.defaultBranch()).equals(route.baseBranch())
+                        && worktree.generatedBranch().equals(route.headBranch()))),
                 "Development publication routing changed");
         checkState(worktree.physicalRepository().toString().equalsIgnoreCase(route.headRepository().fullName()), "Development head repository changed");
         requireRemote(worktree, "origin", route.pushUrl());
@@ -296,6 +325,15 @@ public class DevelopmentGitInspector
         }
         checkSha(snapshot.head(), "sha");
         return snapshot;
+    }
+
+    private Optional<PullRequestRef> assignedPullRequest(TaskWorktree worktree)
+    {
+        return assignments.findByTaskId(worktree.taskId().toString()).map(assignment -> {
+            checkState(assignment.workspaceId().equals(worktree.workspaceId())
+                    && assignment.repo().equalsIgnoreCase(workspace(worktree).monitoredRepository().fullName()), "Assigned pull request workspace changed");
+            return PullRequestRef.parse(assignment.repo() + "#" + assignment.number()).orElseThrow();
+        });
     }
 
     private void requireRemote(TaskWorktree worktree, String remote, String expectedUrl)

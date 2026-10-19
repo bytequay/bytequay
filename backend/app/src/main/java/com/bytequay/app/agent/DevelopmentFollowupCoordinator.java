@@ -464,6 +464,8 @@ public class DevelopmentFollowupCoordinator
     {
         checkState(facts.matchingPullRequests().size() <= 1, "Several pull requests match the task branch");
         Optional<GitHubPullRequestIdentity> found = facts.matchingPullRequests().stream().findFirst();
+        route.assignedPullRequest().ifPresent(assigned -> checkState(found.map(GitHubPullRequestIdentity::pullRequest).filter(assigned::equals).isPresent(),
+                "The assigned pull request is unavailable; no replacement will be created"));
         found.ifPresent(pr -> {
             checkState(pr.state() == GitHubPullRequestIdentity.State.OPEN, "The task's pull request is closed or merged");
             checkState(pr.headRepository().equals(route.headRepository()) && pr.headBranch().equals(route.headBranch())
@@ -601,7 +603,7 @@ public class DevelopmentFollowupCoordinator
                 Call report_development_result with readyForDelivery=true and learningSummary containing only purpose and
                 commits (one per actual commit, with full sha, title and summary); only these two fields.
                 Readiness here records the summary only; it does not authorize delivery of held work.
-                """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.route().headBranch()), local.headSha(), baseline.route().baseSha());
+                """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.worktree().generatedBranch()), local.headSha(), baseline.route().baseSha());
     }
 
     private boolean owns(DevelopmentTurnCompletion completion)
@@ -638,7 +640,7 @@ public class DevelopmentFollowupCoordinator
 
                 Call report_development_result before ending: readyForDelivery=false if a user decision remains, and ask
                 in the final response; otherwise report readiness. ByteQuay controls later stages using accepted automation settings.
-                """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.route().headBranch()), local.headSha());
+                """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.worktree().generatedBranch()), local.headSha());
     }
 
     /**
@@ -735,7 +737,7 @@ public class DevelopmentFollowupCoordinator
                 ByteQuay · Create draft PR
                 The accepted Auto draft PR setting authorizes this single publication of the verified revision.
                 Worktree: %s. Branch: %s. Exact clean HEAD to publish: %s.
-                Base repository/branch: %s / %s. Push repository: %s.
+                Base repository/branch: %s / %s. Push repository/branch: %s / %s.
                 %s
 
                 Recheck branch, exact HEAD, clean staged/unstaged/untracked status (excluding ignored build output),
@@ -754,8 +756,8 @@ public class DevelopmentFollowupCoordinator
                 If the tool refuses or its result is uncertain, stop without retrying and report its response.
                 Call report_development_result before ending: readyForDelivery=false if a user decision is needed, and ask it;
                 otherwise report readiness.
-                """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(route.headBranch()), local.headSha(),
-                        route.baseRepository().fullName(), quote(route.baseBranch()), route.headRepository().fullName(),
+                """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.worktree().generatedBranch()), local.headSha(),
+                        route.baseRepository().fullName(), quote(route.baseBranch()), route.headRepository().fullName(), quote(route.headBranch()),
                         prInstruction, DevelopmentResultBridge.PUBLISH_TOOL_NAME);
     }
 

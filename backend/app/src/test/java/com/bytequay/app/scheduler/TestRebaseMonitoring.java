@@ -36,6 +36,8 @@ import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseException;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.rebase.BranchRebaseStore;
+import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
@@ -69,7 +71,8 @@ class TestRebaseMonitoring
                 new RebaseSequencerDriver(git),
                 git,
                 Clock.fixed(Instant.parse("2026-08-20T00:00:00Z"), ZoneOffset.UTC),
-                new DevelopmentCiOwnership(mock(CiAutofixStore.class), mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(AgentEventService.class),
+                new DevelopmentCiOwnership(mock(CiAutofixStore.class), mock(AgentTaskStore.class), mock(AgentTurnStore.class),
+                        mock(PullRequestTaskStore.class), mock(PullRequestStore.class), mock(AgentEventService.class),
                         new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}), Clock.systemUTC()));
 
         monitor(store, service, readyAgentServingGate()).monitorRebases();

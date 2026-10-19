@@ -28,6 +28,9 @@ import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.domain.PullRequestTask;
+import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 
 import java.time.Clock;
 import java.util.HashSet;
@@ -53,16 +56,21 @@ public final class DevelopmentCiOwnership
     private final CiAutofixStore store;
     private final AgentTaskStore tasks;
     private final AgentTurnStore turns;
+    private final PullRequestTaskStore assignments;
+    private final PullRequestStore pullRequests;
     private final AgentEventService events;
     private final AgentRuntimeRegistry runtimes;
     private final Clock clock;
     private final ConcurrentMap<CiAutofixRunId, Owner> owners = new ConcurrentHashMap<>();
 
-    public DevelopmentCiOwnership(CiAutofixStore store, AgentTaskStore tasks, AgentTurnStore turns, AgentEventService events, AgentRuntimeRegistry runtimes, Clock clock)
+    public DevelopmentCiOwnership(CiAutofixStore store, AgentTaskStore tasks, AgentTurnStore turns, PullRequestTaskStore assignments, PullRequestStore pullRequests,
+            AgentEventService events, AgentRuntimeRegistry runtimes, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
+        this.assignments = requireNonNull(assignments, "assignments is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.events = requireNonNull(events, "events is null");
         this.runtimes = requireNonNull(runtimes, "runtimes is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -86,7 +94,12 @@ public final class DevelopmentCiOwnership
             return;
         }
         var worktree = task.taskWorktree().orElseThrow();
-        store.findByActiveBranch(worktree.physicalRepository().owner() + "/" + worktree.physicalRepository().name(), worktree.generatedBranch())
+        Optional<String> assignedBranch = assignment(task)
+                .flatMap(pr -> pullRequests.findIdByRepoAndNumber(pr.repo(), pr.number()).flatMap(pullRequests::findById))
+                .flatMap(pr -> Optional.ofNullable(pr.headRef()));
+        store.listByParentTaskId(task.id().toString()).stream().filter(run -> run.status() != CiAutofixRun.Status.FINISHED).findFirst()
+                .or(() -> store.findByActiveBranch(worktree.physicalRepository().owner() + "/" + worktree.physicalRepository().name(),
+                        assignedBranch.orElse(worktree.generatedBranch())))
                 .ifPresent(run -> {
                     throw new AgentConflictException("CI Autofix owns this task branch; stop its run before starting source work");
                 });
@@ -281,12 +294,22 @@ public final class DevelopmentCiOwnership
                 """ + inputs + "\nEnd of development request scope. Continue only the current CI/rebase assignment.\n";
     }
 
-    private static boolean matchesSource(AgentTask task, CiAutofixRun run)
+    private boolean matchesSource(AgentTask task, CiAutofixRun run)
     {
         return task.state() == TaskState.OPEN && task.interactive()
-                && task.taskWorktree().filter(worktree -> worktree.generatedBranch().equals(run.scope().headRef())
-                        && (worktree.physicalRepository().owner() + "/" + worktree.physicalRepository().name())
-                                .equalsIgnoreCase(run.scope().headRepository().fullName())).isPresent();
+                && task.workspaceId().filter(run.scope().workspaceId()::equals).isPresent()
+                && task.taskWorktree().filter(worktree -> (worktree.physicalRepository().owner() + "/" + worktree.physicalRepository().name())
+                        .equalsIgnoreCase(run.scope().headRepository().fullName())
+                        && assignments.findByTaskId(task.id().toString()).map(assigned -> assigned.taskId().equals(task.id().toString())
+                                && assigned.workspaceId().equals(run.scope().workspaceId())
+                                && assigned.repo().equalsIgnoreCase(run.scope().pullRequest().repoFullName()) && assigned.number() == run.scope().pullRequest().number())
+                                .orElseGet(() -> worktree.generatedBranch().equals(run.scope().headRef()))).isPresent();
+    }
+
+    private Optional<PullRequestTask> assignment(AgentTask task)
+    {
+        return assignments.findByTaskId(task.id().toString())
+                .filter(assigned -> assigned.taskId().equals(task.id().toString()) && task.workspaceId().filter(assigned.workspaceId()::equals).isPresent());
     }
 
     private record Owner(TaskId parentTaskId, TurnId sourceTurnId, String instructions, AtomicBoolean revoked) {}

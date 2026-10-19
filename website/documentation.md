@@ -180,8 +180,10 @@ an agent.
   their results.
 
 On your own PR, **Development task** opens its conversation without sending a
-new prompt. If none exists, it creates a task and local worktree, then waits
-for your message. Leaving the PR while creation is in progress does not cancel
+new prompt. If none exists, it creates a task and local worktree using your
+current **Settings → Agents → Workflow** defaults, then waits for your message.
+Reopening an existing task preserves that task's saved automation choices.
+Leaving the PR while creation is in progress does not cancel
 it or take you away from your new page when it finishes.
 
 <a id="private-review"></a>

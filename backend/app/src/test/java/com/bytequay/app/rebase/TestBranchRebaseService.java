@@ -54,6 +54,8 @@ import com.bytequay.core.rebase.BranchRebase.Status;
 import com.bytequay.core.rebase.BranchRebaseException;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.rebase.BranchRebaseStore;
+import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -141,7 +143,8 @@ class TestBranchRebaseService
                 driver,
                 GIT,
                 Clock.fixed(NOW, ZoneOffset.UTC),
-                new DevelopmentCiOwnership(ciRuns, mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(AgentEventService.class),
+                new DevelopmentCiOwnership(ciRuns, mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
+                        mock(AgentEventService.class),
                         new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}), Clock.fixed(NOW, ZoneOffset.UTC)));
     }
 

@@ -123,7 +123,7 @@ class TestDevelopmentFollowupCoordinator
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
     private DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(new RepoRef("owner", "repo"), new RepoRef("owner", "repo"),
-            "https://github.com/owner/repo.git", "origin", "main", BASE, worktree.generatedBranch());
+            "https://github.com/owner/repo.git", "origin", "main", BASE, worktree.generatedBranch(), Optional.empty());
     private final AgentTask task = AgentTask.created(taskId, true, "Develop", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
             AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO).withDevelopmentAutomation(FULL), NOW);
     private AgentTurn source;
@@ -992,9 +992,14 @@ class TestDevelopmentFollowupCoordinator
         verify(git, never()).pushDevelopmentHead(eq(worktree), any(), anyString(), any());
     }
 
-    @Test
-    void publishReusesTheTrackingPullRequestInsteadOfOpeningASecond()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void publishReusesTheTrackingPullRequestInsteadOfOpeningASecond(boolean assigned)
     {
+        if (assigned) {
+            route = new DevelopmentPublicationRoute(route.headRepository(), route.baseRepository(), route.pushUrl(), route.sourceRemote(),
+                    route.baseBranch(), route.baseSha(), "existing-pr", Optional.of(PullRequestRef.of("owner", "repo", 7)));
+        }
         GitHubPullRequestIdentity existing = pr(BASE, true);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(BASE), Optional.of(existing)));
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
@@ -1011,10 +1016,38 @@ class TestDevelopmentFollowupCoordinator
     }
 
     @Test
+    void assignedPullRequestCannotFallBackToCreatingAnother()
+    {
+        route = new DevelopmentPublicationRoute(route.headRepository(), route.baseRepository(), route.pushUrl(), route.sourceRemote(),
+                route.baseBranch(), route.baseSha(), "existing-pr", Optional.of(PullRequestRef.of("owner", "repo", 7)));
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+
+        advance();
+
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("assigned pull request is unavailable"));
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
+        verifyNoInteractions(writes);
+    }
+
+    @Test
+    void assignedPullRequestPromptsDistinguishLocalAndRemoteBranches()
+    {
+        route = new DevelopmentPublicationRoute(route.headRepository(), route.baseRepository(), route.pushUrl(), route.sourceRemote(),
+                route.baseBranch(), route.baseSha(), "existing-pr", Optional.of(PullRequestRef.of("owner", "repo", 7)));
+        DevelopmentBaseline baseline = new DevelopmentBaseline(worktree, route, local(BASE, false));
+
+        assertThat(DevelopmentFollowupCoordinator.commitPrompt(baseline, local(HEAD, false))).contains("Branch: '" + worktree.generatedBranch() + "'");
+        assertThat(DevelopmentFollowupCoordinator.summaryPrompt(baseline, local(HEAD, false))).contains("Branch: '" + worktree.generatedBranch() + "'");
+        assertThat(DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), Optional.of(pr(BASE, false))))
+                .contains("Branch: '" + worktree.generatedBranch() + "'", "Push repository/branch: owner/repo / 'existing-pr'", "creates no second one");
+    }
+
+    @Test
     void publishSendsAForkQualifiedHeadForACrossRepositoryRoute()
     {
         route = new DevelopmentPublicationRoute(new RepoRef("forker", "repo"), new RepoRef("upstream", "repo"),
-                "https://github.com/forker/repo.git", "upstream", "release", BASE, worktree.generatedBranch());
+                "https://github.com/forker/repo.git", "upstream", "release", BASE, worktree.generatedBranch(), Optional.empty());
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
         trackedRemote(Optional.empty(), Optional.empty());
@@ -1049,7 +1082,7 @@ class TestDevelopmentFollowupCoordinator
     void publicationPromptPinsForkRoutingLeaseAndExactObject()
     {
         var fork = new DevelopmentPublicationRoute(new RepoRef("forker", "repo"), new RepoRef("upstream", "repo"), "https://github.com/forker/repo.git",
-                "upstream", "release", BASE, route.headBranch());
+                "upstream", "release", BASE, route.headBranch(), Optional.empty());
         var baseline = new DevelopmentBaseline(worktree, fork, local(BASE, false));
         String prompt = DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), Optional.empty());
         assertThat(prompt).contains(HEAD, "upstream/repo", "'release'", "forker/repo", DevelopmentResultBridge.PUBLISH_TOOL_NAME, "Do not commit", "stop without");
@@ -1093,7 +1126,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void forkPublicationContinuesThroughCiSynchronizationAndReadyPromotion()
     {
-        route = new DevelopmentPublicationRoute(route.headRepository(), RepoRef.of("upstream", "repo"), route.pushUrl(), "upstream", "main", BASE, route.headBranch());
+        route = new DevelopmentPublicationRoute(route.headRepository(), RepoRef.of("upstream", "repo"), route.pushUrl(), "upstream", "main", BASE, route.headBranch(), Optional.empty());
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
         preparePublished(FULL);
         advance();

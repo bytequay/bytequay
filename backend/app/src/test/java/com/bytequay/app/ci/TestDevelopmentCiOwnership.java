@@ -37,12 +37,17 @@ import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockMakers;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.file.Path;
@@ -54,6 +59,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -61,6 +67,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 class TestDevelopmentCiOwnership
 {
@@ -72,9 +79,83 @@ class TestDevelopmentCiOwnership
     private final CiAutofixStore store = mock(CiAutofixStore.class);
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final AgentTurnStore turns = mock(AgentTurnStore.class);
+    private final PullRequestTaskStore assignments = mock(PullRequestTaskStore.class);
+    private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final AgentEventService events = mock(AgentEventService.class);
     private final AgentRuntimeRegistry runtimes = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
-    private final DevelopmentCiOwnership ownership = new DevelopmentCiOwnership(store, tasks, turns, events, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final DevelopmentCiOwnership ownership = new DevelopmentCiOwnership(store, tasks, turns, assignments, pullRequests, events, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
+
+    @Test
+    void acceptsAssignedParentWithSeparateLocalBranch()
+    {
+        AgentTask parent = task(FORK).withDevelopmentContinuation(true, NOW);
+        TurnId source = reserveParent(parent);
+        assign(parent);
+        CiAutofixRun run = assignedRun(Optional.of(parent.id().toString()));
+
+        ownership.insert(run, Optional.of(source));
+
+        verify(store).insert(run);
+        assertThat(ownership.authorized(run)).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"task", "workspace", "repo", "number", "headRepository", "missing"})
+    void rejectsAssignedParentOutsideExactPullRequest(String mismatch)
+    {
+        AgentTask parent = task(mismatch.equals("headRepository") ? BASE : FORK).withDevelopmentContinuation(true, NOW);
+        TurnId source = reserveParent(parent);
+        if (!mismatch.equals("missing")) {
+            when(assignments.findByTaskId(parent.id().toString())).thenReturn(Optional.of(new PullRequestTask(
+                    mismatch.equals("task") ? TaskId.random().toString() : parent.id().toString(),
+                    mismatch.equals("workspace") ? "other-workspace" : "workspace",
+                    mismatch.equals("repo") ? "other/project" : BASE.fullName(), mismatch.equals("number") ? 2 : 1, "Assigned PR")));
+        }
+
+        assertThatThrownBy(() -> ownership.insert(assignedRun(Optional.of(parent.id().toString())), Optional.of(source)))
+                .isInstanceOf(CiAutofixConflictException.class).hasMessageContaining("does not belong to the development parent");
+        verify(store, never()).insert(any());
+    }
+
+    @Test
+    void rejectsStandaloneAttachmentWhileAssignedSourceIsBusy()
+    {
+        AgentTask source = task(FORK).withDevelopmentContinuation(true, NOW);
+        assign(source);
+        when(tasks.listByWorkspace("workspace")).thenReturn(ImmutableList.of(source));
+        when(tasks.find(source.id())).thenReturn(Optional.of(source));
+
+        assertThatThrownBy(() -> ownership.insert(assignedRun(Optional.empty()), Optional.empty()))
+                .isInstanceOf(CiAutofixConflictException.class).hasMessageContaining("still using this pull request branch");
+        verify(store, never()).insert(any());
+    }
+
+    @Test
+    void checksAdmissionAgainstAssignedRemoteBranch()
+    {
+        AgentTask source = task(FORK);
+        assign(source);
+        CiAutofixRun run = assignedRun(Optional.empty());
+        PullRequest pr = mock(PullRequest.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(pr.headRef()).thenReturn(run.scope().headRef());
+        when(pullRequests.findIdByRepoAndNumber(BASE.fullName(), 1)).thenReturn(Optional.of(1L));
+        when(pullRequests.findById(1)).thenReturn(Optional.of(pr));
+        when(store.findByActiveBranch(FORK.fullName(), run.scope().headRef())).thenReturn(Optional.of(run));
+
+        assertThatThrownBy(() -> ownership.requireSourceAdmission(source)).isInstanceOf(AgentConflictException.class);
+        verify(store).findByActiveBranch(FORK.fullName(), run.scope().headRef());
+    }
+
+    @Test
+    void unfinishedParentRunBlocksAdmissionWithoutCachedPullRequest()
+    {
+        AgentTask source = task(FORK);
+        assign(source);
+        CiAutofixRun run = assignedRun(Optional.of(source.id().toString()));
+        when(store.listByParentTaskId(source.id().toString())).thenReturn(ImmutableList.of(run));
+
+        assertThatThrownBy(() -> ownership.requireSourceAdmission(source)).isInstanceOf(AgentConflictException.class);
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"author", "another-author"})
@@ -141,10 +222,25 @@ class TestDevelopmentCiOwnership
 
     private static CiAutofixRun run(AgentTask source, RepoRef headRepository, Optional<String> parent)
     {
+        return run(headRepository, parent, source.taskWorktree().orElseThrow().generatedBranch());
+    }
+
+    private static CiAutofixRun assignedRun(Optional<String> parent)
+    {
+        return run(FORK, parent, "existing-pr-branch");
+    }
+
+    private static CiAutofixRun run(RepoRef headRepository, Optional<String> parent, String headBranch)
+    {
         return CiAutofixRun.create(CiAutofixRunId.random(), "fork-ci",
                 new CiAutofixRun.Scope(PullRequestRef.of(BASE.owner(), BASE.repo(), 1), headRepository, "workspace", FORK, "author",
-                        source.taskWorktree().orElseThrow().generatedBranch(), "main", AgentLaneId.CLAUDE_CLI.toString(), parent),
+                        headBranch, "main", AgentLaneId.CLAUDE_CLI.toString(), parent),
                 HEAD, HEAD, "b".repeat(40), new CiAutofixRun.Authorization(NOW, NOW.plus(Duration.ofHours(8))), NOW);
+    }
+
+    private void assign(AgentTask source)
+    {
+        when(assignments.findByTaskId(source.id().toString())).thenReturn(Optional.of(new PullRequestTask(source.id().toString(), "workspace", BASE.fullName(), 1, "Assigned PR")));
     }
 
     private TurnId reserveParent(AgentTask parent)

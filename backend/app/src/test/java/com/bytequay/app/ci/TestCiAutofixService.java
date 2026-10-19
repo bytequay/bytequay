@@ -90,6 +90,8 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
+import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -269,7 +271,8 @@ class TestCiAutofixService
         taskStore = mock(AgentTaskStore.class);
         turnStore = mock(AgentTurnStore.class);
         runtimes = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
-        ownership = new DevelopmentCiOwnership(store, taskStore, turnStore, eventService, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
+        ownership = new DevelopmentCiOwnership(store, taskStore, turnStore, mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
+                eventService, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
         service = new CiAutofixService(
                 store,
                 gitHub,
@@ -2231,7 +2234,8 @@ class TestCiAutofixService
                 timelineService,
                 credentials,
                 requestedClock,
-                new DevelopmentCiOwnership(requestedStore, taskStore, turnStore, eventService, runtimes, requestedClock),
+                new DevelopmentCiOwnership(requestedStore, taskStore, turnStore, mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
+                        eventService, runtimes, requestedClock),
                 recovery);
     }
 

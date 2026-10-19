@@ -80,6 +80,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.GoalReceipts;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ClaudeAccounts;
@@ -88,6 +89,7 @@ import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.store.ModelApiKeyStore;
+import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -229,9 +231,10 @@ public class AgentConfiguration
 
     @Bean
     public DevelopmentCiOwnership developmentCiOwnership(
-            CiAutofixStore store, AgentTaskStore tasks, AgentTurnStore turns, AgentEventService events, AgentRuntimeRegistry runtimes, Clock agentClock)
+            CiAutofixStore store, AgentTaskStore tasks, AgentTurnStore turns, PullRequestTaskStore assignments, PullRequestStore pullRequests,
+            AgentEventService events, AgentRuntimeRegistry runtimes, Clock agentClock)
     {
-        return new DevelopmentCiOwnership(store, tasks, turns, events, runtimes, agentClock);
+        return new DevelopmentCiOwnership(store, tasks, turns, assignments, pullRequests, events, runtimes, agentClock);
     }
 
     @Bean(destroyMethod = "close")
@@ -415,9 +418,9 @@ public class AgentConfiguration
 
     @Bean
     public DevelopmentGitInspector developmentGitInspector(WorktreeService worktrees, WorkspaceStore workspaces, GitCommandRunner git,
-            CredentialService credentials, GitHubPullRequestReadClient pullRequests)
+            CredentialService credentials, GitHubPullRequestReadClient pullRequests, PullRequestTaskStore assignments, PullRequestService cachedPullRequests)
     {
-        return new DevelopmentGitInspector(worktrees, workspaces, git, credentials, pullRequests);
+        return new DevelopmentGitInspector(worktrees, workspaces, git, credentials, pullRequests, assignments, cachedPullRequests);
     }
 
     @Bean

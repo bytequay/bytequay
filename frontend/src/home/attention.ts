@@ -469,7 +469,7 @@ export type HandledEntry = {
 
 export type Handled = Record<string, HandledEntry>;
 
-// The marks as this window last read or wrote them. The backend keeps them, so every build shares one set.
+// The marks as this window last read or wrote them. The backend keeps them, so every build and the assistant share one set.
 let handledNow: Handled = {};
 
 export function loadHandled(): Handled {
@@ -485,6 +485,21 @@ export function saveHandled(handled: Handled): void {
   if (saved.length > 0 || removed.length > 0) void window.bridge?.changeAttentionMarks?.({ saved, removed }).catch(() => {});
   void window.bridge?.setPrAttentionHandled?.(handled).catch(() => {});
   window.dispatchEvent(new CustomEvent('bytequay:attention-handled-changed'));
+}
+
+/**
+ * Completes the marks the assistant makes, which carry no fingerprint of the item: the first time a list draws such an item, its mark
+ * takes the item's activity version, and a timed snooze the item's copy, as the row's own buttons record them. An acknowledgment the item
+ * has outgrown already lets the row back, so it is left as it is.
+ */
+export function completeHandled(candidates: AttentionItem[]): void {
+  const completed = candidates.flatMap(item => {
+    const entry = handledNow[item.key];
+    const timed = entry?.kind === 'snooze' && entry.until !== null;
+    return entry === undefined || entry.seenActivityVersion !== undefined || !timed && Date.parse(item.updatedAt) > Date.parse(entry.seenUpdatedAt) ? []
+      : [[item.key, { ...entry, seenActivityVersion: attentionActivityVersion(item), ...(timed ? { snoozedItem: item } : {}) }] as const];
+  });
+  if (completed.length > 0) saveHandled({ ...handledNow, ...Object.fromEntries(completed) });
 }
 
 /** Reads the marks the backend keeps and tells the lists and the notifier; a build's first read brings its older marks along. */

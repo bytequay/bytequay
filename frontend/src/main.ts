@@ -1527,9 +1527,9 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/assistant/drafts`, jsonInit('POST', { itemId }, agentHeaders())));
   ipcMain.handle('settings:assistant', () => backendJson(`${backendBase()}/api/settings/assistant`, { headers: agentHeaders() }));
   ipcMain.handle('settings:assistant:save', (_event, permissions: unknown) => {
-    const value = permissions as Partial<Record<'startTasks' | 'answerTasks' | 'changeWork', unknown>> | null;
+    const value = permissions as Partial<Record<'startTasks' | 'answerTasks' | 'changeWork' | 'markAttention', unknown>> | null;
     return backendJson(`${backendBase()}/api/settings/assistant`, jsonInit('PUT', {
-      startTasks: value?.startTasks === true, answerTasks: value?.answerTasks === true, changeWork: value?.changeWork === true,
+      startTasks: value?.startTasks === true, answerTasks: value?.answerTasks === true, changeWork: value?.changeWork === true, markAttention: value?.markAttention === true,
     }, agentHeaders()));
   });
   ipcMain.handle('settings:agenda', () => backendJson(`${backendBase()}/api/settings/agenda`, { headers: agentHeaders() }));

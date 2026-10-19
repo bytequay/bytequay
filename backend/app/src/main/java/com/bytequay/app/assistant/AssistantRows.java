@@ -280,6 +280,22 @@ class AssistantRows
                 AgendaTarget.of(AgendaTarget.Kind.WORK, item.workspaceId(), item.id()));
     }
 
+    /**
+     * The key Needs attention keeps an item's mark under: a pull request or an issue by its repository as the list spells it, which a
+     * ref's lowercase may not match, and a ticket or a task by its ref. Empty for anything else, or a pull request ByteQuay does not have.
+     */
+    Optional<String> attentionKey(String ref)
+    {
+        return switch (AgendaRefs.kind(ref)) {
+            case "pr" -> AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).flatMap(pullRequests::findById)
+                    .map(pr -> pr.repo() + "#" + pr.number());
+            case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> workspace(workspaces.findAll(), number.repo())
+                    .map(workspace -> workspace.monitoredRepository().fullName() + "#" + number.number()));
+            case "jira", "task" -> Optional.of(ref);
+            default -> Optional.empty();
+        };
+    }
+
     /** The workspace an Epic belongs to: the one its record, its local work item, or any work in it names. */
     Optional<Workspace> epicWorkspace(String epicId)
     {

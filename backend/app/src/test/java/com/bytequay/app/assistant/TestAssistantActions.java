@@ -45,6 +45,7 @@ import com.bytequay.app.agent.InteractiveTaskStart;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.notices.AppNoticeService;
+import com.bytequay.app.service.attention.AttentionMarkService;
 import com.bytequay.app.service.epic.EpicService;
 import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.goal.WorkItemView;
@@ -113,6 +114,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestAssistantActions
@@ -144,8 +146,9 @@ class TestAssistantActions
     private final EpicService epics = mock(EpicService.class);
     private final WorkItemService workItemService = mock(WorkItemService.class);
     private final AssistantRows rows = mock(AssistantRows.class);
+    private final AttentionMarkService attentionMarks = mock(AttentionMarkService.class);
     private final ObjectMapper mapper = AgendaFixtures.mapper();
-    private final AtomicReference<AssistantPermissions> allowed = new AtomicReference<>(new AssistantPermissions(true, true, true));
+    private final AtomicReference<AssistantPermissions> allowed = new AtomicReference<>(new AssistantPermissions(true, true, true, true));
     private final List<AssistantItem> receipts = new ArrayList<>();
     private final AgentTask task = task("Retry Iceberg commit on conflict");
     private final Workspace trino = new Workspace("ws1", "Trino", 1, RepoRef.of("trinodb", "trino"), Optional.empty(), Optional.empty(), 1, RepoRef.of("trinodb", "trino"),
@@ -181,7 +184,7 @@ class TestAssistantActions
         when(turns.findTurnByIdempotencyKey(any(), any())).thenAnswer(call -> Optional.of(turn(call.getArgument(0))));
         when(turns.start(any())).thenAnswer(call -> turn(call.<StartAgentTurnCommand>getArgument(0).taskId()));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        work = new AssistantWork(issueDevelopment, jira, epics, workItemService, workItems, workspaces, rows);
+        work = new AssistantWork(issueDevelopment, jira, epics, workItemService, workItems, workspaces, rows, attentionMarks);
         actions = new AssistantActions(store, permissions, approvals, approvalService, tasks, turns, starter, notices, reviews, workspaces, workItems, issues, jira, models,
                 settings, work, mapper, clock);
     }
@@ -215,12 +218,12 @@ class TestAssistantActions
     @Test
     void refusesWhileItsSwitchIsOff()
     {
-        allowed.set(new AssistantPermissions(false, true, true));
+        allowed.set(new AssistantPermissions(false, true, true, true));
         AssistantItem message = message("start one in trino: add a metadata table", ImmutableList.of());
         act(message, ImmutableMap.of("ws:ws1", SERVED), "{\"op\":\"start_task\",\"workspace\":\"ws:ws1\",\"words\":\"add a metadata table\"}");
         assertRefused("Starting tasks is off", Optional.of(SETTINGS));
 
-        allowed.set(new AssistantPermissions(true, false, true));
+        allowed.set(new AssistantPermissions(true, false, true, true));
         card(ProviderApprovalRequest.Kind.COMMAND, ImmutableList.of("Bash"), "{}", true);
         act(message("deny it", ImmutableList.of(CARD)), "{\"op\":\"answer_approval\",\"approval\":\"" + CARD + "\",\"decision\":\"deny\",\"words\":\"deny it\"}");
         assertRefused("Answering tasks is off", Optional.of(SETTINGS));
@@ -486,7 +489,7 @@ class TestAssistantActions
     @Test
     void refusesWorkChangesWhileTheirSwitchIsOff()
     {
-        allowed.set(new AssistantPermissions(true, true, false));
+        allowed.set(new AssistantPermissions(true, true, false, true));
         act(message("make #77 an epic", ImmutableList.of()), ImmutableMap.of("issue:trinodb/trino#77", SERVED),
                 "{\"op\":\"mark_epic\",\"item\":\"issue:trinodb/trino#77\",\"words\":\"make #77 an epic\"}");
         assertRefused("Changing Epics and work items is off", Optional.of(SETTINGS));
@@ -585,6 +588,57 @@ class TestAssistantActions
         assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("trinodb/trino");
         assertThat(act(message("new work: x y", ImmutableList.of()), served, "{\"op\":\"create_work_item\",\"workspace\":\"trino\",\"words\":\"x y\"}"))
                 .contains("create_work_item needs a ws: or epic: ref");
+    }
+
+    @Test
+    void acknowledgesAndSnoozesWhatNeedsAttention()
+    {
+        String taskRef = "task:" + task.id();
+        Map<String, ServedRef> served = ImmutableMap.of("pr:trinodb/trino#31402", SERVED, taskRef, SERVED);
+        AgendaTarget pull = AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"));
+        named("pr:trinodb/trino#31402", "Add Iceberg metadata cache", pull);
+        when(rows.attentionKey("pr:trinodb/trino#31402")).thenReturn(Optional.of("TrinoDB/trino#31402"));
+        act(message("clear the metadata cache PR", ImmutableList.of()), served,
+                "{\"op\":\"acknowledge\",\"item\":\"pr:trinodb/trino#31402\",\"words\":\"clear the metadata cache PR\"}");
+        // The list's own key, in the repository's own spelling, so the row that goes is the one the user meant.
+        verify(attentionMarks).acknowledge("TrinoDB/trino#31402");
+        AssistantReceipt acknowledged = receipts.getLast().receipt().orElseThrow();
+        assertThat(receipts.getLast().text()).isEqualTo("Acknowledged “Add Iceberg metadata cache”");
+        assertThat(acknowledged.operation()).isEqualTo(AssistantReceipt.Operation.ACKNOWLEDGE);
+        assertThat(acknowledged.detail()).contains("Back when something new happens");
+        assertThat(acknowledged.target()).contains(pull);
+
+        named(taskRef, "Retry Iceberg commit on conflict", AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", task.id().toString()));
+        when(rows.attentionKey(taskRef)).thenReturn(Optional.of(taskRef));
+        act(message("snooze the retry task until tomorrow", ImmutableList.of()), served,
+                "{\"op\":\"snooze\",\"item\":\"" + taskRef + "\",\"until\":\"tomorrow\",\"words\":\"snooze the retry task until tomorrow\"}");
+        verify(attentionMarks).snooze(taskRef, AttentionMarkService.Snooze.TOMORROW);
+        assertThat(receipts.getLast().text()).isEqualTo("Snoozed “Retry Iceberg commit on conflict” until tomorrow at 9:00");
+        assertThat(receipts).extracting(receipt -> receipt.receipt().orElseThrow().outcome()).containsOnly(DONE);
+
+        // Only what the user could see, of a kind the list shows, for one of its snooze choices.
+        act(message("clear #31403", ImmutableList.of()), served, "{\"op\":\"acknowledge\",\"item\":\"pr:trinodb/trino#31403\",\"words\":\"clear #31403\"}");
+        assertRefused("That isn't on screen", Optional.empty());
+        assertThat(act(message("clear it", ImmutableList.of()), served, "{\"op\":\"acknowledge\",\"item\":\"work:w22\",\"words\":\"clear it\"}"))
+                .contains("acknowledge takes a pr:, issue:, jira: or task: ref");
+        assertThat(act(message("snooze it till friday", ImmutableList.of()), served,
+                "{\"op\":\"snooze\",\"item\":\"pr:trinodb/trino#31402\",\"until\":\"friday\",\"words\":\"snooze it\"}"))
+                .contains("until must be hour, tomorrow or monday");
+        when(rows.attentionKey("pr:trinodb/trino#31402")).thenReturn(Optional.empty());
+        act(message("clear the metadata cache PR again", ImmutableList.of()), served,
+                "{\"op\":\"acknowledge\",\"item\":\"pr:trinodb/trino#31402\",\"words\":\"clear the metadata cache PR again\"}");
+        assertThat(receipts.getLast().receipt().orElseThrow().outcome()).isEqualTo(FAILED);
+        assertThat(receipts.getLast().text()).isEqualTo("That isn't in Needs attention");
+    }
+
+    @Test
+    void refusesToAcknowledgeWhileItsSwitchIsOff()
+    {
+        allowed.set(new AssistantPermissions(true, true, true, false));
+        act(message("clear the metadata cache PR", ImmutableList.of()), ImmutableMap.of("pr:trinodb/trino#31402", SERVED),
+                "{\"op\":\"acknowledge\",\"item\":\"pr:trinodb/trino#31402\",\"words\":\"clear the metadata cache PR\"}");
+        assertRefused("Acknowledging and snoozing is off", Optional.of(SETTINGS));
+        verifyNoInteractions(attentionMarks);
     }
 
     @Test

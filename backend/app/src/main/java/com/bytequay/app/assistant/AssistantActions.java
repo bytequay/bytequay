@@ -40,6 +40,7 @@ import com.bytequay.app.agent.TaskInput;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
+import com.bytequay.app.service.attention.AttentionMarkService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -96,7 +97,7 @@ import static java.util.stream.Collectors.joining;
  * The {@code assistant_act} tool: what the assistant may do for the user, and only in the run their own message started. A call passes
  * the checks in order or is refused, and either way leaves a receipt in the conversation and a row in the action log. It sends a task
  * only the user's words, never the assistant's: a task's own messages count as the user's authority for what it does next. It also
- * marks Epics, adds work to them and creates work items, all of which stay local.
+ * marks Epics, adds work to them, creates work items, and acknowledges or snoozes Needs attention items, all of which stay local.
  */
 @Component
 class AssistantActions
@@ -121,6 +122,8 @@ class AssistantActions
             .put("mark_epic", Operation.MARK_EPIC)
             .put("add_to_epic", Operation.ADD_TO_EPIC)
             .put("create_work_item", Operation.CREATE_WORK_ITEM)
+            .put("acknowledge", Operation.ACKNOWLEDGE)
+            .put("snooze", Operation.SNOOZE)
             .buildOrThrow();
     private static final Map<Operation, Set<String>> FIELDS = ImmutableMap.<Operation, Set<String>>builder()
             .put(Operation.START_TASK, ImmutableSet.of("op", "words", "workspace", "from", "agent"))
@@ -130,12 +133,21 @@ class AssistantActions
             .put(Operation.MARK_EPIC, ImmutableSet.of("op", "words", "item"))
             .put(Operation.ADD_TO_EPIC, ImmutableSet.of("op", "words", "epic", "item"))
             .put(Operation.CREATE_WORK_ITEM, ImmutableSet.of("op", "words", "workspace", "epic"))
+            .put(Operation.ACKNOWLEDGE, ImmutableSet.of("op", "words", "item"))
+            .put(Operation.SNOOZE, ImmutableSet.of("op", "words", "item", "until"))
             .buildOrThrow();
     /** The operations the "change Epics and work items" switch allows; each stays local. */
     private static final Set<Operation> WORK = Sets.immutableEnumSet(Operation.MARK_EPIC, Operation.ADD_TO_EPIC, Operation.CREATE_WORK_ITEM);
     private static final Set<String> START_FROM = ImmutableSet.of("work", "issue", "jira");
     private static final Set<String> MARKABLE = ImmutableSet.of("issue", "jira", "work");
     private static final Set<String> JOINABLE = ImmutableSet.of("work", "issue", "jira", "pr", "task");
+    /** The operations the "acknowledge and snooze" switch allows, on what Needs attention lists. */
+    private static final Set<Operation> MARKS = Sets.immutableEnumSet(Operation.ACKNOWLEDGE, Operation.SNOOZE);
+    private static final Set<String> ATTENTION = ImmutableSet.of("pr", "issue", "jira", "task");
+    private static final Map<String, AttentionMarkService.Snooze> SNOOZES = ImmutableMap.of(
+            "hour", AttentionMarkService.Snooze.HOUR,
+            "tomorrow", AttentionMarkService.Snooze.TOMORROW,
+            "monday", AttentionMarkService.Snooze.MONDAY);
     // Words after one of these, in the same clause, are what the user said not to do: "push to main" in "don't push to main".
     private static final Pattern NEGATION = Pattern.compile("\\b(?:not|never|don't|dont|doesn't|didn't|can't|cannot|won't|wouldn't|shouldn't|mustn't|isn't|aren't|wasn't"
             + "|stop|avoid|without|neither|nor|except|instead of|rather than)\\b");
@@ -225,13 +237,16 @@ class AssistantActions
                                 "description", "answer_question: each question's text to the chosen option's label, or to the user's own words"))
                         .put("task", ImmutableMap.of("type", "string", "description", "reply_to_task: the task: ref to send the user's words to"))
                         .put("item", ImmutableMap.of("type", "string", "description", "mark_epic: the issue:, jira: or work: ref to mark as an Epic; add_to_epic: the work:, "
-                                + "issue:, jira:, pr: or task: ref to add"))
+                                + "issue:, jira:, pr: or task: ref to add; acknowledge and snooze: the pr:, issue:, jira: or task: ref of a Needs attention item"))
+                        .put("until", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(SNOOZES.keySet()),
+                                "description", "snooze: for an hour, until tomorrow at 9:00, or until Monday at 9:00"))
                         .put("epic", ImmutableMap.of("type", "string", "description", "add_to_epic, and create_work_item in an Epic: the epic: ref"))
                         .buildOrThrow(),
                 "required", ImmutableList.of("op", "words"),
                 "additionalProperties", false);
         return new ReviewTool(NAME, "Do one thing the user's latest message asks for: start a task, answer a card, send the user's words to a task, mark an Epic, "
-                + "add work to an Epic, or create a work item titled with the user's words. The app checks every call and shows the user a receipt.", schema, run::call, false);
+                + "add work to an Epic, create a work item titled with the user's words, or acknowledge or snooze a Needs attention item. The app checks every call and "
+                + "shows the user a receipt.", schema, run::call, false);
     }
 
     /**
@@ -316,7 +331,7 @@ class AssistantActions
                 case ANSWER_APPROVAL, ANSWER_QUESTION -> text("approval");
                 case REPLY_TO_TASK -> text("task");
                 case OPEN, CREATE_EPIC -> text("ref");
-                case MARK_EPIC, ADD_TO_EPIC -> text("item");
+                case MARK_EPIC, ADD_TO_EPIC, ACKNOWLEDGE, SNOOZE -> text("item");
                 case CREATE_WORK_ITEM -> optional("epic").orElse(text("workspace"));
             };
         }
@@ -404,6 +419,11 @@ class AssistantActions
                 }
                 case CREATE_WORK_ITEM -> checkArgument(request.optional("epic").map(epic -> AgendaRefs.kind(epic).equals("epic"))
                         .orElseGet(() -> request.text("workspace").startsWith("ws:")), "create_work_item needs a ws: or epic: ref");
+                case ACKNOWLEDGE -> checkArgument(ATTENTION.contains(AgendaRefs.kind(request.text("item"))), "acknowledge takes a pr:, issue:, jira: or task: ref");
+                case SNOOZE -> {
+                    checkArgument(ATTENTION.contains(AgendaRefs.kind(request.text("item"))), "snooze takes a pr:, issue:, jira: or task: ref");
+                    checkArgument(SNOOZES.containsKey(request.text("until")), "until must be hour, tomorrow or monday");
+                }
             }
             checkArgument(!request.target().isEmpty(), "%s needs a ref", body.path("op").asText());
             return request;
@@ -417,6 +437,7 @@ class AssistantActions
             Optional<String> off = switch (operation) {
                 case START_TASK -> allowed.startTasks() ? Optional.empty() : Optional.of("Starting tasks is off");
                 case MARK_EPIC, ADD_TO_EPIC, CREATE_WORK_ITEM -> allowed.changeWork() ? Optional.empty() : Optional.of("Changing Epics and work items is off");
+                case ACKNOWLEDGE, SNOOZE -> allowed.markAttention() ? Optional.empty() : Optional.of("Acknowledging and snoozing is off");
                 case ANSWER_APPROVAL, ANSWER_QUESTION, REPLY_TO_TASK, OPEN, CREATE_EPIC -> allowed.answerTasks() ? Optional.empty() : Optional.of("Answering tasks is off");
             };
             if (off.isPresent()) {
@@ -431,7 +452,7 @@ class AssistantActions
             }
             // An item's own rules, such as a ticket that already has a task, are its service's, and a refusal there reads as a failure.
             Optional<Result> state = switch (operation) {
-                case START_TASK, OPEN, MARK_EPIC, ADD_TO_EPIC, CREATE_WORK_ITEM, CREATE_EPIC -> Optional.empty();
+                case START_TASK, OPEN, MARK_EPIC, ADD_TO_EPIC, CREATE_WORK_ITEM, CREATE_EPIC, ACKNOWLEDGE, SNOOZE -> Optional.empty();
                 case ANSWER_APPROVAL, ANSWER_QUESTION -> approvalState(request);
                 case REPLY_TO_TASK -> taskState(request);
             };
@@ -462,7 +483,7 @@ class AssistantActions
             if (request.operation() == Operation.ADD_TO_EPIC) {
                 return shown.contains(request.text("epic")) && shown.contains(request.text("item"));
             }
-            if (WORK.contains(request.operation())) {
+            if (WORK.contains(request.operation()) || MARKS.contains(request.operation())) {
                 return shown.contains(request.target());
             }
             if (request.operation() == Operation.START_TASK && request.optional("from").isPresent()) {
@@ -556,6 +577,8 @@ class AssistantActions
                 case ADD_TO_EPIC -> done(request, work.addToEpic(request.text("epic"), request.text("item")));
                 case CREATE_WORK_ITEM -> done(request, work.createWorkItem(request.optional("epic"), request.optional("workspace"), request.words(),
                         UUID.nameUUIDFromBytes(identity(request).getBytes(StandardCharsets.UTF_8)).toString()));
+                case ACKNOWLEDGE -> done(request, work.acknowledge(request.text("item")));
+                case SNOOZE -> done(request, work.snooze(request.text("item"), SNOOZES.get(request.text("until"))));
                 // Opening changes nothing, so assistant_show does it, and only the user's click creates a draft's issue; this tool parses neither.
                 case OPEN, CREATE_EPIC -> throw new IllegalStateException("assistant_act does not " + request.operation());
             };

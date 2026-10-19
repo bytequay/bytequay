@@ -16,6 +16,7 @@ import { Hand, Mic, TriangleAlert, X } from 'lucide-react';
 import Composer from '../Composer';
 import { renderMarkdown } from '../agents/markdown';
 import { openTarget } from '../home/TodayList';
+import { reloadHandled } from '../home/attention';
 import { clockTime } from '../home/today';
 import type { AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../remoteError';
@@ -110,6 +111,10 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     followed.current.add(arrived.id);
     openReceipt(arrived.receipt);
   }, [open, view, openReceipt]);
+
+  // The lists read marks once at start, so a mark the assistant made reaches them when its receipt does.
+  const marked = items.filter(item => item.receipt?.outcome === 'DONE' && (item.receipt.operation === 'ACKNOWLEDGE' || item.receipt.operation === 'SNOOZE')).length;
+  useEffect(() => { if (marked > 0) void reloadHandled().catch(() => {}); }, [marked]);
 
   if (!open) return null;
 

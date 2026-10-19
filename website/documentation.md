@@ -133,9 +133,9 @@ buttons remain available. Saved conversation history is preserved.
 ### Let it act when you ask
 
 In **Settings → Agents → Workflow**, optionally enable **Assistant can start
-tasks**, **Assistant can answer tasks** or **Assistant can change Epics and work
-items**. All are off by default and are separate from enabling Assistant
-conversation.
+tasks**, **Assistant can answer tasks**, **Assistant can change Epics and work
+items** or **Assistant can acknowledge and snooze items**. All are off by
+default and are separate from enabling Assistant conversation.
 
 - **Start tasks:** ask it to start work on an item. The task uses your saved
   automation settings.
@@ -145,6 +145,9 @@ conversation.
 - **Change Epics and work items:** mark an issue, ticket or work item as an
   Epic, add work to an Epic, or create a work item titled with your words. All
   of it stays in ByteQuay; unmarking an Epic stays a button.
+- **Acknowledge and snooze items:** clear a **Needs attention** item until
+  something new happens, or snooze it for an hour, until tomorrow or until
+  Monday. Bringing an item back stays a button.
 - Each action leaves a receipt showing the words it acted on. **Open** takes
   you to the task; **Stop** cancels the first turn of a task it started.
 

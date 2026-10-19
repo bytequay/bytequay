@@ -137,8 +137,9 @@ reads expose direct summaries without recursively expanding reference cycles.
 Needs attention marks, the items the user acknowledged or snoozed, are SQLite rows
 under the list's item keys, so every build shares one set. Each row keeps the
 list's own fingerprint of the item and, for a timed snooze, the list's copy of
-it; the backend stores both without reading them. A build's first start brings
-along the marks it kept in its own browser storage.
+it; the backend stores both without reading them. A mark the assistant adds has
+neither until a list first draws the item and fills them in. A build's first
+start brings along the marks it kept in its own browser storage.
 
 Agent work-item access is a task-scoped capability: reads stay within the task's
 workspace and creation always saves locally. The desktop publication action binds a
@@ -299,9 +300,10 @@ already builds for an item, and task automation comes from the user's saved
 settings. Words the message says not to do, such as "push to main" in "don't
 push to main", are refused, and each receipt shows the exact words acted on. By words it answers only Claude shell commands that stay in the
 sandbox, with Allow once or Deny, and question cards; everything else stays a
-button. It may also mark an Epic, add work to one and create a work item titled
-with the user's words, all of it local. Each call is logged and leaves a receipt
-in the conversation, and the switches that let it act are off by default.
+button. It may also mark an Epic, add work to one, create a work item titled
+with the user's words, and acknowledge or snooze a Needs attention item, all of
+it local. Each call is logged and leaves a receipt in the conversation, and the
+switches that let it act are off by default.
 
 ## Trust and external services
 

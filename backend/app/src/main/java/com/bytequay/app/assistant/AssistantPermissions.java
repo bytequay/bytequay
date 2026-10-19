@@ -19,8 +19,9 @@ package com.bytequay.app.assistant;
  * @param startTasks whether it may start a task the user asks for
  * @param answerTasks whether it may answer a sandboxed command or a question, and send the user's reply to a task
  * @param changeWork whether it may mark an Epic, add work to one and create a work item, all of which stay local
+ * @param markAttention whether it may acknowledge or snooze a Needs attention item, which stays local too
  */
-public record AssistantPermissions(boolean startTasks, boolean answerTasks, boolean changeWork)
+public record AssistantPermissions(boolean startTasks, boolean answerTasks, boolean changeWork, boolean markAttention)
 {
-    public static final AssistantPermissions DEFAULT = new AssistantPermissions(false, false, false);
+    public static final AssistantPermissions DEFAULT = new AssistantPermissions(false, false, false, false);
 }

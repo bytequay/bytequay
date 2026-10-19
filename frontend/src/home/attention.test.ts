@@ -21,7 +21,9 @@ import {
   attentionKind,
   attentionRank,
   attentionSummary,
+  attentionActivityVersion,
   attentionTime,
+  completeHandled,
   handledEntry,
   handledSummary,
   loadHandled,
@@ -591,4 +593,26 @@ describe('marks kept in the backend', () => {
     expect(Object.keys(loadHandled())).toEqual(['task:t3']);
     expect(storage.has(LEGACY)).toBe(true);
   });
+
+  it('completes a mark the assistant made the first time a list draws its item', async () => {
+    const item = pullRequestItem(pr({ updatedAt: '2026-10-19T02:00:00Z' }));
+    const later = pullRequestItem(pr({ number: 2, updatedAt: '2026-10-19T05:00:00Z' }));
+    const snoozed = pullRequestItem(pr({ number: 3, updatedAt: '2026-10-19T02:00:00Z' }));
+    const byWords = (key: string, kind: 'ACK' | 'SNOOZE', until: string | null): AttentionMarkDto => ({ key, kind, until, seenUpdatedAt: '2026-10-19T03:00:00Z',
+      seenActivityVersion: null, label: kind === 'ACK' ? 'acknowledged' : 'tomorrow', snoozedItem: null });
+    const { changed } = backend([byWords(item.key, 'ACK', null), byWords(later.key, 'ACK', null), byWords(snoozed.key, 'SNOOZE', '2026-10-20T01:00:00.000Z')], null);
+    await reloadHandled();
+    completeHandled([item, later, snoozed]);
+
+    // The acknowledged item now wakes on any change the list tracks, such as CI, which moves no update time; the one updated after the
+    // mark is already back, and the timed snooze keeps a copy to come back with.
+    expect(loadHandled()[item.key]?.seenActivityVersion).toBe(attentionActivityVersion(item));
+    expect(visibleAttention([pullRequestItem(pr({ updatedAt: '2026-10-19T02:00:00Z', ciStatus: 'FAILING' }))], loadHandled(), Date.now())).toHaveLength(1);
+    expect(loadHandled()[later.key]?.seenActivityVersion).toBeUndefined();
+    expect(loadHandled()[snoozed.key]?.snoozedItem).toEqual(snoozed);
+    expect(changed).toHaveLength(1);
+    completeHandled([item, later, snoozed]);
+    expect(changed).toHaveLength(1);
+  });
 });
+

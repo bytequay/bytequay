@@ -16,7 +16,7 @@ import { taskAttentionItem } from '../agents/attention';
 import { jiraAttentionItem } from '../jira/attention';
 import { jiraIssueLocation } from '../jira/contracts';
 import type { Bridge } from '../types';
-import { issueAttentionItem, pullRequestItem, type AttentionItem, type Handled } from './attention';
+import { completeHandled, issueAttentionItem, pullRequestItem, type AttentionItem, type Handled } from './attention';
 
 export type AttentionScope = { workspaceId: string; repository: string };
 type Reminder = { item: AttentionItem; until: number };
@@ -113,6 +113,8 @@ function inScope(item: AttentionItem, scope: AttentionScope | undefined): boolea
 
 /** Expired reminders retain their own identity; ACK, a new snooze, or pinning still controls visibility. */
 export function useSnoozedAttention(candidates: AttentionItem[], handled: Handled, now: number, scope?: AttentionScope): AttentionItem[] {
+  // Every list draws through here, so a mark the assistant made gets the item's fingerprint the first time any list shows it.
+  useEffect(() => completeHandled(candidates), [candidates, handled]);
   const serialized = JSON.stringify(Object.entries(handled).flatMap(([key, entry]): Reminder[] =>
     object(entry) && entry.kind === 'snooze' && typeof entry.until === 'number' && Number.isFinite(entry.until) && entry.until <= now
       && retainedItem(entry.snoozedItem, key) && inScope(entry.snoozedItem, scope)

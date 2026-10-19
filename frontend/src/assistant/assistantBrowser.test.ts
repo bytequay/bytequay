@@ -47,5 +47,5 @@ it('floats the Assistant over the page, pages its cards by keyboard, answers the
     `,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  expect(results).toHaveLength(11);
+  expect(results).toHaveLength(12);
 }, deadline(SCREENSHOTS ? 120_000 : 30_000));

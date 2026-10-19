@@ -226,6 +226,24 @@ class TestAssistantRows
     }
 
     @Test
+    void namesAnItemByTheKeyItsNeedsAttentionRowUses()
+    {
+        Workspace iceberg = new Workspace("ws2", "Iceberg", 2, RepoRef.of("Apache", "Iceberg"), Optional.empty(), Optional.empty(), 2, RepoRef.of("Apache", "Iceberg"),
+                Workspace.Topology.DIRECT, "main", "https://github.com/Apache/Iceberg.git", Optional.empty(), Optional.empty(), "/managed/iceberg", Optional.empty(),
+                Optional.empty(), 0, NOW, NOW);
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(TRINO, iceberg));
+
+        assertThat(rows.attentionKey("pr:trinodb/trino#31402")).contains("trinodb/trino#31402");
+        // A ref is lowercase; the list keys an issue by its repository as the workspace spells it.
+        assertThat(rows.attentionKey("issue:apache/iceberg#12")).contains("Apache/Iceberg#12");
+        assertThat(rows.attentionKey("jira:cloud:10042")).contains("jira:cloud:10042");
+        assertThat(rows.attentionKey("task:7d0e")).contains("task:7d0e");
+        assertThat(rows.attentionKey("pr:trinodb/trino#1")).isEmpty();
+        assertThat(rows.attentionKey("issue:apache/spark#3")).isEmpty();
+        assertThat(rows.attentionKey("work:w22")).isEmpty();
+    }
+
+    @Test
     void leavesOutARefWhoseStoreCannotBeReadNow()
     {
         when(issues.find(1, 77)).thenThrow(new IllegalStateException("database is locked"));

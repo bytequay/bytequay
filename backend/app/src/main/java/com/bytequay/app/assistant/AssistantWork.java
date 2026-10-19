@@ -16,6 +16,7 @@ package com.bytequay.app.assistant;
 import com.bytequay.app.agenda.AgendaRefs;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.service.attention.AttentionMarkService;
 import com.bytequay.app.service.epic.EpicService;
 import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.goal.WorkItemView;
@@ -43,8 +44,9 @@ import static com.bytequay.app.agenda.AgendaReader.clip;
 import static java.util.Objects.requireNonNull;
 
 /**
- * What the assistant's work operations do once its checks pass: mark an Epic, add work to one, and create a work item. Each goes through
- * the service the app's own buttons use, and all of it stays local: nothing here asks GitHub or Jira.
+ * What the assistant's work operations do once its checks pass: mark an Epic, add work to one, create a work item, and acknowledge or
+ * snooze a Needs attention item. Each goes through the service the app's own buttons use, and all of it stays local: nothing here asks
+ * GitHub or Jira.
  */
 @Component
 class AssistantWork
@@ -58,8 +60,10 @@ class AssistantWork
     private final WorkItemStore items;
     private final WorkspaceStore workspaces;
     private final AssistantRows rows;
+    private final AttentionMarkService marks;
 
-    AssistantWork(IssueDevelopmentService issues, JiraService jira, EpicService epics, WorkItemService work, WorkItemStore items, WorkspaceStore workspaces, AssistantRows rows)
+    AssistantWork(IssueDevelopmentService issues, JiraService jira, EpicService epics, WorkItemService work, WorkItemStore items, WorkspaceStore workspaces, AssistantRows rows,
+            AttentionMarkService marks)
     {
         this.issues = requireNonNull(issues, "issues is null");
         this.jira = requireNonNull(jira, "jira is null");
@@ -68,6 +72,7 @@ class AssistantWork
         this.items = requireNonNull(items, "items is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.rows = requireNonNull(rows, "rows is null");
+        this.marks = requireNonNull(marks, "marks is null");
     }
 
     /**
@@ -137,6 +142,30 @@ class AssistantWork
         epic.flatMap(this::row).ifPresent(found -> where.add(clip(found.title(), TITLE)));
         return new Done("Created “" + clip(created.title(), TITLE) + "”", Optional.of(String.join(" · ", where.build())),
                 Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, workspace.id(), created.id())), created.id());
+    }
+
+    /** Acknowledges a Needs attention item until something new happens to it, as its row's Acknowledge does. */
+    Done acknowledge(String item)
+    {
+        String key = rows.attentionKey(item).orElseThrow(() -> new IllegalArgumentException("That isn't in Needs attention"));
+        marks.acknowledge(key);
+        Optional<AssistantRow> row = row(item);
+        return new Done("Acknowledged “" + row.map(found -> clip(found.title(), TITLE)).orElse(item) + "”", Optional.of("Back when something new happens"),
+                row.map(AssistantRow::target), key);
+    }
+
+    /** Snoozes a Needs attention item to the end of one of its row's snooze choices. */
+    Done snooze(String item, AttentionMarkService.Snooze snooze)
+    {
+        String key = rows.attentionKey(item).orElseThrow(() -> new IllegalArgumentException("That isn't in Needs attention"));
+        marks.snooze(key, snooze);
+        Optional<AssistantRow> row = row(item);
+        String until = switch (snooze) {
+            case HOUR -> "for an hour";
+            case TOMORROW -> "until tomorrow at 9:00";
+            case MONDAY -> "until Monday at 9:00";
+        };
+        return new Done("Snoozed “" + row.map(found -> clip(found.title(), TITLE)).orElse(item) + "” " + until, Optional.empty(), row.map(AssistantRow::target), key);
     }
 
     /**

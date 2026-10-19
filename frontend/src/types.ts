@@ -1538,7 +1538,8 @@ export type AssistantRowDto = {
 
 /** What one action left, done or refused: by the assistant from the user's words, or by a card's own button. */
 export type AssistantReceiptDto = {
-  operation: 'START_TASK' | 'ANSWER_APPROVAL' | 'ANSWER_QUESTION' | 'REPLY_TO_TASK' | 'OPEN' | 'MARK_EPIC' | 'ADD_TO_EPIC' | 'CREATE_WORK_ITEM' | 'CREATE_EPIC';
+  operation: 'START_TASK' | 'ANSWER_APPROVAL' | 'ANSWER_QUESTION' | 'REPLY_TO_TASK' | 'OPEN' | 'MARK_EPIC' | 'ADD_TO_EPIC' | 'CREATE_WORK_ITEM' | 'CREATE_EPIC' | 'ACKNOWLEDGE'
+    | 'SNOOZE';
   outcome: 'DONE' | 'REFUSED' | 'FAILED';
   /** A second line, such as where a started task runs. */
   detail: string | null;
@@ -1553,8 +1554,8 @@ export type AssistantReceiptDto = {
   words: string | null;
 };
 
-/** What the Assistant may do from the user's words; each starts off. Changing Epics and work items stays local. */
-export type AssistantPermissionsDto = { startTasks: boolean; answerTasks: boolean; changeWork: boolean };
+/** What the Assistant may do from the user's words; each starts off. Changing Epics and work items, and marking Needs attention, stay local. */
+export type AssistantPermissionsDto = { startTasks: boolean; answerTasks: boolean; changeWork: boolean; markAttention: boolean };
 
 export type AssistantViewDto = {
   day: string;

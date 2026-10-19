@@ -606,6 +606,22 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
   finally { view.dispose(); }
 }
 
+async function readsTheMarksTheAssistantMade(): Promise<void> {
+  let reads = 0;
+  const acknowledged: AssistantItemDto = { id: 'c8', day: '2026-10-16', at: '2026-10-16T07:05:00Z', kind: 'RECEIPT', text: 'Acknowledged “Add Iceberg metadata cache”',
+    targets: {}, notReady: false, list: null, draft: null,
+    receipt: { operation: 'ACKNOWLEDGE', outcome: 'DONE', detail: 'Back when something new happens', target: PULL, page: null, turnId: null, fix: null, words: 'clear it' } };
+  const view = mount({ ...VIEW, items: [VIEW.items[0], acknowledged] }, 0, [], [], undefined, undefined, {
+    getAttentionMarks: async () => { reads++; return []; },
+    setPrAttentionHandled: async () => {},
+  });
+  try {
+    await settle();
+    assert(reads === 1, `A mark the assistant made reaches the lists when its receipt arrives: ${reads} reads`);
+  }
+  finally { view.dispose(); }
+}
+
 async function stopsARunningReply(): Promise<void> {
   const view = mount({ ...VIEW, running: true });
   try {
@@ -627,7 +643,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['moves with the keyboard', movesWithTheKeyboard], ['opens at a card from its alert', opensAtACardFromItsAlert],
     ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline],
     ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard],
-    ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic]] as const) {
+    ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }

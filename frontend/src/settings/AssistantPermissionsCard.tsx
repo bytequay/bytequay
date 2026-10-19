@@ -51,6 +51,11 @@ export default function AssistantPermissionsCard() {
           subtitle="Mark issues, tickets and work items as Epics, add work to an Epic, and create work items titled with your words. All of it stays local; unmarking an Epic stays a button.">
           <Toggle label="Assistant can change Epics and work items" on={value.changeWork} disabled={busy} onChange={changeWork => save({ ...value, changeWork })} />
         </SettingsRow>
+        <SettingsRow title="Assistant can acknowledge and snooze items"
+          subtitle="Clear a Needs attention item until something new happens, or snooze it for an hour, until tomorrow or until Monday. Bringing one back stays a button.">
+          <Toggle label="Assistant can acknowledge and snooze items" on={value.markAttention} disabled={busy}
+            onChange={markAttention => save({ ...value, markAttention })} />
+        </SettingsRow>
       </>}
     </SettingsCard>
   </>;

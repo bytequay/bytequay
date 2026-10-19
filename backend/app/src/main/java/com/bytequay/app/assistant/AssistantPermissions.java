@@ -14,12 +14,13 @@
 package com.bytequay.app.assistant;
 
 /**
- * What the assistant may do from the user's words; both are off until the user turns them on.
+ * What the assistant may do from the user's words; each is off until the user turns it on.
  *
  * @param startTasks whether it may start a task the user asks for
  * @param answerTasks whether it may answer a sandboxed command or a question, and send the user's reply to a task
+ * @param changeWork whether it may mark an Epic, add work to one and create a work item, all of which stay local
  */
-public record AssistantPermissions(boolean startTasks, boolean answerTasks)
+public record AssistantPermissions(boolean startTasks, boolean answerTasks, boolean changeWork)
 {
-    public static final AssistantPermissions DEFAULT = new AssistantPermissions(false, false);
+    public static final AssistantPermissions DEFAULT = new AssistantPermissions(false, false, false);
 }

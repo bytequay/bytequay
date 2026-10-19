@@ -16,7 +16,7 @@ import { remoteErrorMessage } from '../remoteError';
 import type { AssistantPermissionsDto } from '../types';
 import { SettingsCard, SettingsRow, Toggle } from './primitives';
 
-/** What the Assistant panel may do from the user's words. Both switches start off. */
+/** What the Assistant panel may do from the user's words. Every switch starts off. */
 export default function AssistantPermissionsCard() {
   const [value, setValue] = useState<AssistantPermissionsDto | null>(null);
   const [busy, setBusy] = useState(false);
@@ -46,6 +46,10 @@ export default function AssistantPermissionsCard() {
         <SettingsRow title="Assistant can answer tasks"
           subtitle="Allow once or deny commands inside the sandbox, answer questions, and send your replies. Everything else stays a button.">
           <Toggle label="Assistant can answer tasks" on={value.answerTasks} disabled={busy} onChange={answerTasks => save({ ...value, answerTasks })} />
+        </SettingsRow>
+        <SettingsRow title="Assistant can change Epics and work items"
+          subtitle="Mark issues, tickets and work items as Epics, add work to an Epic, and create work items titled with your words. All of it stays local; unmarking an Epic stays a button.">
+          <Toggle label="Assistant can change Epics and work items" on={value.changeWork} disabled={busy} onChange={changeWork => save({ ...value, changeWork })} />
         </SettingsRow>
       </>}
     </SettingsCard>

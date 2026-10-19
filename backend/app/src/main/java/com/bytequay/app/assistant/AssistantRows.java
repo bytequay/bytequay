@@ -280,13 +280,22 @@ class AssistantRows
                 AgendaTarget.of(AgendaTarget.Kind.WORK, item.workspaceId(), item.id()));
     }
 
+    /** The workspace an Epic belongs to: the one its record, its local work item, or any work in it names. */
+    Optional<Workspace> epicWorkspace(String epicId)
+    {
+        return epicWorkspace(epicId, workspaces::findAll);
+    }
+
+    private Optional<Workspace> epicWorkspace(String epicId, Supplier<List<Workspace>> watched)
+    {
+        return epics.find(epicId).map(Epic::workspaceId).or(() -> EpicSources.localId(epicId).flatMap(workItems::find).map(WorkItem::workspaceId))
+                .flatMap(workspaces::findById)
+                .or(() -> watched.get().stream().filter(workspace -> workItems.list(workspace.id()).stream().anyMatch(item -> inEpic(item, epicId))).findFirst());
+    }
+
     private Optional<AssistantRow> epic(String epicId, Shared shared)
     {
-        // An Epic belongs to the workspace its record, its local work item, or any work in it names.
-        Optional<Workspace> workspace = epics.find(epicId).map(Epic::workspaceId).or(() -> EpicSources.localId(epicId).flatMap(workItems::find).map(WorkItem::workspaceId))
-                .flatMap(workspaces::findById)
-                .or(() -> shared.watched.get().stream().filter(watched -> workItems.list(watched.id()).stream().anyMatch(item -> inEpic(item, epicId))).findFirst());
-        return workspace.flatMap(found -> agenda.epicSource(found, epicId).map(source -> {
+        return epicWorkspace(epicId, shared.watched).flatMap(found -> agenda.epicSource(found, epicId).map(source -> {
             List<WorkItem> work = workItems.list(found.id()).stream().filter(item -> inEpic(item, epicId)).collect(toImmutableList());
             int done = (int) work.stream().filter(item -> item.state() == WorkItem.State.DONE).count();
             int total = (int) work.stream().filter(item -> item.state() != WorkItem.State.DROPPED).count();

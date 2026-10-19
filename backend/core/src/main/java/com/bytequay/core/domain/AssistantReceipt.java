@@ -34,7 +34,7 @@ public record AssistantReceipt(Operation operation, Outcome outcome, Optional<St
 {
     public enum Operation
     {
-        START_TASK, ANSWER_APPROVAL, ANSWER_QUESTION, REPLY_TO_TASK, OPEN
+        START_TASK, ANSWER_APPROVAL, ANSWER_QUESTION, REPLY_TO_TASK, OPEN, MARK_EPIC, ADD_TO_EPIC, CREATE_WORK_ITEM
     }
 
     public enum Outcome

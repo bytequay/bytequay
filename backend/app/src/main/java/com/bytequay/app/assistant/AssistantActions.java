@@ -68,8 +68,10 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -93,7 +95,8 @@ import static java.util.stream.Collectors.joining;
 /**
  * The {@code assistant_act} tool: what the assistant may do for the user, and only in the run their own message started. A call passes
  * the checks in order or is refused, and either way leaves a receipt in the conversation and a row in the action log. It sends a task
- * only the user's words, never the assistant's: a task's own messages count as the user's authority for what it does next.
+ * only the user's words, never the assistant's: a task's own messages count as the user's authority for what it does next. It also
+ * marks Epics, adds work to them and creates work items, all of which stay local.
  */
 @Component
 class AssistantActions
@@ -110,17 +113,29 @@ class AssistantActions
     private static final String ISSUE_START = "Implement %s";
     private static final String JIRA_START = "Implement %s: %s";
     private static final String NOTE = "\n\nNote from the user, in their words to the assistant: “%s”";
-    private static final Map<String, Operation> OPERATIONS = ImmutableMap.of(
-            "start_task", Operation.START_TASK,
-            "answer_approval", Operation.ANSWER_APPROVAL,
-            "answer_question", Operation.ANSWER_QUESTION,
-            "reply_to_task", Operation.REPLY_TO_TASK);
-    private static final Map<Operation, Set<String>> FIELDS = ImmutableMap.of(
-            Operation.START_TASK, ImmutableSet.of("op", "words", "workspace", "from", "agent"),
-            Operation.ANSWER_APPROVAL, ImmutableSet.of("op", "words", "approval", "decision"),
-            Operation.ANSWER_QUESTION, ImmutableSet.of("op", "words", "approval", "answers"),
-            Operation.REPLY_TO_TASK, ImmutableSet.of("op", "words", "task"));
+    private static final Map<String, Operation> OPERATIONS = ImmutableMap.<String, Operation>builder()
+            .put("start_task", Operation.START_TASK)
+            .put("answer_approval", Operation.ANSWER_APPROVAL)
+            .put("answer_question", Operation.ANSWER_QUESTION)
+            .put("reply_to_task", Operation.REPLY_TO_TASK)
+            .put("mark_epic", Operation.MARK_EPIC)
+            .put("add_to_epic", Operation.ADD_TO_EPIC)
+            .put("create_work_item", Operation.CREATE_WORK_ITEM)
+            .buildOrThrow();
+    private static final Map<Operation, Set<String>> FIELDS = ImmutableMap.<Operation, Set<String>>builder()
+            .put(Operation.START_TASK, ImmutableSet.of("op", "words", "workspace", "from", "agent"))
+            .put(Operation.ANSWER_APPROVAL, ImmutableSet.of("op", "words", "approval", "decision"))
+            .put(Operation.ANSWER_QUESTION, ImmutableSet.of("op", "words", "approval", "answers"))
+            .put(Operation.REPLY_TO_TASK, ImmutableSet.of("op", "words", "task"))
+            .put(Operation.MARK_EPIC, ImmutableSet.of("op", "words", "item"))
+            .put(Operation.ADD_TO_EPIC, ImmutableSet.of("op", "words", "epic", "item"))
+            .put(Operation.CREATE_WORK_ITEM, ImmutableSet.of("op", "words", "workspace", "epic"))
+            .buildOrThrow();
+    /** The operations the "change Epics and work items" switch allows; each stays local. */
+    private static final Set<Operation> WORK = Sets.immutableEnumSet(Operation.MARK_EPIC, Operation.ADD_TO_EPIC, Operation.CREATE_WORK_ITEM);
     private static final Set<String> START_FROM = ImmutableSet.of("work", "issue", "jira");
+    private static final Set<String> MARKABLE = ImmutableSet.of("issue", "jira", "work");
+    private static final Set<String> JOINABLE = ImmutableSet.of("work", "issue", "jira", "pr", "task");
     // Words after one of these, in the same clause, are what the user said not to do: "push to main" in "don't push to main".
     private static final Pattern NEGATION = Pattern.compile("\\b(?:not|never|don't|dont|doesn't|didn't|can't|cannot|won't|wouldn't|shouldn't|mustn't|isn't|aren't|wasn't"
             + "|stop|avoid|without|neither|nor|except|instead of|rather than)\\b");
@@ -143,6 +158,7 @@ class AssistantActions
     private final JiraService jira;
     private final ModelSettingsService models;
     private final AppSettingsService settings;
+    private final AssistantWork work;
     private final ObjectMapper mapper;
     private final Clock clock;
 
@@ -162,6 +178,7 @@ class AssistantActions
             JiraService jira,
             ModelSettingsService models,
             AppSettingsService settings,
+            AssistantWork work,
             ObjectMapper mapper,
             Clock clock)
     {
@@ -180,6 +197,7 @@ class AssistantActions
         this.jira = requireNonNull(jira, "jira is null");
         this.models = requireNonNull(models, "models is null");
         this.settings = requireNonNull(settings, "settings is null");
+        this.work = requireNonNull(work, "work is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -197,7 +215,8 @@ class AssistantActions
                 "properties", ImmutableMap.builder()
                         .put("op", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(OPERATIONS.keySet())))
                         .put("words", ImmutableMap.of("type", "string", "description", "The user's exact words in their latest message that ask for this action"))
-                        .put("workspace", ImmutableMap.of("type", "string", "description", "start_task without from: a ws: ref from start_options"))
+                        .put("workspace", ImmutableMap.of("type", "string", "description", "start_task without from, and create_work_item outside an Epic: a ws: ref "
+                                + "from start_options"))
                         .put("from", ImmutableMap.of("type", "string", "description", "start_task: the work:, issue: or jira: ref of the item to start"))
                         .put("agent", ImmutableMap.of("type", "string", "description", "start_task: an agent id from start_options; the repository's default when absent"))
                         .put("approval", ImmutableMap.of("type", "string", "description", "answer_approval and answer_question: the card's approval: ref"))
@@ -205,11 +224,14 @@ class AssistantActions
                         .put("answers", ImmutableMap.of("type", "object", "additionalProperties", ImmutableMap.of("type", "string"),
                                 "description", "answer_question: each question's text to the chosen option's label, or to the user's own words"))
                         .put("task", ImmutableMap.of("type", "string", "description", "reply_to_task: the task: ref to send the user's words to"))
+                        .put("item", ImmutableMap.of("type", "string", "description", "mark_epic: the issue:, jira: or work: ref to mark as an Epic; add_to_epic: the work:, "
+                                + "issue:, jira:, pr: or task: ref to add"))
+                        .put("epic", ImmutableMap.of("type", "string", "description", "add_to_epic, and create_work_item in an Epic: the epic: ref"))
                         .buildOrThrow(),
                 "required", ImmutableList.of("op", "words"),
                 "additionalProperties", false);
-        return new ReviewTool(NAME, "Do one thing the user's latest message asks for: start a task, answer a card, or send the user's words to a task. "
-                + "The app checks every call and shows the user a receipt.", schema, run::call, false);
+        return new ReviewTool(NAME, "Do one thing the user's latest message asks for: start a task, answer a card, send the user's words to a task, mark an Epic, "
+                + "add work to an Epic, or create a work item titled with the user's words. The app checks every call and shows the user a receipt.", schema, run::call, false);
     }
 
     /**
@@ -294,6 +316,8 @@ class AssistantActions
                 case ANSWER_APPROVAL, ANSWER_QUESTION -> text("approval");
                 case REPLY_TO_TASK -> text("task");
                 case OPEN -> text("ref");
+                case MARK_EPIC, ADD_TO_EPIC -> text("item");
+                case CREATE_WORK_ITEM -> optional("epic").orElse(text("workspace"));
             };
         }
     }
@@ -343,8 +367,9 @@ class AssistantActions
                 result = check(request).orElseGet(() -> act(request));
             }
             catch (RuntimeException failure) {
-                // The service's own rules said no, such as an item that cannot start now; the user reads why.
-                String reason = clip(Optional.ofNullable(failure.getMessage()).filter(text -> !text.isBlank()).orElse("ByteQuay could not do that"), REASON);
+                // The service's own rules said no, such as an item that cannot start now; the user reads why, without an HTTP status.
+                String said = failure instanceof ResponseStatusException status ? status.getReason() : failure.getMessage();
+                String reason = clip(Optional.ofNullable(said).filter(text -> !text.isBlank()).orElse("ByteQuay could not do that"), REASON);
                 result = new Result(reason, new AssistantReceipt(request.operation(), Outcome.FAILED, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                         Optional.empty(), Optional.empty()), Optional.empty());
             }
@@ -372,6 +397,13 @@ class AssistantActions
                 case ANSWER_APPROVAL -> checkArgument(ImmutableSet.of("allow_once", "deny").contains(request.text("decision")), "decision must be allow_once or deny");
                 case ANSWER_QUESTION -> checkArgument(body.path("answers").isObject() && !body.path("answers").isEmpty(), "answers are required");
                 case REPLY_TO_TASK -> checkArgument(request.optional("task").isPresent(), "reply_to_task needs a task: ref");
+                case MARK_EPIC -> checkArgument(MARKABLE.contains(AgendaRefs.kind(request.text("item"))), "mark_epic takes an issue:, jira: or work: ref");
+                case ADD_TO_EPIC -> {
+                    checkArgument(AgendaRefs.kind(request.text("epic")).equals("epic"), "add_to_epic needs an epic: ref");
+                    checkArgument(JOINABLE.contains(AgendaRefs.kind(request.text("item"))), "add_to_epic adds a work:, issue:, jira:, pr: or task: ref");
+                }
+                case CREATE_WORK_ITEM -> checkArgument(request.optional("epic").map(epic -> AgendaRefs.kind(epic).equals("epic"))
+                        .orElseGet(() -> request.text("workspace").startsWith("ws:")), "create_work_item needs a ws: or epic: ref");
             }
             checkArgument(!request.target().isEmpty(), "%s needs a ref", body.path("op").asText());
             return request;
@@ -382,8 +414,13 @@ class AssistantActions
         {
             Operation operation = request.operation();
             AssistantPermissions allowed = permissions.permissions();
-            if (operation == Operation.START_TASK ? !allowed.startTasks() : !allowed.answerTasks()) {
-                return Optional.of(Result.refused(operation, operation == Operation.START_TASK ? "Starting tasks is off" : "Answering tasks is off", Fix.SETTINGS));
+            Optional<String> off = switch (operation) {
+                case START_TASK -> allowed.startTasks() ? Optional.empty() : Optional.of("Starting tasks is off");
+                case MARK_EPIC, ADD_TO_EPIC, CREATE_WORK_ITEM -> allowed.changeWork() ? Optional.empty() : Optional.of("Changing Epics and work items is off");
+                case ANSWER_APPROVAL, ANSWER_QUESTION, REPLY_TO_TASK, OPEN -> allowed.answerTasks() ? Optional.empty() : Optional.of("Answering tasks is off");
+            };
+            if (off.isPresent()) {
+                return Optional.of(Result.refused(operation, off.orElseThrow(), Fix.SETTINGS));
             }
             Optional<String> unsaid = unsaid(message, request.words());
             if (unsaid.isPresent()) {
@@ -392,8 +429,9 @@ class AssistantActions
             if (!onScreen(request)) {
                 return Optional.of(Result.refused(operation, "That isn't on screen"));
             }
+            // An item's own rules, such as a ticket that already has a task, are its service's, and a refusal there reads as a failure.
             Optional<Result> state = switch (operation) {
-                case START_TASK, OPEN -> Optional.empty();
+                case START_TASK, OPEN, MARK_EPIC, ADD_TO_EPIC, CREATE_WORK_ITEM -> Optional.empty();
                 case ANSWER_APPROVAL, ANSWER_QUESTION -> approvalState(request);
                 case REPLY_TO_TASK -> taskState(request);
             };
@@ -421,6 +459,12 @@ class AssistantActions
                 return message.visible().contains(request.target());
             }
             Set<String> shown = shown(message, context);
+            if (request.operation() == Operation.ADD_TO_EPIC) {
+                return shown.contains(request.text("epic")) && shown.contains(request.text("item"));
+            }
+            if (WORK.contains(request.operation())) {
+                return shown.contains(request.target());
+            }
             if (request.operation() == Operation.START_TASK && request.optional("from").isPresent()) {
                 return START_FROM.contains(AgendaRefs.kind(request.text("from"))) && shown.contains(request.text("from"));
             }
@@ -508,9 +552,20 @@ class AssistantActions
                 case ANSWER_APPROVAL -> allowOrDeny(request);
                 case ANSWER_QUESTION -> answerQuestion(request);
                 case REPLY_TO_TASK -> send(request);
+                case MARK_EPIC -> done(request, work.markEpic(request.text("item")));
+                case ADD_TO_EPIC -> done(request, work.addToEpic(request.text("epic"), request.text("item")));
+                case CREATE_WORK_ITEM -> done(request, work.createWorkItem(request.optional("epic"), request.optional("workspace"), request.words(),
+                        UUID.nameUUIDFromBytes(identity(request).getBytes(StandardCharsets.UTF_8)).toString()));
                 // Opening changes nothing, so assistant_show does it; this tool never parses that op.
                 case OPEN -> throw new IllegalStateException("assistant_act does not open");
             };
+        }
+
+        /** A work operation's receipt; the same call on the same message names the same new work, so a retried reply creates it once. */
+        private Result done(Request request, AssistantWork.Done done)
+        {
+            return new Result(done.line(), new AssistantReceipt(request.operation(), Outcome.DONE, done.detail(), done.target(), Optional.empty(), Optional.empty(),
+                    Optional.empty(), Optional.empty()), Optional.of(done.result()));
         }
 
         private Result allowOrDeny(Request request)

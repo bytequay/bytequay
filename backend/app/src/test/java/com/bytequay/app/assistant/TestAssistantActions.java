@@ -42,8 +42,12 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.app.agenda.AgendaFixtures;
 import com.bytequay.app.agent.InteractiveAgentTaskStarter;
 import com.bytequay.app.agent.InteractiveTaskStart;
+import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.notices.AppNoticeService;
+import com.bytequay.app.service.epic.EpicService;
+import com.bytequay.app.service.goal.WorkItemService;
+import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -52,6 +56,7 @@ import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.AssistantAction;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantReceipt;
+import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.ServedRef;
@@ -70,6 +75,8 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -92,6 +99,10 @@ import static com.bytequay.core.domain.AssistantReceipt.Outcome.FAILED;
 import static com.bytequay.core.domain.AssistantReceipt.Outcome.REFUSED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -125,8 +136,12 @@ class TestAssistantActions
     private final JiraService jira = mock(JiraService.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);
+    private final IssueDevelopmentService issueDevelopment = mock(IssueDevelopmentService.class);
+    private final EpicService epics = mock(EpicService.class);
+    private final WorkItemService workItemService = mock(WorkItemService.class);
+    private final AssistantRows rows = mock(AssistantRows.class);
     private final ObjectMapper mapper = AgendaFixtures.mapper();
-    private final AtomicReference<AssistantPermissions> allowed = new AtomicReference<>(new AssistantPermissions(true, true));
+    private final AtomicReference<AssistantPermissions> allowed = new AtomicReference<>(new AssistantPermissions(true, true, true));
     private final List<AssistantItem> receipts = new ArrayList<>();
     private final AgentTask task = task("Retry Iceberg commit on conflict");
     private final Workspace trino = new Workspace("ws1", "Trino", 1, RepoRef.of("trinodb", "trino"), Optional.empty(), Optional.empty(), 1, RepoRef.of("trinodb", "trino"),
@@ -162,7 +177,7 @@ class TestAssistantActions
         when(turns.start(any())).thenAnswer(call -> turn(call.<StartAgentTurnCommand>getArgument(0).taskId()));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         actions = new AssistantActions(store, permissions, approvals, approvalService, tasks, turns, starter, notices, reviews, workspaces, workItems, issues, jira, models,
-                settings, mapper, clock);
+                settings, new AssistantWork(issueDevelopment, jira, epics, workItemService, workItems, workspaces, rows), mapper, clock);
     }
 
     @Test
@@ -194,12 +209,12 @@ class TestAssistantActions
     @Test
     void refusesWhileItsSwitchIsOff()
     {
-        allowed.set(new AssistantPermissions(false, true));
+        allowed.set(new AssistantPermissions(false, true, true));
         AssistantItem message = message("start one in trino: add a metadata table", ImmutableList.of());
         act(message, ImmutableMap.of("ws:ws1", SERVED), "{\"op\":\"start_task\",\"workspace\":\"ws:ws1\",\"words\":\"add a metadata table\"}");
         assertRefused("Starting tasks is off", Optional.of(SETTINGS));
 
-        allowed.set(new AssistantPermissions(true, false));
+        allowed.set(new AssistantPermissions(true, false, true));
         card(ProviderApprovalRequest.Kind.COMMAND, ImmutableList.of("Bash"), "{}", true);
         act(message("deny it", ImmutableList.of(CARD)), "{\"op\":\"answer_approval\",\"approval\":\"" + CARD + "\",\"decision\":\"deny\",\"words\":\"deny it\"}");
         assertRefused("Answering tasks is off", Optional.of(SETTINGS));
@@ -463,6 +478,110 @@ class TestAssistantActions
     }
 
     @Test
+    void refusesWorkChangesWhileTheirSwitchIsOff()
+    {
+        allowed.set(new AssistantPermissions(true, true, false));
+        act(message("make #77 an epic", ImmutableList.of()), ImmutableMap.of("issue:trinodb/trino#77", SERVED),
+                "{\"op\":\"mark_epic\",\"item\":\"issue:trinodb/trino#77\",\"words\":\"make #77 an epic\"}");
+        assertRefused("Changing Epics and work items is off", Optional.of(SETTINGS));
+        verify(issueDevelopment, never()).setEpic(anyString(), anyInt(), anyBoolean());
+    }
+
+    @Test
+    void marksAnIssueATicketOrAWorkItemAsAnEpic()
+    {
+        Map<String, ServedRef> served = ImmutableMap.of("issue:trinodb/trino#77", SERVED, "jira:cloud:10042", SERVED, "work:w22", SERVED);
+        AgendaTarget issue = AgendaTarget.issue("trinodb/trino", 77, "ws1");
+        named("issue:trinodb/trino#77", "Snapshot ids in $snapshots", issue);
+        act(message("make #77 an epic", ImmutableList.of()), served, "{\"op\":\"mark_epic\",\"item\":\"issue:trinodb/trino#77\",\"words\":\"make #77 an epic\"}");
+        verify(issueDevelopment).setEpic("ws1", 77, true);
+        assertThat(receipts.getLast().text()).isEqualTo("Marked “Snapshot ids in $snapshots” as an Epic");
+        assertThat(receipts.getLast().receipt().orElseThrow()).isEqualTo(AssistantReceipt.done(AssistantReceipt.Operation.MARK_EPIC, Optional.of(issue))
+                .withWords("make #77 an epic"));
+
+        JiraIssue ticket = ticket();
+        when(jira.cachedIssue("cloud", "10042")).thenReturn(Optional.of(ticket));
+        act(message("mark the ticket as an epic", ImmutableList.of()), served, "{\"op\":\"mark_epic\",\"item\":\"jira:cloud:10042\",\"words\":\"mark the ticket\"}");
+        verify(jira).epic("connection", "cloud", "10042", true);
+        when(workItems.find("w22")).thenReturn(Optional.of(workItem("w22")));
+        act(message("this work item is an epic", ImmutableList.of()), served, "{\"op\":\"mark_epic\",\"item\":\"work:w22\",\"words\":\"is an epic\"}");
+        verify(epics).setLocalEpic("ws1", "w22", true);
+        assertThat(receipts).extracting(receipt -> receipt.receipt().orElseThrow().outcome()).containsOnly(DONE);
+
+        // Only what the user could see, of a kind that can be an Epic; the item's own rules are its service's.
+        act(message("make #78 an epic", ImmutableList.of()), served, "{\"op\":\"mark_epic\",\"item\":\"issue:trinodb/trino#78\",\"words\":\"make #78 an epic\"}");
+        assertRefused("That isn't on screen", Optional.empty());
+        assertThat(act(message("make it an epic", ImmutableList.of()), served, "{\"op\":\"mark_epic\",\"item\":\"pr:trinodb/trino#31402\",\"words\":\"make it an epic\"}"))
+                .contains("mark_epic takes an issue:, jira: or work: ref");
+        doThrow(new ResponseStatusException(HttpStatus.CONFLICT, "This ticket already has a development task.")).when(jira).epic("connection", "cloud", "10042", true);
+        act(message("mark the ticket as an epic, please", ImmutableList.of()), served,
+                "{\"op\":\"mark_epic\",\"item\":\"jira:cloud:10042\",\"words\":\"mark the ticket as an epic\"}");
+        assertThat(receipts.getLast().receipt().orElseThrow().outcome()).isEqualTo(FAILED);
+        assertThat(receipts.getLast().text()).isEqualTo("This ticket already has a development task.");
+    }
+
+    @Test
+    void addsWorkToAnEpicThatTheUserCouldSee()
+    {
+        Map<String, ServedRef> served = ImmutableMap.of("epic:LOCAL:w1", SERVED, "work:w22", SERVED, "issue:trinodb/trino#77", SERVED);
+        when(rows.epicWorkspace("LOCAL:w1")).thenReturn(Optional.of(trino));
+        named("epic:LOCAL:w1", "Iceberg write path", AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w1"));
+        when(workItemService.joinLocalEpic("ws1", "LOCAL:w1", "w22")).thenReturn(new WorkItemService.EpicJoin(view("w22", "Add a snapshot id column"), Optional.empty()));
+        when(workItemService.joinEpic("ws1", "LOCAL:w1", GoalItemKind.ISSUE, "trinodb/trino#77"))
+                .thenReturn(new WorkItemService.EpicJoin(view("w30", "Snapshot ids in $snapshots"), Optional.of("JIRA:cloud:10040")));
+
+        act(message("put the column one in the write path epic", ImmutableList.of()), served,
+                "{\"op\":\"add_to_epic\",\"epic\":\"epic:LOCAL:w1\",\"item\":\"work:w22\",\"words\":\"put the column one in the write path epic\"}");
+        assertThat(receipts.getLast().text()).isEqualTo("Added “Add a snapshot id column” to Iceberg write path");
+        assertThat(receipts.getLast().receipt().orElseThrow().target()).contains(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"));
+        act(message("and #77 too", ImmutableList.of()), served, "{\"op\":\"add_to_epic\",\"epic\":\"epic:LOCAL:w1\",\"item\":\"issue:trinodb/trino#77\",\"words\":\"#77 too\"}");
+        assertThat(receipts.getLast().text()).isEqualTo("Added “Snapshot ids in $snapshots” to Iceberg write path");
+        assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("Moved from another Epic");
+
+        act(message("add #9 to it", ImmutableList.of()), ImmutableMap.of("issue:trinodb/trino#9", SERVED),
+                "{\"op\":\"add_to_epic\",\"epic\":\"epic:LOCAL:w1\",\"item\":\"issue:trinodb/trino#9\",\"words\":\"add #9 to it\"}");
+        assertRefused("That isn't on screen", Optional.empty());
+        assertThat(act(message("add it", ImmutableList.of()), served, "{\"op\":\"add_to_epic\",\"epic\":\"work:w1\",\"item\":\"work:w22\",\"words\":\"add it\"}"))
+                .contains("add_to_epic needs an epic: ref");
+        verify(workItemService).joinLocalEpic(anyString(), anyString(), anyString());
+        verify(workItemService).joinEpic(anyString(), anyString(), any(GoalItemKind.class), anyString());
+    }
+
+    @Test
+    void createsAWorkItemTitledWithTheUsersWordsOnce()
+    {
+        Map<String, ServedRef> served = ImmutableMap.of("epic:LOCAL:w1", SERVED, "ws:ws1", SERVED);
+        when(rows.epicWorkspace("LOCAL:w1")).thenReturn(Optional.of(trino));
+        named("epic:LOCAL:w1", "Iceberg write path", AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w1"));
+        AssistantItem message = message("add work to the write path epic: retry the commit on conflict", ImmutableList.of());
+        String create = "{\"op\":\"create_work_item\",\"epic\":\"epic:LOCAL:w1\",\"words\":\"retry the commit on conflict\"}";
+        when(workItemService.createInEpic(eq("ws1"), anyString(), eq("LOCAL:w1"), eq("retry the commit on conflict"), eq(WorkItem.Kind.DEVELOP), eq(""),
+                eq(WorkItem.CompletionRule.MERGED_DELIVERY))).thenThrow(new IllegalStateException("database is locked"))
+                .thenAnswer(call -> view(call.getArgument(1), "retry the commit on conflict"));
+
+        act(message, served, create);
+        assertThat(receipts.getLast().receipt().orElseThrow().outcome()).isEqualTo(FAILED);
+        // A retried reply makes a new tool for the same message; the same call names the same new work.
+        act(message, served, create);
+        ArgumentCaptor<String> ids = ArgumentCaptor.forClass(String.class);
+        verify(workItemService, times(2)).createInEpic(eq("ws1"), ids.capture(), eq("LOCAL:w1"), eq("retry the commit on conflict"), eq(WorkItem.Kind.DEVELOP), eq(""),
+                eq(WorkItem.CompletionRule.MERGED_DELIVERY));
+        assertThat(ids.getAllValues()).containsOnly(ids.getValue());
+        assertThat(receipts.getLast().text()).isEqualTo("Created “retry the commit on conflict”");
+        assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("trinodb/trino · Iceberg write path");
+        assertThat(receipts.getLast().receipt().orElseThrow().target()).contains(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", ids.getValue()));
+
+        when(workItemService.create(eq("ws1"), anyString(), eq(Optional.empty()), eq("flaky snapshot test"), eq(WorkItem.Kind.DEVELOP), eq(""),
+                eq(WorkItem.CompletionRule.MERGED_DELIVERY))).thenAnswer(call -> view(call.getArgument(1), "flaky snapshot test"));
+        act(message("new work item in trino: flaky snapshot test", ImmutableList.of()), served,
+                "{\"op\":\"create_work_item\",\"workspace\":\"ws:ws1\",\"words\":\"flaky snapshot test\"}");
+        assertThat(receipts.getLast().text()).isEqualTo("Created “flaky snapshot test”");
+        assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("trinodb/trino");
+        assertThat(act(message("new work: x y", ImmutableList.of()), served, "{\"op\":\"create_work_item\",\"workspace\":\"trino\",\"words\":\"x y\"}"))
+                .contains("create_work_item needs a ws: or epic: ref");
+    }
+
+    @Test
     void keepsAReceiptForACardAnsweredWithItsButton()
     {
         AgentApproval waiting = card(ProviderApprovalRequest.Kind.COMMAND, ImmutableList.of("Bash"), "{}", false);
@@ -531,6 +650,34 @@ class TestAssistantActions
     {
         return AgentTask.created(TaskId.random(), Optional.of("ws1"), true, title, new AgentLaneId("claude"), new RepositoryIdentity("trinodb", "trino"),
                 Path.of("/tmp/assistant-task"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW.minusSeconds(3600));
+    }
+
+    /** What the stores call the item now and where it opens. */
+    private void named(String ref, String title, AgendaTarget target)
+    {
+        when(rows.rows(ImmutableList.of(ref))).thenReturn(ImmutableMap.of(ref, new AssistantRow(ref, AssistantRow.Kind.WORK, title, Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), target)));
+    }
+
+    private static JiraIssue ticket()
+    {
+        return new JiraIssue("connection", "cloud", "10042", "ICE-7", "https://company.atlassian.net/browse/ICE-7", "Expire snapshots by branch", "As described",
+                "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty(), false, false,
+                NOW, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), Optional.of(new JiraDtos.WorkspaceLink("ws1", "Trino")));
+    }
+
+    private static WorkItem workItem(String id)
+    {
+        return new WorkItem(id, "ws1", Optional.empty(), "Expose snapshot id in metadata", WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
+                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH, 0, ImmutableList.of(), Optional.empty(), 0,
+                ImmutableList.of());
+    }
+
+    private static WorkItemView view(String id, String title)
+    {
+        return new WorkItemView(id, "ws1", Optional.empty(), title, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 1,
+                ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.of("LOCAL:w1"), 0, false, ImmutableList.of());
     }
 
     private static ModelSettingsService.Provider provider(String id, String label, AgentProviderStatus.Readiness readiness, String model, String effort)

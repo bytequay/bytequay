@@ -290,8 +290,9 @@ already builds for an item, and task automation comes from the user's saved
 settings. Words the message says not to do, such as "push to main" in "don't
 push to main", are refused, and each receipt shows the exact words acted on. By words it answers only Claude shell commands that stay in the
 sandbox, with Allow once or Deny, and question cards; everything else stays a
-button. Each call is logged and leaves a receipt in the conversation, and the
-two switches that let it act are off by default.
+button. It may also mark an Epic, add work to one and create a work item titled
+with the user's words, all of it local. Each call is logged and leaves a receipt
+in the conversation, and the switches that let it act are off by default.
 
 ## Trust and external services
 

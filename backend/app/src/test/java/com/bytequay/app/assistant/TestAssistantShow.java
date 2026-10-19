@@ -86,7 +86,7 @@ class TestAssistantShow
         AssistantActions actions = new AssistantActions(new MemoryAssistantStore(), mock(AssistantSettings.class), mock(AgentApprovalStore.class),
                 mock(AgentApprovalService.class), mock(AgentTaskStore.class), mock(AgentTurnService.class), mock(InteractiveAgentTaskStarter.class), notices,
                 mock(AgentReviewStore.class), mock(WorkspaceStore.class), mock(WorkItemStore.class), mock(RepositoryIssueStore.class), mock(JiraService.class),
-                mock(ModelSettingsService.class), mock(AppSettingsService.class), mapper, clock);
+                mock(ModelSettingsService.class), mock(AppSettingsService.class), mock(AssistantWork.class), mapper, clock);
         show = new AssistantShow(actions, rows, mapper, clock);
         AgendaTarget pull = AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"));
         when(rows.rows(ImmutableList.of(PULL))).thenReturn(ImmutableMap.of(PULL, new AssistantRow(PULL, AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict",

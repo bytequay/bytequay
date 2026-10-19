@@ -125,14 +125,17 @@ public class CredentialService
                 .orElseGet(this::resolveGitHubToken);
     }
 
-    /** Git environment that authenticates HTTPS remotes with one workspace's token. */
+    /** GitHub credentials must never be sent to a user-supplied remote on another origin. */
     public Map<String, String> gitAuthenticationEnvironment(String workspaceId, Collection<String> remoteUrls)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(remoteUrls, "remoteUrls is null");
         Set<String> bases = new LinkedHashSet<>();
-        remoteUrls.forEach(url -> bases.add(authenticationBase(url)));
-        checkArgument(!bases.isEmpty(), "remoteUrls is empty");
+        checkArgument(!remoteUrls.isEmpty(), "remoteUrls is empty");
+        remoteUrls.forEach(url -> authenticationBase(url).ifPresent(bases::add));
+        if (bases.isEmpty()) {
+            return ImmutableMap.of("GIT_CONFIG_COUNT", "0");
+        }
         String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(("x-access-token:" + resolveGitHubToken(workspaceId)).getBytes(StandardCharsets.UTF_8));
         ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
         environment.put("GIT_CONFIG_COUNT", Integer.toString(bases.size()));
@@ -244,10 +247,11 @@ public class CredentialService
         }
     }
 
-    private static String authenticationBase(String remoteUrl)
+    private static Optional<String> authenticationBase(String remoteUrl)
     {
         URI uri = URI.create(requireNonNull(remoteUrl, "remoteUrl is null"));
         checkArgument(isPlainHttps(uri), "unsafe remote URL");
-        return uri.getScheme().toLowerCase() + "://" + uri.getAuthority().toLowerCase() + "/";
+        return "github.com".equalsIgnoreCase(uri.getHost()) && (uri.getPort() == -1 || uri.getPort() == 443)
+                ? Optional.of("https://github.com/") : Optional.empty();
     }
 }

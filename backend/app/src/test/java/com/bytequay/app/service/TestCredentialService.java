@@ -108,7 +108,7 @@ class TestCredentialService
     }
 
     @Test
-    void gitAuthenticationUsesTheWorkspaceTokenForEveryRemoteHost()
+    void gitAuthenticationSendsTheWorkspaceTokenOnlyToGitHub()
     {
         CredentialStore store = mock(CredentialStore.class);
         InMemoryWorkspaceCredentialStore workspaceStore = new InMemoryWorkspaceCredentialStore();
@@ -117,16 +117,26 @@ class TestCredentialService
 
         Map<String, String> environment = service.gitAuthenticationEnvironment(
                 "workspace-id",
-                ImmutableList.of("https://github.com/example/source.git", "https://github.com/example/target.git", "https://git.example.com/example/other.git"));
+                ImmutableList.of("https://github.com/example/source.git", "https://GITHUB.com:443/example/target.git", "https://git.example.com/example/other.git",
+                        "https://github.com.attacker.test/example/other.git", "https://github.com:8443/example/other.git"));
 
         String expectedHeader = "Authorization: Basic " + Base64.getEncoder().encodeToString("x-access-token:workspace-token".getBytes(StandardCharsets.UTF_8));
         assertThat(environment).containsExactlyInAnyOrderEntriesOf(ImmutableMap.<String, String>builder()
-                .put("GIT_CONFIG_COUNT", "2")
+                .put("GIT_CONFIG_COUNT", "1")
                 .put("GIT_CONFIG_KEY_0", "http.https://github.com/.extraHeader")
                 .put("GIT_CONFIG_VALUE_0", expectedHeader)
-                .put("GIT_CONFIG_KEY_1", "http.https://git.example.com/.extraHeader")
-                .put("GIT_CONFIG_VALUE_1", expectedHeader)
                 .buildOrThrow());
+        verify(store, never()).getSecret();
+    }
+
+    @Test
+    void nonGitHubRemotesNeedNoGitHubCredential()
+    {
+        CredentialStore store = mock(CredentialStore.class);
+        CredentialService service = new CredentialService(store, new InMemoryWorkspaceCredentialStore(), mock(GhCliService.class), mock(GitHubAccountClient.class));
+
+        assertThat(service.gitAuthenticationEnvironment("workspace-id", ImmutableList.of("https://git.example.com/repo.git")))
+                .containsExactlyInAnyOrderEntriesOf(ImmutableMap.of("GIT_CONFIG_COUNT", "0"));
         verify(store, never()).getSecret();
     }
 

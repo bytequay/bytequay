@@ -16,7 +16,7 @@ import type { JiraIssue } from '../jira/contracts';
 import { pullRequestIsMine } from '../pulls/model';
 import { teamAttentionMatch, type TeamAttentionPreference } from '../teams/priority';
 import type { TeamCircle } from '../teams/types';
-import type { AgentTaskActivityDto, AgentTaskDto, PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
+import type { AgentTaskActivityDto, AgentTaskDto, AttentionMarkDto, PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 
 /** Why an item is on the "Needs attention" list. */
 export type AttentionKind = 'approval' | 'review' | 'assigned' | 'changes' | 'failed' | 'blocked' | 'ci' | 'commits' | 'merge' | 'finished' | 'updated';
@@ -469,27 +469,74 @@ export type HandledEntry = {
 
 export type Handled = Record<string, HandledEntry>;
 
-const STORAGE_KEY = 'bytequay.attention.handled.v1';
+// The marks as this window last read or wrote them. The backend keeps them, so every build shares one set.
+let handledNow: Handled = {};
 
 export function loadHandled(): Handled {
+  return handledNow;
+}
+
+/** Keeps the lists' marks, sending the backend only the entries that changed and the keys that went. */
+export function saveHandled(handled: Handled): void {
+  const saved = Object.entries(handled).filter(([key, entry]) => handledNow[key] !== entry).map(([key, entry]) => markOf(key, entry));
+  const removed = Object.keys(handledNow).filter(key => handled[key] === undefined);
+  handledNow = handled;
+  // A mark that fails to save comes back on the next read, as one did when browser storage was full.
+  if (saved.length > 0 || removed.length > 0) void window.bridge?.changeAttentionMarks?.({ saved, removed }).catch(() => {});
+  void window.bridge?.setPrAttentionHandled?.(handled).catch(() => {});
+  window.dispatchEvent(new CustomEvent('bytequay:attention-handled-changed'));
+}
+
+/** Reads the marks the backend keeps and tells the lists and the notifier; a build's first read brings its older marks along. */
+export async function reloadHandled(): Promise<void> {
+  let read: Handled = Object.fromEntries((await window.bridge.getAttentionMarks()).map(mark => [mark.key, entryOf(mark)]));
+  const legacy = Object.entries(legacyHandled()).filter(([key]) => read[key] === undefined);
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    const parsed: unknown = raw === null ? null : JSON.parse(raw);
-    if (parsed === null || typeof parsed !== 'object') return {};
-    return parsed as Handled;
+    if (legacy.length > 0) await window.bridge.changeAttentionMarks({ saved: legacy.map(([key, entry]) => markOf(key, entry)), removed: [] });
+    read = { ...Object.fromEntries(legacy), ...read };
+    window.localStorage.removeItem(LEGACY_KEY);
+  }
+  catch { /* The next start tries the import again. */ }
+  handledNow = read;
+  void window.bridge.setPrAttentionHandled(read).catch(() => {});
+  window.dispatchEvent(new CustomEvent('bytequay:attention-handled-changed'));
+}
+
+// ponytail: v0.5.0 kept marks in each build's own browser storage. A build's first read sends them along once, and a mark the backend
+// already has wins; delete this once those builds' marks have aged out.
+const LEGACY_KEY = 'bytequay.attention.handled.v1';
+
+function legacyHandled(): Handled {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(LEGACY_KEY) ?? 'null');
+    return parsed !== null && typeof parsed === 'object' ? Object.fromEntries(Object.entries(parsed as Record<string, unknown>).filter(wellFormed)) as Handled : {};
   }
   catch {
     return {};
   }
 }
 
-export function saveHandled(handled: Handled): void {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(handled));
-  }
-  catch { /* A full or disabled store just means the row comes back. */ }
-  void window.bridge?.setPrAttentionHandled?.(handled).catch(() => {});
-  window.dispatchEvent(new CustomEvent('bytequay:attention-handled-changed'));
+/** An entry the backend accepts, unlike one an older build left half written, which would fail the whole import every time. */
+function wellFormed([key, entry]: [string, unknown]): boolean {
+  if (entry === null || typeof entry !== 'object' || key.trim() === '' || key.length > 500) return false;
+  const { kind, until, label, seenUpdatedAt } = entry as Partial<HandledEntry>;
+  return (kind === 'ack' || kind === 'snooze') && typeof label === 'string' && label.trim() !== '' && label.length <= 500
+    && typeof seenUpdatedAt === 'string' && seenUpdatedAt.length <= 64 && (until === null || kind === 'snooze' && typeof until === 'number' && Number.isFinite(until));
+}
+
+function markOf(key: string, entry: HandledEntry): AttentionMarkDto {
+  return {
+    key, kind: entry.kind === 'ack' ? 'ACK' : 'SNOOZE', until: entry.until === null ? null : new Date(entry.until).toISOString(), seenUpdatedAt: entry.seenUpdatedAt,
+    seenActivityVersion: entry.seenActivityVersion ?? null, label: entry.label, snoozedItem: entry.snoozedItem === undefined ? null : JSON.stringify(entry.snoozedItem),
+  };
+}
+
+function entryOf(mark: AttentionMarkDto): HandledEntry {
+  return {
+    kind: mark.kind === 'ACK' ? 'ack' : 'snooze', until: mark.until === null ? null : Date.parse(mark.until), seenUpdatedAt: mark.seenUpdatedAt, label: mark.label,
+    ...(mark.seenActivityVersion === null ? {} : { seenActivityVersion: mark.seenActivityVersion }),
+    ...(mark.snoozedItem === null ? {} : { snoozedItem: JSON.parse(mark.snoozedItem) as AttentionItem }),
+  };
 }
 
 export function attentionActivityVersion(item: AttentionItem): string {

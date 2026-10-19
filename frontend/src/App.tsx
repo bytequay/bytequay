@@ -23,7 +23,7 @@ import JiraScreen, { JiraTicketLayer } from './jira/JiraScreen';
 import { JIRA_CHANGED, anyJiraConnected, type JiraConnection } from './jira/contracts';
 import HomePage from './home/HomePage';
 import TeamsPage from './teams/TeamsPage';
-import { loadHandled } from './home/attention';
+import { reloadHandled } from './home/attention';
 import { loadPinned } from './home/pinned';
 import { pullRequestFromRoute, pullRequestRoute, zoomReference, ZOOM_REFERENCE, type ZoomedReference } from './githubReference';
 import InAppBrowser from './InAppBrowser';
@@ -229,7 +229,8 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    void window.bridge.setPrAttentionHandled(loadHandled()).catch(() => {});
+    // A backend that cannot answer yet leaves the lists unmarked; the next mark or read fills them in.
+    void reloadHandled().catch(() => {});
     void window.bridge.setPrAttentionPinned?.(loadPinned().map(item => item.key)).catch(() => {});
     const stopAttention = window.bridge.onPrAttentionUpdated(prs => {
       window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: prs }));

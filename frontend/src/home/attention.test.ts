@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { describe, expect, it } from 'vitest';
-import type { PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AttentionMarkDto, PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import {
   issueAttentionItems,
   attentionCandidates,
@@ -24,12 +24,16 @@ import {
   attentionTime,
   handledEntry,
   handledSummary,
+  loadHandled,
   myPullRequestCards,
   pullRequestItem,
+  reloadHandled,
+  saveHandled,
   snoozeUntil,
   stillHandled,
   visibleAttention,
   type AttentionItem,
+  type Handled,
   type HandledEntry,
 } from './attention';
 import { pr } from '../pulls/fixtures/pullRequest';
@@ -521,5 +525,70 @@ describe('my pull request cards', () => {
     const mine = pullRequestItem(pr({ author: 'ME', origin: 'OTHER' }));
     expect(myPullRequestCards([other, mine], {}, 'me', now)).toEqual([mine]);
     expect(myPullRequestCards([other, mine], {}, null, now)).toEqual([other]);
+  });
+});
+
+describe('marks kept in the backend', () => {
+  const LEGACY = 'bytequay.attention.handled.v1';
+  const entry = (label: string): HandledEntry => ({ kind: 'ack', until: null, seenUpdatedAt: '2026-10-19T03:00:00Z', seenActivityVersion: '["open"]', label });
+  const mark = (key: string, label: string): AttentionMarkDto => ({ key, kind: 'ACK', until: null, seenUpdatedAt: '2026-10-19T03:00:00Z', seenActivityVersion: '["open"]',
+    label, snoozedItem: null });
+
+  function backend(marks: AttentionMarkDto[], legacy: Record<string, unknown> | null, failChanges = false) {
+    const changed: unknown[] = [];
+    const storage = new Map<string, string>(legacy === null ? [] : [[LEGACY, JSON.stringify(legacy)]]);
+    vi.stubGlobal('window', {
+      bridge: {
+        getAttentionMarks: async () => marks,
+        changeAttentionMarks: async (changes: unknown) => {
+          if (failChanges) throw new Error('The backend is busy');
+          changed.push(changes);
+        },
+        setPrAttentionHandled: async () => {},
+      },
+      localStorage: { getItem: (key: string) => storage.get(key) ?? null, removeItem: (key: string) => { storage.delete(key); } },
+      dispatchEvent: () => true,
+    });
+    return { changed, storage };
+  }
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('sends only the marks that changed and the keys that went', async () => {
+    const { changed } = backend([], null);
+    await reloadHandled();
+    const kept = entry('acknowledged');
+    saveHandled({ 'trinodb/trino#1': kept, 'task:t1': entry('Viewed') });
+    saveHandled({ 'trinodb/trino#1': kept, 'jira:c1:10': entry('Posted 1 comment') });
+
+    expect(changed).toEqual([
+      { saved: [mark('trinodb/trino#1', 'acknowledged'), mark('task:t1', 'Viewed')], removed: [] },
+      { saved: [mark('jira:c1:10', 'Posted 1 comment')], removed: ['task:t1'] },
+    ]);
+  });
+
+  it('reads the backend and brings a build’s older marks along once, keeping the backend’s own', async () => {
+    const snoozed: AttentionMarkDto = { key: 'trinodb/trino#1', kind: 'SNOOZE', until: '2026-10-20T01:00:00.000Z', seenUpdatedAt: '2026-10-19T03:00:00Z',
+      seenActivityVersion: null, label: 'tomorrow', snoozedItem: '{"key":"trinodb/trino#1"}' };
+    const { changed, storage } = backend([snoozed], { 'trinodb/trino#1': entry('older'), 'task:t1': entry('Viewed'), 'task:t2': { kind: 'ack', until: 5, label: 'x' } });
+    await reloadHandled();
+
+    const expected: Handled = {
+      'trinodb/trino#1': { kind: 'snooze', until: Date.parse('2026-10-20T01:00:00.000Z'), seenUpdatedAt: '2026-10-19T03:00:00Z', label: 'tomorrow',
+        snoozedItem: { key: 'trinodb/trino#1' } as AttentionItem },
+      'task:t1': entry('Viewed'),
+    };
+    expect(loadHandled()).toEqual(expected);
+    // A half-written entry an older build left is dropped rather than refused with the rest.
+    expect(changed).toEqual([{ saved: [mark('task:t1', 'Viewed')], removed: [] }]);
+    expect(storage.has(LEGACY)).toBe(false);
+  });
+
+  it('keeps a build’s older marks to try again when the backend refuses them', async () => {
+    const { storage } = backend([mark('task:t3', 'Viewed')], { 'task:t1': entry('Viewed') }, true);
+    await reloadHandled();
+
+    expect(Object.keys(loadHandled())).toEqual(['task:t3']);
+    expect(storage.has(LEGACY)).toBe(true);
   });
 });

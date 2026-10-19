@@ -71,6 +71,7 @@ function Detail({ value, perform }: { value: AttentionItem; perform: () => Promi
 
 function mount(initial: AttentionItem[], myPrs = false) {
   window.localStorage.clear();
+  saveHandled({});
   window.bridge = { setPrAttentionHandled: async () => {}, setPrAttentionPinned: async () => {},
     findStoredPullRequest: async (repo: string, number: number) => initial.find(item => item.repo === repo && item.number === number)?.pr ?? null,
     onPullRequestsSynced: () => noOp,
@@ -392,6 +393,7 @@ async function hoverCards(): Promise<void> {
 
 async function latestSummary(): Promise<void> {
   window.localStorage.clear();
+  saveHandled({});
   const pending: ((rows: PullRequestDto[]) => void)[] = [];
   window.bridge = {
     fetchAttentionPrs: () => new Promise<PullRequestDto[]>(resolve => pending.push(resolve)),

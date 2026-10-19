@@ -18,6 +18,7 @@ import AppSidebar, { type AppPage } from '../../AppSidebar';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import { pr } from '../../pulls/fixtures/pullRequest';
 import CirclesGrid from '../../home/CirclesGrid';
+import { loadHandled, saveHandled } from '../../home/attention';
 import type { Bridge, PullRequestDto } from '../../types';
 import TeamsPage from '../TeamsPage';
 import { membersOf } from '../activity';
@@ -126,7 +127,10 @@ async function dispose() { if (root) { flushSync(() => root?.unmount()); root = 
 
 async function mount(initial = seededDirectory(), { home = false, observations = seededEvents(), prs = [] as PullRequestDto[], keepStorage = false } = {}) {
   await dispose();
-  if (!keepStorage) window.localStorage.clear();
+  if (!keepStorage) {
+    window.localStorage.clear();
+    saveHandled({});
+  }
   const directory = structuredClone(initial);
   const queries: TeamActivityQuery[] = [];
   const opened: string[] = [];
@@ -386,7 +390,7 @@ async function needsYou() {
   await press('', 'Escape');
   await click('Acknowledge #24830', rows[0]);
   assert(document.querySelector('.cir-needs') === null && text().includes('Nothing needs you right now'), 'Acknowledging must clear the row');
-  assert(Object.keys(JSON.parse(window.localStorage.getItem('bytequay.attention.handled.v1') ?? '{}')).includes('trinodb/trino#24830'), 'Handling must reach Home too');
+  assert(Object.keys(loadHandled()).includes('trinodb/trino#24830'), 'Handling must reach Home too');
   await click('Undo');
   assert(document.querySelectorAll('.cir-needs .item-row').length === 1, 'Undo must bring the row back');
   const reads = f.workspaceReads;

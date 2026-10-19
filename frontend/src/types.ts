@@ -1488,6 +1488,18 @@ export type AssistantItemDto = {
   draft: AssistantDraftDto | null;
 };
 
+/** A Needs attention mark as the backend keeps it; home/attention.ts turns it into the list's own entry. */
+export type AttentionMarkDto = {
+  key: string;
+  kind: 'ACK' | 'SNOOZE';
+  until: string | null;
+  seenUpdatedAt: string;
+  seenActivityVersion: string | null;
+  label: string;
+  /** The list's own JSON of the item, kept for a timed snooze. */
+  snoozedItem: string | null;
+};
+
 /** The repository a drafted issue goes to, its description as drafted, and the local work item the click creates. */
 export type AssistantDraftDto = { workspaceId: string; repository: string; body: string; workItemId: string };
 
@@ -1617,6 +1629,10 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & {
   findStoredPullRequestDescription: (repo: string, number: number) => Promise<{ body: string | null }>;
   setPrMonitored: (prId: number, monitored: boolean) => Promise<PullRequestDto>;
   setPrAttentionHandled: (handled: import('./home/attention').Handled) => Promise<void>;
+  /** The Needs attention marks every build and the assistant share. */
+  getAttentionMarks: () => Promise<AttentionMarkDto[]>;
+  /** Saves marks, replacing any under the same keys, and clears the marks under `removed`, together. */
+  changeAttentionMarks: (changes: { saved: AttentionMarkDto[]; removed: string[] }) => Promise<void>;
   setPrAttentionPinned: (keys: string[]) => Promise<void>;
   onPrAttentionUpdated: (callback: (prs: PullRequestDto[]) => void) => () => void;
   onPrNotificationOpen: (callback: (reference: { repo: string; number: number }) => void) => () => void;

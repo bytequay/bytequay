@@ -134,6 +134,12 @@ is unavailable. They do not reserve source/task identities or affect planning an
 execution state. Add/remove operations check the item revision and retain history;
 reads expose direct summaries without recursively expanding reference cycles.
 
+Needs attention marks, the items the user acknowledged or snoozed, are SQLite rows
+under the list's item keys, so every build shares one set. Each row keeps the
+list's own fingerprint of the item and, for a timed snooze, the list's copy of
+it; the backend stores both without reading them. A build's first start brings
+along the marks it kept in its own browser storage.
+
 Agent work-item access is a task-scoped capability: reads stay within the task's
 workspace and creation always saves locally. The desktop publication action binds a
 previewed revision to an explicit provider destination before sending it. Its durable

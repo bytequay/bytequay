@@ -17,6 +17,7 @@ import com.bytequay.core.backport.BackportChain;
 import com.bytequay.core.domain.AssistantAction;
 import com.bytequay.core.domain.AssistantDay;
 import com.bytequay.core.domain.AssistantItem;
+import com.bytequay.core.domain.AttentionMark;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
@@ -79,6 +80,16 @@ public final class JsonColumnConverters
         AssistantItemConverter()
         {
             super(new TypeReference<>() {}, "assistant item", null, null);
+        }
+    }
+
+    @Converter
+    public static class AttentionMarkConverter
+            extends JsonColumnConverter<AttentionMark>
+    {
+        AttentionMarkConverter()
+        {
+            super(new TypeReference<>() {}, "attention mark", null, null);
         }
     }
 

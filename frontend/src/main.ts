@@ -1579,6 +1579,8 @@ function registerIpc(): void {
     notificationState().handled = parsePrNotificationState({ handled }).handled;
     saveNotificationState();
   });
+  ipcMain.handle('attention:marks', () => backendJson(`${backendBase()}/api/attention/marks`));
+  ipcMain.handle('attention:marks:change', (_event, changes: unknown) => backendJson(`${backendBase()}/api/attention/marks`, jsonInit('POST', changes)));
   ipcMain.handle('prs:attention:pinned', (_event, keys: unknown) => {
     notificationState().pinnedKeys = parsePrNotificationState({ pinnedKeys: keys }).pinnedKeys;
     saveNotificationState();

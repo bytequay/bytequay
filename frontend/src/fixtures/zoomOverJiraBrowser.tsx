@@ -15,6 +15,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import App from '../App';
 import { zoomReference } from '../githubReference';
+import { saveHandled } from '../home/attention';
 import type { WorkItemDto } from '../goals/contracts';
 import type { UnifiedWorkItem } from '../workitems/contracts';
 import { createPreviewBridge } from '../agents/fixtures/previewBridge';
@@ -113,6 +114,7 @@ function installBridge() {
 
 async function withApp(hash: string, scenario: () => Promise<void>): Promise<void> {
   window.localStorage.clear();
+  saveHandled({});
   installBridge();
   window.location.hash = hash;
   const host = document.createElement('div');

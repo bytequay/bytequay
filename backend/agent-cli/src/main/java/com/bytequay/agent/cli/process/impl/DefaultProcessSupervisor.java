@@ -260,7 +260,8 @@ public final class DefaultProcessSupervisor
 
     private static boolean verifiedTerminalReceipt(LaunchMarker marker)
     {
-        return marker.descendants().isPresent()
+        return marker.format() == LaunchMarker.CURRENT_FORMAT
+                && marker.descendants().isPresent()
                 && (!marker.descendantTrackingIncomplete() || marker.workFinished())
                 && marker.treeTermination().orElse(ProcessExit.TreeTermination.UNVERIFIABLE) == ProcessExit.TreeTermination.VERIFIED_STOPPED;
     }

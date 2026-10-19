@@ -62,10 +62,15 @@ record LaunchMarker(
 {
     /** Only this exact format proves what a marker's absent fields mean. */
     static final int CURRENT_FORMAT = 5;
+    /**
+     * The released format that recorded a process group instead of a session. Its owner, gate, and
+     * identities still hold, but it has no session receipt and its tree termination proves nothing.
+     */
+    static final int PROCESS_GROUP_FORMAT = 4;
 
     LaunchMarker
     {
-        checkArgument(format == CURRENT_FORMAT, "unsupported launch marker format");
+        checkArgument(format == CURRENT_FORMAT || format == PROCESS_GROUP_FORMAT, "unsupported launch marker format");
         requireNonNull(launchId, "launchId is null");
         requireNonNull(backendId, "backendId is null");
         requireNonNull(ownerKind, "ownerKind is null");

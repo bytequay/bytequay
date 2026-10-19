@@ -64,6 +64,14 @@ class TestOwnedProcessRecovery
     private static final long ABSENT_PROCESS_GROUP = 0x7FFF_0000L;
     private static final String FIRST_BOOT = "11111111-1111-4111-8111-111111111111";
     private static final String SECOND_BOOT = "22222222-2222-4222-8222-222222222222";
+    private static final String PROCESS_GROUP_LAUNCH = "4d678123-aae2-426e-92d2-c62cc8266ee5";
+    /** A finished launch as format 4 recorded it, before providers ran in their own sessions. */
+    private static final String PROCESS_GROUP_MARKER = """
+            {"format":4,"launchId":"4d678123-aae2-426e-92d2-c62cc8266ee5","backendId":"an-earlier-backend","ownerKind":"%s","ownerId":"%s",\
+            "executable":"/opt/homebrew/bin/codex","argvDigest":"digest","phase":"TERMINAL","pid":67991,"startToken":"2026-10-05T03:14:15.926Z",\
+            "launcherCommand":"/bin/bash","processGroup":67991,"descendantStartTokens":{"68012":"2026-10-05T03:14:16.535Z"},\
+            "descendantTrackingIncomplete":false,"workFinished":false,"exitCode":0,"exitReason":"EXITED","treeTermination":"%s",\
+            "recoveryBootSessionId":"11111111-1111-4111-8111-111111111111"}""";
 
     @TempDir
     private Path worktree;
@@ -295,6 +303,35 @@ class TestOwnedProcessRecovery
 
         assertThat(recover().detail()).contains("undecodable");
         assertThat(Files.readString(file)).contains("\"format\":3");
+    }
+
+    @Test
+    void attributesAProcessGroupMarkerWhoseLaunchRowIsGone()
+            throws Exception
+    {
+        Path file = launches.resolve(PROCESS_GROUP_LAUNCH + ".json");
+        Files.writeString(file, PROCESS_GROUP_MARKER.formatted("CLI_PROBE", "codex-cli", "UNVERIFIABLE"));
+
+        assertThat(recover()).satisfies(result -> {
+            assertThat(result.owner()).contains(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "codex-cli"));
+            assertThat(result.phase()).contains(LaunchPhase.TERMINAL);
+            assertThat(result.outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+        });
+        assertThat(Files.readString(file)).isEqualTo(PROCESS_GROUP_MARKER.formatted("CLI_PROBE", "codex-cli", "UNVERIFIABLE"));
+    }
+
+    @Test
+    void neverTreatsAProcessGroupReceiptAsSessionCleanupProof()
+            throws Exception
+    {
+        Files.writeString(launches.resolve(PROCESS_GROUP_LAUNCH + ".json"), PROCESS_GROUP_MARKER.formatted(OWNER.kind(), OWNER.id(), "VERIFIED_STOPPED"));
+        intents.commit(PROCESS_GROUP_LAUNCH, true);
+
+        assertThat(recoverOnBoot(Optional.empty())).satisfies(result -> {
+            assertThat(result.owner()).contains(OWNER);
+            assertThat(result.outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+        });
+        assertThat(recoverOnBoot(Optional.of(SECOND_BOOT)).outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
     }
 
     @Test

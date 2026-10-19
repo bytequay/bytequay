@@ -50,7 +50,7 @@ export function artifactUrl(target: ArtifactTarget): string {
 /** Shows one saved page over the Artifacts page; its scripts run, but every request beyond its own document and theme is cancelled. */
 export class ArtifactView {
   private view: WebContentsView | null = null;
-  // The one page this view may load; its HTML is read before loading so a failed read reports the backend's reason.
+  // The page and version this view shows; its HTML is read before loading so a failed read reports the backend's reason.
   private wanted: string | null = null;
   private page: { url: string; html: string } | null = null;
 
@@ -72,22 +72,23 @@ export class ArtifactView {
       return;
     }
     const url = artifactUrl(target);
+    const wanted = `${url} ${target.version}`;
     const view = this.view ?? this.create();
     view.setBounds(browserBounds(bounds, window));
     window.contentView.addChildView(view);
     view.setVisible(true);
     this.onPresent();
-    if (this.wanted === url) return;
-    this.wanted = url;
+    if (this.wanted === wanted) return;
+    this.wanted = wanted;
     try {
       const html = await this.readPage(target);
-      // Another page replaced this one while it was read or loaded.
-      if (this.wanted !== url) return;
+      // Another page, or a newer save of this one, replaced it while it was read or loaded.
+      if (this.wanted !== wanted) return;
       this.page = { url, html };
       await view.webContents.loadURL(url);
     }
     catch (error) {
-      if (this.wanted !== url) return;
+      if (this.wanted !== wanted) return;
       this.wanted = null;
       throw error;
     }

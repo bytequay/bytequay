@@ -18,7 +18,7 @@ import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantR
 import { workspaceAgentTaskRoute, workspaceIssueRoute, workspacePullRequestRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
 import {
-  arrivedOpen, createdDrafts, dayLabel, entries, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, rowTitle, screenRef, stackOf, timelineDays, waitingCards,
+  arrivedOpen, createdDrafts, dayLabel, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, rowTitle, screenRef, stackOf, timelineDays, waitingCards,
 } from './model';
 
 const target: AgendaTargetDto = { kind: 'PULL', workspaceId: 'ws', repo: 'trinodb/trino', number: 31402, id: null, connectionId: null, cloudId: null };
@@ -67,19 +67,6 @@ describe('linkRefs', () => {
     expect(linkRefs('See [the fix](pr:trinodb/trino#1).', targets)).toBe('See the fix.');
     expect(linkRefs('See pr:trinodb/trino#314021 and `pr:trinodb/trino#31402`.', targets)).toBe('See pr:trinodb/trino#314021 and `pr:trinodb/trino#31402`.');
     expect(linkRefs('Nothing to link.', {})).toBe('Nothing to link.');
-  });
-});
-
-describe('entries', () => {
-  const item = (id: string, kind: AssistantItemDto['kind'], outcome?: AssistantReceiptDto['outcome']): AssistantItemDto => ({
-    id, day: '2026-10-17', at: '2026-10-17T07:00:00Z', kind, text: id, targets: {}, notReady: false, list: null, draft: null,
-    receipt: outcome === undefined ? null : { operation: 'ANSWER_APPROVAL', outcome, detail: null, target: null, page: null, turnId: null, fix: null, words: null },
-  });
-
-  it('groups a run of done receipts and leaves refusals and the rest on their own', () => {
-    const drawn = entries([item('u1', 'USER'), item('d1', 'RECEIPT', 'DONE'), item('d2', 'RECEIPT', 'DONE'), item('x1', 'RECEIPT', 'REFUSED'),
-      item('d3', 'RECEIPT', 'DONE'), item('r1', 'REPLY')]);
-    expect(drawn.map(entry => Array.isArray(entry) ? entry.map(one => one.id) : entry.id)).toEqual(['u1', ['d1', 'd2'], 'x1', ['d3'], 'r1']);
   });
 });
 

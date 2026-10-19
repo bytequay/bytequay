@@ -12,7 +12,10 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { Hand, Mic, TriangleAlert, X } from 'lucide-react';
+import {
+  AlarmClock, ArrowUpRight, Ban, CheckCheck, CircleDot, Flag, ListEnd, ListPlus, MessageSquareReply, Mic, Play, RotateCw, Send, ShieldCheck, SquarePlus,
+  TriangleAlert, X, type LucideIcon,
+} from 'lucide-react';
 import Composer from '../Composer';
 import { renderMarkdown } from '../agents/markdown';
 import { openTarget } from '../home/TodayList';
@@ -25,7 +28,7 @@ import { settingsRoute, type SettingsSection } from '../settings/routes';
 import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantRowDto } from '../types';
 import AssistantList from './AssistantList';
 import DraftCard from './DraftCard';
-import { arrivedOpen, createdDrafts, entries, linkRefs, pageRoute, refFromHref, refLabel } from './model';
+import { arrivedOpen, createdDrafts, linkRefs, pageRoute, refFromHref, refLabel } from './model';
 import { approvePull, closePull, mergePull, type PullAction } from './pullActions';
 import { useAssistant } from './useAssistant';
 import WaitingStack from './WaitingStack';
@@ -168,10 +171,10 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
 
   const talk = talkShown && items.length > 0 && (
     <div ref={scroller} className="assistant-sheet assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
-      {entries(items).map(entry => Array.isArray(entry)
-        ? <div key={entry[0].id} className="assistant-receipts">{entry.map(item => <Receipt key={item.id} item={item} onOpen={openReceipt} />)}</div>
-        : <Entry key={entry.id} item={entry} rows={view?.rows ?? {}} drafts={drafts} retryable={chatEnabled && !running && entry.id === lastExchange} onRetry={retry}
-          onSettings={openSettings} onOpen={show} onComplete={completeTask} onPull={actOnPull} onRefresh={refresh} />)}
+      {items.map(item => item.kind === 'RECEIPT'
+        ? <Receipt key={item.id} item={item} onOpen={openReceipt} onSettings={openSettings} />
+        : <Entry key={item.id} item={item} rows={view?.rows ?? {}} drafts={drafts} model={view?.model ?? null} retryable={chatEnabled && !running && item.id === lastExchange}
+          onRetry={retry} onSettings={openSettings} onOpen={show} onComplete={completeTask} onPull={actOnPull} onRefresh={refresh} />)}
       {running && <p className="assistant-thinking" role="status">Thinking…</p>}
     </div>
   );
@@ -228,11 +231,13 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   );
 }
 
-function Entry({ item, rows, drafts, retryable, onRetry, onSettings, onOpen, onComplete, onPull, onRefresh }: {
+function Entry({ item, rows, drafts, model, retryable, onRetry, onSettings, onOpen, onComplete, onPull, onRefresh }: {
   item: AssistantItemDto;
   rows: Record<string, AssistantRowDto>;
   /** The work items of the drafts the user already created. */
   drafts: ReadonlySet<string>;
+  /** The model the assistant answers with, as the composer names it. */
+  model: string | null;
   retryable: boolean;
   onRetry: () => void;
   onSettings: (section: SettingsSection) => void;
@@ -248,55 +253,63 @@ function Entry({ item, rows, drafts, retryable, onRetry, onSettings, onOpen, onC
   if (item.kind === 'REPLY') return <div className="assistant-reply">{renderMarkdown(linkRefs(item.text, item.targets))}</div>;
   if (item.kind === 'LIST') return <AssistantList item={item} rows={rows} onOpen={onOpen} onComplete={onComplete} onPull={onPull} />;
   if (item.kind === 'DRAFT') return <DraftCard item={item} created={item.draft !== null && drafts.has(item.draft.workItemId)} onCreated={onRefresh} onOpen={onOpen} />;
-  if (item.kind === 'RECEIPT') {
-    // What was refused or failed: one muted line, pointing down at the card's buttons when they are the way to do it.
-    const failed = item.receipt?.outcome === 'FAILED';
-    return (
-      <p className={`assistant-refusal${failed ? ' is-failed' : ''}`}>
-        {failed ? <TriangleAlert size={13} aria-hidden="true" /> : <Hand size={13} aria-hidden="true" />}
-        <span>
-          {item.text}
-          {item.receipt?.words != null && <> <span className="assistant-refusal__words">“{item.receipt.words}”</span></>}
-          {item.receipt?.fix === 'BUTTONS' && <span aria-hidden="true"> ↓</span>}
-        </span>
-        {item.receipt?.fix === 'SETTINGS' && <button type="button" className="assistant-link" onClick={() => onSettings('workflow')}>Open Settings</button>}
-      </p>
-    );
-  }
   return (
-    <div className="assistant-failure" role="status">
+    <div className="assistant-failure" role="status"
+      title={item.notReady ? `${model ?? 'The Assistant'} answers through your Claude account. Sign in from Settings → Models.` : undefined}>
       <TriangleAlert size={14} aria-hidden="true" />
       <span>{item.text}</span>
-      {item.notReady && <button type="button" className="assistant-link" onClick={() => onSettings('models')}>Open Settings</button>}
-      {retryable && <button type="button" className="assistant-link" onClick={onRetry}>Retry</button>}
+      <span className="assistant-spacer" />
+      {item.notReady && <button type="button" className="assistant-action" onClick={() => onSettings('models')}>Open Settings</button>}
+      {retryable && <button type="button" className="assistant-action" onClick={onRetry}><RotateCw size={12} aria-hidden="true" />Retry</button>}
     </div>
   );
 }
 
-/** What an action did: Open goes where it acted, and Stop cancels the first turn of a task it started. */
-function Receipt({ item, onOpen }: { item: AssistantItemDto; onOpen: (receipt: AssistantReceiptDto) => void }) {
+const ACTED: Record<AssistantReceiptDto['operation'], LucideIcon> = {
+  START_TASK: Play, ANSWER_APPROVAL: ShieldCheck, ANSWER_QUESTION: MessageSquareReply, REPLY_TO_TASK: Send, OPEN: ArrowUpRight, MARK_EPIC: Flag,
+  ADD_TO_EPIC: ListPlus, CREATE_WORK_ITEM: SquarePlus, CREATE_EPIC: CircleDot, ACKNOWLEDGE: CheckCheck, SNOOZE: AlarmClock,
+};
+
+/**
+ * What an action did, or why it did not, in one line: the user's own words and a detail below it, then Open to where it acted, Settings
+ * to the switch that is off, and Stop for the first turn of a task it started. A refusal points down at the card's buttons when they
+ * are the way to do it.
+ */
+function Receipt({ item, onOpen, onSettings }: { item: AssistantItemDto; onOpen: (receipt: AssistantReceiptDto) => void; onSettings: (section: SettingsSection) => void }) {
   const [stop, setStop] = useState<'idle' | 'stopping' | 'stopped'>('idle');
   const [error, setError] = useState<string | null>(null);
   const receipt = item.receipt;
   if (receipt === null) return null;
-  const { target, page, turnId } = receipt;
+  const { target, page, turnId, outcome, fix, words } = receipt;
+  const detail = error ?? receipt.detail;
+  // A reply to a task at work waits behind its turn, which its detail says.
+  const Icon = outcome === 'FAILED' ? TriangleAlert : outcome === 'REFUSED' ? Ban
+    : receipt.operation === 'REPLY_TO_TASK' && receipt.detail !== null ? ListEnd : ACTED[receipt.operation];
+  const below = [words === null ? null : `“${words}”`, detail].filter(each => each !== null).join(' · ');
   const cancel = (turn: string) => {
     setStop('stopping');
     setError(null);
     window.bridge.cancelAgentTurn(turn).then(() => setStop('stopped')).catch((cause: unknown) => { setStop('idle'); setError(remoteErrorMessage(cause)); });
   };
   return (
-    <div className="assistant-receipt">
+    <div className={`assistant-receipt${outcome === 'DONE' ? '' : ' is-refused'}`}>
+      <Icon className="assistant-receipt__icon" size={14} aria-hidden="true" />
       <div className="assistant-receipt__text">
-        <div className="assistant-receipt__line" title={item.text}>{item.text}</div>
+        <div className="assistant-receipt__line" title={item.text}>{item.text}{fix === 'BUTTONS' && <span aria-hidden="true"> ↓</span>}</div>
         {/* Exactly what was taken as the user's: what a task was sent, or what the assistant acted on. */}
-        {receipt.words !== null && <div className="assistant-receipt__words" title={receipt.words}>“{receipt.words}”</div>}
-        {(error ?? receipt.detail) !== null && <div className="assistant-receipt__detail" title={error ?? receipt.detail ?? undefined}>{error ?? receipt.detail}</div>}
+        {below !== '' && (
+          <div className="assistant-receipt__below" title={below}>
+            {words !== null && <span className="assistant-receipt__words">“{words}”</span>}
+            {words !== null && detail !== null && ' · '}
+            {detail !== null && <span className="assistant-receipt__detail">{detail}</span>}
+          </div>
+        )}
       </div>
       {turnId !== null && (stop === 'stopped'
-        ? <span className="assistant-receipt__detail">Stopped</span>
-        : <button type="button" className="assistant-receipt__action" disabled={stop === 'stopping'} onClick={() => cancel(turnId)}>Stop</button>)}
-      {(target !== null || page !== null) && <button type="button" className="assistant-receipt__action" onClick={() => onOpen(receipt)}>Open</button>}
+        ? <span className="assistant-receipt__stopped">Stopped</span>
+        : <button type="button" className="assistant-action" disabled={stop === 'stopping'} onClick={() => cancel(turnId)}>Stop</button>)}
+      {fix === 'SETTINGS' && <button type="button" className="assistant-action" onClick={() => onSettings('workflow')}>Settings</button>}
+      {outcome === 'DONE' && (target !== null || page !== null) && <button type="button" className="assistant-action" onClick={() => onOpen(receipt)}>Open</button>}
     </div>
   );
 }

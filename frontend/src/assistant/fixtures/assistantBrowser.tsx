@@ -21,7 +21,9 @@ import { pr, prDetail } from '../../pulls/fixtures/pullRequest';
 import AssistantPanel from '../AssistantPanel';
 import type { RunningTask } from '../../agents/runningTaskModel';
 import type { AppNotice } from '../../notices/contracts';
-import type { AgendaDto, AgendaTargetDto, AgentPendingApprovalDto, AssistantItemDto, AssistantListStyle, AssistantRowDto, AssistantViewDto, Bridge } from '../../types';
+import type {
+  AgendaDto, AgendaTargetDto, AgentPendingApprovalDto, AssistantItemDto, AssistantListStyle, AssistantReceiptDto, AssistantRowDto, AssistantViewDto, Bridge,
+} from '../../types';
 import { settingsRoute } from '../../settings/routes';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../../workspaces/model';
 import { dayLabel, localDay } from '../model';
@@ -208,10 +210,12 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     await settle();
     const talk = view.host.querySelector<HTMLElement>('.assistant-talk');
     assert(talk !== null, 'Sending shows the conversation');
-    const order = [...talk.querySelectorAll('.agt-user, .assistant-reply, .assistant-receipts, .assistant-refusal')].map(node => node.className.split(' ')[0]);
-    assert(JSON.stringify(order) === JSON.stringify(['agt-user', 'assistant-reply', 'assistant-receipts', 'assistant-refusal']), `The day in order: ${JSON.stringify(order)}`);
-    assert(talk.querySelector('.assistant-refusal')?.textContent === 'Use the buttons: this one runs outside the sandbox “allow it” ↓',
-      `A refusal shows the words it refused and points down at the card: ${talk.querySelector('.assistant-refusal')?.textContent}`);
+    const order = [...talk.querySelectorAll('.agt-user, .assistant-reply, .assistant-receipt')].map(node => node.className);
+    assert(JSON.stringify(order) === JSON.stringify(['agt-user', 'assistant-reply', 'assistant-receipt', 'assistant-receipt is-refused']), `The day in order: ${JSON.stringify(order)}`);
+    const refusal = talk.querySelector<HTMLElement>('.assistant-receipt.is-refused');
+    assert(refusal?.querySelector('.assistant-receipt__line')?.textContent === 'Use the buttons: this one runs outside the sandbox ↓'
+      && refusal.querySelector('.assistant-receipt__words')?.textContent === '“allow it”' && refusal.querySelector('button') === null,
+      `A refusal shows the words it refused and points down at the card: ${refusal?.textContent}`);
     assert(/^\d{1,2}:\d{2}$/.test(talk.querySelector('.assistant-time')?.textContent ?? ''), 'A message starts with its time');
     const links = [...talk.querySelectorAll<HTMLAnchorElement>('.assistant-reply a')].map(link => link.textContent);
     assert(JSON.stringify(links) === JSON.stringify(['#31377', 'task']), `Both refs link, bare or not: ${JSON.stringify(links)}`);
@@ -233,7 +237,7 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     assert(view.host.querySelector('.assistant-talk') === null, 'Opened again, the conversation folds away');
     enter(type(view.host, 'and the task?'));
     await settle();
-    [...view.host.querySelectorAll<HTMLButtonElement>('.assistant-receipt__action')].find(button => button.textContent === 'Open')?.click();
+    [...view.host.querySelectorAll<HTMLButtonElement>('.assistant-receipt .assistant-action')].find(button => button.textContent === 'Open')?.click();
     assert(window.location.hash === workspaceAgentTaskRoute('ws1', 't9'), `Open goes to the started task: ${window.location.hash}`);
   }
   finally { view.dispose(); }
@@ -476,7 +480,7 @@ async function followsAnOpenOnceWhenItArrives(): Promise<void> {
     const actions = [...view.host.querySelectorAll<HTMLElement>('.assistant-receipt')].map(receipt => receipt.textContent);
     assert(actions.filter(text => text?.startsWith('Opened') === true && text.endsWith('Open')).length === 2, `Each open keeps its Open: ${JSON.stringify(actions)}`);
     [...view.host.querySelectorAll<HTMLElement>('.assistant-receipt')].find(receipt => receipt.textContent?.startsWith('Opened Settings') === true)
-      ?.querySelector<HTMLButtonElement>('.assistant-receipt__action')?.click();
+      ?.querySelector<HTMLButtonElement>('.assistant-action')?.click();
     assert(window.location.hash === settingsRoute('models') && view.calls.closed === 2, 'Open goes to the page and closes the Assistant');
   }
   finally {
@@ -585,7 +589,7 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
     assert(button()?.textContent === 'Create issue', 'Its one button creates the issue');
     button()?.click();
     await settle();
-    assert(view.host.querySelector('.assistant-draft .assistant-error')?.textContent === "GitHub's rate limit was reached; try again in a minute",
+    assert(view.host.querySelector('.assistant-draft__error')?.textContent === "GitHub's rate limit was reached; try again in a minute",
       'A failed step says why, and the draft stays');
     assert(JSON.stringify(steps.map(step => step[0])) === '["list","create","epic","publish"]', `The click made the work and its Epic before the push failed: ${JSON.stringify(steps)}`);
     const [, workspace, request] = steps[1] as [string, string, Record<string, unknown>];
@@ -593,7 +597,8 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
       `The work takes the user's edits and the draft's id: ${JSON.stringify(request)}`);
     assert(JSON.stringify(steps[3]) === '["publish","ws1","w-new",{"source":"GITHUB","expectedRevision":1}]', `It is pushed to GitHub as an issue: ${JSON.stringify(steps[3])}`);
     assert(view.host.querySelector<HTMLInputElement>('.assistant-draft__title')?.disabled === true
-      && view.host.querySelector('.assistant-draft__note')?.textContent === 'Saved as a local Epic', 'Once made, the work keeps the words it was made with');
+      && view.host.querySelector('.assistant-draft__note')?.textContent === 'Saved as a local Epic' && view.host.querySelectorAll('.assistant-draft__lock').length === 2,
+      'Once made, the work keeps the words it was made with, and its fields say so');
 
     const opened: unknown[] = [];
     const listener = (event: Event) => { opened.push((event as CustomEvent).detail); };
@@ -612,9 +617,7 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
     await settle();
     assert(JSON.stringify(steps.slice(4).map(step => step[0])) === '["list","epic","publish","drafted"]' && JSON.stringify(steps.at(-1)) === '["drafted","d1"]',
       `Trying again finishes the push and keeps a receipt: ${JSON.stringify(steps.slice(4))}`);
-    const done = view.host.querySelector<HTMLElement>('.assistant-draft.is-created');
-    assert(done?.textContent === 'Created on GitHub as an Epictrinodb/trino' && view.host.querySelector('form.assistant-draft') === null,
-      `Once created, the draft gives way to the receipt: ${done?.textContent}`);
+    assert(view.host.querySelector('.assistant-draft') === null, 'Once created, the draft gives way to its receipt');
     assert(view.host.querySelector('.assistant-receipt')?.textContent?.startsWith('Created “Iceberg snapshot ids” as an Epic') === true, 'The receipt names the Epic it became');
   }
   finally { view.dispose(); }
@@ -724,6 +727,29 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
   finally { view.dispose(); }
 }
 
+const signIn: AssistantItemDto = { id: 'f1', day: '2026-10-16', at: '2026-10-16T07:06:30Z', kind: 'FAILURE', text: 'Claude sign-in required', targets: {},
+  notReady: true, receipt: null, list: null, draft: null };
+
+async function asksToSignInWhenTheModelIsNotReady(): Promise<void> {
+  const view = mount({ ...VIEW, items: [VIEW.items[0], signIn] }, 0, []);
+  try {
+    await settle();
+    enter(type(view.host, 'What should I look at first?'));
+    await settle();
+    const line = view.host.querySelector<HTMLElement>('.assistant-failure');
+    const buttons = [...(line?.querySelectorAll<HTMLButtonElement>('.assistant-action') ?? [])].map(button => button.textContent);
+    assert(line?.textContent?.startsWith('Claude sign-in required') === true && JSON.stringify(buttons) === '["Open Settings","Retry"]',
+      `The reply says the model needs a sign-in, and offers Settings and Retry: ${line?.textContent}`);
+    assert(line.title === 'Claude Sonnet answers through your Claude account. Sign in from Settings → Models.', `It says where to sign in: ${line.title}`);
+    line.querySelector<HTMLButtonElement>('.assistant-action')?.click();
+    assert(window.location.hash === settingsRoute('models') && view.calls.closed === 1, `Open Settings goes to Models: ${window.location.hash}`);
+  }
+  finally {
+    window.location.hash = '';
+    view.dispose();
+  }
+}
+
 async function stopsARunningReply(): Promise<void> {
   const view = mount({ ...VIEW, running: true });
   try {
@@ -746,21 +772,40 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline],
     ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard],
     ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade],
-    ['acts on a pull request from its card', actsOnAPullRequestFromItsCard]] as const) {
+    ['acts on a pull request from its card', actsOnAPullRequestFromItsCard], ['asks to sign in when the model is not ready', asksToSignInWhenTheModelIsNotReady]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }
   return results;
 }
 
+const receiptsView = (): AssistantViewDto => {
+  const receipt = (id: string, text: string, fields: Partial<AssistantReceiptDto> & Pick<AssistantReceiptDto, 'operation'>): AssistantItemDto => ({
+    id, day: '2026-10-16', at: '2026-10-16T07:07:00Z', kind: 'RECEIPT', text, targets: {}, notReady: false, list: null, draft: null,
+    receipt: { outcome: 'DONE', detail: null, target: PULL, page: null, turnId: null, fix: null, words: null, ...fields },
+  });
+  return { ...VIEW, items: [VIEW.items[0],
+    receipt('e1', 'Acknowledged “Use remote splits generation for large manifests”', { operation: 'ACKNOWLEDGE', detail: 'Back when something new happens',
+      words: 'Clear the cork PR from Needs attention' }),
+    receipt('e2', 'Queued your words for “Retry Iceberg commit on conflict”', { operation: 'REPLY_TO_TASK', detail: 'After its current turn',
+      words: 'Tell the retry task to keep the old key too' }),
+    receipt('e3', 'Changing Epics and work items is off', { operation: 'MARK_EPIC', outcome: 'REFUSED', target: null, fix: 'SETTINGS', words: 'make ICE-7 an Epic' }),
+    receipt('e4', 'That isn’t in Needs attention', { operation: 'ACKNOWLEDGE', outcome: 'FAILED', target: null, words: 'clear ICE-7 from Needs attention' }),
+    signIn] };
+};
+
 let preview: { dispose: () => void } | null = null;
 
-/** Draws a list the assistant showed in one style, for a screenshot; `tasks` is a list of task cards with an idle one focused, and `draft` a drafted issue. */
-export async function showListPreview(style: AssistantListStyle | 'tasks' | 'draft'): Promise<void> {
+/**
+ * Draws a list the assistant showed in one style, for a screenshot; `tasks` is a list of task cards with an idle one focused, `draft` a
+ * drafted issue, and `receipts` what actions did and refused, ending with a reply that needs a sign-in.
+ */
+export async function showListPreview(style: AssistantListStyle | 'tasks' | 'draft' | 'receipts'): Promise<void> {
   preview?.dispose();
   document.body.style.margin = '0';
   document.body.style.background = 'var(--bg)';
-  const mounted = mount(style === 'tasks' ? taskView('idle') : style === 'draft' ? draftView(false) : listView(style), 0, []);
+  const view = style === 'tasks' ? taskView('idle') : style === 'draft' ? draftView(false) : style === 'receipts' ? receiptsView() : listView(style);
+  const mounted = mount(view, 0, []);
   preview = mounted;
   await new Promise(resolve => setTimeout(resolve, 150));
   enter(type(mounted.host, 'What is waiting on me?'));

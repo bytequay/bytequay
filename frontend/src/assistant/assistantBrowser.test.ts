@@ -38,7 +38,7 @@ it('floats the Assistant over the page, pages its cards by keyboard, answers the
           await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] });
           await window.webContents.executeJavaScript('AssistantTests.showPreview()');
           await writeFile(join(screenshots, 'assistant-' + theme + '.png'), (await window.webContents.capturePage()).toPNG());
-          for (const style of ['ROWS', 'CARDS', 'TIMELINE', 'tasks', 'draft']) {
+          for (const style of ['ROWS', 'CARDS', 'TIMELINE', 'tasks', 'draft', 'receipts']) {
             await window.webContents.executeJavaScript('AssistantTests.showListPreview(' + JSON.stringify(style) + ')');
             await writeFile(join(screenshots, 'assistant-list-' + style.toLowerCase() + '-' + theme + '.png'), (await window.webContents.capturePage()).toPNG());
           }
@@ -47,5 +47,5 @@ it('floats the Assistant over the page, pages its cards by keyboard, answers the
     `,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  expect(results).toHaveLength(13);
+  expect(results).toHaveLength(14);
 }, deadline(SCREENSHOTS ? 120_000 : 30_000));

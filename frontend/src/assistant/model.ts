@@ -70,18 +70,6 @@ export function screenRef(layer: ZoomedReference | undefined, hash: string, work
 
 const KIND_NAMES: Record<string, string> = { jira: 'Jira ticket', work: 'work item', epic: 'Epic', task: 'task', review: 'review' };
 
-/** The day's items as the panel draws them: a run of done receipts reads as one group. */
-export function entries(items: AssistantItemDto[]): (AssistantItemDto | AssistantItemDto[])[] {
-  const drawn: (AssistantItemDto | AssistantItemDto[])[] = [];
-  for (const item of items) {
-    const done = item.kind === 'RECEIPT' && item.receipt?.outcome === 'DONE';
-    const last = drawn.at(-1);
-    if (done && Array.isArray(last)) last.push(item);
-    else drawn.push(done ? [item] : item);
-  }
-  return drawn;
-}
-
 /** A ref's short name, as the On screen chip and an unlabelled reply link show it. */
 export function refLabel(ref: string): string {
   const number = /^(?:pr|issue):[^#]+#(\d+)$/.exec(ref);

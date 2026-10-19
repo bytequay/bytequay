@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import { CircleCheck } from 'lucide-react';
+import { ArrowUpRight, LoaderCircle, Lock, TriangleAlert } from 'lucide-react';
 import { SourceIcon } from '../cards/Card';
 import { remoteErrorMessage } from '../remoteError';
 import type { AgendaTargetDto, AssistantItemDto } from '../types';
@@ -20,6 +20,7 @@ import type { AgendaTargetDto, AssistantItemDto } from '../types';
 /**
  * A new GitHub issue the assistant drafted. The user edits its title and description, and Create makes it a local Epic and publishes
  * it to the repository as an issue, the way a work item is pushed to GitHub. The assistant creates nothing; only this click writes.
+ * Once it is created, its receipt says so and the draft goes.
  */
 export default function DraftCard({ item, created, onCreated, onOpen }: {
   item: AssistantItemDto;
@@ -33,16 +34,7 @@ export default function DraftCard({ item, created, onCreated, onOpen }: {
   const [made, setMade] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const draft = item.draft;
-  if (draft === null) return null;
-  if (created) {
-    return (
-      <div className="assistant-draft is-created">
-        <CircleCheck size={14} aria-hidden="true" />
-        <span className="assistant-draft__done">Created on GitHub as an Epic</span>
-        <span className="assistant-draft__repo">{draft.repository}</span>
-      </div>
-    );
-  }
+  if (draft === null || created) return null;
   const create = async () => {
     setBusy(true);
     setError(null);
@@ -68,6 +60,8 @@ export default function DraftCard({ item, created, onCreated, onOpen }: {
     }
   };
   const work: AgendaTargetDto = { kind: 'WORK', workspaceId: draft.workspaceId, repo: null, number: null, id: draft.workItemId, connectionId: null, cloudId: null };
+  // Once the work is made, its words are kept: a lock says why they no longer change.
+  const locked = made && !busy;
   return (
     <form className="assistant-draft" aria-label="New GitHub issue as an Epic" onSubmit={event => { event.preventDefault(); void create(); }}>
       <div className="assistant-draft__head">
@@ -76,15 +70,27 @@ export default function DraftCard({ item, created, onCreated, onOpen }: {
         <span className="assistant-spacer" />
         <span className="assistant-draft__repo">{draft.repository}</span>
       </div>
-      <input className="assistant-draft__title" aria-label="Issue title" value={title} maxLength={200} disabled={busy || made} onChange={event => setTitle(event.target.value)} />
-      <textarea className="assistant-draft__body" aria-label="Issue description" value={body} rows={4} disabled={busy || made} onChange={event => setBody(event.target.value)} />
-      {error !== null && <p className="assistant-error" role="alert">{error}</p>}
+      <div className="assistant-draft__fields">
+        <span className="assistant-draft__field">
+          <input className="assistant-draft__title" aria-label="Issue title" value={title} maxLength={200} disabled={busy || made} onChange={event => setTitle(event.target.value)} />
+          {locked && <Lock className="assistant-draft__lock" size={12} aria-hidden="true" />}
+        </span>
+        <span className="assistant-draft__field">
+          <textarea className="assistant-draft__body" aria-label="Issue description" value={body} rows={4} disabled={busy || made} onChange={event => setBody(event.target.value)} />
+          {locked && <Lock className="assistant-draft__lock" size={12} aria-hidden="true" />}
+        </span>
+        {error !== null && <p className="assistant-draft__error" role="alert"><TriangleAlert size={14} aria-hidden="true" />{error}</p>}
+      </div>
       <div className="assistant-draft__actions">
+        {made ? <Lock size={12} aria-hidden="true" /> : <ArrowUpRight size={12} aria-hidden="true" />}
         <span className="assistant-draft__note">{made ? 'Saved as a local Epic' : 'Creates the issue on GitHub'}</span>
         <span className="assistant-spacer" />
         {/* A push whose outcome is unknown is linked or pushed again from the work item's own page. */}
-        {made && error !== null && <button type="button" className="assistant-button" onClick={() => onOpen(work)}>Open work item</button>}
-        <button type="submit" className="assistant-button is-primary" disabled={busy || title.trim() === ''}>{busy ? 'Creating…' : 'Create issue'}</button>
+        {made && error !== null && <button type="button" className="bq-button bq-button--ghost assistant-draft__open" onClick={() => onOpen(work)}>Open work item</button>}
+        <button type="submit" className="assistant-button is-primary" aria-busy={busy} disabled={busy || title.trim() === ''}>
+          {busy && <LoaderCircle className="agt-spin" size={12} aria-hidden="true" />}
+          {busy ? 'Creating…' : 'Create issue'}
+        </button>
       </div>
     </form>
   );

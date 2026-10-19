@@ -153,7 +153,6 @@
   overflow-wrap: anywhere;
 }
 
-.assistant-failure,
 .assistant-thinking {
   margin: 10px 0 0;
   color: var(--fg-muted);
@@ -161,17 +160,20 @@
   line-height: 19px;
 }
 
+/* A reply that failed, such as the model not being signed in: one line, with what fixes it at the right. */
 .assistant-failure {
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 6px;
+  min-height: 26px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13.5px;
+  line-height: 19px;
 }
 
-.assistant-failure svg {
+.assistant-failure > svg {
   flex: none;
-  align-self: center;
-  color: var(--fg-warning);
+  color: var(--fg-muted);
 }
 
 .assistant-link {
@@ -183,73 +185,54 @@
   cursor: pointer;
 }
 
-/* Done receipts in a row read as one group, each with the actions that apply to it. */
-.assistant-receipts {
-  margin-top: 10px;
-  border: 1px solid var(--line-subtle);
-  border-radius: 8px;
-}
-
+/* A receipt: what an action did, or why it did not, then the user's own words and a detail, and where to go from it. */
 .assistant-receipt {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
+  margin-top: 10px;
   padding: 7px 8px 7px 10px;
+  border: 1px solid var(--line-subtle);
+  border-radius: 8px;
 }
 
-.assistant-receipt + .assistant-receipt { border-top: 1px solid var(--line-subtle); }
+.assistant-receipt__icon {
+  flex: none;
+  align-self: flex-start;
+  /* Centred on the first line, which is 19px high. */
+  margin-top: 2.5px;
+  color: var(--fg-muted);
+}
+
 .assistant-receipt__text { flex: 1; min-width: 0; }
 
 .assistant-receipt__line,
-.assistant-receipt__words,
-.assistant-receipt__detail {
+.assistant-receipt__below {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.assistant-receipt__words,
-.assistant-refusal__words {
-  color: var(--fg-default);
-  font-size: 12.5px;
-  line-height: 17px;
-  overflow-wrap: anywhere;
-}
-
 .assistant-receipt__line { font-size: 13px; line-height: 19px; }
+.assistant-receipt.is-refused .assistant-receipt__line { color: var(--fg-muted); }
 
-.assistant-receipt__detail {
-  flex: none;
-  color: var(--fg-muted);
+.assistant-receipt__below,
+.assistant-receipt__stopped {
+  color: var(--fg-dim);
   font-size: 12px;
   line-height: 16px;
 }
 
-.assistant-refusal {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin: 10px 0 0;
-  color: var(--fg-muted);
-  font-size: 13px;
-  line-height: 19px;
-}
+.assistant-receipt__words { color: var(--fg-muted); }
+.assistant-receipt__stopped { flex: none; }
 
-.assistant-refusal svg {
+/* The small bordered buttons a receipt or a failed reply offers. */
+.assistant-action {
+  display: inline-flex;
   flex: none;
-  align-self: flex-start;
-  /* Centred on the first line of text, which is 19px high. */
-  margin-top: 3px;
-}
-
-.assistant-refusal.is-failed svg { color: var(--fg-warning); }
-/* The reason and its words wrap beside the icon; a Settings link stays at the end. */
-.assistant-refusal > span { flex: 1; min-width: 0; }
-.assistant-refusal > button { flex: none; }
-
-.assistant-receipt__action {
-  flex: none;
+  align-items: center;
+  gap: 4px;
   height: 22px;
   padding: 0 8px;
   border: 1px solid var(--assistant-line);
@@ -261,7 +244,12 @@
   cursor: pointer;
 }
 
-.assistant-receipt__action:hover:not(:disabled) { background: var(--bg-hover); }
+.assistant-action:hover:not(:disabled) { background: var(--bg-hover); }
+
+.assistant-action:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
 
 .assistant-waiting {
   display: flex;
@@ -821,20 +809,25 @@
 .assistant-draft {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   margin-top: 10px;
-  padding: 10px 12px 12px;
-  border: 1px solid var(--line-subtle);
-  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--assistant-line);
+  border-radius: 10px;
 }
 
 .assistant-draft__head,
-.assistant-draft__actions,
-.assistant-draft.is-created {
+.assistant-draft__actions {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+.assistant-draft__head {
+  height: 32px;
+  padding: 0 12px 0 10px;
+  border-bottom: 1px solid var(--line-subtle);
+  background: light-dark(#f6f8fa, var(--dark-subtle));
   font-size: 12.5px;
 }
 
@@ -845,22 +838,91 @@
   font-size: 12px;
 }
 
+.assistant-draft__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+/* A field locks once its work is made; the lock sits at its top right. */
+.assistant-draft__field {
+  position: relative;
+  display: block;
+}
+
+.assistant-draft__lock {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  color: var(--fg-dim);
+}
+
 .assistant-draft__title,
 .assistant-draft__body {
   box-sizing: border-box;
+  display: block;
   width: 100%;
-  padding: 6px 8px;
   border: 1px solid var(--assistant-line);
   border-radius: 6px;
   background: var(--surface-canvas);
   color: var(--fg-default);
   font: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
+}
+
+.assistant-draft__title {
+  height: 32px;
+  padding: 0 10px;
 }
 
 .assistant-draft__body {
+  min-height: 94px;
+  padding: 8px 10px;
+  line-height: 19.5px;
   resize: vertical;
+}
+
+.assistant-draft__title:disabled,
+.assistant-draft__body:disabled {
+  background: light-dark(#f6f8fa, var(--dark-subtle));
+  color: var(--fg-muted);
+}
+
+.assistant-draft__title:focus-visible,
+.assistant-draft__body:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
+
+.assistant-draft__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 12.5px;
   line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.assistant-draft__error > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--fg-muted);
+}
+
+.assistant-draft__actions {
+  padding: 8px 12px;
+  border-top: 1px solid var(--line-subtle);
+  color: var(--fg-dim);
+}
+
+.assistant-draft .assistant-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
 }
 
 .assistant-draft .assistant-button.is-primary {
@@ -871,14 +933,22 @@
 
 .assistant-draft .assistant-button.is-primary:hover:not(:disabled) { background: light-dark(#1a7f37, #32894f); }
 .assistant-draft .assistant-button.is-primary:disabled { background: light-dark(#94d3a2, var(--dark-green-soft)); }
-.assistant-draft.is-created { padding: 8px 12px; color: var(--fg-muted); }
-.assistant-draft.is-created svg { color: var(--fg-success); }
 
-.assistant-draft__done {
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--fg-default);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* While it creates, the button keeps its green and reads Creating…. */
+.assistant-draft .assistant-button.is-primary[aria-busy="true"] {
+  background: light-dark(#1f883d, #287a43);
+  opacity: 0.7;
+}
+
+.assistant-draft .assistant-button:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
+
+/* Open work item is a secondary action beside Create issue: a borderless text button. */
+.bq-button.assistant-draft__open {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 400;
 }

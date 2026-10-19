@@ -129,7 +129,7 @@ message uses your model allowance.
 5. Ask for a new GitHub issue as an Epic, and it drafts one for a watched
    repository. Edit the title and description, then click **Create issue** to
    create it on GitHub and mark it as an Epic. Nothing is created until you
-   click.
+   click; then its receipt takes the draft's place.
 
 When chat is off or your agent needs reconnecting, task notices and approval
 buttons remain available. Saved conversation history is preserved.
@@ -154,7 +154,8 @@ default and are separate from enabling Assistant conversation.
   something new happens, or snooze it for an hour, until tomorrow or until
   Monday. Bringing an item back stays a button.
 - Each action leaves a receipt showing the words it acted on. **Open** takes
-  you to the task; **Stop** cancels the first turn of a task it started.
+  you to the task; **Stop** cancels the first turn of a task it started. A
+  refused action says why, with **Settings** when its switch is off.
 
 The Assistant does not edit files or run code itself. Development work happens
 in the tasks it starts. Enable the optional daily agenda in **Settings → General

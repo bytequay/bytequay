@@ -44,7 +44,7 @@ export default function AssistantPermissionsCard() {
           <Toggle label="Assistant can start tasks" on={value.startTasks} disabled={busy} onChange={startTasks => save({ ...value, startTasks })} />
         </SettingsRow>
         <SettingsRow title="Assistant can answer tasks"
-          subtitle="Allow once or deny commands inside the sandbox, answer questions, and send your replies. Everything else stays a button.">
+          subtitle="Allow once or deny commands inside the sandbox, answer questions, and send your replies. A reply to a working task waits for its current turn. Everything else stays a button.">
           <Toggle label="Assistant can answer tasks" on={value.answerTasks} disabled={busy} onChange={answerTasks => save({ ...value, answerTasks })} />
         </SettingsRow>
         <SettingsRow title="Assistant can change Epics and work items"

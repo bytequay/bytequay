@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.artifact;
 
+import com.bytequay.agent.core.AgentApprovalEvents;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventJson;
@@ -34,6 +35,7 @@ import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
+import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.agent.AgentProperties;
@@ -96,6 +98,8 @@ public class ArtifactService
     private static final Logger log = LoggerFactory.getLogger(ArtifactService.class);
     public static final int MAXIMUM_MESSAGE = 4000;
     static final String MAKE_THE_PAGE = "Make the page.";
+    // The tool a question with choices comes through; its card is the one a task shows.
+    private static final String QUESTION_TOOL = "AskUserQuestion";
     private static final Duration MAXIMUM_RUNTIME = Duration.ofMinutes(20);
     private static final int REASON = 200;
     // Events the window reads at once; it asks again from the last one it has.
@@ -107,7 +111,8 @@ public class ArtifactService
             You help the user learn about the repository checked out in your working directory, in a conversation inside ByteQuay.
             Answer what the user asks, reading the code you need with your tools. You cannot change files or reach the web.
             Keep replies short, a few paragraphs or a short list: say what you found, cite code as path:line at the commit named in the
-            message, and leave the full walk-through for the page. While the scope is still open, end by asking what they want next.
+            message, and leave the full walk-through for the page. While the scope is still open, end by asking what they want next; when the
+            choice is between a few clear options, ask with AskUserQuestion: one question, two to four short options.
             Never offer a page in your first reply. Once the user has replied and the scope is settled with nothing open, for example when
             they say it is clear or have no more questions, call artifact_offer with a title and one sentence on what a page would cover, then
             end your reply. The user answers with a button. Never write a page before the user accepts an offer or asks for one.
@@ -175,7 +180,10 @@ public class ArtifactService
     public ArtifactView view(String workspaceId, String artifactId)
     {
         Artifact artifact = require(workspaceId, artifactId);
-        return new ArtifactView(artifact, store.offers(workspaceId, artifactId), store.pages(workspaceId, artifactId));
+        // ponytail: open questions live with the turn in memory; a restart ends the turn and records them as cancelled.
+        List<String> questions = Optional.ofNullable(running.get(workspaceId)).filter(run -> run.artifactId.equals(artifactId))
+                .map(run -> (List<String>) ImmutableList.copyOf(run.questions.keySet())).orElse(ImmutableList.of());
+        return new ArtifactView(artifact, store.offers(workspaceId, artifactId), store.pages(workspaceId, artifactId), questions);
     }
 
     /** The conversation's agent events after a sequence, in the form a task's transcript reads. */
@@ -225,6 +233,21 @@ public class ArtifactService
         }
         store.saveOffer(workspaceId, offer.answered(accept ? ArtifactOffer.State.ACCEPTED : ArtifactOffer.State.DISMISSED));
         return view(workspaceId, artifactId);
+    }
+
+    /**
+     * Answers a question the agent asked with choices: the answers, keyed by each question's text, go back to the agent as a task's
+     * question card sends them; declining leaves the agent to go on without them.
+     */
+    public void answerQuestion(String workspaceId, String artifactId, String approvalId, boolean allow, Map<String, String> answers)
+    {
+        Artifact artifact = require(workspaceId, artifactId);
+        Run run = Optional.ofNullable(running.get(workspaceId)).filter(value -> value.artifactId.equals(artifactId))
+                .orElseThrow(() -> new IllegalArgumentException("This question is no longer open"));
+        Question question = Optional.ofNullable(run.questions.remove(approvalId)).orElseThrow(() -> new IllegalArgumentException("This question is no longer open"));
+        record(run, artifact, question.source(), new AgentEventPayload.ApprovalResolved(approvalId,
+                allow ? AgentEventPayload.ApprovalOutcome.ALLOWED : AgentEventPayload.ApprovalOutcome.DENIED, false));
+        question.answer().complete(allow ? ProviderApprovalDecision.allow(Optional.empty(), answers) : ProviderApprovalDecision.deny());
     }
 
     /** Stops the agent's answer; anything it already said or saved stays. */
@@ -348,6 +371,12 @@ public class ArtifactService
         }
         // A task's turn ends the same way: interrupted when stopped, otherwise completed, after the reason it failed.
         Optional<TurnId> turn = Optional.of(run.turnId);
+        // A question the turn ended without an answer to is closed, so its card no longer asks.
+        run.questions.forEach((id, question) -> {
+            question.answer().complete(ProviderApprovalDecision.deny());
+            write(artifact, turn, question.source(), new AgentEventPayload.ApprovalResolved(id, AgentEventPayload.ApprovalOutcome.CANCELLED, false));
+        });
+        run.questions.clear();
         if (run.stopped) {
             write(artifact, turn, lifecycle(AgentEventPayload.LifecyclePhase.INTERRUPTED, "Stopped"));
         }
@@ -385,10 +414,10 @@ public class ArtifactService
         return OneShotSession.run(resources, drivers.require(lane), (scratchId, scratch) -> new AgentSessionContext(
                         scratchId.toString(), checkout.folder(), scratch.runtimeDirectory(), scratch.providerDirectory(), AgentPermissionPolicy.AUTO,
                         resume.map(value -> new AgentSessionRef(lane, value.contractVersion(), value.providerValue())),
-                        (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), Optional.of(model.model()), model.effort(),
+                        (request, timeout) -> ask(run, artifact, request), Optional.of(model.model()), model.effort(),
                         SessionAccess.READ_ONLY, Optional.empty(), INSTRUCTIONS, Optional.empty(),
                         ImmutableList.of(ArtifactTools.offer(mapper, offer -> offer(run, artifact, offer)),
-                                ArtifactTools.save(mapper, page -> save(run, artifact, checkout.commit(), page)))),
+                                ArtifactTools.save(mapper, page -> save(run, artifact, checkout.commit(), page))), true),
                 prompt, MAXIMUM_RUNTIME, run::started, events(run, artifact));
     }
 
@@ -407,6 +436,30 @@ public class ArtifactService
             record(run, artifact, canonical.source(), canonical.payload());
         };
     }
+
+    /**
+     * A question the agent asks with choices waits for the user's answer, shown as a task's question card; anything else asks for
+     * something a read-only session does not grant, and is refused.
+     */
+    private CompletableFuture<ProviderApprovalDecision> ask(Run run, Artifact artifact, ProviderApprovalRequest request)
+    {
+        if (!request.requestedPermissions().contains(QUESTION_TOOL)) {
+            return CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+        }
+        String id = UUID.randomUUID().toString();
+        Question question = new Question(AgentApprovalEvents.source(request), new CompletableFuture<>());
+        synchronized (this) {
+            if (run.ended || run.stopped) {
+                return CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+            }
+            // Recorded before it opens, so a card that can be answered always has its question in the log.
+            record(run, artifact, question.source(), AgentApprovalEvents.requested(id, request));
+            run.questions.put(id, question);
+        }
+        return question.answer();
+    }
+
+    private record Question(AgentEventSource source, CompletableFuture<ProviderApprovalDecision> answer) {}
 
     /**
      * What a transcript shows: whole messages and each step's start and end.
@@ -620,6 +673,8 @@ public class ArtifactService
         private volatile boolean replied;
         private volatile boolean wrote;
         private final TurnId turnId = TurnId.random();
+        // Questions the agent asked with choices, by approval id, until the user answers or the turn ends.
+        private final Map<String, Question> questions = new ConcurrentHashMap<>();
 
         Run(String artifactId)
         {
@@ -642,6 +697,8 @@ public class ArtifactService
         void stop()
         {
             stopped = true;
+            // An open question stops waiting at once; the turn's end records it as cancelled.
+            questions.values().forEach(question -> question.answer().complete(ProviderApprovalDecision.deny()));
             turn.ifPresent(RunningTurn::cancel);
         }
     }

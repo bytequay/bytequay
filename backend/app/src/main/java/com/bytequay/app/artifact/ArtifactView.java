@@ -24,14 +24,17 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * A conversation as its page shows it, apart from its agent events, which are read on their own: the conversation, the pages it offered,
- * and its saved page versions without their HTML.
+ * its saved page versions without their HTML, and the questions with choices the agent is waiting on.
+ *
+ * @param questions the approval ids of the questions still open, so their cards accept an answer
  */
-public record ArtifactView(Artifact artifact, List<ArtifactOffer> offers, List<ArtifactPage> pages)
+public record ArtifactView(Artifact artifact, List<ArtifactOffer> offers, List<ArtifactPage> pages, List<String> questions)
 {
     public ArtifactView
     {
         requireNonNull(artifact, "artifact is null");
         offers = ImmutableList.copyOf(offers);
         pages = ImmutableList.copyOf(pages);
+        questions = ImmutableList.copyOf(questions);
     }
 }

@@ -17,6 +17,7 @@ import com.bytequay.app.artifact.ArtifactRow;
 import com.bytequay.app.artifact.ArtifactService;
 import com.bytequay.app.artifact.ArtifactView;
 import com.bytequay.app.web.agent.AgentHttpModels;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,6 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -83,6 +86,22 @@ public class ArtifactController
     }
 
     public record OfferAnswer(boolean accept) {}
+
+    /** Answers a question the agent asked with choices, as a task's question card does. */
+    @PostMapping("/{artifactId}/questions/{approvalId}")
+    public ArtifactView answerQuestion(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String approvalId,
+            @RequestBody QuestionAnswer request)
+    {
+        artifacts.answerQuestion(workspaceId, artifactId, approvalId, request.allow(), request.answers().orElse(ImmutableMap.of()));
+        return artifacts.view(workspaceId, artifactId);
+    }
+
+    /**
+     * The user's answer to a question.
+     *
+     * @param answers the chosen option for each question, keyed by the question's text
+     */
+    public record QuestionAnswer(boolean allow, Optional<Map<String, String>> answers) {}
 
     @PostMapping("/{artifactId}/stop")
     public void stop(@PathVariable String workspaceId, @PathVariable String artifactId)

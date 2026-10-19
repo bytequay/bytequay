@@ -32,6 +32,8 @@ import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
+import com.bytequay.agent.spi.ProviderApprovalDecision;
+import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
@@ -49,6 +51,7 @@ import com.bytequay.core.domain.ArtifactPage;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -88,6 +91,8 @@ class TestArtifactService
     private static final AgentLaneId LANE = new AgentLaneId("claude");
     private static final String WORKSPACE = "ws1";
     private static final String PAGE_HTML = "<!doctype html><link rel=\"stylesheet\" href=\"theme.css\"><h1>Deletes on read</h1>";
+    private static final String QUESTION_INPUT = "{\"questions\":[{\"question\":\"Which path?\",\"header\":\"Path\",\"multiSelect\":false,"
+            + "\"options\":[{\"label\":\"Read path\",\"description\":\"How a scan skips rows\"},{\"label\":\"Write path\",\"description\":\"How deletes are written\"}]}]}";
     private static final ProviderAgentEventSource CHILD =
             new ProviderAgentEventSource(Optional.empty(), Optional.of("parent"), Optional.empty(), Optional.empty(), Optional.empty());
 
@@ -273,6 +278,53 @@ class TestArtifactService
     }
 
     @Test
+    void asksWithATasksQuestionCardAndClosesAnOpenOneWithItsTurn()
+    {
+        CompletableFuture<ProviderApprovalDecision> answered = new CompletableFuture<>();
+        agent.add(turn -> {
+            assertThat(turn.context().asksUser()).isTrue();
+            // A read-only session grants nothing else, so any other request is refused at once.
+            assertThat(turn.context().approvals().request(approval("Bash", "{\"command\":\"rm -rf build\"}"), Duration.ofMinutes(1)).toCompletableFuture().join().decision())
+                    .isEqualTo(ProviderApprovalDecision.Decision.DENY);
+            return turn.context().approvals().request(approval("AskUserQuestion", QUESTION_INPUT), Duration.ofMinutes(1)).toCompletableFuture()
+                    .thenApply(decision -> {
+                        answered.complete(decision);
+                        return new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("Then the read path."), Optional.empty(), Duration.ofSeconds(1), true);
+                    });
+        });
+        String id = artifacts.start(WORKSPACE, "Teach me position deletes").artifact().id();
+        waitUntil(() -> !artifacts.view(WORKSPACE, id).questions().isEmpty());
+        String question = artifacts.view(WORKSPACE, id).questions().getFirst();
+
+        // The question is the approval a task records for it, so the window draws the same card.
+        AgentEventPayload.ApprovalRequested requested = (AgentEventPayload.ApprovalRequested) artifacts.events(WORKSPACE, id, 0).getLast().payload();
+        assertThat(requested.approvalId()).isEqualTo(question);
+        assertThat(requested.scope()).containsExactly("AskUserQuestion");
+        assertThat(requested.detail()).isEqualTo(QUESTION_INPUT);
+        assertThat(requested.actionable()).isTrue();
+
+        artifacts.answerQuestion(WORKSPACE, id, question, true, ImmutableMap.of("Which path?", "Read path"));
+        assertThat(answered.join()).extracting(ProviderApprovalDecision::decision, ProviderApprovalDecision::answers)
+                .containsExactly(ProviderApprovalDecision.Decision.ALLOW, ImmutableMap.of("Which path?", "Read path"));
+        waitUntilAnswered(id);
+        assertThat(transcript(id)).endsWith("approval_requested", "approval_resolved", "answer: Then the read path.", "turn_completed: Turn completed");
+        assertThat(artifacts.view(WORKSPACE, id).questions()).isEmpty();
+        assertThatThrownBy(() -> artifacts.answerQuestion(WORKSPACE, id, question, true, ImmutableMap.of())).isInstanceOf(IllegalArgumentException.class);
+
+        agent.add(turn -> turn.context().approvals().request(approval("AskUserQuestion", QUESTION_INPUT), Duration.ofMinutes(1)).toCompletableFuture()
+                .thenApply(decision -> new AgentTurnResult(AgentTurnResult.State.CANCELLED, Optional.empty(), Optional.of("Cancelled"), Duration.ofSeconds(1), true)));
+        artifacts.send(WORKSPACE, id, "And the write path?");
+        waitUntil(() -> !artifacts.view(WORKSPACE, id).questions().isEmpty());
+        artifacts.stop(WORKSPACE, id);
+        waitUntilAnswered(id);
+        // Stop ends the wait at once, and the open question is closed with its turn.
+        List<AgentEventEnvelope> events = artifacts.events(WORKSPACE, id, 0);
+        assertThat(events.get(events.size() - 2).payload()).isInstanceOfSatisfying(AgentEventPayload.ApprovalResolved.class,
+                resolved -> assertThat(resolved.outcome()).isEqualTo(AgentEventPayload.ApprovalOutcome.CANCELLED));
+        assertThat(transcript(id)).last().isEqualTo("interrupted: Stopped");
+    }
+
+    @Test
     void aLostConversationGoesOnFreshWithItsHistoryAndPages()
     {
         agent.add(turn -> {
@@ -372,6 +424,12 @@ class TestArtifactService
                     default -> event.type().name().toLowerCase(Locale.ROOT);
                 })
                 .collect(toImmutableList());
+    }
+
+    private static ProviderApprovalRequest approval(String tool, String input)
+    {
+        return new ProviderApprovalRequest(ProviderApprovalRequest.Kind.TOOL, "Allow Claude " + tool, input, ImmutableList.of(tool),
+                ImmutableList.of(ProviderApprovalRequest.Decision.ALLOW_ONCE, ProviderApprovalRequest.Decision.DENY), false, ProviderAgentEventSource.root(), Instant.now());
     }
 
     private String lastTurn(String id)

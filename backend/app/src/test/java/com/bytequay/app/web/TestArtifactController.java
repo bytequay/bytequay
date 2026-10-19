@@ -25,6 +25,7 @@ import com.bytequay.app.artifact.ArtifactView;
 import com.bytequay.core.domain.Artifact;
 import com.bytequay.core.domain.ArtifactOffer;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -47,7 +48,7 @@ class TestArtifactController
     private static final Artifact ARTIFACT = Artifact.started("a1", "workspace", "Teach me position deletes", NOW).working(true, NOW);
     private static final String ID = "8bafef5c-0000-4000-8000-000000000001";
     private static final ArtifactView VIEW = new ArtifactView(ARTIFACT,
-            ImmutableList.of(ArtifactOffer.offered("a1", "t1", "Deletes on read", "How a scan skips deleted rows.", NOW)), ImmutableList.of());
+            ImmutableList.of(ArtifactOffer.offered("a1", "t1", "Deletes on read", "How a scan skips deleted rows.", NOW)), ImmutableList.of(), ImmutableList.of("q1"));
 
     private final ArtifactService artifacts = mock(ArtifactService.class);
     private final MockMvc mvc = standaloneSetup(new ArtifactController(artifacts)).build();
@@ -68,6 +69,7 @@ class TestArtifactController
                 .andExpect(jsonPath("$.artifact.title").value("Teach me position deletes"))
                 .andExpect(jsonPath("$.offers[0].title").value("Deletes on read"))
                 .andExpect(jsonPath("$.offers[0].state").value("SHOWN"))
+                .andExpect(jsonPath("$.questions[0]").value("q1"))
                 .andExpect(jsonPath("$.pages").isEmpty());
     }
 
@@ -113,6 +115,14 @@ class TestArtifactController
         mvc.perform(post("/api/workspaces/workspace/artifacts/a1/offers/i3").contentType(MediaType.APPLICATION_JSON).content("{\"accept\":true}"))
                 .andExpect(status().isOk());
         verify(artifacts).answerOffer("workspace", "a1", "i3", true);
+        when(artifacts.view("workspace", "a1")).thenReturn(VIEW);
+        mvc.perform(post("/api/workspaces/workspace/artifacts/a1/questions/q1").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"allow\":true,\"answers\":{\"Which path?\":\"Read path\"}}"))
+                .andExpect(status().isOk());
+        verify(artifacts).answerQuestion("workspace", "a1", "q1", true, ImmutableMap.of("Which path?", "Read path"));
+        mvc.perform(post("/api/workspaces/workspace/artifacts/a1/questions/q1").contentType(MediaType.APPLICATION_JSON).content("{\"allow\":false}"))
+                .andExpect(status().isOk());
+        verify(artifacts).answerQuestion("workspace", "a1", "q1", false, ImmutableMap.of());
         mvc.perform(post("/api/workspaces/workspace/artifacts/a1/stop")).andExpect(status().isOk());
         verify(artifacts).stop("workspace", "a1");
     }

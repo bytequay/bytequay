@@ -23,6 +23,12 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * What a provider session runs with.
+ *
+ * @param asksUser whether the agent may ask the user a question with choices (Claude's {@code AskUserQuestion}); each question reaches the
+ * {@code approvals}, and the user's answers ride back on the allow
+ */
 public record AgentSessionContext(
         String taskId,
         Path worktree,
@@ -37,7 +43,8 @@ public record AgentSessionContext(
         Optional<CodeQueryBridge> codeQueries,
         String managedInstructions,
         Optional<DiscussionContextBridge> discussionContext,
-        List<ReviewTool> sessionTools)
+        List<ReviewTool> sessionTools,
+        boolean asksUser)
 {
     public AgentSessionContext(
             String taskId, Path worktree, Path runtimeDirectory, Path providerDirectory, AgentPermissionPolicy permissionPolicy,
@@ -55,6 +62,16 @@ public record AgentSessionContext(
     {
         this(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, sessionReference, approvals, model, effort,
                 access, codeQueries, managedInstructions, discussionContext, ImmutableList.of());
+    }
+
+    public AgentSessionContext(
+            String taskId, Path worktree, Path runtimeDirectory, Path providerDirectory, AgentPermissionPolicy permissionPolicy,
+            Optional<AgentSessionRef> sessionReference, AgentApprovalHandler approvals, Optional<String> model, Optional<String> effort,
+            SessionAccess access, Optional<CodeQueryBridge> codeQueries, String managedInstructions, Optional<DiscussionContextBridge> discussionContext,
+            List<ReviewTool> sessionTools)
+    {
+        this(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, sessionReference, approvals, model, effort,
+                access, codeQueries, managedInstructions, discussionContext, sessionTools, false);
     }
 
     public AgentSessionContext
@@ -76,6 +93,8 @@ public record AgentSessionContext(
         requireNonNull(discussionContext, "discussionContext is null");
         checkArgument(discussionContext.isEmpty() || access == SessionAccess.READ_ONLY, "Discussion context requires a read-only session");
         checkArgument(model.isPresent() || effort.isEmpty(), "effort requires a model");
+        // Its questions reach the user through the approvals, which a read-only session alone keeps for them.
+        checkArgument(!asksUser || access == SessionAccess.READ_ONLY, "Only a read-only session asks the user");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         checkArgument(runtimeDirectory.isAbsolute() && providerDirectory.isAbsolute(), "runtime directories are not absolute");
         checkArgument(providerDirectory.toAbsolutePath().normalize().startsWith(runtimeDirectory.toAbsolutePath().normalize()), "providerDirectory escapes runtimeDirectory");

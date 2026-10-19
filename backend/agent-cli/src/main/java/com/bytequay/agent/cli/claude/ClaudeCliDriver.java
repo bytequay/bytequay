@@ -429,7 +429,8 @@ public final class ClaudeCliDriver
             String sessionId,
             boolean resume,
             List<AgentAttachment> attachments,
-            boolean streamingInput)
+            boolean streamingInput,
+            boolean asksUser)
     {
         ImmutableList.Builder<String> argv = ImmutableList.builder();
         ImmutableList.Builder<String> allowedTools = ImmutableList.builder();
@@ -454,7 +455,7 @@ public final class ClaudeCliDriver
         else if (permissionScope.access() == SessionAccess.READ_ONLY || permissionScope.access() == SessionAccess.REVIEW_READ_ONLY) {
             // A read-only session reads the checkout and never edits it. Session persistence
             // stays on: a discussion resumes its own conversation for every later question.
-            argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read");
+            argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read" + (asksUser ? ",AskUserQuestion" : ""));
         }
         else if (permissionScope.review()) {
             // Keep new provider workflow/delegation tools out of review sessions. Agent starts only the read-only Explore
@@ -898,7 +899,8 @@ public final class ClaudeCliDriver
                             session.reference.providerValue(),
                             resume,
                             attachments,
-                            streamingInput),
+                            streamingInput,
+                            session.context.asksUser()),
                     session.context.worktree(),
                     command.maximumRuntime(),
                     OptionalInt.empty(),

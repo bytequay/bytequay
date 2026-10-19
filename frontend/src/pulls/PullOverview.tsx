@@ -1709,6 +1709,14 @@ function CheckStatusIcon({ check }: { check: PullRequestDetailDto['checkRuns'][n
 }
 
 export type MentionCandidate = { login: string; avatarUrl: string | null };
+
+// ponytail: one pending request at a time; asking to comment on another pull request first replaces it.
+let commentRequest: string | null = null;
+
+/** Has the next comment box drawn for this pull request take focus, as the Assistant's Comment opens it to write in. */
+export function requestPullComment(repo: string, number: number): void {
+  commentRequest = `${repo.toLowerCase()}#${number}`;
+}
 type ActiveMention = { start: number; query: string };
 export type QuoteRequest = { id: number; body: string };
 
@@ -1749,6 +1757,14 @@ export function DiscussionComposer({
   const visibleCandidates = mention
     ? candidates.filter(candidate => candidate.login.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 8)
     : [];
+  useEffect(() => {
+    if (pullRequestNumber === undefined || commentRequest !== `${repository.toLowerCase()}#${pullRequestNumber}`) return;
+    commentRequest = null;
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [repository, pullRequestNumber]);
   useEffect(() => {
     if (!quotedReply) return;
     setBody(current => appendQuotedReply(current, quotedReply.body));

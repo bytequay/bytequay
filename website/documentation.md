@@ -122,6 +122,9 @@ message uses your model allowance.
    as a list; switch between rows, cards and a timeline from the list's header,
    and click an item to open it. Ask it to take you to a page or an item, such
    as model settings, and it opens it; the receipt's **Open** goes there again.
+   In cards, a pull request has its own **Approve**, **Merge**, **Comment**
+   and, on your own pull requests, **Close**. They act at once, as the pull
+   request page's buttons do; **Comment** opens it at its comment box.
 5. Ask for a new GitHub issue as an Epic, and it drafts one for a watched
    repository. Edit the title and description, then click **Create issue** to
    create it on GitHub and mark it as an Epic. Nothing is created until you

@@ -11,13 +11,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState, type ReactNode } from 'react';
-import { CalendarClock, Check, CircleCheck, CircleDashed, CircleOff, CircleX, FileDiff, LayoutGrid, ListChecks, ListTodo, ListTree, Rows3, TriangleAlert } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import {
+  CalendarClock, Check, CircleCheck, CircleDashed, CircleOff, CircleX, FileDiff, GitMerge, GitPullRequestClosed, LayoutGrid, ListChecks, ListTodo, ListTree,
+  MessageSquare, Rows3, TriangleAlert,
+} from 'lucide-react';
 import { Card, CardActions, CardAge, Clickable, IconButton, Pill, SourceIcon } from '../cards/Card';
 import type { AttentionSource } from '../home/attention';
 import { clockTime } from '../home/today';
-import type { AgendaTargetDto, AssistantItemDto, AssistantListStyle, AssistantRowDto } from '../types';
+import { pullRequestIsMine } from '../pulls/model';
+import type { AgendaTargetDto, AssistantItemDto, AssistantListStyle, AssistantRowDto, PullRequestDto } from '../types';
 import { dayLabel, refLabel, rowState, timelineDays } from './model';
+import type { PullAction } from './pullActions';
 
 const STYLES: { style: AssistantListStyle; label: string; icon: ReactNode }[] = [
   { style: 'ROWS', label: 'Rows', icon: <Rows3 size={14} aria-hidden="true" /> },
@@ -36,6 +41,8 @@ const CHECKS: Record<string, { icon: ReactNode; tone: string; title: string }> =
 type Open = (target: AgendaTargetDto) => void;
 /** Completes a task by the user's click; settles once the call is done, failed or not. */
 type Complete = (target: AgendaTargetDto) => Promise<void>;
+/** Acts on a pull request by the user's click; settles the same way. */
+type Pull = (target: AgendaTargetDto, action: PullAction) => Promise<void>;
 
 /** The phases of a task that is still open; only an idle one can be completed. */
 const OPEN_PHASES = ['running', 'waiting', 'blocked', 'idle'];
@@ -44,11 +51,12 @@ const OPEN_PHASES = ['running', 'waiting', 'blocked', 'idle'];
  * A list the assistant showed: its title, a switch between rows, cards and a timeline, and each ref drawn from the app's own data,
  * which the assistant never writes. It picks the first style; the switch changes only how this list draws.
  */
-export default function AssistantList({ item, rows, onOpen, onComplete }: {
+export default function AssistantList({ item, rows, onOpen, onComplete, onPull }: {
   item: AssistantItemDto;
   rows: Record<string, AssistantRowDto>;
   onOpen: Open;
   onComplete: Complete;
+  onPull: Pull;
 }): React.JSX.Element | null {
   const [style, setStyle] = useState<AssistantListStyle>(item.list?.style ?? 'ROWS');
   if (item.list === null) return null;
@@ -65,7 +73,7 @@ export default function AssistantList({ item, rows, onOpen, onComplete }: {
         ))}
       </div>
       {style === 'CARDS' && (
-        <div className="assistant-items__cards">{refs.map(ref => <ItemCard key={ref} id={ref} row={rows[ref]} onOpen={onOpen} onComplete={onComplete} />)}</div>
+        <div className="assistant-items__cards">{refs.map(ref => <ItemCard key={ref} id={ref} row={rows[ref]} onOpen={onOpen} onComplete={onComplete} onPull={onPull} />)}</div>
       )}
       {style === 'TIMELINE' && timelineDays(refs, rows).map(day => (
         <div key={day.day ?? 'untimed'} className="assistant-items__day">
@@ -95,8 +103,11 @@ function Line({ id, row, timed, onOpen }: { id: string; row: AssistantRowDto | u
   );
 }
 
-/** One item as a card: where it stands in the strip, and what happened last in the body; a task's card also carries its own Complete task. */
-function ItemCard({ id, row, onOpen, onComplete }: { id: string; row: AssistantRowDto | undefined; onOpen: Open; onComplete: Complete }) {
+/**
+ * One item as a card: where it stands in the strip, and what happened last in the body. A task's card also carries its own Complete task,
+ * and a pull request's its own Approve, Merge, Comment and Close.
+ */
+function ItemCard({ id, row, onOpen, onComplete, onPull }: { id: string; row: AssistantRowDto | undefined; onOpen: Open; onComplete: Complete; onPull: Pull }) {
   if (row === undefined) return <Gone id={id} timed={false} />;
   const state = rowState(row);
   const source = SOURCES[row.kind];
@@ -118,6 +129,7 @@ function ItemCard({ id, row, onOpen, onComplete }: { id: string; row: AssistantR
               <span className="assistant-item-card__text" title={row.latest.text}>{row.latest.text}</span>
             </>}
           {row.kind === 'TASK' && row.state !== null && OPEN_PHASES.includes(row.state) && <CompleteTask row={row} onComplete={onComplete} />}
+          {row.kind === 'PULL' && <PullActions row={row} onPull={onPull} />}
           {(row.latest?.at ?? row.at) !== null && <CardAge at={row.latest?.at ?? row.at} />}
         </div>
       </div>
@@ -138,6 +150,45 @@ function CompleteTask({ row, onComplete }: { row: AssistantRowDto; onComplete: C
         }}>
         <CircleCheck size={14} aria-hidden="true" />
       </IconButton>
+    </CardActions>
+  );
+}
+
+/**
+ * Acting on a pull request stays the user's click, and each button does what the pull request page's own control does. Approve skips
+ * the user's own pull requests, which GitHub refuses, and Close shows on them only, as the page's Close does without write access.
+ */
+function PullActions({ row, onPull }: { row: AssistantRowDto; onPull: Pull }) {
+  const [stored, setStored] = useState<PullRequestDto | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { repo, number } = row.target;
+  useEffect(() => {
+    if (repo === null || number === null) return;
+    let live = true;
+    void window.bridge.findStoredPullRequest(repo, number).then(found => { if (live) setStored(found); }, () => {});
+    return () => { live = false; };
+  }, [repo, number]);
+  const open = row.state === 'open' || row.state === 'draft';
+  const mine = stored !== null && pullRequestIsMine(stored);
+  const act = (action: PullAction) => {
+    setBusy(true);
+    void onPull(row.target, action).finally(() => setBusy(false));
+  };
+  const name = row.key ?? row.title;
+  return (
+    <CardActions label={`Actions for ${row.title}`}>
+      {open && stored !== null && !mine && row.state !== 'draft' && (
+        <IconButton label={`Approve ${name}`} title="Approve" tone="ack" disabled={busy} onClick={() => act('approve')}><Check size={14} aria-hidden="true" /></IconButton>
+      )}
+      {row.state === 'open' && (
+        <IconButton label={`Merge ${name}`} title="Merge" disabled={busy} onClick={() => act('merge')}><GitMerge size={14} aria-hidden="true" /></IconButton>
+      )}
+      <IconButton label={`Comment on ${name}`} title="Comment" disabled={busy} onClick={() => act('comment')}><MessageSquare size={14} aria-hidden="true" /></IconButton>
+      {open && mine && (
+        <IconButton label={`Close ${name}`} title="Close pull request" tone="danger" disabled={busy} onClick={() => act('close')}>
+          <GitPullRequestClosed size={14} aria-hidden="true" />
+        </IconButton>
+      )}
     </CardActions>
   );
 }

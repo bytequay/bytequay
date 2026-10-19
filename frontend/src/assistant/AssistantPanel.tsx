@@ -17,6 +17,7 @@ import Composer from '../Composer';
 import { renderMarkdown } from '../agents/markdown';
 import { openTarget } from '../home/TodayList';
 import { reloadHandled } from '../home/attention';
+import { requestPullComment } from '../pulls/PullOverview';
 import { clockTime } from '../home/today';
 import type { AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../remoteError';
@@ -25,6 +26,7 @@ import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantR
 import AssistantList from './AssistantList';
 import DraftCard from './DraftCard';
 import { arrivedOpen, createdDrafts, entries, linkRefs, pageRoute, refFromHref, refLabel } from './model';
+import { approvePull, closePull, mergePull, type PullAction } from './pullActions';
 import { useAssistant } from './useAssistant';
 import WaitingStack from './WaitingStack';
 import '../css/assistant.css';
@@ -149,6 +151,18 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     setFailure(null);
     return window.bridge.completeAgentTask(target.id, target.workspaceId).then(refresh).catch((cause: unknown) => setFailure(remoteErrorMessage(cause)));
   };
+  // The user's own click on a pull request's card: Comment opens it at its comment box, and the others act as its page's controls do.
+  const actOnPull = (target: AgendaTargetDto, action: PullAction): Promise<void> => {
+    if (target.repo === null || target.number === null) return Promise.resolve();
+    if (action === 'comment') {
+      requestPullComment(target.repo, target.number);
+      show(target);
+      return Promise.resolve();
+    }
+    setFailure(null);
+    const act = action === 'approve' ? approvePull : action === 'merge' ? mergePull : closePull;
+    return act(target.repo, target.number).then(refresh).catch((cause: unknown) => setFailure(remoteErrorMessage(cause)));
+  };
   const noticeAction = (action: Promise<void>, message: string, then?: () => void) => {
     setFailure(null);
     void action.then(then).catch(() => setFailure(message));
@@ -159,7 +173,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
       {entries(items).map(entry => Array.isArray(entry)
         ? <div key={entry[0].id} className="assistant-receipts">{entry.map(item => <Receipt key={item.id} item={item} onOpen={openReceipt} />)}</div>
         : <Entry key={entry.id} item={entry} rows={view?.rows ?? {}} drafts={drafts} retryable={chatEnabled && !running && entry.id === lastExchange} onRetry={retry}
-          onSettings={openSettings} onOpen={show} onComplete={completeTask} onRefresh={refresh} />)}
+          onSettings={openSettings} onOpen={show} onComplete={completeTask} onPull={actOnPull} onRefresh={refresh} />)}
       {running && <p className="assistant-thinking" role="status">Thinking…</p>}
     </div>
   );
@@ -216,7 +230,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   );
 }
 
-function Entry({ item, rows, drafts, retryable, onRetry, onSettings, onOpen, onComplete, onRefresh }: {
+function Entry({ item, rows, drafts, retryable, onRetry, onSettings, onOpen, onComplete, onPull, onRefresh }: {
   item: AssistantItemDto;
   rows: Record<string, AssistantRowDto>;
   /** The work items of the drafts the user already created. */
@@ -226,6 +240,7 @@ function Entry({ item, rows, drafts, retryable, onRetry, onSettings, onOpen, onC
   onSettings: (section: SettingsSection) => void;
   onOpen: (target: AgendaTargetDto) => void;
   onComplete: (target: AgendaTargetDto) => Promise<void>;
+  onPull: (target: AgendaTargetDto, action: PullAction) => Promise<void>;
   onRefresh: () => void;
 }) {
   if (item.kind === 'USER') return <>
@@ -233,7 +248,7 @@ function Entry({ item, rows, drafts, retryable, onRetry, onSettings, onOpen, onC
     <div className="agt-user"><div className="agt-user__bubble">{item.text}</div></div>
   </>;
   if (item.kind === 'REPLY') return <div className="assistant-reply">{renderMarkdown(linkRefs(item.text, item.targets))}</div>;
-  if (item.kind === 'LIST') return <AssistantList item={item} rows={rows} onOpen={onOpen} onComplete={onComplete} />;
+  if (item.kind === 'LIST') return <AssistantList item={item} rows={rows} onOpen={onOpen} onComplete={onComplete} onPull={onPull} />;
   if (item.kind === 'DRAFT') return <DraftCard item={item} created={item.draft !== null && drafts.has(item.draft.workItemId)} onCreated={onRefresh} onOpen={onOpen} />;
   if (item.kind === 'RECEIPT') {
     // What was refused or failed: one muted line, pointing down at the card's buttons when they are the way to do it.

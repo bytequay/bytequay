@@ -16,6 +16,8 @@ import { createRoot } from 'react-dom/client';
 import '../../index.css';
 import { changeInput } from '../../fixtures/harness';
 import type { WorkItemDto } from '../../goals/contracts';
+import type { ReviewDraftDto } from '../../pulls/agent-review/contracts';
+import { pr, prDetail } from '../../pulls/fixtures/pullRequest';
 import AssistantPanel from '../AssistantPanel';
 import type { RunningTask } from '../../agents/runningTaskModel';
 import type { AppNotice } from '../../notices/contracts';
@@ -136,6 +138,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     completeAgentTask: async (...args: unknown[]) => { calls.completed.push(args); today = completed(); return {}; },
     openAppNotice: async (id: string) => { calls.opened.push(id); },
     removeAppNotice: async (id: string) => { calls.removed.push(id); },
+    findStoredPullRequest: async (): Promise<null> => null,
     ...scripted,
   } as unknown as Bridge;
   const host = document.createElement('div');
@@ -622,6 +625,72 @@ async function readsTheMarksTheAssistantMade(): Promise<void> {
   finally { view.dispose(); }
 }
 
+async function actsOnAPullRequestFromItsCard(): Promise<void> {
+  const steps: unknown[][] = [];
+  let ready = false;
+  let unsettled = true;
+  const draft: ReviewDraftDto = { repo: 'trinodb/trino', number: 31377, body: '', event: 'COMMENT', reviewPublication: null, items: [], postedSummaryFindingIds: [],
+    version: 3, updatedAt: '2026-10-16T07:00:00Z' };
+  const view = mount(listView('CARDS'), 0, [], [], undefined, undefined, {
+    // The second pull request is the user's own.
+    findStoredPullRequest: async (repo: string, number: number) => pr({ id: number, repo, number, origin: number === 31402 ? 'AUTHORED' : 'REVIEW_REQUESTED' }),
+    getReviewDraft: async () => unsettled
+      ? { ...draft, reviewPublication: { state: 'UNCERTAIN', remoteReviewId: null, remoteCommentId: null, url: null, at: '2026-10-16T06:00:00Z' } } : draft,
+    saveReviewDraft: async (...args: unknown[]) => { steps.push(['save', ...args]); return { ...draft, version: 4, event: 'APPROVE' }; },
+    submitReviewDraft: async (...args: unknown[]) => { steps.push(['submit', ...args]); },
+    refreshPullRequestDetailByRef: async () => { steps.push(['refresh']); return { full: true, detail: prDetail({}), status: null }; },
+    fetchPullRequestDetailByRef: async (repo: string, number: number) => prDetail({ repo, number, viewerCanWrite: ready, headSha: 'abc123' }),
+    fetchMergeMode: async () => ({ mergeQueue: false }),
+    mergePr: async (...args: unknown[]) => { steps.push(['merge', ...args]); },
+    closePr: async (...args: unknown[]) => { steps.push(['close', ...args]); },
+  });
+  try {
+    await settle();
+    enter(type(view.host, 'show my pull requests as cards'));
+    await settle();
+    const card = (key: string) => [...view.host.querySelectorAll<HTMLElement>('.assistant-item-card')].find(each => each.querySelector('.card-key')?.textContent === key);
+    const buttons = (key: string) => [...(card(key)?.querySelectorAll<HTMLButtonElement>('.card-actions button') ?? [])].map(button => button.getAttribute('aria-label'));
+    assert(JSON.stringify(buttons('#31377')) === '["Approve #31377","Merge #31377","Comment on #31377"]', `Someone else's pull request: ${JSON.stringify(buttons('#31377'))}`);
+    assert(JSON.stringify(buttons('#31402')) === '["Merge #31402","Comment on #31402","Close #31402"]', `The user's own: ${JSON.stringify(buttons('#31402'))}`);
+    const press = (label: string) => view.host.querySelector<HTMLButtonElement>(`.card-actions button[aria-label="${label}"]`)?.click();
+
+    press('Approve #31377');
+    await settle();
+    assert(view.host.querySelector('.assistant-error')?.textContent === 'A review you sent has no answer yet. Open the pull request to settle it first.'
+      && steps.length === 0, 'A review whose outcome is unknown is settled on its page before another goes out');
+    unsettled = false;
+    press('Approve #31377');
+    await settle();
+    assert(JSON.stringify(steps) === '[["save","trinodb/trino",31377,3,"","APPROVE"],["submit","trinodb/trino",31377,4,"","APPROVE","abc123"]]',
+      `Approve goes through the review draft, as the review sheet does: ${JSON.stringify(steps)}`);
+    assert(view.calls.closed === 0, 'A card’s button never opens the card it sits on');
+
+    steps.length = 0;
+    press('Merge #31377');
+    await settle();
+    assert(view.host.querySelector('.assistant-error')?.textContent === 'Not ready to merge. Open the pull request to see why.'
+      && JSON.stringify(steps) === '[["refresh"]]', `The merge sheet's own check refuses, after reading GitHub again: ${JSON.stringify(steps)}`);
+    ready = true;
+    press('Merge #31377');
+    await settle();
+    assert(JSON.stringify(steps.at(-1)) === '["merge",31377,"trinodb/trino",31377,"rebase","abc123"]' && view.host.querySelector('.assistant-error') === null,
+      `Once ready, it merges only the head commit the check saw: ${JSON.stringify(steps.at(-1))}`);
+
+    press('Close #31402');
+    await settle();
+    assert(JSON.stringify(steps.at(-1)) === '["close","trinodb/trino",31402]', `Close closes the user's own pull request: ${JSON.stringify(steps.at(-1))}`);
+
+    const opened: unknown[] = [];
+    const listener = (event: Event) => { opened.push((event as CustomEvent).detail); };
+    window.addEventListener('bytequay:zoom-reference', listener);
+    try { press('Comment on #31377'); }
+    finally { window.removeEventListener('bytequay:zoom-reference', listener); }
+    assert(JSON.stringify(opened) === '[{"kind":"pull","repo":"trinodb/trino","number":31377,"workspaceId":"ws1"}]' && view.calls.closed === 1,
+      `Comment opens the pull request over the page: ${JSON.stringify(opened)}`);
+  }
+  finally { view.dispose(); }
+}
+
 async function stopsARunningReply(): Promise<void> {
   const view = mount({ ...VIEW, running: true });
   try {
@@ -643,7 +712,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['moves with the keyboard', movesWithTheKeyboard], ['opens at a card from its alert', opensAtACardFromItsAlert],
     ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline],
     ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard],
-    ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade]] as const) {
+    ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade],
+    ['acts on a pull request from its card', actsOnAPullRequestFromItsCard]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }

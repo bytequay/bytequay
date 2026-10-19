@@ -17,7 +17,7 @@ import { createRoot } from 'react-dom/client';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
 import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullTimelinePayloadDto } from '../../types';
 import { SUMMARY_REQUEST, type TaskDiscussionDto } from '../../agents/discussions/contracts';
-import PullOverview from '../PullOverview';
+import PullOverview, { requestPullComment } from '../PullOverview';
 import PullRequestTaskActions from '../PullRequestTaskActions';
 import PullsScreen, { MergeDialog, remotePullRequest, ReviewDialog } from '../PullsScreen';
 import ReviewTaskScreen from '../../agents/ReviewTaskScreen';
@@ -1529,6 +1529,8 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history
   document.body.append(host);
   const root = createRoot(host);
   try {
+    // The Assistant's Comment opens a pull request this way, to write in its comment box.
+    if (!taskPanel) requestPullComment('Owner/Repo', 8);
     flushSync(() => root.render(taskPanel
       ? <TaskPullRequestView pr={remotePullRequest(detail, 'alice')} workspaceId="workspace-1" detail={detail}
         loading={false} error={null} onRefresh={async () => {}} onDetailUpdate={() => {}} onDetailChange={() => {}}
@@ -1539,6 +1541,7 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history
         repositoryScope={{ workspaceId: 'workspace-1', repository: 'owner/repo' }} onClose={() => {}} />));
     for (let attempt = 0; attempt < 30 && !(host.querySelector('.pr-meta > .pr-private-toggle')
       && host.textContent?.includes('Should this cache be keyed by id?') && host.querySelectorAll('.pr-ask-agent').length === 1); attempt++) await settle();
+    assert(taskPanel || document.activeElement === host.querySelector('.pr-composer textarea'), 'A pull request opened to comment on has its comment box focused');
     assert(host.querySelector('.pr-meta > .pr-private-toggle') !== null && host.textContent?.includes('Should this cache be keyed by id?') === true,
       `A pull request with a ${answeredBy} to answer must show the private threads toggle beside its labels`);
     const asks = [...host.querySelectorAll<HTMLButtonElement>('.pr-ask-agent')];

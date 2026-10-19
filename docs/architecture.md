@@ -288,11 +288,14 @@ of stored items finds, `assistant_act`, and `assistant_show`, which changes no
 data. A list it shows holds only references the user could see, on screen or
 handed out that day, and the panel draws each row from the app's own stores, so
 titles stay data. It opens a page or such an item only on the user's own words,
-checked as for an action, and leaves a receipt. A new GitHub issue as an Epic is
-only a draft there: the user edits it, and their click creates the work item,
-marks it as a local Epic and pushes it with the work item's own publish path,
-which refuses a second push while one's outcome is unknown. It is the one agent
-that names other tasks, and only through
+checked as for an action, and leaves a receipt. A pull request's card carries
+Approve, Merge, Comment and Close, which are the user's clicks through the pull
+request page's own paths: the review draft, the merge sheet's check on the pull
+request read again with its head commit, and close. A new GitHub issue as an
+Epic is only a draft there: the user edits it, and their click creates the work
+item, marks it as a local Epic and pushes it with the work item's own publish
+path, which refuses a second push while one's outcome is unknown. It is the one
+agent that names other tasks, and only through
 `assistant_act`: in a run the user's own message started, on cards visible when
 that message was sent or on references handed out that day. A task it starts or
 replies to receives only the user's own words, beside the first message the app

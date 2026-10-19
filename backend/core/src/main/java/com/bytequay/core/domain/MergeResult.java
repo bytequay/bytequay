@@ -14,15 +14,9 @@
 package com.bytequay.core.domain;
 
 /**
- * Outcome of an attempted pull request merge. Two shapes share the
- * type: an immediate merge (REST {@code PUT .../merge} returned 200,
- * {@code sha} populated, {@code queued=false}) and an enqueue when
- * the target branch has merge queue enabled ({@code sha=null},
- * {@code merged=false}, {@code queued=true}, {@code message} carries
- * the queue-entry hint).
- *
- * <p>The 3-arg constructor represents an immediate merge and defaults
- * the queue flag to {@code false}.
+ * Outcome of an attempted pull request merge. A scheduled merge can have
+ * both {@code merged=false} and {@code queued=false} while GitHub waits for
+ * requirements before adding the pull request to its merge queue.
  */
 public record MergeResult(String sha, boolean merged, String message, boolean queued)
 {
@@ -31,9 +25,7 @@ public record MergeResult(String sha, boolean merged, String message, boolean qu
         this(sha, merged, message, false);
     }
 
-    /** Build the success record returned after an {@code enqueuePullRequest}
-     *  GraphQL mutation. The PR isn't merged yet — it joined the queue
-     *  and will merge whenever its slot reaches the head. */
+    /** The pull request joined GitHub's queue but has not merged yet. */
     public static MergeResult enqueued(String message)
     {
         return new MergeResult(null, false, message, true);

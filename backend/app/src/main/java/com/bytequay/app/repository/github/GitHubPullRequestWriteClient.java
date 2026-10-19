@@ -452,25 +452,38 @@ public class GitHubPullRequestWriteClient
         return response.data().repository().pullRequest();
     }
 
-    public MergeResult enqueuePullRequest(String pat, String pullRequestNodeId, String headSha)
+    public MergeResult mergeWhenReady(String pat, PullRequestRef pr, String headSha)
     {
-        String mutation = "mutation($id: ID!, $head: GitObjectID!) { enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) {"
-                + " mergeQueueEntry { position state } } }";
+        String query = "query($owner: String!, $name: String!, $number: Int!) {"
+                + " repository(owner: $owner, name: $name) { pullRequest(number: $number) { id isMergeQueueEnabled } } }";
+        String mutation = "mutation($id: ID!, $head: GitObjectID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, expectedHeadOid: $head }) {"
+                + " pullRequest { mergeQueueEntry { position state } autoMergeRequest { enabledAt } } } }";
         return translating(() -> {
-            EnqueueResponse response = graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("id", pullRequestNodeId, "head", headSha))
-                    .body(EnqueueResponse.class);
+            ProbePullRequest pullRequest = requirePullRequest(graphql(graphQlRestClient, pat, query,
+                    ImmutableMap.of("owner", pr.owner(), "name", pr.repo(), "number", pr.number())).body(ProbeResponse.class), "mergeWhenReady");
+            if (pullRequest.id() == null || pullRequest.isMergeQueueEnabled() == null) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub merge queue lookup returned incomplete GraphQL data");
+            }
+            if (!pullRequest.isMergeQueueEnabled()) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409), "The target branch no longer has a merge queue. Refresh the pull request before merging.");
+            }
+            // This mutation queues ready PRs and waits for GitHub's requirements on the others.
+            AutoMergeResponse response = graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("id", pullRequest.id(), "head", headSha))
+                    .body(AutoMergeResponse.class);
             if (response != null && response.errors() != null && !response.errors().isEmpty()) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(422), "GitHub enqueuePullRequest failed: " + response.errors().getFirst().message());
+                throw new ResponseStatusException(HttpStatusCode.valueOf(422), "GitHub enablePullRequestAutoMerge failed: " + response.errors().getFirst().message());
             }
-            QueueEntry entry = response == null
+            AutoMergePullRequest result = response == null
                     || response.data() == null
-                    || response.data().enqueuePullRequest() == null
+                    || response.data().enablePullRequestAutoMerge() == null
                     ? null
-                    : response.data().enqueuePullRequest().mergeQueueEntry();
-            if (entry == null) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub enqueuePullRequest returned no queue entry");
+                    : response.data().enablePullRequestAutoMerge().pullRequest();
+            if (result == null || result.mergeQueueEntry() == null && result.autoMergeRequest() == null) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub enablePullRequestAutoMerge returned no queue entry or auto-merge request");
             }
-            return MergeResult.enqueued(queueMessage(entry));
+            return result.mergeQueueEntry() == null
+                    ? new MergeResult(null, false, "Will join the merge queue when all requirements pass")
+                    : MergeResult.enqueued(queueMessage(result.mergeQueueEntry()));
         });
     }
 
@@ -521,15 +534,19 @@ public class GitHubPullRequestWriteClient
 
     record ProbeRepository(ProbePullRequest pullRequest) {}
 
-    record ProbePullRequest(String id) {}
+    record ProbePullRequest(String id, Boolean isMergeQueueEnabled) {}
 
     record GraphQlError(String type, String message) {}
 
-    record EnqueueResponse(EnqueueData data, List<GraphQlError> errors) {}
+    record AutoMergeResponse(AutoMergeData data, List<GraphQlError> errors) {}
 
-    record EnqueueData(EnqueuePayload enqueuePullRequest) {}
+    record AutoMergeData(AutoMergePayload enablePullRequestAutoMerge) {}
 
-    record EnqueuePayload(QueueEntry mergeQueueEntry) {}
+    record AutoMergePayload(AutoMergePullRequest pullRequest) {}
+
+    record AutoMergePullRequest(QueueEntry mergeQueueEntry, AutoMergeRequest autoMergeRequest) {}
+
+    record AutoMergeRequest(String enabledAt) {}
 
     record QueueEntry(Integer position, String state) {}
 

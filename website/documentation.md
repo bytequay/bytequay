@@ -153,6 +153,10 @@ in the tasks it starts. Enable the optional daily agenda in **Settings → Gener
 4. Inspect the header’s merge/check-status control when ready to merge. Use
    **Monitor PR** to follow updates.
 
+For branches with a merge queue, **Merge when ready** is available while CI
+runs. GitHub adds the PR to the queue once its requirements pass. Without a
+merge queue, **Rebase and merge** stays disabled while checks run.
+
 When GitHub removes a PR from the merge queue, its activity entry and merge
 dialog show the removal reason and links to failed checks when available.
 These checks belong to the merge-queue commit, so they can fail while the PR’s

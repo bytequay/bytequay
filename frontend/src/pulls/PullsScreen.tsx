@@ -2110,7 +2110,8 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
   const queued = isQueued(detail.recentActivity);
   const lastRemoval = detail.recentActivity.filter(activity => activity.eventType === 'removed_from_merge_queue').at(-1);
   const canRemoveFromQueue = queued && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite;
-  const canMerge = !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite && state === 'ready'
+  const canMerge = !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite
+    && (state === 'ready' || (mergeQueue === true && state === 'pending' && unresolved === 0))
     && typeof mergeQueue === 'boolean' && !!detail.headSha && !conflicts && !queued;
 
   useEffect(() => {

@@ -1448,14 +1448,14 @@ public class PullRequestService
             checkText(comment.commitId(), "review comment commit");
         }
     }
-    /** Merges directly, falling back to GitHub's merge queue when required. */
+    /** Merges directly, falling back to GitHub's merge-when-ready action when a queue is required. */
     public MergeResult mergePullRequest(String repo, int number, long prId, String strategy, String headSha)
     {
         checkText(headSha, "pull request head commit");
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
         if ("queue".equalsIgnoreCase(strategy)) {
-            return enqueuePullRequest(pat, ref, repo, number, headSha);
+            return mergeWhenReady(pat, ref, repo, number, headSha);
         }
         MergePullRequestCommand command = strategyCommand(strategy, headSha);
         MergeResult result;
@@ -1464,7 +1464,7 @@ public class PullRequestService
         }
         catch (ResponseStatusException e) {
             if (requiresMergeQueue(e)) {
-                return enqueuePullRequest(pat, ref, repo, number, headSha);
+                return mergeWhenReady(pat, ref, repo, number, headSha);
             }
             throw e;
         }
@@ -1492,12 +1492,10 @@ public class PullRequestService
         }
     }
 
-    private MergeResult enqueuePullRequest(String pat, PullRequestRef ref, String repo, int number, String headSha)
+    private MergeResult mergeWhenReady(String pat, PullRequestRef ref, String repo, int number, String headSha)
     {
-        String nodeId = pullRequestWrites.pullRequestNodeId(pat, ref)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
-        MergeResult result = pullRequestWrites.enqueuePullRequest(pat, nodeId, headSha);
-        // Queueing does not change the diff; retain it while the timeline refreshes.
+        MergeResult result = pullRequestWrites.mergeWhenReady(pat, ref, headSha);
+        // Scheduling a merge does not change the diff; retain it while the timeline refreshes.
         invalidatePullRequestDetail(repo, number);
         return result;
     }

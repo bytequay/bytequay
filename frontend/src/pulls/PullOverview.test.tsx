@@ -140,6 +140,45 @@ describe('PullOverview', () => {
     expect(popup).toMatch(/<button type="button">.*Remove from merge queue<\/button>/);
   });
 
+  it.each([true, false, undefined, null])('allows waiting for running checks only with a merge queue (%s)', mergeQueue => {
+    const value: PullRequestDetailDto = { ...detail(), viewerCanWrite: true, ciStatus: 'PENDING',
+      checkRuns: [{ ...detail().checkRuns[0], status: 'in_progress', conclusion: null, category: 'pending' }],
+    };
+    const props = { pr: pullRequest(), detail: value, mergeQueue, onClose: () => {}, onRefresh: async () => {} };
+    const popup = renderToStaticMarkup(<MergeDialog {...props} />);
+    const actions = popup.match(/<button class="is-primary"[^>]*>/g) ?? [];
+    expect(popup).toContain('Waiting for checks');
+    expect(popup).toContain(`${mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}</button>`);
+    expect(actions[1].includes('disabled=""')).toBe(mergeQueue !== true);
+
+    const mergePr = vi.fn(async () => {});
+    vi.stubGlobal('window', { bridge: { mergePr } });
+    try {
+      captureMergeSubmit(props)();
+      if (mergeQueue === true) expect(mergePr).toHaveBeenCalledWith(1, 'owner/repo', 42, 'queue', value.headSha);
+      else expect(mergePr).not.toHaveBeenCalled();
+    }
+    finally { vi.unstubAllGlobals(); }
+  });
+
+  it('keeps unresolved reviews blocked while queue checks run', () => {
+    const value: PullRequestDetailDto = { ...detail(), viewerCanWrite: true, ciStatus: 'PENDING',
+      checkRuns: [{ ...detail().checkRuns[0], status: 'in_progress', conclusion: null, category: 'pending' }],
+      recentActivity: [{ actor: 'bob', eventType: 'review_thread', timestamp: null, body: null, githubId: 20, payload: emptyPayload }],
+    };
+    const props = { pr: pullRequest(), detail: value, mergeQueue: true, onClose: () => {}, onRefresh: async () => {} };
+    const popup = renderToStaticMarkup(<MergeDialog {...props} />);
+    expect(popup).toContain('1 unresolved review comment');
+    expect(popup.match(/<button class="is-primary"[^>]*>/g)?.[1]).toContain('disabled=""');
+    const mergePr = vi.fn();
+    vi.stubGlobal('window', { bridge: { mergePr } });
+    try {
+      captureMergeSubmit(props)();
+      expect(mergePr).not.toHaveBeenCalled();
+    }
+    finally { vi.unstubAllGlobals(); }
+  });
+
   it.each([true, false, undefined, null])('shows target branch conflicts regardless of merge mode (%s)', mergeQueue => {
     const value: PullRequestDetailDto = {
       ...detail(), viewerCanWrite: true, mergeable: false, mergeableState: 'dirty', ciStatus: 'PASSING',
@@ -739,12 +778,12 @@ describe('PullOverview', () => {
     }
   });
 
-  it('blocks merging without a progress ring after checks fail', () => {
+  it.each([true, false])('blocks merging without a progress ring after checks fail (queue: %s)', mergeQueue => {
     const value = { ...detail(), viewerCanWrite: true };
     const html = renderToStaticMarkup(<MergeDialog
       pr={pullRequest()}
       detail={value}
-      mergeQueue={false}
+      mergeQueue={mergeQueue}
       onClose={() => {}}
       onRefresh={async () => {}} />);
 
@@ -752,7 +791,7 @@ describe('PullOverview', () => {
     expect(html).toContain('Merge blocked');
     expect(html).toContain('Some checks were not successful');
     expect(html).not.toContain('class="pr-merge-ready-icon"');
-    expect(html).toContain('<button class="is-primary" type="button" disabled="">');
+    expect(html.match(/<button class="is-primary"[^>]*>/g)?.[1]).toContain('disabled=""');
   });
 
   it('renders the open header, chronological variants, resolved thread and grouped checks', () => {

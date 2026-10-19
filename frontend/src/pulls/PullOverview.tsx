@@ -1730,7 +1730,7 @@ export function DiscussionComposer({
   const [preview, setPreview] = useState(false);
   const [posting, setPosting] = useState(false);
   const [closing, setClosing] = useState(false);
-  const [betterWordsError, setBetterWordsError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [draftRevision, setDraftRevision] = useState(0);
   const [mention, setMention] = useState<ActiveMention | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -1744,7 +1744,7 @@ export function DiscussionComposer({
     setBody(current => appendQuotedReply(current, quotedReply.body));
     setPreview(false);
     setMention(null);
-    setBetterWordsError(null);
+    setError(null);
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
       textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1769,10 +1769,10 @@ export function DiscussionComposer({
     if (!body.trim() || command.loading) return;
     command.dismiss();
     setPosting(true);
+    setError(null);
     try {
       await onSubmit(body.trim());
       setBody('');
-      setBetterWordsError(null);
       setDraftRevision(revision => revision + 1);
     }
     finally { setPosting(false); }
@@ -1780,11 +1780,13 @@ export function DiscussionComposer({
   const close = async () => {
     if (!onClose) return;
     setClosing(true);
+    setError(null);
     // A draft goes out first, as GitHub's "Close with comment" does; a failed post leaves it open.
     try {
       await submit();
       await onClose();
     }
+    catch (failure) { setError(remoteErrorMessage(failure)); }
     finally { setClosing(false); }
   };
   return (
@@ -1806,7 +1808,7 @@ export function DiscussionComposer({
             onBlur={() => { setMention(null); command.dismiss(); }}
             onChange={event => {
               command.change(event);
-              setBetterWordsError(null);
+              setError(null);
               setMention(activeMention(event.target.value, event.target.selectionStart));
               setMentionIndex(0);
             }}
@@ -1846,15 +1848,16 @@ export function DiscussionComposer({
             </div>
           )}
         </div>
-      {betterWordsError && <span className="pr-composer__error" role="alert">{betterWordsError}</span>}
+      {error && <span className="pr-composer__error" role="alert">{error}</span>}
       <footer>
         {betterWords && <BetterWordsButton key={draftRevision} text={body} textareaRef={textareaRef}
           repository={repository} workspaceId={workspaceId}
           disabled={preview || posting || closing || command.loading}
-          onError={failure => setBetterWordsError(failure === null ? null : remoteErrorMessage(failure))} />}
+          onError={failure => setError(failure === null ? null : remoteErrorMessage(failure))} />}
         {onClose && <button className="pr-composer__close" type="button" disabled={posting || closing || command.loading}
           onClick={() => { void close(); }}>{closing ? 'Closing…' : body.trim() ? 'Close with comment' : closeLabel}</button>}
-        <button type="button" disabled={posting || closing || command.loading || !body.trim()} onClick={() => { void submit(); }}>
+        <button type="button" disabled={posting || closing || command.loading || !body.trim()}
+          onClick={() => { void submit().catch(failure => setError(remoteErrorMessage(failure))); }}>
           {posting ? 'Posting…' : 'Comment'}
         </button>
       </footer>

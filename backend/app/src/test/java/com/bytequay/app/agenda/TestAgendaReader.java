@@ -127,6 +127,22 @@ class TestAgendaReader
     }
 
     @Test
+    void readsWhosePullRequestItIsByTheLoginAndWhetherItsMergeIsBlocked()
+    {
+        // GitHub's search finds a pull request Copilot opened for the user among theirs; the login says whose it is, as the pull request list does.
+        PullRequest copilot = pullRequest(31500, "copilot-swe-agent", PullRequest.Origin.AUTHORED, ImmutableList.of(), "APPROVED", 5, 5);
+        PullRequest blocked = pullRequest(31402, "me", PullRequest.Origin.AUTHORED, ImmutableList.of(), "APPROVED", 30, 4, "blocked");
+        when(credentials.cachedLogin()).thenReturn(Optional.of("me"));
+        when(pullRequests.listAttentionCandidates()).thenReturn(ImmutableList.of(copilot, blocked));
+
+        AgendaSnapshot snapshot = reader().read(LocalDate.parse("2026-10-16"), SINCE, false, ImmutableList.of(), AgendaCalendar.of("off"));
+
+        assertThat(snapshot.mine()).extracting(AgendaSnapshot.Mine::ref).containsExactly("pr:trinodb/trino#31402");
+        // Approved is not ready to merge while GitHub blocks the merge.
+        assertThat(snapshot.mine().getFirst().mergeBlocked()).isTrue();
+    }
+
+    @Test
     void readsCirclesWithoutAskingGitHubWhoTheUserIs()
     {
         // The assistant reads this inside a turn; on a cold cache, naming the account would be a request to GitHub.
@@ -180,9 +196,15 @@ class TestAgendaReader
 
     private static PullRequest pullRequest(int number, String author, PullRequest.Origin origin, List<String> requested, String decision, int additions, int deletions)
     {
+        return pullRequest(number, author, origin, requested, decision, additions, deletions, "clean");
+    }
+
+    private static PullRequest pullRequest(int number, String author, PullRequest.Origin origin, List<String> requested, String decision, int additions, int deletions,
+            String mergeableState)
+    {
         return new PullRequest(number, "trinodb/trino", number, "PR " + number, author, "https://github.com/trinodb/trino/pull/" + number, NOW.minusSeconds(864000),
                 NOW.minusSeconds(3400), origin, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, requested, PullRequestDetail.CiStatus.PASSING,
-                additions, deletions, 3, "open", null, null, true, "clean", NOW.minusSeconds(3400), "branch", null, NOW.minusSeconds(3400),
+                additions, deletions, 3, "open", null, null, true, mergeableState, NOW.minusSeconds(3400), "branch", null, NOW.minusSeconds(3400),
                 requested.isEmpty() ? null : NOW.minusSeconds(259200), decision);
     }
 

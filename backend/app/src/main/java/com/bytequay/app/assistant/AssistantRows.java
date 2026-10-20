@@ -202,13 +202,10 @@ class AssistantRows
                 .collect(toImmutableList())).orElse(ImmutableList.of());
         Optional<Integer> approvals = detail.map(stored -> approving.size());
         boolean youApproved = viewer.filter(login -> approving.stream().anyMatch(review -> login.equalsIgnoreCase(review.login()))).isPresent();
-        boolean mergeBlocked = detail.filter(stored -> "blocked".equalsIgnoreCase(stored.raw().mergeableState())).isPresent();
-        // As the pull request list decides it: by the signed-in login, or by how the pull request was found until that login is known.
-        boolean mine = viewer.map(login -> login.equalsIgnoreCase(pr.author())).orElse(pr.origin() == PullRequest.Origin.AUTHORED);
         Optional<Latest> latest = Optional.ofNullable(details.findLatestActivities(ImmutableSet.of(pr.id())).get(pr.id())).map(activity -> latest(activity, viewer));
         return new AssistantRow(AgendaRefs.pull(pr.repo(), pr.number()), Kind.PULL, pr.title(), Optional.of("#" + pr.number()), Optional.of(state(pr)),
                 Optional.ofNullable(pr.ciStatus()).filter(ci -> ci != PullRequestDetail.CiStatus.NONE).map(ci -> lower(ci.name())),
-                Optional.ofNullable(pr.reviewDecision()).map(AssistantRows::lower), approvals, mine, mergeBlocked, youApproved, Optional.empty(), Optional.empty(),
+                Optional.ofNullable(pr.reviewDecision()).map(AssistantRows::lower), approvals, pr.mine(viewer), pr.mergeBlocked(), youApproved, Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), at(pr), latest, AgendaTarget.pull(pr.repo(), pr.number(), workspace(shared.watched.get(), pr.repo()).map(Workspace::id)));
     }
 

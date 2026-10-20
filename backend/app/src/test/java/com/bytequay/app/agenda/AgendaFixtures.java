@@ -63,7 +63,7 @@ public final class AgendaFixtures
         refs.put("pr:unserved/repo#1", pull(1));
         List<AgendaSnapshot.Mine> mine = ImmutableList.of(new AgendaSnapshot.Mine("pr:trinodb/trino-gateway#612", "Route by client tags", false,
                 new AgendaSnapshot.Review(Optional.of("approved"), ImmutableList.of("finn-ep"), ImmutableList.of()), Optional.of("passing"), ImmutableList.of(),
-                Optional.of(true), Optional.of(NOW.minusSeconds(172800)), Optional.empty()));
+                Optional.of(true), false, Optional.of(NOW.minusSeconds(172800)), Optional.empty()));
         List<AgendaSnapshot.Task> tasks = ImmutableList.of(new AgendaSnapshot.Task("task:t1", "development", "Retry Iceberg commit on conflict", "waiting_on_you",
                 Optional.of("question"), Optional.of("Exponential backoff or a fixed delay?"), Optional.empty(), Optional.of(NOW.minusSeconds(3600)),
                 Optional.of("pr:trinodb/trino#31402"), Optional.of("work:w19"), Optional.of(new AgendaSnapshot.Findings(3, 2, Optional.of("high")))));

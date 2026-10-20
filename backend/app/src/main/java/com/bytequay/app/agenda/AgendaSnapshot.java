@@ -100,9 +100,13 @@ public record AgendaSnapshot(
     /** The newest comment by a person, cut short. */
     record Last(String by, String text) {}
 
+    /**
+     * @param mergeable whether GitHub can merge it without a conflict
+     * @param mergeBlocked whether GitHub blocks merging it for now, such as for a missing approval or a failing required check
+     */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record Mine(String ref, String title, boolean draft, Review review, Optional<String> ci, List<String> failingChecks, Optional<Boolean> mergeable,
-            Optional<Instant> quietSince, Optional<String> task) {}
+            boolean mergeBlocked, Optional<Instant> quietSince, Optional<String> task) {}
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record Review(Optional<String> decision, List<String> by, List<String> pending) {}

@@ -41,7 +41,7 @@ class TestAgendaPages
         // A calendar that was not read says only so.
         assertThat(keys(overview.path("calendar"))).isEqualTo(ImmutableSet.of("state"));
         assertThat(keys(entry(tool, "changes"))).isEqualTo(ImmutableSet.of("ref", "title", "facts", "at"));
-        assertThat(keys(entry(tool, "mine"))).isEqualTo(ImmutableSet.of("ref", "title", "draft", "review", "ci", "mergeable", "quietSince"));
+        assertThat(keys(entry(tool, "mine"))).isEqualTo(ImmutableSet.of("ref", "title", "draft", "review", "ci", "mergeable", "mergeBlocked", "quietSince"));
         assertThat(keys(entry(tool, "tasks"))).isEqualTo(ImmutableSet.of("ref", "kind", "title", "state", "waitingFor", "question", "idleSince", "pr", "work", "findings"));
         assertThat(keys(entry(tool, "asks"))).isEqualTo(ImmutableSet.of("ref", "why", "title", "from", "circle", "since", "lines", "ci"));
         assertThat(keys(entry(tool, "epics"))).isEqualTo(ImmutableSet.of("ref", "title", "done", "total", "blocked", "proposals", "newChildren", "ready"));

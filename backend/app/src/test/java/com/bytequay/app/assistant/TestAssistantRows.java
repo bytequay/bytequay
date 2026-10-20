@@ -119,10 +119,7 @@ class TestAssistantRows
                 ImmutableList.of(), ImmutableList.of(), Optional.empty()));
 
         when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31402)).thenReturn(Optional.of(7L));
-        when(pullRequests.findById(7L)).thenReturn(Optional.of(new PullRequest(7, "trinodb/trino", 31402, "Retry Iceberg commit on conflict", "elric-t",
-                "https://github.com/trinodb/trino/pull/31402", NOW, NOW, PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null,
-                ImmutableList.of("marlo-t"), PullRequestDetail.CiStatus.FAILING, 10, 2, 3, "open", null, null, true, "clean", NOW, "retry", null, NOW.minusSeconds(60), null,
-                "CHANGES_REQUESTED")));
+        when(pullRequests.findById(7L)).thenReturn(Optional.of(pullRequest("clean")));
         PrRawDetail raw = mock(PrRawDetail.class, withSettings().mockMaker(MockMakers.INLINE));
         // A reviewer's later comment leaves their approval standing; GitHub counts verdicts only.
         when(details.find(7L)).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(review("alba-t", "APPROVED", 600), review("bo-t", "CHANGES_REQUESTED", 300),
@@ -220,7 +217,7 @@ class TestAssistantRows
     @Test
     void readsAPullRequestAsTheSignedInUserSeesIt()
     {
-        when(details.find(7L).orElseThrow().raw().mergeableState()).thenReturn("blocked");
+        when(pullRequests.findById(7L)).thenReturn(Optional.of(pullRequest("blocked")));
         when(credentials.cachedLogin()).thenReturn(Optional.of("Alba-T"));
 
         AssistantRow approver = rows.rows(ImmutableList.of("pr:trinodb/trino#31402")).get("pr:trinodb/trino#31402");
@@ -269,6 +266,13 @@ class TestAssistantRows
         when(issues.find(1, 77)).thenThrow(new IllegalStateException("database is locked"));
 
         assertThat(rows.rows(ImmutableList.of("issue:trinodb/trino#77", "work:w22"))).containsOnlyKeys("work:w22");
+    }
+
+    private static PullRequest pullRequest(String mergeableState)
+    {
+        return new PullRequest(7, "trinodb/trino", 31402, "Retry Iceberg commit on conflict", "elric-t", "https://github.com/trinodb/trino/pull/31402", NOW, NOW,
+                PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of("marlo-t"), PullRequestDetail.CiStatus.FAILING,
+                10, 2, 3, "open", null, null, true, mergeableState, NOW, "retry", null, NOW.minusSeconds(60), null, "CHANGES_REQUESTED");
     }
 
     private static PrReviewState review(String login, String state, long secondsAgo)

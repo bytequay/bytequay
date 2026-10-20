@@ -198,7 +198,7 @@ public class AgendaReader
         Map<Long, List<String>> failing = read("checks", () -> pullRequests.findCachedFailingChecks(candidates), ImmutableMap.of());
         Map<Long, PrActivitySummary> latest = read("activity", () -> pullRequests.findCachedLatestActivities(candidates), ImmutableMap.of());
         List<PullRequest> involved = candidates.stream()
-                .filter(pr -> mine(pr) || requested(pr, viewer) || pr.reviewedAt() != null || pr.monitoredAt() != null || mentioned.contains(pr.id()))
+                .filter(pr -> pr.mine(viewer) || requested(pr, viewer) || pr.reviewedAt() != null || pr.monitoredAt() != null || mentioned.contains(pr.id()))
                 .collect(toImmutableList());
         for (PullRequest pr : involved) {
             refs.putIfAbsent(AgendaRefs.pull(pr.repo(), pr.number()),
@@ -222,7 +222,7 @@ public class AgendaReader
         changes.addAll(read("Jira changes", () -> ticketChanges(tickets, since, refs), ImmutableList.of()));
         changes.sort(Comparator.comparing(Change::at).reversed());
 
-        List<Mine> mine = mine(involved, latest, failing, taskByPull);
+        List<Mine> mine = mine(involved, viewer, latest, failing, taskByPull);
         List<Ask> asks = new ArrayList<>();
         asks.addAll(pullRequestAsks(involved, viewer, mentioned, afterReview, circles));
         for (Workspace workspace : watched) {
@@ -238,7 +238,7 @@ public class AgendaReader
 
         List<AgendaDay> days = earlier.stream().filter(day -> day.day().isBefore(today)).limit(HISTORY_DAYS).collect(toImmutableList());
         List<HistoryDay> history = history(days, refs);
-        Optional<Week> week = recapDay ? Optional.of(week(today, involved, workByWorkspace, history)) : Optional.empty();
+        Optional<Week> week = recapDay ? Optional.of(week(today, involved, viewer, workByWorkspace, history)) : Optional.empty();
 
         List<String> newlyWatched = watched.stream().filter(workspace -> workspace.createdAt().isAfter(since))
                 .map(workspace -> workspace.monitoredRepository().fullName()).limit(NEWLY_WATCHED).collect(toImmutableList());
@@ -343,10 +343,11 @@ public class AgendaReader
         return changes.build();
     }
 
-    private static List<Mine> mine(List<PullRequest> involved, Map<Long, PrActivitySummary> latest, Map<Long, List<String>> failing, Map<String, String> taskByPull)
+    private static List<Mine> mine(List<PullRequest> involved, Optional<String> viewer, Map<Long, PrActivitySummary> latest, Map<Long, List<String>> failing,
+            Map<String, String> taskByPull)
     {
         return involved.stream()
-                .filter(pr -> mine(pr) && open(pr))
+                .filter(pr -> pr.mine(viewer) && open(pr))
                 .map(pr -> {
                     String ref = AgendaRefs.pull(pr.repo(), pr.number());
                     List<String> by = Optional.ofNullable(latest.get(pr.id())).filter(activity -> activity.event().equals("reviewed"))
@@ -355,13 +356,13 @@ public class AgendaReader
                     return new Mine(ref, clip(pr.title(), TITLE), pr.draft(), review,
                             Optional.ofNullable(pr.ciStatus()).map(status -> lower(status.name())),
                             failing.getOrDefault(pr.id(), ImmutableList.of()).stream().limit(CHECKS).collect(toImmutableList()),
-                            Optional.ofNullable(pr.mergeable()), Optional.ofNullable(pr.activityAt()), Optional.ofNullable(taskByPull.get(ref)));
+                            Optional.ofNullable(pr.mergeable()), pr.mergeBlocked(), Optional.ofNullable(pr.activityAt()), Optional.ofNullable(taskByPull.get(ref)));
                 })
                 .sorted(Comparator.comparingInt(AgendaReader::mineOrder))
                 .collect(toImmutableList());
     }
 
-    /** Changes requested first, then red, then ready to merge, then waiting for review. */
+    /** Changes requested first, then red, then ready to merge, then waiting for review or for what blocks the merge. */
     private static int mineOrder(Mine pr)
     {
         if (pr.review().decision().filter("changes_requested"::equals).isPresent()) {
@@ -370,7 +371,7 @@ public class AgendaReader
         if (pr.ci().filter("failing"::equals).isPresent()) {
             return 1;
         }
-        if (pr.review().decision().filter("approved"::equals).isPresent()) {
+        if (pr.review().decision().filter("approved"::equals).isPresent() && !pr.mergeBlocked()) {
             return 2;
         }
         return 3;
@@ -448,7 +449,7 @@ public class AgendaReader
     {
         ImmutableList.Builder<Ask> asks = ImmutableList.builder();
         for (PullRequest pr : involved) {
-            if (mine(pr) || !open(pr)) {
+            if (pr.mine(viewer) || !open(pr)) {
                 continue;
             }
             Optional<String> why = Optional.empty();
@@ -606,11 +607,11 @@ public class AgendaReader
         return history.build();
     }
 
-    private Week week(LocalDate today, List<PullRequest> involved, Map<String, List<WorkItemView>> workByWorkspace, List<HistoryDay> history)
+    private Week week(LocalDate today, List<PullRequest> involved, Optional<String> viewer, Map<String, List<WorkItemView>> workByWorkspace, List<HistoryDay> history)
     {
         LocalDate monday = today.with(DayOfWeek.MONDAY);
         Instant weekStart = monday.atStartOfDay(ZoneId.systemDefault()).toInstant();
-        List<String> merged = involved.stream().filter(pr -> mine(pr) && after(pr.mergedAt(), weekStart))
+        List<String> merged = involved.stream().filter(pr -> pr.mine(viewer) && after(pr.mergedAt(), weekStart))
                 .map(pr -> AgendaRefs.pull(pr.repo(), pr.number())).limit(WEEK_REFS).collect(toImmutableList());
         List<String> finished = workByWorkspace.values().stream().flatMap(List::stream)
                 .filter(item -> item.state() == WorkItem.State.DONE && item.updatedAt().isAfter(weekStart))
@@ -636,11 +637,6 @@ public class AgendaReader
     private static Optional<String> workspace(Map<String, String> workspaceByRepo, String repo)
     {
         return Optional.ofNullable(workspaceByRepo.get(lower(repo)));
-    }
-
-    private static boolean mine(PullRequest pr)
-    {
-        return pr.origin() == PullRequest.Origin.AUTHORED;
     }
 
     private static boolean open(PullRequest pr)

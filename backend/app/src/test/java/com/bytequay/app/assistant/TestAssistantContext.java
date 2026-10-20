@@ -136,10 +136,11 @@ class TestAssistantContext
     private final JiraService jira = mock(JiraService.class);
     private final EpicStore epics = mock(EpicStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
+    private final CredentialService credentials = mock(CredentialService.class);
     private final AssistantRows rows = new AssistantRows(pullRequests, mock(PrDetailStore.class), issues, jira, mock(JiraActivityReader.class), tasks, reviews, running, activities,
-            workItems, epics, workspaces, agenda, models, mock(CredentialService.class));
+            workItems, epics, workspaces, agenda, models, credentials);
     private final AssistantReader reader = new AssistantReader(agenda, agendas, running, notices, approvals, tasks, activities, reviews, pullRequests, workItems, workspaces,
-            rows, models, settings, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
+            rows, credentials, models, settings, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void storesHoldOneDay()
@@ -228,7 +229,8 @@ class TestAssistantContext
         assertThat(asked.path("question").asText()).hasSizeLessThanOrEqualTo(160).endsWith("…");
 
         JsonNode screen = read(tool, "screen").path("entries");
-        assertThat(keys(screen.path(0))).isEqualTo(ImmutableSet.of("ref", "title", "author", "state", "ci", "review", "pendingReviewers", "lastActivity"));
+        assertThat(keys(screen.path(0))).isEqualTo(ImmutableSet.of("ref", "title", "author", "mine", "state", "ci", "review", "mergeBlocked", "pendingReviewers",
+                "lastActivity"));
         assertThat(screen.path(0).path("ci").asText()).isEqualTo("failing");
         assertThat(screen.path(0).path("review").asText()).isEqualTo("changes_requested");
         JsonNode task = read(context(Optional.of("task:" + TASK.id()), ImmutableMap.of()).tool(), "screen").path("entries").path(0);
@@ -298,8 +300,13 @@ class TestAssistantContext
         ReviewTool tool = context.tool();
 
         JsonNode pull = named(tool, "lookup", "pr:trinodb/trino#31402").path("entries").path(0);
-        assertThat(keys(pull)).isEqualTo(ImmutableSet.of("ref", "title", "author", "state", "ci", "review", "pendingReviewers", "lastActivity"));
+        assertThat(keys(pull)).isEqualTo(ImmutableSet.of("ref", "title", "author", "mine", "state", "ci", "review", "mergeBlocked", "pendingReviewers", "lastActivity"));
         assertThat(pull.path("pendingReviewers").toString()).isEqualTo("[\"marlo-t\"]");
+        // Until the login is known, how the pull request was found says whose it is; once known, the login decides, as the pull request list does.
+        assertThat(pull.path("mine").asBoolean()).isTrue();
+        assertThat(pull.path("mergeBlocked").asBoolean()).isFalse();
+        when(credentials.cachedLogin()).thenReturn(Optional.of("marlo-t"));
+        assertThat(named(tool, "lookup", "pr:trinodb/trino#31402").path("entries").path(0).path("mine").asBoolean()).isFalse();
         JsonNode work = named(tool, "lookup", "work:w22").path("entries").path(0);
         assertThat(keys(work)).isEqualTo(ImmutableSet.of("ref", "title", "state", "priority", "blocked"));
         assertThat(work.path("state").asText()).isEqualTo("planned");

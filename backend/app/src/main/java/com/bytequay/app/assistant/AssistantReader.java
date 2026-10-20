@@ -35,6 +35,7 @@ import com.bytequay.app.agent.TaskActivityReader;
 import com.bytequay.app.agent.TaskMessage;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -102,6 +103,7 @@ class AssistantReader
     private final WorkItemStore workItems;
     private final WorkspaceStore workspaces;
     private final AssistantRows rows;
+    private final CredentialService credentials;
     private final ModelSettingsService models;
     private final AppSettingsService settings;
     private final ObjectMapper mapper;
@@ -120,6 +122,7 @@ class AssistantReader
             WorkItemStore workItems,
             WorkspaceStore workspaces,
             AssistantRows rows,
+            CredentialService credentials,
             ModelSettingsService models,
             AppSettingsService settings,
             ObjectMapper mapper,
@@ -137,6 +140,7 @@ class AssistantReader
         this.workItems = requireNonNull(workItems, "workItems is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.rows = requireNonNull(rows, "rows is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
         this.models = requireNonNull(models, "models is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -310,9 +314,10 @@ class AssistantReader
             String canonical = AgendaRefs.pull(pr.repo(), pr.number());
             Optional<String> workspace = workspaces.findAll().stream().filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(pr.repo()))
                     .map(Workspace::id).findFirst();
-            PullRequestFacts facts = new PullRequestFacts(canonical, AgendaReader.clip(pr.title(), TITLE), pr.author(), AssistantRows.state(pr),
-                    Optional.ofNullable(pr.ciStatus()).map(AssistantReader::lower), Optional.ofNullable(pr.reviewDecision()).map(decision -> decision.toLowerCase(Locale.ROOT)),
-                    pr.requestedReviewers(), Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt())));
+            PullRequestFacts facts = new PullRequestFacts(canonical, AgendaReader.clip(pr.title(), TITLE), pr.author(), pr.mine(credentials.cachedLogin()),
+                    AssistantRows.state(pr), Optional.ofNullable(pr.ciStatus()).map(AssistantReader::lower),
+                    Optional.ofNullable(pr.reviewDecision()).map(decision -> decision.toLowerCase(Locale.ROOT)), pr.mergeBlocked(), pr.requestedReviewers(),
+                    Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt())));
             return new Page(new Entries(kind, ImmutableList.of(facts)), ImmutableMap.of(canonical, Optional.of(AgendaTarget.pull(pr.repo(), pr.number(), workspace))));
         });
     }
@@ -400,9 +405,13 @@ class AssistantReader
 
     private record Named(String ref, AgentTask task, Optional<AgendaTarget> target) {}
 
+    /**
+     * @param mine whether the signed-in user opened it, as the pull request list decides
+     * @param mergeBlocked whether GitHub blocks merging it for now, such as for a missing approval or a failing required check
+     */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    record PullRequestFacts(String ref, String title, String author, String state, Optional<String> ci, Optional<String> review, List<String> pendingReviewers,
-            Optional<Instant> lastActivity) {}
+    record PullRequestFacts(String ref, String title, String author, boolean mine, String state, Optional<String> ci, Optional<String> review, boolean mergeBlocked,
+            List<String> pendingReviewers, Optional<Instant> lastActivity) {}
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record TaskFacts(String ref, String title, String state, Optional<String> waitingFor) {}

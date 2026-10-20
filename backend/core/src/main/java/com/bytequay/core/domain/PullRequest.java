@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableMap;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -88,6 +89,21 @@ public record PullRequest(
         labels = ImmutableList.copyOf(requireNonNull(labels, "labels is null"));
         labelColors = labelColors == null ? ImmutableMap.of() : ImmutableMap.copyOf(labelColors);
         requestedReviewers = ImmutableList.copyOf(requireNonNull(requestedReviewers, "requestedReviewers is null"));
+    }
+
+    /**
+     * Whether the signed-in user opened it, as the pull request list decides: by their login, or by how it was found until that login is
+     * known. GitHub's search finds a pull request Copilot opened for the user among theirs, so the origin alone can claim someone else's.
+     */
+    public boolean mine(Optional<String> viewer)
+    {
+        return viewer.map(login -> login.equalsIgnoreCase(author)).orElse(origin == Origin.AUTHORED);
+    }
+
+    /** Whether GitHub blocks merging it, such as for a missing approval or a failing required check. */
+    public boolean mergeBlocked()
+    {
+        return "blocked".equalsIgnoreCase(mergeableState);
     }
 
     public enum Origin

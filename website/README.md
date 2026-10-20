@@ -59,8 +59,7 @@ The seven `dist/assets/app-*.jpg` images show development tasks, PR review,
 cherry-pick, the Assistant, Epics, private review discussions, and link previews using
 the app's actual React components and dark palette. Each is captured at 2880 ×
 1800, rendering a 1440 × 900 workspace at 2× scale. The page offers
-full-resolution views with feature descriptions. Goals remains an experiment under
-implementation: keep only its status notice, not a showcase or usage guide.
+full-resolution views with feature descriptions.
 
 Capture through an isolated browser fixture with sample bridge data, blocked
 external images and connections, and no live provider or backend. Development

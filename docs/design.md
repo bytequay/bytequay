@@ -31,7 +31,7 @@ and the resulting changes close enough to inspect together.
 | Development tasks | Give Codex or Claude a request, follow its progress, inspect changes, and continue the conversation. |
 | Pull-request review | Understand the purpose of a change, read patches and checks, discuss findings privately, and choose what to publish. |
 | Cherry-pick | Select commits, inspect their destination and order, follow conflict resolution, and deliver the resulting branch. |
-| Goals (experiment under implementation) | Not a supported feature; hidden in packaged releases. |
+| Artifacts | Ask about a repository in a conversation, then keep what you learned as an interactive page beside it. |
 | Epics | Group related work, break it into useful items, follow attempts, and review progress toward a shared result. |
 | Tears of time | Inspect and edit the task's working copy, run supported development tools, and examine their output. |
 | Work items | Read GitHub issues, Jira tickets, and private local work together; retain their context through development and optional publication. |

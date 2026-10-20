@@ -92,13 +92,6 @@ session after the first turn is accepted and is outside the Send critical path.
 Time between the Codex turn acknowledgement and first output includes Codex
 processing and network time, which these local timestamps cannot separate.
 
-Goals are a development-only experiment. `./dev.sh` enables their backend and
-`npm start` shows their controls. Packaged releases hide Goals and disable their
-HTTP endpoints and automatic guidance, while keeping saved data. When starting
-the backend separately, use
-`mvn spring-boot:run -Dspring-boot.run.arguments=--bytequay.experiments.goals=true`
-to enable the experiment.
-
 ## Claude accounts
 
 Settings → Models shows CLI status and the default Claude account, with Sign

@@ -36,9 +36,15 @@ determine app startup; runtime updates ship with ByteQuay releases.
 The IDE's Java language server uses a suitable installed JDK when available
 and otherwise shares the backend's Java runtime, avoiding a second bundled JRE.
 
-Goals are a development-only experiment. Packaged renderers omit their controls,
-and the packaged sidecar disables Goal endpoints and automatic guidance. Shared
-work-item services and saved Goal data remain available for continuity.
+Artifacts are conversations about a workspace's repository. Each turn is a
+read-only agent session on the workspace's Development model in a scratch
+checkout of the default branch, recorded as the same agent events a task
+records. The pages the agent saves are stored in SQLite with their versions and
+shown in a sandboxed `WebContentsView` with its own in-memory partition and no
+preload. Each page is its own origin on the `bytequay-artifact` scheme, served
+from its stored HTML under a content security policy that allows only inline
+scripts and styles and the app theme; navigation and new windows are refused, so
+a page reaches nothing outside itself.
 
 App notices project existing task, turn, approval, and queue state through the
 authenticated `/agent/notices` endpoint. Electron polls this local snapshot and

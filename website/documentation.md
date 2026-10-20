@@ -414,13 +414,21 @@ items or add Local subtasks. Creating an Epic or assigning work does not change
 GitHub or Jira. **Push to remote…** remains a separate action; publishing an item is
 optional and keeps its local identity and Epic membership.
 
-<a id="goals"></a>
+<a id="artifacts"></a>
 
-## Goals — experiment under implementation
+## Learn with Artifacts
 
-Goals is still under implementation. It is not a supported feature and is hidden
-in packaged releases. Use the [Assistant](#assistant) for daily work and
-[Epics](#epics) to organize larger changes.
+1. Open **Artifacts** in a workspace and ask in **Ask about this repository**.
+2. The agent answers from the code, citing files by path and line, and ends each
+   answer with a question card for what to look at next. Pick an option, or
+   write your own reply.
+3. When nothing is left open, it offers a page. Choose **Make the page**, or
+   **Not yet** to keep talking. You can also ask for a page at any time.
+4. The page opens beside the conversation. Ask for changes in the same
+   conversation; each save adds a version under **Versions**.
+
+The agent reads the repository but never changes it. A page's buttons and
+quizzes work inside the page, which reaches nothing outside it.
 
 <a id="memory-and-specs"></a>
 

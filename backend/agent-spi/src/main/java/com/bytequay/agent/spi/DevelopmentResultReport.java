@@ -13,20 +13,34 @@
  */
 package com.bytequay.agent.spi;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** A root agent's explicit assessment of its current development turn. */
-public record DevelopmentResultReport(boolean readyForDelivery, Optional<String> message, Optional<DevelopmentLearningSummary> learningSummary)
+/**
+ * A root agent's explicit assessment of its current development turn.
+ *
+ * @param reviewReplies its answers to the review comments an Auto-Review fix turn asked it to fix
+ */
+public record DevelopmentResultReport(boolean readyForDelivery, Optional<String> message, Optional<DevelopmentLearningSummary> learningSummary,
+        List<ReviewThreadReply> reviewReplies)
 {
     public static final int MAXIMUM_MESSAGE_LENGTH = 4_000;
+    public static final int MAXIMUM_REVIEW_REPLIES = 10;
 
     public DevelopmentResultReport(boolean readyForDelivery, Optional<String> message)
     {
         this(readyForDelivery, message, Optional.empty());
+    }
+
+    public DevelopmentResultReport(boolean readyForDelivery, Optional<String> message, Optional<DevelopmentLearningSummary> learningSummary)
+    {
+        this(readyForDelivery, message, learningSummary, ImmutableList.of());
     }
 
     public DevelopmentResultReport
@@ -34,5 +48,7 @@ public record DevelopmentResultReport(boolean readyForDelivery, Optional<String>
         checkOptionalText(message, "message");
         message.ifPresent(value -> checkArgument(value.length() <= MAXIMUM_MESSAGE_LENGTH, "message is too long"));
         requireNonNull(learningSummary, "learningSummary is null");
+        reviewReplies = ImmutableList.copyOf(reviewReplies);
+        checkArgument(reviewReplies.size() <= MAXIMUM_REVIEW_REPLIES, "too many review replies");
     }
 }

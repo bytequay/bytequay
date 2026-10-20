@@ -14,7 +14,7 @@
 import { ciActivity } from './ciAutofix';
 import { AUTOMATION_LEVELS } from './contracts';
 import type { AgentTaskState } from './model';
-import type { AgentDevelopmentCiDto, AutomationLevel, DevelopmentAutomationDto } from '../types';
+import type { AgentDevelopmentCiDto, AutomationLevel, DevelopmentAutomationDto, ReviewFixSummaryDto } from '../types';
 
 /** Keep development commits while leaving publication and follow-up off. */
 export const LOCAL_COMMITS_ONLY: DevelopmentAutomationDto = { level: 'COMMIT', ciLaneId: null };
@@ -49,7 +49,7 @@ export type StepStatus = { state: StepState; note: string };
  * Each step's status from what the task already reports. An earlier step counts as done once a later
  * one has started, so the tiles never show a gap; a stopped run marks its first unfinished step.
  */
-export function automationSteps({ level, generated, delivered, failure, pullRequest, ci }: {
+export function automationSteps({ level, generated, delivered, failure, pullRequest, ci, reviewFix }: {
   level: AutomationLevel;
   /** The generated delivery turn running now, if any. */
   generated: 'AUTO_COMMIT' | 'CREATE_DRAFT_PR' | 'REFINE_SUMMARY' | null;
@@ -58,6 +58,7 @@ export function automationSteps({ level, generated, delivered, failure, pullRequ
   failure: string | null;
   pullRequest: { draft: boolean } | null;
   ci: AgentDevelopmentCiDto | null;
+  reviewFix: ReviewFixSummaryDto | null;
 }): Partial<Record<AutomationLevel, StepStatus>> {
   const steps: Partial<Record<AutomationLevel, StepStatus>> = {};
   const set = (step: AutomationLevel, state: StepState, note: string): void => {
@@ -73,7 +74,10 @@ export function automationSteps({ level, generated, delivered, failure, pullRequ
   else if (ci.status === 'ACTIVE') set('CI_FIX', 'running', ciActivity(ci));
   else if (ci.status === 'PAUSED') set('CI_FIX', 'attention', ciActivity(ci));
   else set('CI_FIX', ci.finishReason === 'GREEN' ? 'done' : ci.finishReason === 'MAX_ATTEMPTS' || ci.finishReason === 'ERROR' ? 'attention' : 'pending', ciActivity(ci));
-  set('REVIEW_FIX', 'pending', 'not started');
+  if (reviewFix === null) set('REVIEW_FIX', 'pending', 'no review comments yet');
+  else if (reviewFix.needsYou > 0) set('REVIEW_FIX', 'attention', `${reviewFix.needsYou} ${reviewFix.needsYou === 1 ? 'comment needs' : 'comments need'} you`);
+  else if (reviewFix.waiting > 0) set('REVIEW_FIX', 'running', `fixing ${reviewFix.waiting} ${reviewFix.waiting === 1 ? 'comment' : 'comments'}`);
+  else set('REVIEW_FIX', 'done', `${reviewFix.fixed} fixed · ${reviewFix.declined} declined`);
   set('MERGE', 'pending', 'not started');
   if (failure !== null) {
     // The failure names the delivery action that stopped; any other stop lands on the first unfinished step.

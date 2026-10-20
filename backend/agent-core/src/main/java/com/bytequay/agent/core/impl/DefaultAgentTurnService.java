@@ -2034,7 +2034,8 @@ public final class DefaultAgentTurnService
             return """
 
                     Accepted development delivery for this turn:
-                    Commit finished development work: %s. Auto draft PR: %s. Auto CI fix: %s.
+                    Commit finished development work: %s. Auto draft PR: %s. Auto CI fix: %s. Auto-Review fix: %s. Auto-merge: %s.
+                    Merging is ByteQuay's own step after its delay; never merge, enqueue or enable auto-merge on the pull request yourself.
                     Normal development commits finished task work in focused commits using the repository's commit
                     conventions, after resolving user decisions. No commit message carries an attribution,
                     co-authorship, or generated-with trailer. A publication-only assignment must not create commits.
@@ -2048,7 +2049,7 @@ public final class DefaultAgentTurnService
                     this task's working copy and can review uncommitted changes. Do not commit solely to enable review.
                     Keep readyForDelivery=false until the publication hold is lifted.
                     A generated request to create a draft is one step, not a user instruction to skip later enabled steps.
-                    """.formatted(automation.autoCommit(), automation.autoDraftPr(), automation.autoCiFix());
+                    """.formatted(automation.autoCommit(), automation.autoDraftPr(), automation.autoCiFix(), automation.reviewFix(), automation.autoMerge());
         }).orElse("");
     }
 

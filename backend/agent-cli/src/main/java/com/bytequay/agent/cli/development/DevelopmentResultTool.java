@@ -18,6 +18,7 @@ import com.bytequay.agent.spi.DevelopmentLearningCommit;
 import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.ReviewThreadReply;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -28,6 +29,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -39,7 +41,8 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 public final class DevelopmentResultTool
 {
     private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module()).setSerializationInclusion(JsonInclude.Include.NON_ABSENT);
-    private static final Set<String> ARGUMENTS = ImmutableSet.of("readyForDelivery", "message", "learningSummary");
+    private static final Set<String> ARGUMENTS = ImmutableSet.of("readyForDelivery", "message", "learningSummary", "reviewReplies");
+    private static final Set<String> REPLY_FIELDS = ImmutableSet.of("commentId", "body", "fixed");
     private static final Set<String> SUMMARY_FIELDS = ImmutableSet.of("purpose", "commits");
     private static final Set<String> COMMIT_FIELDS = ImmutableSet.of("sha", "title", "summary");
     private static final int MAXIMUM_RECEIPT_LENGTH = 512_000;
@@ -51,13 +54,14 @@ public final class DevelopmentResultTool
         object(arguments, ARGUMENTS);
         checkArgument(arguments.path("readyForDelivery").isBoolean(), "readyForDelivery must be a boolean");
         return new DevelopmentResultReport(arguments.get("readyForDelivery").booleanValue(), text(arguments, "message"),
-                arguments.has("learningSummary") ? Optional.of(summary(arguments.get("learningSummary"))) : Optional.empty());
+                arguments.has("learningSummary") ? Optional.of(summary(arguments.get("learningSummary"))) : Optional.empty(),
+                arguments.has("reviewReplies") ? replies(arguments.get("reviewReplies")) : ImmutableList.of());
     }
 
     public static DevelopmentResultReport parse(JsonNode arguments, DevelopmentResultBridge bridge)
     {
         DevelopmentResultReport report = parse(arguments);
-        checkArgument(bridge.learningSummaryAllowed() || report.learningSummary().isEmpty(), "learningSummary is only accepted during summary refinement");
+        checkAllowed(bridge, report);
         return report;
     }
 
@@ -80,16 +84,29 @@ public final class DevelopmentResultTool
                     "required", ImmutableList.of("purpose", "commits"), "additionalProperties", false,
                     "description", "Explain the task's intention and each actual commit's design and implementation; at most 64000 total text characters."));
         }
+        if (bridge.reviewRepliesAllowed()) {
+            properties.put("reviewReplies", ImmutableMap.of(
+                    "type", "array", "maxItems", DevelopmentResultReport.MAXIMUM_REVIEW_REPLIES,
+                    "items", ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                                    "commentId", ImmutableMap.of("type", "integer", "minimum", 1),
+                                    "body", string(ReviewThreadReply.MAXIMUM_BODY_LENGTH),
+                                    "fixed", ImmutableMap.of("type", "boolean")),
+                            "required", ImmutableList.of("commentId", "body", "fixed"), "additionalProperties", false),
+                    "description", "One reply per review comment this turn was asked to fix; ByteQuay posts them after the fix is pushed."));
+        }
         return ImmutableMap.of("type", "object", "properties", properties.buildOrThrow(), "required", ImmutableList.of("readyForDelivery"), "additionalProperties", false);
     }
 
     public static String receipt(DevelopmentResultBridge bridge, DevelopmentResultReport report)
     {
-        checkArgument(bridge.learningSummaryAllowed() || report.learningSummary().isEmpty(), "learningSummary is only accepted during summary refinement");
+        checkAllowed(bridge, report);
         var result = MAPPER.createObjectNode().put("turnId", bridge.turnId());
         ObjectNode reported = MAPPER.valueToTree(report);
         if (reported.get("learningSummary") instanceof ObjectNode summary) {
             summary.retain(SUMMARY_FIELDS);
+        }
+        if (report.reviewReplies().isEmpty()) {
+            reported.remove("reviewReplies");
         }
         result.set("report", reported);
         return result.toString();
@@ -101,7 +118,9 @@ public final class DevelopmentResultTool
                 new DevelopmentLearningSummary(redactor.redact(summary.purpose()), summary.commits().stream()
                         .map(commit -> new DevelopmentLearningCommit(redactor.redact(commit.sha()), redactor.redact(commit.title()), redactor.redact(commit.summary())))
                         .collect(toImmutableList()), summary.combinedResult().map(redactor::redact), redactor.redact(summary.evidence()),
-                        summary.limitations().stream().map(redactor::redact).collect(toImmutableList()))));
+                        summary.limitations().stream().map(redactor::redact).collect(toImmutableList()))),
+                report.reviewReplies().stream().map(reply -> new ReviewThreadReply(reply.commentId(), redactor.redact(reply.body()), reply.fixed()))
+                        .collect(toImmutableList()));
     }
 
     /** Only a driver-verified successful root tool completion may consume this receipt. */
@@ -139,6 +158,24 @@ public final class DevelopmentResultTool
             explanations.add(new DevelopmentLearningCommit(requiredText(commit, "sha"), requiredText(commit, "title"), requiredText(commit, "summary")));
         });
         return new DevelopmentLearningSummary(requiredText(value, "purpose"), explanations.build(), Optional.empty(), "", ImmutableList.of());
+    }
+
+    private static void checkAllowed(DevelopmentResultBridge bridge, DevelopmentResultReport report)
+    {
+        checkArgument(bridge.learningSummaryAllowed() || report.learningSummary().isEmpty(), "learningSummary is only accepted during summary refinement");
+        checkArgument(bridge.reviewRepliesAllowed() || report.reviewReplies().isEmpty(), "reviewReplies are only accepted while Auto-Review fix is on");
+    }
+
+    private static List<ReviewThreadReply> replies(JsonNode value)
+    {
+        checkArgument(value.isArray() && value.size() <= DevelopmentResultReport.MAXIMUM_REVIEW_REPLIES, "reviewReplies must be a bounded array");
+        ImmutableList.Builder<ReviewThreadReply> replies = ImmutableList.builder();
+        value.forEach(reply -> {
+            object(reply, REPLY_FIELDS);
+            checkArgument(reply.path("commentId").canConvertToExactIntegral() && reply.path("fixed").isBoolean(), "commentId must be an integer and fixed a boolean");
+            replies.add(new ReviewThreadReply(reply.get("commentId").longValue(), requiredText(reply, "body"), reply.get("fixed").booleanValue()));
+        });
+        return replies.build();
     }
 
     private static void object(JsonNode value, Set<String> fields)

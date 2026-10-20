@@ -19,6 +19,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.persistence.Converter;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -42,6 +43,9 @@ public class DevelopmentResultReportConverter
     {
         JsonNode value = MAPPER.readTree(json);
         checkArgument(value.path("readyForDelivery").isBoolean(), "Development readiness must be a boolean");
+        if (value instanceof ObjectNode object) {
+            object.putIfAbsent("reviewReplies", object.arrayNode());
+        }
         return MAPPER.treeToValue(value, DevelopmentResultReport.class);
     }
 }

@@ -44,7 +44,7 @@ it('treats the scale as cumulative', () => {
 });
 
 it('marks each step done, running, waiting or needing you from what the task reports', () => {
-  const base: Parameters<typeof automationSteps>[0] = { level: 'MERGE', generated: null, delivered: false, failure: null, pullRequest: null, ci: null };
+  const base: Parameters<typeof automationSteps>[0] = { level: 'MERGE', generated: null, delivered: false, failure: null, pullRequest: null, ci: null, reviewFix: null };
   const states = (input: Parameters<typeof automationSteps>[0]) => Object.fromEntries(Object.entries(automationSteps(input)).map(([step, status]) => [step, status.state]));
   expect(states(base)).toEqual({ COMMIT: 'pending', DRAFT_PR: 'pending', CI_FIX: 'pending', REVIEW_FIX: 'pending', MERGE: 'pending' });
   expect(states({ ...base, generated: 'AUTO_COMMIT' })).toMatchObject({ COMMIT: 'running', DRAFT_PR: 'pending' });
@@ -60,6 +60,12 @@ it('marks each step done, running, waiting or needing you from what the task rep
   expect(stopped.DRAFT_PR).toEqual({ state: 'attention', note: 'Automation stopped. Create draft PR: refused' });
   expect(stopped.COMMIT?.state).toBe('done');
   expect(automationSteps({ ...base, level: 'CI_FIX', failure: 'Automation stopped. Send another message to continue.' }).COMMIT?.state).toBe('attention');
+  const review = { waiting: 0, fixed: 0, declined: 0, needsYou: 0 };
+  expect(automationSteps({ ...base, reviewFix: { ...review, waiting: 2 } }).REVIEW_FIX).toEqual({ state: 'running', note: 'fixing 2 comments' });
+  expect(automationSteps({ ...base, reviewFix: { ...review, fixed: 2, declined: 1 } }).REVIEW_FIX).toEqual({ state: 'done', note: '2 fixed · 1 declined' });
+  expect(automationSteps({ ...base, reviewFix: { ...review, waiting: 1, needsYou: 1 } }).REVIEW_FIX).toEqual({ state: 'attention', note: '1 comment needs you' });
+  expect(parseAgentTask({ ...contracts.task, reviewFix: { ...review, fixed: 1 } }).reviewFix).toEqual({ ...review, fixed: 1 });
+  expect(() => parseAgentTask({ ...contracts.task, reviewFix: { ...review, fixed: '1' } })).toThrow();
 });
 
 it('shows a started task’s steps as status tiles with their meaning on hover', () => {

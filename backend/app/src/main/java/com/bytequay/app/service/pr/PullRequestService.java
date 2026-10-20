@@ -709,13 +709,14 @@ public class PullRequestService
         store.findAttentionCandidates().stream()
                 .sorted(Comparator.comparing(PullRequest::updatedAt).reversed().thenComparing(Comparator.comparingInt(PullRequest::number).reversed()))
                 .filter(row -> counts.merge(row.repo().toLowerCase(Locale.ROOT), 1, Integer::sum) <= limit)
-                .forEach(row -> warmDetail(row.repo(), row.number()));
+                .forEach(row -> warmDetail(row.repo(), row.number(), Duration.ofMinutes(10)));
     }
 
-    private void warmDetail(String repo, int number)
+    /** Refreshes one pull request's cached detail when it is older than {@code freshness}; a failure keeps the cached copy. */
+    public void warmDetail(String repo, int number, Duration freshness)
     {
         try {
-            refreshPullRequestDetailFromGitHub(repo, number, Duration.ofMinutes(10));
+            refreshPullRequestDetailFromGitHub(repo, number, freshness);
         }
         catch (RuntimeException failure) {
             if (isRateLimit(failure)) {

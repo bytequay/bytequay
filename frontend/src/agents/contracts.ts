@@ -53,6 +53,7 @@ import type {
   ModelSettingsDto,
   ProviderUsageDto,
   PullRequestTaskLink,
+  ReviewFixSummaryDto,
   UsageAccountDto,
 } from '../types';
 
@@ -269,6 +270,7 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     developmentContinuationUnfinished: flag(source.developmentContinuationUnfinished, `${path}.developmentContinuationUnfinished`),
     developmentCi: source.developmentCi === null || source.developmentCi === undefined ? null : parseAgentDevelopmentCi(source.developmentCi, `${path}.developmentCi`),
     pullRequest: source.pullRequest === null || source.pullRequest === undefined ? null : taskPullRequest(source.pullRequest, `${path}.pullRequest`),
+    reviewFix: source.reviewFix === null || source.reviewFix === undefined ? null : reviewFixSummary(source.reviewFix, `${path}.reviewFix`),
     title: text(source.title, `${path}.title`),
     titleSource: text(source.titleSource, `${path}.titleSource`),
     laneId: text(source.laneId, `${path}.laneId`),
@@ -299,6 +301,16 @@ function taskPullRequest(value: unknown, path: string): AgentTaskPullRequestDto 
     title: text(source.title, `${path}.title`),
     state: text(source.state, `${path}.state`),
     draft: flag(source.draft, `${path}.draft`),
+  };
+}
+
+function reviewFixSummary(value: unknown, path: string): ReviewFixSummaryDto {
+  const source = object(value, path);
+  return {
+    waiting: count(source.waiting, `${path}.waiting`),
+    fixed: count(source.fixed, `${path}.fixed`),
+    declined: count(source.declined, `${path}.declined`),
+    needsYou: count(source.needsYou, `${path}.needsYou`),
   };
 }
 

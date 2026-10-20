@@ -92,16 +92,47 @@ public final class ReviewCommentReader
         return match.map(comment -> new ReviewCommentAnchor(repo, number, key, comment.snapshot()));
     }
 
+    /**
+     * The unresolved, current review threads in the cached detail, each with its latest comment captured like
+     * {@link #read}'s. A thread whose latest comment has no id or is over its budget is left out.
+     */
+    List<ReviewThreadItem> openThreads(String repo, int number)
+    {
+        Optional<StoredPrDetail> detail = pullRequests.findIdByRepoAndNumber(repo, number).flatMap(details::find);
+        if (detail.isEmpty()) {
+            return ImmutableList.of();
+        }
+        Map<Long, String> commits = commits(detail.get());
+        ImmutableList.Builder<ReviewThreadItem> threads = ImmutableList.builder();
+        for (PrTimelineEvent event : detail.get().timeline()) {
+            PrTimelinePayload payload = event.payload();
+            if (!"review_thread".equals(event.event()) || payload.resolved() || payload.outdated() || payload.comments().isEmpty()) {
+                continue;
+            }
+            List<PrTimelineComment> thread = payload.comments();
+            PrTimelineComment root = thread.stream().filter(comment -> comment.inReplyToId() == null).findFirst().orElse(thread.getFirst());
+            PrTimelineComment latest = thread.getLast();
+            if (root.githubId() == null || latest.githubId() == null) {
+                continue;
+            }
+            int index = thread.size() - 1;
+            String snapshot = reviewComment(payload, thread.subList(Math.max(0, index - THREAD_CONTEXT), index), latest, commits);
+            if (snapshot.length() <= MAX_SNAPSHOT_CHARACTERS) {
+                threads.add(new ReviewThreadItem(root.githubId(), new ReviewCommentItem(
+                        new ReviewCommentAnchor(repo, number, "review_comment:" + latest.githubId(), snapshot),
+                        requireNonNullElse(latest.actor(), ""), latest.actorBot(), Optional.ofNullable(latest.timestamp()))));
+            }
+        }
+        return threads.build();
+    }
+
     private List<Comment> comments(String repo, int number)
     {
         Optional<StoredPrDetail> detail = pullRequests.findIdByRepoAndNumber(repo, number).flatMap(details::find);
         if (detail.isEmpty()) {
             return ImmutableList.of();
         }
-        // A review's commit comes from the reviews section, which can be unavailable while the timeline is not.
-        Map<Long, String> commits = detail.get().reviews().stream()
-                .filter(review -> review.githubId() != null && review.commitId() != null)
-                .collect(toImmutableMap(PrReviewState::githubId, PrReviewState::commitId, (first, second) -> first));
+        Map<Long, String> commits = commits(detail.get());
         ImmutableList.Builder<Comment> comments = ImmutableList.builder();
         for (PrTimelineEvent event : detail.get().timeline()) {
             PrTimelinePayload payload = event.payload();
@@ -128,6 +159,14 @@ public final class ReviewCommentReader
             }
         }
         return comments.build();
+    }
+
+    /** A review's commit comes from the reviews section, which can be unavailable while the timeline is not. */
+    private static Map<Long, String> commits(StoredPrDetail detail)
+    {
+        return detail.reviews().stream()
+                .filter(review -> review.githubId() != null && review.commitId() != null)
+                .collect(toImmutableMap(PrReviewState::githubId, PrReviewState::commitId, (first, second) -> first));
     }
 
     private static String reviewComment(PrTimelinePayload payload, List<PrTimelineComment> earlier, PrTimelineComment comment, Map<Long, String> commits)

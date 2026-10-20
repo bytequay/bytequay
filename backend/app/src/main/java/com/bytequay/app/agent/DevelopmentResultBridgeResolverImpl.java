@@ -63,9 +63,13 @@ public class DevelopmentResultBridgeResolverImpl
                 .map(turn -> {
                     List<AgentTurn> history = turns.list(id);
                     boolean canRename = turn.developmentOrigin().isEmpty() && history.size() == 1 && history.getFirst().id().equals(turn.id());
+                    boolean reviewReplies = turn.developmentOrigin().isEmpty()
+                            && turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::reviewFix).isPresent();
                     return new DevelopmentResultBridge(turn.id().toString(),
-                            DevelopmentResultBridge.INSTRUCTION + (canRename ? DevelopmentResultBridge.BRANCH_INSTRUCTION : ""),
+                            DevelopmentResultBridge.INSTRUCTION + (canRename ? DevelopmentResultBridge.BRANCH_INSTRUCTION : "")
+                                    + (reviewReplies ? DevelopmentResultBridge.REVIEW_REPLY_INSTRUCTION : ""),
                             turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent(),
+                            reviewReplies,
                             canRename ? Optional.of(suffix -> branches.getObject().rename(id, turn.id(), suffix)) : Optional.empty());
                 });
     }

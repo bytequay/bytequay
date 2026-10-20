@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.converter;
 import com.bytequay.agent.spi.DevelopmentLearningCommit;
 import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.ReviewThreadReply;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
@@ -36,6 +37,9 @@ class TestDevelopmentResultReportConverter
                 Optional.empty(), "Read the tests; execution was unavailable", ImmutableList.of("No local test results"));
         DevelopmentResultReport report = new DevelopmentResultReport(true, Optional.empty(), Optional.of(summary));
         assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(report))).isEqualTo(report);
+        DevelopmentResultReport replied = new DevelopmentResultReport(true, Optional.empty(), Optional.empty(),
+                ImmutableList.of(new ReviewThreadReply(11, "Renamed it.", true), new ReviewThreadReply(21, "The order is part of the API.", false)));
+        assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(replied))).isEqualTo(replied);
         assertThat(converter.convertToEntityAttribute("{\"readyForDelivery\":false,\"message\":\"Waiting for a choice\"}"))
                 .isEqualTo(new DevelopmentResultReport(false, Optional.of("Waiting for a choice")));
         assertThat(converter.convertToEntityAttribute("{\"readyForDelivery\":true}"))

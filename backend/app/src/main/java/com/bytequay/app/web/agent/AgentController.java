@@ -59,6 +59,7 @@ import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.context.ContextBuildService;
+import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -142,6 +143,7 @@ public class AgentController
     private final AgentStreamRegistry streams;
     private final IssueDevelopmentService issueDevelopment;
     private final TaskPullRequestOwnership ownership;
+    private final ReviewFixService reviewFixes;
 
     public AgentController(
             AgentTaskService taskService,
@@ -166,7 +168,8 @@ public class AgentController
             AgentTaskStartupProgress startupProgress,
             AgentStreamRegistry streams,
             IssueDevelopmentService issueDevelopment,
-            TaskPullRequestOwnership ownership)
+            TaskPullRequestOwnership ownership,
+            ReviewFixService reviewFixes)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.contextBuilds = requireNonNull(contextBuilds, "contextBuilds is null");
@@ -191,6 +194,7 @@ public class AgentController
         this.streams = requireNonNull(streams, "streams is null");
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
+        this.reviewFixes = requireNonNull(reviewFixes, "reviewFixes is null");
     }
 
     /**
@@ -205,7 +209,8 @@ public class AgentController
                 .map(run -> CiAutofixHttpModels.development(run, ci.canMessage(run)));
         Optional<InteractiveAgentHttpContract.TaskPullRequestResponse> pullRequest = ownership.linkedPullRequest(task)
                 .map(pr -> new InteractiveAgentHttpContract.TaskPullRequestResponse(pr.number(), pr.title(), pr.state(), pr.draft()));
-        return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest, issueDevelopment.source(task.id().toString()).map(source ->
+        String taskId = task.id().toString();
+        return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest, reviewFixes.summary(taskId), issueDevelopment.source(taskId).map(source ->
                 new InteractiveAgentHttpContract.IssueSourceResponse(source.issue(), source.initialTurnId(), source.instructions())),
                 issueDevelopment.jiraSource(task.id().toString()).map(source ->
                         new InteractiveAgentHttpContract.JiraSourceResponse(source.issue(), source.initialTurnId(), source.instructions())));

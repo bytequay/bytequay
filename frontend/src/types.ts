@@ -602,6 +602,15 @@ export type AgentMetricsDto = {
   counters?: ToolCountersDto;
 };
 
+export type ReviewFixSummaryDto = {
+  /** Asked of the agent and not yet answered or posted. */
+  waiting: number;
+  fixed: number;
+  declined: number;
+  /** Posts that failed or whose outcome is unknown, and comments the agent never answered. */
+  needsYou: number;
+};
+
 /** How far a task's delivery goes; each level includes every level before it. */
 export type AutomationLevel = 'COMMIT' | 'DRAFT_PR' | 'CI_FIX' | 'REVIEW_FIX' | 'MERGE';
 
@@ -674,6 +683,8 @@ export type AgentTaskDto = {
   developmentCi?: AgentDevelopmentCiDto | null;
   /** The pull request the backend picked from the generated branch's stored rows; absent without one. */
   pullRequest?: AgentTaskPullRequestDto | null;
+  /** How the review comments Auto-Review fix handed to the agent stand; absent before the first one. */
+  reviewFix?: ReviewFixSummaryDto | null;
   id: string;
   workspaceId: string;
   generatedBranch: string | null;

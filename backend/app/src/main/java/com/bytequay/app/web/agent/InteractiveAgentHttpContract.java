@@ -28,10 +28,11 @@ import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
-import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.ProviderAgentEvent.PlanItem;
 import com.bytequay.app.agent.IssueSourceInput;
 import com.bytequay.app.agent.JiraSourceInput;
+import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.web.DevelopmentAutomationDto;
 import com.bytequay.app.web.ci.CiAutofixHttpModels;
 import com.bytequay.core.domain.GitHubIssueSource;
@@ -67,6 +68,7 @@ final class InteractiveAgentHttpContract
             AgentMetrics metrics,
             Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
             Optional<TaskPullRequestResponse> pullRequest,
+            Optional<ReviewFixService.ReviewFixSummary> reviewFix,
             Optional<IssueSourceResponse> issueSource,
             Optional<JiraSourceResponse> jiraSource)
     {
@@ -98,6 +100,7 @@ final class InteractiveAgentHttpContract
                 task.developmentContinuationUnfinished(),
                 developmentCi,
                 pullRequest,
+                reviewFix,
                 issueSource,
                 jiraSource);
     }
@@ -136,7 +139,7 @@ final class InteractiveAgentHttpContract
                 turn.terminalReason(),
                 turn.failureKind(),
                 turn.metrics(),
-                turn.developmentResult(),
+                turn.developmentResult().map(report -> new DevelopmentResultResponse(report.readyForDelivery(), report.message(), report.learningSummary())),
                 turn.developmentOrigin().map(origin -> new DevelopmentOrigin(origin.kind().name(), origin.parentUserTurnId().toString())),
                 workflowRequest(turn),
                 turn.plan(),
@@ -346,6 +349,7 @@ final class InteractiveAgentHttpContract
             boolean developmentContinuationUnfinished,
             Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
             Optional<TaskPullRequestResponse> pullRequest,
+            Optional<ReviewFixService.ReviewFixSummary> reviewFix,
             Optional<IssueSourceResponse> issueSource,
             Optional<JiraSourceResponse> jiraSource) {}
 
@@ -394,12 +398,15 @@ final class InteractiveAgentHttpContract
             Optional<String> terminalReason,
             Optional<AgentTurnFailureKind> failureKind,
             AgentMetrics metrics,
-            Optional<DevelopmentResultReport> developmentResult,
+            Optional<DevelopmentResultResponse> developmentResult,
             Optional<DevelopmentOrigin> developmentOrigin,
             Optional<String> workflowRequest,
             Optional<List<PlanItem>> plan,
             List<String> guidelines,
             List<TurnMemory> memories) {}
+
+    /** The agent's report as the renderer reads it; review replies stay with the service that posts them. */
+    record DevelopmentResultResponse(boolean readyForDelivery, Optional<String> message, Optional<DevelopmentLearningSummary> learningSummary) {}
 
     record DevelopmentOrigin(String kind, String parentUserTurnId) {}
 

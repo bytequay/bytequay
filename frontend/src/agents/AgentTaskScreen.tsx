@@ -1169,6 +1169,7 @@ export function AgentTaskBody({
       failure: automationFailure,
       pullRequest: taskPr,
       ci: state.task?.developmentCi ?? null,
+      reviewFix: state.task?.reviewFix ?? null,
     })} />;
   const statusLabel =question !== null ? 'Waiting for your response'
     : status === 'running' && waiting ? 'Needs approval'

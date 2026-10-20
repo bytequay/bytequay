@@ -72,6 +72,7 @@ import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
+import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.memory.MemoryDelivery;
 import com.bytequay.app.memory.RecipeChecks;
@@ -399,9 +400,9 @@ public class AgentConfiguration
     @Bean
     public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
             CiAutofixService ci, CredentialService credentials, GitHubPullRequestWriteClient writes, Clock agentClock, DevelopmentBranchService branches,
-            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
+            @Qualifier(IO_EXECUTOR) Executor ioExecutor, ReviewFixService reviewFixes)
     {
-        return new DevelopmentFollowupCoordinator(turns, turnStore, git, ioExecutor, ci, credentials, writes, agentClock, branches);
+        return new DevelopmentFollowupCoordinator(turns, turnStore, git, ioExecutor, ci, credentials, writes, agentClock, branches, reviewFixes);
     }
 
     @Bean

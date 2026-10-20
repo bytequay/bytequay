@@ -16,6 +16,7 @@ package com.bytequay.agent.cli.development;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
+import com.bytequay.agent.spi.ReviewThreadReply;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
@@ -48,6 +49,37 @@ class TestDevelopmentResultTool
                     .contains(report);
         }
         assertThat(DevelopmentResultTool.parse(json.readTree("{\"readyForDelivery\":false}")).message()).isEmpty();
+    }
+
+    @Test
+    void reviewRepliesAreAcceptedOnlyWhileReviewFixIsOnAndAreRedacted()
+            throws Exception
+    {
+        DevelopmentResultBridge reviewFix = new DevelopmentResultBridge("turn-1", bridge.instruction(), false, true, Optional.empty());
+        var input = json.readTree("""
+                {"readyForDelivery":true,"reviewReplies":[
+                  {"commentId":42,"body":"Renamed it known-secret","fixed":true},{"commentId":43,"body":"Kept the name: it is public API.","fixed":false}]}
+                """);
+        var report = DevelopmentResultTool.parse(input, reviewFix);
+        assertThat(report.reviewReplies()).containsExactly(
+                new ReviewThreadReply(42, "Renamed it known-secret", true), new ReviewThreadReply(43, "Kept the name: it is public API.", false));
+        assertThatThrownBy(() -> DevelopmentResultTool.parse(input, bridge)).hasMessageContaining("only accepted while Auto-Review fix is on");
+
+        var secret = redactor.withSecret("known-secret");
+        String receipt = DevelopmentResultTool.receipt(reviewFix, DevelopmentResultTool.redact(report, secret));
+        assertThat(receipt).doesNotContain("known-secret").contains("Renamed it [REDACTED]");
+        assertThat(DevelopmentResultTool.readReceipt(TextNode.valueOf(DevelopmentResultTool.receipt(reviewFix, report)), reviewFix, secret))
+                .contains(DevelopmentResultTool.redact(report, secret));
+        assertThat(DevelopmentResultTool.receipt(bridge, DevelopmentResultTool.parse(json.readTree("{\"readyForDelivery\":true}")))).doesNotContain("reviewReplies");
+
+        assertThat(DevelopmentResultTool.schema(bridge).toString()).doesNotContain("reviewReplies");
+        var replySchema = json.valueToTree(DevelopmentResultTool.schema(reviewFix)).at("/properties/reviewReplies/items");
+        assertThat(replySchema.path("required")).isEqualTo(json.readTree("[\"commentId\",\"body\",\"fixed\"]"));
+        for (String reply : ImmutableList.of("{\"commentId\":\"42\",\"body\":\"x\",\"fixed\":true}", "{\"commentId\":42,\"body\":\"x\"}",
+                "{\"commentId\":42,\"body\":\"x\",\"fixed\":true,\"resolve\":true}", "{\"commentId\":0,\"body\":\"x\",\"fixed\":true}")) {
+            assertThatThrownBy(() -> DevelopmentResultTool.parse(json.readTree("{\"readyForDelivery\":true,\"reviewReplies\":[" + reply + "]}"), reviewFix))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
     }
 
     @Test

@@ -58,6 +58,7 @@ import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.context.ContextBuildService;
+import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -183,7 +184,8 @@ class TestAgentHttpErrors
                 startupProgress,
                 new AgentStreamRegistry(),
                 mock(IssueDevelopmentService.class),
-                mock(TaskPullRequestOwnership.class));
+                mock(TaskPullRequestOwnership.class),
+                mock(ReviewFixService.class));
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

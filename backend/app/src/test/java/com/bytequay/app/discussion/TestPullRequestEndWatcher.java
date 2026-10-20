@@ -60,7 +60,8 @@ class TestPullRequestEndWatcher
             tasks,
             ownership,
             completions,
-            gate);
+            gate,
+            mock(ReviewFixService.class));
 
     @BeforeEach
     void setUp()

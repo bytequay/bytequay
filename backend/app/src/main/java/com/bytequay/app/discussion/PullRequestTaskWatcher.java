@@ -43,7 +43,8 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>It reads only stored pull requests, which each list refresh keeps current, so it asks GitHub nothing. Completion
  * keeps its own refusals: a task with a turn running, input queued or changes not committed stays open and is tried
- * again after the next refresh. Reviews end on their own in the review service.
+ * again after the next refresh. Reviews end on their own in the review service. A task still open is offered to
+ * Auto-Review fix, which reads the refreshed comments.
  */
 @Component
 public class PullRequestTaskWatcher
@@ -55,18 +56,21 @@ public class PullRequestTaskWatcher
     private final TaskPullRequestOwnership ownership;
     private final AgentCompletionService completions;
     private final AgentServingGate gate;
+    private final ReviewFixService reviewFixes;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("pull-request-followup-", 0).factory());
 
     public PullRequestTaskWatcher(
             AgentTaskStore tasks,
             TaskPullRequestOwnership ownership,
             AgentCompletionService completions,
-            AgentServingGate gate)
+            AgentServingGate gate,
+            ReviewFixService reviewFixes)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
         this.completions = requireNonNull(completions, "completions is null");
         this.gate = requireNonNull(gate, "gate is null");
+        this.reviewFixes = requireNonNull(reviewFixes, "reviewFixes is null");
     }
 
     /** The event arrives on the scheduler or an HTTP thread, so the pass runs on the watcher's own thread. */
@@ -86,7 +90,13 @@ public class PullRequestTaskWatcher
                 continue;
             }
             try {
-                ended(task).ifPresent(reason -> completions.complete(new CompleteAgentTaskCommand(task.id(), Optional.of(reason))));
+                Optional<String> ended = ended(task);
+                if (ended.isPresent()) {
+                    completions.complete(new CompleteAgentTaskCommand(task.id(), ended));
+                }
+                else {
+                    reviewFixes.request(task);
+                }
             }
             catch (RuntimeException refused) {
                 log.info("Pull request follow-up on task {} was deferred: {}", task.id(), refused.toString());

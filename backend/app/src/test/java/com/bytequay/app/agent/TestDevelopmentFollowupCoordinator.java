@@ -36,8 +36,10 @@ import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.agent.spi.ReviewThreadReply;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.StartCiAutofixCommand;
+import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.repository.github.CreatedPullRequest;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
@@ -87,6 +89,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class TestDevelopmentFollowupCoordinator
@@ -107,8 +110,10 @@ class TestDevelopmentFollowupCoordinator
     private final ArrayDeque<Runnable> pending = new ArrayDeque<>();
     private final List<AgentTurn> history = new ArrayList<>();
     private final DevelopmentBranchService branches = mock(DevelopmentBranchService.class);
+    private final ReviewFixService reviewFixes = mock(ReviewFixService.class);
+    private List<ReviewThreadReply> reviewReplies = ImmutableList.of();
     private final DevelopmentFollowupCoordinator coordinator = new DevelopmentFollowupCoordinator(
-            turns, turnStore, git, pending::add, ci, credentials, writes, clock, branches);
+            turns, turnStore, git, pending::add, ci, credentials, writes, clock, branches, reviewFixes);
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
@@ -431,6 +436,26 @@ class TestDevelopmentFollowupCoordinator
         noFollowup();
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void reviewRepliesGoToTheReviewServiceWithWhetherTheFixIsThePushedHead()
+    {
+        DevelopmentAutomation reviewFix = new DevelopmentAutomation(true, AutomationLevel.REVIEW_FIX, Optional.empty());
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.empty()));
+        reviewReplies = ImmutableList.of(new ReviewThreadReply(11, "Renamed it.", true));
+        prepare(local(HEAD, false), local(HEAD, false), reviewFix, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+
+        advance();
+
+        verify(reviewFixes).publish(taskId, source.id(), true);
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+
+        // Below Auto-Review fix nothing is handed over.
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        advance();
+        verifyNoMoreInteractions(reviewFixes);
     }
 
     @ParameterizedTest
@@ -873,7 +898,7 @@ class TestDevelopmentFollowupCoordinator
         var rejected = new DevelopmentFollowupCoordinator(turns, turnStore, git, ignored -> {
             throw new RejectedExecutionException("stopped");
         },
-                ci, credentials, writes, clock, branches);
+                ci, credentials, writes, clock, branches, reviewFixes);
         rejected.completed(outcome);
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Could not start"));
     }
@@ -1374,9 +1399,9 @@ class TestDevelopmentFollowupCoordinator
         return new DevelopmentLocalFacts(route.headBranch(), head, head + ":" + dirty, dirty ? 1 : 0, head.equals(BASE) ? 0 : 1, !head.equals(BASE), false);
     }
 
-    private static DevelopmentResultReport report(boolean ready)
+    private DevelopmentResultReport report(boolean ready)
     {
-        return new DevelopmentResultReport(ready, ready ? Optional.empty() : Optional.of("Which implementation?"));
+        return new DevelopmentResultReport(ready, ready ? Optional.empty() : Optional.of("Which implementation?"), Optional.empty(), reviewReplies);
     }
 
     private GitHubPullRequestIdentity pr(String head, boolean draft)

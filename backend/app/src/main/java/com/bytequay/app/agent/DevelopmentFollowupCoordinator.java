@@ -28,6 +28,7 @@ import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.StartCiAutofixCommand;
+import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.repository.github.CreatedPullRequest;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
@@ -66,12 +67,15 @@ public class DevelopmentFollowupCoordinator
     private final GitHubPullRequestWriteClient writes;
     private final Clock clock;
     private final DevelopmentBranchService branches;
+    private final ReviewFixService reviewFixes;
     private final ConcurrentMap<TaskId, Accepted> accepted = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, PendingPublication> publications = new ConcurrentHashMap<>();
 
     public DevelopmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
-            Executor executor, CiAutofixService ci, CredentialService credentials, GitHubPullRequestWriteClient writes, Clock clock, DevelopmentBranchService branches)
+            Executor executor, CiAutofixService ci, CredentialService credentials, GitHubPullRequestWriteClient writes, Clock clock, DevelopmentBranchService branches,
+            ReviewFixService reviewFixes)
     {
+        this.reviewFixes = requireNonNull(reviewFixes, "reviewFixes is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.git = requireNonNull(git, "git is null");
@@ -241,6 +245,7 @@ public class DevelopmentFollowupCoordinator
             }
             boolean alreadyPushed = publication.remoteHeadSha().filter(local.headSha()::equals).isPresent();
             if (!pendingWork && !newlyPublished(baseline, original, publication)) {
+                publishReviewReplies(completion, baseline, automation);
                 finish(completion);
                 return;
             }
@@ -299,6 +304,7 @@ public class DevelopmentFollowupCoordinator
                         "development-ci:" + completion.task().id() + ":" + publishedPr.headSha()),
                         completion.task().id(), publishedPr, activatedAt);
             }
+            publishReviewReplies(completion, baseline, automation);
             finish(completion);
         }
         catch (RuntimeException failure) {
@@ -308,6 +314,26 @@ public class DevelopmentFollowupCoordinator
         }
         finally {
             accepted.computeIfPresent(completion.task().id(), (id, value) -> value.turnId().equals(completion.turn().id()) ? null : value);
+        }
+    }
+
+    /**
+     * Review replies reach GitHub only once the fix they describe is the pushed head, read fresh here. Posting is the
+     * review service's to report, so a failure here never stops the delivery that already happened.
+     */
+    private void publishReviewReplies(DevelopmentTurnCompletion completion, DevelopmentBaseline baseline, DevelopmentAutomation automation)
+    {
+        if (!automation.reviewFix() || completion.turn().developmentResult().filter(report -> !report.reviewReplies().isEmpty()).isEmpty()) {
+            return;
+        }
+        try {
+            DevelopmentLocalFacts local = inspectLocal(baseline);
+            boolean pushed = local.uncommittedFileCount() == 0
+                    && git.inspectPublication(baseline.worktree(), baseline.route()).remoteHeadSha().filter(local.headSha()::equals).isPresent();
+            reviewFixes.publish(completion.task().id(), completion.turn().id(), pushed);
+        }
+        catch (RuntimeException failure) {
+            log.warn("Review replies for turn {} were not posted", completion.turn().id(), failure);
         }
     }
 

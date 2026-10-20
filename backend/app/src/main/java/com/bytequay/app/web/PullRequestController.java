@@ -134,6 +134,12 @@ public class PullRequestController
         return pullRequests.listRepositoryUsers(repo, workspaceId);
     }
 
+    @GetMapping("/prs/teams")
+    public List<String> teams(@RequestParam("repo") String repo)
+    {
+        return pullRequests.listRepositoryTeams(repo);
+    }
+
     @GetMapping("/prs/labels")
     public List<RepositoryLabel> labels(@RequestParam("repo") String repo)
     {

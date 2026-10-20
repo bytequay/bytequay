@@ -161,7 +161,7 @@ class TestPullRequestSnapshotService
     private static PullRequestFetch coordinates(String head)
     {
         GitHubPullRequestDetailResponse response = new GitHubPullRequestDetailResponse(1L, 7, null, null, null, null, null, null, null, null,
-                null, ImmutableList.of(), ImmutableList.of(), null, false, 0, 0, 0, ImmutableList.of(),
+                null, ImmutableList.of(), ImmutableList.of(), null, false, 0, 0, 0, ImmutableList.of(), ImmutableList.of(),
                 new GitHubPullRequestDetailResponse.Head(head, "feature"), new GitHubPullRequestDetailResponse.Base(BASE, "main"), null, null);
         return new PullRequestFetch(Optional.empty(), Optional.empty(), Optional.of(response));
     }

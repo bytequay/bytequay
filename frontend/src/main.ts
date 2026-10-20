@@ -1593,6 +1593,11 @@ function registerIpc(): void {
     if (workspaceId) url.searchParams.set('workspaceId', workspaceId);
     return backendJson(url);
   });
+  ipcMain.handle('prs:teams', (_event, repo: string) => {
+    const url = new URL('/prs/teams', backendBase());
+    url.searchParams.set('repo', repo);
+    return backendJson(url);
+  });
   ipcMain.handle('prs:labels', (_event, repo: string) => {
     const url = new URL('/prs/labels', backendBase());
     url.searchParams.set('repo', repo);

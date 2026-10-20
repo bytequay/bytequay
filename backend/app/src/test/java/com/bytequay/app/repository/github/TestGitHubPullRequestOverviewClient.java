@@ -152,7 +152,7 @@ class TestGitHubPullRequestOverviewClient
                           "user":{"login":"alice","avatar_url":"https://avatars/alice"},
                           "body":"Description","labels":[{"name":"docs","color":"d4c5f9"}],
                           "assignees":[{"login":"bob"}],"milestone":{"title":"v1"},
-                          "requested_reviewers":[{"login":"carol"}],
+                          "requested_reviewers":[{"login":"carol"}],"requested_teams":[{"slug":"core"}],
                           "head":{"sha":"abc","ref":"feature"},"base":{"ref":"main"},
                           "mergeable":true,"mergeable_state":"clean","additions":10,"deletions":2,
                           "changed_files":3
@@ -168,6 +168,7 @@ class TestGitHubPullRequestOverviewClient
         assertThat(detail.labelColors()).containsEntry("docs", "d4c5f9");
         assertThat(detail.assignees()).containsExactly("bob");
         assertThat(detail.milestone()).isEqualTo("v1");
+        assertThat(detail.requestedReviewers()).containsExactly("carol", "owner/core");
         fixture.verify();
     }
 
@@ -260,6 +261,22 @@ class TestGitHubPullRequestOverviewClient
         assertThat(users).hasSize(101);
         assertThat(users.getFirst()).isEqualTo(new GitHubRepositoryUser(1, "user0", "https://avatars/user0", false));
         assertThat(users.getLast()).isEqualTo(new GitHubRepositoryUser(101, "copilot[bot]", "https://avatars/copilot", true));
+        fixture.verify();
+    }
+
+    @Test
+    void namesOrganizationTeamsByOwnerAndSlug()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo("https://api.github.test/orgs/owner/teams?per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"id":1,"slug":"core","name":"Core"},{"id":2,"slug":"","name":"Blank"}]
+                        """, MediaType.APPLICATION_JSON));
+        fixture.api().expect(requestTo("https://api.github.test/orgs/alice/teams?per_page=100&page=1"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThat(fixture.client().fetchOrganizationTeams("pat", "owner")).containsExactly("owner/core");
+        assertThat(fixture.client().fetchOrganizationTeams("pat", "alice")).isEmpty();
         fixture.verify();
     }
 

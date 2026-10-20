@@ -293,6 +293,7 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate, privateThre
 }) {
   const [open, setOpen] = useState<MetadataPickerKind | null>(null);
   const [repoUsers, setRepoUsers] = useState<RepoUserDto[]>([]);
+  const [repoTeams, setRepoTeams] = useState<string[] | null>(null);
   const [repoLabels, setRepoLabels] = useState<RepoLabelDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -314,6 +315,7 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate, privateThre
   useEffect(() => {
     optionsRequest.current += 1;
     setRepoUsers([]);
+    setRepoTeams(null);
     setRepoLabels([]);
     setOptimisticDetail(null);
     setLoading(false);
@@ -325,7 +327,9 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate, privateThre
     setQuery('');
     setError(null);
     setOpen(current => current === kind ? null : kind);
-    if (loading || (kind === 'labels' ? repoLabels.length > 0 : repoUsers.length > 0)) return;
+    const needsUsers = repoUsers.length === 0;
+    const needsTeams = kind === 'reviewers' && repoTeams === null;
+    if (loading || (kind === 'labels' ? repoLabels.length > 0 : !needsUsers && !needsTeams)) return;
     const requestId = ++optionsRequest.current;
     const requestKey = key;
     setLoading(true);
@@ -333,9 +337,14 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate, privateThre
       ? window.bridge.fetchRepoLabels(visibleDetail.repo).then(labels => {
           if (requestId === optionsRequest.current && requestKey === optionsKey.current) setRepoLabels(labels);
         })
-      : window.bridge.fetchRepoUsers(visibleDetail.repo, contributorsWorkspaceId).then(users => {
-          if (requestId === optionsRequest.current && requestKey === optionsKey.current) setRepoUsers(users);
-        });
+      : Promise.all([
+          needsUsers && window.bridge.fetchRepoUsers(visibleDetail.repo, contributorsWorkspaceId).then(users => {
+            if (requestId === optionsRequest.current && requestKey === optionsKey.current) setRepoUsers(users);
+          }),
+          needsTeams && window.bridge.fetchRepoTeams(visibleDetail.repo).then(teams => {
+            if (requestId === optionsRequest.current && requestKey === optionsKey.current) setRepoTeams(teams);
+          }),
+        ]);
     void request
       .catch(failure => {
         if (requestId === optionsRequest.current && requestKey === optionsKey.current) {
@@ -386,14 +395,15 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate, privateThre
           {visibleDetail.reviewers.length === 0 && 'None'}
           {visibleDetail.reviewers.slice(0, visibleDetail.reviewers.length > 3 ? 2 : 3).map(reviewer => (
             <span className="pr-meta__item" key={reviewer.login}>
-              <Avatar login={reviewer.login} avatarUrl={reviewer.avatarUrl} size={18} />
+              <Avatar login={reviewer.login} avatarUrl={reviewer.avatarUrl} size={18} allowGitHubFallback={!reviewer.login.includes('/')} />
               {reviewer.login}
             </span>
           ))}
           {visibleDetail.reviewers.length > 3 && `${visibleDetail.reviewers.length - 2} other reviewers`}
         </button>
-        {open === 'reviewers' && <PeoplePicker detail={visibleDetail} kind="reviewers" loading={loading}
-          query={query} repoUsers={repoUsers} setQuery={setQuery} updating={updating}
+        {open === 'reviewers' && <PeoplePicker detail={visibleDetail} kind="reviewers" loading={loading} query={query}
+          repoUsers={[...(repoTeams ?? []).map((login): RepoUserDto => ({ login, avatarUrl: null, bot: false })), ...repoUsers]}
+          setQuery={setQuery} updating={updating}
           onToggle={candidate => {
             if (candidate.locked) return;
             const previous = visibleDetail.reviewers;
@@ -481,7 +491,7 @@ function PeoplePicker({ detail, kind, loading, query, repoUsers, setQuery, updat
   const normalized = query.trim().toLowerCase();
   const candidates = peoplePickerCandidates(detail, repoUsers, kind)
     .filter(candidate => candidate.login.toLowerCase().includes(normalized));
-  return <MetadataPicker ariaLabel={kind} placeholder="Search users..." query={query} setQuery={setQuery}
+  return <MetadataPicker ariaLabel={kind} placeholder={kind === 'reviewers' ? 'Search users and teams...' : 'Search users...'} query={query} setQuery={setQuery}
     loading={loading} updating={updating} emptyText="No users found" loadingText="Loading repository users…"
     options={candidates.map(candidate => ({
       key: candidate.login,

@@ -38,6 +38,7 @@ public record GitHubPullRequestDetailResponse(
         int deletions,
         @JsonProperty("changed_files") int changedFiles,
         @JsonProperty("requested_reviewers") List<GitHubUser> requestedReviewers,
+        @JsonProperty("requested_teams") List<Team> requestedTeams,
         Head head,
         Base base,
         Boolean mergeable,
@@ -46,6 +47,8 @@ public record GitHubPullRequestDetailResponse(
     public record Label(String name, String color) {}
 
     public record Milestone(String title) {}
+
+    public record Team(String slug) {}
 
     public record Head(String sha, String ref) {}
 

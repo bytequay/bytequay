@@ -406,6 +406,11 @@ public class PullRequestService
         return gitHub.fetchAssignableUsers(pat, repository);
     }
 
+    public List<String> listRepositoryTeams(String repo)
+    {
+        return gitHub.fetchOrganizationTeams(credentialService.resolveGitHubToken(), parseRef(repo, 1).owner());
+    }
+
     public List<RepositoryLabel> listRepositoryLabels(String repo)
     {
         String pat = credentialService.resolveGitHubToken();

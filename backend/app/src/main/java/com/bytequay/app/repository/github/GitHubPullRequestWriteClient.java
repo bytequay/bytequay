@@ -198,7 +198,12 @@ public class GitHubPullRequestWriteClient
     public void updateReviewerRequest(String pat, PullRequestRef pullRequest, String login, boolean requested)
     {
         checkText(login, "reviewer login");
-        translating(() -> send(gitHubRestClient, requested ? HttpMethod.POST : HttpMethod.DELETE, pat, ImmutableMap.of("reviewers", ImmutableList.of(login)),
+        // owner/slug names a team; GitHub requires the reviewers field even when removing only a team.
+        int slash = login.indexOf('/');
+        Map<String, Object> request = ImmutableMap.of(
+                "reviewers", slash < 0 ? ImmutableList.of(login) : ImmutableList.of(),
+                "team_reviewers", slash < 0 ? ImmutableList.of() : ImmutableList.of(login.substring(slash + 1)));
+        translating(() -> send(gitHubRestClient, requested ? HttpMethod.POST : HttpMethod.DELETE, pat, request,
                 "/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
                         pullRequest.owner(), pullRequest.repo(), pullRequest.number())
                 .toBodilessEntity());

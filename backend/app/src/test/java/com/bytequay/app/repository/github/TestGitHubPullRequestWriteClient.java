@@ -588,10 +588,20 @@ class TestGitHubPullRequestWriteClient
                 .andExpect(method(HttpMethod.DELETE))
                 .andExpect(content().json("{\"reviewers\":[\"alice\"]}"))
                 .andRespond(withSuccess());
+        server.expect(requestTo(url))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("{\"reviewers\":[],\"team_reviewers\":[\"core\"]}", true))
+                .andRespond(withSuccess());
+        server.expect(requestTo(url))
+                .andExpect(method(HttpMethod.DELETE))
+                .andExpect(content().json("{\"reviewers\":[],\"team_reviewers\":[\"core\"]}", true))
+                .andRespond(withSuccess());
 
         PullRequestRef pullRequest = PullRequestRef.of("upstream", "project", 12);
         client.updateReviewerRequest("pat", pullRequest, "alice", true);
         client.updateReviewerRequest("pat", pullRequest, "alice", false);
+        client.updateReviewerRequest("pat", pullRequest, "upstream/core", true);
+        client.updateReviewerRequest("pat", pullRequest, "upstream/core", false);
         server.verify();
     }
 

@@ -63,6 +63,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
 import static com.bytequay.app.repository.github.GitHubApiSupport.graphql;
@@ -577,6 +578,25 @@ public class GitHubPullRequestReadClient
                 .collect(toImmutableList());
     }
 
+    /** A personal account has no teams; GitHub answers its teams list with 404. */
+    public List<String> fetchOrganizationTeams(String pat, String organization)
+    {
+        requirePat(pat);
+        try {
+            return paginator.paginate(pat, "/orgs/{org}/teams", new ParameterizedTypeReference<List<GitHubPullRequestDetailResponse.Team>>() {}, organization).stream()
+                    .map(GitHubPullRequestDetailResponse.Team::slug)
+                    .filter(slug -> slug != null && !slug.isBlank())
+                    .map(slug -> organization + "/" + slug)
+                    .collect(toImmutableList());
+        }
+        catch (ResponseStatusException e) {
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                return ImmutableList.of();
+            }
+            throw e;
+        }
+    }
+
     public PullRequestHistoryPage searchPullRequestsPaged(String pat, String query, int page, int perPage) {
         requirePat(pat);
         int safePage = Math.max(1, page);
@@ -628,11 +648,13 @@ public class GitHubPullRequestReadClient
                 .map(GitHubUser::login)
                 .filter(Objects::nonNull)
                 .collect(toImmutableList());
-        List<String> reviewerLogins =
-                Optional.ofNullable(r.requestedReviewers()).orElse(ImmutableList.of()).stream()
-                        .map(GitHubUser::login)
-                        .filter(Objects::nonNull)
-                        .collect(toImmutableList());
+        // A requested team is named owner/slug, as the timeline names it; removing it addresses team_reviewers.
+        List<String> reviewerLogins = Stream.concat(
+                        Optional.ofNullable(r.requestedReviewers()).orElse(ImmutableList.of()).stream().map(GitHubUser::login),
+                        Optional.ofNullable(r.requestedTeams()).orElse(ImmutableList.of()).stream().map(GitHubPullRequestDetailResponse.Team::slug)
+                                .filter(Objects::nonNull).map(slug -> pr.owner() + "/" + slug))
+                .filter(Objects::nonNull)
+                .collect(toImmutableList());
         int reviewerCount = reviewerLogins.size();
         String headSha =
                 Optional.ofNullable(r.head())

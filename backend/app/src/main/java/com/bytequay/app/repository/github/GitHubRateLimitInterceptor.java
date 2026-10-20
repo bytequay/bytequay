@@ -73,7 +73,7 @@ public final class GitHubRateLimitInterceptor
     private static final Set<String> PATH_WORDS = ImmutableSet.of("actions", "assignees", "branches", "check-runs", "check-suites", "code-snippet", "comments",
             "commits", "compare", "contents", "contributors", "events", "files", "forks", "git", "graphql", "heads", "issue-types", "issues", "jobs", "labels",
             "languages", "logs", "merge", "notifications", "orgs", "preview", "public", "pulls", "reactions", "received_events", "ref", "refs", "replies", "repos",
-            "repositories", "requested_reviewers", "rerun-failed-jobs", "reviews", "rules", "runs", "search", "status", "statuses", "sub_issues", "threads", "timeline",
+            "repositories", "requested_reviewers", "rerun-failed-jobs", "reviews", "rules", "runs", "search", "status", "statuses", "sub_issues", "teams", "threads", "timeline",
             "user", "users", "workflows");
 
     private final Clock clock;

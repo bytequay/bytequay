@@ -1575,6 +1575,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & {
   onPullRequestsSynced: (callback: () => void) => () => void;
   fetchPullRequestDetailByRef: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   fetchRepoUsers: (repo: string, workspaceId?: string) => Promise<RepoUserDto[]>;
+  /** The owner's teams as owner/slug; empty for a personal account. */
+  fetchRepoTeams: (repo: string) => Promise<string[]>;
   fetchRepoLabels: (repo: string) => Promise<RepoLabelDto[]>;
   updatePrMetadata: (repo: string, number: number, assignees: string[], labels: string[]) => Promise<void>;
   updatePrReviewer: (repo: string, number: number, login: string, requested: boolean) => Promise<void>;

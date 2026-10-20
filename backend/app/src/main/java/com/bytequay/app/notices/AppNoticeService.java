@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.agent.spi.ProviderApprovalRequest.QUESTION_TOOL;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Comparator.comparing;
 import static java.util.Objects.requireNonNull;
@@ -118,7 +119,7 @@ public class AppNoticeService
         }
         if (task.state() == TaskState.OPEN && approval.isPresent()) {
             ApprovalRequest request = approval.orElseThrow();
-            boolean question = request.providerRequest().requestedPermissions().contains("AskUserQuestion");
+            boolean question = request.providerRequest().requestedPermissions().contains(QUESTION_TOOL);
             return Optional.of(notice(task, review, latest, "approval:" + request.id(), question ? AppNotice.Kind.QUESTION : AppNotice.Kind.APPROVAL,
                     question ? question(request.providerRequest().detail()) : request.providerRequest().title(), request.requestedAt()));
         }

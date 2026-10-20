@@ -92,6 +92,7 @@ import java.util.stream.Stream;
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
+import static com.bytequay.agent.spi.ProviderApprovalRequest.QUESTION_TOOL;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Comparator.comparing;
@@ -149,7 +150,6 @@ public final class PermissionBroker
     private static final int MAX_DETAIL_CHARACTERS = 16 * 1024;
     /** Claude's own cap on one answer; a longer one would make it refuse the whole answered input. */
     private static final int MAX_ANSWER_CHARACTERS = 8 * 1024;
-    private static final String QUESTION_TOOL = "AskUserQuestion";
     private static final int MAXIMUM_TITLE_CHARACTERS = 256;
     private static final int MAXIMUM_BODY_CHARACTERS = 60_000;
     private static final Set<String> PUBLISH_ARGUMENTS = ImmutableSet.of("title", "body");

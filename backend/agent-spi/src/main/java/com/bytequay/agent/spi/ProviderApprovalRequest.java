@@ -37,6 +37,13 @@ public record ProviderApprovalRequest(
         ProviderAgentEventSource source,
         Instant requestedAt)
 {
+    /**
+     * The scope of a question with choices the agent asks the user. Every lane presents one this way, with the questions in the
+     * {@code detail} as this tool's input ({@code {"questions":[{"question","header","multiSelect","options":[{"label","description"}]}]}}),
+     * so one card shows it and the answers come back keyed by each question's text.
+     */
+    public static final String QUESTION_TOOL = "AskUserQuestion";
+
     public ProviderApprovalRequest
     {
         requireNonNull(kind, "kind is null");

@@ -900,7 +900,7 @@ public final class ClaudeCliDriver
                             resume,
                             attachments,
                             streamingInput,
-                            session.context.asksUser()),
+                            session.context.mayAskUser(session.permissionScope.review())),
                     session.context.worktree(),
                     command.maximumRuntime(),
                     OptionalInt.empty(),

@@ -68,6 +68,7 @@ import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.bytequay.agent.spi.ProviderApprovalRequest.QUESTION_TOOL;
 import static com.bytequay.app.agenda.AgendaReader.clip;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -87,7 +88,6 @@ class AssistantActions
     private static final int MAXIMUM_ARGUMENTS = 16 * 1024;
     private static final int REASON = 200;
     private static final int QUESTION = 400;
-    private static final String QUESTION_TOOL = "AskUserQuestion";
     private static final String NOTE = "\n\nNote from the user, in their words to the assistant: “%s”";
     private static final Map<String, Operation> OPERATIONS = ImmutableMap.<String, Operation>builder()
             .put("start_task", Operation.START_TASK)

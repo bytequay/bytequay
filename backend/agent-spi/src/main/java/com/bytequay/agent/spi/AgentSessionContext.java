@@ -113,6 +113,15 @@ public record AgentSessionContext(
         return access == SessionAccess.TEXT_ONLY;
     }
 
+    /**
+     * Whether the agent may ask the user a question with choices: a full session, which is a task's turn, unless it is a review or runs
+     * unattended (nobody would answer); and a read-only session that opts in. Every lane applies this one rule.
+     */
+    public boolean mayAskUser(boolean review)
+    {
+        return asksUser || (access == SessionAccess.FULL && !review && !permissionPolicy.unattended());
+    }
+
     /** Whether this session withholds the capability to change its worktree. */
     public boolean restricted()
     {

@@ -70,6 +70,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.agent.spi.ProviderApprovalRequest.QUESTION_TOOL;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -87,7 +88,6 @@ class AssistantReader
     private static final int TITLE = 80;
     private static final int LINE = 160;
     private static final int DETAIL = 400;
-    private static final String QUESTION_TOOL = "AskUserQuestion";
     private static final Set<String> LOOKUP_REFS = ImmutableSet.of("pr", "task", "review", "work");
     private static final Set<String> RESULT_REFS = ImmutableSet.of("task", "review");
 

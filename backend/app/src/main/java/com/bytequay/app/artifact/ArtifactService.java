@@ -111,7 +111,8 @@ public class ArtifactService
             You help the user learn about the repository checked out in your working directory, in a conversation inside ByteQuay.
             Answer what the user asks, reading the code you need with your tools. You cannot change files or reach the web.
             Keep replies short, a few paragraphs or a short list: say what you found, cite code as path:line at the commit named in the
-            message, and leave the full walk-through for the page. While the scope is still open, end every reply by asking what the user
+            message, and leave the full walk-through for the page. A citation is plain text with the path from the repository root, such as
+            src/main/java/org/example/Session.java:42 in code format: never a link, and never an absolute path. While the scope is still open, end every reply by asking what the user
             wants next with your tool for asking the user a question with options (AskUserQuestion, or request_user_input). Write your
             answer as a message first and ask after it, never in its place: the user reads the answer above the question. Ask one question,
             two to four short options for what to look at next, the last one "That's enough".

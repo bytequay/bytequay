@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { prDetail } from './pullRequest';
 import type { ReactNode } from 'react';
 import type { Bridge, PullTimelineCommentDto } from '../../types';
@@ -80,9 +80,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       return async () => { writes++; throw new Error(`Unexpected bridge call: ${String(property)}`); };
     },
   }) });
-  const host = document.createElement('main');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot('main');
   const mount = async (node: ReactNode) => { flushSync(() => root.render(node)); await settle(); await settle(); };
   const entries = () => Array.from(host.querySelectorAll<HTMLButtonElement>('.review-comment-index button'));
   const marker = (text: string) => {
@@ -285,5 +283,5 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     }
     return results;
   }
-  finally { flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: previous }); }
+  finally { dispose(); Object.defineProperty(window, 'bridge', { configurable: true, value: previous }); }
 }

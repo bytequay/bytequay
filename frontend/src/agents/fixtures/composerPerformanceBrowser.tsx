@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
 import { assert, changeInput, settle, until } from '../../fixtures/harness';
 import ReviewActivity from '../../pulls/agent-review/ReviewActivity';
 import { reviewFixture } from '../../pulls/agent-review/fixtures/review';
@@ -64,10 +64,8 @@ async function exercise(surface: 'task' | 'review', verifyCaching: boolean) {
     historyPages: [{ events, beforeCursor: null, afterCursor: null, latestSequence: 1000 }] };
   const reviewBase = reviewFixture({ runs: [], messages: [], byteQuayTurnIds: [] });
   const review = { ...reviewBase, task: { ...reviewBase.task, id: TASK_ID, nestedAgents: true } };
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'height: 640px; width: 840px; display: flex; flex-direction: column';
-  document.body.append(host);
-  const root = createRoot(host);
   let update = (_patch: Partial<AgentTaskState>): void => { throw new Error('Not mounted'); };
   let approve = (_approvals: AgentPendingApprovalDto[]): void => { throw new Error('Not mounted'); };
   function Conversation() {
@@ -148,7 +146,7 @@ async function exercise(surface: 'task' | 'review', verifyCaching: boolean) {
       `${surface}: durable turn changes must update the projected outcome`);
     return { name: surface, draftPayloadReads, sendPayloadReads, inputMilliseconds, sendMilliseconds };
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 export async function run(verifyCaching = true) {
@@ -190,10 +188,8 @@ export async function sendProgress(): Promise<string> {
     return new Promise<AgentTurnDto>(resolve => { release = () => { answered = true; resolve(next); }; });
   };
   window.bridge = { ...bridge, ...workspaceBridge } as unknown as Bridge;
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'height: 640px; width: 840px';
-  document.body.append(host);
-  const root = createRoot(host);
   try {
     flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={TASK_ID} bridge={bridge} onBack={() => {}} />));
     await until(() => host.textContent?.includes('Earlier answer') === true, 'The real task wrapper must load its history');
@@ -222,7 +218,7 @@ export async function sendProgress(): Promise<string> {
     assert(starts === 1, 'Painting initial progress must not resubmit the request');
     return 'The message and first logs appear before the start response, with immediate history loading and no duplicate message';
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 export async function sendFailures(): Promise<{ name: string; error?: string }[]> {
@@ -263,10 +259,8 @@ export async function sendFailures(): Promise<{ name: string; error?: string }[]
       return next;
     };
     window.bridge = { ...bridge, ...workspaceBridge } as unknown as Bridge;
-    const host = document.createElement('div');
+    const { host, root, dispose } = createFixtureRoot();
     host.style.cssText = 'height: 640px; width: 840px';
-    document.body.append(host);
-    const root = createRoot(host);
     try {
       flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={TASK_ID} bridge={bridge} onBack={() => {}} />));
       await until(() => host.textContent?.includes('Earlier answer') === true, 'Load the task before testing submission failures');
@@ -310,7 +304,7 @@ export async function sendFailures(): Promise<{ name: string; error?: string }[]
       results.push({ name: kind });
     }
     catch (error) { results.push({ name: kind, error: error instanceof Error ? error.message : String(error) }); }
-    finally { release(); flushSync(() => root.unmount()); host.remove(); }
+    finally { release(); dispose(); }
   }
   return results;
 }
@@ -330,10 +324,8 @@ export async function firstMessageProgress(): Promise<string> {
       return new Promise<AgentTaskDto>(resolve => { release = () => resolve(previewTask('workspace-1', input.taskId)); });
     };
     window.bridge = { ...bridge, ...workspaceBridge } as unknown as Bridge;
-    const host = document.createElement('div');
+    const { host, root, dispose } = createFixtureRoot();
     host.style.cssText = 'height: 640px; width: 840px';
-    document.body.append(host);
-    const root = createRoot(host);
     const open = (id: string) => { opened = id; };
     const Creation = () => {
       const creation = useAgentTaskCreation({ workspaceId: 'workspace-1', bridge: live, onOpenTask: open });
@@ -363,7 +355,7 @@ export async function firstMessageProgress(): Promise<string> {
       await until(() => opened !== null, `${surface}: accepted creation must open its task`);
       assert(creates === 1, `${surface}: opening the task must not send again`);
     }
-    finally { flushSync(() => root.unmount()); host.remove(); }
+    finally { dispose(); }
   }
   return 'Home and Tasks show the first message and startup progress before creation responds, then open the accepted task once';
 }
@@ -386,9 +378,7 @@ export async function firstMessageFailures(): Promise<{ name: string; error?: st
       return previewTask('workspace-1', input.taskId);
     };
     window.bridge = { ...bridge, ...workspaceBridge } as unknown as Bridge;
-    const host = document.createElement('div');
-    document.body.append(host);
-    const root = createRoot(host);
+    const { host, root, dispose } = createFixtureRoot();
     const open = (id: string) => { opened = id; };
     const Creation = () => {
       const creation = useAgentTaskCreation({ workspaceId: 'workspace-1', bridge: live, onOpenTask: open });
@@ -422,7 +412,7 @@ export async function firstMessageFailures(): Promise<{ name: string; error?: st
       results.push({ name });
     }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
-    finally { release(); flushSync(() => root.unmount()); host.remove(); }
+    finally { release(); dispose(); }
   }
   return results;
 }
@@ -444,9 +434,7 @@ export async function sendAfterNavigation(): Promise<{ name: string; error?: str
     };
     bridge.startAgentTurn = async () => new Promise<AgentTurnDto>((_resolve, reject) => { release = () => reject(new Error(failure)); });
     window.bridge = { ...bridge, ...workspaceBridge } as unknown as Bridge;
-    const host = document.createElement('div');
-    document.body.append(host);
-    const root = createRoot(host);
+    const { host, root, dispose } = createFixtureRoot();
     const screen = () => <AgentTaskScreen workspaceId="workspace-1" taskId={TASK_ID} bridge={bridge} onBack={() => {}} />;
     try {
       flushSync(() => root.render(screen()));
@@ -469,7 +457,7 @@ export async function sendAfterNavigation(): Promise<{ name: string; error?: str
       results.push({ name: failure });
     }
     catch (error) { results.push({ name: failure, error: error instanceof Error ? error.message : String(error) }); }
-    finally { release(); flushSync(() => root.unmount()); host.remove(); }
+    finally { release(); dispose(); }
   }
   return results;
 }

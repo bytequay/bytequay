@@ -11,10 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { prepareAgentInput } from '../preparedInput';
-import { createRoot } from 'react-dom/client';
 import { installDesktopFixture } from '../../ide/fixtures/desktop';
 import AgentTaskScreen, { AgentTaskBody } from '../AgentTaskScreen';
 import DevelopmentLearningPanel from '../DevelopmentLearningPanel';
@@ -68,10 +68,8 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
     | 'listCodeFiles' | 'readCodeFile' | 'listCodeRuns'>;
   const originalBridge = window.bridge;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'width:1400px;height:850px';
-  document.body.append(host);
-  const root = createRoot(host);
   // The Summary's own reviewer arrives with the options the side panel passes for an interactive task.
   const Summary = ({ review }: { review: TaskReviewOptions }) => {
     const localReview = useLocalReviewThreads(null);
@@ -181,7 +179,7 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
     return 'Local WorkBench preserves commit selection, summary and unsaved code before a PR exists';
   }
   finally {
-    if (!keepMounted) { flushSync(() => root.unmount()); host.remove(); desktop.dispose(); Object.assign(window, { bridge: originalBridge }); }
+    if (!keepMounted) { dispose(); desktop.dispose(); Object.assign(window, { bridge: originalBridge }); }
   }
 }
 
@@ -207,10 +205,8 @@ export async function utilityTabs(): Promise<string> {
       baseSha: 'base', headSha: 'head', baseLabel: 'main', branch: 'feature', truncated: false,
       commits: [], staged: [], unstaged: [], untracked: [], files: [] }),
   } });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'width:1400px;height:850px';
-  document.body.append(host);
-  const root = createRoot(host);
   const footer = async (): Promise<HTMLButtonElement> => {
     for (let frame = 0; frame < 60; frame++) {
       const row = host.querySelector<HTMLButtonElement>('.agt-disc-row');
@@ -252,7 +248,7 @@ export async function utilityTabs(): Promise<string> {
     return 'Discussions opens from the conversation and closes back to the covered view';
   }
   finally {
-    flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
+    dispose(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
   }
 }
 
@@ -277,10 +273,8 @@ export async function agentSwitch(published = false, utility = false): Promise<s
       baseSha: 'base', headSha: 'head', baseLabel: 'main', branch: 'feature', truncated: false,
       commits: [], staged: [], unstaged: [], untracked: [], files: [] }),
   } });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'width:1400px;height:850px';
-  document.body.append(host);
-  const root = createRoot(host);
   const go = async (route: string): Promise<void> => {
     const changed = new Promise(resolve => window.addEventListener('hashchange', resolve, { once: true }));
     window.location.hash = route;
@@ -325,7 +319,7 @@ export async function agentSwitch(published = false, utility = false): Promise<s
     return 'An agent switch keeps the panel tab';
   }
   finally {
-    flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
+    dispose(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
     window.location.hash = '';
   }
 }

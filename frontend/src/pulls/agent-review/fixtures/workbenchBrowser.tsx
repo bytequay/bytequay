@@ -14,7 +14,7 @@
 import type { AgentReviewDto, ReviewDraftItemDto } from '../contracts';
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { AgentTaskDto, Bridge } from '../../../types';
 import { parseAgentTask } from '../../../agents/contracts';
 import taskFixture from '../../../agents/fixtures/agent-contracts-v1.json';
@@ -44,10 +44,8 @@ const changes: WorktreeChangesDto = {
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   const previous = window.bridge;
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'width:620px;height:700px;display:flex;flex-direction:column;background:white';
-  document.body.append(host);
-  const root = createRoot(host);
   const task: AgentTaskDto = { ...parseAgentTask(taskFixture.task), id: 'developer-task', state: 'OPEN', interactive: true,
     mutationClaim: null, checkoutRemovedAt: null, developmentContinuationUnfinished: false };
   const review = reviewFixture({ number: null, sourceTaskId: task.id, draft: null, pullRequest: null, messages: [] });
@@ -269,6 +267,6 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     return results;
   }
   finally {
-    flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: previous });
+    dispose(); Object.defineProperty(window, 'bridge', { configurable: true, value: previous });
   }
 }

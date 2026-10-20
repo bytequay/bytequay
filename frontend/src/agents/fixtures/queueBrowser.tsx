@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
 import AgentTaskScreen from '../AgentTaskScreen';
 import { createPreviewBridge } from './previewBridge';
 import type { AgentTurnDto } from '../../types';
@@ -42,10 +42,8 @@ async function testSteering(): Promise<string> {
     const result = await steer(...args);
     return attempt === 3 ? { ...result, state: 'UNKNOWN', failure: 'Provider response lost' } : result;
   };
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'height:600px;width:600px';
-  document.body.append(host);
-  const root = createRoot(host);
   try {
     flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={event.taskId} bridge={bridge} onBack={() => {}} />));
     for (let frame = 0; frame < 30 && !host.querySelector('.agt-queue__link:not(:disabled)'); frame++) await settle();
@@ -88,7 +86,7 @@ async function testSteering(): Promise<string> {
     assert(input.value === 'Keep this separate draft', 'An uncertain steer must also preserve the composer');
     return 'queued steering preserves drafts, rejects safely, and stays inside the composer';
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 
@@ -120,10 +118,8 @@ async function testEditing(): Promise<string> {
       { id: 'edited-image', name: 'queued.png', mediaType: 'image/png', byteSize: 10, width: 1, height: 1 },
     ] } : draft;
   };
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'height:600px;width:600px';
-  document.body.append(host);
-  const root = createRoot(host);
   try {
     flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={event.taskId} bridge={bridge} onBack={() => {}} />));
     for (let frame = 0; frame < 30 && !host.querySelector('[aria-label="Edit queued message"]'); frame++) await settle();
@@ -176,7 +172,7 @@ async function testEditing(): Promise<string> {
     assert(String(input.value) === '', 'Successful resubmission clears the composer');
     return 'queued editing restores full drafts and protects existing input';
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 export async function run(): Promise<string> {

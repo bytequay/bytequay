@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import ArchivedCode, { SourceSnapshot } from '../ArchivedCode';
 import RunPanel from '../RunPanel';
 import type { LocalRunDto, ReviewCodeFilesDto } from '../contracts';
@@ -28,7 +28,7 @@ const pr = { repo: 'owner/repo', number: 1, headRef: 'feature' } as PullRequestD
 
 export async function runArchivedCodeScenarios(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
-  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const options: CodeCommentsOptions = { repo: 'owner/repo', number: 1, canReview: true, viewer: null, pending: [], onPendingChange: () => {},
     threads: { activities: [], pr, unavailable: false, onRefresh: async () => {}, onDetailUpdate: () => {} }, onDetailChange: () => {},
     localReview: { threads: [], onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {} } };
@@ -209,6 +209,6 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     assert(selected('Run')?.includes('#6') && selected('Debug')?.includes('#2'), 'A new run selects its result without changing the Debug selection');
     results.push({ name: 'Run and Debug retain separate test results, logs and history selections' });
   } catch (error) { results.push({ name: 'Run and Debug result panels', error: String(error) }); }
-  finally { flushSync(() => root.unmount()); host.remove(); window.ideWorkbench = originalWorkbench; }
+  finally { dispose(); window.ideWorkbench = originalWorkbench; }
   return results;
 }

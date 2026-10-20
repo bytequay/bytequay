@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import AttentionList from '../AttentionList';
 import type { AttentionItem, Handled } from '../attention';
 
@@ -22,9 +22,7 @@ function assert(condition: boolean, message: string): void {
 
 /** Real DOM clicks keep launching separate from source navigation and acknowledgement. */
 export async function runAttentionActions(): Promise<void> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose: disposeRoot } = createFixtureRoot();
   const issue: AttentionItem = {
     key: 'octo/app#7', sourceKey: 'github.com:issue:9', type: 'issue', kind: 'assigned',
     repo: 'octo/app', number: 7, title: 'Restore uploads', author: 'alice', authorAvatarUrl: null,
@@ -63,7 +61,6 @@ export async function runAttentionActions(): Promise<void> {
     assert(started === 1 && opened === 1, 'Ack must not launch or navigate');
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    disposeRoot();
   }
 }

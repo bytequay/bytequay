@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from './reactFixture';
 import App from '../App';
 import { createPreviewBridge } from '../agents/fixtures/previewBridge';
 import { JIRA_CHANGED, type JiraConnection } from '../jira/contracts';
@@ -55,9 +55,7 @@ export async function run(): Promise<{ name: string }[]> {
   } satisfies Partial<Bridge>;
   window.bridge = bridge as unknown as Bridge;
   window.location.hash = '#/recent';
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { root, dispose: disposeRoot } = createFixtureRoot();
   flushSync(() => root.render(<App />));
   try {
     await until(() => jiraButton() !== null && document.querySelector('[aria-label="Recent"][aria-current="page"]') !== null,
@@ -98,5 +96,5 @@ export async function run(): Promise<{ name: string }[]> {
     assert(getComputedStyle(icon).fill === 'none', 'The Jira icon stays an outline');
     return [{ name: 'connected-site navigation loads, updates and fits the collapsed sidebar' }];
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { disposeRoot(); }
 }

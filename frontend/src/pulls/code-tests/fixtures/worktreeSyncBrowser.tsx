@@ -14,7 +14,7 @@
 
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import CodeTestsTab, { type CodeTestsBridge } from '../CodeTestsTab';
 import type { AgentReviewDto } from '../../agent-review/contracts';
 import type { PullRequestDetailDto } from '../../../types';
@@ -53,8 +53,7 @@ export async function runStartup(taskHost: boolean): Promise<string> {
     listAgentReviews: unused, getAgentReview: unused, subscribeAgentReview: unused, getAgentTask: async () => task,
     prepareReviewWorktree: unused,
   };
-  const host = document.createElement('div'); host.style.cssText = 'height:820px;width:1050px'; document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot(); host.style.cssText = 'height:820px;width:1050px';
   function Harness() {
     const [active, setActive] = useState(false); show = setActive;
     return <CodeTestsTab workspaceId="workspace-1" review={taskHost ? null : review} task={taskHost ? task : null}
@@ -93,7 +92,7 @@ export async function runStartup(taskHost: boolean): Promise<string> {
     flushSync(() => show(true)); await settle();
     assert(Number(starts) === 2 && checks === previousChecks + 1 && !host.textContent?.includes('Start IDE'), 'A ready editor must resume without confirmation or startup');
     return 'Startup requires confirmation, discloses costs, retries failures, and reuses ready editors';
-  } finally { flushSync(() => root.unmount()); host.remove(); window.ide = oldIde; }
+  } finally { dispose(); window.ide = oldIde; }
 }
 
 export async function runExploration(): Promise<string> {
@@ -126,8 +125,7 @@ export async function runExploration(): Promise<string> {
       return new Promise(resolve => { finish = resolve; });
     },
   };
-  const host = document.createElement('div'); host.style.cssText = 'height:820px;width:1050px'; document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot(); host.style.cssText = 'height:820px;width:1050px';
   function Harness() {
     const [review, setReview] = useState<AgentReviewDto | null>(null);
     return <CodeTestsTab detail={detail} workspaceId={prepared.workspaceId} review={review} onReviewChange={setReview}
@@ -147,7 +145,7 @@ export async function runExploration(): Promise<string> {
     finish(prepared); await settle(); await settle();
     assert(Number(opened) === 1 && host.querySelector('.ct-ide-surface') !== null, 'The prepared working copy must open without an agent run');
     return 'Exploration waits for explicit creation, retries failures, and opens the prepared checkout';
-  } finally { flushSync(() => root.unmount()); host.remove(); window.ide = oldIde; }
+  } finally { dispose(); window.ide = oldIde; }
 }
 
 export async function run(): Promise<string> {
@@ -176,8 +174,7 @@ export async function run(): Promise<string> {
     openCodeTerminal: unused, writeReviewTerminal: unused, resizeReviewTerminal: unused, onReviewTerminalEvent: () => () => {},
     listAgentReviews: unused, prepareReviewWorktree: unused, getAgentReview: unused, subscribeAgentReview: unused, getAgentTask: unused,
   };
-  const host = document.createElement('div'); host.style.cssText = 'height:820px;width:1050px'; document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot(); host.style.cssText = 'height:820px;width:1050px';
   function Harness() {
     const [review, setReview] = useState(() => ({ ...runningReviewFixture(), worktreeSync: initial.worktreeSync })); update = setReview;
     const [active, setActive] = useState(true); show = setActive;
@@ -197,5 +194,5 @@ export async function run(): Promise<string> {
     assert(unsaved === 1, 'Source drafts must keep the host unsaved-change guard');
     assert(host.querySelector('dialog[open]') === null, 'No working-copy action dialog should remain');
     return 'Completing a review retains the editor and its unsaved-change guard';
-  } finally { flushSync(() => root.unmount()); host.remove(); window.ide = oldIde; }
+  } finally { dispose(); window.ide = oldIde; }
 }

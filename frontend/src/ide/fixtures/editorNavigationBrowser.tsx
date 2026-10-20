@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import type { TextEditor } from 'vscode';
 import type { ICodeEditor } from '@codingame/monaco-vscode-api/vscode/vs/editor/browser/editorBrowser';
 import type { ReviewCodeFileDto } from '../../pulls/code-tests/contracts';
@@ -22,9 +22,7 @@ import type { CodeBlame, IdeContext } from '../contracts';
 import type { IdeRuntime } from '../runtime';
 
 export async function run() {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose: disposeRoot } = createFixtureRoot();
   const originalBridge = window.ideWorkbench;
   const uri = { toString: () => 'vscode-remote://fixture/main.go' };
   const documentModel = { uri, isDirty: false, getText: () => 'package main' };
@@ -95,5 +93,5 @@ export async function run() {
     assert(currentOptions().lineNumbers === 'on' && currentOptions().lineNumbersMinChars === 5, 'Turning off blame restores the original gutter');
     return { contextUpdates: 20, reads: requests.length };
   }
-  finally { flushSync(() => root.unmount()); host.remove(); window.ideWorkbench = originalBridge; }
+  finally { disposeRoot(); window.ideWorkbench = originalBridge; }
 }

@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { useThreadSnapshot } from '../../../useThreadSnapshot';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import DevelopmentLearningPanel from '../../../agents/DevelopmentLearningPanel';
 import { parseAgentTurn } from '../../../agents/contracts';
 import agentContracts from '../../../agents/fixtures/agent-contracts-v1.json';
@@ -153,9 +154,7 @@ async function replyAndResolve(): Promise<void> {
 }
 
 async function savedRetry(): Promise<void> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   let thread = initialThread();
   thread = { ...thread, messages: [{ ...thread.messages[0], deliveryState: 'UNSENT', deliveryError: 'The agent is unavailable', turnId: null }] };
   let retries = 0;
@@ -182,13 +181,11 @@ async function savedRetry(): Promise<void> {
     assert(host.querySelectorAll('.lrc-message').length === 1 && host.textContent?.includes('queued') === true
       && host.querySelector('[role="alert"]') === null, 'Accepted retry must update delivery state without duplicating user text');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function pendingThreadResponse(): Promise<void> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   let thread = initialThread();
   thread = { ...thread, messages: [...thread.messages, { ...thread.messages[0], id: 'follow-up', deliveryState: 'ACCEPTED' }] };
   const unrelated = { ...initialThread(), id: 'other-thread' };
@@ -257,13 +254,11 @@ async function pendingThreadResponse(): Promise<void> {
       `${state} feedback must release the editor and retain its draft`);
     }
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function interruptedResend(): Promise<void> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   let thread = initialThread();
   thread = { ...thread, messages: [{ ...thread.messages[0], deliveryState: 'INTERRUPTED', deliveryError: 'Backend restarted', turnId: 'turn-1' }] };
   let resends = 0;
@@ -284,13 +279,11 @@ async function interruptedResend(): Promise<void> {
     assert(resends === 1 && !Array.from(host.querySelectorAll('button')).some(value => value.textContent === 'Send again'),
       'A running message must not offer to send it again');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function anchoredDiff(): Promise<void> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const thread = initialThread();
   const localReview: LocalReviewThreads = { threads: [thread], onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {} };
   const render = (head = '2222222', replacement = 'new value', path = thread.path) => flushSync(() => root.render(<DiffViewer
@@ -318,7 +311,7 @@ async function anchoredDiff(): Promise<void> {
       && host.querySelector('[data-local-review-thread="local-1"]')?.textContent?.includes(thread.path) === true,
     'A file absent from this diff must still retain its local review card');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function independentLearningCards(): Promise<void> {
@@ -382,9 +375,7 @@ async function independentLearningCards(): Promise<void> {
 }
 
 async function reviewOwnedLocalDiscussion(): Promise<void> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   let saved = { ...initialThread(), taskId: 'review-owned-task' };
   let replies = 0;
   const bridge: LocalReviewBridgePort = {
@@ -420,7 +411,7 @@ async function reviewOwnedLocalDiscussion(): Promise<void> {
     assert(replies === 1 && host.querySelector('[role="alert"]') === null && host.textContent?.includes('Explain this code without changing it') === true,
       'Review-owned tasks must accept local replies without the interactive task endpoint');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function developmentLearningRefresh(): Promise<void> {
@@ -577,10 +568,8 @@ async function developmentLearningRefresh(): Promise<void> {
 
 async function sharedReviewEditor(): Promise<void> {
   for (const width of [760, 320, 240]) {
-    const host = document.createElement('div');
+    const { host, root, dispose } = createFixtureRoot();
     host.style.width = `${width}px`;
-    document.body.append(host);
-    const root = createRoot(host);
     const submissions: { outgoing: boolean; body: string }[] = [];
     let cancellations = 0;
     const Harness = ({ busy = false, outgoing = false }: { busy?: boolean; outgoing?: boolean }) => {
@@ -662,15 +651,13 @@ async function sharedReviewEditor(): Promise<void> {
       assert(Number(submissions.length) === 2 && submissions[1].outgoing && submissions[1].body === suggestion,
         'Only an explicit outgoing action may pass the original suggestion fence to its callback');
     }
-    finally { flushSync(() => root.unmount()); host.remove(); }
+    finally { dispose(); }
   }
 }
 
 async function sharedCardLayout(): Promise<void> {
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.className = 'pull-diff-threads';
-  document.body.append(host);
-  const root = createRoot(host);
   const thread = initialThread();
   const noAction = async () => {};
   try {
@@ -707,15 +694,13 @@ async function sharedCardLayout(): Promise<void> {
         && cards[2].querySelector('.pull-diff-pending__badge')?.textContent === 'Pending', 'Destination add-ons must stay distinct');
     }
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function pendingReviewerQuestion(): Promise<void> {
   const draft = Array.from({ length: 100 }, (_, index) => `Question ${index + 1}: please explain the previous and current partition statistics.`).join('\n');
   for (const kind of ['summary', 'finding']) {
-    const host = document.createElement('div');
-    document.body.append(host);
-    const root = createRoot(host);
+    const { host, root, dispose } = createFixtureRoot();
     const requests: Array<{ resolve: () => void; reject: (error: Error) => void; publish: () => void }> = [];
     const Surface = () => {
       const [review, setReview] = useState(() => reviewFixture({ messages: [] }));
@@ -762,15 +747,13 @@ async function pendingReviewerQuestion(): Promise<void> {
       button(host, 'Ask reviewer').click(); await settle();
       assert(host.querySelector('textarea')?.value === '', 'The next question must start with an empty draft');
     }
-    finally { flushSync(() => root.unmount()); host.remove(); }
+    finally { dispose(); }
   }
 }
 
 async function pendingFindingResponse(): Promise<void> {
   for (const projection of ['review', 'changes'] as const) {
-    const host = document.createElement('div');
-    document.body.append(host);
-    const root = createRoot(host);
+    const { host, root, dispose } = createFixtureRoot();
     const originalBridge = window.bridge;
     let writes = 0;
     let navigations = 0;
@@ -876,7 +859,7 @@ async function pendingFindingResponse(): Promise<void> {
       assert(!button(card, 'Reopen').disabled, 'Reopening must become available when the response ends');
     }
     finally {
-      flushSync(() => root.unmount()); host.remove();
+      dispose();
       Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
     }
   }
@@ -890,9 +873,7 @@ async function editFindingInPlace(): Promise<void> {
       updatedAt: finding.updatedAt, items: [{ id: 'outgoing-comment', source: 'AGENT_FINDING', findingId: finding.id,
         findingRevision: finding.revision, path: finding.path, side: finding.side, line: finding.endLine, startLine: finding.startLine,
         commitId: finding.validatedHeadSha, body: 'My saved comment', included: true, published: false, publication: null }] } };
-    const host = document.createElement('div');
-    document.body.append(host);
-    const root = createRoot(host);
+    const { host, root, dispose } = createFixtureRoot();
     let saves = 0;
     const render = () => flushSync(() => root.render(<ReviewFindingCard review={review} finding={finding} projection={projection}
       viewerLogin="me" viewerAvatarUrl={null} actions={{ onAsk: async () => {}, onResolve: async () => {}, onReopen: async () => {},
@@ -929,15 +910,13 @@ async function editFindingInPlace(): Promise<void> {
         'Save must restore the updated outgoing comment in place');
       assert(review.findings[0] === finding, 'Editing outgoing text must leave the agent finding unchanged');
     }
-    finally { flushSync(() => root.unmount()); host.remove(); }
+    finally { dispose(); }
   }
 }
 
 async function copyConversations(): Promise<void> {
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.width = '420px';
-  document.body.append(host);
-  const root = createRoot(host);
   const previous = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
   let copied = '';
   let fail = false;
@@ -982,7 +961,7 @@ async function copyConversations(): Promise<void> {
       'A resolved card must stay folded and fit the narrow pane');
   }
   finally {
-    flushSync(() => root.unmount()); host.remove();
+    dispose();
     if (previous) Object.defineProperty(navigator, 'clipboard', previous);
     else Reflect.deleteProperty(navigator, 'clipboard');
   }
@@ -998,9 +977,7 @@ async function threadSnapshotRaces(): Promise<void> {
     return null;
   }
   const read = () => { assert(current !== undefined, 'The hook must mount'); return current; };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { root, dispose } = createFixtureRoot();
   const row = (version: number): Row => ({ id: 'thread', version, createdAt: '2026-01-01' });
   try {
     flushSync(() => root.render(<Harness taskId="a" active={false} />));
@@ -1030,7 +1007,7 @@ async function threadSnapshotRaces(): Promise<void> {
     await settle();
     assert(read().items[0]?.version === 4, 'The new task must accept its own snapshot');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {

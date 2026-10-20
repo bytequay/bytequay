@@ -285,7 +285,8 @@
   color: var(--fg-dim);
 }
 
-.goal-search__field input {
+.goal-search__field input,
+.epic-view__new > input {
   flex: 1;
   min-width: 0;
   border: 0;
@@ -777,17 +778,6 @@
 .epic-view__new:focus-within {
   border-style: solid;
   border-color: light-dark(#54aeff, var(--dark-blue));
-}
-
-.epic-view__new > input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--text-1);
-  font: inherit;
-  font-size: 13px;
 }
 
 .epic-view__link {

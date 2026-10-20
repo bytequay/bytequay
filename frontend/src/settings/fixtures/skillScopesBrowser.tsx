@@ -13,7 +13,7 @@
  */
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { parseAgentSkillInput } from '../../agents/contracts';
 import type { AgentSkillDto, AgentSkillInput, AgentSkillScope } from '../../types';
 import SkillsPage from '../SkillsPage';
@@ -51,9 +51,7 @@ function Harness({ initial, writes }: { initial: AgentSkillDto[]; writes: AgentS
 
 function fixture(initial: AgentSkillDto[] = []) {
   const writes: AgentSkillInput[] = [];
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose: disposeRoot } = createFixtureRoot();
   flushSync(() => root.render(<Harness initial={initial} writes={writes} />));
 
   /** While a dialog is open it owns the controls, so "Add skill" means confirm, not reopen. */
@@ -102,7 +100,7 @@ function fixture(initial: AgentSkillDto[] = []) {
       assert(toggle !== undefined, `${name} must have an enable switch`);
       return toggle.getAttribute('aria-checked') === 'true';
     },
-    dispose() { flushSync(() => root.unmount()); host.remove(); },
+    dispose() { disposeRoot(); },
   };
 }
 

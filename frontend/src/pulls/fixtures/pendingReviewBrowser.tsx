@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { prDetail } from './pullRequest';
 import type { Bridge, DiffCommitDto, DiffFileDto, PullRequestDetailDto } from '../../types';
 import PullsScreen, { remotePullRequest, ReviewDialog } from '../PullsScreen';
@@ -107,10 +107,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     | 'fetchMergeMode' | 'getReviewDraft' | 'saveReviewDraft' | 'addReviewDraftComment' | 'submitReviewDraft' | 'recordRecentTouch'>;
   const previous = window.bridge;
   Object.assign(window, { bridge: { ...agent, ...stubs } });
-  const host = document.createElement('main');
+  const { host, root, dispose } = createFixtureRoot('main');
   host.style.cssText = 'height: 900px; width: 1600px';
-  document.body.append(host);
-  const root = createRoot(host);
   const button = (text: string) => {
     const found = [...host.querySelectorAll<HTMLButtonElement>('button')].find(entry => entry.textContent?.includes(text));
     assert(found !== undefined, `Missing ${text} button`);
@@ -250,8 +248,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   catch (error) { return [{ name: 'A staged review lasts as long as the pull request page', error: error instanceof Error ? error.message : String(error) }]; }
   finally {
     window.setTimeout = originalTimeout;
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: previous });
   }
 }
@@ -313,9 +310,7 @@ export async function runDraftCommentEdit(): Promise<string> {
     | 'saveReviewDraft' | 'submitReviewDraft' | 'fetchPullRequestDetailByRef' | 'betterWords' | 'confirmReviewDraftCommentNotPosted'>;
   const previous = window.bridge;
   Object.assign(window, { bridge });
-  const host = document.createElement('main');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot('main');
   const render = () => root.render(<ReviewDialog pr={remotePullRequest(stored, 'bob')} detail={stored} review={currentReview}
     onReviewChange={value => { currentReview = value; render(); }} onReviewSubmitted={() => {}} onClose={() => { closed = true; }} />);
   const button = (selector: string) => {
@@ -387,17 +382,14 @@ export async function runDraftCommentEdit(): Promise<string> {
     return 'Saved draft comments support editing, retry and explicit submission';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: previous });
   }
 }
 
 export async function runConfirmedPublication(): Promise<string> {
   const previous = window.bridge;
-  const host = document.createElement('main');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot('main');
   try {
     for (const summary of [false, true]) {
       const finding = { ...reviewFixture().findings[0], state: 'OPEN' as const };
@@ -444,17 +436,14 @@ export async function runConfirmedPublication(): Promise<string> {
     return 'Confirmed publications refresh resolved findings for comments and review summaries';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: previous });
   }
 }
 
 export async function runApprovalCommitBinding(): Promise<string> {
   const previous = window.bridge;
-  const host = document.createElement('main');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot('main');
   const submissions: Parameters<Bridge['submitReviewDraft']>[] = [];
   let writes = 0;
   let draft: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: '', event: 'APPROVE', reviewPublication: null,
@@ -492,8 +481,7 @@ export async function runApprovalCommitBinding(): Promise<string> {
     return 'Approvals stay bound to the viewed commit';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: previous });
   }
 }

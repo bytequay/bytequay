@@ -13,7 +13,7 @@
  */
 
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import type { AgentApprovalDecision, AgentApprovalDto, AgentPendingApprovalDto, CherryPickExecution, CiAutofixRunDto, WorkspaceDeliveryStatus } from '../../types';
 import { assert, settle } from '../../fixtures/harness';
 import ProgressView from '../ProgressView';
@@ -66,9 +66,7 @@ async function scenario(parentTaskId: string | null): Promise<{ name: string; er
         scopedPermission: null, resolvedAt: '2026-09-25T09:01:00Z', timedOut: false };
     },
   } });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose: disposeRoot } = createFixtureRoot();
   flushSync(() => root.render(<ProgressView executionId="range-1" workspaceId="workspace-1" upstreamSlug={null}
     onBackToTasks={() => {}} onStartAnotherRange={() => {}} />));
   try {
@@ -89,8 +87,7 @@ async function scenario(parentTaskId: string | null): Promise<{ name: string; er
     return { name };
   } catch (failure) { return { name, error: failure instanceof Error ? failure.message : String(failure) }; }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    disposeRoot();
     if (original === undefined) delete (window as { bridge?: unknown }).bridge;
     else Object.defineProperty(window, 'bridge', original);
   }
@@ -115,9 +112,7 @@ async function forkDeliveryRetry(): Promise<{ name: string; error?: string }> {
     refreshPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
     createWorkspacePullRequest: async () => { writes++; active = true; },
   } });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose: disposeRoot } = createFixtureRoot();
   flushSync(() => root.render(<ProgressView executionId="range-1" workspaceId="workspace-1" upstreamSlug="acme/demo"
     onBackToTasks={() => {}} onStartAnotherRange={() => {}} />));
   try {
@@ -137,7 +132,7 @@ async function forkDeliveryRetry(): Promise<{ name: string; error?: string }> {
     return { name };
   } catch (failure) { return { name, error: failure instanceof Error ? failure.message : String(failure) }; }
   finally {
-    flushSync(() => root.unmount()); host.remove();
+    disposeRoot();
     if (original === undefined) delete (window as { bridge?: unknown }).bridge;
     else Object.defineProperty(window, 'bridge', original);
   }

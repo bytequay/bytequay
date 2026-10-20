@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { useCallback } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
 import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, CreateAgentTaskRequest, PullRequestDto, StartAgentTurnRequest } from '../../types';
 import { parseAgentEventSequence, type AgentEventEnvelope } from '../events';
 import { TaskComposer, useAgentTaskCreation } from '../AgentTasksView';
@@ -30,9 +30,7 @@ import '../../css/agents.css';
 
 async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   function Harness() {
     const live = useCallback(() => bridge, []);
     const creation = useAgentTaskCreation({ workspaceId: 'workspace-1', bridge: live, onOpenTask: () => {} });
@@ -70,7 +68,7 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
     return [{ name: 'Keeping commits local preserves task defaults and submits one explicit first-turn override' }];
   }
   catch (error) { return [{ name: 'Local publication submission', error: error instanceof Error ? error.message : String(error) }]; }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function createDeepSeekTask(): Promise<{ name: string; error?: string }[]> {
@@ -85,9 +83,7 @@ async function createDeepSeekTask(): Promise<{ name: string; error?: string }[]>
       selectedModel: 'deepseek-flash', selectedEffort: '',
     }],
   });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   function Harness() {
     const live = useCallback(() => bridge, []);
     const creation = useAgentTaskCreation({ workspaceId: 'workspace-1',
@@ -119,7 +115,7 @@ async function createDeepSeekTask(): Promise<{ name: string; error?: string }[]>
     return [{ name: 'DeepSeek creation inherits saved automation for task and first turn' }];
   }
   catch (error) { return [{ name: 'DeepSeek automation submission', error: error instanceof Error ? error.message : String(error) }]; }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
@@ -140,9 +136,7 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
     listener({ subscriptionId: 'retry', taskId, kind: 'state', state: 'open' });
     return () => {};
   };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const confirm = window.confirm;
   window.confirm = () => { throw new Error('The task screen must ask through its own dialog'); };
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
@@ -173,14 +167,12 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
     return [{ name: 'Authentication retry retains accepted automation instead of current task defaults' }];
   }
   catch (error) { return [{ name: 'Authentication retry policy', error: error instanceof Error ? error.message : String(error) }]; }
-  finally { window.confirm = confirm; flushSync(() => root.unmount()); host.remove(); }
+  finally { window.confirm = confirm; dispose(); }
 }
 
 async function multilineDraft(): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   function Harness() {
     const live = useCallback(() => bridge, []);
     const creation = useAgentTaskCreation({ workspaceId: 'workspace-1', bridge: live, onOpenTask: () => {} });
@@ -211,7 +203,7 @@ async function multilineDraft(): Promise<{ name: string; error?: string }[]> {
     return [{ name: 'The task draft wraps onto new lines and grows the composer' }];
   }
   catch (error) { return [{ name: 'Multi-line task draft', error: error instanceof Error ? error.message : String(error) }]; }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
@@ -257,9 +249,7 @@ async function developerFeedback(): Promise<{ name: string; error?: string }[]> 
     task = { ...task, state: 'COMPLETED', version: task.version + 1 };
     return result;
   };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
@@ -282,8 +272,7 @@ async function developerFeedback(): Promise<{ name: string; error?: string }[]> 
   }
   catch (error) { return [{ name: 'Developer feedback', error: error instanceof Error ? error.message : String(error) }]; }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     if (originalBridge === undefined) delete (window as { bridge?: unknown }).bridge;
     else Object.defineProperty(window, 'bridge', originalBridge);
   }
@@ -323,9 +312,7 @@ async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> 
     notify({ subscriptionId: 'stop-preserved', taskId, kind: 'events', events: [stopped] });
     return task;
   };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
@@ -365,7 +352,7 @@ async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> 
     assert(requests.length === 1 && (requests[0].args[0] as StartAgentTurnRequest).message === 'Continue with the smaller change', 'Only the explicit new message may start a turn');
     return [{ name: 'Verified Stop preserves the task and draft while unresolved shutdown remains blocked' }];
   } catch (error) { return [{ name: 'Stop preserves the open task', error: error instanceof Error ? error.message : String(error) }]; }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function stopWaitingCi(): Promise<{ name: string; error?: string }[]> {
@@ -390,9 +377,7 @@ async function stopWaitingCi(): Promise<{ name: string; error?: string }[]> {
   const stopped = new Promise<AgentTaskDto>(resolve => { releaseStop = resolve; });
   let stops = 0;
   bridge.stopAgentRuntime = async () => { stops++; return stopped; };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
@@ -438,7 +423,7 @@ async function stopWaitingCi(): Promise<{ name: string; error?: string }[]> {
     return [{ name: 'Waiting CI is distinct from agent execution and verified stop enables the retained draft' }];
   }
   catch (error) { return [{ name: 'Stop waiting CI and continue', error: error instanceof Error ? error.message : String(error) }]; }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function continuationAdmission(): Promise<{ name: string; error?: string }[]> {
@@ -456,9 +441,7 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
     listener({ subscriptionId: 'continuation', taskId, kind: 'state', state: 'open' });
     return () => {};
   };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
@@ -495,7 +478,7 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
     return [{ name: 'Continuation ownership blocks competing work and releases the normal answer composer' }];
   }
   catch (error) { return [{ name: 'Continuation admission', error: error instanceof Error ? error.message : String(error) }]; }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function pullRequestLookupPolicy(initiallyRunning = false): Promise<{ name: string; error?: string }[]> {
@@ -546,9 +529,7 @@ async function pullRequestLookupPolicy(initiallyRunning = false): Promise<{ name
       eventId: `observation-${current}`, sequence: current, turnId: phase === 'DEVELOPMENT_AUTOMATION_UPDATED' ? null : turn.id,
       type: 'lifecycle', payload: { phase, message: 'Task changed' } }] });
   };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
@@ -614,8 +595,7 @@ async function pullRequestLookupPolicy(initiallyRunning = false): Promise<{ name
   }
   catch (error) { return [{ name: 'Task pull request lookup', error: error instanceof Error ? error.message : String(error) }]; }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     if (originalBridge === undefined) delete (window as { bridge?: unknown }).bridge;
     else Object.defineProperty(window, 'bridge', originalBridge);
   }
@@ -657,9 +637,7 @@ async function pausedPullRequestLookup(): Promise<{ name: string; error?: string
     if (++remoteLookups === 1) throw new Error(`GitHub secondary API rate limit reached; retry after ${new Date().toISOString()}`);
     return [pr];
   };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     for (let frame = 0; frame < 30 && remoteLookups === 0; frame++) await settle();
@@ -674,8 +652,7 @@ async function pausedPullRequestLookup(): Promise<{ name: string; error?: string
   }
   catch (error) { return [{ name: 'Paused pull request check', error: error instanceof Error ? error.message : String(error) }]; }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     if (originalBridge === undefined) delete (window as { bridge?: unknown }).bridge;
     else Object.defineProperty(window, 'bridge', originalBridge);
   }
@@ -718,9 +695,7 @@ async function worktreeVersionRefresh(conflictAfterRefresh = false): Promise<{ n
     notify(message);
     return message;
   };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const name = conflictAfterRefresh ? 'A racing worktree update preserves the input and requires an explicit retry'
     : 'Worktree save and run lifecycle updates refresh the version before Send without changing the draft';
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
@@ -765,5 +740,5 @@ async function worktreeVersionRefresh(conflictAfterRefresh = false): Promise<{ n
     return [{ name }];
   }
   catch (error) { return [{ name, error: error instanceof Error ? error.message : String(error) }]; }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }

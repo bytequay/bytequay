@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from './reactFixture';
 import App from '../App';
 import { createPreviewBridge } from '../agents/fixtures/previewBridge';
 import { setPinned } from '../home/pinned';
@@ -66,9 +66,7 @@ export async function run(): Promise<{ name: string }[]> {
   setPinned({ key: `task:${taskId}`, title, target: { kind: 'task', taskId, workspaceId: workspace.id } }, true);
   setPinned({ key: 'task:missing-task', title: missingTitle, target: { kind: 'task', taskId: 'missing-task', workspaceId: 'missing-workspace' } }, true);
   window.location.hash = '#/recent';
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { root, dispose: disposeRoot } = createFixtureRoot();
   flushSync(() => root.render(<App />));
   const openPin = (label: string): void => {
     const button = document.querySelector<HTMLButtonElement>(`[aria-label="Pinned navigation"] button[aria-label="${label}"]`);
@@ -115,5 +113,5 @@ export async function run(): Promise<{ name: string }[]> {
     assertOrigin();
     return [{ name: 'saved task pins load and report errors over the original page' }];
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { disposeRoot(); }
 }

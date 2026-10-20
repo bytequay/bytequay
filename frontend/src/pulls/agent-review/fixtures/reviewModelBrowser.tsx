@@ -13,7 +13,7 @@
  */
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import { assert, settle } from '../../../fixtures/harness';
 import { NO_AGENT_CAPABILITIES } from '../../../agents/capabilities';
 import type { ModelProviderDto } from '../../../types';
@@ -22,9 +22,7 @@ import type { ReviewModelSelection } from '../contracts';
 import { runningReviewFixture } from './review';
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const selections: ReviewModelSelection[] = [];
   const providers: ModelProviderDto[] = [
     { id: 'claude', label: 'Claude Code', readiness: 'READY', diagnostic: '', capabilities: NO_AGENT_CAPABILITIES,
@@ -74,6 +72,6 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   } catch (cause) {
     return [{ name, error: cause instanceof Error ? cause.message : String(cause) }];
   } finally {
-    flushSync(() => root.unmount()); host.remove();
+    dispose();
   }
 }

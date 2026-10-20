@@ -12,14 +12,12 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import { DiscussionComposer } from '../PullOverview';
 
 export async function run(): Promise<string> {
-  const host = document.createElement('main');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot('main');
   const posted: string[] = [];
   let rejectPost = true;
   let rejectClose = true;
@@ -71,7 +69,6 @@ export async function run(): Promise<string> {
   }
   finally {
     window.removeEventListener('unhandledrejection', rejected);
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
   }
 }

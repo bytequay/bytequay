@@ -49,16 +49,21 @@ function workspace(id: string, overrides: Partial<WorkspaceDto> = {}): Workspace
   });
 }
 
+function reviewContextBridge() {
+  return {
+    findPullRequestTask: vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>().mockResolvedValue(null),
+    findTaskAgentReview: vi.fn<Parameters<Bridge['findTaskAgentReview']>, ReturnType<Bridge['findTaskAgentReview']>>().mockResolvedValue(null),
+    getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
+    listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>(),
+    findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>(),
+  };
+}
+
 describe('loadAgentReviewContext', () => {
   it('opens the exact ended review from Tasks even when the PR has a newer open review', async () => {
     const review = reviewFixture({ id: 'ended-review', state: 'CLOSED' });
-    const bridge = {
-      findPullRequestTask: vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>().mockResolvedValue(null),
-      findTaskAgentReview: vi.fn<Parameters<Bridge['findTaskAgentReview']>, ReturnType<Bridge['findTaskAgentReview']>>().mockResolvedValue(null),
-      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>().mockResolvedValue(review),
-      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>(),
-      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>(),
-    };
+    const bridge = reviewContextBridge();
+    bridge.getAgentReview.mockResolvedValue(review);
 
     await expect(loadAgentReviewContext(bridge, review.repo, review.number, review.workspaceId, review.id))
       .resolves.toEqual({ workspaceId: review.workspaceId, review, developerTask: null });
@@ -75,13 +80,8 @@ describe('loadAgentReviewContext', () => {
 
   it('keeps an explicitly opened workspace as the review context', async () => {
     const review = reviewFixture();
-    const bridge = {
-      findPullRequestTask: vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>().mockResolvedValue(null),
-      findTaskAgentReview: vi.fn<Parameters<Bridge['findTaskAgentReview']>, ReturnType<Bridge['findTaskAgentReview']>>().mockResolvedValue(null),
-      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
-      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>(),
-      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockResolvedValue(review),
-    };
+    const bridge = reviewContextBridge();
+    bridge.findAgentReview.mockResolvedValue(review);
 
     await expect(loadAgentReviewContext(bridge, review.repo, review.number, review.workspaceId))
       .resolves.toEqual({ workspaceId: review.workspaceId, review, developerTask: null });
@@ -91,17 +91,13 @@ describe('loadAgentReviewContext', () => {
 
   it('opens the first existing global PR review across matching watched repositories, regardless of casing', async () => {
     const review = reviewFixture({ workspaceId: 'workspace-2' });
-    const bridge = {
-      findPullRequestTask: vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>().mockResolvedValue(null),
-      findTaskAgentReview: vi.fn<Parameters<Bridge['findTaskAgentReview']>, ReturnType<Bridge['findTaskAgentReview']>>().mockResolvedValue(null),
-      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
-      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockResolvedValue([
+    const bridge = reviewContextBridge();
+    bridge.listWorkspaces.mockResolvedValue([
         workspace('workspace-1'),
         workspace('workspace-2', { monitoredOwner: 'TrinoDB', monitoredRepo: 'Trino' }),
         workspace('workspace-3'),
-      ]),
-      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockResolvedValueOnce(null).mockResolvedValue(review),
-    };
+      ]);
+    bridge.findAgentReview.mockResolvedValueOnce(null).mockResolvedValue(review);
 
     await expect(loadAgentReviewContext(bridge, review.repo, review.number))
       .resolves.toEqual({ workspaceId: review.workspaceId, review, developerTask: null });
@@ -112,15 +108,11 @@ describe('loadAgentReviewContext', () => {
   });
 
   it('reuses an assigned authored PR task across workspaces before selecting a review', async () => {
-    const bridge = {
-      findPullRequestTask: vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>().mockResolvedValue(null),
-      findTaskAgentReview: vi.fn<Parameters<Bridge['findTaskAgentReview']>, ReturnType<Bridge['findTaskAgentReview']>>().mockResolvedValue(null),
-      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
-      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockResolvedValue([
+    const bridge = reviewContextBridge();
+    bridge.listWorkspaces.mockResolvedValue([
         workspace('workspace-1'), workspace('workspace-2'),
-      ]),
-      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockResolvedValue(null),
-    };
+      ]);
+    bridge.findAgentReview.mockResolvedValue(null);
     const findTask = vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>()
       .mockResolvedValueOnce(null).mockResolvedValue({ workspaceId: 'workspace-2', taskId: 'assigned-task' });
 
@@ -135,13 +127,10 @@ describe('loadAgentReviewContext', () => {
   it('keeps the assigned developer and its local reviewer in a scoped PR header', async () => {
     const review = reviewFixture({ number: null, sourceTaskId: 'assigned-task' });
     const developerTask = { workspaceId: review.workspaceId, taskId: 'assigned-task' };
-    const bridge = {
-      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
-      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>(),
-      findPullRequestTask: vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>().mockResolvedValue(developerTask),
-      findTaskAgentReview: vi.fn<Parameters<Bridge['findTaskAgentReview']>, ReturnType<Bridge['findTaskAgentReview']>>().mockResolvedValue(review),
-      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockResolvedValue(null),
-    };
+    const bridge = reviewContextBridge();
+    bridge.findPullRequestTask.mockResolvedValue(developerTask);
+    bridge.findTaskAgentReview.mockResolvedValue(review);
+    bridge.findAgentReview.mockResolvedValue(null);
     await expect(loadAgentReviewContext(bridge, review.repo, 30304, review.workspaceId))
       .resolves.toEqual({ workspaceId: review.workspaceId, review, developerTask });
     expect(bridge.findAgentReview).not.toHaveBeenCalled();
@@ -151,15 +140,11 @@ describe('loadAgentReviewContext', () => {
   });
 
   it('allows starting review in the first matching workspace when none has a review', async () => {
-    const bridge = {
-      findPullRequestTask: vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>().mockResolvedValue(null),
-      findTaskAgentReview: vi.fn<Parameters<Bridge['findTaskAgentReview']>, ReturnType<Bridge['findTaskAgentReview']>>().mockResolvedValue(null),
-      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
-      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockResolvedValue([
+    const bridge = reviewContextBridge();
+    bridge.listWorkspaces.mockResolvedValue([
         workspace('workspace-1'), workspace('workspace-2'),
-      ]),
-      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockResolvedValue(null),
-    };
+      ]);
+    bridge.findAgentReview.mockResolvedValue(null);
 
     await expect(loadAgentReviewContext(bridge, 'trinodb/trino', 30304))
       .resolves.toEqual({ workspaceId: 'workspace-1', review: null, developerTask: null });
@@ -167,13 +152,8 @@ describe('loadAgentReviewContext', () => {
   });
 
   it('requires a monitored repository match instead of matching only the selected fork', async () => {
-    const bridge = {
-      findPullRequestTask: vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>().mockResolvedValue(null),
-      findTaskAgentReview: vi.fn<Parameters<Bridge['findTaskAgentReview']>, ReturnType<Bridge['findTaskAgentReview']>>().mockResolvedValue(null),
-      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
-      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockResolvedValue([workspace('workspace-1')]),
-      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>(),
-    };
+    const bridge = reviewContextBridge();
+    bridge.listWorkspaces.mockResolvedValue([workspace('workspace-1')]);
 
     await expect(loadAgentReviewContext(bridge, 'my-fork/trino', 30304))
       .resolves.toEqual({ workspaceId: undefined, review: null, developerTask: null });
@@ -184,14 +164,10 @@ describe('loadAgentReviewContext', () => {
 
   it('propagates lookup failures so they cannot appear as an unwatched PR or absent review', async () => {
     const failure = new Error('Backend unavailable');
-    const bridge = {
-      findPullRequestTask: vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>().mockResolvedValue(null),
-      findTaskAgentReview: vi.fn<Parameters<Bridge['findTaskAgentReview']>, ReturnType<Bridge['findTaskAgentReview']>>().mockResolvedValue(null),
-      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
-      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockRejectedValueOnce(failure)
-        .mockResolvedValue([workspace('workspace-1')]),
-      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockRejectedValue(failure),
-    };
+    const bridge = reviewContextBridge();
+    bridge.listWorkspaces.mockRejectedValueOnce(failure)
+        .mockResolvedValue([workspace('workspace-1')]);
+    bridge.findAgentReview.mockRejectedValue(failure);
 
     await expect(loadAgentReviewContext(bridge, 'trinodb/trino', 30304)).rejects.toBe(failure);
     expect(bridge.findAgentReview).not.toHaveBeenCalled();

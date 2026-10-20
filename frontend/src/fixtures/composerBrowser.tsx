@@ -13,14 +13,12 @@
  */
 import { createRef, type ComponentProps } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from './reactFixture';
 import Composer from '../Composer';
 import { assert } from './harness';
 
 export function run(): { name: string; error?: string }[] {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose: disposeRoot } = createFixtureRoot();
   const results: { name: string; error?: string }[] = [];
   const field = createRef<HTMLTextAreaElement>();
   let sent = 0;
@@ -74,5 +72,5 @@ export function run(): { name: string; error?: string }[] {
       assert(sent === 0 && pasted, 'Blocked sending does not consume paste or send a message');
     });
     return results;
-  } finally { flushSync(() => root.unmount()); host.remove(); }
+  } finally { disposeRoot(); }
 }

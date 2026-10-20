@@ -12,9 +12,9 @@
  * limitations under the License.
  */
 
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { useReducer, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
 import { AgentConversation, useConversationHistory } from '../AgentConversation';
 import AgentTaskScreen, { AgentTaskBody } from '../AgentTaskScreen';
 import type { AgentHistoryPageDto, AgentTaskDto, AgentTurnDto } from '../../types';
@@ -59,9 +59,7 @@ function fixture(initial: Partial<Frame> = {}) {
   let frame: Frame = { events: page(31, 60), before: 'older', after: null, loading: false, endedAt: null, ...initial };
   let following = true;
   const requests: string[] = [];
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   function Transcript() {
     const [, rerender] = useReducer(value => value + 1, 0);
     const scroll = useConversationHistory(frame.events, frame.endedAt, {
@@ -112,7 +110,7 @@ function fixture(initial: Partial<Frame> = {}) {
       assert(element != null, `Reading passage ${line ?? 'at viewport top'} is missing`);
       return { line: element.dataset.line, top: element.getBoundingClientRect().top };
     },
-    dispose() { flushSync(() => root.unmount()); host.remove(); },
+    dispose() { dispose(); },
   };
 }
 
@@ -143,10 +141,8 @@ async function longCommandConversation(): Promise<void> {
   const initial = agentTaskReducer({
     ...initialAgentTaskState(), task: previewTask('workspace', 'scroll-fixture'), turn, turns: { turn }, connection: 'open',
   }, { type: 'history/loaded', page: read(7010), earlier: [read(5010), read(6010)], direction: 'latest' });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'height: 560px; width: 760px; font: 14px -apple-system, sans-serif';
-  document.body.append(host);
-  const root = createRoot(host);
   const requests: string[] = [];
   let respond = (): void => { throw new Error('No pending history read'); };
   function Conversation() {
@@ -215,7 +211,7 @@ async function longCommandConversation(): Promise<void> {
     assert(Math.abs(composer.getBoundingClientRect().top - composerTop) <= 1,
       'Paging and scrolling the transcript must leave the composer in place');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 const message = (sequence: number, turnId: string, text: string, messageKind: 'COMMENTARY' | 'ANSWER' = 'COMMENTARY'): AgentEventEnvelope => ({
@@ -247,10 +243,8 @@ async function latestRequestAtTop(): Promise<void> {
     ...initialAgentTaskState(), task: previewTask('workspace', 'scroll-fixture'), turn: running,
     turns: { earlier: durable('earlier', 'COMPLETED'), latest: running }, connection: 'open',
   }, { type: 'history/loaded', page: latest([...earlier, request(33, 'latest', 'commit')]), direction: 'latest' });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'height: 560px; width: 760px; font: 14px -apple-system, sans-serif';
-  document.body.append(host);
-  const root = createRoot(host);
   let append = (_events: AgentEventEnvelope[]): void => { throw new Error('The conversation is not mounted'); };
   function Conversation() {
     const [state, dispatch] = useReducer(agentTaskReducer, initial);
@@ -289,7 +283,7 @@ async function latestRequestAtTop(): Promise<void> {
     const streaming = turn.querySelector<HTMLElement>('.agt-live');
     assert(streaming !== null && streaming.getBoundingClientRect().bottom <= turn.getBoundingClientRect().bottom + 1, 'A long latest turn must grow with its reply instead of overflowing its box');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 /** Someone reading earlier in the live page still gets streamed output, and keeps their place. */
@@ -301,10 +295,8 @@ async function streamsWhileReadingEarlier(): Promise<void> {
     ...initialAgentTaskState(), task: previewTask('workspace', 'scroll-fixture'), turn: running,
     turns: { earlier: durable('earlier', 'COMPLETED'), latest: running }, connection: 'open',
   }, { type: 'history/loaded', page: latest(opening), direction: 'latest' });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'height: 560px; width: 760px; font: 14px -apple-system, sans-serif';
-  document.body.append(host);
-  const root = createRoot(host);
   let append = (_events: AgentEventEnvelope[]): void => { throw new Error('The conversation is not mounted'); };
   function Conversation() {
     const [state, dispatch] = useReducer(agentTaskReducer, initial);
@@ -341,7 +333,7 @@ async function streamsWhileReadingEarlier(): Promise<void> {
     const movement = held === undefined ? Number.NaN : held.getBoundingClientRect().top - top;
     assert(Math.abs(movement) <= 1, `Streamed output moved the passage being read ${Math.round(movement)}px`);
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function sentMessageGlidesToTop(): Promise<void> {
@@ -351,10 +343,8 @@ async function sentMessageGlidesToTop(): Promise<void> {
     ...initialAgentTaskState(), task: { ...previewTask('workspace', 'scroll-fixture'), mutationClaim: null, developmentContinuationUnfinished: false },
     turn: completed, turns: { earlier: completed }, connection: 'open', composer: 'Check the next step',
   }, { type: 'history/loaded', page: latest(earlier), direction: 'latest' });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'height: 560px; width: 760px; font: 14px -apple-system, sans-serif';
-  document.body.append(host);
-  const root = createRoot(host);
   let deliver = (_events: AgentEventEnvelope[]): void => { throw new Error('The conversation is not mounted'); };
   function Conversation() {
     const [state, dispatch] = useReducer(agentTaskReducer, initial);
@@ -394,7 +384,7 @@ async function sentMessageGlidesToTop(): Promise<void> {
     assert(bubbles.length === 1 && delivered !== null && Math.abs(delivered.getBoundingClientRect().top - viewport.top - padding) <= 1,
       'The durable message should replace the sent one in place, without a duplicate or a jump');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function sendsWhileOlderHistoryLoads(): Promise<void> {
@@ -426,10 +416,8 @@ async function sendsWhileOlderHistoryLoads(): Promise<void> {
     return () => {};
   };
   bridge.startAgentTurn = () => new Promise(() => {});
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'height: 560px; width: 760px; font: 14px -apple-system, sans-serif';
-  document.body.append(host);
-  const root = createRoot(host);
   try {
     flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace" taskId={task.id} bridge={bridge} onBack={() => {}} />));
     await until(() => host.querySelector<HTMLButtonElement>('[aria-label="Send message"]') !== null
@@ -466,17 +454,15 @@ async function sendsWhileOlderHistoryLoads(): Promise<void> {
       'A late older-history response must not replace the message and log just sent');
     assert(host.querySelectorAll('.agt-user__bubble').length === 1, 'The durable message must replace its pending bubble exactly once');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function trailingNoticeKeepsRequestAtTop(): Promise<void> {
   const events = [request(1, 'earlier', 'Explain the build'),
     ...Array.from({ length: 30 }, (_, index) => message(index + 2, 'earlier', `Earlier commentary ${index}. The build output is being read.`)),
     request(32, 'latest', 'commit')];
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'height: 560px; width: 760px; display: flex; flex-direction: column; font: 14px -apple-system, sans-serif';
-  document.body.append(host);
-  const root = createRoot(host);
   let notice = (_working: boolean): void => { throw new Error('The conversation is not mounted'); };
   function Conversation() {
     const [working, setWorking] = useState(true);
@@ -503,7 +489,7 @@ async function trailingNoticeKeepsRequestAtTop(): Promise<void> {
     await settle();
     assert(Math.abs(offset() - padding) <= 1, `A notice that disappears must not drop the request: it sits ${offset()}px down`);
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {

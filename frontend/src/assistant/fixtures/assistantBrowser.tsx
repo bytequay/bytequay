@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import '../../index.css';
 import { changeInput } from '../../fixtures/harness';
 import type { WorkItemDto } from '../../workitems/contracts';
@@ -143,9 +143,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     findStoredPullRequest: async (): Promise<null> => null,
     ...scripted,
   } as unknown as Bridge;
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose: disposeRoot } = createFixtureRoot();
   let shown = true;
   const render = (open: boolean, openCard?: { id: string }) => {
     shown = open;
@@ -158,7 +156,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     ));
   };
   render(true);
-  return { host, calls, render, dispose: () => { flushSync(() => root.unmount()); host.remove(); } };
+  return { host, calls, render, dispose: disposeRoot };
 }
 
 function type(host: HTMLElement, text: string): HTMLTextAreaElement {

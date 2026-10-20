@@ -13,7 +13,7 @@
  */
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from './reactFixture';
 import { workspaceFixture } from '../workspaces/fixtures/workspace';
 import AddRepoModal from '../AddRepoModal';
 import '../css/agent-review.css';
@@ -58,9 +58,7 @@ export async function run(): Promise<string[]> {
     previewWatch: (id: number) => { previews++; return id === 2 ? Promise.resolve(otherPreview) : pendingPreview.promise; },
     watchRepository: (command: WatchRepositoryCommand) => { commands.push(command); return pendingWatch.promise; },
   } satisfies Partial<Window['bridge']> });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose: disposeRoot } = createFixtureRoot();
   const render = () => flushSync(() => root.render(<AddRepoModal
     onAdded={value => added.push(value)}
     onOpenWorkspace={() => { throw new Error('New watches must not open an existing workspace'); }}
@@ -169,7 +167,7 @@ export async function run(): Promise<string[]> {
     return ['background clicks preserve progress', 'explicit cancellation discards a late preview', 'preview caches belong to each repository and dialog',
       'watch from review confirms and refreshes'];
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { disposeRoot(); }
 }
 
 
@@ -198,9 +196,7 @@ export async function runStrategies(): Promise<string[]> {
       return workspace;
     },
   } satisfies Partial<Window['bridge']> });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose: disposeRoot } = createFixtureRoot();
   const click = async (selector: string) => {
     const element = host.querySelector<HTMLElement>(selector);
     assert(element !== null, `Missing ${selector}`);
@@ -262,5 +258,5 @@ export async function runStrategies(): Promise<string[]> {
       'Direct clone must never consent to creating a fork');
     return ['workflow switching reuses pending and completed previews', 'workflow switching ignores stale previews', 'workflow errors recover without changing consent'];
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { disposeRoot(); }
 }

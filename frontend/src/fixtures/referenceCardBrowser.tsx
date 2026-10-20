@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
+import { createFixtureRoot } from './reactFixture';
 import ReferenceCard, { type HoverCard, type ReferenceCardItem } from '../ReferenceCard';
 import MarkdownBody from '../pulls/MarkdownBody';
 import type { GitHubIssuePreviewDto } from '../types';
@@ -21,9 +21,7 @@ import '../css/reference-card.css';
 import '../css/pulls.css';
 
 export async function run(): Promise<boolean> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose: disposeRoot } = createFixtureRoot();
   const anchor = new DOMRect(100, 700, 120, 20);
   const hover: HoverCard = {
     anchor, pinned: false,
@@ -66,7 +64,6 @@ export async function run(): Promise<boolean> {
     return true;
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    disposeRoot();
   }
 }

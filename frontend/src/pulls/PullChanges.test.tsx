@@ -15,6 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { pr as pullRequest } from './fixtures/pullRequest';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullTimelinePayloadDto, UserProfileDto } from '../types';
+import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { parseUnifiedDiff } from '../diffParse';
 import type { AgentReviewDto } from './agent-review/contracts';
 import { reviewFixture } from './agent-review/fixtures/review';
@@ -71,11 +72,8 @@ function reviewActivity(id: number, body: string, payload: Partial<PullTimelineP
   return {
     actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-25T10:00:00Z', body: null, githubId: id,
     payload: {
-      actorAvatarUrl: null, actorBot: false, state: null, htmlUrl: null, label: null, labelColor: null,
-      renameFrom: null, renameTo: null, commitSha: null, commitMessage: null, sourceTitle: null,
-      sourceUrl: null, sourceNumber: null, milestoneTitle: null, requestedReviewer: null, assignee: null,
-      path: file.filename, diffHunk: file.patch, line: 96, originalLine: 96, startLine: null,
-      originalStartLine: null, side: 'RIGHT', resolved: false, outdated: false, reactions: [],
+      ...EMPTY_TIMELINE_PAYLOAD,
+      path: file.filename, diffHunk: file.patch, line: 96, originalLine: 96, side: 'RIGHT',
       comments: [{
         githubId: id, actor: 'bob', actorAvatarUrl: 'https://example.com/bob.png', actorBot: false,
         timestamp: '2026-08-25T10:00:00Z', body, htmlUrl: null, reviewId: 9, inReplyToId: null, reactions: [],

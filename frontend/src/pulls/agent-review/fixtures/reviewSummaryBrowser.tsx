@@ -13,7 +13,7 @@
  */
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { Bridge } from '../../../types';
 import { assert, changeInput, settle } from '../../../fixtures/harness';
 import ReviewFindingCard from '../ReviewFindingCard';
@@ -70,9 +70,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     return <ReviewFindingCard review={review} finding={review.findings[0]} projection="review"
       viewerLogin="reviewer" viewerAvatarUrl={null} actions={actions} busy={busy} />;
   }
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const button = (text: string) => {
     const value = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text);
     assert(value !== undefined, `Missing ${text} button`);
@@ -153,5 +151,5 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     return [{ name }];
   }
   catch (error) { return [{ name, error: error instanceof Error ? error.message : String(error) }]; }
-  finally { flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: previous }); }
+  finally { dispose(); Object.defineProperty(window, 'bridge', { configurable: true, value: previous }); }
 }

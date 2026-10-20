@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
 import type { AgentPendingApprovalDto, AgentStreamMessage, AgentTaskDto, AgentTurnDto, CiAutofixRunDto } from '../../types';
 import { AgentTaskList } from '../AgentTasksView';
 import AgentTaskScreen from '../AgentTaskScreen';
@@ -80,9 +80,7 @@ async function ciReplyAndOwnership(steering = false): Promise<{ name: string; er
     return run;
   };
   const timers = ciTimers();
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
@@ -148,7 +146,7 @@ async function ciReplyAndOwnership(steering = false): Promise<{ name: string; er
     assert(sourceReads === terminalReads, 'Terminal parent must stop CI polling');
     return { name: `@ci ${steering ? 'steers' : 'resumes'}, preserves retry identity, and honors revoked CI authority` };
   } catch (error) { return { name: `CI ${steering ? 'steering' : 'reply'} routing and ownership`, error: error instanceof Error ? error.message : String(error) }; }
-  finally { flushSync(() => root.unmount()); host.remove(); timers.restore(); }
+  finally { dispose(); timers.restore(); }
 }
 
 async function sourcePolling(): Promise<{ name: string; error?: string }> {
@@ -167,9 +165,7 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
   bridge.subscribeAgentTask = async (id, _after, notify) => { notify({ subscriptionId: id, taskId: id, kind: 'state', state: 'open' }); return () => {}; };
   bridge.getCiAutofixRun = async () => ({ ...CI_RUN, status: 'ACTIVE', activity: 'WATCHING_CI', currentTurnId: null, parentTaskId: task.id });
   const timers = ciTimers();
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
@@ -189,7 +185,7 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
     assert(reads === before + 2, 'The next poll starts only after the previous read settles');
     return { name: 'Source CI polling is sequential and does not poll GitHub' };
   } catch (error) { return { name: 'Source CI polling', error: error instanceof Error ? error.message : String(error) }; }
-  finally { flushSync(() => root.unmount()); host.remove(); timers.restore(); }
+  finally { dispose(); timers.restore(); }
 }
 
 export async function runCiAutofixScenarios(): Promise<{ name: string; error?: string }[]> {
@@ -224,9 +220,7 @@ async function ciApprovalCard(): Promise<{ name: string; error?: string }> {
     return [approval];
   };
   const timers = ciTimers();
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
@@ -245,7 +239,7 @@ async function ciApprovalCard(): Promise<{ name: string; error?: string }> {
     assert(host.querySelector('[aria-label="Approval: CI Autofix · Allow Codex command"]') === null, 'The answered card must disappear before the next poll');
     return { name: 'Source Task screen shows and answers verified CI approvals' };
   } catch (error) { return { name: 'CI approval card', error: error instanceof Error ? error.message : String(error) }; }
-  finally { flushSync(() => root.unmount()); host.remove(); timers.restore(); }
+  finally { dispose(); timers.restore(); }
 }
 
 async function finishedCiRouting(): Promise<{ name: string; error?: string }> {
@@ -265,9 +259,7 @@ async function finishedCiRouting(): Promise<{ name: string; error?: string }> {
   bridge.getCiAutofixRun = async () => { runReads++; throw new Error('Finished CI must not start recovery polling'); };
   const replies: string[] = [];
   bridge.sendCiAutofixMessage = async runId => { replies.push(runId); return CI_RUN; };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
@@ -303,7 +295,7 @@ async function finishedCiRouting(): Promise<{ name: string; error?: string }> {
     assert(replies.length === 0, 'Ordinary source input must not restart CI');
     return { name: 'Finished CI removes its log and panel, blocks @ci, and permits ordinary source messages' };
   } catch (error) { return { name: 'Finished CI routing', error: error instanceof Error ? error.message : String(error) }; }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function laterRunAndRecovery(): Promise<{ name: string; error?: string }> {
@@ -326,9 +318,7 @@ async function laterRunAndRecovery(): Promise<{ name: string; error?: string }> 
     return { ...CI_RUN, id: 'new-ci-run', agentTaskId: 'new-ci-task' };
   };
   const timers = ciTimers();
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
@@ -365,7 +355,7 @@ async function laterRunAndRecovery(): Promise<{ name: string; error?: string }> 
     assert(!bridge.commands.some(command => command.name === 'markAgentTaskFailed'), 'Recovery controls must not call Mark failed');
     return { name: 'A later CI run receives @ci messages, while unresolved linked cleanup only offers Stop' };
   } catch (error) { return { name: 'Later CI run and recovery', error: error instanceof Error ? error.message : String(error) }; }
-  finally { flushSync(() => root.unmount()); host.remove(); timers.restore(); }
+  finally { dispose(); timers.restore(); }
 }
 
 async function deleteReferences(): Promise<{ name: string; error?: string }> {
@@ -373,9 +363,7 @@ async function deleteReferences(): Promise<{ name: string; error?: string }> {
   const event = bridge.events[0];
   const task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), title: 'CI delivery task', mutationClaim: null,
     developmentContinuationUnfinished: false, developmentCi: { ...CI_PROJECTION, status: 'FINISHED', finishReason: 'ERROR', canMessage: false } };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   let deleted = false;
   flushSync(() => root.render(<AgentTaskList tasks={[task]} loading={false} error={null} laneId="codex" providers={[]} models={[]}
     selection={null} draft="" blocker="No model" onDraftChange={() => {}} onSelectProvider={() => {}} onSelectModel={() => {}}
@@ -395,5 +383,5 @@ async function deleteReferences(): Promise<{ name: string; error?: string }> {
     assert(!deleted, 'Showing references must not delete before confirmation');
     return { name: 'Delete confirmation names linked local cleanup and preserved remote references' };
   } catch (error) { return { name: 'CI delete references', error: error instanceof Error ? error.message : String(error) }; }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }

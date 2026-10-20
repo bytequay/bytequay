@@ -11,9 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { prDetail } from '../../fixtures/pullRequest';
 import { useCallback, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { Bridge, PullRequestDetailDto } from '../../../types';
 import { DiffViewer } from '../../PullChanges';
 import AgentReviewTab from '../AgentReviewTab';
@@ -62,13 +63,13 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
     },
   } satisfies Pick<Bridge, 'getAgentReview' | 'subscribeAgentReview' | 'resolveAgentReviewFinding' | 'reopenAgentReviewFinding'>;
   Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
-  const detail: PullRequestDetailDto = {
-    id: 1, repo: saved.repo, number: saved.number, title: 'Example', htmlUrl: null, state: 'open', draft: false,
-    mergeable: true, mergeableState: 'clean', author: 'author', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-    mergedAt: null, baseRef: 'master', headRef: 'example', headSha: 'head', body: null, labels: [], assignees: [], milestone: null,
-    reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null,
-    recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: false,
-  };
+  const detail: PullRequestDetailDto = prDetail({
+    repo: saved.repo, number: saved.number, title: 'Example', htmlUrl: null,
+    author: 'author', updatedAt: null,
+    baseRef: 'master', headRef: 'example',
+    deletions: 1,
+    viewerCanWrite: false,
+  });
   function Surface() {
     const [review, setReview] = useState(saved);
     const updateReview = useCallback((value: AgentReviewDto) => setReview(current => mergeReviewFindings(current, value)), []);
@@ -79,9 +80,7 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
         patch: '@@ -1,2 +1,2 @@\n context\n-old code\n+new code' }]}
       agentReview={{ review, viewer: null, navigation: null, onReviewChange: updateReview, onOpenInReview: () => {} }} />;
   }
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const card = () => {
     const value = host.querySelector<HTMLElement>(`[data-finding-id="${finding.id}"]`);
     assert(value !== null, 'The finding must render on the selected surface');
@@ -177,5 +176,5 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
     assert(card().textContent?.includes('Resolved locally by you') === true, 'A remembered resolution must complete');
     // The bridge has only private read/resolve/reopen operations; any outgoing call fails this scenario.
   }
-  finally { flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }
+  finally { dispose(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }
 }

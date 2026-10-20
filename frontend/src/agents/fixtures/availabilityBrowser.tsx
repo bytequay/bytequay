@@ -11,17 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
 import { assert, settle } from '../../fixtures/harness';
 import type { Bridge, ModelSettingsDto } from '../../types';
 import { NO_AGENT_CAPABILITIES } from '../capabilities';
 import { AgentAvailabilityProvider, useAgentAvailability } from '../availability';
 
 export async function run() {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   let reads = 0;
   let probes = 0;
   let settings: ModelSettingsDto = {
@@ -61,5 +59,5 @@ export async function run() {
     return [{ name: 'Readiness changes and scope preserve history and gate new work' }];
   }
   catch (error) { return [{ name: 'Agent availability updates', error: error instanceof Error ? error.message : String(error) }]; }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }

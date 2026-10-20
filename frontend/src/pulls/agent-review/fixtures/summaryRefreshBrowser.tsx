@@ -13,7 +13,7 @@
  */
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { Bridge } from '../../../types';
 import type { ReviewCardFocus } from '../../../agents/ReviewRequestCard';
 import { assert, changeInput, settle } from '../../../fixtures/harness';
@@ -26,9 +26,8 @@ import '../../../css/markdown-editor.css';
 import '../../../css/agent-review.css';
 
 export async function run() {
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'width:900px;background:white';
-  document.body.append(host);
   const original = reviewFixture({ messages: [] });
   const attempt = explanationRunFixture({ state: 'RUNNING', endedAt: null, headSha: 'a'.repeat(40) });
   let server = original;
@@ -60,7 +59,6 @@ export async function run() {
       onReviewChange={publish} focusFindingId={null} focusReviewCard={focus} onNavigateToChanges={() => {}}
       onSelectCommit={(sha, snapshot) => diffs.push(`${sha}:${snapshot?.headSha}`)} />;
   }
-  const root = createRoot(host);
   const refresh = () => {
     const button = host.querySelector<HTMLButtonElement>('[aria-label="Refresh change intention and commit summaries"]');
     assert(button !== null, 'Refresh must be a labeled native button');
@@ -135,7 +133,7 @@ export async function run() {
   }
   catch (error) { return [{ name: 'Explanation refresh', error: error instanceof Error ? error.message : String(error) }]; }
   finally {
-    flushSync(() => root.unmount()); host.remove();
+    dispose();
     Object.defineProperty(window, 'bridge', { configurable: true, writable: true, value: previous });
   }
 }

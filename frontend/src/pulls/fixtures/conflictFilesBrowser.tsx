@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { flushSync } from 'react-dom';
 import type { Bridge, PullRequestConflictsDto } from '../../types';
 import { assert, settle } from '../../fixtures/harness';
@@ -31,10 +31,8 @@ export async function run(): Promise<string> {
     },
   } satisfies Pick<Bridge, 'fetchPrConflicts'>;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.width = '360px';
-  document.body.append(host);
-  const root = createRoot(host);
   const render = (number: number) => flushSync(() => root.render(<PullRequestConflictFiles key={number} repo="owner/repo" number={number} />));
   const reply = (files: string[]): PullRequestConflictsDto => ({ baseRef: 'release/next', files });
   const paths = () => [...host.querySelectorAll('li code')].map(node => node.textContent);
@@ -79,8 +77,7 @@ export async function run(): Promise<string> {
     return 'conflict files, unavailable, retry, empty, stale response';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: originalBridge });
   }
 }

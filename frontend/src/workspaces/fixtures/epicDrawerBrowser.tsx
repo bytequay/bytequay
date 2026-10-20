@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 
-import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import EpicDrawer from '../EpicDrawer';
 import { LayerCovered } from '../../Zoom';
 import type { WorkItemDto } from '../../workitems/contracts';
@@ -83,9 +83,7 @@ async function still(): Promise<void> {
 }
 
 export async function run(): Promise<boolean> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { root, dispose: disposeRoot } = createFixtureRoot();
   const openedEpics: string[] = [];
   let created = 0;
   // Read through a call, so an assertion on one count never narrows the next one.
@@ -305,5 +303,5 @@ export async function run(): Promise<boolean> {
       `A short, narrow window clamps the drawer and scrolls its list: ${JSON.stringify(small.toJSON())}`);
     return true;
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { disposeRoot(); }
 }

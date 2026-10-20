@@ -80,6 +80,11 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+async function startMain(): Promise<void> {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+}
+
 it('imports login-shell tool directories before constructing Gemini setup', async () => {
   const backend = await import('./backendProcess');
   const gemini = await import('@bytequay/google/main');
@@ -91,14 +96,12 @@ it('imports login-shell tool directories before constructing Gemini setup', asyn
     paths.push(process.env.PATH);
     return register(...args);
   });
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   expect(paths).toEqual(['/Users/me/.nvm/bin:/usr/bin:/bin']);
 });
 
 it('denies browser permissions before opening a remote popout', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   await desktop.handlers.get('inapp:popout')?.({}, 'https://example.com/');
   const check = desktop.popupSession.setPermissionCheckHandler.mock.calls[0][0];
   const request = desktop.popupSession.setPermissionRequestHandler.mock.calls[0][0];
@@ -114,8 +117,7 @@ it.each([
   { kind: 'review', reviewId: 'work-review' },
   { kind: 'task', taskId: 'work-task', workspaceId: 'work-repo' },
 ])('starts a $kind terminal with the backend-selected Claude profile', async host => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async () => new Response(JSON.stringify({ workingDirectory: '/managed/cork', claudeConfigDirectory: '/profiles/work' })));
   vi.stubGlobal('fetch', fetch);
   desktop.spawnPty.mockReturnValue({ onData: vi.fn(), onExit: vi.fn(), kill: vi.fn(), resize: vi.fn(), write: vi.fn() });
@@ -131,8 +133,7 @@ it.each([
 });
 
 it.each(['confirm-not-posted', 'confirm-posted'])('settles an unconfirmed comment through the versioned local %s endpoint', async outcome => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: 'Saved review', event: 'COMMENT', items: [], reviewPublication: null, postedSummaryFindingIds: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
   const fetch = vi.fn(async () => new Response(JSON.stringify(draft)));
   vi.stubGlobal('fetch', fetch);
@@ -146,8 +147,7 @@ it.each(['confirm-not-posted', 'confirm-posted'])('settles an unconfirmed commen
 });
 
 it.each([true, false])('settles review text with an unknown outcome through the versioned local endpoint, posted %s', async posted => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: '', event: 'COMMENT', items: [], reviewPublication: null, postedSummaryFindingIds: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
   const fetch = vi.fn(async () => new Response(JSON.stringify(draft)));
   vi.stubGlobal('fetch', fetch);
@@ -160,8 +160,7 @@ it.each([true, false])('settles review text with an unknown outcome through the 
 });
 
 it('posts a single comment through the pending review under its comment box key', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async () => new Response('{"number":7}'));
   vi.stubGlobal('fetch', fetch);
   const comment = { path: 'src/A.java', body: 'Rename this', line: 10, side: 'RIGHT', commitId: 'a'.repeat(40) };
@@ -174,8 +173,7 @@ it('posts a single comment through the pending review under its comment box key'
 });
 
 it('carries the viewed head commit through review submission', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async () => new Response('{}'));
   vi.stubGlobal('fetch', fetch);
 
@@ -186,8 +184,7 @@ it('carries the viewed head commit through review submission', async () => {
 });
 
 it('carries the displayed head commit through the merge request', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async () => new Response('{}'));
   vi.stubGlobal('fetch', fetch);
 
@@ -202,8 +199,7 @@ it.each([
   ['prs:diff:refresh', '/prs/diffFiles/refresh', 'POST', []],
   ['prs:diff-content:refresh', '/prs/diffContent/refresh', 'POST', ['src/A B.ts']],
 ] as const)('preserves the method and complete revision pair for %s', async (channel, pathname, method, path) => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{}'));
   vi.stubGlobal('fetch', fetch);
   for (const [base, head, range] of [
@@ -219,8 +215,7 @@ it.each([
 });
 
 it('forwards PR opening freshness separately from periodic and checks-only refreshes', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async () => new Response('{}'));
   vi.stubGlobal('fetch', fetch);
   const refresh = desktop.handlers.get('prs:detail:refresh:by-ref');
@@ -237,8 +232,7 @@ it('forwards PR opening freshness separately from periodic and checks-only refre
 });
 
 it.each(['pat:copy', 'workspaces:token:copy'])('reports %s only after the asynchronous clipboard write succeeds', async channel => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ value: 'test-token' }))));
   desktop.clipboardWriteText.mockResolvedValue(undefined);
   await expect(desktop.handlers.get(channel)?.({}, 'workspace')).resolves.toBe(true);
@@ -253,8 +247,7 @@ it.each([
   ['agent:attachments:paste-drafts', 'image/jpeg'],
   ['agent:attachments:paste', 'image/jpeg'],
 ])('reads and validates asynchronous clipboard images for %s (%s)', async (channel, mediaType) => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const bytes = Buffer.from('png');
   const attachment = { id: 'image', name: 'pasted-image.png', mediaType: 'image/png', byteSize: bytes.length, width: 1, height: 1 };
   const fetch = vi.fn(async () => new Response(JSON.stringify(attachment)));
@@ -285,8 +278,7 @@ it.each([
 });
 
 it.each(['pat:save', 'pat:delete', 'github:cli-import'])('invalidates every window after successful %s, preserving caches after failure', async channel => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async () => new Response('{}', { headers: { 'Content-Type': 'application/json' } }));
   vi.stubGlobal('fetch', fetch);
   await desktop.handlers.get(channel)?.({}, 'test-token');
@@ -300,8 +292,7 @@ it.each(['pat:save', 'pat:delete', 'github:cli-import'])('invalidates every wind
 });
 
 it('reads activity titles through the local stored-PR endpoint without an import IPC', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async (_url: string | URL) => new Response('null', { headers: { 'Content-Type': 'application/json' } }));
   vi.stubGlobal('fetch', fetch);
 
@@ -312,8 +303,7 @@ it('reads activity titles through the local stored-PR endpoint without an import
 });
 
 it('authenticates and validates Team IPC, with time for a bounded collection pass', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const directory: TeamDirectory = { accountLogin: 'viewer', circles: [] };
   const totals = { prsOpened: 0, authoredPrsMerged: 0, mergesPerformed: 0, prsReviewed: 0, issuesOpened: 0, issuesClosed: 0, comments: 0,
     directInteractions: 0, sharedPullRequests: 0, sharedIssues: 0 };
@@ -356,8 +346,7 @@ it('authenticates and validates Team IPC, with time for a bounded collection pas
 });
 
 it('routes an inline check log read by PR and job ID', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async () => new Response(JSON.stringify({ text: 'test failed' }), { headers: { 'Content-Type': 'application/json' } }));
   vi.stubGlobal('fetch', fetch);
   await expect(desktop.handlers.get('prs:checks:log')?.({}, 'owner/repo', 42, 301)).resolves.toEqual({ text: 'test failed' });
@@ -400,8 +389,7 @@ it.each([
   { channel: 'review:update', args: ['review-1'] },
   { channel: 'review:explanation:refresh', args: ['review-1', 'run-1', 2] },
 ])('allows a slow Git synchronization to finish through $channel without retrying it', async ({ channel, args }) => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   vi.useFakeTimers();
   // Native AbortSignal timers do not use the fake clock. Keep real abort behavior with test-controlled time.
   vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
@@ -429,8 +417,7 @@ it.each([
 });
 
 it('still reports a refused review update without retrying it', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async () => new Response(JSON.stringify({ message: 'The review task is busy' }), {
     status: 409, headers: { 'Content-Type': 'application/json' },
   }));
@@ -441,8 +428,7 @@ it('still reports a refused review update without retrying it', async () => {
 });
 
 it('refreshes only the explanation using its displayed owner and revision', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const value = runningReviewFixture();
   const fetch = vi.fn(async () => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } }));
   vi.stubGlobal('fetch', fetch);
@@ -456,8 +442,7 @@ it('refreshes only the explanation using its displayed owner and revision', asyn
 });
 
 it('routes review passage and comment discussions through their owning review', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const discussion: TaskDiscussionDto = { id: 'discussion/one', taskId: 'task-1', turnId: 'turn-1', quote: 'releases the writer', occurrence: 1,
     resolved: false, pending: false, providerLane: 'codex', messages: [], version: 1, comment: null, replyDraft: null, replyDraftError: null,
     createdAt: '2026-09-06T16:00:00Z', updatedAt: '2026-09-06T16:00:00Z' };
@@ -491,8 +476,7 @@ it('routes review passage and comment discussions through their owning review', 
 });
 
 it('routes Tears of time reads and writes to the review or the development task that hosts the working copy', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const task = { kind: 'task', taskId: 'task/one', workspaceId: 'workspace/one' };
   const review = { kind: 'review', reviewId: 'review/one' };
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -533,8 +517,7 @@ it('routes Tears of time reads and writes to the review or the development task 
 });
 
 it('routes spec check runs, their baseline and their recovery through the authenticated purpose-bound API', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const view: ContextBuildViewDto = { buildRequestSequence: 2, canStart: false, build: { kind: 'CHECK', requestKey: 'check-key', taskId: 'task', checkId: 'check-1',
     task: { id: 'task', workspaceId: 'workspace/one', state: 'OPEN', mutationClaim: 'TURN', worktreeRemovedAt: null }, activeTurn: { cancellationRequestedAt: null },
     pendingApprovals: 0, outcome: 'RUNNING', detail: null, activity: [{ at: '2026-10-02T00:00:00Z', text: 'Opened https://example.com/spec', tone: 'DONE' }] } };
@@ -566,8 +549,7 @@ it('routes spec check runs, their baseline and their recovery through the authen
 });
 
 it('reads a directory’s spec sources and starts a check of it, refusing a forged request before sending it', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async () => new Response(JSON.stringify({ sources: [{ url: 'https://iceberg.apache.org/spec/', kind: 'PAGE', links: 3, sections: ['manifests'] }] })));
   vi.stubGlobal('fetch', fetch);
   const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/spec-checks';
@@ -603,8 +585,7 @@ it('reads a directory’s spec sources and starts a check of it, refusing a forg
 });
 
 it('routes memory reads and the user’s changes, refusing a forged memory id before sending it', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const memory: Record<string, unknown> = { id: 'm12', workspaceId: 'workspace/one', kind: 'RULE', title: 'Table property docs', text: 'Document every new table property.',
     scope: ['plugin/'],
     sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/trinodb/trino/pull/31201', quote: 'Docs, please.', at: '2026-10-02T00:00:00Z', section: null,
@@ -654,8 +635,7 @@ it('routes memory reads and the user’s changes, refusing a forged memory id be
 });
 
 it('routes review replays through the agent review routes with the desktop session, refusing forged input before sending it', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const replay: Record<string, unknown> = { id: '6f1c2c1e-0000-4000-8000-000000000001', number: 31201, title: 'Add a property', url: 'https://github.com/trinodb/trino/pull/31201',
     head: 'a'.repeat(40), fallback: null, cutoff: '2026-09-19T10:00:00Z', reviewer: 'bo', excludedMemories: 0, createdAt: '2026-10-02T09:00:00Z', sides: [], comments: [] };
   const fetch = vi.fn(async () => new Response(JSON.stringify({ replays: [replay] })));
@@ -681,8 +661,7 @@ it('routes review replays through the agent review routes with the desktop sessi
 });
 
 it('routes Jira reads and versioned writes through the authenticated native API', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async () => new Response(JSON.stringify({ issue: { key: 'ENG-7' } }), { headers: { 'Content-Type': 'application/json' } }));
   vi.stubGlobal('fetch', fetch);
   const location = { connectionId: 'connection/one', cloudId: 'site/one', issueId: '7' };
@@ -735,8 +714,7 @@ it('routes Jira reads and versioned writes through the authenticated native API'
 });
 
 it('records a Jira visit without parsing the empty response and preserves HTTP errors', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetch = vi.fn(async () => new Response(null, { status: 204 }));
   vi.stubGlobal('fetch', fetch);
   const location = { connectionId: 'connection/one', cloudId: 'site/one', issueId: '7' };
@@ -752,15 +730,13 @@ it('records a Jira visit without parsing the empty response and preserves HTTP e
 });
 
 it('returns an ordinary cache miss from the workspace issue lookup', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   vi.stubGlobal('fetch', vi.fn(async () => new Response('null')));
   await expect(desktop.handlers.get('workspaces:issue')?.({}, 'workspace', 7)).resolves.toBeNull();
 });
 
 it.each([false, true])('allows a Jira collection refresh beyond one minute (completed: %s)', async completed => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   vi.useFakeTimers();
   vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
     const controller = new AbortController();
@@ -784,8 +760,7 @@ it.each([false, true])('allows a Jira collection refresh beyond one minute (comp
 });
 
 it('applies only saved appearance and keeps the current theme when saving fails', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const save = desktop.handlers.get('settings:app:save');
   for (const [theme, source] of [['DARK', 'dark'], ['LIGHT', 'light'], ['SYSTEM', 'system']]) {
     const preferences = { theme, taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 };
@@ -799,8 +774,7 @@ it('applies only saved appearance and keeps the current theme when saving fails'
 });
 
 it('reads API-key usage by stable ID while retaining the alias and desktop authentication', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const accountId = 'api-key-11111111-1111-4111-8111-111111111111';
   const account = { id: accountId, label: 'DeepSeek · ds-001' };
   const usage: ProviderUsageDto = { accountId, plan: null, checkedAt: '2026-01-01T00:00:00Z', windows: [], message: 'Usage limits aren’t available for this API-key account.' };
@@ -817,8 +791,7 @@ it('reads API-key usage by stable ID while retaining the alias and desktop authe
 it('authenticates Google account, mail and Gemini connector requests without exposing the session token', async () => {
   const { GeminiSetup } = await import('@bytequay/google/main');
   vi.spyOn(GeminiSetup.prototype, 'status').mockResolvedValue({ configured: true, installed: true });
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const fetcher = vi.fn(async () => new Response('{}'));
   vi.stubGlobal('fetch', fetcher);
   const profile = '00000000-0000-0000-0000-000000000001';
@@ -848,8 +821,7 @@ it.each([
   ['review:draft:add-finding', ['review-1', 'finding-1'], 'POST', { expectedVersion: 4, reviewId: 'review-1', findingId: 'finding-1' }],
   ['review:draft:save', ['Review body', 'COMMENT'], 'PUT', { expectedVersion: 4, body: 'Review body', event: 'COMMENT' }],
 ])('preserves the JSON body and session header for %s', async (channel, args, method, body) => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  await startMain();
   const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: '', event: 'COMMENT', items: [], reviewPublication: null, postedSummaryFindingIds: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
   const fetch = vi.fn(async () => new Response(JSON.stringify(draft)));
   vi.stubGlobal('fetch', fetch);

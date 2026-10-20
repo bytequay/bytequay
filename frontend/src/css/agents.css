@@ -2027,7 +2027,8 @@
   padding: 1px 8px;
 }
 
-.agt-ask__text {
+.agt-ask__text,
+.agt-ask__label {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--fg-strong);
@@ -2055,12 +2056,6 @@
 .agt-ask__option.is-picked {
   border-color: var(--fg-link);
   background: var(--bg-info);
-}
-
-.agt-ask__label {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--fg-strong);
 }
 
 .agt-ask__detail {

@@ -14,7 +14,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { LocalReviewThreadDto } from './local-review/types';
 import type { ComponentProps, ReactElement } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelineCommentDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import { canSubmitReview, EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model';
@@ -28,6 +28,8 @@ import type { PrivateThreads } from './PrivateThread';
 
 /** New lines 41 (context) through 44, as GitHub records a thread's diff_hunk. */
 const COMMENTED_HUNK = '@@ -41,4 +41,18 @@ default long getMemoryUsage()\n {\n+    MemoryUsageTracker createTracker();\n+\n+    interface MemoryUsageTracker';
+
+afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('PullOverview', () => {
   it('shows queue-removal reasons with collapsed failed checks in the timeline and merge dialog', () => {
@@ -153,12 +155,9 @@ describe('PullOverview', () => {
 
     const mergePr = vi.fn(async () => {});
     vi.stubGlobal('window', { bridge: { mergePr } });
-    try {
-      captureMergeSubmit(props)();
-      if (mergeQueue === true) expect(mergePr).toHaveBeenCalledWith(1, 'owner/repo', 42, 'queue', value.headSha);
-      else expect(mergePr).not.toHaveBeenCalled();
-    }
-    finally { vi.unstubAllGlobals(); }
+    captureMergeSubmit(props)();
+    if (mergeQueue === true) expect(mergePr).toHaveBeenCalledWith(1, 'owner/repo', 42, 'queue', value.headSha);
+    else expect(mergePr).not.toHaveBeenCalled();
   });
 
   it('keeps unresolved reviews blocked while queue checks run', () => {
@@ -172,11 +171,8 @@ describe('PullOverview', () => {
     expect(popup.match(/<button class="is-primary"[^>]*>/g)?.[1]).toContain('disabled=""');
     const mergePr = vi.fn();
     vi.stubGlobal('window', { bridge: { mergePr } });
-    try {
-      captureMergeSubmit(props)();
-      expect(mergePr).not.toHaveBeenCalled();
-    }
-    finally { vi.unstubAllGlobals(); }
+    captureMergeSubmit(props)();
+    expect(mergePr).not.toHaveBeenCalled();
   });
 
   it.each([true, false, undefined, null])('shows target branch conflicts regardless of merge mode (%s)', mergeQueue => {
@@ -201,11 +197,8 @@ describe('PullOverview', () => {
 
     const mergePr = vi.fn();
     vi.stubGlobal('window', { bridge: { mergePr } });
-    try {
-      captureMergeSubmit(props)();
-      expect(mergePr).not.toHaveBeenCalled();
-    }
-    finally { vi.unstubAllGlobals(); }
+    captureMergeSubmit(props)();
+    expect(mergePr).not.toHaveBeenCalled();
   });
 
   it('shows conflicts without a target branch name or write permission, even when checks fail', () => {
@@ -261,11 +254,8 @@ describe('PullOverview', () => {
     expect(renderToStaticMarkup(<MergeDialog {...props} />)).toMatch(/<button type="button" disabled="">.*Remove from merge queue<\/button>/);
     const removePrFromMergeQueue = vi.fn();
     vi.stubGlobal('window', { bridge: { removePrFromMergeQueue } });
-    try {
-      captureMergeSubmit(props)();
-      expect(removePrFromMergeQueue).not.toHaveBeenCalled();
-    }
-    finally { vi.unstubAllGlobals(); }
+    captureMergeSubmit(props)();
+    expect(removePrFromMergeQueue).not.toHaveBeenCalled();
   });
 
   it.each([true, false])('does not route a disabled popup action to another endpoint (draft: %s)', draft => {
@@ -276,14 +266,9 @@ describe('PullOverview', () => {
       mergeQueue: true, onClose: () => {}, onRefresh: async () => {},
     }, draft ? 'merge' : 'ready');
     vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
-    try {
-      submit();
-      expect(markPrReadyForReview).not.toHaveBeenCalled();
-      expect(mergePr).not.toHaveBeenCalled();
-    }
-    finally {
-      vi.unstubAllGlobals();
-    }
+    submit();
+    expect(markPrReadyForReview).not.toHaveBeenCalled();
+    expect(mergePr).not.toHaveBeenCalled();
   });
 
   it.each([true, false])('keeps both popup actions disabled without write permission (draft: %s)', draft => {
@@ -302,15 +287,10 @@ describe('PullOverview', () => {
     expect(actions).toHaveLength(2);
     expect(actions.every(action => action.includes('disabled=""'))).toBe(true);
     vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
-    try {
-      ready();
-      merge();
-      expect(markPrReadyForReview).not.toHaveBeenCalled();
-      expect(mergePr).not.toHaveBeenCalled();
-    }
-    finally {
-      vi.unstubAllGlobals();
-    }
+    ready();
+    merge();
+    expect(markPrReadyForReview).not.toHaveBeenCalled();
+    expect(mergePr).not.toHaveBeenCalled();
   });
 
   it('promotes a draft once from the checks popup and applies the acknowledged state before refreshing', async () => {
@@ -362,19 +342,14 @@ describe('PullOverview', () => {
       pr: pullRequest(), detail: { ...detail(), draft: true }, mergeQueue: false, onClose, onRefresh, onDetailUpdate,
     }, 'ready');
     vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
-    try {
-      submit();
-      write.reject(new Error('Write access is required'));
-      await write.promise.catch(() => {});
-      expect(markPrReadyForReview).toHaveBeenCalledOnce();
-      expect(onDetailUpdate).not.toHaveBeenCalled();
-      expect(onClose).not.toHaveBeenCalled();
-      expect(onRefresh).not.toHaveBeenCalled();
-      expect(mergePr).not.toHaveBeenCalled();
-    }
-    finally {
-      vi.unstubAllGlobals();
-    }
+    submit();
+    write.reject(new Error('Write access is required'));
+    await write.promise.catch(() => {});
+    expect(markPrReadyForReview).toHaveBeenCalledOnce();
+    expect(onDetailUpdate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onRefresh).not.toHaveBeenCalled();
+    expect(mergePr).not.toHaveBeenCalled();
   });
 
   it('sends the known desired reaction state without requesting a refresh', async () => {
@@ -660,16 +635,13 @@ describe('PullOverview', () => {
     const onClose = vi.fn();
     vi.stubGlobal('window', { bridge: { saveReviewDraft, submitReviewDraft,
       getAgentReview: vi.fn(async () => cleared), fetchPullRequestDetailByRef: vi.fn(async () => detail()) } });
-    try {
-      const controls = captureReviewControls({ pr: pullRequest(), detail: detail(), review,
-        onReviewChange, onClose, onReviewSubmitted: () => {} });
-      controls.submit();
-      await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
-      expect(saveReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 7, review.draft.body, 'COMMENT');
-      expect(submitReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 8, review.draft.body, 'COMMENT', 'displayed-head');
-      expect(onReviewChange).toHaveBeenCalledWith(cleared);
-    }
-    finally { vi.unstubAllGlobals(); }
+    const controls = captureReviewControls({ pr: pullRequest(), detail: detail(), review,
+      onReviewChange, onClose, onReviewSubmitted: () => {} });
+    controls.submit();
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(saveReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 7, review.draft.body, 'COMMENT');
+    expect(submitReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 8, review.draft.body, 'COMMENT', 'displayed-head');
+    expect(onReviewChange).toHaveBeenCalledWith(cleared);
   });
 
   it.each([false, true])('saves changed draft verdict on dismissal and keeps a stale sheet open (conflict: %s)', async conflict => {
@@ -684,15 +656,12 @@ describe('PullOverview', () => {
     const getAgentReview = vi.fn(async () => saved);
     const onClose = vi.fn();
     vi.stubGlobal('window', { bridge: { saveReviewDraft, getAgentReview } });
-    try {
-      const controls = captureReviewControls({ pr: pullRequest(), detail: detail(), review,
-        onClose, onReviewSubmitted: () => {} });
-      controls.close();
-      await vi.waitFor(() => expect(getAgentReview).toHaveBeenCalledOnce());
-      expect(saveReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 7, review.draft.body, 'COMMENT');
-      expect(onClose).toHaveBeenCalledTimes(conflict ? 0 : 1);
-    }
-    finally { vi.unstubAllGlobals(); }
+    const controls = captureReviewControls({ pr: pullRequest(), detail: detail(), review,
+      onClose, onReviewSubmitted: () => {} });
+    controls.close();
+    await vi.waitFor(() => expect(getAgentReview).toHaveBeenCalledOnce());
+    expect(saveReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 7, review.draft.body, 'COMMENT');
+    expect(onClose).toHaveBeenCalledTimes(conflict ? 0 : 1);
   });
 
   it.each(['A review summary.', ''])('preserves selected-commit comments with review prose %j', async body => {
@@ -708,17 +677,14 @@ describe('PullOverview', () => {
     const onClose = vi.fn();
     vi.stubGlobal('window', { bridge: { saveReviewDraft, addReviewDraftComment, submitReviewDraft,
       getAgentReview: vi.fn(async () => review), fetchPullRequestDetailByRef: vi.fn(async () => detail()) } });
-    try {
-      captureReviewControls({ pr: pullRequest(), detail: detail(), review, pendingComments: [selected],
-        onPendingCommentsChange, onClose, onReviewSubmitted: () => {} }).submit();
-      await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
-      expect(addReviewDraftComment).toHaveBeenCalledWith('owner/repo', 42, 8, {
-        path: selected.path, side: selected.side, line: selected.line, startLine: selected.startLine, body: selected.body, commitId: 'old-head',
-      });
-      expect(onPendingCommentsChange).toHaveBeenCalledWith([]);
-      expect(submitReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 9, body, 'COMMENT', 'displayed-head');
-    }
-    finally { vi.unstubAllGlobals(); }
+    captureReviewControls({ pr: pullRequest(), detail: detail(), review, pendingComments: [selected],
+      onPendingCommentsChange, onClose, onReviewSubmitted: () => {} }).submit();
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(addReviewDraftComment).toHaveBeenCalledWith('owner/repo', 42, 8, {
+      path: selected.path, side: selected.side, line: selected.line, startLine: selected.startLine, body: selected.body, commitId: 'old-head',
+    });
+    expect(onPendingCommentsChange).toHaveBeenCalledWith([]);
+    expect(submitReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 9, body, 'COMMENT', 'displayed-head');
   });
 
   it('limits an authored pull request review to a comment', () => {
@@ -754,11 +720,8 @@ describe('PullOverview', () => {
     const mergePr = vi.fn();
     const value: PullRequestDetailDto = { ...detail(), viewerCanWrite: true, checkRuns: [], ciStatus: 'PASSING', headSha: '' };
     vi.stubGlobal('window', { bridge: { mergePr } });
-    try {
-      captureMergeSubmit({ pr: pullRequest(), detail: value, mergeQueue: false, onClose: () => {}, onRefresh: async () => {} })();
-      expect(mergePr).not.toHaveBeenCalled();
-    }
-    finally { vi.unstubAllGlobals(); }
+    captureMergeSubmit({ pr: pullRequest(), detail: value, mergeQueue: false, onClose: () => {}, onRefresh: async () => {} })();
+    expect(mergePr).not.toHaveBeenCalled();
   });
 
   it.each([true, false])('closes an accepted merge before the detail refresh finishes (queue: %s)', async mergeQueue => {
@@ -802,18 +765,13 @@ describe('PullOverview', () => {
       pr: pullRequest(), detail: { ...detail(), viewerCanWrite: true, checkRuns: [], ciStatus: 'PASSING' }, mergeQueue: true, onClose, onRefresh,
     });
     vi.stubGlobal('window', { bridge: { mergePr } });
-    try {
-      submit();
-      merge.reject(new Error('Pull request cannot be queued'));
-      await merge.promise.catch(() => {});
+    submit();
+    merge.reject(new Error('Pull request cannot be queued'));
+    await merge.promise.catch(() => {});
 
-      expect(mergePr).toHaveBeenCalledOnce();
-      expect(onClose).not.toHaveBeenCalled();
-      expect(onRefresh).not.toHaveBeenCalled();
-    }
-    finally {
-      vi.unstubAllGlobals();
-    }
+    expect(mergePr).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onRefresh).not.toHaveBeenCalled();
   });
 
   it.each([true, false])('blocks merging without a progress ring after checks fail (queue: %s)', mergeQueue => {

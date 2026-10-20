@@ -13,7 +13,7 @@
  */
 import { useCallback, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { AgentHistoryPageDto, AgentStreamMessage, AgentTurnDto, Bridge } from '../../../types';
 import { CHECKING_ACCEPTANCE, UNCONFIRMED_REQUEST } from '../../../agents/contracts';
 import { parseAgentEventSequence, type AgentEventEnvelope } from '../../../agents/events';
@@ -26,9 +26,7 @@ import { reviewFixture, runningReviewFixture } from './review';
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const previous = window.bridge;
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const results: { name: string; error?: string }[] = [];
   let replaceReview = (_review: AgentReviewDto): void => {};
   let changedReviews: AgentReviewDto[] = [];
@@ -505,7 +503,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     });
   }
   finally {
-    flushSync(() => root.unmount()); host.remove();
+    dispose();
     Object.defineProperty(window, 'bridge', { configurable: true, value: previous });
   }
   return results;

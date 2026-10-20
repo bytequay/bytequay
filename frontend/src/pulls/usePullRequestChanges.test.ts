@@ -13,16 +13,11 @@
  */
 
 import { expect, it } from 'vitest';
-import type { PullRequestDetailDto, PullTimelinePayloadDto } from '../types';
+import type { PullRequestDetailDto } from '../types';
+import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { pullRequestDiffRevision } from './usePullRequestChanges';
 
-const payload: PullTimelinePayloadDto = {
-  actorAvatarUrl: null, actorBot: false, state: null, htmlUrl: null, label: null, labelColor: null,
-  renameFrom: null, renameTo: null, commitSha: 'first-sha', commitMessage: null, sourceTitle: null,
-  sourceUrl: null, sourceNumber: null, milestoneTitle: null, requestedReviewer: null, assignee: null, path: null,
-  diffHunk: null, line: null, originalLine: null, startLine: null, originalStartLine: null,
-  side: null, resolved: false, outdated: false, reactions: [], comments: [],
-};
+const payload = { ...EMPTY_TIMELINE_PAYLOAD, commitSha: 'first-sha' };
 const commit: PullRequestDetailDto['recentActivity'][number] = {
   actor: 'developer', eventType: 'committed', timestamp: '2026-01-01T12:00:00Z', body: null, githubId: null, payload,
 };

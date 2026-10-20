@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import App from '../../App';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import { assert, until } from '../../fixtures/harness';
@@ -50,11 +50,9 @@ export function start(route: string, opened: string[] = [], openLab: () => Promi
   } satisfies Partial<Bridge>;
   window.bridge = bridge as unknown as Bridge;
   window.location.hash = route;
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { root, dispose: disposeRoot } = createFixtureRoot();
   flushSync(() => root.render(<App />));
-  return () => { flushSync(() => root.unmount()); host.remove(); };
+  return () => { disposeRoot(); };
 }
 
 const labItem = () => document.querySelector<HTMLButtonElement>('.app-sidebar [aria-label="Application settings"] [aria-label="Lab"]');

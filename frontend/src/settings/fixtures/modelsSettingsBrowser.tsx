@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import type { Bridge, ModelSettingsDto, WorkspaceDto, WorkspaceSettingsDto } from '../../types';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
 import { assert, changeInput, settle } from '../../fixtures/harness';
@@ -173,8 +173,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(view.host.textContent?.includes('Default account') === true, 'The other account remains');
     },
   })) {
-    const host = document.createElement('div'); document.body.append(host);
-    const root = createRoot(host);
+    const { host, root, dispose: disposeRoot } = createFixtureRoot();
     const forces: boolean[] = [];
     const added: string[][] = [];
     const removed: string[] = [];
@@ -244,7 +243,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       results.push({ name });
     }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
-    finally { flushSync(() => root.unmount()); host.remove(); }
+    finally { disposeRoot(); }
   }
   return results;
 }

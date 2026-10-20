@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 
-import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import EpicView from '../EpicView';
 import { useUnmarkEpic } from '../useUnmarkEpic';
 import type { CreateWorkItem, EpicChildDto, EpicRecordDto, WorkItemDecision, WorkItemDto, GoalItemDto } from '../../workitems/contracts';
@@ -68,9 +68,7 @@ function UnmarkProbe({ items, onUnmark }: { items: WorkItemDto[]; onUnmark: () =
 }
 
 export async function run(): Promise<boolean> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { root, dispose: disposeRoot } = createFixtureRoot();
   const calls: string[] = [];
   const details: string[] = [];
   let items = [
@@ -392,5 +390,5 @@ export async function run(): Promise<boolean> {
     assert(unmarked() === 2, 'Confirming unmarks it');
     return true;
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { disposeRoot(); }
 }

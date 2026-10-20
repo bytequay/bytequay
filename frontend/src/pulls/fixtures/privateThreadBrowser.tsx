@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { prDetail } from './pullRequest';
 import '../../css/base.css';
 import '../../css/markdown-editor.css';
@@ -99,9 +99,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     replyToReviewComment: async (...request) => { posted.push(request); },
   };
   Object.defineProperty(window, 'bridge', { configurable: true, value: pageBridge });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const step = async (name: string, body: () => Promise<void>): Promise<void> => {
     try {
       await body();
@@ -273,8 +271,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     });
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
   }
   return results;

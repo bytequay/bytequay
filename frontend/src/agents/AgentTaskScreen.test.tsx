@@ -545,15 +545,7 @@ describe('truthful task controls', () => {
 describe('agent task side panel', () => {
   const props = {
     models: MODELS,
-    onSelectModel: () => {},
-    onBack: () => {},
-    onSend: () => {},
-    onCancel: () => {},
-    onComplete: () => {},
-    onDecide: () => {},
-    onCompose: () => {},
-    onStopServer: () => {},
-    onMarkFailed: () => {},
+    ...TASK_BODY_NOOPS,
   };
   const state = {
     ...initialAgentTaskState(),
@@ -1937,15 +1929,7 @@ describe('agent task detail', () => {
     };
     const props = {
       models: MODELS,
-      onSelectModel: () => {},
-      onBack: () => {},
-      onSend: () => {},
-      onCancel: () => {},
-      onComplete: () => {},
-      onDecide: () => {},
-      onCompose: () => {},
-      onStopServer: () => {},
-      onMarkFailed: () => {},
+      ...TASK_BODY_NOOPS,
     };
     const listed = renderToStaticMarkup(
       <AgentTaskBody

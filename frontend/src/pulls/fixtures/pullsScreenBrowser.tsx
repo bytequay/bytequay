@@ -12,10 +12,12 @@
  * limitations under the License.
  */
 
+import { prDetail } from './pullRequest';
+import { EMPTY_TIMELINE_PAYLOAD as payload } from '../model';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
-import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullTimelinePayloadDto } from '../../types';
+import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto } from '../../types';
 import { SUMMARY_REQUEST, type TaskDiscussionDto } from '../../agents/discussions/contracts';
 import PullOverview, { requestPullComment } from '../PullOverview';
 import PullRequestTaskActions from '../PullRequestTaskActions';
@@ -32,30 +34,25 @@ import { assert, changeInput, settle, until } from '../../fixtures/harness';
 import { loadHandled } from '../../home/attention';
 import { setCached } from '../../dataCache';
 
-const payload: PullTimelinePayloadDto = {
-  actorAvatarUrl: null, actorBot: false, state: null, htmlUrl: null, label: null, labelColor: null,
-  renameFrom: null, renameTo: null, commitSha: null, commitMessage: null, sourceTitle: null, sourceUrl: null,
-  sourceNumber: null, milestoneTitle: null, requestedReviewer: null, assignee: null, path: null, diffHunk: null, line: null,
-  originalLine: null, startLine: null, originalStartLine: null, side: null, resolved: false, outdated: false, reactions: [], comments: [],
-};
+
 const file = (filename: string): DiffFileDto => ({ filename, status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+new' });
 const commits: DiffCommitDto[] = ['one', 'two'].map((sha, index): DiffCommitDto => ({ sha, parentSha: index === 0 ? 'base' : 'one', message: sha, author: null, authoredAt: null }));
-const reviewDetail = (review: AgentReviewDto): PullRequestDetailDto => ({
-  id: 42, repo: review.repo, number: review.number, title: 'Review this retained pull request', htmlUrl: null, state: 'open', draft: true,
-  mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-  mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: 'Pull request implementation', labels: [], assignees: [], milestone: null,
-  reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
-  checkRuns: [], unavailableSections: [], viewerCanWrite: false,
+const reviewDetail = (review: AgentReviewDto): PullRequestDetailDto => prDetail({
+  id: 42, repo: review.repo, number: review.number, title: 'Review this retained pull request', htmlUrl: null, draft: true,
+  mergeable: null, mergeableState: null, author: 'alice', updatedAt: null,
+  body: 'Pull request implementation',
+  deletions: 1,
+  viewerCanWrite: false,
 });
 
 export async function runMainScreen(keepMounted = false, explore = false): Promise<string> {
-  let detail: PullRequestDetailDto = {
-    id: 7, repo: 'owner/repo', number: 7, title: 'Implementation', htmlUrl: null, state: 'open', draft: true,
-    mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: '2026-01-01T00:00:00Z',
-    mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: 'Original description', labels: [], assignees: [], milestone: null,
-    reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], additions: 1, deletions: 1, changedFiles: 1,
-    approvalCount: 0, ciStatus: null, recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: false,
-  };
+  let detail: PullRequestDetailDto = prDetail({
+    id: 7, repo: 'owner/repo', number: 7, title: 'Implementation', htmlUrl: null, draft: true,
+    mergeable: null, mergeableState: null, author: 'alice', updatedAt: '2026-01-01T00:00:00Z',
+    body: 'Original description',
+    reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], deletions: 1,
+    viewerCanWrite: false,
+  });
   // The list opens on Review, so the row has to be one bob is asked to review.
   const row = remotePullRequest(detail, 'bob');
   const comparisons: (string | undefined)[][] = [];
@@ -90,9 +87,7 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits'
     | 'refreshPrDiffFiles' | 'recordRecentTouch' | 'findAgentReview' | 'findPullRequestTask' | 'listAgentReviews'>;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const button = (text: string) => {
     const found = [...host.querySelectorAll<HTMLButtonElement>('button')].find(entry => entry.textContent?.includes(text));
     assert(found !== undefined, `Missing ${text} button`);
@@ -224,7 +219,7 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     return 'Main PR page shares commit selection, timeline polling, row reconciliation, range invalidation, and the zoom layer';
   }
   finally {
-    if (!keepMounted) { flushSync(() => root.unmount()); host.remove(); }
+    if (!keepMounted) { dispose(); }
     window.setTimeout = originalTimeout;
   }
 }
@@ -283,11 +278,9 @@ export async function runReviewWorkspace(local = false): Promise<string> {
     | 'refreshPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'readWorktreeChanges' | 'listLocalReviewComments' | 'recordRecentTouch'>;
   const originalBridge = window.bridge;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.width = '1200px';
   host.style.height = '800px';
-  document.body.append(host);
-  const root = createRoot(host);
   try {
     flushSync(() => root.render(<ReviewTaskScreen workspaceId={review.workspaceId} reviewId={review.id} browserOpen={false}
       onBack={() => { back++; }} />));
@@ -364,8 +357,7 @@ export async function runReviewWorkspace(local = false): Promise<string> {
       : 'Retained review workspace replays its conversation beside learning cards and returns to tasks';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: originalBridge });
   }
 }
@@ -410,11 +402,9 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
     | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'listLocalReviewComments' | 'recordRecentTouch'>;
   const originalBridge = window.bridge;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.width = '1200px';
   host.style.height = '800px';
-  document.body.append(host);
-  const root = createRoot(host);
   const conversation = () => host.querySelector<HTMLElement>('[aria-label="Review agent conversation"]')?.textContent ?? '';
   try {
     flushSync(() => root.render(<ReviewTaskScreen workspaceId={review.workspaceId} reviewId={review.id} browserOpen={false} onBack={() => {}} />));
@@ -439,8 +429,7 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
     return 'Open review workspace keeps its conversation live after Summary remounts';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: originalBridge });
   }
 }
@@ -478,11 +467,9 @@ export async function runOverlayChangesStream(): Promise<string> {
     | 'fetchPrDiffCommits' | 'listLocalReviewComments' | 'listReviewDiscussions' | 'recordRecentTouch'>;
   const originalBridge = window.bridge;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.width = '1200px';
   host.style.height = '800px';
-  document.body.append(host);
-  const root = createRoot(host);
   const busy = () => host.querySelector('.pull-detail__review-chip .agr-spinner') !== null;
   const live = () => streams.filter(stream => stream.live);
   try {
@@ -501,8 +488,7 @@ export async function runOverlayChangesStream(): Promise<string> {
     return 'Review overlay follows its review on Changes';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: originalBridge });
   }
 }
@@ -520,9 +506,7 @@ export async function runMergeQueueRemoval(keepMounted = false): Promise<string>
     checkRuns: [{ githubId: 1, name: 'PR tests', status: 'completed', conclusion: 'success',
       detailsUrl: null, source: 'check_run', startedAt: null, completedAt: null, category: 'successful' }],
   };
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const originalBridge = window.bridge;
   const opened: string[] = [];
   Object.assign(window, { bridge: { ...originalBridge, openInAppBrowser: async (url: string) => { opened.push(url); } } });
@@ -555,8 +539,7 @@ export async function runMergeQueueRemoval(keepMounted = false): Promise<string>
   }
   finally {
     if (!keepMounted) {
-      flushSync(() => root.unmount());
-      host.remove();
+      dispose();
       Object.assign(window, { bridge: originalBridge });
     }
   }
@@ -565,9 +548,7 @@ export async function runMergeQueueRemoval(keepMounted = false): Promise<string>
 export async function runActionSheetDismissal(): Promise<string> {
   const detail = { ...reviewDetail(reviewFixture()), draft: false, viewerCanWrite: true };
   const pr = remotePullRequest(detail, 'bob');
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const originalBridge = window.bridge;
   let closes = 0;
   let finishMerge = () => {};
@@ -617,8 +598,7 @@ export async function runActionSheetDismissal(): Promise<string> {
   }
   finally {
     finishMerge();
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: originalBridge });
   }
 }
@@ -629,13 +609,11 @@ export async function runReviewSheet(): Promise<string> {
       commitId: reviewFixture().findings[0].validatedHeadSha,
       line: 12, startLine: null, body: 'Promoted finding text', included: true, published: false, publication: null }] };
   const review = reviewFixture({ draft });
-  const detail: PullRequestDetailDto = {
-    id: 9, repo: review.repo, number: review.number, title: 'Sheet', htmlUrl: null, state: 'open', draft: false,
-    mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-    mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: null, labels: [], assignees: [], milestone: null,
-    reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
-    checkRuns: [], unavailableSections: [], viewerCanWrite: true,
-  };
+  const detail: PullRequestDetailDto = prDetail({
+    id: 9, repo: review.repo, number: review.number, title: 'Sheet', htmlUrl: null,
+    mergeable: null, mergeableState: null, author: 'alice', updatedAt: null,
+    deletions: 1,
+  });
   const written: InlineReviewCommentDto = { path: 'src/Written.java', body: 'Written comment text', line: 3, side: 'RIGHT',
     startLine: null, startSide: null, commitId: review.observedHeadSha };
   const calls: string[] = [];
@@ -678,9 +656,7 @@ export async function runReviewSheet(): Promise<string> {
     | 'fetchPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getUserProfile'>;
   const originalBridge = window.bridge;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   // A submitted sheet stays mounted with its submit in flight, so each scenario needs a fresh one.
   let mounted = 0;
   const mount = (comments: InlineReviewCommentDto[], carries: AgentReviewDto | null = review) => flushSync(() => root.render(
@@ -788,8 +764,7 @@ export async function runReviewSheet(): Promise<string> {
     return 'Submit review sends every review through the draft and keeps text with an unknown outcome as sent';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: originalBridge });
   }
 }
@@ -799,13 +774,13 @@ export async function runReviewSheet(): Promise<string> {
  * without reloading the list or letting a late response change a newer search.
  */
 export async function runListSearch(): Promise<string> {
-  const detailFor = (number: number, title: string, author: string, state: string): PullRequestDetailDto => ({
-    id: number, repo: 'owner/repo', number, title, htmlUrl: null, state, draft: false,
-    mergeable: null, mergeableState: null, author, authorAvatarUrl: null, createdAt: null,
+  const detailFor = (number: number, title: string, author: string, state: string): PullRequestDetailDto => prDetail({
+    id: number, repo: 'owner/repo', number, title, htmlUrl: null, state,
+    mergeable: null, mergeableState: null, author,
     updatedAt: `2026-09-1${number % 9}T00:00:00Z`,
-    mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: '', labels: [], assignees: [], milestone: null,
-    reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], additions: 1, deletions: 1, changedFiles: 1,
-    approvalCount: 0, ciStatus: null, recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: false,
+    body: '',
+    reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], deletions: 1,
+    viewerCanWrite: false,
   });
   // 30682 is bob's to review, 31206 is his own, and 31215 is closed: three tabs, one loaded page.
   const page = [
@@ -840,10 +815,8 @@ export async function runListSearch(): Promise<string> {
   } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'fetchAttentionPrs'
     | 'lookupPullRequest' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'recordRecentTouch'>;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'width: 1400px; height: 900px; display: flex';
-  document.body.append(host);
-  const root = createRoot(host);
   // The title span carries the number too; the assertions read the title alone.
   const titles = () => [...host.querySelectorAll('.pulls-list .pull-row__title')]
     .map(row => (row.textContent ?? '').replace(/\s*#\d+$/, '').trim());
@@ -935,8 +908,7 @@ export async function runListSearch(): Promise<string> {
     return 'Search resolves exact PR numbers, filters local text, and shows newly discovered PRs';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: originalBridge });
   }
 }
@@ -973,9 +945,7 @@ export async function runListLoadingRace(trigger: 'sync' | 'attention'): Promise
     | 'findPullRequestTask' | 'listAgentReviews' | 'listLocalReviewComments' | 'fetchAttentionPrs'
     | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'recordRecentTouch'>;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   let mountedKey: string | null = null;
   const mount = (key: string, repository = row.repo) => {
     flushSync(() => root.render(<PullsScreen key={key} repositoryScope={{ workspaceId: repository, repository }} />));
@@ -1040,21 +1010,20 @@ export async function runListLoadingRace(trigger: 'sync' | 'attention'): Promise
     return 'Latest list reads finish loading, recover from failure and isolate workspaces';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: originalBridge });
   }
 }
 
 /** Refreshes must retain loaded rows as well as a selected pull request opened from a page or link. */
 export async function runSelectionStability(): Promise<string> {
-  const detailFor = (number: number, title: string, updatedAt: string): PullRequestDetailDto => ({
-    id: number, repo: 'owner/repo', number, title, htmlUrl: null, state: 'open', draft: false,
-    mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt,
-    mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: '', labels: [], assignees: [], milestone: null,
+  const detailFor = (number: number, title: string, updatedAt: string): PullRequestDetailDto => prDetail({
+    id: number, repo: 'owner/repo', number, title, htmlUrl: null,
+    mergeable: null, mergeableState: null, author: 'alice', updatedAt,
+    body: '',
     // The list opens on Review, so every row has to be one bob is asked to review.
-    reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], additions: 1, deletions: 1, changedFiles: 1,
-    approvalCount: 0, ciStatus: null, recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: false,
+    reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], deletions: 1,
+    viewerCanWrite: false,
   });
   const newest = detailFor(3, 'Newest after sync', '2026-09-14T06:00:00Z');
   const first = detailFor(1, 'First on page zero', '2026-09-14T01:00:00Z');
@@ -1062,10 +1031,8 @@ export async function runSelectionStability(): Promise<string> {
   const sibling = detailFor(4, 'Unselected from page one', '2026-09-09T00:00:00Z');
   const details = [newest, first, older, sibling];
   const originalBridge = window.bridge;
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'width: 1400px; height: 900px; display: flex';
-  document.body.append(host);
-  const root = createRoot(host);
   const open = () => details.find(detail => host.querySelector('.pull-detail')?.textContent?.includes(detail.title))?.title;
 
   const scenario = async (link: boolean) => {
@@ -1139,8 +1106,7 @@ export async function runSelectionStability(): Promise<string> {
     return 'Refresh and sync keep a pull request opened from a later page or a link';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.assign(window, { bridge: originalBridge });
   }
 }
@@ -1163,9 +1129,7 @@ export async function runCheckLogs(): Promise<string> {
       return request.promise;
     },
   } });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const render = () => flushSync(() => root.render(<PullOverview pr={remotePullRequest(detail, 'bob')} detail={{ ...detail }} onRefresh={async () => {}} />));
   const button = (text: string) => {
     const found = [...host.querySelectorAll<HTMLButtonElement>('.pr-check button')].find(entry => entry.getAttribute('aria-label') === text);
@@ -1218,15 +1182,12 @@ export async function runCheckLogs(): Promise<string> {
     return 'Open failed CI in the browser, load and retry inline logs, and discard stale attempts';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
   }
 }
 
 export async function runAssignedPrActions(): Promise<string> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   let assigned = 0;
   let reviewed = 0;
   let linkedReviewReads = 0;
@@ -1341,17 +1302,14 @@ export async function runAssignedPrActions(): Promise<string> {
     return 'Open distinct development and review task conversations';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     window.bridge = original;
   }
 }
 
 export async function runTitleEdit(): Promise<string> {
   const original = window.bridge;
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   let detail = { ...reviewDetail(reviewFixture()), viewerCanWrite: true,
     title: 'Fix leaked temp tables on JDBC rollback (ENG-8689: TestPostgreSqlRollbacks.testRollbackMerge)' };
   const writes: { repo: string; number: number; title: string; answer: ReturnType<typeof Promise.withResolvers<void>> }[] = [];
@@ -1445,8 +1403,7 @@ export async function runTitleEdit(): Promise<string> {
     return 'Inline title edits preserve drafts and scope writes to the selected PR';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     window.bridge = original;
   }
 }
@@ -1454,17 +1411,16 @@ export async function runTitleEdit(): Promise<string> {
 export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history' | 'closed-history' = 'task', taskPanel = false): Promise<string> {
   setCached('private-thread-drafts:owner/repo#8', undefined);
   const at = '2026-10-01T00:00:00Z';
-  const detail: PullRequestDetailDto = {
-    id: 8, repo: 'owner/repo', number: 8, title: 'Resolve owners', htmlUrl: null, state: 'open', draft: false,
-    mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: at, updatedAt: at,
-    mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: 'Resolves owners.', labels: [], assignees: [], milestone: null,
-    reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, checkRuns: [], unavailableSections: [],
-    viewerCanWrite: true,
+  const detail: PullRequestDetailDto = prDetail({
+    id: 8, repo: 'owner/repo', number: 8, title: 'Resolve owners', htmlUrl: null,
+    mergeable: null, mergeableState: null, author: 'alice', createdAt: at, updatedAt: at,
+    body: 'Resolves owners.',
+    deletions: 1,
     recentActivity: [
       { actor: 'carol', eventType: 'commented', timestamp: at, body: 'Should this cache be keyed by id?', githubId: 81, payload },
       { actor: 'alice', eventType: 'commented', timestamp: at, body: 'Good point, checking.', githubId: 82, payload },
     ],
-  };
+  });
   const task: AgentTaskDto = { ...previewTask('workspace-1', 'development-task'), checkoutRemovedAt: null };
   const retained = answeredBy === 'history' || answeredBy === 'closed-history';
   const review = reviewFixture({ repo: 'owner/repo', number: 8, workspaceId: 'workspace-1',
@@ -1523,11 +1479,9 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history
     | 'listReviewDiscussions' | 'askReviewCommentThread' | 'listLocalReviewComments' | 'listWorkspaces' | 'fetchAttentionPrs'
     | 'setPrAttentionHandled' | 'fetchMergeMode' | 'recordRecentTouch'>;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.width = '1200px';
   host.style.height = '800px';
-  document.body.append(host);
-  const root = createRoot(host);
   try {
     // The Assistant's Comment opens a pull request this way, to write in its comment box.
     if (!taskPanel) requestPullComment('Owner/Repo', 8);
@@ -1583,8 +1537,7 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history
       : 'The pull-request page hosts its review’s private threads on other people’s comments';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     window.bridge = original;
   }
 }
@@ -1671,10 +1624,8 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
     | 'recordRecentTouch' | 'getModelSettings' | 'prepareReviewWorktree' | 'startAgentReview' | 'askReviewCommentThread'
     | 'searchRepositories' | 'previewWatch' | 'watchRepository'>;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'width:1250px;height:850px';
-  document.body.append(host);
-  const root = createRoot(host);
   const mount = (selected = number) => flushSync(() => root.render(<PullsScreen initialPr={{ repo, number: selected }}
     repositoryScope={mode === 'workspace' ? undefined : { workspaceId: 'workspace-1', repository: repo }} onClose={() => {}} />));
   const waitFor = async (condition: () => boolean, message: string) => {
@@ -1758,7 +1709,7 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
     return `Private comment ${mode} flow prepares once, keeps drafts and reuses its discussion`;
   }
   finally {
-    flushSync(() => root.unmount()); host.remove(); window.bridge = original;
+    dispose(); window.bridge = original;
     setCached(cacheKey, undefined);
   }
 }

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from './reactFixture';
 import App from '../App';
 import { zoomReference } from '../githubReference';
 import { saveHandled } from '../home/attention';
@@ -116,12 +116,10 @@ async function withApp(hash: string, scenario: () => Promise<void>): Promise<voi
   saveHandled({});
   installBridge();
   window.location.hash = hash;
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { root, dispose: disposeRoot } = createFixtureRoot();
   flushSync(() => root.render(<App />));
   try { await scenario(); }
-  finally { flushSync(() => root.unmount()); host.remove(); await settle(); }
+  finally { disposeRoot(); await settle(); }
 }
 
 async function ticketLinksOverThePage(): Promise<void> {

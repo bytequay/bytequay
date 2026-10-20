@@ -110,28 +110,31 @@ describe('task window', () => {
 });
 
 describe('agent home and overview', () => {
+  const homeProps = {
+    repository: 'jackchen/trino',
+    laneId: 'codex',
+    providers: PROVIDERS,
+    models: MODELS,
+    selection: { model: 'gpt-5.6-sol', effort: 'high' },
+    draft: '',
+    onDraftChange: () => {},
+    onSelectModel: () => {},
+    onSelectProvider: () => {},
+    onCreate: () => {},
+    onOpenTask: () => {},
+    onOpenReview: () => {},
+    onShowAll: () => {},
+  };
   const bridge = () => createPreviewBridge('workspace-1');
 
   it('names the repository, docks the composer under the page, and lays the open tasks out as a grid', () => {
     const markup = renderToStaticMarkup(
       <AgentHomeView
-        repository="jackchen/trino"
-        laneId="codex"
-        providers={PROVIDERS}
+        {...homeProps}
+        blocker={null}
         tasks={[task('t-1', 'Fix flaky preview', 'TURN'), task('t-2', 'Audit storage')]}
         onRenameTask={() => {}}
         onHideTask={() => {}}
-        models={MODELS}
-        selection={{ model: 'gpt-5.6-sol', effort: 'high' }}
-        draft=""
-        blocker={null}
-        onDraftChange={() => {}}
-        onSelectModel={() => {}}
-        onSelectProvider={() => {}}
-        onCreate={() => {}}
-        onOpenTask={() => {}}
-        onOpenReview={() => {}}
-        onShowAll={() => {}}
       />);
 
     expect(markup).toContain('aria-label="jackchen/trino"');
@@ -166,9 +169,8 @@ describe('agent home and overview', () => {
   it('draws each open task as a compact card: its state, why it waits or what it last said, and its checkout', () => {
     const markup = renderToStaticMarkup(
       <AgentHomeView
-        repository="jackchen/trino"
-        laneId="codex"
-        providers={PROVIDERS}
+        {...homeProps}
+        blocker={null}
         tasks={[
           task('t-1', 'Fix flaky preview', 'TURN'),
           task('t-2', 'Audit storage'),
@@ -182,17 +184,6 @@ describe('agent home and overview', () => {
         }}
         changes={{ 't-2': { uncommitted: false, commits: 2 }, 't-3': { uncommitted: true, commits: 0 } }}
         now={NOW}
-        models={MODELS}
-        selection={{ model: 'gpt-5.6-sol', effort: 'high' }}
-        draft=""
-        blocker={null}
-        onDraftChange={() => {}}
-        onSelectModel={() => {}}
-        onSelectProvider={() => {}}
-        onCreate={() => {}}
-        onOpenTask={() => {}}
-        onOpenReview={() => {}}
-        onShowAll={() => {}}
       />);
 
     expect(markup).toContain('<span class="pill is-orange">Needs you</span>');

@@ -11,8 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { prDetail } from '../../fixtures/pullRequest';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { AgentTurnDto, Bridge, PullRequestDetailDto } from '../../../types';
 import { parseAgentEventSequence, type AgentEventEnvelope } from '../../../agents/events';
 import eventFixture from '../../../agents/fixtures/agent-events-v2.json';
@@ -78,13 +79,13 @@ for (const message of review.messages) {
 }
 input('turn-local', internal);
 input('turn-ordinary', 'Please keep my ordinary question visible.');
-const detail: PullRequestDetailDto = {
-  id: 42, repo: review.repo, number: review.number, title: 'Resolve nested sort fields in Iceberg', htmlUrl: null, state: 'open', draft: true,
-  mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-  mergedAt: null, baseRef: 'master', headRef: 'nested-fields', headSha: 'head', body: 'Support nested struct fields in the sort order.', labels: [], assignees: [], milestone: null,
-  reviewers: [], additions: 12, deletions: 3, changedFiles: 2, approvalCount: 0, ciStatus: null, recentActivity: [],
-  checkRuns: [], unavailableSections: [], viewerCanWrite: false,
-};
+const detail: PullRequestDetailDto = prDetail({
+  id: 42, repo: review.repo, number: review.number, title: 'Resolve nested sort fields in Iceberg', htmlUrl: null, draft: true,
+  mergeable: null, mergeableState: null, author: 'alice', updatedAt: null,
+  baseRef: 'master', headRef: 'nested-fields', body: 'Support nested struct fields in the sort order.',
+  additions: 12, deletions: 3, changedFiles: 2,
+  viewerCanWrite: false,
+});
 
 export async function run(): Promise<string[]> {
   const agent = createPreviewBridge(review.workspaceId);
@@ -115,10 +116,8 @@ export async function run(): Promise<string[]> {
     | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'readWorktreeChanges' | 'recordRecentTouch'>;
   const previous = window.bridge;
   Object.assign(window, { bridge });
-  const host = document.createElement('main');
+  const { host, root, dispose } = createFixtureRoot('main');
   host.style.cssText = 'height: 850px; width: 1500px; max-width: 100vw';
-  document.body.append(host);
-  const root = createRoot(host);
   const results: string[] = [];
   const button = (scope: Element, text: string) => {
     const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.includes(text));
@@ -309,5 +308,5 @@ export async function run(): Promise<string[]> {
     results.push('The pull request chip above the composer opens the pull request');
     return results;
   }
-  finally { flushSync(() => root.unmount()); host.remove(); Object.assign(window, { bridge: previous }); }
+  finally { dispose(); Object.assign(window, { bridge: previous }); }
 }

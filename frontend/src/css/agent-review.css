@@ -374,9 +374,7 @@
 .agr-review-details__conclusions { padding-left: 22px; }
 .agr-review-details__conclusions > li + li { margin-top: 12px; }
 
-.agr-context { padding: 4px 0 12px; border-bottom: 1px solid light-dark(#d8dee4, var(--dark-border)); }
 .agr-context__link { color: var(--fg-link); text-decoration: underline; overflow-wrap: anywhere; margin-right: 6px; }
-.agr-context .agr-evidence__excerpt { max-height: 320px; overflow: auto; }
 
 .lrc__foot > .agr-composer { margin-top: 0; }
 .agr-card__refs { color: var(--fg-dim); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }

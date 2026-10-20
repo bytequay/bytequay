@@ -11,9 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { prDetail } from '../../fixtures/pullRequest';
 import { installDesktopFixture } from '../../../ide/fixtures/desktop';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { Bridge, PullRequestDetailDto } from '../../../types';
 import type { TaskDiscussionDto } from '../../../agents/discussions/contracts';
 import type { AgentEventEnvelope } from '../../../agents/events';
@@ -53,13 +54,13 @@ export async function run(local = false): Promise<string> {
   text('done', 'root', '/root/sdk_semantics', 'ANSWER', 'The failure releases the writer.');
   life('done', 'root', '/root/sdk_semantics', 'AGENT_COMPLETED');
   text('root', null, null, 'ANSWER', 'Cancellation releases the writer.');
-  const detail: PullRequestDetailDto = {
-    id: 9001, repo: review.repo, number: initial.number, title: 'Cancel uploads', htmlUrl: null, state: 'open', draft: false,
-    mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-    mergedAt: null, baseRef: 'master', headRef: 'feature', headSha: 'head', body: 'Implementation', labels: [], assignees: [], milestone: null,
-    reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null,
-    recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: false,
-  };
+  const detail: PullRequestDetailDto = prDetail({
+    id: 9001, repo: review.repo, number: initial.number, title: 'Cancel uploads', htmlUrl: null,
+    mergeable: null, mergeableState: null, author: 'alice', updatedAt: null,
+    baseRef: 'master', body: 'Implementation',
+    deletions: 1,
+    viewerCanWrite: false,
+  });
   let subscriptions = 0;
   let stops = 0;
   let notify: Parameters<Bridge['subscribeAgentReview']>[2] = () => {};
@@ -129,10 +130,8 @@ export async function run(local = false): Promise<string> {
     recordRecentTouch: async () => {},
   } satisfies Partial<Bridge>;
   Object.assign(window, { bridge: { ...createPreviewBridge(review.workspaceId), ...stubs } });
-  const host = document.createElement('main');
+  const { host, root, dispose } = createFixtureRoot('main');
   host.style.cssText = 'height:850px;width:1500px';
-  document.body.append(host);
-  const root = createRoot(host);
   const chip = (label: string, scope: Element = host) => {
     const button = [...scope.querySelectorAll<HTMLButtonElement>('.agt-agent-chip')].find(node => node.textContent === label);
     assert(button !== undefined, `Missing agent chip: ${label}`);
@@ -235,6 +234,6 @@ export async function run(local = false): Promise<string> {
     return 'Review chips open live, completed and nested subagents; selected answers open reusable discussions';
   }
   finally {
-    flushSync(() => root.unmount()); host.remove(); desktop.dispose(); Object.assign(window, { bridge: previous });
+    dispose(); desktop.dispose(); Object.assign(window, { bridge: previous });
   }
 }

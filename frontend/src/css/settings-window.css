@@ -34,7 +34,9 @@
 
 .setw-ws-button:disabled { color: light-dark(#a1a1a6, var(--dark-dim)); cursor: default; }
 
-.setw-ws-name {
+.setw-ws-name,
+.setw-pill-label,
+.setw-menu-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -419,14 +421,6 @@
 .setw-pill.is-quiet { font-weight: 400; color: light-dark(#6e6e73, var(--dark-muted)); }
 .setw-pill:disabled { color: light-dark(#a1a1a6, var(--dark-dim)); cursor: default; }
 
-.setw-pill-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .setw-menu {
   position: absolute;
   top: 34px;
@@ -465,14 +459,6 @@
 .setw-menu-item:hover { background: light-dark(#f1f1f4, var(--dark-subtle)); }
 .setw-menu-item:disabled { color: light-dark(#b6b6bb, var(--dark-disabled)); cursor: default; background: transparent; }
 .setw-menu-item:disabled:hover { background: transparent; }
-
-.setw-menu-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .setw-menu-note {
   font-size: 11px;

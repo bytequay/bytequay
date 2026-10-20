@@ -14,7 +14,7 @@
 
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import type { Bridge, DiffCommitDto, DiffFileDto } from '../../types';
 import { DiffViewer, type CommitRange } from '../PullChanges';
 import { usePullRequestChanges, type PullRequestChangesSource } from '../usePullRequestChanges';
@@ -42,9 +42,7 @@ async function runHook(): Promise<string[]> {
     refreshPrDiffFiles: (repo, _number, base, head) => new Promise<DiffFileDto[]>((resolve, reject) => comparisons.push({ repo, base, head, resolve, reject })),
   } satisfies Pick<Bridge, 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'refreshPrDiffFiles'>;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const current = (): PullRequestChangesSource => { assert(value !== null, 'Hook must be mounted'); return value; };
   function Harness() {
     value = usePullRequestChanges({ repo: repository, number: 7 }, { active, revision });
@@ -147,8 +145,7 @@ async function runHook(): Promise<string[]> {
     return completed;
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
   }
 }
 
@@ -167,9 +164,7 @@ async function runDirectCommitSelection(): Promise<string[]> {
     fetchPrDiffCommits: () => historyReady ? Promise.resolve(loadedCommits) : new Promise<DiffCommitDto[]>(resolve => { historyResolve = resolve; }),
     refreshPrDiffFiles: (_repo, _number, base, head) => new Promise<DiffFileDto[]>(resolve => comparisons.push({ base, head, resolve })),
   } satisfies Pick<Bridge, 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'refreshPrDiffFiles'> });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { root, dispose } = createFixtureRoot();
   const current = (): PullRequestChangesSource => { assert(value !== null, 'Hook must be mounted'); return value; };
   function Harness(): null {
     value = usePullRequestChanges({ repo: 'owner/repo', number: 7 }, { active, revision });
@@ -227,8 +222,7 @@ async function runDirectCommitSelection(): Promise<string[]> {
     return completed;
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
   }
 }
 
@@ -244,10 +238,8 @@ async function runCommitMessages(): Promise<string> {
     const [range, setRange] = useState<CommitRange>(null);
     return <DiffViewer files={['first.ts', 'second.ts', 'third.ts'].map(file)} commits={history} commitRange={range} onCommitRangeChange={setRange} />;
   }
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'display: flex; height: 220px; width: 600px';
-  document.body.append(host);
-  const root = createRoot(host);
   const element = <T extends Element>(selector: string): T => {
     const found = host.querySelector<T>(selector);
     assert(found !== null, `Missing ${selector}`);
@@ -326,8 +318,7 @@ async function runCommitMessages(): Promise<string> {
     return 'Show commit messages without changing the selection';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
   }
 }
 

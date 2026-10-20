@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { useCallback, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
 import { assert, changeInput, settle, until } from '../../fixtures/harness';
 import '../../css/agent-review.css';
 import AgentReviewTab from '../../pulls/agent-review/AgentReviewTab';
@@ -93,10 +93,8 @@ async function exercise(surface: 'task' | 'review') {
     messageAgentReview: async () => { await start(); return review; },
   };
   window.bridge = { ...bridge, ...extra } as unknown as Bridge;
-  const host = document.createElement('div');
+  const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'height:640px;width:840px;display:flex;flex-direction:column';
-  document.body.append(host);
-  const root = createRoot(host);
   function Review() {
     const [current, setCurrent] = useState(review);
     const change = useCallback((updated: AgentReviewDto) => setCurrent(updated), []);
@@ -175,7 +173,7 @@ async function exercise(surface: 'task' | 'review') {
     return { name: surface, coldMountMs, sendCommitMs, sendVisibleMs, firstLogCommitMs, firstLogVisibleMs,
       rolloverMs, burstMs, initialBytes, reads, readEvents };
   }
-  finally { release(); flushSync(() => root.unmount()); host.remove(); }
+  finally { release(); dispose(); }
 }
 
 export async function run(repeats = 1) {

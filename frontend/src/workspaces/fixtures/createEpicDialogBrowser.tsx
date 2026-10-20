@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 
-import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import CreateEpicDialog, { type CreatedEpic } from '../CreateEpicDialog';
 import type { EpicDraftDto, EpicDraftMessage, EpicDraftReply, UnifiedWorkItem } from '../../workitems/contracts';
 import { jiraDetail, jiraIssue } from '../../jira/fixtures/jira';
@@ -53,9 +53,7 @@ async function say(text: string): Promise<void> {
 const agentSaid = (text: string) => () => [...document.querySelectorAll('.create-epic__message.is-agent')].some(message => message.textContent?.includes(text) === true);
 
 export async function run(): Promise<boolean> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { root, dispose: disposeRoot } = createFixtureRoot();
   const asked: EpicDraftMessage[][] = [];
   const replies: (EpicDraftReply | Error)[] = [];
   const createdLocal: { id: string; title: string; description: string; context: string }[] = [];
@@ -166,5 +164,5 @@ export async function run(): Promise<boolean> {
       `The ticket is marked by its location and opens by its Epic identity: ${JSON.stringify(markedTickets)}`);
     return true;
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { disposeRoot(); }
 }

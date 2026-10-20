@@ -13,7 +13,7 @@
  */
 
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { prDetail } from './pullRequest';
 import type { Bridge, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto } from '../../types';
 import { assert } from '../../fixtures/harness';
@@ -60,9 +60,7 @@ export async function run(): Promise<string> {
     refreshAllPullRequestDetailByRef: async () => { manualCalls++; return cached; },
   } satisfies Pick<Bridge, 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef'>;
   Object.assign(window, { bridge });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   let source: PullRequestDetailSource | undefined;
   function Probe({ active }: { active: boolean }) {
     source = usePullRequestDetail({ repo: cached.repo, number: cached.number }, { active });
@@ -166,8 +164,7 @@ export async function run(): Promise<string> {
     return 'Cached-first detail, separate CI/discussion cadence, immediate changes, no overlap, and visibility/backoff guards';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     window.setTimeout = originalTimeout;
     window.clearTimeout = originalClearTimeout;
     Date.now = originalNow;

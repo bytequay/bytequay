@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { pr as pullRequest } from './pullRequest';
 import type { DiffCommitDto, DiffFileDto } from '../../types';
 import { DiffViewer, type DiffAgentComment, type DiffViewerProps } from '../PullChanges';
@@ -82,9 +82,7 @@ const pr = pullRequest({
 });
 
 async function privateComment(reviewMode: 'missing' | 'own PR' | 'reviewable PR'): Promise<void> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const received: DiffAgentComment[] = [];
   let pendingChanges = 0;
   const review: DiffViewerProps['review'] = reviewMode === 'missing' ? undefined : {
@@ -123,14 +121,12 @@ async function privateComment(reviewMode: 'missing' | 'own PR' | 'reviewable PR'
     assert(Number(received.length) === 2 && received[1].comment.side === 'RIGHT' && received[1].code === 'new one\nnew two',
       'Clicking the plus and extending the range must quote only the new code');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function unchangedContent(): Promise<void> {
   for (const selected of [false, true]) {
-    const host = document.createElement('div');
-    document.body.append(host);
-    const root = createRoot(host);
+    const { host, root, dispose } = createFixtureRoot();
     const received: DiffAgentComment[] = [];
     const reads: unknown[][] = [];
     const newContent = 'context\ntwo\nthree\nfour\nnew fifth\nsixth';
@@ -156,14 +152,12 @@ async function unchangedContent(): Promise<void> {
       assert(received[0].baseSha === (selected ? '1111111' : null) && received[0].comment.commitId === '2222222',
         'Unknown full PR base must stay unknown while head anchoring remains available');
     }
-    finally { flushSync(() => root.unmount()); host.remove(); }
+    finally { dispose(); }
   }
 }
 
 async function incrementalContext(): Promise<void> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const content = Array.from({ length: 1500 }, (_, index) => `line ${index + 1}`).join('\n');
   flushSync(() => root.render(<DiffViewer files={[{ ...file, patch: '@@ -451,1 +451,1 @@\n line 451\n@@ -842,1 +842,1 @@\n line 842' }]}
     loadFileContent={async () => ({ oldContent: content, newContent: content })} />));
@@ -189,13 +183,11 @@ async function incrementalContext(): Promise<void> {
       && rows.join() === Array.from({ length: 1500 }, (_, index) => `${file.filename}:RIGHT:${index + 1}`).join(),
     'Repeated expansion must reveal every unchanged line once, in order');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function asynchronousSubmission(): Promise<void> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const requests: DiffAgentComment[] = [];
   const completions: Array<(error?: Error) => void> = [];
   const threads: LocalReviewThreadDto[] = [];
@@ -255,13 +247,11 @@ async function asynchronousSubmission(): Promise<void> {
     assert(host.querySelector('.is-review-composer') === null, 'Accepted private feedback must remove the sending status');
     assert(document.activeElement?.getAttribute('aria-label') === 'Select old line 3', 'Accepted feedback must restore focus to its gutter');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function dragSelection(): Promise<void> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<DiffViewer files={[file]} commits={commits} commitRange={{ start: 1, end: 1 }} onAskAgent={async () => {}} />));
   const press = async (line: number, shiftKey = false) => {
     const target = host.querySelector(`[aria-label="Select new line ${line}"]`);
@@ -306,13 +296,11 @@ async function dragSelection(): Promise<void> {
     assert(host.querySelector('tr.is-selected') === null && host.querySelector('.pull-diff-review') === null,
       'Escape must cancel a drag in progress');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function pressBelowComposer(): Promise<void> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const context = Array.from({ length: 30 }, (_, index) => ` line ${index + 1}`).join('\n');
   flushSync(() => root.render(<DiffViewer files={[{ ...file, additions: 0, deletions: 0, patch: `@@ -1,30 +1,30 @@\n${context}` }]}
     onAskAgent={async () => {}} />));
@@ -331,13 +319,11 @@ async function pressBelowComposer(): Promise<void> {
       await settle();
     }
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { dispose(); }
 }
 
 async function keyboardShortcuts(): Promise<void> {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
+  const { host, root, dispose } = createFixtureRoot();
   const sent: DiffAgentComment[] = [];
   let posts = 0;
   const originalBridge = window.bridge;
@@ -371,8 +357,7 @@ async function keyboardShortcuts(): Promise<void> {
     assert(Number(sent.length) === 1 && posts === 1, 'Ctrl+Enter must send to the agent when that is the only action');
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    dispose();
     Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
   }
 }

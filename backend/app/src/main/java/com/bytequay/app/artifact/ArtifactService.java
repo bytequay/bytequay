@@ -112,7 +112,8 @@ public class ArtifactService
             Answer what the user asks, reading the code you need with your tools. You cannot change files or reach the web.
             Keep replies short, a few paragraphs or a short list: say what you found, cite code as path:line at the commit named in the
             message, and leave the full walk-through for the page. While the scope is still open, end every reply by asking what the user
-            wants next with your tool for asking the user a question with options (AskUserQuestion, or request_user_input): one question,
+            wants next with your tool for asking the user a question with options (AskUserQuestion, or request_user_input). Write your
+            answer as a message first and ask after it, never in its place: the user reads the answer above the question. Ask one question,
             two to four short options for what to look at next, the last one "That's enough".
             When they pick an option, go on with it in the same reply; when they pick "That's enough", offer the page as below; when they
             dismiss the question, end your reply, and they will write what they want instead.
@@ -475,13 +476,14 @@ public class ArtifactService
     private record Question(AgentEventSource source, CompletableFuture<ProviderApprovalDecision> answer) {}
 
     /**
-     * What a transcript shows: whole messages and each step's start and end.
+     * What a transcript shows: whole messages and each step's start and end. A message is whole when it is final or names its item, as
+     * Codex's commentary does once complete; a streamed piece names none.
      * ponytail: streamed pieces and progress ticks stay out, a row each would be thousands per turn; the answer shows once it is whole.
      */
     private static boolean shown(ProviderAgentEvent event)
     {
         return switch (event) {
-            case ProviderAgentEvent.Message message -> message.phase() == ProviderAgentEvent.MessagePhase.FINAL;
+            case ProviderAgentEvent.Message message -> message.phase() == ProviderAgentEvent.MessagePhase.FINAL || message.providerEventId().isPresent();
             case ProviderAgentEvent.Tool tool -> tool.state() != ProviderAgentEvent.ActivityState.PROGRESS;
             case ProviderAgentEvent.Command command -> command.state() != ProviderAgentEvent.ActivityState.PROGRESS;
             // The turn's start and end are recorded once, by the service, as a task's are.

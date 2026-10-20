@@ -200,6 +200,9 @@ class TestArtifactService
     {
         agent.add(turn -> {
             turn.step("Grep", "74:import io.trino.plugin.iceberg.delete.DeleteManager;", Optional.of("Find where deletes are read"));
+            // Codex's commentary is whole once its item completes, though not final: it is what Codex writes before it asks.
+            turn.events().emit(new ProviderAgentEvent.Message(Optional.of("note-1:completed"), ProviderAgentEvent.MessagePhase.PARTIAL, "Deletes are read here.",
+                    ProviderAgentEventSource.root()));
             turn.step("Read", "public class DeleteManager", Optional.empty());
             turn.events().emit(new ProviderAgentEvent.Message(Optional.empty(), ProviderAgentEvent.MessagePhase.FINAL, "a child's notes", CHILD));
             turn.events().emit(new ProviderAgentEvent.Message(Optional.empty(), ProviderAgentEvent.MessagePhase.PARTIAL, "They are", ProviderAgentEventSource.root()));
@@ -218,15 +221,16 @@ class TestArtifactService
                 "user: Teach me how Iceberg position deletes work",
                 "turn_started: Turn started",
                 "tool Grep completed",
+                "answer: Deletes are read here.",
                 "tool Read completed",
                 "child answer: a child's notes",
                 "answer: They are applied per data file at scan time. The read path or the write path?",
                 "turn_completed: Turn completed");
         List<AgentEventEnvelope> events = artifacts.events(WORKSPACE, id, 0);
-        assertThat(events).extracting(AgentEventEnvelope::sequence).containsExactly(1L, 2L, 3L, 4L, 5L, 6L, 7L);
+        assertThat(events).extracting(AgentEventEnvelope::sequence).containsExactly(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L);
         assertThat(events).extracting(event -> event.taskId().toString()).containsOnly(id);
         assertThat(events).extracting(event -> event.turnId().orElseThrow()).containsOnly(events.getFirst().turnId().orElseThrow());
-        assertThat(artifacts.events(WORKSPACE, id, 5)).extracting(AgentEventEnvelope::sequence).containsExactly(6L, 7L);
+        assertThat(artifacts.events(WORKSPACE, id, 5)).extracting(AgentEventEnvelope::sequence).containsExactly(6L, 7L, 8L);
         AgentSessionContext first = opened.getFirst();
         assertThat(first.access()).isEqualTo(SessionAccess.READ_ONLY);
         assertThat(first.worktree()).isEqualTo(runtime.resolve("artifacts").resolve(WORKSPACE));

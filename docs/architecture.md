@@ -376,6 +376,14 @@ that authority. An Assistant action counts as the user's direct action only with
 the bounds above: the user's own words, in the message that asked for it. Preview and execution must remain bound to the accepted target;
 uncertain remote outcomes are reconciled instead of blindly repeated.
 
+A development task's automation level is that scope for its delivery, accepted
+when the task starts and fixed afterwards; each level includes the ones before
+it. Review fix posts the task agent's replies to reviewers only once the fix
+they describe is the pull request's pushed head, and resolves only threads the
+agent reported fixed. Auto-merge merges only the head it checked, after the
+user's delay. Both record a post or merge as started before sending it, so an
+uncertain outcome is shown to the user rather than sent again.
+
 Provider login profiles live outside repositories. Named Claude profiles have
 either global or repository ownership. Model catalogs filter repository-owned
 profiles by workspace, and the provider registry checks that ownership before

@@ -50,9 +50,9 @@ release notes for availability.
 2. **Connect an agent and choose your default:** check Codex or Claude Code,
    sign in, or add a DeepSeek API key. Select the account and model for
    Development; Review follows it unless you choose another in Settings.
-3. **Automation:** choose whether new tasks create draft PRs, fix CI, analyze
-   review comments, or prepare private replies. These options start off on a
-   fresh installation. Existing preferences are preserved.
+3. **Automation:** choose how far new tasks go on their own, from a local
+   commit to a merged PR. It starts at **Auto-Commit** on a fresh
+   installation. Existing preferences are preserved.
 4. **Your features:** watch the previews to explore Today and Assistant, then
    enable either feature if you want it. Each uses your default Development
    agent and model allowance. Assistant task actions have separate switches.
@@ -314,31 +314,41 @@ Check limits in **Usage**. Add reusable instructions in
 
 ## Deliver changes and repair CI
 
-Review **Automation** before starting:
+The composer's automation chip shows one icon for each step a new task will
+take. Click it and drag the slider to choose how far the task goes; each step
+includes the ones before it:
 
-- **Auto draft PR:** pushes commits and creates or updates a PR.
-- **Auto CI fix:** watches CI beside the task after each push. It reruns flaky
+- **Auto-Commit:** commits finished work on the task's branch. Nothing leaves
+  your Mac.
+- **Auto-Draft PR:** pushes commits and creates or updates a draft PR.
+- **CI fix:** watches CI beside the task after each push. It reruns flaky
   jobs and repairs failures the PR caused. Failures that also fail on the base
   branch are left alone until the next push. Once every check passes, it marks
-  a draft PR ready for review. It can write to GitHub. **CI repair agent**
-  follows Development unless you choose another supported agent.
-- **Auto review summary:** adds private analysis and a suggested plan for new
-  review comments on the task's PR.
-- **Auto draft review replies:** analyzes new review comments and prepares
-  private replies. Choose **Use draft**, edit the reply, then **Comment** to
-  publish it. Generated replies are never posted automatically.
-- **Keep commits local for this turn:** skips publication and CI follow-up.
+  the draft PR ready for review. **CI repair agent** follows Development
+  unless you choose another supported agent.
+- **Auto-Review fix:** gives new comments on the PR's open review threads to
+  the task's agent. It fixes what it agrees with and explains what it doesn't.
+  Once the fix is pushed, ByteQuay posts each reply and resolves the threads
+  that were fixed. A thread gets at most three rounds.
+- **Auto-merge:** once the PR can merge, waits for the delay in
+  **Settings → Agents → Workflow** (one hour unless you change it), then
+  rebase-merges it or joins the merge queue. GitHub decides whether the PR can
+  merge; the task's CI fix must also pass and no review thread may be open.
 
-These automation options start off on a fresh installation; existing choices
-are preserved. Completed development work is committed automatically. Change
-defaults for new tasks during setup or in **Settings → Agents → Workflow**,
-and review each task's choices before sending. Automatic analysis and repairs
-use your model allowance. Use **Stop automation and continue…** to stop a
-commit or PR step. You review and merge the PR.
+The reset button returns to your saved default. A task's automation is fixed
+once it starts: its chip then shows each step as done (green), running
+(yellow), not started (grey) or needing you (red); hover a step for details.
+Every step after Auto-Commit can write to GitHub. Change the default for new
+tasks during setup or in **Settings → Agents → Workflow**. Automatic repairs
+and fixes use your model allowance.
+
+The pill above the composer says what automation is doing now. Its stop
+square stops automation and keeps your draft; while a merge counts down, it
+cancels the merge and the PR stays open.
 
 You can keep sending messages while CI Autofix watches. A message stops a
 repair in progress, and your next turn starts from the fixes CI already pushed.
-**Stop CI Autofix** ends the current run; the next push starts another.
+The pill's stop square ends the current CI run; the next push starts another.
 
 CI monitoring runs locally while ByteQuay is open, has no time limit, and
 resumes after a restart. ByteQuay notifies you when failures already fail on

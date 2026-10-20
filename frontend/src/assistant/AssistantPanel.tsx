@@ -13,13 +13,14 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
-  AlarmClock, ArrowUpRight, Ban, CheckCheck, CircleDot, Flag, ListEnd, ListPlus, MessageSquareReply, Mic, Play, RotateCw, Send, ShieldCheck, SquarePlus,
-  TriangleAlert, X, type LucideIcon,
+  AlarmClock, ArrowUpRight, Ban, CheckCheck, CircleDot, Flag, ListEnd, ListPlus, ListTodo, MessageSquareReply, Mic, Play, RotateCw, Send, ShieldCheck,
+  SquarePlus, TriangleAlert, X, type LucideIcon,
 } from 'lucide-react';
 import Composer from '../Composer';
 import { renderMarkdown } from '../agents/markdown';
+import { SourceIcon } from '../cards/Card';
 import { openTarget } from '../home/TodayList';
-import { reloadHandled } from '../home/attention';
+import { reloadHandled, type AttentionSource } from '../home/attention';
 import { requestPullComment } from '../pulls/PullOverview';
 import { clockTime } from '../home/today';
 import type { AppNotice } from '../notices/contracts';
@@ -206,10 +207,11 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
           )}>
           {screen !== null && (
             <span className="assistant-chip" title="On screen: tells the assistant what “this one” means">
+              <ScreenIcon screen={screen} />
               <span className="assistant-chip__name">On screen:</span>
               <span className="assistant-chip__ref">{refLabel(screen)}</span>
               <button type="button" aria-label="Leave what's on screen out of this message" title="Leave it out"
-                onClick={() => setHiddenScreen(screen)}><X size={11} aria-hidden="true" /></button>
+                onClick={() => setHiddenScreen(screen)}><X size={12} aria-hidden="true" /></button>
             </span>
           )}
           <span className="assistant-spacer" />
@@ -231,6 +233,14 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   );
 }
 
+const SCREEN_SOURCES: Record<string, AttentionSource> = { pr: 'pr', issue: 'issue', jira: 'jira', task: 'task', review: 'task' };
+
+/** What kind of item is on screen, by its source's icon; a work item has no source and takes a list's work item icon. */
+function ScreenIcon({ screen }: { screen: string }) {
+  const source = SCREEN_SOURCES[screen.slice(0, screen.indexOf(':'))];
+  return source === undefined ? <ListTodo size={12} aria-hidden="true" /> : <SourceIcon source={source} size={12} />;
+}
+
 function Entry({ item, rows, drafts, model, retryable, onRetry, onSettings, onOpen, onComplete, onPull, onRefresh }: {
   item: AssistantItemDto;
   rows: Record<string, AssistantRowDto>;
@@ -246,10 +256,7 @@ function Entry({ item, rows, drafts, model, retryable, onRetry, onSettings, onOp
   onPull: (target: AgendaTargetDto, action: PullAction) => Promise<void>;
   onRefresh: () => void;
 }) {
-  if (item.kind === 'USER') return <>
-    <div className="assistant-time">{clockTime(item.at)}</div>
-    <div className="agt-user"><div className="agt-user__bubble">{item.text}</div></div>
-  </>;
+  if (item.kind === 'USER') return <div className="agt-user"><div className="agt-user__bubble" title={`Sent at ${clockTime(item.at)}`}>{item.text}</div></div>;
   if (item.kind === 'REPLY') return <div className="assistant-reply">{renderMarkdown(linkRefs(item.text, item.targets))}</div>;
   if (item.kind === 'LIST') return <AssistantList item={item} rows={rows} onOpen={onOpen} onComplete={onComplete} onPull={onPull} />;
   if (item.kind === 'DRAFT') return <DraftCard item={item} created={item.draft !== null && drafts.has(item.draft.workItemId)} onCreated={onRefresh} onOpen={onOpen} />;

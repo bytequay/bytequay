@@ -1,14 +1,23 @@
 /* Over every page and the browser rail (1101); pages keep their size, since no native view is showing while it is open. */
 .assistant-panel {
   --assistant-line: light-dark(#e3e3e6, var(--dark-border));
+  /* Dividers inside a sheet: a step lighter than its border. */
+  --assistant-line-subtle: light-dark(#efeff0, var(--dark-border-muted));
   --assistant-gold: #d4a72c;
   --assistant-selected: light-dark(#f0f1f3, var(--dark-hover));
-  --assistant-shadow: 0 0 0 1px light-dark(rgb(31 35 40 / 4%), rgb(0 0 0 / 40%)), 0 16px 40px light-dark(rgb(31 35 40 / 14%), rgb(0 0 0 / 50%));
-  --assistant-shadow-low: 0 6px 18px light-dark(rgb(31 35 40 / 8%), rgb(0 0 0 / 35%));
+  /* The dark theme's shadows reach further; light-dark() picks only colours, so each theme's shadow is transparent in the other. */
+  --assistant-shadow: 0 0 0 1px light-dark(rgb(31 35 40 / 4%), rgb(0 0 0 / 40%)), 0 12px 32px light-dark(rgb(31 35 40 / 14%), transparent),
+    0 18px 48px light-dark(transparent, rgb(0 0 0 / 50%));
+  --assistant-shadow-low: 0 6px 16px light-dark(rgb(31 35 40 / 8%), transparent), 0 8px 20px light-dark(transparent, rgb(0 0 0 / 35%));
+  /* Cards here sit on the panel's raised sheets and take their colour. */
+  --card-surface: var(--surface-elevated);
   position: fixed;
   z-index: 1102;
   inset: 0;
 }
+
+/* The panel draws its icons a little finer than the app does. */
+.assistant-panel svg.lucide { stroke-width: 1.8; }
 
 .assistant-backdrop {
   position: absolute;
@@ -35,7 +44,10 @@
 
 .assistant-spacer { flex: 1; }
 
-/* The app's composer, larger: its running light circles faster here, and faster again while a reply is written. */
+/*
+ * The app's composer, larger, with its own light: a blue arc that runs round the border once every 10 s, and faster while a reply is
+ * written. It draws on the composer's light ring in place of the travelling glow.
+ */
 .assistant-float .agt-compose {
   flex: none;
   max-width: none;
@@ -43,8 +55,25 @@
   box-shadow: var(--assistant-shadow);
 }
 
-.assistant-float .agt-compose__streamer::after { animation-duration: 4s; }
-.assistant-float.is-replying .agt-compose__streamer::after { animation-duration: 1.6s; }
+@property --assistant-light {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.assistant-float .agt-compose__streamer {
+  background: conic-gradient(from var(--assistant-light), var(--assistant-line) 0deg 240deg, var(--fg-link) 300deg, var(--assistant-line) 345deg);
+  animation: assistant-light 10s linear infinite;
+}
+
+.assistant-float .agt-compose__streamer::after { display: none; }
+.assistant-float.is-replying .agt-compose__streamer { animation-duration: 4s; }
+
+@keyframes assistant-light { to { --assistant-light: 360deg; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-float .agt-compose__streamer { animation: none; }
+}
 
 .assistant-float .agt-compose__input {
   padding: 13px 16px 0;
@@ -62,6 +91,12 @@
   height: 32px;
 }
 
+/* With nothing to send yet, the arrow keeps its contrast on a light circle. */
+.assistant-float .agt-send:disabled {
+  background: var(--assistant-selected);
+  color: var(--fg-default);
+}
+
 .assistant-error {
   margin: 6px 16px 0;
   color: var(--fg-danger);
@@ -74,7 +109,7 @@
   box-sizing: border-box;
   align-items: center;
   gap: 5px;
-  height: 24px;
+  height: 26px;
   padding: 0 2px 0 8px;
   border: 1px solid var(--assistant-line);
   border-radius: 12px;
@@ -82,6 +117,7 @@
   font-size: 12px;
 }
 
+.assistant-chip > svg,
 .assistant-chip__name { flex: none; }
 
 .assistant-chip__ref {
@@ -115,8 +151,11 @@
 
 .assistant-mic {
   display: inline-flex;
+  width: 28px;
+  height: 28px;
   flex: none;
-  padding: 0 6px;
+  align-items: center;
+  justify-content: center;
   color: var(--fg-muted);
 }
 
@@ -130,31 +169,27 @@
   box-shadow: var(--assistant-shadow);
 }
 
+/* The conversation: each entry, the user's words, a reply, a list, a receipt or a draft, 14px from the next. */
 .assistant-talk {
+  display: flex;
   flex: 0 1 auto;
-  padding: 0 14px 12px;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 14px 16px;
 }
 
-.assistant-time {
-  margin-top: 12px;
-  color: var(--fg-dim);
-  font-size: 11.5px;
-  line-height: 16px;
-  text-align: center;
-}
-
-.assistant-talk .agt-user { margin-top: 6px; }
+.assistant-talk > * { flex: none; }
+.assistant-talk .agt-user { margin-top: 0; }
 .assistant-talk .agt-user__bubble { white-space: pre-wrap; }
 
 .assistant-reply {
-  margin-top: 10px;
   font-size: 13.5px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
 .assistant-thinking {
-  margin: 10px 0 0;
+  margin: 0;
   color: var(--fg-muted);
   font-size: 13px;
   line-height: 19px;
@@ -166,7 +201,6 @@
   min-height: 26px;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
   font-size: 13.5px;
   line-height: 19px;
 }
@@ -191,9 +225,8 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
-  margin-top: 10px;
   padding: 7px 8px 7px 10px;
-  border: 1px solid var(--line-subtle);
+  border: 1px solid var(--assistant-line-subtle);
   border-radius: 8px;
 }
 
@@ -575,13 +608,17 @@
 .assistant-today { padding: 10px 12px; }
 
 /* A list the assistant showed, drawn from the app's own data: its title and style switch, then rows, cards or days. */
-.assistant-items { margin-top: 10px; }
+.assistant-items {
+  display: flex;
+  flex-direction: column;
+}
 
 .assistant-items__head {
   display: flex;
   align-items: center;
   gap: 8px;
   height: 28px;
+  margin-bottom: 4px;
 }
 
 .assistant-items__title {
@@ -614,7 +651,8 @@
 }
 
 .assistant-row:hover { background: var(--assistant-selected); }
-.assistant-row__icon { flex: none; color: var(--fg-muted); }
+.assistant-row__icon { display: flex; flex: none; color: var(--fg-muted); }
+.assistant-row > .assistant-row__icon { width: 18px; justify-content: center; }
 .assistant-row > .card-age { min-width: 28px; text-align: right; }
 
 .assistant-row__title {
@@ -640,6 +678,7 @@
 }
 
 .assistant-row.is-gone:hover { background: none; }
+.assistant-row.is-gone .assistant-row__icon { color: inherit; }
 
 .assistant-row__facts {
   display: inline-flex;
@@ -671,7 +710,7 @@
   align-items: center;
   height: 22px;
   margin-top: 4px;
-  color: var(--fg-dim);
+  color: light-dark(#656d76, var(--dark-dim));
   font-size: 11.5px;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -680,7 +719,7 @@
 .assistant-items__day.is-untimed {
   margin-top: 4px;
   padding-top: 4px;
-  border-top: 1px solid var(--line-subtle);
+  border-top: 1px solid var(--assistant-line-subtle);
 }
 
 /* Cards: two to a row, each the shared card with where it stands, what happened last, and the user's own buttons below. */
@@ -705,9 +744,9 @@
   min-width: 0;
   align-items: center;
   gap: 8px;
-  height: 32px;
+  height: 33px;
   padding: 0 10px;
-  border-bottom: 1px solid var(--line-subtle);
+  border-bottom: 1px solid var(--assistant-line-subtle);
   background: light-dark(#f6f8fa, var(--dark-subtle));
 }
 
@@ -725,7 +764,7 @@
   min-width: 0;
   flex: 1;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   padding: 10px 12px 0;
 }
 
@@ -741,7 +780,7 @@
   display: flex;
   min-width: 0;
   gap: 4px;
-  color: var(--text-3);
+  color: var(--fg-muted);
   font-size: 12px;
   line-height: 17px;
 }
@@ -809,7 +848,6 @@
 .assistant-draft {
   display: flex;
   flex-direction: column;
-  margin-top: 10px;
   overflow: hidden;
   border: 1px solid var(--assistant-line);
   border-radius: 10px;
@@ -824,11 +862,16 @@
 }
 
 .assistant-draft__head {
-  height: 32px;
-  padding: 0 12px 0 10px;
-  border-bottom: 1px solid var(--line-subtle);
+  height: 33px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--assistant-line-subtle);
   background: light-dark(#f6f8fa, var(--dark-subtle));
   font-size: 12.5px;
+}
+
+.assistant-draft__head > svg {
+  flex: none;
+  color: var(--fg-muted);
 }
 
 .assistant-draft__repo,
@@ -913,7 +956,7 @@
 
 .assistant-draft__actions {
   padding: 8px 12px;
-  border-top: 1px solid var(--line-subtle);
+  border-top: 1px solid var(--assistant-line-subtle);
   color: var(--fg-dim);
 }
 

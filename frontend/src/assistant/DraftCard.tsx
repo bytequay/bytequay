@@ -65,7 +65,7 @@ export default function DraftCard({ item, created, onCreated, onOpen }: {
   return (
     <form className="assistant-draft" aria-label="New GitHub issue as an Epic" onSubmit={event => { event.preventDefault(); void create(); }}>
       <div className="assistant-draft__head">
-        <SourceIcon source="issue" tinted />
+        <SourceIcon source="issue" />
         <span>New issue as an Epic</span>
         <span className="assistant-spacer" />
         <span className="assistant-draft__repo">{draft.repository}</span>

@@ -186,6 +186,8 @@ async function floatsOverThePage(): Promise<void> {
     const page = view.host.querySelector<HTMLElement>('.app-surfaces')?.getBoundingClientRect();
     assert(page !== undefined && page.width === window.innerWidth, `The page keeps its width: ${JSON.stringify(page)}`);
     assert(float.getAttribute('role') === 'dialog', 'It is a dialog, so the editor’s native view hides under it');
+    const light = getComputedStyle(float.querySelector('.agt-compose__streamer') as Element);
+    assert(light.animationName === 'assistant-light' && light.animationDuration === '10s', `The composer's light turns once every 10 s: ${light.animationDuration}`);
     assert(view.host.querySelector('.assistant-talk') === null, 'The earlier conversation stays folded until the user talks');
     assert(JSON.stringify(pills(view.host)) === JSON.stringify(['All2', 'Decision1', 'Finished1', 'Today0/2']), `Empty groups hide: ${JSON.stringify(pills(view.host))}`);
     assert(selected(view.host) === 'All2', 'All is selected first');
@@ -216,7 +218,7 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     assert(refusal?.querySelector('.assistant-receipt__line')?.textContent === 'Use the buttons: this one runs outside the sandbox ↓'
       && refusal.querySelector('.assistant-receipt__words')?.textContent === '“allow it”' && refusal.querySelector('button') === null,
       `A refusal shows the words it refused and points down at the card: ${refusal?.textContent}`);
-    assert(/^\d{1,2}:\d{2}$/.test(talk.querySelector('.assistant-time')?.textContent ?? ''), 'A message starts with its time');
+    assert(/^Sent at \d{1,2}:\d{2}$/.test(talk.querySelector('.agt-user__bubble')?.getAttribute('title') ?? ''), 'A message keeps its time on hover');
     const links = [...talk.querySelectorAll<HTMLAnchorElement>('.assistant-reply a')].map(link => link.textContent);
     assert(JSON.stringify(links) === JSON.stringify(['#31377', 'task']), `Both refs link, bare or not: ${JSON.stringify(links)}`);
     const receipt = talk.querySelector<HTMLElement>('.assistant-receipt');
@@ -755,7 +757,8 @@ async function stopsARunningReply(): Promise<void> {
   try {
     await settle();
     assert(view.host.querySelector('.assistant-talk .assistant-thinking') !== null, 'A running reply shows the conversation with Thinking');
-    assert(view.host.querySelector('.assistant-float.is-replying') !== null, 'The light speeds up while it replies');
+    const light = view.host.querySelector('.assistant-float.is-replying .agt-compose__streamer');
+    assert(light !== null && getComputedStyle(light).animationDuration === '4s', 'The light speeds up while it replies');
     assert(view.host.querySelector('button[aria-label="Send to the Assistant"]') === null, 'Stop replaces send');
     view.host.querySelector<HTMLButtonElement>('button[aria-label="Stop the reply"]')?.click();
     await settle();

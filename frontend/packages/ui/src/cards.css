@@ -2,7 +2,8 @@
    The base every card and card row draws with (cards/Card.tsx): Needs attention, Circles, the Tasks
    page, a workspace's open tasks and a goal's items. A surface's own stylesheet adds only its layout
    (padding, gaps, what sits where) and never restyles these properties, so which stylesheet loads
-   first does not matter. Nothing in a card is bold. */
+   first does not matter; a surface raised above the page sets --card-surface to its own colour.
+   Nothing in a card is bold. */
 
 .card {
   box-sizing: border-box;
@@ -11,7 +12,7 @@
   flex-direction: column;
   border: 1px solid light-dark(#e3e3e6, var(--dark-border));
   border-radius: 12px;
-  background: var(--surface-canvas);
+  background: var(--card-surface, var(--surface-canvas));
   box-shadow: 0 1px 2px light-dark(rgba(31, 35, 40, 0.05), rgb(0 0 0 / 9%));
   color: var(--text-1);
   cursor: pointer;

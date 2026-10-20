@@ -104,7 +104,7 @@ function Line({ id, row, timed, onOpen }: { id: string; row: AssistantRowDto | u
   return (
     <Clickable className="card-row assistant-row" label={label(row)} title={rowTitle(row)} onOpen={() => onOpen(row.target)}>
       {timed && <span className="assistant-row__time">{row.at === null ? '' : clockTime(row.at)}</span>}
-      <RowIcon row={row} />
+      <RowIcon row={row} size={15} />
       {row.key !== null && <span className="card-key">{row.key}</span>}
       <span className="assistant-row__title">{row.title}</span>
       <Facts row={row} card={false} />
@@ -164,7 +164,7 @@ function ItemCard({ id, row, onOpen, onComplete, onPull }: { id: string; row: As
   return (
     <Card compact className="assistant-item-card" label={label(row)} title={rowTitle(row)} onOpen={() => onOpen(row.target)}>
       <div className="assistant-item-card__strip">
-        <RowIcon row={row} />
+        <RowIcon row={row} size={14} />
         {row.key !== null && <span className="card-key">{row.key}</span>}
         {row.agent !== null && <span className="assistant-item-card__lane">{row.agent}</span>}
         <span className="assistant-spacer" />
@@ -228,17 +228,19 @@ function Gone({ id, timed }: { id: string; timed: boolean }) {
   return (
     <div className="assistant-row is-gone" title={`ByteQuay no longer holds ${refLabel(id)}`}>
       {timed && <span className="assistant-row__time" />}
-      <CircleOff size={15} aria-hidden="true" />
+      <span className="assistant-row__icon"><CircleOff size={15} aria-hidden="true" /></span>
       <span className="assistant-row__title">{refLabel(id)}</span>
       <span>Gone</span>
     </div>
   );
 }
 
-function RowIcon({ row }: { row: AssistantRowDto }) {
+/** An item's kind as a plain icon; where it stands is the card's pill or the row's facts, so no state tints it. */
+function RowIcon({ row, size }: { row: AssistantRowDto; size: number }) {
   const source = SOURCES[row.kind];
-  if (source !== undefined) return <SourceIcon source={source} tinted ended={row.state === 'merged' || row.state === 'closed' ? row.state : null} />;
-  return row.kind === 'EPIC' ? <Flag className="assistant-row__icon" size={14} aria-hidden="true" /> : <ListTodo className="assistant-row__icon" size={14} aria-hidden="true" />;
+  const icon = source !== undefined ? <SourceIcon source={source} size={size} />
+    : row.kind === 'EPIC' ? <Flag size={size} aria-hidden="true" /> : <ListTodo size={size} aria-hidden="true" />;
+  return <span className="assistant-row__icon">{icon}</span>;
 }
 
 /**

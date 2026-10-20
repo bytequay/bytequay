@@ -1399,10 +1399,11 @@ export function ConversationComposer({
           // A development turn reads as running during its baseline capture, before it can be stopped cleanly.
           <button type="button" className="agt-send is-stop" aria-label={stopLabel}
             title={stopTitle} onClick={onStop} disabled={sending}><span className="agt-stop-square" aria-hidden="true" /></button>}>
-        {turnControls && <ComposerModelControls models={models} model={model} effort={effort} serviceTier={serviceTier} provider={provider}
+        {/* Without the controls the row still keeps send and stop at its end, where they are with them. */}
+        {turnControls ? <ComposerModelControls models={models} model={model} effort={effort} serviceTier={serviceTier} provider={provider}
           providers={providers} laneId={laneId} onSelectProvider={onSelectProvider} onSelectModel={onSelectModel}
           disabled={sending || disabled || closing} modelLabel="Model and effort for the next message" automation={automation}
-          onAttach={onAttach} attachEnabled={attachEnabled} attachTitle={attachTitle} />}
+          onAttach={onAttach} attachEnabled={attachEnabled} attachTitle={attachTitle} /> : <span className="agt-spacer" />}
         {turnControls && running && !routedToCi && value.trim() !== '' && <>
           <button type="button" className="agt-steer" disabled={!steerEnabled} title={steerTitle} onClick={onSteer}>Steer</button>
           <button type="button" className="agt-compose__chip" disabled={!queueEnabled} title={queueTitle} onClick={onQueue}>Run next</button>

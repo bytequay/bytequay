@@ -392,12 +392,12 @@ async function stopWaitingCi(): Promise<{ name: string; error?: string }[]> {
     assert(host.querySelector('.agt-state')?.textContent === 'Idle', 'CI waiting must leave the agent idle');
     assert(host.querySelector('.agt-state .agt-spin') === null && host.querySelector('.agt-stop-square') === null,
       'CI waiting must not show a running agent spinner or square Stop');
-    assert(host.querySelector('.agt-automation-progress__pill')?.textContent === 'CI automation · Waiting for CI', 'Waiting CI needs its own automation pill');
+    assert(host.querySelector('.agt-auto-pill__label')?.textContent === 'Waiting for CI', 'Waiting CI needs its own automation pill');
     const input = element<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]', host, 'Waiting CI must allow drafting');
     changeInput(input, 'Continue with another change');
     await settle();
     const stop = host.querySelector<HTMLButtonElement>('button[aria-label="Stop automation"]');
-    assert(stop?.textContent === 'Stop automation and continue…', 'The exit from automation must be a visible text action');
+    assert(stop?.title === 'Stop automation · your draft is kept', 'The pill’s stop must say the draft is kept');
     stop.click();
     await settle();
     const cancel = Array.from(document.querySelectorAll<HTMLButtonElement>('dialog button')).find(button => button.textContent === 'Cancel');
@@ -417,7 +417,7 @@ async function stopWaitingCi(): Promise<{ name: string; error?: string }[]> {
       developmentCi: { ...CI_PROJECTION, status: 'FINISHED', activity: 'FINISHED', finishReason: 'CANCELLED', canMessage: false } };
     releaseStop(task);
     await settle();
-    assert(host.querySelector('.agt-automation-progress') === null, 'Stopped automation must remove its pill');
+    assert(host.querySelector('.agt-auto-pill') === null, 'Stopped automation must remove its pill');
     assert(input.value === 'Continue with another change', 'Stopping must preserve the draft');
     assert(!bridge.commands.some(command => command.name === 'startAgentTurn'), 'Stopping must not submit the draft automatically');
     const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');

@@ -441,13 +441,13 @@ describe('CI automation presentation', () => {
     const state: AgentTaskState = { ...paused, composer: 'Make another change', task: { ...paused.task,
       developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'WATCHING_CI', attemptsUsed: 0, canMessage: false } } };
     const html = renderTaskBody(state);
-    expect(html).toContain('CI automation · Waiting for CI');
+    expect(html).toContain('Waiting for CI</span>');
     expect(html).toContain('class="agt-state is-idle">Idle</span>');
     expect(html).not.toContain('agt-spin');
     expect(html).not.toContain('agt-stop-square');
     expect(html).not.toContain('>Steer<');
     expect(html).not.toContain('>Run next<');
-    expect(html).toContain('Stop automation and continue…');
+    expect(html).toContain('aria-label="Stop automation"');
     expect(html).toContain('placeholder="Draft your next message…"');
     expect(html).toContain('Make another change</textarea>');
     expect(html).toMatch(/<button[^>]*aria-label="Send message"[^>]*disabled/);
@@ -458,7 +458,7 @@ describe('CI automation presentation', () => {
     const state: AgentTaskState = { ...paused, composer: 'Make another change', task: { ...paused.task, developmentContinuationUnfinished: false,
       developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'WATCHING_CI', attemptsUsed: 0, canMessage: false } } };
     const html = renderTaskBody(state);
-    expect(html).toContain('CI Autofix · Waiting for CI');
+    expect(html).toMatch(/<span class="agt-auto-pill__label" role="status">.*Waiting for CI<\/span>/);
     expect(html).toContain('aria-label="Stop CI Autofix"');
     expect(html).not.toContain('Stop automation');
     expect(html).not.toContain('placeholder="Draft your next message…"');

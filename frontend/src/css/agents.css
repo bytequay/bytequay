@@ -402,57 +402,6 @@
   color: var(--fg-muted);
 }
 
-.agt-automation-progress {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  width: 100%;
-  max-width: 760px;
-  margin: 0 auto 8px;
-  font-size: 12px;
-}
-
-.agt-automation-progress__pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 9px;
-  border-radius: 12px;
-  color: var(--accent);
-  background: var(--bg-info);
-}
-
-.agt-automation-progress__dot {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.agt-automation-progress__stop {
-  margin-left: auto;
-  padding: 4px 8px;
-  border: 1px solid var(--line-default);
-  border-radius: 6px;
-  color: var(--text-1);
-  background: var(--surface-canvas);
-  font: inherit;
-  cursor: pointer;
-}
-
-.agt-automation-progress__stop:disabled {
-  color: var(--fg-dim);
-  cursor: default;
-}
-
-.agt-automation-progress p {
-  flex-basis: 100%;
-  margin: 0;
-  color: var(--fg-muted);
-}
-
 .agt-compose {
   position: relative;
   width: 100%;

@@ -81,7 +81,7 @@ import { useNow } from '../useNow';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
 import { AgentConversation, ConversationComposer, ConversationQueue, modelName, PlanSteps, serviceTierName, Spinner, stateClass, useConversationHistory, useOutputWheel, type ApprovalDecider, type AttachmentPreview } from './AgentConversation';
 import { taskArchived } from './taskStatus';
-import { AutomationControl } from './AutomationControl';
+import { AutomationControl, AutomationPill } from './AutomationControl';
 import { BackportChainCard, useBackportChains } from './BackportChains';
 import ConversationUtilityTab from './ConversationUtilityTab';
 import DevelopmentLearningPanel from './DevelopmentLearningPanel';
@@ -108,7 +108,7 @@ import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
 import { pasteImage } from './clipboard';
 import { agentProviderUnavailableFrom, alreadySent, CHECKING_ACCEPTANCE, unconfirmedRequest } from './contracts';
-import { developmentQuestion, LOCAL_COMMITS_ONLY, stoppingEndsDevelopment } from './developmentAutomation';
+import { automationSteps, developmentQuestion, LOCAL_COMMITS_ONLY, stoppingEndsDevelopment } from './developmentAutomation';
 import { revealPassage, type SelectedPassage } from './discussions/DiscussableAnswer';
 import { DiscussionsPanel, discussionTurnSummaries } from './discussions/DiscussionsPanel';
 import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
@@ -956,7 +956,8 @@ export function AgentTaskBody({
   onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus, onOpenReview,
 }: {
   state: AgentTaskState;
-  automation?: React.ReactNode;
+  /** The task's accepted automation, null while it loads; absent for a task without automation. */
+  automation?: DevelopmentAutomationDto | null;
   headerAction?: React.ReactNode;
   attentionStatus?: string;
   submissionBlocked?: boolean;
@@ -1151,7 +1152,25 @@ export function AgentTaskBody({
     : state.turn?.developmentOrigin?.kind === 'CREATE_DRAFT_PR' ? 'Creating draft PR'
     : state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY' ? 'Refining summary…' : null;
   const ciWaiting = pendingApprovals?.some(approval => approval.taskId !== state.task?.id) ?? false;
-  const statusLabel = question !== null ? 'Waiting for your response'
+  const pillTone = ciWaiting || currentCi?.status === 'PAUSED' || currentCi?.activity === 'FIXING' ? 'amber' : 'blue';
+  const automationPill = status === 'idle' && automationActive
+    ? <AutomationPill tone={pillTone} label={currentCi != null ? ciWaiting ? 'Needs approval' : ciActivity(currentCi) : 'Automation active'}
+      stopLabel="Stop automation" stopTitle="Stop automation · your draft is kept" stopDisabled={state.sending || ciSubmissionBlocked} onStop={onStopServer} />
+    : !terminal && !automationActive && currentCi != null && status !== 'recovery'
+      ? <AutomationPill tone={pillTone} label={ciWaiting ? 'Needs approval' : ciActivity(currentCi)}
+        stopLabel="Stop CI Autofix" stopTitle={ciStopping ? 'Stopping…' : 'Stop CI Autofix'} stopDisabled={ciStopping} onStop={onStopCi} />
+      : null;
+  const automationControl = automation === undefined ? undefined
+    : automation === null ? <span className="agt-meta">Loading automation settings…</span>
+    : <AutomationControl value={automation} status={automationSteps({
+      level: automation.level,
+      generated: status === 'running' ? state.turn?.developmentOrigin?.kind ?? null : null,
+      delivered: !automationActive && automationFailure === null && state.turn?.state === 'COMPLETED' && state.turn.developmentResult?.readyForDelivery === true,
+      failure: automationFailure,
+      pullRequest: taskPr,
+      ci: state.task?.developmentCi ?? null,
+    })} />;
+  const statusLabel =question !== null ? 'Waiting for your response'
     : status === 'running' && waiting ? 'Needs approval'
     : status === 'running' && generatedActivity !== null ? generatedActivity
     : STATUS_LABELS[status];
@@ -1346,40 +1365,25 @@ export function AgentTaskBody({
         />
       )}
 
-      {taskPr !== null && (
-        <PullRequestChip
-          pullRequest={taskPr}
-          pressed={pullRequestShowing}
-          onClick={() => { if (pullRequestShowing) onTogglePanel(); else showPullRequest(); }}
-        />
-      )}
-
       {state.task?.jiraSource != null && <JiraSourceAttachment source={state.task.jiraSource} />}
       {state.task?.issueSource != null && <IssueAttachment source={state.task.issueSource} />}
 
-      {status === 'idle' && automationActive && <div className="agt-automation-progress">
-        <span className="agt-automation-progress__pill" role="status">
-          <span className="agt-automation-progress__dot" aria-hidden="true" />
-          {currentCi != null ? `CI automation · ${ciWaiting ? 'Needs approval' : ciActivity(currentCi)}` : 'Automation active'}
-        </span>
-        <button type="button" className="agt-automation-progress__stop" aria-label="Stop automation"
-          disabled={state.sending || ciSubmissionBlocked} onClick={onStopServer}>Stop automation and continue…</button>
-        {!routedToCi && <p>Stop automation to send another message. Your draft will be kept.</p>}
-      </div>}
-
-      {!terminal && !automationActive && currentCi != null && status !== 'recovery' && <div className="agt-automation-progress">
-        <span className="agt-automation-progress__pill" role="status">
-          <span className="agt-automation-progress__dot" aria-hidden="true" />
-          {`CI Autofix · ${ciWaiting ? 'Needs approval' : ciActivity(currentCi)}`}
-        </span>
-        <button type="button" className="agt-automation-progress__stop" aria-label="Stop CI Autofix"
-          disabled={ciStopping} onClick={onStopCi}>{ciStopping ? 'Stopping…' : 'Stop CI Autofix'}</button>
+      {/* What automation is doing now on the left, the task's pull request on the right. */}
+      {(automationPill !== null || taskPr !== null) && <div className="agt-auto-row">
+        {automationPill}
+        {taskPr !== null && (
+          <PullRequestChip
+            pullRequest={taskPr}
+            pressed={pullRequestShowing}
+            onClick={() => { if (pullRequestShowing) onTogglePanel(); else showPullRequest(); }}
+          />
+        )}
       </div>}
 
       {/* The design's composer: the message above one row of controls, and one round button. */}
       {!terminal && status !== 'recovery' && !providerRecoveryRequired && (
         <ConversationComposer
-          automation={automation}
+          automation={automationControl}
           ciMention={state.task?.interactive === true} routedToCi={routedToCi}
           ciMessageHint={routedToCi ? ciUnavailable ?? (currentCi?.status === 'ACTIVE' ? 'Steer the running CI agent' : 'Send to CI Autofix') : undefined}
           placeholder={question !== null ? 'Waiting for your response…'
@@ -2709,8 +2713,7 @@ export default function AgentTaskScreen({
         refreshKey={state.lifecycleEpoch} refining={state.task?.developmentContinuationUnfinished === true && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
         disabledReason={taskCommentDisabled}
         localReview={localReview} bridge={live()} />}
-      automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} />
-        : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}
+      automation={automationEligible ? automationSelection : undefined}
       historyLoading={historyLoading}
       onLoadHistory={(direction) => { void loadHistory(direction); }}
       onFollowHistory={(following) => {

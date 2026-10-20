@@ -15,7 +15,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AutomationControl, AutomationSlider, CiProviderSelect } from './AutomationControl';
-import { includesLevel, LOCAL_COMMITS_ONLY, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
+import { automationSteps, includesLevel, LOCAL_COMMITS_ONLY, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { parseAgentTask, parseAgentTurn, parseDevelopmentAutomation, parseDevelopmentResult } from './contracts';
 import { parseAgentEventSequence } from './events';
 import { canComplete, canQueue, canSend, canSteer, createTaskCreationTracker, initialAgentTaskState, runtimeStatus } from './model';
@@ -26,6 +26,7 @@ import { entryFor, matchesSearch, settingsLocationFromRoute, settingsRoute } fro
 import type { AgentQueuedInputDto, AgentTaskDto, AgentTaskDefaultsDto, AgentTurnDto, DevelopmentAutomationDto, ModelProviderDto } from '../types';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { renderTaskBody } from './fixtures/taskBody';
+import { CI_PROJECTION } from './fixtures/ciAutofix';
 
 const defaults: DevelopmentAutomationDto = { level: 'CI_FIX', ciLaneId: null };
 const report = { readyForDelivery: false, message: 'Which implementation should I use?' };
@@ -40,6 +41,33 @@ it('treats the scale as cumulative', () => {
   expect(includesLevel('CI_FIX', 'REVIEW_FIX')).toBe(false);
   expect(includesLevel('MERGE', 'REVIEW_FIX')).toBe(true);
   expect(includesLevel('COMMIT', 'DRAFT_PR')).toBe(false);
+});
+
+it('marks each step done, running, waiting or needing you from what the task reports', () => {
+  const base: Parameters<typeof automationSteps>[0] = { level: 'MERGE', generated: null, delivered: false, failure: null, pullRequest: null, ci: null };
+  const states = (input: Parameters<typeof automationSteps>[0]) => Object.fromEntries(Object.entries(automationSteps(input)).map(([step, status]) => [step, status.state]));
+  expect(states(base)).toEqual({ COMMIT: 'pending', DRAFT_PR: 'pending', CI_FIX: 'pending', REVIEW_FIX: 'pending', MERGE: 'pending' });
+  expect(states({ ...base, generated: 'AUTO_COMMIT' })).toMatchObject({ COMMIT: 'running', DRAFT_PR: 'pending' });
+  expect(states({ ...base, generated: 'CREATE_DRAFT_PR' })).toMatchObject({ COMMIT: 'done', DRAFT_PR: 'running' });
+  const fixing = { ...CI_PROJECTION, status: 'ACTIVE' as const, activity: 'FIXING', attemptsUsed: 2 };
+  expect(states({ ...base, pullRequest: { draft: true }, ci: fixing })).toMatchObject({ COMMIT: 'done', DRAFT_PR: 'done', CI_FIX: 'running', REVIEW_FIX: 'pending' });
+  expect(automationSteps({ ...base, pullRequest: { draft: true }, ci: fixing }).CI_FIX?.note).toBe('Fixing CI 2/3');
+  const finished = { ...CI_PROJECTION, status: 'FINISHED' as const };
+  expect(states({ ...base, ci: { ...finished, finishReason: 'GREEN' } }).CI_FIX).toBe('done');
+  expect(states({ ...base, ci: { ...finished, finishReason: 'MAX_ATTEMPTS' } }).CI_FIX).toBe('attention');
+  expect(states({ ...base, delivered: true, level: 'COMMIT' })).toEqual({ COMMIT: 'done' });
+  const stopped = automationSteps({ ...base, level: 'CI_FIX', failure: 'Automation stopped. Create draft PR: refused' });
+  expect(stopped.DRAFT_PR).toEqual({ state: 'attention', note: 'Automation stopped. Create draft PR: refused' });
+  expect(stopped.COMMIT?.state).toBe('done');
+  expect(automationSteps({ ...base, level: 'CI_FIX', failure: 'Automation stopped. Send another message to continue.' }).COMMIT?.state).toBe('attention');
+});
+
+it('shows a started task’s steps as status tiles with their meaning on hover', () => {
+  const html = renderToStaticMarkup(<AutomationControl value={defaults} status={{
+    COMMIT: { state: 'done', note: 'committed' }, DRAFT_PR: { state: 'done', note: 'PR opened' }, CI_FIX: { state: 'running', note: 'Fixing CI 2/3' } }} />);
+  expect(html).toContain('<span class="agt-auto-chip__step is-done" title="Auto-Commit · committed">');
+  expect(html).toContain('<span class="agt-auto-chip__step is-running" title="CI fix · Fixing CI 2/3">');
+  expect(html).toContain('agt-auto-chip is-locked');
 });
 
 it('changes request identity when automation changes', () => {
@@ -128,10 +156,10 @@ it('blocks competing actions during a continuation without inventing a running p
   expect(canSteer(executing)).toBe(false);
   expect(canQueue(executing)).toBe(false);
   const html = renderTaskBody(owned);
+  expect(html).toContain('<span class="agt-auto-pill is-blue">');
   expect(html).toContain('Automation active');
-  expect(html).toContain('aria-label="Stop automation"');
-  expect(html).toContain('Stop automation and continue…');
-  expect(html).toContain('Stop automation to send another message. Your draft will be kept.');
+  expect(html).toMatch(/<button[^>]*class="agt-auto-pill__stop"[^>]*aria-label="Stop automation"[^>]*title="Stop automation · your draft is kept"/);
+  expect(html).not.toContain('Stop automation and continue…');
   expect(html).not.toContain('agt-stop-square');
   expect(html).toMatch(/<button[^>]*aria-label="Send message"[^>]*disabled/);
   expect(html).toContain('Keep this draft</textarea>');

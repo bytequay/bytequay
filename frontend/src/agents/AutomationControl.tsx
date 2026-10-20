@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { GitCommitHorizontal, GitMerge, GitPullRequest, Lock, MessageSquareCheck, RotateCcw, Wrench, type LucideIcon } from 'lucide-react';
+import { GitCommitHorizontal, GitMerge, GitPullRequest, LoaderCircle, Lock, MessageSquareCheck, RotateCcw, Wrench, type LucideIcon } from 'lucide-react';
 import { useId, useRef, useState, type CSSProperties } from 'react';
 import '../css/development-automation.css';
 import { Chevron } from '../Chevron';
@@ -19,7 +19,7 @@ import type { AutomationLevel, DevelopmentAutomationDto, ModelProviderDto } from
 import { providerAvailable } from '../settings/model';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { AUTOMATION_LEVELS } from './contracts';
-import { AUTOMATION_STEPS, levelIndex, levelTitle } from './developmentAutomation';
+import { AUTOMATION_STEPS, levelIndex, levelTitle, type StepStatus } from './developmentAutomation';
 
 export function CiProviderSelect({ value, providers, disabled, onChange }: {
   value: string | null;
@@ -81,15 +81,42 @@ export function AutomationSlider({ value, onChange }: {
   </div>;
 }
 
+/** What automation is doing now, as one pill whose square at the end stops it. */
+export function AutomationPill({ label, tone, stopLabel, stopTitle, stopDisabled, onStop }: {
+  label: string;
+  tone: 'blue' | 'amber';
+  stopLabel: string;
+  stopTitle: string;
+  stopDisabled: boolean;
+  onStop: () => void;
+}) {
+  return <span className={`agt-auto-pill is-${tone}`}>
+    <span className="agt-auto-pill__label" role="status"><LoaderCircle className="agt-auto-pill__spin" size={12} aria-hidden="true" />{label}</span>
+    <button type="button" className="agt-auto-pill__stop" aria-label={stopLabel} title={stopTitle} disabled={stopDisabled} onClick={onStop}>
+      <span aria-hidden="true" />
+    </button>
+  </span>;
+}
+
+/** A step's icon on a tile coloured by its status; the hover text says the status in words. */
+function StepTile({ level, status }: { level: AutomationLevel; status?: StepStatus }) {
+  return <span className={`agt-auto-chip__step${status === undefined ? '' : ` is-${status.state}`}`}
+    title={status === undefined ? undefined : `${levelTitle(level)} · ${status.note}`}>
+    <StepIcon level={level} />
+  </span>;
+}
+
 /**
  * The composer's automation chip: one icon per step that is on. New tasks open a card with the slider;
- * a started task opens the same card locked, because its automation is fixed when it starts.
+ * a started task opens the same card locked, because its automation is fixed when it starts, and its
+ * icons carry each step's status.
  */
-export function AutomationControl({ value, defaultValue, disabled = false, onChange }: {
+export function AutomationControl({ value, defaultValue, disabled = false, status, onChange }: {
   value: DevelopmentAutomationDto;
   /** The Settings default that reset returns to. */
   defaultValue?: DevelopmentAutomationDto;
   disabled?: boolean;
+  status?: Partial<Record<AutomationLevel, StepStatus>>;
   onChange?: (value: DevelopmentAutomationDto) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -106,7 +133,7 @@ export function AutomationControl({ value, defaultValue, disabled = false, onCha
     <button ref={triggerRef} type="button" className={`agt-compose__chip agt-auto-chip${locked ? ' is-locked' : ''}`}
       aria-label={`Automation: ${title}`} title={title} aria-expanded={open} aria-controls={open ? cardId : undefined}
       disabled={disabled} onClick={() => setOpen(current => !current)}>
-      {steps.map(step => <span key={step.level} className="agt-auto-chip__step"><StepIcon level={step.level} /></span>)}
+      {steps.map(step => <StepTile key={step.level} level={step.level} status={status?.[step.level]} />)}
       {!locked && <Chevron open size={10} />}
     </button>
     {open && <div id={cardId} className={`agt-auto-card${locked ? ' is-locked' : ''}`} role="group" aria-label="Automation">
@@ -114,7 +141,9 @@ export function AutomationControl({ value, defaultValue, disabled = false, onCha
         <span />
         <div className="agt-auto-card__name">
           <span>{title}</span>
-          <span className="agt-auto-card__trail">{steps.map(step => <StepIcon key={step.level} level={step.level} />)}</span>
+          <span className={`agt-auto-card__trail${status === undefined ? '' : ' has-status'}`}>{steps.map(step => status === undefined
+            ? <StepIcon key={step.level} level={step.level} />
+            : <StepTile key={step.level} level={step.level} status={status[step.level]} />)}</span>
         </div>
         {locked
           ? <span className="agt-auto-card__corner" title="Automation is fixed when a task starts"><Lock size={14} aria-hidden="true" /></span>

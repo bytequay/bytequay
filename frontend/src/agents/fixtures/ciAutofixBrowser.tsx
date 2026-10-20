@@ -231,7 +231,7 @@ async function ciApprovalCard(): Promise<{ name: string; error?: string }> {
     timers.tick();
     await settle();
     const allow = host.querySelector<HTMLButtonElement>('button[aria-label="Allow once: CI Autofix · Allow Codex command"]');
-    assert(Number(ciApprovalReads) === 1 && allow !== null && host.querySelector('.agt-automation-progress__pill')?.textContent?.includes('Needs approval') === true, 'The source Task screen must show the linked CI approval');
+    assert(Number(ciApprovalReads) === 1 && allow !== null && host.querySelector('.agt-auto-pill__label')?.textContent?.includes('Needs approval') === true, 'The source Task screen must show the linked CI approval');
     allow.click();
     await settle();
     assert(bridge.commands.some(command => command.name === 'resolveAgentApproval' && command.args[0] === approval.approvalId && command.args[1] === 'ALLOW'), 'The card must answer the CI approval');
@@ -323,7 +323,7 @@ async function laterRunAndRecovery(): Promise<{ name: string; error?: string }> 
     const input = element<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]', host, 'Source composer must remain available for drafting');
     changeInput(input, 'Please @ci continue after this delivery');
     await settle();
-    assert(host.querySelector('.agt-automation-progress__pill')?.textContent === 'Automation active', 'Historical green must not label a new continuation CI passed');
+    assert(host.querySelector('.agt-auto-pill__label')?.textContent === 'Automation active', 'Historical green must not label a new continuation CI passed');
     assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send to CI agent"]')?.disabled === true, 'The previous finished run must not accept CI messages');
 
     task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, runId: 'new-ci-run', agentTaskId: 'new-ci-task' } };

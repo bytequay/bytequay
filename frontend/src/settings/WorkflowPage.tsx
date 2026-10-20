@@ -12,15 +12,14 @@
  * limitations under the License.
  */
 import type { DevelopmentAutomationDto, ModelProviderDto } from '../types';
-import { AUTOMATION_OPTIONS } from '../agents/developmentAutomation';
-import { CiProviderSelect } from '../agents/AutomationControl';
+import { AUTOMATION_STEPS, includesLevel, levelIndex } from '../agents/developmentAutomation';
+import { AutomationSlider, CiProviderSelect } from '../agents/AutomationControl';
 import AssistantFeatureCard from './AssistantFeatureCard';
-import { SettingsCard, SettingsRow, Toggle } from './primitives';
+import { SettingsCard, SettingsRow } from './primitives';
 
-export default function WorkflowPage({ value, providers, busy, error, onChange }: {
+export default function WorkflowPage({ value, providers, error, onChange }: {
   value: DevelopmentAutomationDto | null;
   providers: ModelProviderDto[];
-  busy: boolean;
   error: string | null;
   onChange: (value: DevelopmentAutomationDto) => void;
 }) {
@@ -28,16 +27,17 @@ export default function WorkflowPage({ value, providers, busy, error, onChange }
     <h1>Workflow</h1>
     {error !== null && <div className="setw-error" role="alert">{error}</div>}
     {value === null ? <div className="setw-row-empty">Loading automation settings…</div> : <>
-      <p className="setw-footnote">Finished development work is committed automatically. Review experiments stay uncommitted.</p>
       <SettingsCard>
-        {AUTOMATION_OPTIONS.map(option => <SettingsRow key={option.key} title={option.title} subtitle={option.description}>
-          <Toggle label={option.title} on={value[option.key]} disabled={busy} onChange={enabled => onChange({ ...value, [option.key]: enabled })} />
-        </SettingsRow>)}
-        <SettingsRow title="CI repair agent" subtitle="Use the development agent or choose another agent to repair failing CI checks.">
-          <CiProviderSelect value={value.ciLaneId} providers={providers} disabled={busy} onChange={ciLaneId => onChange({ ...value, ciLaneId })} />
+        <SettingsRow title={AUTOMATION_STEPS[levelIndex(value.level)].title} subtitle={AUTOMATION_STEPS[levelIndex(value.level)].description}>
+          <div className="agt-auto-inline">
+            <AutomationSlider value={value.level} onChange={level => onChange({ ...value, level })} />
+          </div>
         </SettingsRow>
+        {includesLevel(value.level, 'CI_FIX') && <SettingsRow title="CI repair agent" subtitle="Use the development agent or choose another agent to repair failing CI checks.">
+          <CiProviderSelect value={value.ciLaneId} providers={providers} onChange={ciLaneId => onChange({ ...value, ciLaneId })} />
+        </SettingsRow>}
       </SettingsCard>
-      <p className="setw-footnote">Defaults apply to new tasks, which can override them until they start. CI monitoring has no time limit, with up to 3 repairs per run and 3 reruns per revision.</p>
+      <p className="setw-footnote">Each step includes the ones before it. Defaults apply to new tasks, which can override them until they start. CI monitoring has no time limit, with up to 3 repairs per run and 3 reruns per revision.</p>
       <AssistantFeatureCard />
     </>}
   </div>;

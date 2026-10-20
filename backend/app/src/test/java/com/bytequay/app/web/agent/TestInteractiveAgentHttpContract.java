@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -289,19 +290,19 @@ class TestInteractiveAgentHttpContract
                 {"taskId":"11111111-1111-1111-1111-111111111111","workspaceId":"workspace-1",
                 "message":"Task","laneId":"codex","idempotencyKey":"create-key",
                 "defaults":{"model":"model-a","permissionPolicy":"AUTO","developmentAutomation":
-                {"autoDraftPr":true,"autoCiFix":true,"ciLaneId":"claude","reviewSummary":true,"reviewReply":false}},
-                "developmentAutomation":{"autoDraftPr":false,"autoCiFix":false,"ciLaneId":null,"reviewSummary":false,"reviewReply":false}}
+                {"level":"CI_FIX","ciLaneId":"claude"}},
+                "developmentAutomation":{"level":"COMMIT","ciLaneId":null}}
                 """, InteractiveAgentHttpContract.CreateTaskRequest.class);
 
         assertThat(request.defaults().developmentAutomation().orElseThrow().toDomain())
-                .isEqualTo(new DevelopmentAutomation(true, true, true, Optional.of(new AgentLaneId("claude")), true, false));
+                .isEqualTo(new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(new AgentLaneId("claude"))));
         assertThat(request.developmentAutomation().orElseThrow().toDomain()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
-        // The option is required like its siblings, so a client that omits it is refused rather than defaulted.
+        // The level is required, so a client that omits it is refused rather than defaulted.
         assertThatThrownBy(() -> objectMapper.readValue("""
-                {"autoDraftPr":true,"autoCiFix":true,"ciLaneId":null}
+                {"ciLaneId":null}
                 """, DevelopmentAutomationDto.class))
                 .isInstanceOf(JsonProcessingException.class)
-                .hasMessageContaining("reviewSummary is null");
+                .hasMessageContaining("level is null");
 
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), TaskId.random(), "private-key",
                         new AgentTurnSettings(Optional.of("model-a"), Optional.empty(), AgentPermissionPolicy.AUTO,
@@ -312,7 +313,7 @@ class TestInteractiveAgentHttpContract
         JsonNode json = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn));
 
         assertThat(json.path("settings").path("developmentAutomation").has("autoCommit")).isFalse();
-        assertThat(json.path("settings").path("developmentAutomation").path("reviewSummary").isBoolean()).isTrue();
+        assertThat(json.path("settings").path("developmentAutomation").path("level").asText()).isEqualTo("COMMIT");
         assertThat(json.path("developmentResult").path("readyForDelivery").asBoolean()).isFalse();
         assertThat(json.path("developmentResult").path("message").asText()).isEqualTo("Choose the expected behavior.");
         assertThat(json.path("developmentResult").size()).isEqualTo(3);

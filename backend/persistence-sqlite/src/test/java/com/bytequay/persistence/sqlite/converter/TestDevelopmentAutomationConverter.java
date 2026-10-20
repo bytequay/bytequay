@@ -13,7 +13,9 @@
  */
 package com.bytequay.persistence.sqlite.converter;
 
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.spi.AgentLaneId;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
@@ -28,18 +30,23 @@ class TestDevelopmentAutomationConverter
     @Test
     void requiresEveryFieldAndRoundTripsCurrentSettings()
     {
-        DevelopmentAutomation automation = new DevelopmentAutomation(true, false, true, Optional.empty(), true, true);
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, AutomationLevel.REVIEW_FIX, Optional.of(AgentLaneId.CLAUDE_CLI));
+        assertThat(converter.convertToDatabaseColumn(automation)).isEqualTo("{\"autoCommit\":true,\"level\":\"REVIEW_FIX\",\"ciLaneId\":{\"value\":\"claude\"}}");
         assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(automation))).isEqualTo(automation);
-        assertThatThrownBy(() -> converter.convertToEntityAttribute("{\"autoCommit\":true,\"autoDraftPr\":true,\"ciLaneId\":null}"))
+        assertThatThrownBy(() -> converter.convertToEntityAttribute("{\"autoCommit\":true,\"level\":\"MERGE\"}"))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> converter.convertToEntityAttribute("{\"autoCommit\":true,\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":null,\"reviewSummary\":null}"))
+        assertThatThrownBy(() -> converter.convertToEntityAttribute("{\"autoCommit\":true,\"level\":null,\"ciLaneId\":null}"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
-    void savedAutomationKeepsItsChoicesWithoutEnablingReplyDrafts()
+    void savedFlagsBecomeTheFurthestLevelThatWasOn()
     {
         assertThat(converter.convertToEntityAttribute("{\"autoCommit\":true,\"autoDraftPr\":true,\"autoCiFix\":false,\"ciLaneId\":null,\"reviewSummary\":true}"))
-                .isEqualTo(new DevelopmentAutomation(true, true, false, Optional.empty(), true, false));
+                .isEqualTo(new DevelopmentAutomation(true, AutomationLevel.DRAFT_PR, Optional.empty()));
+        assertThat(converter.convertToEntityAttribute("{\"autoCommit\":false,\"autoDraftPr\":false,\"autoCiFix\":true,\"ciLaneId\":{\"value\":\"codex\"},\"reviewReply\":true}"))
+                .isEqualTo(new DevelopmentAutomation(false, AutomationLevel.CI_FIX, Optional.of(AgentLaneId.CODEX_CLI)));
+        assertThat(converter.convertToEntityAttribute("{\"autoCommit\":true,\"autoDraftPr\":false,\"autoCiFix\":false,\"ciLaneId\":null}"))
+                .isEqualTo(DevelopmentAutomation.DEFAULT);
     }
 }

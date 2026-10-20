@@ -18,7 +18,7 @@ import App from '../../App';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import { LOCAL_COMMITS_ONLY } from '../../agents/developmentAutomation';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
-import { assert, settle, until, button as findButton } from '../../fixtures/harness';
+import { assert, changeInput, settle, until, button as findButton } from '../../fixtures/harness';
 import type { AgendaScheduleDto, AppPreferencesDto, Bridge, ModelSettingsDto, SetupPreferencesDto, SetupStep } from '../../types';
 import SetupFlow from '../SetupFlow';
 import { OPEN_SETUP } from '../setup';
@@ -118,10 +118,11 @@ export async function run() {
       view.ready(); await click(view.host, 'Check agents again'); await click(view.host, 'Continue'); await title(view.host, 'Your everyday agent');
       await click(view.host, 'Continue'); await title(view.host, 'How should your agent work?');
       assert(view.state().selected, 'The selected default is explicitly saved');
-      for (const toggle of view.host.querySelectorAll('[role="switch"]')) assert(toggle.getAttribute('aria-checked') === 'false', 'Automation must start off');
-      await click(view.host, 'Auto draft PR'); await click(view.host, 'Auto draft review replies'); await click(view.host, 'Continue');
+      const slider = view.host.querySelector<HTMLInputElement>('.agt-auto-inline input[type="range"]');
+      assert(slider !== null && slider.value === '0', 'Automation must start at Auto-Commit');
+      changeInput(slider, '1'); await settle(); await click(view.host, 'Continue');
       await title(view.host, 'A little help with your day');
-      assert(view.state().automation.autoDraftPr && view.state().automation.reviewReply && !view.state().automation.autoCiFix, 'Only chosen automation is saved');
+      assert(view.state().automation.level === 'DRAFT_PR', 'Only the chosen step is saved');
       await click(view.host, 'Enable daily agenda'); await click(view.host, 'Enable Assistant');
       assert(button(view.host, 'Assistant can start tasks').getAttribute('aria-checked') === 'false', 'Enabling chat cannot authorize task actions');
       await click(view.host, 'Open ByteQuay');
@@ -175,20 +176,23 @@ export async function run() {
   });
   await scenario('Resumed CI automation can disable an unavailable lane or select the ready default', async () => {
     const view = harness('AUTOMATION', true, true);
-    view.setAutomation({ ...LOCAL_COMMITS_ONLY, autoCiFix: true, ciLaneId: 'removed-lane' });
+    view.setAutomation({ ...LOCAL_COMMITS_ONLY, level: 'CI_FIX', ciLaneId: 'removed-lane' });
     try {
       view.render(); await title(view.host, 'How should your agent work?');
       await until(() => view.host.querySelector('.setup-body') !== null, 'Preferences did not load');
-      assert(button(view.host, 'Continue').disabled, 'An unavailable CI lane must prevent enabling its automation');
-      assert(!button(view.host, 'Auto CI fix').disabled, 'Enabled CI automation can always be turned off');
+      assert(button(view.host, 'Continue').disabled, 'An unavailable CI lane must prevent CI automation');
+      const slider = view.host.querySelector<HTMLInputElement>('.agt-auto-inline input[type="range"]');
+      assert(slider !== null && !slider.disabled, 'CI automation can always be turned down');
+      assert(view.host.querySelector<HTMLSelectElement>('.agt-automation-ci select')?.value === 'removed-lane', 'The saved unavailable CI lane remains selectable');
+      changeInput(slider, '1'); await settle();
+      assert(!button(view.host, 'Continue').disabled, 'Auto-Draft PR does not need CI repair');
+      changeInput(slider, '2'); await settle();
       const selector = view.host.querySelector<HTMLSelectElement>('.agt-automation-ci select');
-      assert(selector !== null && selector.value === 'removed-lane', 'The saved unavailable CI lane remains selectable');
-      await click(view.host, 'Auto CI fix');
-      assert(!button(view.host, 'Continue').disabled, 'Disabled CI automation does not block setup');
+      assert(selector !== null, 'CI fix must show its repair agent');
       selector.value = ''; selector.dispatchEvent(new Event('change', { bubbles: true })); await settle();
-      await click(view.host, 'Auto CI fix'); await click(view.host, 'Continue');
+      await click(view.host, 'Continue');
       await title(view.host, 'A little help with your day');
-      assert(view.state().automation.autoCiFix && view.state().automation.ciLaneId === null, 'The ready Development default replaces the unavailable CI lane');
+      assert(view.state().automation.level === 'CI_FIX' && view.state().automation.ciLaneId === null, 'The ready Development default replaces the unavailable CI lane');
     } finally { view.dispose(); }
   });
   await scenario('Resuming keeps progress and save failures leave the step retryable', async () => {

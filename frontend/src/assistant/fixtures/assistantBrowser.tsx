@@ -56,7 +56,7 @@ const VIEW: AssistantViewDto = {
     { id: 'r1', day: '2026-10-16', at: '2026-10-16T07:06:20Z', kind: 'REPLY', targets: { 'pr:trinodb/trino#31377': PULL, 'task:t1': target('TASK', { id: 't1' }) },
       text: 'Start with [#31377](pr:trinodb/trino#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null, list: null, draft: null },
     { id: 'c1', day: '2026-10-16', at: '2026-10-16T07:08:00Z', kind: 'RECEIPT', text: 'Started “Expose snapshot id in metadata”', targets: {}, notReady: false,
-      receipt: { operation: 'START_TASK', outcome: 'DONE', detail: 'trinodb/trino · Claude Code Opus 5.5 · Auto draft PR', target: target('TASK', { id: 't9' }),
+      receipt: { operation: 'START_TASK', outcome: 'DONE', detail: 'trinodb/trino · Claude Code Opus 5.5 · Auto-Draft PR', target: target('TASK', { id: 't9' }),
         page: null, turnId: 'turn-9', fix: null, words: 'start the snapshot id one' }, list: null, draft: null },
     { id: 'c2', day: '2026-10-16', at: '2026-10-16T07:08:01Z', kind: 'RECEIPT', text: 'Use the buttons: this one runs outside the sandbox', targets: {}, notReady: false,
       receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, page: null, turnId: null, fix: 'BUTTONS', words: 'allow it' }, list: null, draft: null },
@@ -218,7 +218,7 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     const links = [...talk.querySelectorAll<HTMLAnchorElement>('.assistant-reply a')].map(link => link.textContent);
     assert(JSON.stringify(links) === JSON.stringify(['#31377', 'task']), `Both refs link, bare or not: ${JSON.stringify(links)}`);
     const receipt = talk.querySelector<HTMLElement>('.assistant-receipt');
-    assert(receipt?.querySelector('.assistant-receipt__detail')?.textContent === 'trinodb/trino · Claude Code Opus 5.5 · Auto draft PR', 'A start says where it runs');
+    assert(receipt?.querySelector('.assistant-receipt__detail')?.textContent === 'trinodb/trino · Claude Code Opus 5.5 · Auto-Draft PR', 'A start says where it runs');
     assert(receipt?.querySelector('.assistant-receipt__words')?.textContent === '“start the snapshot id one”', 'A receipt shows the exact words it acted on');
     [...receipt.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Stop')?.click();
     await settle();

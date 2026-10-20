@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.settings;
 
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -21,7 +22,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.BooleanNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Service;
 
@@ -58,11 +58,9 @@ public class AppSettingsService
     {
         return store.get(DEVELOPMENT_AUTOMATION_KEY).map(value -> {
             try {
-                // Newly added private follow-up options read as off; saved publication choices stay required.
                 JsonNode saved = mapper.readTree(value);
                 if (saved instanceof ObjectNode object) {
-                    object.putIfAbsent("reviewSummary", BooleanNode.FALSE);
-                    object.putIfAbsent("reviewReply", BooleanNode.FALSE);
+                    DevelopmentAutomation.upgradeSaved(object);
                 }
                 return requireNonNull(mapper.readerFor(DevelopmentAutomation.class)
                         .with(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES)
@@ -80,7 +78,7 @@ public class AppSettingsService
     {
         if (store.get(DEVELOPMENT_AUTOMATION_KEY).isEmpty()) {
             saveDevelopmentAutomation(existingInstall
-                    ? new DevelopmentAutomation(true, true, true, Optional.empty())
+                    ? new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.empty())
                     : DevelopmentAutomation.DEFAULT);
         }
     }

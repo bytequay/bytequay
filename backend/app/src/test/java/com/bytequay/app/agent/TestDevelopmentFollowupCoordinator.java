@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnCompletion;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
@@ -91,8 +92,8 @@ import static org.mockito.Mockito.when;
 class TestDevelopmentFollowupCoordinator
 {
     private static final Instant NOW = Instant.EPOCH;
-    private static final DevelopmentAutomation FULL = new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CLAUDE_CLI));
-    private static final DevelopmentAutomation DRAFT_ONLY = new DevelopmentAutomation(true, true, false, Optional.empty());
+    private static final DevelopmentAutomation FULL = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(AgentLaneId.CLAUDE_CLI));
+    private static final DevelopmentAutomation DRAFT_ONLY = new DevelopmentAutomation(true, AutomationLevel.DRAFT_PR, Optional.empty());
     private static final String BASE = "a".repeat(40);
     private static final String HEAD = "b".repeat(40);
     private static final String NEXT = "c".repeat(40);
@@ -214,7 +215,7 @@ class TestDevelopmentFollowupCoordinator
     {
         history.add(running(FULL).withDevelopmentResult(report(false))
                 .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW));
-        prepare(local(HEAD, true), local(HEAD, true), new DevelopmentAutomation(true, false, false, Optional.empty()), true);
+        prepare(local(HEAD, true), local(HEAD, true), new DevelopmentAutomation(true, AutomationLevel.COMMIT, Optional.empty()), true);
         when(git.inspectLocal(worktree, route)).thenReturn(local(HEAD, true), local(NEXT, false));
         generated(AUTO_COMMIT, true);
         advance();
@@ -255,7 +256,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void queuedTurnInheritsPendingWorkFromThePreviousAcceptedBaseline()
     {
-        var commitOnly = new DevelopmentAutomation(true, false, false, Optional.empty());
+        var commitOnly = new DevelopmentAutomation(true, AutomationLevel.COMMIT, Optional.empty());
         prepare(local(BASE, false), local(HEAD, true), commitOnly, true);
         TurnId previous = source.id();
         when(turns.handoffDevelopmentContinuationToQueue(taskId, previous)).thenAnswer(ignored -> {
@@ -327,7 +328,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void dirtyWorkWithAutoCommitDisabledDoesNotPublishCommittedSubset()
     {
-        prepare(local(BASE, false), local(HEAD, true), new DevelopmentAutomation(false, true, true, Optional.empty()), true);
+        prepare(local(BASE, false), local(HEAD, true), new DevelopmentAutomation(false, AutomationLevel.CI_FIX, Optional.empty()), true);
         advance();
         noFollowup();
         verify(git, never()).inspectPublication(any(), any());
@@ -345,7 +346,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void disabledPublicationAndCiLeaveCommitsLocal()
     {
-        prepare(local(BASE, false), local(HEAD, false), new DevelopmentAutomation(true, false, false, Optional.empty()), true);
+        prepare(local(BASE, false), local(HEAD, false), new DevelopmentAutomation(true, AutomationLevel.COMMIT, Optional.empty()), true);
         advance();
         noFollowup();
         verify(ci, never()).startDevelopment(any(), any(), any(), any());
@@ -356,7 +357,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void autoCommitFinishesLocallyWhenPublicationAndCiAreDisabled()
     {
-        prepare(local(BASE, false), local(BASE, true), new DevelopmentAutomation(true, false, false, Optional.empty()), true);
+        prepare(local(BASE, false), local(BASE, true), new DevelopmentAutomation(true, AutomationLevel.COMMIT, Optional.empty()), true);
         when(git.inspectLocal(worktree, route)).thenReturn(local(BASE, true), local(HEAD, false));
         generated(AUTO_COMMIT, true);
         advance();
@@ -402,12 +403,11 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void pushOnlyTurnStartsCiForTheRewrittenPublishedHead(boolean autoDraftPr)
+    @Test
+    void pushOnlyTurnStartsCiForTheRewrittenPublishedHead()
     {
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
-        prepare(local(HEAD, false), local(HEAD, false), new DevelopmentAutomation(true, autoDraftPr, true, Optional.empty()), true);
+        prepare(local(HEAD, false), local(HEAD, false), new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.empty()), true);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
 
         advance();
@@ -1165,7 +1165,7 @@ class TestDevelopmentFollowupCoordinator
     void coordinatorStartsCiForThePublishedHeadAndFinishesWithoutWaiting(String laneId)
     {
         AgentLaneId lane = new AgentLaneId(laneId);
-        preparePublished(new DevelopmentAutomation(true, true, true, Optional.of(lane)));
+        preparePublished(new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(lane)));
         advance();
         var order = inOrder(ci, turns);
         order.verify(ci).startDevelopment(eq(new StartCiAutofixCommand(
@@ -1231,7 +1231,7 @@ class TestDevelopmentFollowupCoordinator
     @ValueSource(booleans = {false, true})
     void ciUsesTheDevelopmentAgentUnlessExplicitlyOverridden(boolean explicitCiAgent)
     {
-        preparePublished(explicitCiAgent ? FULL : new DevelopmentAutomation(true, true, true, Optional.empty()));
+        preparePublished(explicitCiAgent ? FULL : new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.empty()));
         advance();
         ArgumentCaptor<StartCiAutofixCommand> command = ArgumentCaptor.forClass(StartCiAutofixCommand.class);
         verify(ci).startDevelopment(command.capture(), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
@@ -1244,29 +1244,10 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void disablingCiLeavesTheVerifiedDraft()
     {
-        preparePublished(new DevelopmentAutomation(true, true, false, Optional.empty()));
+        preparePublished(new DevelopmentAutomation(true, AutomationLevel.DRAFT_PR, Optional.empty()));
         advance();
         verify(ci, never()).startDevelopment(any(), any(), any(), any());
         verifyNoInteractions(writes);
-        verify(turns).finishDevelopmentContinuation(taskId, source.id());
-    }
-
-    @Test
-    void ciCanAttachToPublishedWorkWithoutAutomaticDraftCreation()
-    {
-        preparePublished(new DevelopmentAutomation(true, false, true, Optional.of(AgentLaneId.CLAUDE_CLI)));
-        advance();
-        verify(ci).startDevelopment(any(), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
-        noFollowup();
-    }
-
-    @Test
-    void ciOnlyDoesNotPublishUnpublishedWork()
-    {
-        prepare(local(BASE, false), local(HEAD, false), new DevelopmentAutomation(true, false, true, Optional.of(AgentLaneId.CLAUDE_CLI)), true);
-        advance();
-        verify(ci, never()).startDevelopment(any(), any(), any(), any());
-        noFollowup();
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
@@ -1274,7 +1255,7 @@ class TestDevelopmentFollowupCoordinator
     @ValueSource(booleans = {true, false})
     void acceptedCiSettingControlsGeneratedDraftContinuation(boolean autoCiFix)
     {
-        prepare(local(BASE, false), local(HEAD, false), new DevelopmentAutomation(true, true, autoCiFix, Optional.empty()), true);
+        prepare(local(BASE, false), local(HEAD, false), new DevelopmentAutomation(true, autoCiFix ? AutomationLevel.CI_FIX : AutomationLevel.DRAFT_PR, Optional.empty()), true);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
         generated(CREATE_DRAFT_PR, true);
         advance();

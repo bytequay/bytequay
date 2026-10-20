@@ -602,13 +602,12 @@ export type AgentMetricsDto = {
   counters?: ToolCountersDto;
 };
 
+/** How far a task's delivery goes; each level includes every level before it. */
+export type AutomationLevel = 'COMMIT' | 'DRAFT_PR' | 'CI_FIX' | 'REVIEW_FIX' | 'MERGE';
+
 export type DevelopmentAutomationDto = {
-  autoDraftPr: boolean;
-  autoCiFix: boolean;
+  level: AutomationLevel;
   ciLaneId: string | null;
-  /** Task-level: the review summary watcher reads it from task defaults only. */
-  reviewSummary: boolean;
-  reviewReply: boolean;
 };
 
 export type AgentTaskDefaultsDto = {

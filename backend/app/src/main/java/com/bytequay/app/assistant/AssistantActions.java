@@ -615,11 +615,12 @@ class AssistantActions
                 return new Result("Already started: “" + clip(task.title(), 80) + "”", AssistantReceipt.done(Operation.START_TASK, target), Optional.of(task.id().toString()));
             }
             ImmutableList.Builder<String> detail = ImmutableList.<String>builder().add(task.repository().toString(), started.get().agent());
-            if (started.get().automation().autoDraftPr()) {
-                detail.add("Auto draft PR");
-            }
-            if (started.get().automation().autoCiFix()) {
-                detail.add("Auto CI fix");
+            switch (started.get().automation().level()) {
+                case COMMIT -> {}
+                case DRAFT_PR -> detail.add("Auto-Draft PR");
+                case CI_FIX -> detail.add("CI fix");
+                case REVIEW_FIX -> detail.add("Auto-Review fix");
+                case MERGE -> detail.add("Auto-merge");
             }
             Optional<String> turnId = turns.findTurnByIdempotencyKey(task.id(), key).map(turn -> turn.id().toString());
             return new Result("Started “" + clip(task.title(), 80) + "”", new AssistantReceipt(Operation.START_TASK, Outcome.DONE, Optional.of(String.join(" · ", detail.build())),

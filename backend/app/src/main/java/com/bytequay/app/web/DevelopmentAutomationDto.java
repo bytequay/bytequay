@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.spi.AgentLaneId;
 
@@ -20,27 +21,23 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/** The shared settings and task-submission representation; missing toggles are invalid. */
-public record DevelopmentAutomationDto(Boolean autoDraftPr, Boolean autoCiFix, Optional<String> ciLaneId, Boolean reviewSummary, Boolean reviewReply)
+/** The shared settings and task-submission representation; a missing level is invalid. */
+public record DevelopmentAutomationDto(AutomationLevel level, Optional<String> ciLaneId)
 {
     public DevelopmentAutomationDto
     {
-        requireNonNull(autoDraftPr, "autoDraftPr is null");
-        requireNonNull(autoCiFix, "autoCiFix is null");
-        requireNonNull(reviewSummary, "reviewSummary is null");
-        requireNonNull(reviewReply, "reviewReply is null");
+        requireNonNull(level, "level is null");
         requireNonNull(ciLaneId, "ciLaneId is null");
         ciLaneId.ifPresent(AgentLaneId::new);
     }
 
     public static DevelopmentAutomationDto from(DevelopmentAutomation automation)
     {
-        return new DevelopmentAutomationDto(automation.autoDraftPr(), automation.autoCiFix(), automation.ciLaneId().map(AgentLaneId::value),
-                automation.reviewSummary(), automation.reviewReply());
+        return new DevelopmentAutomationDto(automation.level(), automation.ciLaneId().map(AgentLaneId::value));
     }
 
     public DevelopmentAutomation toDomain()
     {
-        return new DevelopmentAutomation(true, autoDraftPr, autoCiFix, ciLaneId.map(AgentLaneId::new), reviewSummary, reviewReply);
+        return new DevelopmentAutomation(true, level, ciLaneId.map(AgentLaneId::new));
     }
 }

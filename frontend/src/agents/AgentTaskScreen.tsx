@@ -74,7 +74,6 @@ import type {
   DevelopmentAutomationDto,
   InlineReviewCommentDto,
   ModelOptionDto,
-  ModelProviderDto,
   PullRequestDto,
   WorkspaceDto
 } from '../types';
@@ -109,7 +108,7 @@ import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
 import { pasteImage } from './clipboard';
 import { agentProviderUnavailableFrom, alreadySent, CHECKING_ACCEPTANCE, unconfirmedRequest } from './contracts';
-import { developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
+import { developmentQuestion, LOCAL_COMMITS_ONLY, stoppingEndsDevelopment } from './developmentAutomation';
 import { revealPassage, type SelectedPassage } from './discussions/DiscussableAnswer';
 import { DiscussionsPanel, discussionTurnSummaries } from './discussions/DiscussionsPanel';
 import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
@@ -1549,7 +1548,6 @@ export default function AgentTaskScreen({
   const [signingIn, setSigningIn] = useState<{ laneId: string; providerName: string } | null>(null);
   const [providerStatusTurnId, setProviderStatusTurnId] = useState<string | null>(null);
   const [automationDefaults, setAutomationDefaults] = useState<DevelopmentAutomationDto | null>(null);
-  const [automationProviders, setAutomationProviders] = useState<ModelProviderDto[]>([]);
   const [providerChecking, setProviderChecking] = useState(false);
   const [confirmation, setConfirmation] = useState<TaskConfirmation | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -1769,7 +1767,6 @@ export default function AgentTaskScreen({
       ]);
       if (!active) return;
       const lane = catalog.providers.find((candidate) => candidate.id === taskLaneId);
-      setAutomationProviders(catalog.providers);
       setModels(lane?.models ?? []);
       setProvider(lane?.label ?? (taskKeyLane ? 'DeepSeek' : ''));
       setKeyRemoved(lane === undefined && taskKeyLane);
@@ -2643,7 +2640,7 @@ export default function AgentTaskScreen({
     const attachmentIds = input.attachments.map((attachment) => attachment.id);
     // Retrying the accepted input retains its publication choices, which may differ from the task defaults.
     const developmentAutomation = task.interactive
-      ? current.turn.settings?.developmentAutomation ?? { autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false, reviewReply: false }
+      ? current.turn.settings?.developmentAutomation ?? LOCAL_COMMITS_ONLY
       : undefined;
     // The failed turn's key is never reused. The tracker retains this new key only if this reply is
     // ambiguous, so a second confirmed click cannot create a duplicate retry turn.
@@ -2712,7 +2709,7 @@ export default function AgentTaskScreen({
         refreshKey={state.lifecycleEpoch} refining={state.task?.developmentContinuationUnfinished === true && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
         disabledReason={taskCommentDisabled}
         localReview={localReview} bridge={live()} />}
-      automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders} disabled />
+      automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} />
         : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}
       historyLoading={historyLoading}
       onLoadHistory={(direction) => { void loadHistory(direction); }}

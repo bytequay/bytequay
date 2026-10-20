@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.settings;
 
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
@@ -77,13 +78,13 @@ class TestSetupSettingsService
         setup.initialize();
 
         assertThat(setup.preferences()).isEqualTo(new SetupPreferences(SetupPreferences.Step.COMPLETE, true));
-        assertThat(appSettings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, true, true, Optional.empty()));
+        assertThat(appSettings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.empty()));
     }
 
     @Test
     void initializationDoesNotReplaceSavedAutomationChoices()
     {
-        DevelopmentAutomation saved = new DevelopmentAutomation(true, false, true, Optional.empty(), true, true);
+        DevelopmentAutomation saved = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.empty());
         appSettings.saveDevelopmentAutomation(saved);
         when(credentials.exists()).thenReturn(true);
 

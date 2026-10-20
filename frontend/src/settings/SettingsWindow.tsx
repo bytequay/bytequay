@@ -54,7 +54,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   onWorkspacesChanged: () => void;
 }) {
   const [automation, setAutomation] = useState<DevelopmentAutomationDto | null>(null);
-  const [automationBusy, setAutomationBusy] = useState(false);
+  const automationSaves = useRef<Promise<unknown>>(Promise.resolve());
   const [error, setError] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState<{ laneId: string; providerName: string } | null>(null);
 
@@ -340,11 +340,15 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               }}
             />
           )}
-          {section === 'workflow' && <WorkflowPage value={automation} providers={modelsScope === modelWorkspaceId ? models?.providers ?? [] : []} busy={automationBusy} error={error}
+          {section === 'workflow' && <WorkflowPage value={automation} providers={modelsScope === modelWorkspaceId ? models?.providers ?? [] : []} error={error}
             onChange={next => {
-              setAutomationBusy(true);
+              setAutomation(next);
               setError(null);
-              window.bridge.saveDevelopmentAutomation(next).then(setAutomation).catch(report).finally(() => setAutomationBusy(false));
+              // Saves run in order, so a quick drag across the slider ends saved at the stop it ended on.
+              automationSaves.current = automationSaves.current.then(() => window.bridge.saveDevelopmentAutomation(next)).catch((failure: unknown) => {
+                report(failure);
+                return window.bridge.getDevelopmentAutomation().then(setAutomation).catch(report);
+              });
             }} />}
           {section === 'skills' && (
             <SkillsPage

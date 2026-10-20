@@ -16,8 +16,8 @@ import { ArrowLeft, ArrowRight, Check, Monitor, Moon, Sun } from 'lucide-react';
 import OnboardingScreen from '../OnboardingScreen';
 import { WindowControls } from '../AppSidebar';
 import { agentAvailability, canUseAgent, usableAgentProviders } from '../agents/availability';
-import { AUTOMATION_OPTIONS } from '../agents/developmentAutomation';
-import { CiProviderSelect } from '../agents/AutomationControl';
+import { AUTOMATION_STEPS, includesLevel, levelIndex } from '../agents/developmentAutomation';
+import { AutomationSlider, CiProviderSelect } from '../agents/AutomationControl';
 import { AgentModelControls, type ModelChoice } from '../settings/ModelsPage';
 import { modelEffort } from '../settings/model';
 import { SettingsCard, SettingsRow, TimePill, Toggle } from '../settings/primitives';
@@ -115,7 +115,7 @@ export default function SetupFlow({ initial, connected, revisit = false, onSaved
   const loaded = preferences !== null && models !== null && automation !== null && agenda !== null && permissions !== null;
   const nextDisabled = !loaded || busy || checking || connecting || step === 'GITHUB' && !connected || step === 'AGENT' && !ready.any
     || step === 'DEFAULTS' && !selectionUsable || ['AUTOMATION', 'FEATURES'].includes(step) && !ready.development
-    || step === 'AUTOMATION' && automation?.autoCiFix === true && !ciSupported;
+    || step === 'AUTOMATION' && automation !== null && includesLevel(automation.level, 'CI_FIX') && !ciSupported;
 
   const next = () => act(async () => {
     if (nextDisabled || models === null || automation === null || agenda === null || permissions === null) return;
@@ -173,16 +173,18 @@ export default function SetupFlow({ initial, connected, revisit = false, onSaved
           <FeaturePreview feature="development" />
         </>}
         {step === 'AUTOMATION' && <>
-          <SettingsCard>{AUTOMATION_OPTIONS.map(option => <SettingsRow key={option.key} title={option.title} subtitle={option.description}>
-            <Toggle label={option.title} on={automation[option.key]} disabled={busy || !ready.development || option.key === 'autoCiFix' && !automation.autoCiFix && !ciSupported}
-              onChange={enabled => setAutomation({ ...automation, [option.key]: enabled })} />
-          </SettingsRow>)}
-            {(automation.ciLaneId !== null || ciProviders.length > 1 || ciProviders.length > 0 && !canUseAgent(models, 'DEVELOPMENT', 'CI_AUTOFIX')) && <SettingsRow title="CI repair" subtitle="Choose an agent that supports CI repair">
+          <SettingsCard><SettingsRow title={AUTOMATION_STEPS[levelIndex(automation.level)].title} subtitle={AUTOMATION_STEPS[levelIndex(automation.level)].description}>
+            <div className="agt-auto-inline">
+              <AutomationSlider value={automation.level} onChange={busy || !ready.development ? undefined : level => setAutomation({ ...automation, level })} />
+            </div>
+          </SettingsRow>
+            {includesLevel(automation.level, 'CI_FIX') && (automation.ciLaneId !== null || ciProviders.length > 1 || ciProviders.length > 0 && !canUseAgent(models, 'DEVELOPMENT', 'CI_AUTOFIX')) && <SettingsRow title="CI repair" subtitle="Choose an agent that supports CI repair">
               <CiProviderSelect value={automation.ciLaneId} providers={ciProviders} disabled={busy}
                 onChange={ciLaneId => setAutomation({ ...automation, ciLaneId })} />
             </SettingsRow>}
           </SettingsCard>
-          <p className="setup-hint">Finished development work is committed locally. PR and CI automation can publish to GitHub. Prepared review replies wait for you to send them.</p>
+          {includesLevel(automation.level, 'CI_FIX') && !ciSupported && <p role="status">This agent can’t repair CI. Choose a CI repair agent or an earlier step.</p>}
+          <p className="setup-hint">Each step includes the ones before it. Auto-Commit keeps work on this Mac; every later step can publish to GitHub.</p>
           <FeaturePreview feature="automation" />
         </>}
         {step === 'FEATURES' && <div className="setup-features">

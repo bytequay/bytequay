@@ -20,6 +20,7 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
@@ -233,7 +234,7 @@ class TestCiAutofixEndToEnd
         E2eGitRepository repository = fixture.repository();
         PullRequestRef pr = repository.pullRequest();
         RepoRef repo = RepoRef.of(pr.owner(), pr.repo());
-        DevelopmentAutomation automation = new DevelopmentAutomation(true, true, true, Optional.of(ScriptedAgentDriver.LANE));
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(ScriptedAgentDriver.LANE));
         TaskId sourceTaskId = TaskId.random();
         AgentTask source = tasks.createInteractive(new CreateInteractiveAgentTaskCommand(
                 sourceTaskId, fixture.workspaceId(), ScriptedAgentDriver.LANE, RepositoryIdentity.valueOf(pr.repoFullName()), repository.baseSha(),

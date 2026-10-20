@@ -26,6 +26,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.ChildSummary;
 import com.bytequay.agent.core.CleanupState;
@@ -620,7 +621,7 @@ class TestSqliteAgentStores
     void retainsAutomationSnapshotsAndReadinessIndependentlyOfFutureDefaults()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        DevelopmentAutomation selected = new DevelopmentAutomation(false, true, true, Optional.of(AgentLaneId.CLAUDE_CLI), true, false);
+        DevelopmentAutomation selected = new DevelopmentAutomation(false, AutomationLevel.CI_FIX, Optional.of(AgentLaneId.CLAUDE_CLI));
         AgentTask original = newTask(now);
         AgentTask task = original.withDefaults(original.defaults().withDevelopmentAutomation(selected), now);
         taskStore.insert(task);

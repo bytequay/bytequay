@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.app.service.settings.AppPreferences;
@@ -128,30 +129,28 @@ class TestSettingsController
     }
 
     @Test
-    void automationUsesExplicitBooleanSettingsAndStringLaneIds()
+    void automationUsesOneLevelAndStringLaneIds()
             throws Exception
     {
         when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
-        DevelopmentAutomation selected = new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CLAUDE_CLI), true, false);
+        DevelopmentAutomation selected = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(AgentLaneId.CLAUDE_CLI));
         when(settings.saveDevelopmentAutomation(selected)).thenReturn(selected);
         mvc().perform(get("/api/settings/development-automation"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.autoCommit").doesNotExist())
-                .andExpect(jsonPath("$.autoDraftPr").value(false))
-                .andExpect(jsonPath("$.autoCiFix").value(false))
-                .andExpect(jsonPath("$.ciLaneId").isEmpty())
-                .andExpect(jsonPath("$.reviewSummary").value(false));
+                .andExpect(jsonPath("$.level").value("COMMIT"))
+                .andExpect(jsonPath("$.ciLaneId").isEmpty());
         mvc().perform(put("/api/settings/development-automation").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":\"claude\",\"reviewSummary\":true,\"reviewReply\":false}"))
+                        .content("{\"level\":\"CI_FIX\",\"ciLaneId\":\"claude\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.autoCommit").doesNotExist())
-                .andExpect(jsonPath("$.ciLaneId").value("claude"))
-                .andExpect(jsonPath("$.reviewSummary").value(true));
+                .andExpect(jsonPath("$.level").value("CI_FIX"))
+                .andExpect(jsonPath("$.ciLaneId").value("claude"));
         mvc().perform(put("/api/settings/development-automation").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"autoDraftPr\":true}"))
+                        .content("{\"ciLaneId\":\"claude\"}"))
                 .andExpect(status().isBadRequest());
         mvc().perform(put("/api/settings/development-automation").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":\"claude\"}"))
+                        .content("{\"level\":\"EVERYTHING\",\"ciLaneId\":null}"))
                 .andExpect(status().isBadRequest());
         verify(settings).saveDevelopmentAutomation(selected);
     }

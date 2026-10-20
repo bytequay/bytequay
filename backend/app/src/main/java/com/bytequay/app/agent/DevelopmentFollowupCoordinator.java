@@ -93,7 +93,7 @@ public class DevelopmentFollowupCoordinator
         DevelopmentAutomation automation = turn.settings().orElseThrow().developmentAutomation().orElse(DevelopmentAutomation.LOCAL_ONLY);
         CompletableFuture<RemoteBaseline> priorRemote = previous.map(Accepted::remote).orElseGet(() -> CompletableFuture.completedFuture(RemoteBaseline.NONE));
         // The remote read reaches the network, so it runs beside the turn instead of inside Send; only the turn's end uses it.
-        CompletableFuture<RemoteBaseline> remote = automation.autoDraftPr() || automation.autoCiFix()
+        CompletableFuture<RemoteBaseline> remote = automation.autoDraftPr()
                 ? priorRemote.thenApplyAsync(prior -> readRemote(baseline, previous.map(Accepted::baseline), prior), executor)
                 : priorRemote.thenApply(RemoteBaseline::carried);
         Accepted captured = new Accepted(turn.id(), baseline, previous.map(Accepted::summaryBaseline).orElse(baseline.local()), pending, remote);
@@ -224,7 +224,7 @@ public class DevelopmentFollowupCoordinator
                 checkState(!local.headSha().equals(beforeCommit.headSha()), "Auto commit did not create a commit");
                 checkState(git.isAncestor(baseline.worktree(), beforeCommit.headSha(), local.headSha()), "Auto commit rewrote existing task history");
             }
-            if (local.commitCount() == 0 || !local.diffFromBase() || (!automation.autoDraftPr() && !automation.autoCiFix())) {
+            if (local.commitCount() == 0 || !local.diffFromBase() || !automation.autoDraftPr()) {
                 finish(completion);
                 return;
             }
@@ -247,10 +247,6 @@ public class DevelopmentFollowupCoordinator
             boolean alreadyPublished = alreadyPushed
                     && currentPr.map(GitHubPullRequestIdentity::headSha).filter(local.headSha()::equals).isPresent();
             if (!alreadyPublished) {
-                if (!automation.autoDraftPr()) {
-                    finish(completion);
-                    return;
-                }
                 // An explicitly requested CLI push can finish before the generated draft-creation step.
                 checkState(alreadyPushed || publication.remoteHeadSha().equals(original.remoteHeadSha()), "The remote branch changed during development");
                 checkState(currentPr.map(GitHubPullRequestIdentity::pullRequest).equals(originalPr.map(GitHubPullRequestIdentity::pullRequest)),

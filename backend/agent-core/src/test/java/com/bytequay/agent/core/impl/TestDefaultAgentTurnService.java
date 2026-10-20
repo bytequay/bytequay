@@ -33,6 +33,7 @@ import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
@@ -656,7 +657,7 @@ class TestDefaultAgentTurnService
     void snapshotsSubmissionAutomationWithoutChangingTaskDefaultsOrQueuedWork()
     {
         AgentTask interactive = interactiveTask("Implement the change");
-        DevelopmentAutomation automation = new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CLAUDE_CLI));
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(AgentLaneId.CLAUDE_CLI));
         AgentTask configured = taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
                 interactive.id(), interactive.version(), interactive.defaults().withDevelopmentAutomation(automation)));
         AgentTurn first = service.start(new StartAgentTurnCommand(configured.id(), configured.version(), "first", ImmutableList.of(), "automation-1")
@@ -1334,7 +1335,7 @@ class TestDefaultAgentTurnService
     {
         AgentTask development = interactiveTask("Development");
         service.start(new StartAgentTurnCommand(development.id(), "Make the change but skip CI", ImmutableList.of(), "development")
-                .withDevelopmentAutomation(Optional.of(new DevelopmentAutomation(true, true, true, Optional.empty()))));
+                .withDevelopmentAutomation(Optional.of(new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.empty()))));
 
         assertThat(driver.openedContexts().getFirst().managedInstructions())
                 .contains("Commit finished development work: true", "Auto draft PR: true", "Auto CI fix: true",
@@ -1944,7 +1945,7 @@ class TestDefaultAgentTurnService
     {
         enableDevelopment(ignored -> {});
         task = taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), task.version(),
-                task.defaults().withDevelopmentAutomation(new DevelopmentAutomation(true, false, false, Optional.empty()))));
+                task.defaults().withDevelopmentAutomation(new DevelopmentAutomation(true, AutomationLevel.COMMIT, Optional.empty()))));
         AgentTurn source = service.start(command("Commit only", "limited-source"));
         reportReady(source);
         driver.complete("Done");
@@ -1963,7 +1964,7 @@ class TestDefaultAgentTurnService
     void readinessAndUpdatedDefaultsCannotEnableAnOperationDisabledAtAcceptance()
     {
         enableDevelopment(ignored -> {});
-        DevelopmentAutomation commitOnly = new DevelopmentAutomation(true, false, false, Optional.empty());
+        DevelopmentAutomation commitOnly = new DevelopmentAutomation(true, AutomationLevel.COMMIT, Optional.empty());
         task = taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), task.version(), task.defaults().withDevelopmentAutomation(commitOnly)));
         AgentTurn source = service.start(command("Commit my changes locally", "disabled-publish-source"));
         reportReady(source);

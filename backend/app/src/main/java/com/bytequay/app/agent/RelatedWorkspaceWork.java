@@ -20,6 +20,7 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
@@ -68,7 +69,7 @@ public class RelatedWorkspaceWork
 {
     private static final String PREFIX = "workspace.linked-work.";
     private static final String SOURCE = "linked-work.source.";
-    private static final DevelopmentAutomation INVESTIGATION = new DevelopmentAutomation(true, false, false, Optional.empty(), false, false);
+    private static final DevelopmentAutomation INVESTIGATION = new DevelopmentAutomation(true, AutomationLevel.COMMIT, Optional.empty());
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
     private final WorkspaceRelationships relationships;

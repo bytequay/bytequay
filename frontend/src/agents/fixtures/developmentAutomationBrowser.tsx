@@ -22,7 +22,7 @@ import AgentTaskScreen from '../AgentTaskScreen';
 import { runCiAutofixScenarios } from './ciAutofixBrowser';
 import { CI_PROJECTION, CI_RUN } from './ciAutofix';
 import { runDevelopmentDeliveryScenarios } from './developmentDeliveryBrowser';
-import { automationForSubmission, LOCAL_COMMITS_ONLY } from '../developmentAutomation';
+import { LOCAL_COMMITS_ONLY } from '../developmentAutomation';
 import { assert, changeInput, settle, element } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/agents.css';
@@ -57,30 +57,39 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
   flushSync(() => root.render(<Harness />));
   try {
     await settle();
-    const menu = element('summary', host, 'Automation must be visible before Send is enabled');
-    menu.click();
+    const chip = element<HTMLButtonElement>('.agt-auto-chip', host, 'Automation must be visible before Send is enabled');
+    assert(chip.getAttribute('aria-label') === 'Automation: CI fix', 'The chip must name the saved default step');
+    assert(chip.querySelectorAll('.agt-auto-chip__step').length === 3, 'The chip must draw one icon per step that is on');
+    chip.click();
     await settle();
-    const localOnly = element<HTMLInputElement>('.is-local input', host, 'Keeping commits local must be a separate submission control');
-    assert(host.textContent?.includes('Keep commits local for this turn') === true, 'Local publication must explain that commits are still created');
-    localOnly.click();
+    const slider = element<HTMLInputElement>('.agt-auto-card input[type="range"]', host, 'A new task must offer the automation slider');
+    assert(!slider.disabled, 'A new task must be able to move the automation slider');
+    changeInput(slider, '0');
+    await settle();
+    assert(chip.getAttribute('aria-label') === 'Automation: Auto-Commit' && chip.querySelectorAll('.agt-auto-chip__step').length === 1,
+      'Moving the slider to the first stop must leave only Auto-Commit on');
+    const reset = element<HTMLButtonElement>('.agt-auto-card button[aria-label="Reset to default"]', host, 'A changed step must offer reset');
+    assert(!reset.disabled, 'A changed step must enable reset');
+    reset.click();
+    await settle();
+    assert(chip.getAttribute('aria-label') === 'Automation: CI fix' && reset.disabled, 'Reset must return to the saved default');
+    changeInput(slider, '0');
     await settle();
     const input = element<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]', host, 'Task composer must exist');
     changeInput(input, 'Inspect the change locally');
     await settle();
     const send = host.querySelector<HTMLButtonElement>('.agt-send');
-    assert(send !== null && !send.disabled, 'Ready task with local publication selected must be sendable');
+    assert(send !== null && !send.disabled, 'Ready task at Auto-Commit must be sendable');
     send.click();
     await settle();
     const command = bridge.commands.find(command => command.name === 'createAgentTask');
     assert(command !== undefined, 'One composite task request must be submitted');
     const request = command.args[0] as CreateAgentTaskRequest;
-    assert(request.defaults.developmentAutomation?.autoDraftPr === true, 'Keeping commits local must preserve saved task defaults');
-    assert(request.developmentAutomation?.autoDraftPr === false && request.developmentAutomation.autoCiFix === false,
-      'Only the first turn must disable automatic publication and CI');
+    assert(request.defaults.developmentAutomation?.level === 'COMMIT' && request.developmentAutomation?.level === 'COMMIT',
+      'The chosen step must be the task’s automation and its first turn’s');
     assert(bridge.commands.filter(command => command.name === 'createAgentTask').length === 1, 'A successful submit must not duplicate creation');
-    assert(host.querySelector<HTMLInputElement>('.is-local input')?.checked === false, 'Local publication override must clear after acceptance');
-    assert(host.querySelector<HTMLInputElement>('.agt-automation-option input')?.checked === true, 'Default-on selection must remain for the next task');
-    return [{ name: 'Keeping commits local preserves task defaults and submits one explicit first-turn override' }];
+    assert(host.querySelector('.agt-auto-chip')?.getAttribute('aria-label') === 'Automation: CI fix', 'The next task must start from the saved default again');
+    return [{ name: 'The slider chooses one task’s step, resets to the saved default, and does not carry over' }];
   }
   catch (error) { return [{ name: 'Local publication submission', error: error instanceof Error ? error.message : String(error) }]; }
   finally { dispose(); }
@@ -108,10 +117,7 @@ async function createDeepSeekTask(): Promise<{ name: string; error?: string }[]>
   flushSync(() => root.render(<Harness />));
   try {
     await settle();
-    assert(host.textContent?.includes('draft PR · CI fix') === true, 'DeepSeek must inherit the saved automation defaults');
-    const ciOption = [...host.querySelectorAll<HTMLLabelElement>('.agt-automation-option')]
-      .find(label => label.textContent?.includes('Auto CI fix'))?.querySelector<HTMLInputElement>('input');
-    assert(ciOption !== undefined && ciOption !== null && ciOption.checked, 'DeepSeek must start with saved Auto CI fix enabled');
+    assert(host.querySelector('.agt-auto-chip')?.getAttribute('aria-label') === 'Automation: CI fix', 'DeepSeek must inherit the saved automation defaults');
     const input = element<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]', host, 'DeepSeek task composer must exist');
     changeInput(input, 'Fix failing checks');
     await settle();
@@ -122,10 +128,8 @@ async function createDeepSeekTask(): Promise<{ name: string; error?: string }[]>
     const command = bridge.commands.find(item => item.name === 'createAgentTask');
     assert(command !== undefined, 'DeepSeek creation must submit one task');
     const request = command.args[0] as CreateAgentTaskRequest;
-    assert(request.laneId === laneId && request.defaults.developmentAutomation?.autoCiFix === true
-      && request.developmentAutomation?.autoCiFix === true, 'DeepSeek must inherit saved Auto CI fix for task and first turn');
-    assert(request.defaults.developmentAutomation?.autoDraftPr === true && request.developmentAutomation?.autoDraftPr === true,
-      'DeepSeek must inherit saved draft publication for task and first turn');
+    assert(request.laneId === laneId && request.defaults.developmentAutomation?.level === 'CI_FIX'
+      && request.developmentAutomation?.level === 'CI_FIX', 'DeepSeek must inherit the saved step for task and first turn');
     return [{ name: 'DeepSeek creation inherits saved automation for task and first turn' }];
   }
   catch (error) { return [{ name: 'DeepSeek automation submission', error: error instanceof Error ? error.message : String(error) }]; }
@@ -136,8 +140,8 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
   const userEvent = bridge.events.find(event => event.type === 'user_message');
   assert(userEvent?.turnId !== null && userEvent !== undefined, 'Fixture must identify a durable input');
-  const savedAutomation = { ...LOCAL_COMMITS_ONLY, autoDraftPr: true, autoCiFix: true };
-  const localOnly = automationForSubmission(savedAutomation, true);
+  const savedAutomation = { ...LOCAL_COMMITS_ONLY, level: 'CI_FIX' as const };
+  const localOnly = LOCAL_COMMITS_ONLY;
   const task = { ...await bridge.getAgentTask(userEvent.taskId, 'workspace-1'), interactive: true };
   task.defaults = { ...task.defaults, developmentAutomation: savedAutomation };
   const turn = { ...await bridge.getAgentTurn(userEvent.turnId), id: userEvent.turnId, state: 'FAILED', failureKind: 'AUTHENTICATION_REQUIRED' as const };
@@ -176,8 +180,7 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
     const command = bridge.commands.find(command => command.name === 'startAgentTurn');
     assert(command !== undefined, 'Explicit retry must submit the durable input');
     const request = command.args[0] as StartAgentTurnRequest;
-    assert(request.developmentAutomation?.autoDraftPr === false && request.developmentAutomation.autoCiFix === false,
-      'Retry must retain the accepted local publication policy despite current default-on settings');
+    assert(request.developmentAutomation?.level === 'COMMIT', 'Retry must retain the accepted local publication policy despite current default-on settings');
     return [{ name: 'Authentication retry retains accepted automation instead of current task defaults' }];
   }
   catch (error) { return [{ name: 'Authentication retry policy', error: error instanceof Error ? error.message : String(error) }]; }
@@ -256,7 +259,7 @@ async function developerFeedback(): Promise<{ name: string; error?: string }[]> 
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
-    assert(host.querySelector('.agt-automation') !== null, 'Developer feedback must retain publication controls');
+    assert(host.querySelector('.agt-auto-chip.is-locked') !== null, 'Developer feedback must retain publication controls');
     const completeButton = host.querySelector<HTMLButtonElement>('button[aria-label="Mark it complete"]');
     assert(completeButton !== null && !completeButton.disabled, 'Development keeps the normal completion action');
     const input = host.querySelector<HTMLTextAreaElement>('textarea');
@@ -345,8 +348,12 @@ async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> 
     assert(!bridge.commands.some(command => command.name === 'startAgentTurn' || command.name === 'markAgentTaskFailed' || command.name === 'createAgentTask'), 'Stop must not replay input, fail or replace the task');
     const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');
     assert(send !== null && !send.disabled, 'The user must be able to continue in the same task');
-    const automation = Array.from(host.querySelectorAll<HTMLInputElement | HTMLSelectElement>('.agt-automation input, .agt-automation select'));
-    assert(automation.length > 0 && automation.every(control => control.disabled), 'A started task must show its publication automation read-only');
+    host.querySelector<HTMLButtonElement>('.agt-auto-chip.is-locked')?.click();
+    await settle();
+    const slider = host.querySelector<HTMLInputElement>('.agt-auto-card input[type="range"]');
+    assert(slider !== null && slider.disabled, 'A started task must show its publication automation read-only');
+    host.querySelector<HTMLButtonElement>('.agt-auto-chip.is-locked')?.click();
+    await settle();
     send.click();
     await settle();
     const requests = bridge.commands.filter(command => command.name === 'startAgentTurn');

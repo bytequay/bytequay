@@ -23,7 +23,7 @@ import reviewLight from './assets/review-light.jpg';
 export type PreviewFeature = 'development' | 'automation' | 'today' | 'assistant';
 const CAPTIONS: Record<PreviewFeature, string> = {
   development: 'Ask for a change, follow the agent, and inspect the result beside your conversation.',
-  automation: 'Choose how changes move from a local commit to a pull request and passing checks.',
+  automation: 'Choose how far changes go on their own, from a local commit to a merged pull request.',
   today: 'A few things worth doing first, picked from your work with a reason for each.',
   assistant: 'Ask about your day and see tasks that need a decision in one place.',
 };
@@ -44,7 +44,7 @@ export default function FeaturePreview({ feature }: { feature: PreviewFeature })
         alt={feature === 'assistant' ? 'Assistant conversation with a task approval card' : feature === 'automation' ? 'Private agent discussion beside a pull-request review comment' : 'Agent conversation beside the code changes it made'} />
     </picture>}
     {feature === 'automation' && <div className="setup-preview-sequence" aria-label="Automation stages">
-      <span>Local commit</span><span>Draft PR</span><span>CI passes</span><span>Your review</span>
+      <span>Commit</span><span>Draft PR</span><span>CI fix</span><span>Review fix</span><span>Merge</span>
     </div>}
     <figcaption><span>{CAPTIONS[feature]}</span><button type="button" aria-pressed={playing} onClick={() => setPlaying(value => !value)}>
       {playing ? <Pause size={13} /> : <Play size={13} />}{playing ? 'Pause preview' : 'Play preview'}

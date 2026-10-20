@@ -22,7 +22,6 @@ import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
-import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
@@ -108,7 +107,6 @@ import static com.bytequay.app.review.ReviewTestData.openReview;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -465,77 +463,6 @@ class TestTaskDiscussionAnswers
     }
 
     @Test
-    void automaticallyPreparesAPrivateDraftOnceWithoutTheSummaryOnlyOption()
-    {
-        AgentTask task = task();
-        when(tasks.getInteractive("w1", TASK)).thenReturn(task.withDefaults(task.defaults()
-                .withDevelopmentAutomation(new DevelopmentAutomation(true, false, false, Optional.empty(), false, true)), NOW));
-        answered(TurnId.random(), "Done.");
-        driver.answers.add(VERDICT);
-        when(writer.draftReply(anyString(), eq(REPO), eq(Optional.of("w1")), eq(ReplyVoice.AUTHOR))).thenReturn("Thanks, I will rename it.");
-        List<ReviewCommentAnchor> comments = ImmutableList.of(anchor(KEY, "{\"body\":\"Rename it.\"}"));
-
-        service.summarize("w1", TASK.toString(), comments);
-
-        TaskDiscussion stored = rows.get(idOf(KEY));
-        assertThat(stored.replyDraft()).contains("Thanks, I will rename it.");
-        assertThat(stored.replyDraftError()).isEmpty();
-        assertThat(service.list("w1", TASK.toString())).singleElement().satisfies(view -> {
-            assertThat(view.replyDraft()).isEqualTo(stored.replyDraft());
-            assertThat(view.pending()).isFalse();
-        });
-        service.summarize("w1", TASK.toString(), comments);
-        verify(writer).draftReply(anyString(), eq(REPO), eq(Optional.of("w1")), eq(ReplyVoice.AUTHOR));
-        assertThat(prompts).hasSize(1);
-    }
-
-    @Test
-    void refusesManualDraftingWhileTheAutomaticDraftHoldsTheDiscussionSlot()
-    {
-        AgentTask task = task();
-        when(tasks.getInteractive("w1", TASK)).thenReturn(task.withDefaults(task.defaults()
-                .withDevelopmentAutomation(new DevelopmentAutomation(true, false, false, Optional.empty(), false, true)), NOW));
-        answered(TurnId.random(), "Done.");
-        driver.answers.add(VERDICT);
-        when(writer.draftReply(anyString(), eq(REPO), eq(Optional.of("w1")), eq(ReplyVoice.AUTHOR))).thenAnswer(call -> {
-            assertThat(service.list("w1", TASK.toString())).singleElement().satisfies(view -> assertThat(view.pending()).isTrue());
-            assertThatThrownBy(() -> service.draftReply("w1", TASK.toString(), idOf(KEY)))
-                    .isInstanceOf(AgentConflictException.class).hasMessage("This task is already answering a question");
-            return "Thanks, I will rename it.";
-        });
-
-        service.summarize("w1", TASK.toString(), ImmutableList.of(anchor(KEY, "{\"body\":\"Rename it.\"}")));
-
-        verify(writer).draftReply(anyString(), eq(REPO), eq(Optional.of("w1")), eq(ReplyVoice.AUTHOR));
-        assertThat(rows.get(idOf(KEY)).replyDraft()).contains("Thanks, I will rename it.");
-        assertThat(service.isAnswering(TASK)).isFalse();
-    }
-
-    @Test
-    void retainsTheAnalysisAndShowsADraftFailureForManualRetry()
-    {
-        AgentTask task = task();
-        when(tasks.getInteractive("w1", TASK)).thenReturn(task.withDefaults(task.defaults()
-                .withDevelopmentAutomation(new DevelopmentAutomation(true, false, false, Optional.empty(), false, true)), NOW));
-        answered(TurnId.random(), "Done.");
-        driver.answers.add(VERDICT);
-        when(writer.draftReply(anyString(), eq(REPO), eq(Optional.of("w1")), eq(ReplyVoice.AUTHOR)))
-                .thenThrow(new AgentUnavailableException("Account unavailable"));
-
-        service.summarize("w1", TASK.toString(), ImmutableList.of(anchor(KEY, "{\"body\":\"Rename it.\"}")));
-
-        TaskDiscussion stored = rows.get(idOf(KEY));
-        assertThat(stored.messages()).extracting(DiscussionMessage::body).containsExactly(DiscussionPrompt.SUMMARY_REQUEST, NORMALIZED);
-        assertThat(stored.replyDraft()).isEmpty();
-        assertThat(stored.replyDraftError()).contains("Account unavailable");
-        assertThat(service.list("w1", TASK.toString())).noneMatch(TaskDiscussionView::pending);
-
-        when(writer.draftReply(anyString(), eq(REPO), eq(Optional.of("w1")), eq(ReplyVoice.AUTHOR))).thenReturn("I will rename it.");
-        assertThat(service.draftReply("w1", TASK.toString(), stored.id())).isEqualTo("I will rename it.");
-        assertThat(rows.get(stored.id()).replyDraftError()).isEmpty();
-    }
-
-    @Test
     void draftsAReplyFromTheVisibleThreadAndStoresNothing()
             throws Exception
     {
@@ -573,106 +500,6 @@ class TestTaskDiscussionAnswers
     }
 
     @Test
-    void summarizesABatchInOneSessionAndGivesEachThreadItsVerdictWithoutASession()
-    {
-        answered(TurnId.random(), "Done.");
-        driver.answers.add("""
-                {"items":[
-                {"ref":"c2","ask":"Two.","valid":"no","why":"It already does.","do":"no","plan":"","size":""},
-                {"ref":"c1","ask":"One.","valid":"yes","why":"It holds.","do":"yes","plan":"Fix it.","size":"trivial"},
-                {"ref":"c3","ask":"Three.","valid":"unsure","why":"Needs a run.","do":"your_call","plan":"Run the suite.","size":"big"}]}""");
-        List<ReviewCommentAnchor> comments = ImmutableList.of(
-                anchor("review:1", "{\"body\":\"one\"}"), anchor("review_comment:2", "{\"body\":\"two\"}"), anchor("review_comment:3", "{\"body\":\"three\"}"));
-        hold = true;
-
-        service.summarize("w1", TASK.toString(), comments);
-
-        // Every thread is pending from its first stored row, before the batch has run.
-        assertThat(pendingWhenStored).containsExactly(true, true, true);
-        assertThat(rows.values()).allSatisfy(thread -> assertThat(thread.messages()).extracting(DiscussionMessage::body).containsExactly(DiscussionPrompt.SUMMARY_REQUEST));
-        runHeld();
-
-        assertThat(prompts).singleElement().satisfies(prompt -> assertThat(prompt)
-                .contains("Comment references: c1 through c3.", "Summarize these 3 review comments.").doesNotContain("\"body\":\"one\""));
-        assertThat(savedContext("source")).containsSubsequence("\"ref\":\"c1\"", "\"body\":\"one\"", "\"ref\":\"c2\"", "\"body\":\"two\"", "\"ref\":\"c3\"", "\"body\":\"three\"");
-        assertThat(rows.values()).extracting(thread -> thread.comment().orElseThrow().key()).containsExactly("review:1", "review_comment:2", "review_comment:3");
-        assertThat(rows.values()).allSatisfy(thread -> {
-            assertThat(thread.sessionReference()).isEmpty();
-            assertThat(thread.messages()).hasSize(2);
-        });
-        assertThat(rows.values()).extracting(thread -> thread.messages().getLast().body()).containsExactly(
-                "{\"ask\":\"One.\",\"valid\":\"yes\",\"why\":\"It holds.\",\"do\":\"yes\",\"plan\":\"Fix it.\",\"size\":\"trivial\"}",
-                "{\"ask\":\"Two.\",\"valid\":\"no\",\"why\":\"It already does.\",\"do\":\"no\",\"plan\":\"\",\"size\":\"\"}",
-                "{\"ask\":\"Three.\",\"valid\":\"unsure\",\"why\":\"Needs a run.\",\"do\":\"your_call\",\"plan\":\"Run the suite.\",\"size\":\"big\"}");
-        assertThat(service.list("w1", TASK.toString())).noneMatch(TaskDiscussionView::pending);
-
-        // Comments that already have threads are skipped, so the same batch again starts nothing.
-        service.summarize("w1", TASK.toString(), comments);
-        assertThat(held).isEmpty();
-        assertThat(prompts).hasSize(1);
-    }
-
-    @Test
-    void aBatchFailureFailsEveryThreadAndARacedCommentLeavesTheSlot()
-    {
-        answered(TurnId.random(), "Done.");
-        driver.answers.add(VERDICT);
-        ReviewCommentAnchor raced = anchor("review_comment:9", "{\"body\":\"raced\"}");
-        racing.put(raced.anchor().quoteHash(), commentThread("elsewhere", raced, ImmutableList.of()));
-        hold = true;
-
-        service.summarize("w1", TASK.toString(), ImmutableList.of(anchor("review:1", "{\"body\":\"one\"}"), raced, anchor("review:3", "{\"body\":\"three\"}")));
-
-        assertThat(service.list("w1", TASK.toString())).extracting(TaskDiscussionView::id, TaskDiscussionView::pending)
-                .containsExactlyInAnyOrder(tuple(idOf("review:1"), true), tuple("elsewhere", false), tuple(idOf("review:3"), true));
-        runHeld();
-
-        // One verdict for two comments fails the whole batch, and each hidden request carries the reason.
-        assertThat(prompts).singleElement().satisfies(prompt -> assertThat(prompt).contains("Summarize these 2 review comments.").doesNotContain("raced"));
-        for (String key : ImmutableList.of("review:1", "review:3")) {
-            assertThat(rows.get(idOf(key)).messages()).singleElement().satisfies(request -> {
-                assertThat(request.body()).isEqualTo(DiscussionPrompt.SUMMARY_REQUEST);
-                assertThat(request.error()).hasValueSatisfying(error -> assertThat(error).contains("exactly 2 items"));
-            });
-        }
-        assertThat(rows.get("elsewhere").messages()).isEmpty();
-    }
-
-    @Test
-    void summarizeGivesTheSlotBackWheneverItRefusesAfterClaiming()
-    {
-        List<ReviewCommentAnchor> one = ImmutableList.of(anchor(KEY, "{\"body\":\"one\"}"));
-
-        assertThatThrownBy(() -> service.summarize("w1", TASK.toString(), one))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessage("Waiting for the agent's first answer");
-
-        answered(TurnId.random(), "x".repeat(TaskDiscussion.MAX_SEED_CHARACTERS));
-        assertThatThrownBy(() -> service.summarize("w1", TASK.toString(), one))
-                .isInstanceOf(AgentConflictException.class)
-                .hasMessage("This task's history is too long to ask about");
-        assertThat(rows).isEmpty();
-
-        events.clear();
-        answered(TurnId.random(), "Done.");
-        store(commentThread("t1", anchor(KEY, "{}"), ImmutableList.of()));
-        service.summarize("w1", TASK.toString(), one);
-
-        IntStream.range(1, TaskDiscussionService.MAXIMUM_COMMENT_THREADS_PER_TASK)
-                .forEach(index -> store(commentThread("c" + index, anchor("review:" + index, "{}"), ImmutableList.of())));
-        assertThatThrownBy(() -> service.summarize("w1", TASK.toString(), ImmutableList.of(anchor("review_comment:7", "{}"))))
-                .isInstanceOf(AgentConflictException.class)
-                .hasMessageContaining("most private threads");
-        assertThat(prompts).isEmpty();
-
-        // Each refusal gave the task's slot back, so the next question on the task is answered.
-        rows.clear();
-        driver.answers.add(VERDICT);
-        assertThat(service.askComment(askComment(KEY, "")).messages()).hasSize(1);
-        assertThat(prompts).hasSize(1);
-    }
-
-    @Test
     void askingAboutAHistoryOverItsBudgetSaysWhy()
     {
         answered(TurnId.random(), "x".repeat(TaskDiscussion.MAX_SEED_CHARACTERS));
@@ -681,48 +508,6 @@ class TestTaskDiscussionAnswers
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessage("This task's history is too long to ask about");
         assertThat(rows).isEmpty();
-    }
-
-    @Test
-    void summarizeTrimsABatchToTheRoomLeftForCommentThreads()
-    {
-        answered(TurnId.random(), "Done.");
-        IntStream.range(0, TaskDiscussionService.MAXIMUM_COMMENT_THREADS_PER_TASK - 1)
-                .forEach(index -> store(commentThread("c" + index, anchor("review:" + index, "{}"), ImmutableList.of())));
-        driver.answers.add(VERDICT);
-
-        service.summarize("w1", TASK.toString(), ImmutableList.of(
-                anchor("review_comment:1", "{\"body\":\"one\"}"), anchor("review_comment:2", "{\"body\":\"two\"}"), anchor("review_comment:3", "{\"body\":\"three\"}")));
-
-        assertThat(rows).hasSize(TaskDiscussionService.MAXIMUM_COMMENT_THREADS_PER_TASK);
-        assertThat(rows.get(idOf("review_comment:1")).messages()).extracting(DiscussionMessage::body).containsExactly(DiscussionPrompt.SUMMARY_REQUEST, NORMALIZED);
-        assertThat(prompts).singleElement().satisfies(prompt -> assertThat(prompt)
-                .contains("--- question ---\n\n" + DiscussionPrompt.SUMMARY_REQUEST)
-                .doesNotContain("{\"body\":\"two\"}", "{\"body\":\"three\"}"));
-    }
-
-    @Test
-    void aVerdictThatCannotBeStoredFailsOnlyItsOwnThread()
-    {
-        answered(TurnId.random(), "Done.");
-        driver.answers.add("""
-                {"items":[
-                {"ref":"c1","ask":"One.","valid":"yes","why":"It holds.","do":"yes","plan":"Fix it.","size":"trivial"},
-                {"ref":"c2","ask":"Two.","valid":"yes","why":"It holds.","do":"yes","plan":"Fix it.","size":"trivial"},
-                {"ref":"c3","ask":"Three.","valid":"yes","why":"It holds.","do":"yes","plan":"Fix it.","size":"trivial"}]}""");
-        hold = true;
-        service.summarize("w1", TASK.toString(), ImmutableList.of(
-                anchor("review:1", "{\"body\":\"one\"}"), anchor("review:2", "{\"body\":\"two\"}"), anchor("review:3", "{\"body\":\"three\"}")));
-        conflicting.add(idOf("review:2"));
-
-        runHeld();
-
-        assertThat(rows.get(idOf("review:1")).messages()).extracting(DiscussionMessage::author)
-                .containsExactly(DiscussionMessage.Author.USER, DiscussionMessage.Author.AGENT);
-        assertThat(rows.get(idOf("review:2")).messages()).singleElement()
-                .satisfies(request -> assertThat(request.error()).contains("This discussion changed while you were reading it"));
-        assertThat(rows.get(idOf("review:3")).messages()).extracting(DiscussionMessage::author)
-                .containsExactly(DiscussionMessage.Author.USER, DiscussionMessage.Author.AGENT);
     }
 
     @Test

@@ -674,7 +674,7 @@ class TestAgentHttpApi
                 ImmutableMap.of("model", "test-model", "effort", "low", "permissionPolicy", "AUTO"),
                 ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO", "serviceTier", "fast"),
                 ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO",
-                        "developmentAutomation", ImmutableMap.of("autoDraftPr", true, "autoCiFix", false, "reviewSummary", false, "reviewReply", false)));
+                        "developmentAutomation", ImmutableMap.of("level", "DRAFT_PR")));
         HttpHeaders updateHeaders = headers();
         updateHeaders.setContentType(MediaType.APPLICATION_JSON);
         for (Map<String, Object> defaults : unsupported) {
@@ -1035,7 +1035,7 @@ class TestAgentHttpApi
     {
         driver.holdNextTurn();
         Map<String, Object> request = new HashMap<>(createTaskBody("codex"));
-        request.put("developmentAutomation", ImmutableMap.of("autoDraftPr", true, "autoCiFix", true, "reviewSummary", false, "reviewReply", false));
+        request.put("developmentAutomation", ImmutableMap.of("level", "CI_FIX"));
         JsonNode created = post("/agent/tasks", request, null).getBody();
         String taskId = created.required("id").asText();
         String taskPath = "/agent/tasks/" + taskId + "?workspaceId=" + workspaceId;
@@ -1080,7 +1080,7 @@ class TestAgentHttpApi
         driver.holdNextTurn();
         Map<String, Object> request = new HashMap<>(createTaskBody("codex"));
         request.put("defaults", ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO",
-                "developmentAutomation", ImmutableMap.of("autoDraftPr", true, "autoCiFix", true, "reviewSummary", false, "reviewReply", false)));
+                "developmentAutomation", ImmutableMap.of("level", "CI_FIX")));
         JsonNode created = post("/agent/tasks", request, null).getBody();
         String taskId = created.required("id").asText();
         String taskPath = "/agent/tasks/" + taskId + "?workspaceId=" + workspaceId;
@@ -1433,7 +1433,7 @@ class TestAgentHttpApi
                         "model", model,
                         "effort", "high",
                         "permissionPolicy", "AUTO",
-                        "developmentAutomation", ImmutableMap.of("autoDraftPr", false, "autoCiFix", false, "reviewSummary", false, "reviewReply", false)));
+                        "developmentAutomation", ImmutableMap.of("level", "COMMIT")));
     }
 
     /** Caches open issue {@code number} in the workspace and serves it as the fresh GitHub read. */

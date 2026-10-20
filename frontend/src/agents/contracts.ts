@@ -43,6 +43,7 @@ import type {
   AgentTaskSummaryDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
+  AutomationLevel,
   CiAutofixRunDto,
   DevelopmentAutomationDto,
   DevelopmentResultDto,
@@ -84,6 +85,9 @@ export function alreadySent(failure: unknown): boolean {
  * detail added to one of them later would reach the renderer on its own. Reading only the fields
  * the contract names means a new one has to be added here on purpose before anything can see it.
  */
+
+/** The automation scale in order; each level includes every level before it. */
+export const AUTOMATION_LEVELS = ['COMMIT', 'DRAFT_PR', 'CI_FIX', 'REVIEW_FIX', 'MERGE'] as const satisfies readonly AutomationLevel[];
 
 function enumText<const Values extends readonly string[]>(
   value: unknown,
@@ -166,11 +170,8 @@ function metrics(value: unknown, path: string): AgentMetricsDto {
 export function parseDevelopmentAutomation(value: unknown, path = 'developmentAutomation'): DevelopmentAutomationDto {
   const source = object(value, path);
   return {
-    autoDraftPr: flag(source.autoDraftPr, `${path}.autoDraftPr`),
-    autoCiFix: flag(source.autoCiFix, `${path}.autoCiFix`),
+    level: enumText(source.level, AUTOMATION_LEVELS, `${path}.level`),
     ciLaneId: optionalText(source.ciLaneId, `${path}.ciLaneId`),
-    reviewSummary: flag(source.reviewSummary, `${path}.reviewSummary`),
-    reviewReply: flag(source.reviewReply, `${path}.reviewReply`),
   };
 }
 

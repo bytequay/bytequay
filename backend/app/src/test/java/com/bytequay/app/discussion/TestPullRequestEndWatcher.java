@@ -27,7 +27,6 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
-import com.bytequay.core.discussion.TaskDiscussionStore;
 import com.bytequay.core.domain.PullRequest;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -61,10 +60,7 @@ class TestPullRequestEndWatcher
             tasks,
             ownership,
             completions,
-            gate,
-            mock(ReviewCommentReader.class, withSettings().mockMaker(MockMakers.INLINE)),
-            mock(TaskDiscussionStore.class),
-            mock(TaskDiscussionService.class));
+            gate);
 
     @BeforeEach
     void setUp()

@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -45,8 +46,8 @@ import static org.mockito.Mockito.when;
 
 class TestDevelopmentResultBridgeResolverImpl
 {
-    private static final DevelopmentAutomation AUTOMATION = new DevelopmentAutomation(true, true, true, Optional.empty());
-    private static final DevelopmentAutomation LOCAL_ONLY = new DevelopmentAutomation(false, false, false, Optional.empty());
+    private static final DevelopmentAutomation AUTOMATION = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.empty());
+    private static final DevelopmentAutomation LOCAL_ONLY = new DevelopmentAutomation(false, AutomationLevel.COMMIT, Optional.empty());
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final AgentTurnStore turns = mock(AgentTurnStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);

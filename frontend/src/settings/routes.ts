@@ -49,7 +49,7 @@ const GROUP_SLUGS: Record<SettingsGroup, string> = {
 };
 
 export const SETTINGS_ENTRIES: SettingsEntry[] = [
-  { section: 'workflow', group: 'Agents', label: 'Workflow', slug: 'workflow', rows: ['Development commits', 'Auto draft PR', 'Auto CI fix', 'Auto review summary', 'Auto draft review replies', 'CI repair agent',
+  { section: 'workflow', group: 'Agents', label: 'Workflow', slug: 'workflow', rows: ['Automation', 'Auto-Commit', 'Auto-Draft PR', 'CI fix', 'Auto-Review fix', 'Auto-merge', 'CI repair agent',
     'Enable Assistant', 'Assistant can start tasks', 'Assistant can answer tasks', 'Assistant can change Epics and work items',
     'Assistant can acknowledge and snooze items'] },
   {

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.settings;
 
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
@@ -55,29 +56,28 @@ class TestAppSettingsService
     void setupKeepsExistingChoicesAndStartsFreshInstallsWithOptionalAutomationOff()
     {
         settings.initializeAutomation(false);
-        assertThat(settings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, false, false, Optional.empty(), false, false));
+        assertThat(settings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, AutomationLevel.COMMIT, Optional.empty()));
         settings.initializeAutomation(true);
         assertThat(settings.developmentAutomation().autoDraftPr()).isFalse();
 
         store.delete("agent.developmentAutomation");
         settings.initializeAutomation(true);
-        assertThat(settings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, true, true, Optional.empty(), false, false));
+        assertThat(settings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.empty()));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"claude", "codex"})
-    void automationRoundTripsIndependentChoicesAndExplicitCiRepairAgent(String laneId)
+    void automationRoundTripsTheLevelAndExplicitCiRepairAgent(String laneId)
     {
         AgentLaneId lane = new AgentLaneId(laneId);
         AgentDriver driver = mock(AgentDriver.class);
         when(drivers.require(lane)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(new AgentCapabilities(false, false, false, ImmutableSet.of(AgentPermissionPolicy.CI_AUTOFIX), ImmutableSet.of()));
-        DevelopmentAutomation chosen = new DevelopmentAutomation(false, true, true, Optional.of(lane), true, false);
+        DevelopmentAutomation chosen = new DevelopmentAutomation(false, AutomationLevel.CI_FIX, Optional.of(lane));
 
         settings.saveDevelopmentAutomation(chosen);
 
         assertThat(settings.developmentAutomation()).isEqualTo(chosen.forDevelopment());
-        assertThat(settings.developmentAutomation().reviewSummary()).isTrue();
         assertThat(store.snapshot()).containsKey("agent.developmentAutomation");
         settings.saveDevelopmentAutomation(DevelopmentAutomation.LOCAL_ONLY);
         assertThat(settings.developmentAutomation()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
@@ -97,13 +97,13 @@ class TestAppSettingsService
         AgentDriver driver = mock(AgentDriver.class);
         when(drivers.require(lane)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(AgentCapabilities.none());
-        assertThatThrownBy(() -> settings.saveDevelopmentAutomation(new DevelopmentAutomation(true, true, true, Optional.of(lane))))
+        assertThatThrownBy(() -> settings.saveDevelopmentAutomation(new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(lane))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("does not support CI Autofix");
         assertThat(store.snapshot()).isEmpty();
         store.put("agent.developmentAutomation", "{\"autoCommit\":true}");
         assertThatThrownBy(settings::developmentAutomation).isInstanceOf(IllegalStateException.class);
         store.put("agent.developmentAutomation", "{\"autoCommit\":true,\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":null}");
-        assertThat(settings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, true, true, Optional.empty(), false, false));
+        assertThat(settings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.empty()));
     }
 
     @Test

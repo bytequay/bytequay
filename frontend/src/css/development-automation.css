@@ -1,14 +1,128 @@
-.agt-automation { position: relative; font-size: 12px; color: light-dark(#656b73, var(--dark-muted)); }
-.agt-automation summary { list-style: none; border-radius: 7px; }
-.agt-automation summary::-webkit-details-marker { display: none; }
-.agt-automation summary:hover { background: light-dark(#f3f4f6, var(--dark-subtle)); }
-.agt-automation-options { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 15; width: 310px; padding: 14px; border: 1px solid light-dark(#e1e4e8, var(--dark-border)); border-radius: 12px; background: var(--surface-canvas); box-shadow: 0 8px 28px #0002; color: light-dark(#31363d, var(--dark-text)); }
-.agt-automation-options strong { display: block; margin-bottom: 8px; }
-.agt-automation-options p { margin: 0 0 8px; line-height: 1.5; color: light-dark(#656b73, var(--dark-muted)); }
-.agt-automation-option { display: flex; gap: 9px; padding: 8px 0; align-items: center; cursor: pointer; }
-.agt-automation-option:has(input:disabled) { cursor: default; }
-.agt-automation-option input { margin: 0; accent-color: light-dark(#2467e8, var(--dark-blue)); }
-.agt-automation-option.is-local { border-top: 1px solid light-dark(#eceef1, var(--dark-border-muted)); margin-top: 8px; }
+.agt-auto { position: relative; display: inline-flex; flex: none; }
+
+/* The chip sits 2px lower than the composer's other controls, like the design's. */
+.agt-auto-chip,
+.agt-compose.is-new-task .agt-auto-chip {
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: light-dark(#e6e6ea, var(--dark-subtle));
+  color: var(--text-1);
+  transform: translateY(2px);
+}
+.agt-auto-chip.is-locked,
+.agt-compose.is-new-task .agt-auto-chip.is-locked {
+  gap: 4px;
+  padding: 2px 6px 2px 8px;
+  background: light-dark(#f2f2f4, var(--dark-subtle));
+}
+.agt-auto-chip .chev { color: light-dark(#8e8e93, var(--dark-muted)); }
+.agt-auto-chip__step { display: flex; align-items: center; justify-content: center; }
+.agt-auto-chip.is-locked .agt-auto-chip__step { width: 22px; height: 22px; border-radius: 6px; }
+
+.agt-auto-card {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 15;
+  box-sizing: border-box;
+  width: 310px;
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-radius: 16px;
+  background: var(--surface-canvas);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 14%), 0 0 0 0.5px light-dark(rgb(0 0 0 / 12%), var(--dark-border));
+  color: var(--text-1);
+}
+.agt-auto-card.is-locked { cursor: not-allowed; }
+.agt-auto-card__head { display: grid; grid-template-columns: 24px 1fr 24px; align-items: start; }
+.agt-auto-card__name { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.agt-auto-card__name > span:first-child { font-size: 20px; font-weight: 500; color: light-dark(#0a6fd1, var(--dark-blue)); }
+.agt-auto-card.is-locked .agt-auto-card__name > span:first-child { color: light-dark(#8e8e93, var(--dark-muted)); }
+.agt-auto-card__trail { display: flex; align-items: center; gap: 8px; height: 16px; color: light-dark(#6e6e73, var(--dark-muted)); }
+.agt-auto-card__corner {
+  justify-self: end;
+  display: flex;
+  padding: 4px 0 0;
+  border: 0;
+  background: none;
+  color: light-dark(#8e8e93, var(--dark-muted));
+}
+button.agt-auto-card__corner { cursor: pointer; }
+button.agt-auto-card__corner:disabled { cursor: default; opacity: 0.4; }
+
+/* Stops sit 18px in from each end; stop i is at 18px + i/stops of the remaining width. */
+.agt-auto-slider {
+  position: relative;
+  height: 22px;
+  border-radius: 11px;
+  background: light-dark(#e9e9ec, var(--dark-subtle));
+  user-select: none;
+}
+.agt-auto-slider__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(18px + (100% - 36px) * var(--stop) / var(--stops) + 18px * var(--end));
+  border-radius: 11px;
+  background: light-dark(#1f8a4c, var(--dark-green));
+  transition: width 0.15s;
+}
+.agt-auto-slider__dot {
+  position: absolute;
+  top: 8px;
+  left: calc(15px + (100% - 36px) * var(--i) / var(--stops));
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: light-dark(#b9b9be, var(--dark-dim));
+  pointer-events: none;
+}
+.agt-auto-slider__dot.is-filled { background: rgb(255 255 255 / 55%); }
+.agt-auto-slider__knob {
+  position: absolute;
+  top: -4px;
+  left: calc(3px + (100% - 36px) * var(--stop) / var(--stops));
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 28%);
+  color: #1f8a4c;
+  transition: left 0.15s;
+  pointer-events: none;
+}
+.agt-auto-slider input {
+  position: absolute;
+  inset: -4px 0;
+  width: 100%;
+  height: 30px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  appearance: none;
+}
+.agt-auto-slider input::-webkit-slider-thumb { width: 36px; height: 30px; appearance: none; }
+.agt-auto-slider input:disabled { cursor: not-allowed; }
+.agt-auto-slider:has(input:focus-visible) .agt-auto-slider__knob { box-shadow: 0 0 0 2px var(--accent); }
+
+.agt-auto-slider.is-locked { background: light-dark(#f0f0f2, var(--dark-subtle)); }
+.agt-auto-slider.is-locked .agt-auto-slider__fill { background: light-dark(#c7cdd6, var(--dark-border-strong)); }
+.agt-auto-slider.is-locked .agt-auto-slider__dot { background: light-dark(#d2d2d7, var(--dark-border)); }
+.agt-auto-slider.is-locked .agt-auto-slider__dot.is-filled { background: rgb(255 255 255 / 70%); }
+.agt-auto-slider.is-locked .agt-auto-slider__knob { background: light-dark(#fafafa, var(--dark-elevated)); box-shadow: 0 1px 3px rgb(0 0 0 / 18%); color: light-dark(#8e8e93, var(--dark-muted)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .agt-auto-slider__fill, .agt-auto-slider__knob { transition: none; }
+}
+
+/* Settings and onboarding show the slider inline beside the chosen step. */
+.agt-auto-inline { width: 230px; padding: 4px 0; }
+
 .agt-automation-ci { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; }
 .agt-automation-ci select { max-width: 210px; padding: 5px 8px; border: 1px solid light-dark(#dce0e5, var(--dark-border)); border-radius: 7px; background: var(--surface-canvas); color: light-dark(#414750, var(--dark-text)); font: inherit; }
 .agt-automation-ci small { flex-basis: 100%; color: light-dark(#7b828b, var(--dark-muted)); font-size: 11px; line-height: 1.4; margin-top: 3px; }

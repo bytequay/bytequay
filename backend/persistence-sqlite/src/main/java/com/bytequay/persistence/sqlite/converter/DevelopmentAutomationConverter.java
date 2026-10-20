@@ -18,7 +18,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.BooleanNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.persistence.Converter;
 
@@ -36,7 +35,7 @@ public class DevelopmentAutomationConverter
     {
         var saved = MAPPER.readTree(json);
         if (saved instanceof ObjectNode object) {
-            object.putIfAbsent("reviewReply", BooleanNode.FALSE);
+            DevelopmentAutomation.upgradeSaved(object);
         }
         return MAPPER.treeToValue(saved, DevelopmentAutomation.class);
     }

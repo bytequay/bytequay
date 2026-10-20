@@ -11,12 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useId, useState } from 'react';
+import { GitCommitHorizontal, GitMerge, GitPullRequest, Lock, MessageSquareCheck, RotateCcw, Wrench, type LucideIcon } from 'lucide-react';
+import { useId, useRef, useState, type CSSProperties } from 'react';
 import '../css/development-automation.css';
-import type { DevelopmentAutomationDto, ModelProviderDto } from '../types';
+import { Chevron } from '../Chevron';
+import type { AutomationLevel, DevelopmentAutomationDto, ModelProviderDto } from '../types';
 import { providerAvailable } from '../settings/model';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
-import { AUTOMATION_OPTIONS, automationForSubmission, automationSummary } from './developmentAutomation';
+import { AUTOMATION_LEVELS } from './contracts';
+import { AUTOMATION_STEPS, levelIndex, levelTitle } from './developmentAutomation';
 
 export function CiProviderSelect({ value, providers, disabled, onChange }: {
   value: string | null;
@@ -41,38 +44,87 @@ export function CiProviderSelect({ value, providers, disabled, onChange }: {
   </div>;
 }
 
-/** A started task renders this disabled and without handlers: its automation cannot change. */
-export function AutomationControl({ value, providers, disabled, localOnly = false, onChange, onLocalOnlyChange }: {
-  value: DevelopmentAutomationDto;
-  providers: ModelProviderDto[];
-  disabled?: boolean;
-  localOnly?: boolean;
-  onChange?: (value: DevelopmentAutomationDto) => void;
-  onLocalOnlyChange?: (value: boolean) => void;
+const ICONS: Record<AutomationLevel, LucideIcon> = {
+  COMMIT: GitCommitHorizontal,
+  DRAFT_PR: GitPullRequest,
+  CI_FIX: Wrench,
+  REVIEW_FIX: MessageSquareCheck,
+  MERGE: GitMerge,
+};
+
+export function StepIcon({ level, size = 14 }: { level: AutomationLevel; size?: number }) {
+  const Icon = ICONS[level];
+  return <Icon size={size} strokeWidth={2} aria-hidden="true" />;
+}
+
+/**
+ * The scale as one slider. A native range input lies over the drawn track, so dragging, clicking a stop
+ * and the arrow keys all come from the platform; its thumb is as wide as the track's end insets, which
+ * puts each value exactly under its drawn stop.
+ */
+export function AutomationSlider({ value, onChange }: {
+  value: AutomationLevel;
+  onChange?: (level: AutomationLevel) => void;
 }) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const ref = usePopoverDismiss<HTMLDetailsElement>(event => {
-    if (ref.current) ref.current.open = false;
-    if (event.type === 'keydown') ref.current?.querySelector<HTMLElement>('summary')?.focus();
-  }, false, pickerOpen);
-  return <details onToggle={event => setPickerOpen(event.currentTarget.open)} ref={ref} className="agt-automation">
-    <summary className="agt-compose__chip" aria-label="Automation settings">
-      Automation <span className="agt-picker__effort">{automationSummary(automationForSubmission(value, localOnly))}</span>
-    </summary>
-    <div className="agt-automation-options">
-      <strong>Automation</strong>
-      <p>Finished development work is committed automatically. Review experiments stay uncommitted.</p>
-      {AUTOMATION_OPTIONS.map(option => <label key={option.key} className="agt-automation-option">
-        <input type="checkbox" checked={value[option.key]} disabled={disabled || (localOnly && option.key !== 'reviewSummary' && option.key !== 'reviewReply')}
-          onChange={event => onChange?.({ ...value, [option.key]: event.target.checked })} />
-        {option.title}
-      </label>)}
-      <CiProviderSelect value={value.ciLaneId} providers={providers} disabled={disabled || localOnly || !value.autoCiFix}
-        onChange={ciLaneId => onChange?.({ ...value, ciLaneId })} />
-      <label className="agt-automation-option is-local">
-        <input type="checkbox" checked={localOnly} disabled={disabled} onChange={event => onLocalOnlyChange?.(event.target.checked)} />
-        Keep commits local for this turn
-      </label>
-    </div>
-  </details>;
+  const index = levelIndex(value);
+  const last = AUTOMATION_LEVELS.length - 1;
+  const locked = onChange === undefined;
+  return <div className={`agt-auto-slider${locked ? ' is-locked' : ''}`}
+    style={{ '--stop': index, '--stops': last, '--end': index === last ? 1 : 0 } as CSSProperties}>
+    <span className="agt-auto-slider__fill" />
+    {AUTOMATION_STEPS.map((step, stop) => stop !== index && <span key={step.level}
+      className={`agt-auto-slider__dot${stop < index ? ' is-filled' : ''}`} style={{ '--i': stop } as CSSProperties} />)}
+    <span className="agt-auto-slider__knob">{locked ? <Lock size={14} strokeWidth={2} aria-hidden="true" /> : <StepIcon level={value} />}</span>
+    <input type="range" min={0} max={last} step={1} value={index} disabled={locked}
+      aria-label="Automation" aria-valuetext={levelTitle(value)}
+      onChange={event => onChange?.(AUTOMATION_LEVELS[Number(event.target.value)])} />
+  </div>;
+}
+
+/**
+ * The composer's automation chip: one icon per step that is on. New tasks open a card with the slider;
+ * a started task opens the same card locked, because its automation is fixed when it starts.
+ */
+export function AutomationControl({ value, defaultValue, disabled = false, onChange }: {
+  value: DevelopmentAutomationDto;
+  /** The Settings default that reset returns to. */
+  defaultValue?: DevelopmentAutomationDto;
+  disabled?: boolean;
+  onChange?: (value: DevelopmentAutomationDto) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const ref = usePopoverDismiss<HTMLDivElement>(event => {
+    setOpen(false);
+    if (event.type === 'keydown') triggerRef.current?.focus();
+  }, false, open);
+  const cardId = useId();
+  const locked = onChange === undefined;
+  const title = levelTitle(value.level);
+  const steps = AUTOMATION_STEPS.slice(0, levelIndex(value.level) + 1);
+  return <div ref={ref} className="agt-auto" onMouseDown={event => event.stopPropagation()}>
+    <button ref={triggerRef} type="button" className={`agt-compose__chip agt-auto-chip${locked ? ' is-locked' : ''}`}
+      aria-label={`Automation: ${title}`} title={title} aria-expanded={open} aria-controls={open ? cardId : undefined}
+      disabled={disabled} onClick={() => setOpen(current => !current)}>
+      {steps.map(step => <span key={step.level} className="agt-auto-chip__step"><StepIcon level={step.level} /></span>)}
+      {!locked && <Chevron open size={10} />}
+    </button>
+    {open && <div id={cardId} className={`agt-auto-card${locked ? ' is-locked' : ''}`} role="group" aria-label="Automation">
+      <div className="agt-auto-card__head">
+        <span />
+        <div className="agt-auto-card__name">
+          <span>{title}</span>
+          <span className="agt-auto-card__trail">{steps.map(step => <StepIcon key={step.level} level={step.level} />)}</span>
+        </div>
+        {locked
+          ? <span className="agt-auto-card__corner" title="Automation is fixed when a task starts"><Lock size={14} aria-hidden="true" /></span>
+          : <button type="button" className="agt-auto-card__corner" aria-label="Reset to default" title="Reset to default"
+            disabled={defaultValue === undefined || defaultValue.level === value.level}
+            onClick={() => { if (defaultValue !== undefined) onChange({ ...value, level: defaultValue.level }); }}>
+            <RotateCcw size={16} aria-hidden="true" />
+          </button>}
+      </div>
+      <AutomationSlider value={value.level} onChange={locked ? undefined : level => onChange({ ...value, level })} />
+    </div>}
+  </div>;
 }

@@ -23,6 +23,7 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -195,7 +196,7 @@ class TestInteractiveAgentTaskCreator
         when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspace(repository));
         when(git.run(repository, "rev-parse", "--verify", START_COMMIT + "^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, START_COMMIT + "\n", false));
-        var automation = new DevelopmentAutomation(true, false, false, Optional.empty(), false, false);
+        var automation = new DevelopmentAutomation(true, AutomationLevel.COMMIT, Optional.empty());
         var defaults = new AgentTaskDefaults(Optional.of("model-a"), Optional.empty(), AgentPermissionPolicy.AUTO).withDevelopmentAutomation(automation);
         creator.createRelated(TASK_ID, "workspace-1", "Investigate", AgentLaneId.CODEX_CLI, defaults, "request-1", Optional.of(START_COMMIT));
         var command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
@@ -339,7 +340,7 @@ class TestInteractiveAgentTaskCreator
     void deepSeekCreationKeepsAcceptedCommitAndCiSettings()
     {
         AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
-        DevelopmentAutomation automation = new DevelopmentAutomation(true, false, true, Optional.of(AgentLaneId.CODEX_CLI));
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(AgentLaneId.CODEX_CLI));
         when(drivers.require(lane)).thenReturn(driver);
         Path repository = temporaryDirectory.resolve("repository");
         when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspace(repository));
@@ -363,7 +364,7 @@ class TestInteractiveAgentTaskCreator
         assertThat(creator.create(TASK_ID, "workspace-1", "Task", lane, defaults().withDevelopmentAutomation(automation), "create-key", Optional.empty(),
                 Optional.of(automation), Optional.empty(), Optional.empty(), Optional.empty())).isSameAs(created);
         assertThatThrownBy(() -> creator.create(TASK_ID, "workspace-1", "Task", lane, defaults().withDevelopmentAutomation(automation), "create-key",
-                Optional.empty(), Optional.of(new DevelopmentAutomation(true, false, false, Optional.empty())), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.of(new DevelopmentAutomation(true, AutomationLevel.COMMIT, Optional.empty())), Optional.empty(), Optional.empty(),
                 Optional.empty()))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("creation request changed");
         verify(driver, times(2)).probe(Optional.of("model-a"));
@@ -375,7 +376,7 @@ class TestInteractiveAgentTaskCreator
     void deepSeekRejectsInvalidSelectedCiLaneBeforeRepositoryWork()
     {
         AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
-        DevelopmentAutomation invalid = new DevelopmentAutomation(true, false, true, Optional.of(new AgentLaneId("unsupported")));
+        DevelopmentAutomation invalid = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(new AgentLaneId("unsupported")));
         doThrow(new IllegalArgumentException("Agent lane unsupported does not support CI Autofix"))
                 .when(settings).validateDevelopmentAutomation(invalid);
 

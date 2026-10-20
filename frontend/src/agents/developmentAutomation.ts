@@ -11,32 +11,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { AUTOMATION_LEVELS } from './contracts';
 import type { AgentTaskState } from './model';
-import type { DevelopmentAutomationDto } from '../types';
+import type { AutomationLevel, DevelopmentAutomationDto } from '../types';
 
-/** Keep development commits while leaving optional publication and follow-up off. */
-export const LOCAL_COMMITS_ONLY: DevelopmentAutomationDto = {
-  autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false, reviewReply: false,
-};
+/** Keep development commits while leaving publication and follow-up off. */
+export const LOCAL_COMMITS_ONLY: DevelopmentAutomationDto = { level: 'COMMIT', ciLaneId: null };
 
-export const AUTOMATION_OPTIONS = [
-  { key: 'autoDraftPr', title: 'Auto draft PR', description: 'Push commits and create or update this task’s PR.' },
-  { key: 'autoCiFix', title: 'Auto CI fix', description: 'Repair code or PR-description checks, rerun CI, and mark the draft ready when checks pass.' },
-  { key: 'reviewSummary', title: 'Auto review summary',
-    description: 'Add a private agent note to each new review comment on this task’s PR: what it asks, whether it holds, and a plan. Nothing is posted to GitHub.' },
-  { key: 'reviewReply', title: 'Auto draft review replies',
-    description: 'Analyze new review comments and prepare private reply drafts. You edit and post each reply yourself.' },
-] as const;
+/** The scale's stops in order, with the words each icon stands for. */
+export const AUTOMATION_STEPS: readonly { level: AutomationLevel; title: string; description: string }[] = [
+  { level: 'COMMIT', title: 'Auto-Commit', description: 'Commit finished work on this task’s branch. Nothing leaves your Mac.' },
+  { level: 'DRAFT_PR', title: 'Auto-Draft PR', description: 'Push commits and create or update this task’s draft PR.' },
+  { level: 'CI_FIX', title: 'CI fix', description: 'Repair failing checks, rerun CI, and mark the draft ready when checks pass.' },
+  { level: 'REVIEW_FIX', title: 'Auto-Review fix', description: 'Fix review comments, reply on each thread, and resolve the threads that were fixed.' },
+  { level: 'MERGE', title: 'Auto-merge', description: 'Rebase-merge or join the merge queue once the PR can merge, after the delay set in Settings.' },
+];
 
-/** Keeping commits local changes only delivery; private review follow-up stays selected. */
-export function automationForSubmission(settings: DevelopmentAutomationDto, localOnly: boolean): DevelopmentAutomationDto {
-  return localOnly ? { ...LOCAL_COMMITS_ONLY, reviewSummary: settings.reviewSummary, reviewReply: settings.reviewReply } : settings;
+export function levelIndex(level: AutomationLevel): number {
+  return AUTOMATION_LEVELS.indexOf(level);
 }
 
-/** Private review follow-up must not hide that commits stay local. */
-export function automationSummary(settings: DevelopmentAutomationDto): string {
-  const local = settings.autoDraftPr || settings.autoCiFix ? [] : ['Local commits'];
-  return [...local, ...AUTOMATION_OPTIONS.filter(option => settings[option.key]).map(option => option.title.replace('Auto ', ''))].join(' · ');
+/** Whether a task at `level` runs `step`; the scale is cumulative. */
+export function includesLevel(level: AutomationLevel, step: AutomationLevel): boolean {
+  return levelIndex(level) >= levelIndex(step);
+}
+
+export function levelTitle(level: AutomationLevel): string {
+  return AUTOMATION_STEPS[levelIndex(level)].title;
 }
 
 export function developmentQuestion(state: AgentTaskState): string | null {

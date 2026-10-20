@@ -14,8 +14,8 @@
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { AutomationControl, CiProviderSelect } from './AutomationControl';
-import { automationForSubmission, automationSummary, LOCAL_COMMITS_ONLY, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
+import { AutomationControl, AutomationSlider, CiProviderSelect } from './AutomationControl';
+import { includesLevel, LOCAL_COMMITS_ONLY, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { parseAgentTask, parseAgentTurn, parseDevelopmentAutomation, parseDevelopmentResult } from './contracts';
 import { parseAgentEventSequence } from './events';
 import { canComplete, canQueue, canSend, canSteer, createTaskCreationTracker, initialAgentTaskState, runtimeStatus } from './model';
@@ -23,64 +23,42 @@ import contracts from './fixtures/agent-contracts-v1.json';
 import events from './fixtures/agent-events-v2.json';
 import WorkflowPage from '../settings/WorkflowPage';
 import { entryFor, matchesSearch, settingsLocationFromRoute, settingsRoute } from '../settings/routes';
-import type { AgentQueuedInputDto, AgentTaskDto, AgentTaskDefaultsDto, AgentTurnDto, ModelProviderDto } from '../types';
+import type { AgentQueuedInputDto, AgentTaskDto, AgentTaskDefaultsDto, AgentTurnDto, DevelopmentAutomationDto, ModelProviderDto } from '../types';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { renderTaskBody } from './fixtures/taskBody';
 
-const defaults = { ...LOCAL_COMMITS_ONLY, autoDraftPr: true, autoCiFix: true };
+const defaults: DevelopmentAutomationDto = { level: 'CI_FIX', ciLaneId: null };
 const report = { readyForDelivery: false, message: 'Which implementation should I use?' };
 const task: AgentTaskDto = { ...parseAgentTask(contracts.task), interactive: true, mutationClaim: null, state: 'OPEN' };
 const turn = { ...parseAgentTurn(contracts.turn), state: 'COMPLETED', developmentResult: report };
 const state = { ...initialAgentTaskState(), task, turn, latestTurnId: turn.id, connection: 'open' as const };
 
-it('keeps commits local for one submission without changing saved defaults', () => {
-  const local = automationForSubmission(defaults, true);
-  expect(local).toEqual({ autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false, reviewReply: false });
-  expect(defaults.autoDraftPr).toBe(true);
-  expect(automationForSubmission(defaults, false)).toBe(defaults);
-  expect(automationSummary(local)).toBe('Local commits');
+it('treats the scale as cumulative', () => {
+  expect(includesLevel('CI_FIX', 'COMMIT')).toBe(true);
+  expect(includesLevel('CI_FIX', 'DRAFT_PR')).toBe(true);
+  expect(includesLevel('CI_FIX', 'CI_FIX')).toBe(true);
+  expect(includesLevel('CI_FIX', 'REVIEW_FIX')).toBe(false);
+  expect(includesLevel('MERGE', 'REVIEW_FIX')).toBe(true);
+  expect(includesLevel('COMMIT', 'DRAFT_PR')).toBe(false);
 });
 
-it('keeps the review summary when commits stay local, because it is not delivery', () => {
-  const summarized = { ...defaults, reviewSummary: true, reviewReply: false };
-  expect(automationForSubmission(summarized, true)).toEqual({ autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: true, reviewReply: false });
-  expect(automationSummary(summarized)).toBe('draft PR · CI fix · review summary');
-  expect(automationSummary(automationForSubmission(summarized, true))).toBe('Local commits · review summary');
-  const composer = renderToStaticMarkup(<AutomationControl value={summarized} providers={[]} localOnly onChange={() => {}} onLocalOnlyChange={() => {}} />);
-  const boxes = [...composer.matchAll(/<input type="checkbox"[^>]*>([^<]*)/g)];
-  expect(boxes.map(box => [box[1], box[0].includes('disabled')])).toEqual([
-    ['Auto draft PR', true], ['Auto CI fix', true], ['Auto review summary', false], ['Auto draft review replies', false], ['Keep commits local for this turn', false],
-  ]);
-  expect(composer).toContain('<span class="agt-picker__effort">Local commits · review summary</span>');
-});
-
-it('keeps private reply drafts independent from summary-only and publication settings', () => {
-  const replies = { ...LOCAL_COMMITS_ONLY, reviewReply: true };
-  expect(automationForSubmission(replies, true)).toEqual(replies);
-  expect(parseDevelopmentAutomation(replies).reviewReply).toBe(true);
-  expect(() => parseDevelopmentAutomation({ ...replies, reviewReply: 'true' })).toThrow();
-  expect(automationSummary(replies)).toBe('Local commits · draft review replies');
-});
-
-it('changes request identity when automation or its first-turn override changes', () => {
+it('changes request identity when automation changes', () => {
   let id = 0;
   const tracker = createTaskCreationTracker(() => String(++id));
   const taskDefaults: AgentTaskDefaultsDto = { model: 'test', effort: null, permissionPolicy: 'AUTO', developmentAutomation: defaults };
-  const first = tracker.requestFor('workspace', 'Change code', 'codex', taskDefaults);
-  const local = tracker.requestFor('workspace', 'Change code', 'codex', taskDefaults, [], automationForSubmission(defaults, true));
+  const first = tracker.requestFor('workspace', 'Change code', 'codex', taskDefaults, [], defaults);
+  const local = tracker.requestFor('workspace', 'Change code', 'codex', { ...taskDefaults, developmentAutomation: LOCAL_COMMITS_ONLY }, [], LOCAL_COMMITS_ONLY);
   expect(local.taskId).not.toBe(first.taskId);
-  expect(local.defaults.developmentAutomation).toEqual(defaults);
-  expect(local.developmentAutomation?.autoDraftPr).toBe(false);
-  expect(tracker.requestFor('workspace', 'Change code', 'codex', taskDefaults, [], local.developmentAutomation)).toBe(local);
+  expect(local.developmentAutomation?.level).toBe('COMMIT');
+  expect(tracker.requestFor('workspace', 'Change code', 'codex', { ...taskDefaults, developmentAutomation: LOCAL_COMMITS_ONLY }, [], LOCAL_COMMITS_ONLY)).toBe(local);
 });
 
 it('validates and narrows automation and durable readiness at the bridge', () => {
   expect(parseDevelopmentAutomation({ ...defaults, backendSecret: 'never forward' })).toEqual(defaults);
   expect(parseDevelopmentAutomation(defaults).ciLaneId).toBeNull();
   expect(parseDevelopmentAutomation({ ...defaults, ciLaneId: 'claude' }).ciLaneId).toBe('claude');
-  expect(() => parseDevelopmentAutomation({ ...defaults, autoDraftPr: 'true' })).toThrow();
-  expect(parseDevelopmentAutomation({ ...defaults, reviewSummary: true, reviewReply: false }).reviewSummary).toBe(true);
-  expect(() => parseDevelopmentAutomation({ ...defaults, reviewSummary: 'false' })).toThrow();
+  expect(parseDevelopmentAutomation({ level: 'MERGE', ciLaneId: null }).level).toBe('MERGE');
+  expect(() => parseDevelopmentAutomation({ level: 'EVERYTHING', ciLaneId: null })).toThrow();
   expect(() => parseDevelopmentAutomation({ autoDraftPr: true, autoCiFix: true, ciLaneId: null })).toThrow();
   expect(parseDevelopmentResult(report)).toEqual(report);
   expect(() => parseDevelopmentResult({ ...report, readyForDelivery: 'false' })).toThrow();
@@ -164,7 +142,7 @@ it('blocks competing actions during a continuation without inventing a running p
 
 it('explains stop using the matching active turn policy instead of mutable task defaults', () => {
   const accepted = { ...turn, settings: { ...contracts.turn.settings, developmentAutomation: defaults } };
-  const local = automationForSubmission(defaults, true);
+  const local = LOCAL_COMMITS_ONLY;
   const active = { ...state, task: { ...task, defaults: { ...task.defaults, developmentAutomation: local } }, turn: accepted };
   expect(stoppingEndsDevelopment(active, turn.id)).toBe(true);
   expect(stoppingEndsDevelopment(active, 'another-turn')).toBe(false);
@@ -175,26 +153,40 @@ it('explains stop using the matching active turn policy instead of mutable task 
   expect(stoppingEndsDevelopment({ ...state, task: { ...task, developmentContinuationUnfinished: true } }, null)).toBe(true);
 });
 
-it('shows publication switches and explains mandatory development commits', () => {
-  const page = renderToStaticMarkup(<WorkflowPage value={defaults} providers={[]} busy={false} error={null} onChange={() => {}} />);
-  expect(page.match(/aria-checked="true"/g)).toHaveLength(2);
-  expect(page).not.toContain('Auto commit');
-  expect(page).toContain('Finished development work is committed automatically. Review experiments stay uncommitted.');
-  expect(page).toContain('Same agent as development');
-  expect(page).toContain('Use the development agent or choose another agent to repair failing CI checks.');
+it('shows the chosen step with its slider and keeps CI repair for CI steps', () => {
+  const page = renderToStaticMarkup(<WorkflowPage value={defaults} providers={[]} error={null} onChange={() => {}} />);
+  expect(page).toContain('CI fix');
   expect(page).toContain('mark the draft ready');
-  const composer = renderToStaticMarkup(<AutomationControl value={defaults} providers={[]} localOnly={false}
-    onChange={() => {}} onLocalOnlyChange={() => {}} />);
-  expect(composer).toContain('Keep commits local for this turn');
-  expect(composer).not.toContain('Auto commit');
-  expect(composer).toContain('Finished development work is committed automatically. Review experiments stay uncommitted.');
-  expect(composer).toContain('Same agent as development');
-  // The popover names each choice; only Settings describes them.
-  expect(composer).not.toContain('mark the draft ready');
-  expect(composer).not.toContain('<small>');
-  expect(composer).not.toMatch(/<(input|select)[^>]*disabled/);
-  const started = renderToStaticMarkup(<AutomationControl value={defaults} providers={[]} disabled />);
-  expect(started.match(/<(input|select)[^>]*disabled=""/g)).toHaveLength(6);
+  expect(page).toContain('aria-valuetext="CI fix"');
+  expect(page).toContain('Same agent as development');
+  expect(page).toContain('Each step includes the ones before it.');
+  const local = renderToStaticMarkup(<WorkflowPage value={LOCAL_COMMITS_ONLY} providers={[]} error={null} onChange={() => {}} />);
+  expect(local).toContain('Nothing leaves your Mac.');
+  expect(local).not.toContain('CI repair agent');
+});
+
+it('draws one composer icon per step that is on, and locks a started task', () => {
+  const composer = renderToStaticMarkup(<AutomationControl value={defaults} defaultValue={LOCAL_COMMITS_ONLY} onChange={() => {}} />);
+  expect(composer).toContain('aria-label="Automation: CI fix"');
+  expect(composer.match(/agt-auto-chip__step/g)).toHaveLength(3);
+  expect(composer).toContain('lucide-chevron-right');
+  expect(composer).not.toContain('is-locked');
+  const started = renderToStaticMarkup(<AutomationControl value={{ level: 'MERGE', ciLaneId: null }} />);
+  expect(started).toContain('agt-auto-chip is-locked');
+  expect(started.match(/agt-auto-chip__step/g)).toHaveLength(5);
+  expect(started).not.toContain('lucide-chevron-right');
+});
+
+it('puts the slider value under its drawn stop and locks it without a handler', () => {
+  const slider = renderToStaticMarkup(<AutomationSlider value="DRAFT_PR" onChange={() => {}} />);
+  expect(slider).toContain('--stop:1;--stops:4;--end:0');
+  expect(slider).toMatch(/<input type="range" min="0" max="4" step="1"[^>]*value="1"/);
+  expect(slider.match(/agt-auto-slider__dot is-filled/g)).toHaveLength(1);
+  expect(slider.match(/agt-auto-slider__dot"/g)).toHaveLength(3);
+  const end = renderToStaticMarkup(<AutomationSlider value="MERGE" />);
+  expect(end).toContain('--end:1');
+  expect(end).toContain('agt-auto-slider is-locked');
+  expect(end).toMatch(/<input[^>]*disabled=""/);
 });
 
 it('offers inherited CI repair by default and supported Codex or Claude overrides', () => {
@@ -218,7 +210,7 @@ it('offers inherited CI repair by default and supported Codex or Claude override
 it('makes Workflow discoverable and deep-linkable', () => {
   expect(settingsRoute('workflow')).toBe('#/settings/agents/workflow');
   expect(settingsLocationFromRoute('#/settings/agents/workflow')?.section).toBe('workflow');
-  expect(matchesSearch(entryFor('workflow'), 'Auto draft PR')).toBe(true);
+  expect(matchesSearch(entryFor('workflow'), 'Auto-Draft PR')).toBe(true);
   expect(matchesSearch(entryFor('workflow'), 'CI repair agent')).toBe(true);
-  expect(matchesSearch(entryFor('workflow'), 'Auto review summary')).toBe(true);
+  expect(matchesSearch(entryFor('workflow'), 'Auto-merge')).toBe(true);
 });

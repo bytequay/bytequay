@@ -14,41 +14,67 @@
 package com.bytequay.agent.core;
 
 import com.bytequay.agent.spi.AgentLaneId;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AutomationLevel.CI_FIX;
+import static com.bytequay.agent.core.AutomationLevel.COMMIT;
+import static com.bytequay.agent.core.AutomationLevel.DRAFT_PR;
+import static com.bytequay.agent.core.AutomationLevel.MERGE;
+import static com.bytequay.agent.core.AutomationLevel.REVIEW_FIX;
 import static java.util.Objects.requireNonNull;
 
-/**
- * Accepted delivery settings. Only trusted private/publication turns can disable commits; CI inherits the task lane.
- *
- * @param reviewSummary whether the agent summarizes each new review comment on the task's pull request in a private thread. It is
- *         task-level: the watcher reads it from the task defaults, so the copies on turns and queued inputs have no effect. It is
- *         not a delivery step and grants no authority, so {@link #enabled()} ignores it.
- * @param reviewReply whether new review comments receive a private reply draft for the user to edit and publish
- */
-public record DevelopmentAutomation(boolean autoCommit, boolean autoDraftPr, boolean autoCiFix, Optional<AgentLaneId> ciLaneId, boolean reviewSummary, boolean reviewReply)
+/** Accepted delivery settings. Only trusted private/publication turns can disable commits; CI inherits the task lane. */
+public record DevelopmentAutomation(boolean autoCommit, AutomationLevel level, Optional<AgentLaneId> ciLaneId)
 {
-    public static final DevelopmentAutomation DEFAULT = new DevelopmentAutomation(true, false, false, Optional.empty());
-    public static final DevelopmentAutomation LOCAL_ONLY = new DevelopmentAutomation(false, false, false, Optional.empty());
+    public static final DevelopmentAutomation DEFAULT = new DevelopmentAutomation(true, COMMIT, Optional.empty());
+    public static final DevelopmentAutomation LOCAL_ONLY = new DevelopmentAutomation(false, COMMIT, Optional.empty());
 
     public DevelopmentAutomation
     {
+        requireNonNull(level, "level is null");
         requireNonNull(ciLaneId, "ciLaneId is null");
     }
 
-    public DevelopmentAutomation(boolean autoCommit, boolean autoDraftPr, boolean autoCiFix, Optional<AgentLaneId> ciLaneId)
+    /** Rows saved before the level existed hold one flag per step; the furthest step that was on becomes the level. */
+    public static void upgradeSaved(ObjectNode saved)
     {
-        this(autoCommit, autoDraftPr, autoCiFix, ciLaneId, false, false);
+        if (saved.has("level")) {
+            return;
+        }
+        AutomationLevel level = saved.path("autoCiFix").asBoolean() ? CI_FIX : saved.path("autoDraftPr").asBoolean() ? DRAFT_PR : COMMIT;
+        saved.retain("autoCommit", "ciLaneId");
+        saved.put("level", level.name());
     }
 
     public DevelopmentAutomation forDevelopment()
     {
-        return new DevelopmentAutomation(true, autoDraftPr, autoCiFix, ciLaneId, reviewSummary, reviewReply);
+        return new DevelopmentAutomation(true, level, ciLaneId);
+    }
+
+    public boolean autoDraftPr()
+    {
+        return level.includes(DRAFT_PR);
+    }
+
+    public boolean autoCiFix()
+    {
+        return level.includes(CI_FIX);
+    }
+
+    public boolean reviewFix()
+    {
+        return level.includes(REVIEW_FIX);
+    }
+
+    public boolean autoMerge()
+    {
+        return level.includes(MERGE);
     }
 
     public boolean enabled()
     {
-        return autoCommit || autoDraftPr || autoCiFix;
+        return autoCommit || autoDraftPr();
     }
 }

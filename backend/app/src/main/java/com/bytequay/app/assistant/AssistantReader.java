@@ -17,7 +17,7 @@ import com.bytequay.agent.core.AgentApproval;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.ApprovalRequest;
-import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -281,9 +281,7 @@ class AssistantReader
         }
         List<Agent> agents = models.get().providers().stream().filter(provider -> provider.readiness() == AgentProviderStatus.Readiness.READY)
                 .map(provider -> new Agent(provider.id(), provider.label())).collect(toImmutableList());
-        DevelopmentAutomation saved = settings.developmentAutomation();
-        Automation automation = new Automation(saved.autoDraftPr(), saved.autoCiFix(), saved.reviewSummary(), saved.reviewReply());
-        return new Page(new StartOptions("start_options", repositories.build(), agents, automation), refs);
+        return new Page(new StartOptions("start_options", repositories.build(), agents, settings.developmentAutomation().level()), refs);
     }
 
     private Optional<Page> facts(String kind, String ref)
@@ -429,11 +427,9 @@ class AssistantReader
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record Match(String ref, String title, Optional<String> state, Optional<Instant> at) {}
 
-    record StartOptions(String kind, List<Repository> repositories, List<Agent> agents, Automation automation) {}
+    record StartOptions(String kind, List<Repository> repositories, List<Agent> agents, AutomationLevel automation) {}
 
     record Repository(String ref, String name, String agent, String model) {}
 
     record Agent(String id, String label) {}
-
-    record Automation(boolean autoDraftPr, boolean autoCiFix, boolean reviewSummary, boolean reviewReply) {}
 }

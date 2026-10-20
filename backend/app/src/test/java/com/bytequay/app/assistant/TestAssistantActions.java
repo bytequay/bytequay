@@ -25,6 +25,7 @@ import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.QueueAgentInputCommand;
@@ -181,7 +182,7 @@ class TestAssistantActions
                         provider("codex", "Codex", AgentProviderStatus.Readiness.READY, "gpt-6.1-sol", ""),
                         provider("gemini", "Gemini", AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED, "flash", "")),
                 ImmutableList.of(), ImmutableList.of(), Optional.empty()));
-        when(settings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, true, false, Optional.empty(), false, false));
+        when(settings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, AutomationLevel.DRAFT_PR, Optional.empty()));
         when(starter.start(any())).thenAnswer(call -> {
             InteractiveTaskStart start = call.getArgument(0);
             return AgentTask.created(start.taskId(), Optional.of(start.workspaceId()), true, "Expose snapshot id in metadata", start.laneId(),
@@ -414,12 +415,12 @@ class TestAssistantActions
         assertThat(start.workspaceId()).isEqualTo("ws1");
         assertThat(start.laneId()).isEqualTo(new AgentLaneId("claude"));
         assertThat(start.defaults()).isEqualTo(new AgentTaskDefaults(Optional.of("opus"), Optional.of("high"), AgentPermissionPolicy.AUTO, Optional.empty(),
-                Optional.of(new DevelopmentAutomation(true, true, false, Optional.empty(), false, false))));
-        assertThat(start.initialAutomation()).contains(new DevelopmentAutomation(true, true, false, Optional.empty(), false, false));
+                Optional.of(new DevelopmentAutomation(true, AutomationLevel.DRAFT_PR, Optional.empty()))));
+        assertThat(start.initialAutomation()).contains(new DevelopmentAutomation(true, AutomationLevel.DRAFT_PR, Optional.empty()));
         assertThat(start.workItemId()).isEmpty();
         AssistantReceipt receipt = receipts.getLast().receipt().orElseThrow();
         assertThat(receipts.getLast().text()).isEqualTo("Started “Expose snapshot id in metadata”");
-        assertThat(receipt.detail()).contains("trinodb/trino · Claude Code Opus 5.5 · Auto draft PR");
+        assertThat(receipt.detail()).contains("trinodb/trino · Claude Code Opus 5.5 · Auto-Draft PR");
         assertThat(receipt.turnId()).isPresent();
         assertThat(receipt.target()).contains(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", start.taskId().toString()));
         assertThat(store.actions(message.id()).getLast().result()).contains(start.taskId().toString());

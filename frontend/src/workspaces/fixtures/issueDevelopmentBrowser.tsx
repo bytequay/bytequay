@@ -161,7 +161,7 @@ async function issueToTask(): Promise<void> {
     assert(request.message === 'Keep the public API stable', 'User instructions must survive');
     assert(request.laneId === 'claude' && request.defaults.model === 'gpt-5.6-codex-mini' && request.defaults.effort === 'medium',
       'The task must launch on the confirmed provider, model and effort');
-    assert(request.developmentAutomation?.autoDraftPr === true && request.developmentAutomation.autoCiFix === true, 'Automation defaults must survive');
+    assert(request.developmentAutomation?.level === 'CI_FIX', 'Automation defaults must survive');
     assert(window.location.hash === workspaceAgentTaskRoute('linked-workspace', request.taskId), 'Returned task workspace controls navigation');
     showIssue(); await settle();
     button(host, 'Mark as Epic').click(); await settle();

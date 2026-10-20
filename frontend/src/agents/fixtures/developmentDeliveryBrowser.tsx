@@ -51,7 +51,7 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
   const bridge = createPreviewBridge('workspace-1');
   const event = bridge.events[0];
   assert(event.turnId !== null && event.type === 'user_message', 'Fixture must identify a source user turn');
-  const automation = { ...LOCAL_COMMITS_ONLY, autoCiFix: outcome !== 'draft', ciLaneId: 'claude' };
+  const automation = { ...LOCAL_COMMITS_ONLY, level: outcome === 'draft' ? 'DRAFT_PR' as const : 'CI_FIX' as const, ciLaneId: 'claude' };
   let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true,
     mutationClaim: null, developmentContinuationUnfinished: false };
   task = { ...task, defaults: { ...task.defaults, developmentAutomation: automation } };
@@ -139,12 +139,12 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
     pullRequests = [publishedPullRequest(true)];
     publish(publishedDetail(true));
     await finishTurn();
-    if (!automation.autoCiFix) {
+    if (automation.level === 'DRAFT_PR') {
       task = { ...task, version: task.version + 1, developmentContinuationUnfinished: false };
       emit('DEVELOPMENT_AUTOMATION_UPDATED', 'Development automation settled');
       await until(() => host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === false, 'Publication must release the source when CI is disabled');
       assert(host.querySelector('.agt-pr-chip')?.textContent?.includes('#17') === true, 'The published pull request must reach the composer chip');
-      assert(host.querySelector('.agt-pr-chip .agt-pr-icon.is-draft') !== null, 'Disabling Auto CI fix must leave the published PR draft');
+      assert(host.querySelector('.agt-pr-chip .agt-pr-icon.is-draft') !== null, 'Stopping at Auto-Draft PR must leave the published PR draft');
       assert(!host.textContent?.includes('Fixing CI') && !host.textContent?.includes('CI passed'), 'Draft-only delivery must not claim CI work');
       flushSync(() => root.unmount());
       root = createRoot(host);

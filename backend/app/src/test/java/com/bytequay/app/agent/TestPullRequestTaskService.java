@@ -16,6 +16,7 @@ package com.bytequay.app.agent;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -161,7 +162,7 @@ class TestPullRequestTaskService
     @ValueSource(booleans = {false, true})
     void opensLinkedTaskWithGlobalAutomationWithoutStartingAnAgent(boolean enabled)
     {
-        DevelopmentAutomation automation = new DevelopmentAutomation(true, enabled, enabled, Optional.of(AgentLaneId.CLAUDE_CLI), enabled, enabled);
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, enabled ? AutomationLevel.MERGE : AutomationLevel.COMMIT, Optional.of(AgentLaneId.CLAUDE_CLI));
         when(settings.developmentAutomation()).thenReturn(automation);
 
         AgentTask task = service.assign("workspace", "Upstream/Repo", 7);
@@ -185,7 +186,7 @@ class TestPullRequestTaskService
         AgentTask task = service.assign("workspace", "upstream/repo", 7)
                 .withSessionReference(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "saved-conversation"), Instant.now());
         created.set(task);
-        when(settings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CLAUDE_CLI), true, true));
+        when(settings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(AgentLaneId.CLAUDE_CLI)));
 
         assertThat(service.assign("workspace", "upstream/repo", 7)).isEqualTo(task);
         assertThat(created.get().defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
@@ -218,7 +219,7 @@ class TestPullRequestTaskService
                 .thenReturn(new GitCommandRunner.Result(0, BASE, false));
         when(pullRequests.findHeadSha("upstream/repo", 7)).thenReturn(Optional.of(currentHead));
         when(detail.body()).thenReturn("Current PR context");
-        DevelopmentAutomation automation = new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CLAUDE_CLI), true, true);
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(AgentLaneId.CLAUDE_CLI));
         when(settings.developmentAutomation()).thenReturn(automation);
 
         AgentTask fresh = service.assign("workspace", "upstream/repo", 7);

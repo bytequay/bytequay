@@ -35,7 +35,6 @@ import { BackportChainList, useBackportChains } from './BackportChains';
 import { IssueAttachment } from './IssueAttachment';
 import { WorkItemPrompt } from './WorkItemPrompt';
 import { AutomationControl } from './AutomationControl';
-import { automationForSubmission } from './developmentAutomation';
 import Composer, { ComposerAttachments } from '../Composer';
 import ComposerModelControls from './ComposerModelControls';
 import '../css/agents.css';
@@ -174,7 +173,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const sourceRequest = useRef(0);
   const sourceTitle = useRef<string | null>(null);
   const [automation, setAutomation] = useState<DevelopmentAutomationDto | null>(null);
-  const [localOnly, setLocalOnly] = useState(false);
+  const [savedAutomation, setSavedAutomation] = useState<DevelopmentAutomationDto | null>(null);
   const [automationError, setAutomationError] = useState<string | null>(null);
   const [images, setImages] = useState<DraftImage[]>([]);
   const [operation, setOperation] = useState<'attachment' | 'sending' | null>(null);
@@ -274,7 +273,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
 
   useEffect(() => {
     let active = true;
-    void bridge().getDevelopmentAutomation().then(value => { if (active) setAutomation(value); })
+    void bridge().getDevelopmentAutomation().then(value => { if (active) { setAutomation(value); setSavedAutomation(value); } })
       .catch(() => { if (active) setAutomationError('Unable to load automation settings. Reopen this page to try again.'); });
     return () => { active = false; };
   }, [bridge, workspaceId]);
@@ -383,7 +382,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       permissionPolicy: 'AUTO',
       serviceTier: selection.serviceTier ?? null,
       developmentAutomation: taskAutomation,
-    }, images.map((image) => image.id), automationForSubmission(taskAutomation, localOnly), issue === null ? undefined : {
+    }, images.map((image) => image.id), taskAutomation, issue === null ? undefined : {
       issueId: issue.id, number: issue.number, updatedAt: issue.updatedAt, ...(replaces === undefined ? {} : { replaces }),
     }, sourceJira === null ? undefined : {
       connectionId: sourceJira.connectionId, cloudId: sourceJira.cloudId, issueId: sourceJira.id,
@@ -407,7 +406,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       // The work's new attempt shows wherever its work is read.
       if (workItemId !== undefined) window.dispatchEvent(new CustomEvent(GOALS_CHANGED, { detail: workspaceId }));
       setDraft('');
-      setLocalOnly(false);
+      // A choice made for one task does not carry over to the next.
+      setAutomation(savedAutomation);
       clearImages();
       setImages([]);
       setError(null);
@@ -448,7 +448,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       busyRef.current = false;
       setOperation(null);
     }
-  }, [blocker, bridge, clearImages, draft, images, issue, sourceJira, laneId, localOnly, onOpenCreatedTask, onOpenTask, replaces, selection, submissions, taskAutomation,
+  }, [blocker, bridge, clearImages, draft, images, issue, sourceJira, laneId, onOpenCreatedTask, onOpenTask, replaces, savedAutomation, selection, submissions, taskAutomation,
     workItemId, workspaceId]);
 
   // A decided start reaches the composer that opens for it, or one already open on the same work; saying it was taken keeps a composer
@@ -480,8 +480,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       busy,
       attaching: operation === 'attachment',
       images,
-      automation: taskAutomation === null ? null : <AutomationControl value={taskAutomation} providers={catalog?.providers ?? []} disabled={busy}
-        localOnly={localOnly} onChange={setAutomation} onLocalOnlyChange={setLocalOnly} />,
+      automation: taskAutomation === null ? null : <AutomationControl value={taskAutomation} defaultValue={savedAutomation ?? undefined}
+        disabled={busy} onChange={setAutomation} />,
       onAttach: () => { void attach(); },
       onPasteImages: () => { void attach('clipboard'); },
       onRemoveImage: removeImage,

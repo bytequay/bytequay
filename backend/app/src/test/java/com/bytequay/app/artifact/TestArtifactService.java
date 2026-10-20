@@ -204,6 +204,8 @@ class TestArtifactService
             turn.events().emit(new ProviderAgentEvent.Message(Optional.empty(), ProviderAgentEvent.MessagePhase.FINAL, "a child's notes", CHILD));
             turn.events().emit(new ProviderAgentEvent.Message(Optional.empty(), ProviderAgentEvent.MessagePhase.PARTIAL, "They are", ProviderAgentEventSource.root()));
             turn.say("They are applied per data file at scan time. The read path or the write path?");
+            // Claude's own end of turn; the service records the turn's end itself, once.
+            turn.events().emit(new ProviderAgentEvent.Lifecycle(Optional.empty(), ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED, "Claude turn completed"));
             return completed();
         });
         ArtifactView started = artifacts.start(WORKSPACE, "Teach me how Iceberg position deletes work");

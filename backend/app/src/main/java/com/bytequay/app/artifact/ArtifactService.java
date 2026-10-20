@@ -112,10 +112,12 @@ public class ArtifactService
             You help the user learn about the repository checked out in your working directory, in a conversation inside ByteQuay.
             Answer what the user asks, reading the code you need with your tools. You cannot change files or reach the web.
             Keep replies short, a few paragraphs or a short list: say what you found, cite code as path:line at the commit named in the
-            message, and leave the full walk-through for the page. While the scope is still open, end by asking what they want next; when the
-            choice is between a few clear options, ask with AskUserQuestion: one question, two to four short options.
-            Never offer a page in your first reply. Once the user has replied and the scope is settled with nothing open, for example when
-            they say it is clear or have no more questions, call artifact_offer with a title and one sentence on what a page would cover, then
+            message, and leave the full walk-through for the page. While the scope is still open, end every reply by asking what the user
+            wants next with AskUserQuestion: one question, two to four short options for what to look at next, the last one "That's enough".
+            When they pick an option, go on with it in the same reply; when they pick "That's enough", offer the page as below; when they
+            dismiss the question, end your reply, and they will write what they want instead.
+            Never offer a page before the user has answered you at least once. Once the scope is settled with nothing open, for example when
+            they pick "That's enough", say it is clear or have no more questions, call artifact_offer with a title and one sentence on what a page would cover, then
             end your reply. The user answers with a button. Never write a page before the user accepts an offer or asks for one.
             Once the user accepts or asks, write the page with artifact_save: a title and the whole HTML document. To change a page you saved,
             pass the page key the earlier save returned; without one, a new page is made. Every save is a new version.
@@ -482,6 +484,9 @@ public class ArtifactService
             case ProviderAgentEvent.Message message -> message.phase() == ProviderAgentEvent.MessagePhase.FINAL;
             case ProviderAgentEvent.Tool tool -> tool.state() != ProviderAgentEvent.ActivityState.PROGRESS;
             case ProviderAgentEvent.Command command -> command.state() != ProviderAgentEvent.ActivityState.PROGRESS;
+            // The turn's start and end are recorded once, by the service, as a task's are.
+            case ProviderAgentEvent.Lifecycle lifecycle -> lifecycle.phase() != ProviderAgentEvent.LifecyclePhase.TURN_STARTED
+                    && lifecycle.phase() != ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED && lifecycle.phase() != ProviderAgentEvent.LifecyclePhase.INTERRUPTED;
             default -> true;
         };
     }

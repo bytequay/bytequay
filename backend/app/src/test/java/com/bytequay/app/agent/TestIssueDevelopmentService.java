@@ -26,7 +26,7 @@ import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.goal.WorkItemService;
+import com.bytequay.app.workitem.WorkItemService;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;

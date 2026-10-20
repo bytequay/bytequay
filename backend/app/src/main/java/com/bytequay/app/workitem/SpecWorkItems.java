@@ -15,8 +15,6 @@ package com.bytequay.app.workitem;
 
 import com.bytequay.app.context.ContextSpecCheck;
 import com.bytequay.app.context.ContextSpecCheckStore;
-import com.bytequay.app.service.goal.WorkItemService;
-import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.store.WorkItemStore;
 import org.springframework.stereotype.Service;

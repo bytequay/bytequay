@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.agenda;
 
-import com.bytequay.app.service.goal.WorkItemView;
+import com.bytequay.app.workitem.WorkItemView;
 import com.bytequay.core.domain.WorkItem;
 
 import java.util.Comparator;

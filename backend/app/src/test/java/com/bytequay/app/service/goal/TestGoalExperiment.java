@@ -16,6 +16,7 @@ package com.bytequay.app.service.goal;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.web.GoalController;
+import com.bytequay.app.workitem.WorkItemService;
 import com.bytequay.core.store.GoalExchangeStore;
 import com.bytequay.core.store.GoalRecommendationStore;
 import com.bytequay.core.store.GoalTopicStore;

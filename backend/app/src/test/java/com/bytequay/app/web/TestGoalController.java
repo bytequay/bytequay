@@ -14,20 +14,20 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.context.ContextSpecCheck;
-import com.bytequay.app.service.goal.GoalActivity;
 import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.goal.GoalGap;
-import com.bytequay.app.service.goal.GoalItemState;
-import com.bytequay.app.service.goal.GoalItemView;
 import com.bytequay.app.service.goal.GoalKnowledgeNoteView;
 import com.bytequay.app.service.goal.GoalLessonService;
 import com.bytequay.app.service.goal.GoalResearchService;
 import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.goal.GoalSpecChecks;
 import com.bytequay.app.service.goal.GoalView;
-import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
+import com.bytequay.app.workitem.GoalActivity;
+import com.bytequay.app.workitem.GoalItemState;
+import com.bytequay.app.workitem.GoalItemView;
+import com.bytequay.app.workitem.WorkItemView;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalKnowledgeNote;

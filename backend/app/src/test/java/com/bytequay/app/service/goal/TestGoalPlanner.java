@@ -17,6 +17,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.context.ContextSpecModule;
 import com.bytequay.app.service.ai.TextOnlyHelper;
+import com.bytequay.app.workitem.WorkItemView;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;

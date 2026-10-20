@@ -13,6 +13,10 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.bytequay.app.workitem.GoalItemView;
+import com.bytequay.app.workitem.GoalReferenceReader;
+import com.bytequay.app.workitem.WorkItemService;
+import com.bytequay.app.workitem.WorkItemView;
 import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;

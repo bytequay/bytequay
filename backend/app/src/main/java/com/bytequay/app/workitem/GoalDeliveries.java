@@ -11,11 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.service.goal;
+package com.bytequay.app.workitem;
 
 import com.bytequay.app.context.ContextText;
 import com.bytequay.app.review.PullRequestDetailRefreshed;
 import com.bytequay.app.review.PullRequestsRefreshed;
+import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;

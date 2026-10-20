@@ -14,14 +14,14 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.jira.JiraService;
-import com.bytequay.app.service.goal.WorkItemCommand;
-import com.bytequay.app.service.goal.WorkItemService;
-import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.app.workitem.SpecWorkItems;
 import com.bytequay.app.workitem.UnifiedWorkItem;
 import com.bytequay.app.workitem.WorkItemCatalog;
+import com.bytequay.app.workitem.WorkItemCommand;
 import com.bytequay.app.workitem.WorkItemContextView;
 import com.bytequay.app.workitem.WorkItemPublicationService;
+import com.bytequay.app.workitem.WorkItemService;
+import com.bytequay.app.workitem.WorkItemView;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.integration.jira.JiraDtos;

@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.jira;
 
-import com.bytequay.app.service.goal.WorkItemView;
+import com.bytequay.app.workitem.WorkItemView;
 import com.bytequay.integration.jira.JiraActivity;
 import com.bytequay.integration.jira.JiraActivityReader;
 import com.bytequay.integration.jira.JiraConnections;

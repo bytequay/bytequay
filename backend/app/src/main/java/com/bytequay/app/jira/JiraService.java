@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.jira;
 
-import com.bytequay.app.service.goal.WorkItemService;
-import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.workitem.WorkItemService;
+import com.bytequay.app.workitem.WorkItemView;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.WorkItem;

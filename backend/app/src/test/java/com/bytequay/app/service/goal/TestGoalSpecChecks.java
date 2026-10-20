@@ -18,6 +18,8 @@ import com.bytequay.app.context.ContextSpecCheck;
 import com.bytequay.app.context.ContextSpecCheckService;
 import com.bytequay.app.context.ContextSpecModule;
 import com.bytequay.app.workitem.SpecWorkItems;
+import com.bytequay.app.workitem.WorkItemService;
+import com.bytequay.app.workitem.WorkItemView;
 import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.WorkItem;

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.service.goal;
+package com.bytequay.app.workitem;
 
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.store.WorkItemStore;

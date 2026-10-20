@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.workitem;
 
-import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.core.domain.GoalItem;
 
 import java.time.Instant;

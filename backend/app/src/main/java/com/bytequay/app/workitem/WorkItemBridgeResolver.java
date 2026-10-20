@@ -20,8 +20,6 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.WorkItemBridge;
 import com.bytequay.app.service.epic.EpicService;
-import com.bytequay.app.service.goal.WorkItemService;
-import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.store.WorkItemStore;

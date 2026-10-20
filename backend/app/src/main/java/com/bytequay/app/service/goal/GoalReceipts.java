@@ -25,6 +25,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.app.context.ContextText;
+import com.bytequay.app.workitem.WorkItemService;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemEvent;

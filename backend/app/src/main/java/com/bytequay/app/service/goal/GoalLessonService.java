@@ -15,6 +15,9 @@ package com.bytequay.app.service.goal;
 
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workitem.WorkItemCommand;
+import com.bytequay.app.workitem.WorkItemService;
+import com.bytequay.app.workitem.WorkItemView;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalRecommendation;

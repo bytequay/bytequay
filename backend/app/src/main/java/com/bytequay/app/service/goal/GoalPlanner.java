@@ -22,6 +22,7 @@ import com.bytequay.app.context.ContextText;
 import com.bytequay.app.json.JsonContracts;
 import com.bytequay.app.service.ai.TextOnlyHelper;
 import com.bytequay.app.service.settings.AgentModelSetting;
+import com.bytequay.app.workitem.WorkItemView;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalExchange;

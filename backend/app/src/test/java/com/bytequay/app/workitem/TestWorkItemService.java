@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.service.goal;
+package com.bytequay.app.workitem;
 
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.TaskId;
@@ -24,6 +24,7 @@ import com.bytequay.app.service.epic.EpicBreakdowns;
 import com.bytequay.app.service.epic.EpicService;
 import com.bytequay.app.service.epic.EpicSources;
 import com.bytequay.app.service.epic.InMemoryEpicStore;
+import com.bytequay.app.service.goal.InMemoryGoalStore;
 import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.Goal;

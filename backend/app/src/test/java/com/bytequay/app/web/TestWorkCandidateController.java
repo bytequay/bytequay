@@ -13,10 +13,10 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.service.goal.GoalActivity;
-import com.bytequay.app.service.goal.GoalItemState;
-import com.bytequay.app.service.goal.GoalItemView;
 import com.bytequay.app.service.goal.GoalService;
+import com.bytequay.app.workitem.GoalActivity;
+import com.bytequay.app.workitem.GoalItemState;
+import com.bytequay.app.workitem.GoalItemView;
 import com.bytequay.core.domain.GoalItemKind;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;

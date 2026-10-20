@@ -89,6 +89,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -100,7 +101,6 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -226,7 +226,7 @@ class TestCiAutofixEndToEnd
     }
 
     @Test
-    void deliversDevelopmentThroughCommitDraftCiRepairAndReadyWithoutCompletingTheSource()
+    void deliversDevelopmentThroughCommitAndDraftThenRepairsCiBesideTheOpenTask()
             throws Exception
     {
         CiAutofixE2eHarness.Fixture fixture = harness.createFixture("development-delivery");
@@ -257,14 +257,6 @@ class TestCiAutofixEndToEnd
         when(publicationReads.fetchDeliveryChecks("test-token", pr))
                 .thenAnswer(ignored -> new GitHubDeliveryChecks("development-pr-node", identity.get(), ImmutableList.of(), ImmutableList.of()));
         doAnswer(ignored -> {
-            assertThat(E2eGitRepository.git(sourceWorktree, "rev-parse", "HEAD")).isEqualTo(remoteHead.get());
-            assertThat(E2eGitRepository.git(sourceWorktree, "status", "--porcelain=v1", "--untracked-files=all")).isEmpty();
-            CiAutofixRun run = service.list(100).stream().filter(value -> value.scope().parentTaskId().filter(source.id().toString()::equals).isPresent())
-                    .findFirst().orElseThrow();
-            assertThat(run.finishReason()).contains(CiAutofixRun.FinishReason.GREEN);
-            AgentTask child = tasks.get(TaskId.valueOf(run.agentTaskId().orElseThrow()));
-            assertThat(child.state()).isEqualTo(TaskState.COMPLETED);
-            assertThat(child.worktreeMutationClaim()).isEmpty();
             assertThat(draft.compareAndSet(true, false)).isTrue();
             return null;
         }).when(publicationWrites).markReadyForReview("test-token", "development-pr-node");
@@ -281,91 +273,84 @@ class TestCiAutofixEndToEnd
             harness.scriptTestFailure(fixture, initialPublishedHead.get(), branch);
             published.set(true);
         }, "development-draft", Optional.empty(), Optional.empty());
+        agent.enqueueCompleted(pr, "Refined the learning summary.", worktree -> {
+            assertThat(worktree).isEqualTo(sourceWorktree);
+            assertThat(E2eGitRepository.git(worktree, "rev-parse", "HEAD")).isEqualTo(initialPublishedHead.get());
+        }, "refine-summary", Optional.empty(), Optional.empty());
         agent.enqueueCompleted(pr, "Root cause: the implementation missed the checked case. Repair applied and local check passed.", worktree -> {
+            assertThat(worktree).isNotEqualTo(sourceWorktree);
             writeDevelopmentFile(worktree, "implementation\nCI repair\n");
             E2eGitRepository.git(worktree, "add", "development.txt");
             E2eGitRepository.git(worktree, "commit", "--amend", "--no-edit");
         }, "ci-repair", Optional.empty(), Optional.of("development.txt"));
-        agent.enqueueCompleted(pr, "Refined the learning summary for the synchronized repair.", worktree -> {
+        agent.enqueueCompleted(pr, "The repair keeps the checked case.", worktree -> {
             assertThat(worktree).isEqualTo(sourceWorktree);
             assertThat(E2eGitRepository.git(worktree, "rev-parse", "HEAD")).isEqualTo(remoteHead.get()).isNotEqualTo(initialPublishedHead.get());
             assertThat(E2eGitRepository.git(worktree, "show", "HEAD:development.txt")).isEqualTo("implementation\nCI repair");
-        }, "refine-summary", Optional.empty(), Optional.empty());
+        }, "development-question", Optional.empty(), Optional.empty());
 
         try {
             String request = "Implement the requested change. Only edit development.txt; do not change workflows or delete remote branches.";
             AgentTurn initial = turns.start(new StartAgentTurnCommand(source.id(), request, ImmutableList.of(), "development-start"));
-            long deadline = System.nanoTime() + Duration.ofMinutes(2).toNanos();
-            Optional<CiAutofixRun> owned = Optional.empty();
-            boolean suppliedGreen = false;
-            while (System.nanoTime() < deadline) {
-                AgentTask current = tasks.get(source.id());
-                assertThat(current.state()).as("source task: %s", current.terminalReason()).isEqualTo(TaskState.OPEN);
-                owned = service.list(100).stream().filter(run -> run.scope().parentTaskId().filter(source.id().toString()::equals).isPresent()).findFirst();
-                if (owned.isPresent()) {
-                    CiAutofixRun run = owned.orElseThrow();
-                    Optional<String> repaired = run.attempts().isEmpty() ? Optional.empty() : run.attempts().getLast().pushedSha();
-                    if (!suppliedGreen && repaired.isPresent()) {
-                        assertThat(draft).isTrue();
-                        assertThat(E2eGitRepository.git(sourceWorktree, "rev-parse", "HEAD")).isEqualTo(initialPublishedHead.get());
-                        assertThat(repaired.orElseThrow()).isNotEqualTo(initialPublishedHead.get()).isEqualTo(remoteHead.get());
-                        harness.scriptGreenCi(fixture, repaired.orElseThrow(), branch);
-                        suppliedGreen = true;
-                    }
-                    if (run.status() == CiAutofixRun.Status.FINISHED && !current.developmentContinuationUnfinished()) {
-                        break;
-                    }
-                }
-                Thread.sleep(Duration.ofMillis(100));
-            }
-            assertThat(suppliedGreen).as("the owned CI repair must publish a new exact revision").isTrue();
-            CiAutofixRun finished = owned.orElseThrow();
-            assertThat(finished.finishReason()).contains(CiAutofixRun.FinishReason.GREEN);
+            CiAutofixRun watching = awaitSettled(source.id());
+            assertThat(watching.status()).isEqualTo(CiAutofixRun.Status.ACTIVE);
+            assertThat(watching.attempts()).as("the repair waits until the task finished its turn").isEmpty();
             AgentTask delivered = tasks.get(source.id());
             assertThat(delivered.state()).isEqualTo(TaskState.OPEN);
-            assertThat(delivered.developmentContinuationUnfinished())
-                    .as("Development delivery did not settle within two minutes; worktree claim: %s; source turns: %s",
-                            delivered.worktreeMutationClaim(), turnStore.list(source.id()).stream()
-                                    .map(turn -> turn.state() + ":" + turn.developmentOrigin()).toList())
-                    .isFalse();
             assertThat(delivered.worktreeMutationClaim()).isEmpty();
             assertThat(turns.ownsDevelopmentContinuation(source.id(), initial.id())).isFalse();
-            assertThat(draft).isFalse();
-            assertThat(E2eGitRepository.git(sourceWorktree, "rev-parse", "HEAD")).isEqualTo(finished.expectedRemoteHead()).isEqualTo(remoteHead.get());
-            assertThat(E2eGitRepository.git(sourceWorktree, "branch", "--show-current")).isEqualTo(branch);
-            assertThat(E2eGitRepository.git(sourceWorktree, "rev-list", "--count", repository.baseSha() + "..HEAD")).isEqualTo("1");
-            assertThat(Files.readString(sourceWorktree.resolve("development.txt"))).isEqualTo("implementation\nCI repair\n");
-            assertThat(E2eGitRepository.git(sourceWorktree, "log", "-1", "--format=%B"))
-                    .isEqualTo("Implement the requested change\n\nAdd the requested behavior and keep its intent in the commit.");
             List<AgentTurn> sourceTurns = turnStore.list(source.id());
             assertThat(sourceTurns).hasSize(4).allSatisfy(turn -> {
                 assertThat(turn.state()).isEqualTo(TurnState.COMPLETED);
-                assertThat(turn.developmentResult().orElseThrow().readyForDelivery()).isTrue();
                 assertThat(turn.settings().orElseThrow().developmentAutomation()).contains(automation);
             });
-            assertThat(sourceTurns.getFirst().developmentOrigin()).isEmpty();
             assertThat(sourceTurns.get(1).developmentOrigin()).contains(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, initial.id()));
             assertThat(sourceTurns.get(2).developmentOrigin()).contains(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, initial.id()));
             assertThat(sourceTurns.getLast().developmentOrigin()).contains(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, initial.id()));
-            assertThat(sourceTurns.subList(0, 3)).allSatisfy(turn -> assertThat(turn.developmentResult().orElseThrow().learningSummary()).isEmpty());
-            assertThat(sourceTurns.getLast().developmentResult().orElseThrow().learningSummary()).hasValueSatisfying(summary -> {
-                assertThat(summary.commits()).singleElement().satisfies(commit -> {
-                    assertThat(commit.sha()).isEqualTo(finished.expectedRemoteHead()).isNotEqualTo(initialPublishedHead.get());
-                    assertThat(commit.title()).isEqualTo("Implement the requested change");
-                    assertThat(commit.summary()).contains("+implementation", "+CI repair");
-                });
-            });
+
+            CiAutofixRun repairing = harness.driveUntil(watching.id(), run -> run.attempts().stream().anyMatch(attempt -> attempt.pushedSha().isPresent()), 50);
+            String repaired = repairing.attempts().getLast().pushedSha().orElseThrow();
+            assertThat(repaired).isNotEqualTo(initialPublishedHead.get()).isEqualTo(remoteHead.get());
+            assertThat(E2eGitRepository.git(sourceWorktree, "rev-parse", "HEAD")).isEqualTo(initialPublishedHead.get());
+            harness.scriptGreenCi(fixture, repaired, branch);
+            CiAutofixRun green = harness.driveUntil(watching.id(), run -> run.status() == CiAutofixRun.Status.FINISHED, 50);
+            assertThat(green.finishReason()).contains(CiAutofixRun.FinishReason.GREEN);
+            assertThat(tasks.get(TaskId.valueOf(green.agentTaskId().orElseThrow())).state()).isEqualTo(TaskState.COMPLETED);
+            assertThat(draft).as("the draft is marked ready once every check passes").isFalse();
+
+            turns.start(new StartAgentTurnCommand(source.id(), "Does the repair keep the checked case?", ImmutableList.of(), "development-question"));
+            awaitSettled(source.id());
+            assertThat(E2eGitRepository.git(sourceWorktree, "rev-parse", "HEAD")).isEqualTo(repaired);
+            assertThat(E2eGitRepository.git(sourceWorktree, "branch", "--show-current")).isEqualTo(branch);
+            assertThat(Files.readString(sourceWorktree.resolve("development.txt"))).isEqualTo("implementation\nCI repair\n");
             assertThat(agent.gitActions()).extracting(ScriptedAgentDriver.GitAction::name)
-                    .containsExactly("development-edit", "development-commit", "development-draft", "ci-repair", "refine-summary");
-            assertThat(agent.turns().get(3).instructions()).contains(request, "Development request scope for this CI task")
+                    .containsExactly("development-edit", "development-commit", "development-draft", "refine-summary", "ci-repair", "development-question");
+            assertThat(agent.turns().get(4).instructions()).contains(request, "Development request scope for this CI task")
                     .doesNotContain("Create the draft pull request for this completed development revision");
-            assertThat(agent.turns().subList(0, 3)).allSatisfy(turn -> assertThat(turn.instructions()).doesNotContain("Development request scope for this CI task"));
             verify(publicationWrites).markReadyForReview("test-token", "development-pr-node");
-            verify(publicationReads, atLeast(3)).fetchDeliveryChecks("test-token", pr);
         }
         finally {
             turns.stopRuntime(source.id(), turns.stopImpact(source.id()).generation());
         }
+    }
+
+    /** Waits until the task's turn and automation finished, and returns its latest CI run. */
+    private CiAutofixRun awaitSettled(TaskId sourceId)
+            throws InterruptedException
+    {
+        long deadline = System.nanoTime() + Duration.ofMinutes(2).toNanos();
+        while (System.nanoTime() < deadline) {
+            AgentTask current = tasks.get(sourceId);
+            assertThat(current.state()).as("source task: %s", current.terminalReason()).isEqualTo(TaskState.OPEN);
+            Optional<CiAutofixRun> owned = service.list(100).stream().filter(run -> run.scope().parentTaskId().filter(sourceId.toString()::equals).isPresent())
+                    .max(Comparator.comparing(CiAutofixRun::createdAt));
+            if (owned.isPresent() && !current.developmentContinuationUnfinished() && current.worktreeMutationClaim().isEmpty()) {
+                return owned.orElseThrow();
+            }
+            Thread.sleep(Duration.ofMillis(100));
+        }
+        throw new AssertionError("Development delivery did not settle within two minutes; source turns: "
+                + turnStore.list(sourceId).stream().map(turn -> turn.state() + ":" + turn.developmentOrigin()).toList());
     }
 
     private static void writeDevelopmentFile(Path worktree, String content)

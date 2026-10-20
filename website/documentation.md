@@ -317,9 +317,11 @@ Check limits in **Usage**. Add reusable instructions in
 Review **Automation** before starting:
 
 - **Auto draft PR:** pushes commits and creates or updates a PR.
-- **Auto CI fix:** repairs supported failures, reruns CI, and can mark a draft
-  ready. It can write to GitHub. **CI repair agent** follows Development unless
-  you choose another supported agent.
+- **Auto CI fix:** watches CI beside the task after each push. It reruns flaky
+  jobs and repairs failures the PR caused. Failures that also fail on the base
+  branch are left alone until the next push. Once every check passes, it marks
+  a draft PR ready for review. It can write to GitHub. **CI repair agent**
+  follows Development unless you choose another supported agent.
 - **Auto review summary:** adds private analysis and a suggested plan for new
   review comments on the task's PR.
 - **Auto draft review replies:** analyzes new review comments and prepares
@@ -331,15 +333,17 @@ These automation options start off on a fresh installation; existing choices
 are preserved. Completed development work is committed automatically. Change
 defaults for new tasks during setup or in **Settings → Agents → Workflow**,
 and review each task's choices before sending. Automatic analysis and repairs
-use your model allowance. Use **Stop automation and continue…** to resume
-development. You review and merge the PR.
+use your model allowance. Use **Stop automation and continue…** to stop a
+commit or PR step. You review and merge the PR.
 
-CI monitoring runs locally while ByteQuay is open. It waits while the Mac is
-asleep and retries temporary failures when reading check status after waking.
-Monitoring has no time limit, including overnight sleep. It continues when the
-Mac wakes until CI passes or you stop it, subject to the repair-attempt limits
-and any errors that need your input. Quitting or restarting ByteQuay stops a
-development task's automatic delivery; inspect the task and send a new
+You can keep sending messages while CI Autofix watches. A message stops a
+repair in progress, and your next turn starts from the fixes CI already pushed.
+**Stop CI Autofix** ends the current run; the next push starts another.
+
+CI monitoring runs locally while ByteQuay is open, has no time limit, and
+resumes after a restart. ByteQuay notifies you when failures already fail on
+the base branch, when three repairs don't make CI pass, or when a repair needs
+your input. Quitting ByteQuay stops a commit or PR step in progress; send a new
 instruction to continue.
 
 <a id="commits-and-backports"></a>

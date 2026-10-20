@@ -16,6 +16,7 @@ package com.bytequay.app.ci;
 import com.bytequay.core.domain.PullRequestRef;
 
 import java.util.List;
+import java.util.Set;
 
 public interface GitHubActionsClient
 {
@@ -45,6 +46,14 @@ public interface GitHubActionsClient
      * @return credential-redacted messages, or an empty list when GitHub has none or refuses the read
      */
     List<String> readFailureAnnotations(PullRequestRef pullRequest, long jobId);
+
+    /**
+     * Names the failed jobs of a workflow's latest completed push run on a branch, which tells a pull request's own failures
+     * from ones its base already has.
+     *
+     * @return failed job names, or an empty set when the branch has no completed push run of that workflow
+     */
+    Set<String> failedJobsOnBranch(PullRequestRef pullRequest, long workflowId, String branch);
 
     /**
      * Reruns failed jobs for one exact completed workflow run.

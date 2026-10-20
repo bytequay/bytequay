@@ -152,6 +152,9 @@ public final class CiAutofixHttpModels
         if (run.currentRebaseId().isPresent()) {
             return "REBASING";
         }
+        if (run.waitingOnBase()) {
+            return "BASE_FAILURE";
+        }
         if (run.pushJournal().isPresent()) {
             return "PUSHING";
         }

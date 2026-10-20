@@ -175,6 +175,7 @@ public final class DefaultAgentTurnService
     private final Predicate<AgentTask> developmentEligibility;
     private final BiConsumer<AgentTask, AgentTurn> developmentAccepted;
     private final Consumer<DevelopmentTurnCompletion> developmentCompletion;
+    /** Stops linked CI repairs still writing an interactive task's branch, before a user's turn or once its automation stops. */
     private final Consumer<TaskId> stopChildren;
     private final UnaryOperator<AgentTask> idleWorktreePreparation;
     /**
@@ -264,6 +265,7 @@ public final class DefaultAgentTurnService
             // A cold check launches the provider CLI several times. Nothing else on this task, such as a retry looking up
             // its key, may wait behind it, so it runs before the task lock; the check under the lock then reuses it.
             requireRecentlyReady(taskStore.require(command.taskId()));
+            stopChildWriters(command.taskId());
         }
         TurnAcceptance acceptance;
         sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=turn.lock.wait epochMs=" + System.currentTimeMillis() + " taskId=" + command.taskId() + " turnId=-");
@@ -1229,6 +1231,7 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(taskId, "taskId is null");
         retryCompletedTurn(taskId);
+        stopChildWriters(taskId);
         TurnAcceptance acceptance;
         synchronized (runtimeRegistry.taskLock(taskId)) {
             drainPending(outboxStore, eventService, taskId);
@@ -1246,6 +1249,18 @@ public final class DefaultAgentTurnService
             acceptance = acceptQueuedLocked(task, head);
         }
         return launchAccepted(acceptance);
+    }
+
+    /**
+     * The user's turn goes first; stopping waits for the writers outside the task lock, as stopping a runtime does. A task
+     * that is still working refuses the turn under its lock anyway, so its children keep going.
+     */
+    private void stopChildWriters(TaskId taskId)
+    {
+        AgentTask task = taskStore.require(taskId);
+        if (task.interactive() && task.worktreeMutationClaim().isEmpty() && !task.developmentContinuationUnfinished()) {
+            stopChildren.accept(taskId);
+        }
     }
 
     /** The next input that is not history: waiting, paused, or uncertain. */

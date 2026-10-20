@@ -41,8 +41,13 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.core.ci.CiAutofixRun;
+import com.bytequay.core.ci.CiAutofixRunId;
+import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewCommit;
@@ -75,7 +80,8 @@ class TestAppNoticeService
     private final QueuedInputStore queues = mock(QueuedInputStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
-    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, pullRequests, new ObjectMapper());
+    private final CiAutofixStore ciRuns = mock(CiAutofixStore.class);
+    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, pullRequests, ciRuns, new ObjectMapper());
     private final AgentTask task = AgentTask.created(TaskId.random(), Optional.of("workspace"), true, "Fix recovery", new AgentLaneId("codex"),
             new RepositoryIdentity("owner", "repo"), Path.of("/tmp/notice-worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
 
@@ -104,6 +110,47 @@ class TestAppNoticeService
         show(task, turn.finish(TurnState.CANCELLED, AgentMetrics.empty(), Optional.of("Stopped by user"), NOW.plusSeconds(10)));
         when(queues.listQueued(task.id())).thenReturn(ImmutableList.of());
         assertThat(service.current()).isEmpty();
+    }
+
+    @Test
+    void ciNoticesFailuresTheBaseAlsoHasPausesAndExhaustedRepairs()
+    {
+        show(task, turn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10)));
+        String head = "b".repeat(40);
+        CiAutofixRun run = CiAutofixRun.create(CiAutofixRunId.random(), "development-ci",
+                new CiAutofixRun.Scope(PullRequestRef.of("owner", "repo", 7), RepoRef.of("owner", "repo"), "workspace", RepoRef.of("owner", "repo"), "owner",
+                        "feature", "main", "claude", Optional.of(task.id().toString())),
+                head, head, "a".repeat(40), new CiAutofixRun.Authorization(NOW), NOW);
+        when(ciRuns.listByParentTaskId(task.id().toString())).thenReturn(ImmutableList.of(run));
+        assertThat(service.current()).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.TURN_FINISHED);
+
+        CiAutofixRun.Warning inherited = new CiAutofixRun.Warning(CiAutofixRun.BASE_ONLY_WARNING + head,
+                "Already failing on main, so CI Autofix waits for the next push: build / test.", NOW.plusSeconds(20));
+        when(ciRuns.listByParentTaskId(task.id().toString())).thenReturn(ImmutableList.of(run.addWarning(inherited, NOW.plusSeconds(20))));
+        assertThat(service.current()).singleElement().satisfies(notice -> {
+            assertThat(notice.kind()).isEqualTo(AppNotice.Kind.CI_ATTENTION);
+            assertThat(notice.id()).isEqualTo("ci:" + run.id() + ":" + CiAutofixRun.BASE_ONLY_WARNING + head);
+            assertThat(notice.message()).isEqualTo("Already failing on main, so CI Autofix waits for the next push: build / test.");
+            assertThat(notice.occurredAt()).isEqualTo(NOW.plusSeconds(20));
+        });
+
+        CiAutofixRun paused = run.pause(CiAutofixRun.PauseReason.ERROR, "Agent produced no repair", NOW.plusSeconds(30));
+        when(ciRuns.listByParentTaskId(task.id().toString())).thenReturn(ImmutableList.of(paused));
+        assertThat(service.current()).singleElement().satisfies(notice -> {
+            assertThat(notice.kind()).isEqualTo(AppNotice.Kind.CI_ATTENTION);
+            assertThat(notice.message()).isEqualTo("CI Autofix paused: Agent produced no repair");
+        });
+
+        when(ciRuns.listByParentTaskId(task.id().toString())).thenReturn(ImmutableList.of(run.finish(CiAutofixRun.FinishReason.MAX_ATTEMPTS,
+                "GitHub Actions still fails after 3 fix attempts", NOW.plusSeconds(40))));
+        assertThat(service.current()).singleElement().satisfies(notice -> {
+            assertThat(notice.kind()).isEqualTo(AppNotice.Kind.CI_ATTENTION);
+            assertThat(notice.id()).isEqualTo("ci:" + run.id() + ":attempts");
+            assertThat(notice.message()).isEqualTo("GitHub Actions still fails after 3 fix attempts");
+        });
+
+        when(ciRuns.listByParentTaskId(task.id().toString())).thenReturn(ImmutableList.of(run.finish(CiAutofixRun.FinishReason.GREEN, "Checks passed", NOW.plusSeconds(40))));
+        assertThat(service.current()).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.TURN_FINISHED);
     }
 
     @Test

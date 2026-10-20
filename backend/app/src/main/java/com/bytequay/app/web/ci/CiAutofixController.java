@@ -83,6 +83,13 @@ public class CiAutofixController
         return ResponseEntity.accepted().body(response(run));
     }
 
+    /** Stops a run and its repair; a development task's next push starts another. */
+    @PostMapping("/{runId}/cancel")
+    public CiAutofixHttpModels.RunResponse cancel(@PathVariable String runId)
+    {
+        return response(service.cancel(CiAutofixRunId.valueOf(runId)));
+    }
+
     private CiAutofixHttpModels.RunResponse response(CiAutofixRun run)
     {
         Optional<AgentTask> task = run.agentTaskId()

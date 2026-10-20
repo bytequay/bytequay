@@ -116,8 +116,11 @@
             <p>Review <strong>Automation</strong> before starting:</p>
             <ul>
               <li><strong>Auto draft PR:</strong> pushes commits and creates or updates a PR.</li>
-              <li><strong>Auto CI fix:</strong> repairs supported failures, reruns
-                CI, and can mark a draft ready. It can write to GitHub.
+              <li><strong>Auto CI fix:</strong> watches CI beside the task after
+                each push. It reruns flaky jobs and repairs failures the PR caused.
+                Failures that also fail on the base branch are left alone until
+                the next push. Once every check passes, it marks a draft PR ready
+                for review. It can write to GitHub.
                 <strong>CI repair agent</strong> follows Development unless you
                 choose another supported agent.</li>
               <li><strong>Auto review summary:</strong> adds private analysis and
@@ -134,8 +137,16 @@
               setup or in <strong>Settings → Agents → Workflow</strong>, and
               review each task’s choices before sending. Automatic analysis
               and repairs use your model allowance. Use
-              <strong>Stop automation and continue…</strong> to resume
-              development. You review and merge the PR.</p>
+              <strong>Stop automation and continue…</strong> to stop a commit
+              or PR step. You review and merge the PR.</p>
+            <p>You can keep sending messages while CI Autofix watches. A message
+              stops a repair in progress, and your next turn starts from the
+              fixes CI already pushed. <strong>Stop CI Autofix</strong> ends the
+              current run; the next push starts another.</p>
+            <p>CI monitoring runs locally while ByteQuay is open, has no time
+              limit, and resumes after a restart. ByteQuay notifies you when
+              failures already fail on the base branch, when three repairs don’t
+              make CI pass, or when a repair needs your input.</p>
           </section>
           <section id="commits-and-backports">
             <h2>Cherry-pick and backport</h2>

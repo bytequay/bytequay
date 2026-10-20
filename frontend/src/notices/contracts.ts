@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-export const NOTICE_KINDS = ['TURN_FINISHED', 'QUESTION', 'APPROVAL', 'FAILURE', 'RECOVERY', 'QUEUE_PAUSED'] as const;
+export const NOTICE_KINDS = ['TURN_FINISHED', 'QUESTION', 'APPROVAL', 'FAILURE', 'RECOVERY', 'QUEUE_PAUSED', 'CI_ATTENTION'] as const;
 export const NOTICE_WIDTH = 340;
 export type NoticeKind = typeof NOTICE_KINDS[number];
 export type AppNotice = {
@@ -35,11 +35,12 @@ export const APPROVAL_NOTICE = 'approval:';
 export const needsAction = (notice: AppNotice): boolean => notice.kind !== 'TURN_FINISHED';
 export const NOTICE_LABELS: Record<NoticeKind, string> = {
   TURN_FINISHED: 'Turn finished', QUESTION: 'Waiting for you', APPROVAL: 'Approval needed',
-  FAILURE: 'Turn failed', RECOVERY: 'Task is blocked', QUEUE_PAUSED: 'Queued messages paused',
+  FAILURE: 'Turn failed', RECOVERY: 'Task is blocked', QUEUE_PAUSED: 'Queued messages paused', CI_ATTENTION: 'CI needs attention',
 };
 /** What opening a notice shows, as its button says, on its alert and in the Assistant panel alike. */
 export const NOTICE_ACTIONS: Record<NoticeKind, string> = {
   TURN_FINISHED: 'View response', QUESTION: 'Reply', APPROVAL: 'Review request', FAILURE: 'View log', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue',
+  CI_ATTENTION: 'View task',
 };
 export const noticeLabel = (notice: AppNotice): string => notice.reviewId === null ? NOTICE_LABELS[notice.kind]
   : notice.kind === 'TURN_FINISHED' ? 'Review finished' : notice.kind === 'FAILURE' ? 'Review failed' : NOTICE_LABELS[notice.kind];

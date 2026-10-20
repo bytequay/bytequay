@@ -671,6 +671,8 @@ function registerIpc(): void {
       }));
   ipcMain.handle('ci-autofix:get', (_event, runId: string) =>
     backendJson(`${backendBase()}/api/ci-autofix/runs/${encodeURIComponent(runId)}`).then(parseCiAutofixRun));
+  ipcMain.handle('ci-autofix:cancel', (_event, runId: string) =>
+    backendJson(`${backendBase()}/api/ci-autofix/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' }).then(parseCiAutofixRun));
   ipcMain.handle('ci-autofix:message', (_event, runId: string, message: string, idempotencyKey: string, expectedTurnId?: string) =>
     backendJson(`${backendBase()}/api/ci-autofix/runs/${encodeURIComponent(runId)}/messages`,
       jsonInit('POST', { message, expectedTurnId }, { 'Idempotency-Key': idempotencyKey })).then(parseCiAutofixRun));

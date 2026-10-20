@@ -67,7 +67,9 @@ import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.rebase.StartBranchRebaseCommand;
+import com.bytequay.app.repository.github.GitHubDeliveryChecks;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
@@ -93,6 +95,7 @@ import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -101,7 +104,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -125,6 +127,8 @@ import static com.bytequay.agent.core.AgentEventSource.root;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -153,6 +157,7 @@ class TestCiAutofixService
     private InMemoryCiAutofixStore store;
     private GitHubActionsClient gitHub;
     private final GitHubPullRequestWriteClient writes = mock(GitHubPullRequestWriteClient.class);
+    private final GitHubPullRequestReadClient pullRequestReads = mock(GitHubPullRequestReadClient.class);
     private AgentTaskService taskService;
     private AgentTurnService turnService;
     private AgentCompletionService completionService;
@@ -224,6 +229,8 @@ class TestCiAutofixService
         resources = new TaskResources(runtime, runtime.resolve("events.jsonl"), blobs, Files.createDirectory(runtime.resolve("provider")));
 
         when(credentials.resolveGitHubToken()).thenReturn("token");
+        when(credentials.resolveGitHubToken("workspace-1")).thenReturn("token");
+        when(pullRequestReads.fetchDeliveryChecks(eq("token"), any())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of(), ImmutableList.of()));
         when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential("token", profile("author")));
         AgentDriver driver = mock(AgentDriver.class);
         AgentCapabilities capabilities = new AgentCapabilities(false, false, false, Set.of(AgentPermissionPolicy.CI_AUTOFIX), Set.of());
@@ -277,6 +284,7 @@ class TestCiAutofixService
                 store,
                 gitHub,
                 writes,
+                pullRequestReads,
                 taskService,
                 turnService,
                 completionService,
@@ -350,9 +358,7 @@ class TestCiAutofixService
         CiAutofixRun run;
         if (development) {
             AgentTask parent = developmentParent();
-            TurnId source = reserveParent(parent);
-            run = service.startDevelopment(startCommand("unavailable-logs"), parent.id(), source, publishedPr(), NOW);
-            assertThat(runtimes.ownsDevelopmentContinuation(parent.id(), source)).isTrue();
+            run = service.startDevelopment(startCommand("unavailable-logs"), openParent(parent), publishedPr(), NOW);
         }
         else {
             run = service.start(startCommand("unavailable-logs"));
@@ -1685,9 +1691,9 @@ class TestCiAutofixService
     {
         enableSteering();
         AgentTask parent = developmentParent();
-        CiAutofixRun run = service.startDevelopment(startCommand("owned-steer"), parent.id(), reserveParent(parent), publishedPr(), NOW);
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-steer"), openParent(parent), publishedPr(), NOW);
         assertThat(service.canMessage(run)).isTrue();
-        ownership.revoke(parent.id());
+        ownership.revoke(run.id());
         assertThat(service.canMessage(run)).isFalse();
         assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(run.id(), "Check Docker", "steer-key", Optional.of(turnId))))
                 .isInstanceOf(CiAutofixConflictException.class);
@@ -1830,7 +1836,7 @@ class TestCiAutofixService
     }
 
     @Test
-    void carriesAcceptedUserScopeAcrossPagesIntoEveryLinkedCiSession()
+    void carriesEveryAcceptedUserInputAcrossPagesIntoTheLinkedCiSession()
     {
         AgentTask parent = developmentParent();
         TurnId source = reserveParent(parent);
@@ -1854,24 +1860,22 @@ class TestCiAutofixService
                         parentMessage(parent.id(), source, 4, "Use the second option. Do not edit .github/workflows.", AgentEventPayload.DeliveryKind.QUEUED),
                         parentMessage(parent.id(), source, 5, "Do not merge or delete the branch", AgentEventPayload.DeliveryKind.STEER),
                         parentMessage(parent.id(), generated.id(), 6, "GENERATED PUBLICATION INSTRUCTIONS", AgentEventPayload.DeliveryKind.TURN),
-                        parentMessage(parent.id(), later.id(), 7, "LATER OR UNDELIVERED REQUEST", AgentEventPayload.DeliveryKind.TURN)),
+                        parentMessage(parent.id(), later.id(), 7, "Also keep the old name as an alias", AgentEventPayload.DeliveryKind.TURN)),
                 OptionalLong.of(0), OptionalLong.empty(), 7));
 
-        service.startDevelopment(startCommand("scoped-ci"), parent.id(), source, publishedPr(), NOW);
+        service.startDevelopment(startCommand("scoped-ci"), parent.id(), publishedPr(), NOW);
         String instructions = ownership.instructions(activeTask());
-        assertThat(instructions).containsSubsequence("Only edit src/A.java and src/B.java", "Use the second option", "Do not merge or delete the branch")
+        assertThat(instructions).containsSubsequence("Only edit src/A.java and src/B.java", "Use the second option", "Do not merge or delete the branch",
+                        "Also keep the old name as an alias")
                 .contains("Do not edit .github/workflows.", "The current CI/rebase instructions still govern", "ByteQuay owns remote writes")
-                .doesNotContain("UNTRUSTED ASSISTANT", "GENERATED PUBLICATION", "LATER OR UNDELIVERED", "UNSENT REQUEST");
+                .doesNotContain("UNTRUSTED ASSISTANT", "GENERATED PUBLICATION", "UNSENT REQUEST");
 
-        when(eventService.readHistory(eq(parent.id()), any(), any())).thenThrow(new AssertionError("CI sessions must reuse the accepted scope snapshot"));
-        assertThat(ownership.instructions(activeTask())).isEqualTo(instructions);
-        assertThat(ownership.instructions(activeTask())).isEqualTo(instructions);
-        ownership.revoke(parent.id());
+        ownership.revoke(store.run.id());
         assertThatThrownBy(() -> ownership.instructions(activeTask())).isInstanceOf(CiAutofixConflictException.class);
     }
 
     @Test
-    void scopesTheFirstRebaseBeforeAnyRepairAndPreservesTheRegisteredOwnerIdentity()
+    void scopesTheFirstRebaseBeforeAnyRepair()
     {
         AgentTask parent = developmentParent();
         TurnId user = reserveParent(parent);
@@ -1879,19 +1883,13 @@ class TestCiAutofixService
                 .withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, user));
         when(turnStore.find(generated.id())).thenReturn(Optional.of(generated));
         when(turnStore.list(parent.id())).thenReturn(ImmutableList.of(parentTurn(parent.id(), user), generated));
-        synchronized (runtimes.taskLock(parent.id())) {
-            ReflectionTestUtils.invokeMethod(runtimes, "releaseDevelopmentOwner", parent.id(), user);
-            ReflectionTestUtils.invokeMethod(runtimes, "reserveDevelopmentOwner", parent.id(), generated.id());
-        }
         doAnswer(invocation -> {
             assertThat(store.run.attempts()).isEmpty();
             assertThat(ownership.instructions(activeTask())).contains("Implement the requested change");
-            assertThat(runtimes.ownsDevelopmentContinuation(parent.id(), generated.id())).isTrue();
-            assertThat(runtimes.ownsDevelopmentContinuation(parent.id(), user)).isFalse();
             return runningRebase(invocation.getArgument(0));
         }).when(rebaseService).start(any());
 
-        CiAutofixRun run = service.startDevelopment(startCommand("scoped-rebase"), parent.id(), generated.id(), publishedPr(), NOW);
+        CiAutofixRun run = service.startDevelopment(startCommand("scoped-rebase"), parent.id(), publishedPr(), NOW);
 
         assertThat(run.currentRebaseId()).isPresent();
         assertThat(run.attempts()).isEmpty();
@@ -1904,13 +1902,13 @@ class TestCiAutofixService
         AgentTask parent = developmentParent();
         TurnId source = reserveParent(parent);
         when(eventService.readHistory(eq(parent.id()), any(), any())).thenReturn(new AgentHistoryPage(ImmutableList.of(), OptionalLong.empty(), OptionalLong.empty(), 0));
-        assertThatThrownBy(() -> service.startDevelopment(startCommand("missing-scope"), parent.id(), source, publishedPr(), NOW))
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("missing-scope"), parent.id(), publishedPr(), NOW))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("Development user inputs are missing");
 
         when(eventService.readHistory(eq(parent.id()), any(), any())).thenReturn(new AgentHistoryPage(
                 ImmutableList.of(parentMessage(parent.id(), source, 1, "x".repeat(128 * 1024), AgentEventPayload.DeliveryKind.TURN)),
                 OptionalLong.empty(), OptionalLong.empty(), 1));
-        assertThatThrownBy(() -> service.startDevelopment(startCommand("large-scope"), parent.id(), source, publishedPr(), NOW))
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("large-scope"), parent.id(), publishedPr(), NOW))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("Development user scope exceeds the prompt limit");
         assertThat(store.listRecent(10)).isEmpty();
         verify(taskService, never()).create(any());
@@ -1927,7 +1925,7 @@ class TestCiAutofixService
                         new AgentEventPayload.UserMessage("Follow the attached constraints", ImmutableList.of(new AgentAttachmentReference("scope", "scope.png", "image/png")),
                                 AgentEventPayload.DeliveryKind.TURN))), OptionalLong.empty(), OptionalLong.empty(), 1));
 
-        service.startDevelopment(startCommand("attachment-scope"), parent.id(), source, publishedPr(), NOW);
+        service.startDevelopment(startCommand("attachment-scope"), parent.id(), publishedPr(), NOW);
 
         assertThat(ownership.instructions(activeTask())).contains("Attachment unavailable in this CI task: scope.png", "do not guess its contents");
     }
@@ -1936,39 +1934,45 @@ class TestCiAutofixService
     void persistsDevelopmentOwnerAfterDaysAndKeepsItsOriginalAuthorizationTime()
     {
         AgentTask parent = developmentParent();
-        TurnId source = reserveParent(parent);
+        reserveParent(parent);
         Instant activated = NOW.minus(Duration.ofDays(3));
         doAnswer(invocation -> {
             assertThat(store.run.scope().parentTaskId()).contains(parent.id().toString());
             return task(invocation.getArgument(0));
         }).when(taskService).create(any());
 
-        CiAutofixRun run = service.startDevelopment(startCommand("development"), parent.id(), source, publishedPr(), activated);
+        CiAutofixRun run = service.startDevelopment(startCommand("development"), parent.id(), publishedPr(), activated);
         assertThat(run.authorization().authorizedAt()).isEqualTo(activated);
         assertThat(run.status()).isEqualTo(Status.ACTIVE);
-        assertThat(service.startDevelopment(startCommand("development"), parent.id(), source, publishedPr(), NOW).authorization()).isEqualTo(run.authorization());
+        assertThat(service.startDevelopment(startCommand("development"), parent.id(), publishedPr(), NOW).authorization()).isEqualTo(run.authorization());
         assertThatThrownBy(() -> service.start(startCommand("development"))).isInstanceOf(CiAutofixConflictException.class);
         verify(taskService).create(any());
     }
 
     @Test
-    void lostDevelopmentOwnerCannotReplayPushOrReprovisionItsChild()
+    void developmentRunSurvivesARestartAndStopsOnceItsTaskCloses()
     {
         AgentTask parent = developmentParent();
-        TurnId source = reserveParent(parent);
-        CiAutofixRun run = service.startDevelopment(startCommand("owned-push"), parent.id(), source, publishedPr(), NOW);
+        reserveParent(parent);
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-push"), parent.id(), publishedPr(), NOW);
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
         run = service.advance(run.id());
         CiAutofixRun pending = run;
         assertThat(pending.pushJournal()).isPresent();
-
         CiAutofixService restarted = service(store);
-        assertThatThrownBy(() -> restarted.advance(pending.id())).isInstanceOf(CiAutofixConflictException.class);
-        assertThatThrownBy(() -> restarted.startDevelopment(startCommand("owned-push"), parent.id(), source, publishedPr(), NOW))
-                .isInstanceOf(CiAutofixConflictException.class);
+        assertThat(restarted.startDevelopment(startCommand("owned-push"), parent.id(), publishedPr(), NOW)).isEqualTo(pending);
+
+        when(taskStore.find(parent.id())).thenReturn(Optional.of(parent.withDevelopmentContinuation(false, NOW).fail("Abandoned", NOW, NOW.plusSeconds(60))));
+        when(turnService.stopImpact(taskId)).thenReturn(new AgentRuntimeStopImpact(taskId, "generation", Optional.empty(), false));
+        when(turnService.stopRuntime(taskId, "generation")).thenReturn(activeTask());
+        CiAutofixRun stopped = restarted.advance(pending.id());
+
+        assertThat(stopped.finishReason()).contains(FinishReason.CANCELLED);
+        assertThat(stopped.summary()).contains("The development task closed; local and remote results were preserved");
         verify(gitService, never()).push(any());
+        verify(turnService).stopRuntime(taskId, "generation");
         verify(taskService).create(any());
     }
 
@@ -1976,7 +1980,7 @@ class TestCiAutofixService
     void unavailableRecoveredChildStopBlocksDeletionWithoutReplayingItsRun()
     {
         AgentTask parent = developmentParent();
-        CiAutofixRun run = service.startDevelopment(startCommand("owned-recovery"), parent.id(), reserveParent(parent), publishedPr(), NOW);
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-recovery"), openParent(parent), publishedPr(), NOW);
         AgentTask child = activeTask();
         AgentTask recovered = child.claimWorktreeMutation(WorktreeMutationClaim.recovery("launch", NOW), NOW);
         when(taskService.get(taskId)).thenReturn(recovered);
@@ -1987,14 +1991,15 @@ class TestCiAutofixService
         verify(completionService, never()).delete(any());
         verify(gitService, never()).push(any());
         verify(rebaseService, never()).cancel(any());
-        assertThatThrownBy(() -> service.advance(run.id())).isInstanceOf(CiAutofixConflictException.class);
+        assertThatThrownBy(() -> service.advance(run.id())).isInstanceOf(AgentConflictException.class);
+        verify(gitService, never()).push(any());
     }
 
     @Test
     void deletesPreservedChildrenOnlyAfterShutdown()
     {
         AgentTask parent = developmentParent();
-        CiAutofixRun run = service.startDevelopment(startCommand("owned-delete"), parent.id(), reserveParent(parent), publishedPr(), NOW);
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-delete"), openParent(parent), publishedPr(), NOW);
         when(turnService.stopImpact(taskId)).thenReturn(new AgentRuntimeStopImpact(taskId, "generation", Optional.empty(), false));
         when(turnService.stopRuntime(taskId, "generation")).thenReturn(activeTask());
         doAnswer(_ -> {
@@ -2017,12 +2022,12 @@ class TestCiAutofixService
     void stoppedDevelopmentReleasesTheBranchButPreservesItsChild()
     {
         AgentTask parent = developmentParent();
-        CiAutofixRun run = service.startDevelopment(startCommand("owned-stop"), parent.id(), reserveParent(parent), publishedPr(), NOW);
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-stop"), openParent(parent), publishedPr(), NOW);
         store.update(run.pause(PauseReason.TURN_INTERRUPTED, "Approval request timed out", NOW));
         when(turnService.stopImpact(taskId)).thenReturn(new AgentRuntimeStopImpact(taskId, "generation", Optional.empty(), false));
         when(turnService.stopRuntime(taskId, "generation")).thenReturn(activeTask());
         AgentTask idle = parent.withDevelopmentContinuation(false, NOW);
-        assertThatThrownBy(() -> ownership.requireSourceAdmission(idle)).isInstanceOf(AgentConflictException.class);
+        ownership.requireSourceAdmission(idle);
 
         service.stopDevelopment(parent.id());
 
@@ -2056,13 +2061,13 @@ class TestCiAutofixService
     void canMessageUsesTheFreshRunAndNeverResumesARevokedParent()
     {
         AgentTask parent = developmentParent();
-        CiAutofixRun run = service.startDevelopment(startCommand("owned-message"), parent.id(), reserveParent(parent), publishedPr(), NOW);
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-message"), openParent(parent), publishedPr(), NOW);
         CiAutofixRun paused = store.update(run.pause(PauseReason.INVALID_GIT_RESULT, "Needs a user correction", NOW));
         assertThat(service.canMessage(paused)).isTrue();
         store.update(paused.resume(NOW));
         assertThat(service.canMessage(paused)).isFalse();
         CiAutofixRun pausedAgain = store.update(store.run.pause(PauseReason.INVALID_GIT_RESULT, "Needs a user correction", NOW));
-        ownership.revoke(parent.id());
+        ownership.revoke(run.id());
         assertThat(service.canMessage(pausedAgain)).isFalse();
         assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(run.id(), "Answer", "owned-answer", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class);
@@ -2073,7 +2078,7 @@ class TestCiAutofixService
             throws Exception
     {
         AgentTask parent = developmentParent();
-        TurnId source = reserveParent(parent);
+        reserveParent(parent);
         CountDownLatch provisioningStarted = new CountDownLatch(1);
         CountDownLatch releaseProvisioning = new CountDownLatch(1);
         doAnswer(invocation -> {
@@ -2084,7 +2089,7 @@ class TestCiAutofixService
         when(turnService.stopImpact(any())).thenAnswer(invocation -> new AgentRuntimeStopImpact(invocation.getArgument(0), "stopped", Optional.empty(), false));
         when(turnService.stopRuntime(any(), eq("stopped"))).thenAnswer(_ -> activeTask());
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var starting = executor.submit(() -> service.startDevelopment(startCommand("owned-provision"), parent.id(), source, publishedPr(), NOW));
+            var starting = executor.submit(() -> service.startDevelopment(startCommand("owned-provision"), parent.id(), publishedPr(), NOW));
             assertThat(provisioningStarted.await(5, TimeUnit.SECONDS)).isTrue();
             var stopping = executor.submit(() -> service.stopDevelopment(parent.id()));
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
@@ -2104,44 +2109,224 @@ class TestCiAutofixService
     }
 
     @Test
-    void ownedCancelRevokesTheSourceBeforeStoppingItsChild()
+    void cancellingADevelopmentRunStopsOnlyItsChildAndLeavesTheTaskRunning()
     {
         AgentTask parent = developmentParent();
-        TurnId source = reserveParent(parent);
-        CiAutofixRun run = service.startDevelopment(startCommand("owned-cancel"), parent.id(), source, publishedPr(), NOW);
-        doReturn(parent).when(taskService).get(parent.id());
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-cancel"), openParent(parent), publishedPr(), NOW);
         when(turnService.stopImpact(any())).thenAnswer(invocation -> new AgentRuntimeStopImpact(invocation.getArgument(0), "stop", Optional.empty(), false));
         when(turnService.stopRuntime(taskId, "stop")).thenReturn(activeTask());
-        when(turnService.stopRuntime(parent.id(), "stop")).thenAnswer(_ -> {
-            ReflectionTestUtils.invokeMethod(runtimes, "stopDevelopment", parent.id());
-            service.stopDevelopment(parent.id());
-            return parent;
-        });
 
-        service.cancel(run.id());
+        CiAutofixRun cancelled = service.cancel(run.id());
 
-        assertThat(runtimes.ownsDevelopmentContinuation(parent.id(), source)).isFalse();
-        InOrder stopped = inOrder(turnService);
-        stopped.verify(turnService).stopRuntime(parent.id(), "stop");
-        stopped.verify(turnService).stopRuntime(taskId, "stop");
+        assertThat(cancelled.finishReason()).contains(FinishReason.CANCELLED);
+        assertThat(cancelled.summary()).contains("CI Autofix stopped by user");
+        verify(turnService).stopRuntime(taskId, "stop");
+        verify(turnService, never()).stopRuntime(eq(parent.id()), any());
         assertThat(ownership.authorized(store.run)).isFalse();
+        assertThat(service.startDevelopment(startCommand("owned-cancel"), parent.id(), publishedPr(), NOW)).isEqualTo(store.run);
+    }
+
+    @Test
+    void greenChecksFinishTheRunWhileItsTaskWorks()
+    {
+        AgentTask parent = developmentParent();
+        reserveParent(parent);
+        when(taskStore.find(parent.id())).thenReturn(Optional.of(parent));
+        when(gitHub.inspect(any())).thenReturn(new CiHeadSnapshot(snapshot.pullRequest(), true, snapshot.author(), snapshot.headRepository(), snapshot.headRef(),
+                HEAD, snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), greenSnapshot(HEAD, BASE).workflowRuns()));
+        when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.valid(HEAD));
+        doReturn(completion(HEAD)).when(completionService).complete(any());
+
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-green"), parent.id(), publishedPr(), NOW);
+        run = service.advance(service.advance(run.id()).id());
+
+        assertThat(run.finishReason()).contains(FinishReason.GREEN);
+        verify(writes).markReadyForReview("token", "pr-node");
+        verify(turnService, never()).start(any());
+    }
+
+    @Test
+    void greenDevelopmentRunWaitsForEveryPullRequestCheckBeforeMarkingTheDraftReady()
+    {
+        CiAutofixRun run = greenDevelopmentRun("owned-ready");
+        when(pullRequestReads.fetchDeliveryChecks(eq("token"), any())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of("external-ci"), ImmutableList.of()));
+        run = service.advance(service.advance(run.id()).id());
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
+        verify(writes, never()).markReadyForReview(any(), any());
+
+        when(pullRequestReads.fetchDeliveryChecks(eq("token"), any())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of(), ImmutableList.of()));
+        run = service.advance(run.id());
+
+        assertThat(run.finishReason()).contains(FinishReason.GREEN);
+        verify(writes).markReadyForReview("token", "pr-node");
+    }
+
+    @Test
+    void failedChecksOutsideActionsPauseTheRunAndKeepTheDraft()
+    {
+        CiAutofixRun run = greenDevelopmentRun("owned-blocked");
+        when(pullRequestReads.fetchDeliveryChecks(eq("token"), any())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of(), ImmutableList.of("license/cla")));
+
+        run = service.advance(service.advance(run.id()).id());
+
+        assertThat(run.status()).isEqualTo(Status.PAUSED);
+        assertThat(run.summary()).contains("Other pull request checks failed, so the draft stays a draft: license/cla");
+        verify(writes, never()).markReadyForReview(any(), any());
+    }
+
+    @Test
+    void readyPullRequestNeedsNoMarking()
+    {
+        CiAutofixRun run = greenDevelopmentRun("owned-ready-already");
+        when(pullRequestReads.fetchDeliveryChecks(eq("token"), any())).thenAnswer(_ -> deliveryChecks(false, ImmutableList.of(), ImmutableList.of()));
+
+        run = service.advance(service.advance(run.id()).id());
+
+        assertThat(run.finishReason()).contains(FinishReason.GREEN);
+        verify(writes, never()).markReadyForReview(any(), any());
+    }
+
+    private CiAutofixRun greenDevelopmentRun(String key)
+    {
+        AgentTask parent = developmentParent();
+        reserveParent(parent);
+        when(gitHub.inspect(any())).thenReturn(new CiHeadSnapshot(snapshot.pullRequest(), true, snapshot.author(), snapshot.headRepository(), snapshot.headRef(),
+                HEAD, snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), greenSnapshot(HEAD, BASE).workflowRuns()));
+        when(gitService.checkFixupPositions(any())).thenReturn(FixupPositionCheck.valid(HEAD));
+        doReturn(completion(HEAD)).when(completionService).complete(any());
+        return service.startDevelopment(startCommand(key), parent.id(), publishedPr(), NOW);
+    }
+
+    private GitHubDeliveryChecks deliveryChecks(boolean draft, List<String> waiting, List<String> failures)
+    {
+        GitHubPullRequestIdentity published = publishedPr();
+        GitHubPullRequestIdentity current = new GitHubPullRequestIdentity(published.pullRequest(), published.url(), published.headRepository(), published.headBranch(),
+                store.run.expectedRemoteHead(), published.baseRepository(), published.baseBranch(), published.baseSha(), published.state(), draft, published.author());
+        return new GitHubDeliveryChecks("pr-node", current, waiting, failures);
+    }
+
+    @Test
+    void developmentRunWaitsWhileItsTaskWorksAndRepairsOnceIdle()
+    {
+        AgentTask parent = developmentParent();
+        reserveParent(parent);
+        when(taskStore.find(parent.id())).thenReturn(Optional.of(parent));
+
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-busy"), parent.id(), publishedPr(), NOW);
+        run = service.advance(run.id());
+
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
+        assertThat(run.attempts()).isEmpty();
+        verify(turnService, never()).start(any());
+
+        when(taskStore.find(parent.id())).thenReturn(Optional.of(parent.withDevelopmentContinuation(false, NOW)));
+        run = service.advance(service.advance(run.id()).id());
+
+        assertThat(run.currentTurnId()).contains(turnId.toString());
+        verify(turnService).start(any());
+    }
+
+    @Test
+    void stopWritersStopsARepairInProgressButLeavesAWatchingRun()
+    {
+        AgentTask parent = developmentParent();
+        reserveParent(parent);
+        when(taskStore.find(parent.id())).thenReturn(Optional.of(parent));
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-writer"), parent.id(), publishedPr(), NOW);
+        when(turnService.stopImpact(any())).thenAnswer(invocation -> new AgentRuntimeStopImpact(invocation.getArgument(0), "stop", Optional.empty(), false));
+        when(turnService.stopRuntime(taskId, "stop")).thenReturn(activeTask());
+
+        service.stopWriters(parent.id());
+        assertThat(store.run.status()).isEqualTo(Status.ACTIVE);
+        verify(turnService, never()).stopRuntime(any(), any());
+
+        when(taskStore.find(parent.id())).thenReturn(Optional.of(parent.withDevelopmentContinuation(false, NOW)));
+        run = service.advance(service.advance(run.id()).id());
+        assertThat(run.currentTurnId()).isPresent();
+        service.stopWriters(parent.id());
+
+        assertThat(store.run.finishReason()).contains(FinishReason.CANCELLED);
+        assertThat(store.run.summary()).contains("Stopped for your message to the task; CI Autofix starts again after the next push");
+        verify(turnService).stopRuntime(taskId, "stop");
+    }
+
+    @Test
+    void newerPushReplacesTheRunWatchingAnOlderHead()
+    {
+        AgentTask parent = developmentParent();
+        CiAutofixRun older = service.startDevelopment(startCommand("development-ci:older"), openParent(parent), publishedPr(), NOW);
+        when(turnService.stopImpact(any())).thenAnswer(invocation -> new AgentRuntimeStopImpact(invocation.getArgument(0), "stop", Optional.empty(), false));
+        when(turnService.stopRuntime(taskId, "stop")).thenReturn(activeTask());
+
+        CiAutofixRun newer = service.startDevelopment(startCommand("development-ci:newer"), parent.id(), publishedPr(), NOW);
+
+        assertThat(store.replaced).singleElement().satisfies(replaced -> {
+            assertThat(replaced.id()).isEqualTo(older.id());
+            assertThat(replaced.finishReason()).contains(FinishReason.STALE_HEAD);
+            assertThat(replaced.summary()).contains("A newer push replaced this CI Autofix run");
+        });
+        assertThat(newer.id()).isNotEqualTo(older.id());
+        assertThat(newer.status()).isEqualTo(Status.ACTIVE);
+    }
+
+    @Test
+    void failuresTheBaseAlsoHasLeaveTheRunWaitingWithOneWarning()
+    {
+        when(gitHub.failedJobsOnBranch(PULL_REQUEST, 10, "main")).thenReturn(ImmutableSet.of("compile"));
+
+        CiAutofixRun run = service.start(startCommand("base-only"));
+        run = service.advance(service.advance(run.id()).id());
+
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
+        assertThat(run.attempts()).isEmpty();
+        assertThat(run.waitingOnBase()).isTrue();
+        assertThat(run.warnings()).singleElement().satisfies(warning -> {
+            assertThat(warning.code()).isEqualTo(CiAutofixRun.BASE_ONLY_WARNING + HEAD);
+            assertThat(warning.message()).isEqualTo("Already failing on main, so CI Autofix waits for the next push: Build / compile.");
+        });
+        verify(turnService, never()).start(any());
+        verify(rebaseService, never()).start(any());
+        verify(gitHub, times(1)).failedJobsOnBranch(any(), anyLong(), anyString());
+    }
+
+    @Test
+    void mixedFailuresRepairOnlyTheRestAndNameTheInheritedJobs()
+    {
+        snapshot = snapshot(HEAD, BASE, ImmutableList.of(
+                workflow(100, 1, "Build", HEAD, "completed", Optional.of("failure")),
+                workflow(300, 1, "Test", HEAD, "completed", Optional.of("failure"))));
+        when(gitHub.inspect(any())).thenReturn(snapshot);
+        when(gitHub.failedJobsOnBranch(PULL_REQUEST, 1300, "main")).thenReturn(ImmutableSet.of("test"));
+
+        CiAutofixRun run = service.start(startCommand("base-also"));
+        assertThat(run.warnings()).singleElement().satisfies(warning -> {
+            assertThat(warning.code()).isEqualTo(CiAutofixRun.BASE_ALSO_WARNING + HEAD);
+            assertThat(warning.message()).isEqualTo("Already failing on main, so CI Autofix fixes only the rest: Test / test.");
+        });
+        assertThat(run.waitingOnBase()).isFalse();
+        run = service.advance(service.advance(run.id()).id());
+
+        ArgumentCaptor<StartAgentTurnCommand> turn = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turnService).start(turn.capture());
+        assertThat(turn.getValue().message()).contains("These failed jobs also fail on main and are not caused by this pull request; leave them unchanged:\n- Test / test\n");
+        assertThat(run.currentTurnId()).contains(turnId.toString());
     }
 
     @Test
     void rejectsFutureOrChangedDevelopmentScopeBeforeProvisioning()
     {
         AgentTask parent = developmentParent();
-        TurnId source = reserveParent(parent);
-        assertThatThrownBy(() -> service.startDevelopment(startCommand("future-owned"), parent.id(), source, publishedPr(), NOW.plusSeconds(1)))
+        reserveParent(parent);
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("future-owned"), parent.id(), publishedPr(), NOW.plusSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("future");
         GitHubPullRequestIdentity expected = publishedPr();
         GitHubPullRequestIdentity moved = new GitHubPullRequestIdentity(expected.pullRequest(), expected.url(), expected.headRepository(), expected.headBranch(),
                 FIXED_HEAD, expected.baseRepository(), expected.baseBranch(), expected.baseSha(), expected.state(), expected.draft(), expected.author());
-        assertThatThrownBy(() -> service.startDevelopment(startCommand("moved-owned"), parent.id(), source, moved, NOW))
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("moved-owned"), parent.id(), moved, NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
         GitHubPullRequestIdentity differentFork = new GitHubPullRequestIdentity(expected.pullRequest(), expected.url(), FORK, expected.headBranch(),
                 expected.headSha(), expected.baseRepository(), expected.baseBranch(), expected.baseSha(), expected.state(), expected.draft(), expected.author());
-        assertThatThrownBy(() -> service.startDevelopment(startCommand("fork-owned"), parent.id(), source, differentFork, NOW))
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("fork-owned"), parent.id(), differentFork, NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
         verify(taskService, never()).create(any());
         verify(provisioning, never()).synchronizeCode(any());
@@ -2151,9 +2336,9 @@ class TestCiAutofixService
     void rejectsAnUnavailableAcceptedCiRepairAgentWithoutFallback()
     {
         AgentTask parent = developmentParent();
-        TurnId source = reserveParent(parent);
+        reserveParent(parent);
         doThrow(new IllegalArgumentException("Accepted CI repair agent is unavailable")).when(drivers).require(AgentLaneId.CLAUDE_CLI);
-        assertThatThrownBy(() -> service.startDevelopment(startCommand("unavailable-owned"), parent.id(), source, publishedPr(), NOW))
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("unavailable-owned"), parent.id(), publishedPr(), NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unavailable");
         verify(gitHub, never()).inspect(any());
         verify(taskService, never()).create(any());
@@ -2174,17 +2359,20 @@ class TestCiAutofixService
     private TurnId reserveParent(AgentTask parent)
     {
         TurnId source = TurnId.random();
-        when(taskStore.find(parent.id())).thenReturn(Optional.of(parent));
+        when(taskStore.find(parent.id())).thenReturn(Optional.of(parent.withDevelopmentContinuation(false, NOW)));
         AgentTurn user = parentTurn(parent.id(), source);
         when(turnStore.find(source)).thenReturn(Optional.of(user));
         when(turnStore.list(parent.id())).thenReturn(ImmutableList.of(user));
         when(eventService.readHistory(eq(parent.id()), any(), any())).thenReturn(new AgentHistoryPage(
                 ImmutableList.of(parentMessage(parent.id(), source, 1, "Implement the requested change", AgentEventPayload.DeliveryKind.TURN)),
                 OptionalLong.empty(), OptionalLong.empty(), 1));
-        synchronized (runtimes.taskLock(parent.id())) {
-            ReflectionTestUtils.invokeMethod(runtimes, "reserveDevelopmentOwner", parent.id(), source);
-        }
         return source;
+    }
+
+    private TaskId openParent(AgentTask parent)
+    {
+        reserveParent(parent);
+        return parent.id();
     }
 
     private static AgentTurn parentTurn(TaskId parent, TurnId turn)
@@ -2217,6 +2405,7 @@ class TestCiAutofixService
                 requestedStore,
                 gitHub,
                 writes,
+                pullRequestReads,
                 taskService,
                 turnService,
                 completionService,

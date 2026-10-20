@@ -57,7 +57,7 @@ it('requires current paused CI authority and a bounded text message', () => {
   for (const ci of [undefined, { ...CI_PROJECTION, canMessage: false }, { ...CI_PROJECTION, status: 'ACTIVE' as const }, { ...CI_PROJECTION, status: 'FINISHED' as const }]) {
     expect(ciMessageUnavailable({ ...paused, task: { ...paused.task, developmentCi: ci } })).not.toBeNull();
   }
-  expect(ciMessageUnavailable({ ...paused, task: { ...paused.task, developmentContinuationUnfinished: false } })).not.toBeNull();
+  expect(ciMessageUnavailable({ ...paused, task: { ...paused.task, developmentContinuationUnfinished: false } })).toBeNull();
   expect(ciMessageUnavailable({ ...paused, task: { ...paused.task, state: 'COMPLETED' } })).not.toBeNull();
 });
 
@@ -98,6 +98,18 @@ it('shows waiting CI as automation while the agent is idle and keeps the next dr
   expect(html).toContain('Make another change</textarea>');
   expect(html).toMatch(/<button[^>]*aria-label="Send message"[^>]*disabled/);
   expect(ciMessageUnavailable({ ...state, composer: '@ci Continue' })).not.toBeNull();
+});
+
+it('shows CI Autofix beside an idle task without blocking its next message', () => {
+  const state: AgentTaskState = { ...paused, composer: 'Make another change', task: { ...paused.task, developmentContinuationUnfinished: false,
+    developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'WATCHING_CI', attemptsUsed: 0, canMessage: false } } };
+  const html = renderToStaticMarkup(<AgentTaskBody state={state} models={[]} {...TASK_BODY_NOOPS} />);
+  expect(html).toContain('CI Autofix · Waiting for CI');
+  expect(html).toContain('aria-label="Stop CI Autofix"');
+  expect(html).not.toContain('Stop automation');
+  expect(html).not.toContain('placeholder="Draft your next message…"');
+  expect(html).toMatch(/<button[^>]*aria-label="Send message"(?![^>]*disabled)[^>]*>/);
+  expect(ciActivity({ ...CI_PROJECTION, status: 'ACTIVE', activity: 'BASE_FAILURE', canMessage: false })).toBe('Already failing on the base branch');
 });
 
 it('allows steering the linked CI turn using its own provider capability', () => {

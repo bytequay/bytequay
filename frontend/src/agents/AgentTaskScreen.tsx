@@ -912,6 +912,8 @@ export function AgentTaskBody({
   ciPollingError = null,
   ciApprovalError = null,
   ciSubmissionBlocked = false,
+  ciStopping = false,
+  onStopCi = () => {},
   onRefreshPullRequests,
   pullRequestDetail = NO_PULL_REQUEST_DETAIL,
   pullRequestChanges = NO_PULL_REQUEST_CHANGES,
@@ -1037,6 +1039,9 @@ export function AgentTaskBody({
   ciPollingError?: string | null;
   ciApprovalError?: string | null;
   ciSubmissionBlocked?: boolean;
+  /** CI Autofix watches the pull request beside the task; this stops its current run. */
+  ciStopping?: boolean;
+  onStopCi?: () => void;
   onRefreshPullRequests?: () => void;
   /** What the wrapper has read for the panel's pull request; this body reads nothing itself. */
   pullRequestDetail?: TaskPullRequestDetail;
@@ -1285,8 +1290,8 @@ export function AgentTaskBody({
 
       {terminal && state.task !== null && <TerminalSummary task={state.task} repository={repository} onCleanup={onCleanup} />}
 
-      {automationActive && ciPollingError !== null && <div className="agt-notice" role="alert">{ciPollingError}</div>}
-      {automationActive && ciApprovalError !== null && <div className="agt-notice" role="alert">{ciApprovalError}</div>}
+      {(automationActive || currentCi != null) && ciPollingError !== null && <div className="agt-notice" role="alert">{ciPollingError}</div>}
+      {(automationActive || currentCi != null) && ciApprovalError !== null && <div className="agt-notice" role="alert">{ciApprovalError}</div>}
 
       {automationFailure !== null && recordedCiFailure === null && <div className="agt-notice" role="alert">
         {automationFailure}
@@ -1361,6 +1366,15 @@ export function AgentTaskBody({
         <button type="button" className="agt-automation-progress__stop" aria-label="Stop automation"
           disabled={state.sending || ciSubmissionBlocked} onClick={onStopServer}>Stop automation and continue…</button>
         {!routedToCi && <p>Stop automation to send another message. Your draft will be kept.</p>}
+      </div>}
+
+      {!terminal && !automationActive && currentCi != null && status !== 'recovery' && <div className="agt-automation-progress">
+        <span className="agt-automation-progress__pill" role="status">
+          <span className="agt-automation-progress__dot" aria-hidden="true" />
+          {`CI Autofix · ${ciWaiting ? 'Needs approval' : ciActivity(currentCi)}`}
+        </span>
+        <button type="button" className="agt-automation-progress__stop" aria-label="Stop CI Autofix"
+          disabled={ciStopping} onClick={onStopCi}>{ciStopping ? 'Stopping…' : 'Stop CI Autofix'}</button>
       </div>}
 
       {/* The design's composer: the message above one row of controls, and one round button. */}
@@ -1850,7 +1864,8 @@ export default function AgentTaskScreen({
   const panelOpen = panelChoice ?? taskPr !== null;
   const canRefreshPullRequests = taskLoaded && state.connection === 'open' && pullRequestTurnKnown && !running;
   const continuationUnfinished = state.task?.developmentContinuationUnfinished ?? false;
-  const pollContinuation = continuationUnfinished && state.task?.state === 'OPEN';
+  const ciLive = state.task?.developmentCi != null && state.task.developmentCi.status !== 'FINISHED';
+  const pollContinuation = (continuationUnfinished || ciLive) && state.task?.state === 'OPEN';
   useEffect(() => {
     if (!pollContinuation) { setCiApprovalState(null); return; }
     let active = true;
@@ -1861,7 +1876,10 @@ export default function AgentTaskScreen({
         if (!active) return;
         dispatch({ type: 'task/loaded', task });
         setCiPollingError(null);
-        if (task.state !== 'OPEN' || !task.developmentContinuationUnfinished) { setCiApprovalState(null); return; }
+        if (task.state !== 'OPEN' || (!task.developmentContinuationUnfinished && (task.developmentCi == null || task.developmentCi.status === 'FINISHED'))) {
+          setCiApprovalState(null);
+          return;
+        }
         const ci = task.developmentCi;
         if (ci?.status === 'ACTIVE' && ci.agentTaskId !== null) {
           try {
@@ -1884,6 +1902,23 @@ export default function AgentTaskScreen({
     timer = setTimeout(() => { void read(); }, 5000);
     return () => { active = false; clearTimeout(timer); };
   }, [live, taskId, workspaceId, pollContinuation]);
+  const [ciStopping, setCiStopping] = useState(false);
+  const stopCi = useCallback(async () => {
+    const ci = stateRef.current.task?.developmentCi;
+    if (ci == null || ci.status === 'FINISHED') return;
+    setCiStopping(true);
+    try {
+      await live().cancelCiAutofixRun(ci.runId);
+      const task = await live().getAgentTask(taskId, workspaceId);
+      if (!mountedRef.current) return;
+      dispatch({ type: 'task/loaded', task });
+      setCiPollingError(null);
+    } catch (failure) {
+      if (mountedRef.current) setCiPollingError(`Could not stop CI Autofix. ${failureText(failure)}`);
+    } finally {
+      if (mountedRef.current) setCiStopping(false);
+    }
+  }, [live, taskId, workspaceId]);
   useEffect(() => {
     if (!taskLoaded) return;
     let active = true;
@@ -2708,6 +2743,8 @@ export default function AgentTaskScreen({
       }}
       onSelectModel={(model, effort, serviceTier) => { void selectModel(model, effort, serviceTier); }}
       onStopServer={() => { void stopServer(); }}
+      ciStopping={ciStopping}
+      onStopCi={() => { void stopCi(); }}
       onMarkFailed={() => { void markFailed(); }}
       onRefreshProvider={() => { void refreshProvider(); }}
       onSignInProvider={taskKeyLane || providerStatus === null ? undefined
@@ -2797,10 +2834,6 @@ export default function AgentTaskScreen({
           <p>{confirmation.automation
             ? 'This stops the current automation and keeps the task open. Once shutdown is verified, you can send another message here. The stopped work is not retried automatically.'
             : 'You can continue once ByteQuay confirms the agent has stopped.'}</p>
-          {confirmation.automation && state.task?.developmentCi != null && <p>
-            This also stops the linked CI agents. Remote branch <code>{state.task.developmentCi.headRef}</code> and{' '}
-            <a href={state.task.developmentCi.pullRequestUrl}>PR #{state.task.developmentCi.pullRequestNumber}</a> remain on GitHub.
-          </p>}
         </> : <>
           <p>This ends the task. You won’t be able to send more messages here.</p>
           <p>Your conversation and any uncommitted changes are kept. ByteQuay may remove a clean checkout, but keeps its branch.</p>

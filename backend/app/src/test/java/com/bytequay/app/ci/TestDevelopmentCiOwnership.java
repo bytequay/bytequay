@@ -28,6 +28,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
@@ -48,7 +49,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockMakers;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -87,11 +87,11 @@ class TestDevelopmentCiOwnership
     void acceptsAssignedParentWithSeparateLocalBranch()
     {
         AgentTask parent = task(FORK).withDevelopmentContinuation(true, NOW);
-        TurnId source = reserveParent(parent);
+        openParent(parent);
         assign(parent);
         CiAutofixRun run = assignedRun(Optional.of(parent.id().toString()));
 
-        ownership.insert(run, Optional.of(source));
+        ownership.insert(run);
 
         verify(store).insert(run);
         assertThat(ownership.authorized(run)).isTrue();
@@ -102,7 +102,7 @@ class TestDevelopmentCiOwnership
     void rejectsAssignedParentOutsideExactPullRequest(String mismatch)
     {
         AgentTask parent = task(mismatch.equals("headRepository") ? BASE : FORK).withDevelopmentContinuation(true, NOW);
-        TurnId source = reserveParent(parent);
+        openParent(parent);
         if (!mismatch.equals("missing")) {
             when(assignments.findByTaskId(parent.id().toString())).thenReturn(Optional.of(new PullRequestTask(
                     mismatch.equals("task") ? TaskId.random().toString() : parent.id().toString(),
@@ -110,7 +110,7 @@ class TestDevelopmentCiOwnership
                     mismatch.equals("repo") ? "other/project" : BASE.fullName(), mismatch.equals("number") ? 2 : 1, "Assigned PR")));
         }
 
-        assertThatThrownBy(() -> ownership.insert(assignedRun(Optional.of(parent.id().toString())), Optional.of(source)))
+        assertThatThrownBy(() -> ownership.insert(assignedRun(Optional.of(parent.id().toString()))))
                 .isInstanceOf(CiAutofixConflictException.class).hasMessageContaining("does not belong to the development parent");
         verify(store, never()).insert(any());
     }
@@ -123,7 +123,7 @@ class TestDevelopmentCiOwnership
         when(tasks.listByWorkspace("workspace")).thenReturn(ImmutableList.of(source));
         when(tasks.find(source.id())).thenReturn(Optional.of(source));
 
-        assertThatThrownBy(() -> ownership.insert(assignedRun(Optional.empty()), Optional.empty()))
+        assertThatThrownBy(() -> ownership.insert(assignedRun(Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class).hasMessageContaining("still using this pull request branch");
         verify(store, never()).insert(any());
     }
@@ -145,14 +145,68 @@ class TestDevelopmentCiOwnership
     }
 
     @Test
-    void unfinishedParentRunBlocksAdmissionWithoutCachedPullRequest()
+    void watchingParentRunAdmitsSourceWorkButARepairStillWritingBlocksIt()
     {
         AgentTask source = task(FORK);
         assign(source);
         CiAutofixRun run = assignedRun(Optional.of(source.id().toString()));
         when(store.listByParentTaskId(source.id().toString())).thenReturn(ImmutableList.of(run));
+        when(store.findByActiveBranch(FORK.fullName(), source.taskWorktree().orElseThrow().generatedBranch())).thenReturn(Optional.of(run));
 
-        assertThatThrownBy(() -> ownership.requireSourceAdmission(source)).isInstanceOf(AgentConflictException.class);
+        ownership.requireSourceAdmission(source);
+
+        when(store.listByParentTaskId(source.id().toString())).thenReturn(ImmutableList.of(run.linkUserTurn(TurnId.random().toString(), NOW)));
+        assertThatThrownBy(() -> ownership.requireSourceAdmission(source)).isInstanceOf(AgentConflictException.class).hasMessageContaining("still repairing");
+    }
+
+    @Test
+    void authorityFollowsTheOpenParentUntilRevoked()
+    {
+        AgentTask parent = task(FORK);
+        when(tasks.find(parent.id())).thenReturn(Optional.of(parent));
+        CiAutofixRun run = run(parent, FORK, Optional.of(parent.id().toString()));
+        CiAutofixRun sibling = run(parent, FORK, Optional.of(parent.id().toString()));
+        assertThat(ownership.authorized(run)).isTrue();
+
+        ownership.revoke(run.id());
+        ownership.drain(run.id());
+        assertThat(ownership.authorized(run)).isFalse();
+        assertThat(ownership.authorized(sibling)).isTrue();
+
+        when(tasks.find(parent.id())).thenReturn(Optional.of(parent.withArchived(true, NOW).fail("Stopped", NOW, NOW.plusSeconds(60))));
+        assertThat(ownership.authorized(sibling)).isFalse();
+        assertThatThrownBy(() -> ownership.require(sibling)).isInstanceOf(CiAutofixConflictException.class);
+        assertThat(ownership.authorized(run(parent, FORK, Optional.empty()))).isTrue();
+    }
+
+    @Test
+    void parentIsBusyWhileItsTurnOrAutomationOwnsTheBranchButNotForALocalRun()
+    {
+        AgentTask parent = task(FORK);
+        CiAutofixRun run = run(parent, FORK, Optional.of(parent.id().toString()));
+        when(tasks.find(parent.id())).thenReturn(Optional.of(parent));
+        assertThat(ownership.parentBusy(run)).isFalse();
+
+        when(tasks.find(parent.id())).thenReturn(Optional.of(parent.claimWorktreeMutation(WorktreeMutationClaim.localRun("tears", NOW), NOW)));
+        assertThat(ownership.parentBusy(run)).isFalse();
+
+        when(tasks.find(parent.id())).thenReturn(Optional.of(parent.claimWorktreeMutation(WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW)));
+        assertThat(ownership.parentBusy(run)).isTrue();
+
+        when(tasks.find(parent.id())).thenReturn(Optional.of(parent.withDevelopmentContinuation(true, NOW)));
+        assertThat(ownership.parentBusy(run)).isTrue();
+        assertThat(ownership.parentBusy(run(parent, FORK, Optional.empty()))).isFalse();
+    }
+
+    @Test
+    void repairInstructionsCarryEveryAcceptedUserInputOfTheParent()
+    {
+        AgentTask parent = task(FORK);
+        openParent(parent);
+        AgentTask child = task(FORK);
+        when(store.findByAgentTaskId(child.id().toString())).thenReturn(Optional.of(run(parent, FORK, Optional.of(parent.id().toString()))));
+
+        assertThat(ownership.instructions(child)).contains("Development request scope for this CI task", "--- Accepted user input ---\nFix the requested code\n");
     }
 
     @ParameterizedTest
@@ -160,15 +214,15 @@ class TestDevelopmentCiOwnership
     void acceptsOnlyParentFromExactHeadRepository(String owner)
     {
         AgentTask parent = task(RepoRef.of(owner, "project")).withDevelopmentContinuation(true, NOW);
-        TurnId source = reserveParent(parent);
+        openParent(parent);
         CiAutofixRun run = run(parent, FORK, Optional.of(parent.id().toString()));
 
         if (owner.equals(FORK.owner())) {
-            ownership.insert(run, Optional.of(source));
+            ownership.insert(run);
             verify(store).insert(run);
         }
         else {
-            assertThatThrownBy(() -> ownership.insert(run, Optional.of(source)))
+            assertThatThrownBy(() -> ownership.insert(run))
                     .isInstanceOf(CiAutofixConflictException.class).hasMessageContaining("does not belong to the development parent");
             verify(store, never()).insert(any());
         }
@@ -181,7 +235,7 @@ class TestDevelopmentCiOwnership
         when(tasks.listByWorkspace("workspace")).thenReturn(ImmutableList.of(source));
         when(tasks.find(source.id())).thenReturn(Optional.of(source));
 
-        assertThatThrownBy(() -> ownership.insert(run(source, FORK, Optional.empty()), Optional.empty()))
+        assertThatThrownBy(() -> ownership.insert(run(source, FORK, Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class).hasMessageContaining("still using this pull request branch");
         verify(store, never()).insert(any());
     }
@@ -193,7 +247,7 @@ class TestDevelopmentCiOwnership
         when(tasks.listByWorkspace("workspace")).thenReturn(ImmutableList.of(source));
         CiAutofixRun run = run(source, BASE, Optional.empty());
 
-        ownership.insert(run, Optional.empty());
+        ownership.insert(run);
 
         verify(store).insert(run);
         verify(tasks, never()).find(any());
@@ -241,7 +295,7 @@ class TestDevelopmentCiOwnership
         when(assignments.findByTaskId(source.id().toString())).thenReturn(Optional.of(new PullRequestTask(source.id().toString(), "workspace", BASE.fullName(), 1, "Assigned PR")));
     }
 
-    private TurnId reserveParent(AgentTask parent)
+    private void openParent(AgentTask parent)
     {
         TurnId id = TurnId.random();
         AgentTurn turn = AgentTurn.accepted(id, parent.id(), id.toString(), new AgentTurnSettings(
@@ -252,9 +306,5 @@ class TestDevelopmentCiOwnership
         AgentEventEnvelope input = new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, parent.id(), Optional.of(id), root(), NOW,
                 new AgentEventPayload.UserMessage("Fix the requested code", ImmutableList.of(), AgentEventPayload.DeliveryKind.TURN));
         when(events.readHistory(eq(parent.id()), any(), any())).thenReturn(new AgentHistoryPage(ImmutableList.of(input), OptionalLong.empty(), OptionalLong.empty(), 1));
-        synchronized (runtimes.taskLock(parent.id())) {
-            ReflectionTestUtils.invokeMethod(runtimes, "reserveDevelopmentOwner", parent.id(), id);
-        }
-        return id;
     }
 }

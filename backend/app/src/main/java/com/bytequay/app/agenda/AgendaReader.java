@@ -398,7 +398,7 @@ public class AgendaReader
                             AgendaTarget.of(AgendaTarget.Kind.WORK, item.workspaceId(), item.id())))));
             Optional<Findings> findings = review ? Optional.empty() : findings(notice.taskId());
             String state = switch (notice.kind()) {
-                case QUESTION, APPROVAL, RECOVERY, QUEUE_PAUSED -> "waiting_on_you";
+                case QUESTION, APPROVAL, RECOVERY, QUEUE_PAUSED, CI_ATTENTION -> "waiting_on_you";
                 case FAILURE, TURN_FINISHED -> "idle";
             };
             Optional<String> waitingFor = waitingFor(notice);
@@ -423,6 +423,7 @@ public class AgendaReader
             case APPROVAL -> Optional.of("approval");
             case RECOVERY -> Optional.of("recovery");
             case QUEUE_PAUSED -> Optional.of("queue");
+            case CI_ATTENTION -> Optional.of("ci");
             case FAILURE, TURN_FINISHED -> Optional.empty();
         };
     }

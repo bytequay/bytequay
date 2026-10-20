@@ -29,6 +29,7 @@ export function ciActivity(ci: Pick<AgentDevelopmentCiDto, 'status' | 'activity'
   if (ci.status === 'PAUSED') return ci.canMessage ? 'CI needs your input' : 'CI Autofix paused';
   switch (ci.activity) {
     case 'FIXING': return `Fixing CI ${ci.attemptsUsed}/${ci.maxAttempts}`;
+    case 'BASE_FAILURE': return 'Already failing on the base branch';
     case 'REBASING': return 'Rebasing CI changes';
     case 'PUSHING': return 'Pushing CI changes';
     case 'RERUNNING_CI': return 'Rerunning CI';
@@ -48,7 +49,7 @@ export function ciMessage(text: string): string | null {
 export function ciMessageUnavailable(state: AgentTaskState): string | null {
   const ci = state.task?.developmentCi;
   if (ci == null) return 'No CI Autofix run is available for this task.';
-  if (ci.status === 'FINISHED' || !state.task?.developmentContinuationUnfinished) return 'This CI Autofix run has ended.';
+  if (ci.status === 'FINISHED') return 'This CI Autofix run has ended.';
   if (state.connection !== 'open' || state.gap) return 'Reconnect to send a message to CI Autofix.';
   if (runtimeStatus(state) !== 'idle' || !ci.canMessage
     || (ci.status === 'ACTIVE' && (ci.activity !== 'FIXING' || ci.currentTurnId === null))) {

@@ -169,6 +169,21 @@ class TestCiAutofixHttpApi
     }
 
     @Test
+    void cancelsARun()
+            throws Exception
+    {
+        CiAutofixRun cancelled = run.finish(CiAutofixRun.FinishReason.CANCELLED, "CI Autofix stopped by user", NOW);
+        when(service.cancel(run.id())).thenReturn(cancelled);
+
+        mvc.perform(post("/api/ci-autofix/runs/{runId}/cancel", run.id())
+                        .header(AgentController.SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FINISHED"))
+                .andExpect(jsonPath("$.finishReason").value("CANCELLED"));
+        verify(service).cancel(run.id());
+    }
+
+    @Test
     void validatesHeadersAndMapsCiDomainFailures()
             throws Exception
     {

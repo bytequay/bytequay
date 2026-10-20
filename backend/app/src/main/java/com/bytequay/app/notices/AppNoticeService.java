@@ -28,6 +28,8 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.app.context.ContextText;
+import com.bytequay.core.ci.CiAutofixRun;
+import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.review.AgentReview;
@@ -60,6 +62,7 @@ public class AppNoticeService
     private final QueuedInputStore queues;
     private final AgentReviewStore reviews;
     private final PullRequestStore pullRequests;
+    private final CiAutofixStore ciRuns;
     private final ObjectMapper mapper;
 
     public AppNoticeService(
@@ -69,6 +72,7 @@ public class AppNoticeService
             QueuedInputStore queues,
             AgentReviewStore reviews,
             PullRequestStore pullRequests,
+            CiAutofixStore ciRuns,
             ObjectMapper mapper)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -77,6 +81,7 @@ public class AppNoticeService
         this.queues = requireNonNull(queues, "queues is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.ciRuns = requireNonNull(ciRuns, "ciRuns is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -156,6 +161,10 @@ public class AppNoticeService
                     : input.pauseReason().orElse("Queued messages are waiting for you to resume them.");
             return Optional.of(notice(task, review, latest, "queue:" + input.id() + ":" + input.updatedAt(), AppNotice.Kind.QUEUE_PAUSED, message, input.updatedAt()));
         }
+        Optional<AppNotice> ci = task.state() == TaskState.OPEN ? ciNotice(task, review, latest) : Optional.empty();
+        if (ci.isPresent()) {
+            return ci;
+        }
         // A completed turn can still hand off to a queued message or another review step.
         if (!queue.isEmpty() || review.map(value -> reviews.listRuns(value.id()).stream().anyMatch(ReviewRun::active)).orElse(false)) {
             return Optional.empty();
@@ -163,6 +172,23 @@ public class AppNoticeService
         return latest.filter(turn -> turn.state() == TurnState.COMPLETED)
                 .map(turn -> notice(task, review, latest, "finished:" + turn.id(), AppNotice.Kind.TURN_FINISHED,
                         "The latest response is ready to read.", turn.endedAt().orElseThrow()));
+    }
+
+    /** The latest CI run watching a development task, when it needs the user: a pause, failures the base also has, or no repair left. */
+    private Optional<AppNotice> ciNotice(AgentTask task, Optional<AgentReview> review, Optional<AgentTurn> latest)
+    {
+        return ciRuns.listByParentTaskId(task.id().toString()).stream().max(comparing(CiAutofixRun::createdAt)).flatMap(run -> {
+            String key = "ci:" + run.id() + ":";
+            if (run.status() == CiAutofixRun.Status.PAUSED) {
+                return Optional.of(notice(task, review, latest, key + "paused:" + run.version(), AppNotice.Kind.CI_ATTENTION,
+                        "CI Autofix paused: " + run.summary().orElseThrow(), run.updatedAt()));
+            }
+            if (run.finishReason().filter(CiAutofixRun.FinishReason.MAX_ATTEMPTS::equals).isPresent()) {
+                return Optional.of(notice(task, review, latest, key + "attempts", AppNotice.Kind.CI_ATTENTION, run.summary().orElseThrow(), run.terminalAt().orElseThrow()));
+            }
+            return run.baseFailureWarning().filter(warning -> run.status() == CiAutofixRun.Status.ACTIVE)
+                    .map(warning -> notice(task, review, latest, key + warning.code(), AppNotice.Kind.CI_ATTENTION, warning.message(), warning.occurredAt()));
+        });
     }
 
     private String question(String detail)

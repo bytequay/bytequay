@@ -39,6 +39,7 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
@@ -91,6 +92,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableExce
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.app.repository.github.GitHubPaginator.forEachCompletePage;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -368,6 +370,29 @@ public class GitHubActionsClient
             }
         }
         return Optional.of(unavailableReason);
+    }
+
+    @Override
+    public Set<String> failedJobsOnBranch(PullRequestRef pullRequest, long workflowId, String branch)
+    {
+        requireNonNull(pullRequest, "pullRequest is null");
+        String pat = token();
+        // Push runs only: a fork's pull request may come from a branch with the same name.
+        WorkflowRunsResponse runs = translating(() -> requireBody(conditional(
+                "branch-runs/" + pullRequest.owner() + "/" + pullRequest.repo() + "/" + workflowId + "/" + branch,
+                get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/actions/workflows/{workflowId}/runs")
+                        .queryParam("branch", branch)
+                        .queryParam("event", "push")
+                        .queryParam("status", "completed")
+                        .queryParam("per_page", 1)
+                        .build(pullRequest.owner(), pullRequest.repo(), workflowId)),
+                WorkflowRunsResponse.class), "GitHub returned empty base-branch workflow runs"));
+        return Optional.ofNullable(runs.rows()).orElse(ImmutableList.of()).stream().findFirst()
+                .map(run -> fetchJobs(pat, pullRequest, run.id(), positiveOrOne(run.runAttempt()), run.htmlUrl()).stream()
+                        .filter(CiJob::actionableFailure)
+                        .map(CiJob::name)
+                        .collect(toImmutableSet()))
+                .orElse(ImmutableSet.of());
     }
 
     @Override

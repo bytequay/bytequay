@@ -339,7 +339,7 @@ class TestSqliteCiAutofixStore
     }
 
     @Test
-    void persistsParentAndExcludesOwnedRunsAndRebasesBeforeTheMonitorLimit()
+    void persistsParentAndListsOwnedRunsForTheMonitorButNotTheirRebases()
     {
         CiAutofixRun prototype = newRun("owned", "owned-feature", NOW);
         Scope scope = prototype.scope();
@@ -355,7 +355,8 @@ class TestSqliteCiAutofixStore
 
         assertThat(store.listByParentTaskId("parent-task")).containsExactly(owned);
         assertThat(store.findByActiveBranch("BYTEQUAY/SAMPLE", "owned-feature")).contains(owned);
-        assertThat(store.listStandaloneNonFinished(1)).containsExactly(standalone);
+        assertThat(store.listNonFinished(1)).containsExactly(owned);
+        assertThat(store.listNonFinished(10)).containsExactly(owned, standalone);
         assertThat(rebases.listRunning(10)).contains(rebase);
         assertThat(rebases.listIndependentlyRunning(10)).doesNotContain(rebase);
 

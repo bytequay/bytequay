@@ -137,11 +137,11 @@ public class SqliteCiAutofixStore
     }
 
     @Override
-    public List<CiAutofixRun> listStandaloneNonFinished(int limit)
+    public List<CiAutofixRun> listNonFinished(int limit)
     {
         checkLimit(limit);
-        return read("Cannot list independently scheduled CI Autofix runs",
-                () -> runRepository.findByStatusInAndParentTaskIdIsNullOrderByUpdatedAtAsc(NON_FINISHED, PageRequest.of(0, limit)).stream()
+        return read("Cannot list unfinished CI Autofix runs",
+                () -> runRepository.findByStatusInOrderByUpdatedAtAsc(NON_FINISHED, PageRequest.of(0, limit)).stream()
                         .map(this::toProjection)
                         .collect(toImmutableList()),
                 StorageException::new);

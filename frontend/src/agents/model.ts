@@ -90,6 +90,7 @@ export type AgentBridgePort = Pick<Bridge,
   | 'listAgentTaskChanges'
   | 'listAgentTaskActivity'
   | 'getCiAutofixRun'
+  | 'cancelCiAutofixRun'
   | 'sendCiAutofixMessage'
   | 'syncPrs'
   | 'getEffectiveTurnSettings'

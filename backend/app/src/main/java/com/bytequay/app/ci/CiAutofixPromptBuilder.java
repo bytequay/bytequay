@@ -15,7 +15,10 @@ package com.bytequay.app.ci;
 
 import com.bytequay.core.ci.CiAutofixAttempt;
 
+import java.util.List;
+
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 final class CiAutofixPromptBuilder
 {
@@ -46,18 +49,24 @@ final class CiAutofixPromptBuilder
             success, Git validity or next actions.
             """;
 
-    public String build(CiHeadSnapshot snapshot, CiAutofixAttempt attempt)
+    /** Names failed jobs the base branch's latest run also has, so the agent leaves them to whoever broke the base. */
+    public String build(CiHeadSnapshot snapshot, CiAutofixAttempt attempt, String baseRef, List<String> inherited)
     {
         requireNonNull(snapshot, "snapshot is null");
         requireNonNull(attempt, "attempt is null");
+        String leave = inherited.isEmpty() ? "" : """
+
+                These failed jobs also fail on %s and are not caused by this pull request; leave them unchanged:
+                %s
+                """.formatted(baseRef, inherited.stream().map(job -> "- " + job).collect(joining("\n")));
         return """
                 Verified current CI context:
                 - Pull request: %s
                 - Remote head: %s (%s)
                 - Prepared local head: %s
                 - Base: %s (%s)
-
+                %s
                 %s""".formatted(snapshot.pullRequest().fullName(), snapshot.headSha(), snapshot.headRef(),
-                attempt.inputSha(), snapshot.baseSha(), snapshot.baseRef(), INSTRUCTION);
+                attempt.inputSha(), snapshot.baseSha(), snapshot.baseRef(), leave, INSTRUCTION);
     }
 }

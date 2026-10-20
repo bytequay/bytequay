@@ -266,6 +266,7 @@ export function createPreviewBridge(
       throw new Error('This preview has no local review discussion');
     },
     getCiAutofixRun: async () => { throw new Error('This preview has no CI run'); },
+    cancelCiAutofixRun: async () => { throw new Error('This preview has no CI run'); },
     sendCiAutofixMessage: async () => { throw new Error('This preview has no CI run'); },
     syncPrs: async (id) => {
       record('syncPrs', id);

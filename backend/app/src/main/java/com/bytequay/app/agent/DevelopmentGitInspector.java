@@ -298,32 +298,20 @@ public class DevelopmentGitInspector
         verify(worktree, route);
     }
 
-    /** Synchronizes a stopped, clean source to a freshly verified published revision. */
-    public DevelopmentLocalFacts synchronizeSource(DevelopmentBaseline baseline, String expectedSourceHead, String publishedHead, Runnable requireAuthority)
+    /** Moves a clean source to a revision another checkout of the same repository created, such as a CI repair; no fetch occurs. */
+    public DevelopmentLocalFacts synchronizeSource(DevelopmentBaseline baseline, String expectedSourceHead, String revision)
     {
         requireNonNull(baseline, "baseline is null");
-        requireNonNull(requireAuthority, "requireAuthority is null");
         checkSha(expectedSourceHead, "sha");
-        checkSha(publishedHead, "sha");
+        checkSha(revision, "sha");
         TaskWorktree worktree = baseline.worktree();
-        requireAuthority.run();
         requireSyncSource(baseline, expectedSourceHead);
-        if (expectedSourceHead.equals(publishedHead)) {
-            return inspectLocal(worktree, baseline.route());
-        }
-        var environment = credentials.gitAuthenticationEnvironment(worktree.workspaceId(), ImmutableList.of(baseline.route().pushUrl()));
-        requireAuthority.run();
-        Result fetched = git.run(worktree.canonicalWorktree(), Duration.ofSeconds(60), environment,
-                ImmutableList.of("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "--", baseline.route().pushUrl(), publishedHead));
-        checkState(fetched.successful() && !fetched.truncated(), "Source synchronization could not fetch the exact published revision");
-        checkState(output(worktree, "cat-file", "-t", publishedHead).strip().equals("commit"), "Published revision is not a commit");
-        requireSyncSource(baseline, expectedSourceHead);
-        requireAuthority.run();
+        checkState(output(worktree, "cat-file", "-t", revision).strip().equals("commit"), "The revision to synchronize is not a commit");
         // Unlike reset --keep, this preserves ignored build output and refuses ignored-path collisions.
         Result updated = git.run(worktree.canonicalWorktree(), "-c", "core.hooksPath=/dev/null", "checkout",
-                "--no-overwrite-ignore", "--no-recurse-submodules", "-B", worktree.generatedBranch(), publishedHead);
-        checkState(updated.successful() && !updated.truncated(), "Source synchronization failed during the worktree update; inspect local files. Remote results remain unchanged");
-        requireSyncSource(baseline, publishedHead);
+                "--no-overwrite-ignore", "--no-recurse-submodules", "-B", worktree.generatedBranch(), revision);
+        checkState(updated.successful() && !updated.truncated(), "Source synchronization failed during the worktree update; inspect local files");
+        requireSyncSource(baseline, revision);
         return inspectLocal(worktree, baseline.route());
     }
 

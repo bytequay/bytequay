@@ -105,7 +105,7 @@ public class WorkflowMonitorJob
         if (!servingGate.isReady()) {
             return;
         }
-        advanceEach("CI Autofix run", ciRuns.listStandaloneNonFinished(BATCH_SIZE).stream().map(CiAutofixRun::id).collect(toImmutableList()), ciService::advance);
+        advanceEach("CI Autofix run", ciRuns.listNonFinished(BATCH_SIZE).stream().map(CiAutofixRun::id).collect(toImmutableList()), ciService::advance);
         retryFinished("CI Autofix run", AgentPermissionPolicy.CI_AUTOFIX, BATCH_SIZE,
                 taskId -> ciRuns.findByAgentTaskId(taskId).filter(run -> run.scope().parentTaskId().isEmpty())
                         .filter(run -> run.status() == CiAutofixRun.Status.FINISHED).map(CiAutofixRun::id), ciService::advance);

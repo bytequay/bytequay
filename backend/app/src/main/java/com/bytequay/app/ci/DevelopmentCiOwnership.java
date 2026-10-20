@@ -21,6 +21,7 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
@@ -39,7 +40,6 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
@@ -47,7 +47,10 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
-/** Live authority only; a persisted parent link can never recreate it after restart. */
+/**
+ * A development task's CI runs watch its pull request beside it. They act while the task is open and
+ * nothing stopped them, so the monitor resumes them after a restart.
+ */
 public final class DevelopmentCiOwnership
 {
     private static final int MAXIMUM_SCOPE_CHARACTERS = 128 * 1024;
@@ -59,7 +62,8 @@ public final class DevelopmentCiOwnership
     private final PullRequestStore pullRequests;
     private final AgentEventService events;
     private final AgentRuntimeRegistry runtimes;
-    private final ConcurrentMap<CiAutofixRunId, Owner> owners = new ConcurrentHashMap<>();
+    private final Set<CiAutofixRunId> revoked = ConcurrentHashMap.newKeySet();
+    private final ConcurrentMap<CiAutofixRunId, Object> monitors = new ConcurrentHashMap<>();
 
     public DevelopmentCiOwnership(CiAutofixStore store, AgentTaskStore tasks, AgentTurnStore turns, PullRequestTaskStore assignments, PullRequestStore pullRequests,
             AgentEventService events, AgentRuntimeRegistry runtimes)
@@ -75,13 +79,22 @@ public final class DevelopmentCiOwnership
 
     public boolean authorized(CiAutofixRun run)
     {
-        if (run.scope().parentTaskId().isEmpty()) {
-            return true;
-        }
-        Owner owner = owners.get(run.id());
-        return owner != null && !owner.revoked().get()
-                && run.scope().parentTaskId().orElseThrow().equals(owner.parentTaskId().toString())
-                && runtimes.ownsDevelopmentContinuation(owner.parentTaskId(), owner.sourceTurnId());
+        return run.scope().parentTaskId().isEmpty() || !revoked.contains(run.id()) && parentOpen(parent(run));
+    }
+
+    /** Whether a run is repairing in its own checkout, which source work on the same branch must wait for or stop. */
+    public static boolean writing(CiAutofixRun run)
+    {
+        return run.status() != CiAutofixRun.Status.FINISHED && (run.currentTurnId().isPresent() || run.currentRebaseId().isPresent());
+    }
+
+    /** Whether the development task is working on its branch, so its CI runs must not start another repair. */
+    public boolean parentBusy(CiAutofixRun run)
+    {
+        return run.scope().parentTaskId().isPresent() && tasks.find(parent(run))
+                .filter(task -> task.developmentContinuationUnfinished()
+                        || task.worktreeMutationClaim().filter(claim -> claim.kind() != WorktreeMutationClaim.Kind.LOCAL_RUN).isPresent())
+                .isPresent();
     }
 
     public void requireSourceAdmission(AgentTask task)
@@ -93,55 +106,50 @@ public final class DevelopmentCiOwnership
         Optional<String> assignedBranch = assignment(task)
                 .flatMap(pr -> pullRequests.findIdByRepoAndNumber(pr.repo(), pr.number()).flatMap(pullRequests::findById))
                 .flatMap(pr -> Optional.ofNullable(pr.headRef()));
-        store.listByParentTaskId(task.id().toString()).stream().filter(run -> run.status() != CiAutofixRun.Status.FINISHED).findFirst()
-                .or(() -> store.findByActiveBranch(worktree.physicalRepository().owner() + "/" + worktree.physicalRepository().name(),
-                        assignedBranch.orElse(worktree.generatedBranch())))
+        // The task's own runs only watch CI; a user's turn stops their repairs before it reaches this check.
+        if (store.listByParentTaskId(task.id().toString()).stream().anyMatch(DevelopmentCiOwnership::writing)) {
+            throw new AgentConflictException("CI Autofix is still repairing this task branch; wait for it or stop it first");
+        }
+        store.findByActiveBranch(worktree.physicalRepository().owner() + "/" + worktree.physicalRepository().name(), assignedBranch.orElse(worktree.generatedBranch()))
+                .filter(run -> run.scope().parentTaskId().filter(task.id().toString()::equals).isEmpty())
                 .ifPresent(run -> {
                     throw new AgentConflictException("CI Autofix owns this task branch; stop its run before starting source work");
                 });
     }
 
-    /** Revocation is immediate; callers separately drain actions before stopping provider processes. */
-    public void revoke(TaskId parentTaskId)
+    /** Revocation is immediate; callers drain admitted actions before stopping provider processes. */
+    void revoke(CiAutofixRunId runId)
     {
-        owners.values().stream().filter(owner -> owner.parentTaskId().equals(parentTaskId)).forEach(owner -> owner.revoked().set(true));
+        revoked.add(runId);
     }
 
-    void drain(TaskId parentTaskId)
+    void drain(CiAutofixRunId runId)
     {
-        for (var entry : owners.entrySet()) {
-            Owner owner = entry.getValue();
-            if (owner.parentTaskId().equals(parentTaskId)) {
-                synchronized (owner) {
-                    // An action admitted before revoke may still be returning from a native call.
-                    if (owner.revoked().get()) {
-                        owners.remove(entry.getKey(), owner);
-                    }
-                }
-            }
+        synchronized (monitor(runId)) {
+            // An action admitted before revoke may still be returning from a native call.
+            checkState(revoked.contains(runId), "CI Autofix run was not revoked before draining");
         }
     }
 
     void forgetFinished(CiAutofixRun run)
     {
         if (run.status() == CiAutofixRun.Status.FINISHED) {
-            owners.remove(run.id());
+            monitors.remove(run.id());
         }
     }
 
-    void insert(CiAutofixRun run, Optional<TurnId> sourceTurnId)
+    void insert(CiAutofixRun run)
     {
         if (run.scope().parentTaskId().isPresent()) {
-            TaskId parent = TaskId.valueOf(run.scope().parentTaskId().orElseThrow());
-            TurnId source = sourceTurnId.orElseThrow();
-            String instructions = sourceInstructions(parent, sourceUserTurn(parent, source).id());
+            TaskId parent = parent(run);
+            // Fails before any CI work when the user's scope cannot be carried to the repair in full.
+            sourceInstructions(parent);
             synchronized (runtimes.taskLock(parent)) {
-                requireParent(parent, source);
+                requireParent(parent);
                 if (!tasks.find(parent).filter(task -> matchesSource(task, run)).isPresent()) {
                     throw new CiAutofixConflictException("The CI pull request branch does not belong to the development parent");
                 }
                 store.insert(run);
-                owners.put(run.id(), new Owner(parent, source, instructions, new AtomicBoolean()));
             }
             return;
         }
@@ -168,7 +176,7 @@ public final class DevelopmentCiOwnership
     void require(CiAutofixRun run)
     {
         if (!authorized(run)) {
-            throw new CiAutofixConflictException("The development coordinator no longer authorizes this CI Autofix run");
+            throw new CiAutofixConflictException("The development task no longer authorizes this CI Autofix run");
         }
     }
 
@@ -182,16 +190,14 @@ public final class DevelopmentCiOwnership
         return store.findByAgentTaskId(taskId).flatMap(run -> run.scope().parentTaskId()).isPresent();
     }
 
-    /** Applies the same accepted user scope to repairs, first-turn rebase conflicts, and CI replies. */
+    /** Applies the development task's accepted user scope to repairs, first-turn rebase conflicts, and CI replies. */
     public String instructions(AgentTask task)
     {
         return store.findByAgentTaskId(task.id().toString())
                 .filter(run -> run.scope().parentTaskId().isPresent())
                 .map(run -> {
-                    Owner owner = owners.get(run.id());
                     require(run);
-                    checkState(owner != null, "Development CI user scope is unavailable");
-                    return owner.instructions();
+                    return sourceInstructions(parent(run));
                 })
                 .orElse("");
     }
@@ -201,11 +207,7 @@ public final class DevelopmentCiOwnership
         if (run.scope().parentTaskId().isEmpty()) {
             return action.get();
         }
-        Owner owner = owners.get(run.id());
-        if (owner == null) {
-            throw new CiAutofixConflictException("The development coordinator is unavailable for this CI Autofix run");
-        }
-        synchronized (owner) {
+        synchronized (monitor(run.id())) {
             require(run);
             return action.get();
         }
@@ -216,27 +218,29 @@ public final class DevelopmentCiOwnership
         return store.findByAgentTaskId(taskId.toString()).map(run -> execute(run, action)).orElseGet(action);
     }
 
-    void requireParent(TaskId parent, TurnId source)
+    void requireParent(TaskId parent)
     {
-        AgentTask task = tasks.find(parent).orElseThrow(() -> new CiAutofixConflictException("Development parent task is missing"));
-        if (task.state() != TaskState.OPEN || !task.interactive() || !task.developmentContinuationUnfinished() || !runtimes.ownsDevelopmentContinuation(parent, source)) {
+        if (!parentOpen(parent)) {
             throw new CiAutofixConflictException("Development parent is no longer active");
         }
     }
 
-    private AgentTurn sourceUserTurn(TaskId parent, TurnId source)
+    private boolean parentOpen(TaskId parent)
     {
-        AgentTurn turn = turns.find(source).filter(value -> value.taskId().equals(parent))
-                .orElseThrow(() -> new CiAutofixConflictException("Development source turn is missing"));
-        AgentTurn user = turn.developmentOrigin()
-                .map(origin -> turns.find(origin.parentUserTurnId()).filter(value -> value.taskId().equals(parent))
-                        .orElseThrow(() -> new CiAutofixConflictException("Development source user turn is missing")))
-                .orElse(turn);
-        checkState(user.developmentOrigin().isEmpty(), "Development source does not resolve to a user turn");
-        return user;
+        return tasks.find(parent).filter(task -> task.state() == TaskState.OPEN && task.interactive()).isPresent();
     }
 
-    private String sourceInstructions(TaskId parent, TurnId source)
+    private Object monitor(CiAutofixRunId runId)
+    {
+        return monitors.computeIfAbsent(runId, ignored -> new Object());
+    }
+
+    private static TaskId parent(CiAutofixRun run)
+    {
+        return TaskId.valueOf(run.scope().parentTaskId().orElseThrow());
+    }
+
+    private String sourceInstructions(TaskId parent)
     {
         Set<TurnId> userTurns = new HashSet<>();
         for (AgentTurn turn : turns.list(parent)) {
@@ -244,11 +248,7 @@ public final class DevelopmentCiOwnership
             if (turn.developmentOrigin().isEmpty() && !turn.knownUnsent()) {
                 userTurns.add(turn.id());
             }
-            if (turn.id().equals(source)) {
-                break;
-            }
         }
-        checkState(userTurns.contains(source), "Development source user turn is missing from history");
         Set<TurnId> found = new HashSet<>();
         StringBuilder inputs = new StringBuilder();
         long cursor = 0;
@@ -308,5 +308,4 @@ public final class DevelopmentCiOwnership
                 .filter(assigned -> assigned.taskId().equals(task.id().toString()) && task.workspaceId().filter(assigned.workspaceId()::equals).isPresent());
     }
 
-    private record Owner(TaskId parentTaskId, TurnId sourceTurnId, String instructions, AtomicBoolean revoked) {}
 }

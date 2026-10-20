@@ -71,7 +71,6 @@ import com.bytequay.agent.spi.WorkItemBridge;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
-import com.bytequay.app.ci.GitHubActionsClient;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.memory.MemoryDelivery;
@@ -107,7 +106,6 @@ import org.springframework.context.annotation.Primary;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Clock;
-import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
@@ -396,26 +394,16 @@ public class AgentConfiguration
                 task -> reviews.findReviewByTask(task.id().toString()).isEmpty(),
                 (task, turn) -> development.getObject().accepted(task, turn),
                 outcome -> development.getObject().completed(outcome),
-                taskId -> ci.getObject().stopDevelopment(taskId),
+                taskId -> ci.getObject().stopWriters(taskId),
                 task -> branches.getObject().recover(task));
     }
 
     @Bean
     public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
-            CiAutofixService ci, GitHubActionsClient actions, CredentialService credentials, GitHubPullRequestReadClient pullRequests,
-            GitHubPullRequestWriteClient writes, Clock agentClock, DevelopmentBranchService branches,
+            CiAutofixService ci, CredentialService credentials, GitHubPullRequestWriteClient writes, Clock agentClock, DevelopmentBranchService branches,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
-        return new DevelopmentFollowupCoordinator(turns, turnStore, git,
-                ioExecutor, ci, actions, credentials, pullRequests, writes, agentClock, () -> {
-                    try {
-                        Thread.sleep(Duration.ofSeconds(5));
-                    }
-                    catch (InterruptedException interrupted) {
-                        Thread.currentThread().interrupt();
-                        throw new IllegalStateException("Development CI monitoring was stopped", interrupted);
-                    }
-                }, branches);
+        return new DevelopmentFollowupCoordinator(turns, turnStore, git, ioExecutor, ci, credentials, writes, agentClock, branches);
     }
 
     @Bean

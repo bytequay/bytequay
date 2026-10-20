@@ -23,6 +23,7 @@ import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.core.domain.PullRequestRef;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -33,6 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -47,6 +49,7 @@ final class ScriptedGitHubActionsClient
     private final List<PullRequestRef> inspectCalls = new ArrayList<>();
     private final List<ReadCiLogQuery> logCalls = new ArrayList<>();
     private final List<RerunFailedJobsCommand> rerunCalls = new ArrayList<>();
+    private final Map<Long, Set<String>> baseFailures = new HashMap<>();
 
     ScriptedGitHubActionsClient(TaskLogStore logs)
     {
@@ -61,6 +64,12 @@ final class ScriptedGitHubActionsClient
         inspectCalls.clear();
         logCalls.clear();
         rerunCalls.clear();
+        baseFailures.clear();
+    }
+
+    synchronized void setBaseFailures(long workflowId, Set<String> jobNames)
+    {
+        baseFailures.put(workflowId, ImmutableSet.copyOf(jobNames));
     }
 
     synchronized void setSnapshot(CiHeadSnapshot snapshot)
@@ -128,6 +137,12 @@ final class ScriptedGitHubActionsClient
     public List<String> readFailureAnnotations(PullRequestRef pullRequest, long jobId)
     {
         return ImmutableList.of();
+    }
+
+    @Override
+    public synchronized Set<String> failedJobsOnBranch(PullRequestRef pullRequest, long workflowId, String branch)
+    {
+        return baseFailures.getOrDefault(workflowId, ImmutableSet.of());
     }
 
     @Override

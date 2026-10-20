@@ -65,6 +65,9 @@ public record CiAutofixRun(
 {
     public static final int MAX_FIX_ATTEMPTS = 3;
     public static final int MAX_RERUNS_PER_HEAD = 3;
+    /** Warning code prefixes, followed by the head SHA, for failures the base branch's latest run also has. */
+    public static final String BASE_ONLY_WARNING = "BASE_ONLY:";
+    public static final String BASE_ALSO_WARNING = "BASE_ALSO:";
     private static final int MAX_WARNINGS = 50;
 
     public CiAutofixRun
@@ -352,6 +355,21 @@ public record CiAutofixRun(
         requireActive(now);
         requireNonNull(check, "check is null");
         return edit(now, run -> run.finalFixupCheck = Optional.of(check));
+    }
+
+    /** The warning about failures the base branch also has at the current head, newest first. */
+    public Optional<Warning> baseFailureWarning()
+    {
+        return warnings.reversed().stream()
+                .filter(warning -> warning.code().equals(BASE_ONLY_WARNING + expectedRemoteHead) || warning.code().equals(BASE_ALSO_WARNING + expectedRemoteHead))
+                .findFirst();
+    }
+
+    /** Whether every current failure also fails on the base branch, so the run waits for the next push. */
+    public boolean waitingOnBase()
+    {
+        return status == Status.ACTIVE && currentTurnId.isEmpty() && currentRebaseId.isEmpty()
+                && baseFailureWarning().filter(warning -> warning.code().startsWith(BASE_ONLY_WARNING)).isPresent();
     }
 
     public CiAutofixRun addWarning(Warning warning, Instant now)

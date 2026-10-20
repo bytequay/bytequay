@@ -69,7 +69,7 @@ class TestCiAutofixMonitoring
         CiAutofixService service = mock(CiAutofixService.class);
         CiAutofixRun first = run();
         CiAutofixRun second = run();
-        when(store.listStandaloneNonFinished(20)).thenReturn(ImmutableList.of(first, second));
+        when(store.listNonFinished(20)).thenReturn(ImmutableList.of(first, second));
         doThrow(new IllegalStateException("provider unavailable")).when(service).advance(first.id());
 
         monitor(store, taskStore, service, readyAgentServingGate(), CLOCK).monitorCiAutofix();
@@ -196,7 +196,7 @@ class TestCiAutofixMonitoring
         AgentTask task = liveTask();
         CiAutofixRun finished = run().assignAgentTask(task.id().toString(), MONITOR_NOW.minusSeconds(90))
                 .finish(CiAutofixRun.FinishReason.GREEN, "green", MONITOR_NOW.minusSeconds(80));
-        when(store.listStandaloneNonFinished(20)).thenReturn(ImmutableList.of(running));
+        when(store.listNonFinished(20)).thenReturn(ImmutableList.of(running));
         when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
         when(taskStore.listPendingWorktreeCleanup(AgentPermissionPolicy.CI_AUTOFIX, MONITOR_NOW.minusSeconds(60))).thenReturn(ImmutableList.of(task));
         when(store.findByAgentTaskId(task.id().toString())).thenReturn(Optional.of(finished));

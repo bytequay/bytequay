@@ -20,6 +20,7 @@ import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -30,6 +31,7 @@ final class InMemoryCiAutofixStore
 {
     CiAutofixRun run;
     CiAutofixRun conflict;
+    final List<CiAutofixRun> replaced = new ArrayList<>();
     private RuntimeException updateFailure;
 
     @Override
@@ -39,8 +41,12 @@ final class InMemoryCiAutofixStore
             run = conflict;
             throw new CiAutofixConflictException("simulated insert race");
         }
-        if (run != null) {
+        if (run != null && run.status() != Status.FINISHED) {
             throw new CiAutofixConflictException("run already exists");
+        }
+        // Holds one run at a time, as one branch does; a finished run gives way to the next.
+        if (run != null) {
+            replaced.add(run);
         }
         run = value;
     }
@@ -90,10 +96,9 @@ final class InMemoryCiAutofixStore
     }
 
     @Override
-    public List<CiAutofixRun> listStandaloneNonFinished(int limit)
+    public List<CiAutofixRun> listNonFinished(int limit)
     {
-        return nonFinished().stream().filter(value -> value.scope().parentTaskId().isEmpty())
-                .collect(toImmutableList());
+        return nonFinished();
     }
 
     @Override

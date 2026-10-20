@@ -74,8 +74,8 @@ public interface CiAutofixStore
      */
     List<CiAutofixRun> listRecent(int limit);
 
-    /** Lists only independently scheduled runs; delivery-owned runs require their live parent. */
-    List<CiAutofixRun> listStandaloneNonFinished(int limit);
+    /** Lists unfinished runs for the monitor, least recently updated first. */
+    List<CiAutofixRun> listNonFinished(int limit);
 
     /**
      * Atomically replaces one run and its attempts using optimistic version checking.

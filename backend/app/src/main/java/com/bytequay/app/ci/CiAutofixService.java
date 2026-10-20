@@ -46,7 +46,9 @@ import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.rebase.StartBranchRebaseCommand;
+import com.bytequay.app.repository.github.GitHubDeliveryChecks;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
@@ -70,6 +72,7 @@ import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 import com.bytequay.core.ci.CiAutofixRun.RerunJournal;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRun.Status;
+import com.bytequay.core.ci.CiAutofixRun.Warning;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.ci.CiDescriptionChange;
@@ -79,6 +82,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -90,9 +94,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 
 import static com.bytequay.app.agent.WorkflowAgentTasks.createOrGet;
 import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
@@ -103,6 +112,8 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Ascii.truncate;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -118,6 +129,7 @@ public class CiAutofixService
     private final CiAutofixStore store;
     private final GitHubActionsClient gitHub;
     private final GitHubPullRequestWriteClient writes;
+    private final GitHubPullRequestReadClient pullRequestReads;
     private final AgentTaskService taskService;
     private final AgentTurnService turnService;
     private final AgentCompletionService completionService;
@@ -136,11 +148,13 @@ public class CiAutofixService
     private final ObjectProvider<AgentStartupRecovery> recovery;
     private final CiAutofixPromptBuilder promptBuilder = new CiAutofixPromptBuilder();
     private final Striped<Lock> advanceLocks = Striped.lock(64);
+    private final ConcurrentMap<CiAutofixRunId, InheritedFailures> inheritedFailures = new ConcurrentHashMap<>();
 
     CiAutofixService(
             CiAutofixStore store,
             GitHubActionsClient gitHub,
             GitHubPullRequestWriteClient writes,
+            GitHubPullRequestReadClient pullRequestReads,
             AgentTaskService taskService,
             AgentTurnService turnService,
             AgentCompletionService completionService,
@@ -161,6 +175,7 @@ public class CiAutofixService
         this.store = requireNonNull(store, "store is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.writes = requireNonNull(writes, "writes is null");
+        this.pullRequestReads = requireNonNull(pullRequestReads, "pullRequestReads is null");
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.turnService = requireNonNull(turnService, "turnService is null");
         this.completionService = requireNonNull(completionService, "completionService is null");
@@ -251,17 +266,19 @@ public class CiAutofixService
         return start(command, Optional.empty());
     }
 
-    /** Starts only under the live source continuation, retaining when it was authorized. */
-    public CiAutofixRun startDevelopment(StartCiAutofixCommand command, TaskId parentTaskId, TurnId sourceTurnId, GitHubPullRequestIdentity expectedPr, Instant activatedAt)
+    /** Starts the run that watches a development task's pull request at a pushed head, keeping when the push authorized it. */
+    public CiAutofixRun startDevelopment(StartCiAutofixCommand command, TaskId parentTaskId, GitHubPullRequestIdentity expectedPr, Instant activatedAt)
     {
         requireNonNull(parentTaskId, "parentTaskId is null");
-        requireNonNull(sourceTurnId, "sourceTurnId is null");
         requireNonNull(expectedPr, "expectedPr is null");
         requireNonNull(activatedAt, "activatedAt is null");
         checkArgument(!activatedAt.isAfter(clock.instant()), "Development CI authorization cannot be in the future");
         checkArgument(expectedPr.state() == GitHubPullRequestIdentity.State.OPEN, "Development CI requires an open pull request");
-        ownership.requireParent(parentTaskId, sourceTurnId);
-        return start(command, Optional.of(new DevelopmentStart(parentTaskId, sourceTurnId, expectedPr, activatedAt)));
+        ownership.requireParent(parentTaskId);
+        // One run watches the task's pull request; a newer push replaces the run watching an older head.
+        stopRuns(parentTaskId, run -> run.status() != Status.FINISHED && !run.startIdempotencyKey().equals(command.idempotencyKey()),
+                FinishReason.STALE_HEAD, "A newer push replaced this CI Autofix run");
+        return start(command, Optional.of(new DevelopmentStart(parentTaskId, expectedPr, activatedAt)));
     }
 
     private CiAutofixRun start(StartCiAutofixCommand command, Optional<DevelopmentStart> development)
@@ -272,8 +289,11 @@ public class CiAutofixService
             CiAutofixRun run = existing.orElseThrow();
             requireStartWorkspace(run, command.workspaceId());
             requireStartOwnership(run, development);
+            if (run.status() == Status.FINISHED) {
+                return run;
+            }
             return ownership.execute(run, () -> {
-                if (run.status() != Status.FINISHED && run.agentTaskId().isPresent()) {
+                if (run.agentTaskId().isPresent()) {
                     ensureAgentTask(run);
                 }
                 return run;
@@ -315,7 +335,7 @@ public class CiAutofixService
                 now)
                 .assignAgentTask(taskId.toString(), now);
         try {
-            ownership.insert(run, development.map(DevelopmentStart::sourceTurnId));
+            ownership.insert(run);
         }
         catch (CiAutofixConflictException conflict) {
             CiAutofixRun raced = store.findByIdempotencyKey(command.idempotencyKey()).orElseThrow(() -> conflict);
@@ -344,10 +364,15 @@ public class CiAutofixService
             throw failure;
         }
 
-        if (snapshot.actionableFailures().isEmpty()) {
+        // A development run starts while its task finishes the turn that pushed; the monitor repairs once the task is idle.
+        if (snapshot.actionableFailures().isEmpty() || ownership.parentBusy(run)) {
             return run;
         }
         try {
+            Optional<CiAutofixRun> inherited = leaveInheritedFailures(run, snapshot, Instant.now(clock));
+            if (inherited.isPresent()) {
+                return inherited.orElseThrow();
+            }
             RebaseGate gate = ensureBranchRebase(run, task, snapshot, Instant.now(clock));
             return gate.ready() ? startFixTurn(gate.run(), task, snapshot) : gate.run();
         }
@@ -424,21 +449,42 @@ public class CiAutofixService
         };
     }
 
-    /**
-     * Stops children after the caller has revoked the source continuation in agent core.
-     * Never replays journals or provisions missing tasks; source revocation also excludes a preparing, not-yet-inserted child.
-     */
+    /** Stops every CI run of a development task, including writers of runs already finished; journals are never replayed. */
     public void stopDevelopment(TaskId parentTaskId)
     {
-        ownership.revoke(parentTaskId);
-        ownership.drain(parentTaskId);
+        stopRuns(parentTaskId, run -> true, FinishReason.CANCELLED, "Development task stopped; local and remote results were preserved");
+    }
+
+    /** Stops repairs still writing the development task's branch, so the user's turn goes first; runs that only watch CI continue. */
+    public void stopWriters(TaskId parentTaskId)
+    {
+        stopRuns(parentTaskId, DevelopmentCiOwnership::writing, FinishReason.CANCELLED,
+                "Stopped for your message to the task; CI Autofix starts again after the next push");
+    }
+
+    /** The last head CI repairs pushed on top of a source head, following each run from the head it started at to the head it left. */
+    public Optional<String> repairedHead(TaskId parentTaskId, String sourceHead)
+    {
+        String head = sourceHead;
+        for (CiAutofixRun run : store.listByParentTaskId(parentTaskId.toString()).stream().sorted(Comparator.comparing(CiAutofixRun::createdAt)).toList()) {
+            if (run.taskStartCommit().equals(head) && !DevelopmentCiOwnership.writing(run)) {
+                head = run.expectedRemoteHead();
+            }
+        }
+        return head.equals(sourceHead) ? Optional.empty() : Optional.of(head);
+    }
+
+    private void stopRuns(TaskId parentTaskId, Predicate<CiAutofixRun> selected, FinishReason reason, String message)
+    {
         RuntimeException failure = null;
         for (CiAutofixRun run : store.listByParentTaskId(parentTaskId.toString())) {
-            Lock lock = advanceLocks.get(run.id());
+            if (!selected.test(run)) {
+                continue;
+            }
             try {
-                withLock(lock, () -> {
-                    stopDevelopmentRun(get(run.id()));
-                    return null;
+                withLock(advanceLocks.get(run.id()), () -> {
+                    CiAutofixRun current = get(run.id());
+                    return selected.test(current) ? stopDevelopmentRun(current, reason, message) : current;
                 });
             }
             catch (RuntimeException stopped) {
@@ -455,8 +501,11 @@ public class CiAutofixService
         }
     }
 
-    private void stopDevelopmentRun(CiAutofixRun run)
+    private CiAutofixRun stopDevelopmentRun(CiAutofixRun stopping, FinishReason reason, String message)
     {
+        ownership.revoke(stopping.id());
+        ownership.drain(stopping.id());
+        CiAutofixRun run = get(stopping.id());
         if (run.agentTaskId().isPresent()) {
             TaskId childId = TaskId.valueOf(run.agentTaskId().orElseThrow());
             Optional<AgentTask> child = findChild(childId);
@@ -475,11 +524,14 @@ public class CiAutofixService
             }
         }
         run.currentRebaseId().ifPresent(value -> rebaseService.stopForLostOwner(BranchRebaseId.valueOf(value)));
-        if (run.status() != Status.FINISHED) {
-            // A stopped parent may accept another message; the old CI run must release its branch
-            // reservation without deleting its checkout or becoming resumable again.
-            store.update(run.finish(FinishReason.CANCELLED, "Development automation stopped; local and remote results were preserved", clock.instant()));
+        if (run.status() == Status.FINISHED) {
+            return run;
         }
+        // The stopped run releases its branch reservation without deleting its checkout or becoming resumable again.
+        CiAutofixRun finished = store.update(run.finish(reason, message, clock.instant()));
+        inheritedFailures.remove(finished.id());
+        ownership.forgetFinished(finished);
+        return finished;
     }
 
     /**
@@ -621,17 +673,7 @@ public class CiAutofixService
         requireNonNull(runId, "runId is null");
         CiAutofixRun existing = get(runId);
         if (existing.scope().parentTaskId().isPresent()) {
-            if (existing.status() == Status.FINISHED) {
-                return existing;
-            }
-            TaskId parent = TaskId.valueOf(existing.scope().parentTaskId().orElseThrow());
-            if (findChild(parent).filter(task -> task.state() == TaskState.OPEN && task.developmentContinuationUnfinished()).isPresent()) {
-                turnService.stopRuntime(parent, turnService.stopImpact(parent).generation());
-            }
-            else {
-                stopDevelopment(parent);
-            }
-            return get(runId);
+            return withLock(advanceLocks.get(runId), () -> stopDevelopmentRun(get(runId), FinishReason.CANCELLED, "CI Autofix stopped by user"));
         }
         return withLock(advanceLocks.get(runId), () -> cancelLocked(runId));
     }
@@ -662,7 +704,14 @@ public class CiAutofixService
     {
         requireNonNull(runId, "runId is null");
         return withLock(advanceLocks.get(runId), () -> {
-            CiAutofixRun result = ownership.execute(get(runId), () -> advanceLocked(runId));
+            CiAutofixRun run = get(runId);
+            if (run.status() != Status.FINISHED && !ownership.authorized(run)) {
+                return stopDevelopmentRun(run, FinishReason.CANCELLED, "The development task closed; local and remote results were preserved");
+            }
+            CiAutofixRun result = ownership.execute(run, () -> advanceLocked(runId));
+            if (result.status() == Status.FINISHED) {
+                inheritedFailures.remove(result.id());
+            }
             ownership.forgetFinished(result);
             return result;
         });
@@ -717,6 +766,14 @@ public class CiAutofixService
         }
         if (!run.attempts().isEmpty() && run.attempts().getLast().descriptionChange().isPresent()) {
             return advanceDescriptionChange(run, snapshot, now);
+        }
+        if (ownership.parentBusy(run) && ciResult(snapshot) != CiResult.PASSED) {
+            // The development task is changing the branch; a push from its turn replaces this run, so no repair starts now.
+            return run;
+        }
+        Optional<CiAutofixRun> inherited = leaveInheritedFailures(run, snapshot, now);
+        if (inherited.isPresent()) {
+            return inherited.orElseThrow();
         }
         boolean refreshPreparedAttempt = preparedAttemptNeedsNewBase(run, snapshot);
         boolean basePrepared = false;
@@ -1089,8 +1146,40 @@ public class CiAutofixService
         if (check.result() == CheckResult.INVALID) {
             return store.update(run.pause(PauseReason.INVALID_FIXUP_POSITION, summary("Fixup commits are not in the required positions", check.diagnostics()), now));
         }
+        if (run.scope().parentTaskId().isPresent()) {
+            Optional<CiAutofixRun> waiting = markDraftReady(run, now);
+            if (waiting.isPresent()) {
+                return waiting.orElseThrow();
+            }
+        }
         cleanupSynchronizedBase(run);
         return completeGreenRun(run, now);
+    }
+
+    /**
+     * A development run marks its draft ready for review once every pull request check passes at the head it verified, including
+     * checks outside GitHub Actions. Marking ready twice is harmless, so a failed write is simply tried again on the next check.
+     */
+    private Optional<CiAutofixRun> markDraftReady(CiAutofixRun run, Instant now)
+    {
+        String token = credentials.resolveGitHubToken(run.scope().workspaceId());
+        GitHubDeliveryChecks checks = pullRequestReads.fetchDeliveryChecks(token, run.scope().pullRequest());
+        if (!checks.pullRequest().headSha().equals(run.expectedRemoteHead())) {
+            // The next check reads the new head and ends this run.
+            return Optional.of(run);
+        }
+        if (!checks.failures().isEmpty()) {
+            return Optional.of(pauseAndRefresh(run, PauseReason.ERROR,
+                    summary("Other pull request checks failed, so the draft stays a draft", String.join("; ", checks.failures())), now));
+        }
+        if (!checks.green()) {
+            return Optional.of(run);
+        }
+        if (checks.pullRequest().draft()) {
+            ownership.require(run);
+            writes.markReadyForReview(token, checks.nodeId());
+        }
+        return Optional.empty();
     }
 
     private CiAutofixRun completeGreenRun(CiAutofixRun run, Instant now)
@@ -1416,7 +1505,8 @@ public class CiAutofixService
         CiAutofixAttempt attempt = run.attempts().getLast();
         inspectWorktree(task, run);
         ownership.require(run);
-        AgentTurn turn = turnService.start(new StartAgentTurnCommand(task.id(), promptBuilder.build(snapshot, attempt), ImmutableList.of(), attempt.id().toString()));
+        String prompt = promptBuilder.build(snapshot, attempt, run.scope().baseRef(), inheritedForPrompt(run, snapshot));
+        AgentTurn turn = turnService.start(new StartAgentTurnCommand(task.id(), prompt, ImmutableList.of(), attempt.id().toString()));
         return store.update(run.linkAttemptTurn(attempt.id(), turn.id().toString(), Instant.now(clock)));
     }
 
@@ -1451,6 +1541,83 @@ public class CiAutofixService
     private static String summary(String prefix, String detail)
     {
         return detail.isBlank() ? prefix : truncate(prefix + ": " + detail, MAXIMUM_SUMMARY_CHARACTERS, "…");
+    }
+
+    /**
+     * Leaves failures that the base branch's latest run also has to whoever broke the base. When nothing else fails, the run
+     * waits for the next push; otherwise it repairs the rest. The first sighting at a head records the warning the user is
+     * notified with and ends this step.
+     */
+    private Optional<CiAutofixRun> leaveInheritedFailures(CiAutofixRun run, CiHeadSnapshot snapshot, Instant now)
+    {
+        if (!repairDue(run, snapshot)) {
+            return Optional.empty();
+        }
+        Map<Long, String> inherited;
+        try {
+            inherited = inheritedFailures(run, snapshot);
+        }
+        catch (RuntimeException failure) {
+            log.warn("Cannot compare CI Autofix run {} with its base branch; retrying on the next check", run.id(), failure);
+            return Optional.of(run);
+        }
+        if (inherited.isEmpty()) {
+            return Optional.empty();
+        }
+        boolean only = snapshot.actionableFailures().stream().allMatch(job -> inherited.containsKey(job.id()));
+        String code = (only ? CiAutofixRun.BASE_ONLY_WARNING : CiAutofixRun.BASE_ALSO_WARNING) + snapshot.headSha();
+        if (run.warnings().stream().noneMatch(warning -> warning.code().equals(code))) {
+            String message = truncate("Already failing on " + run.scope().baseRef() + (only ? ", so CI Autofix waits for the next push: " : ", so CI Autofix fixes only the rest: ")
+                    + String.join(", ", inherited.values()) + ".", 2000, "…");
+            return Optional.of(store.update(run.addWarning(new Warning(code, message, now), now)));
+        }
+        return only ? Optional.of(run) : Optional.empty();
+    }
+
+    /** Whether the current failures are ones the run would start repairing now, rather than the result of a repair in progress. */
+    private static boolean repairDue(CiAutofixRun run, CiHeadSnapshot snapshot)
+    {
+        if (snapshot.actionableFailures().isEmpty()) {
+            return false;
+        }
+        if (run.attempts().isEmpty()) {
+            return true;
+        }
+        CiAutofixAttempt attempt = run.attempts().getLast();
+        return attempt.pushedSha().isPresent() && attempt.observedCiResult() == CiResult.FAILED;
+    }
+
+    /** Failed jobs, by ID, that also failed in the latest completed run of the same workflow on the base branch. */
+    private Map<Long, String> inheritedFailures(CiAutofixRun run, CiHeadSnapshot snapshot)
+    {
+        Set<Long> failing = snapshot.actionableFailures().stream().map(CiJob::id).collect(toImmutableSet());
+        InheritedFailures known = inheritedFailures.get(run.id());
+        if (known != null && known.headSha().equals(snapshot.headSha()) && known.failingJobs().equals(failing)) {
+            return known.inherited();
+        }
+        ImmutableMap.Builder<Long, String> inherited = ImmutableMap.builder();
+        for (CiWorkflowRun workflow : snapshot.workflowRuns()) {
+            List<CiJob> failed = workflow.jobs().stream().filter(CiJob::actionableFailure).collect(toImmutableList());
+            if (failed.isEmpty()) {
+                continue;
+            }
+            Set<String> onBase = gitHub.failedJobsOnBranch(run.scope().pullRequest(), workflow.workflowId(), run.scope().baseRef());
+            failed.stream().filter(job -> onBase.contains(job.name())).forEach(job -> inherited.put(job.id(), workflow.name() + " / " + job.name()));
+        }
+        Map<Long, String> result = inherited.buildOrThrow();
+        inheritedFailures.put(run.id(), new InheritedFailures(snapshot.headSha(), failing, result));
+        return result;
+    }
+
+    private List<String> inheritedForPrompt(CiAutofixRun run, CiHeadSnapshot snapshot)
+    {
+        try {
+            return ImmutableList.copyOf(inheritedFailures(run, snapshot).values());
+        }
+        catch (RuntimeException failure) {
+            log.warn("Cannot compare CI Autofix run {} with its base branch before a repair", run.id(), failure);
+            return ImmutableList.of();
+        }
     }
 
     private CiAutofixRun startFixTurn(CiAutofixRun run, AgentTask task, CiHeadSnapshot snapshot)
@@ -1600,8 +1767,10 @@ public class CiAutofixService
             throw new CiAutofixConflictException("CI Autofix start belongs to another owner");
         }
         development.ifPresent(value -> {
-            ownership.requireParent(value.parentTaskId(), value.sourceTurnId());
-            ownership.require(run);
+            ownership.requireParent(value.parentTaskId());
+            if (run.status() != Status.FINISHED) {
+                ownership.require(run);
+            }
             checkArgument(run.scope().pullRequest().equals(value.expectedPr().pullRequest())
                             && run.scope().headRepository().fullName().equalsIgnoreCase(value.expectedPr().headRepository().fullName())
                             && run.scope().headRef().equals(value.expectedPr().headBranch())
@@ -1667,7 +1836,9 @@ public class CiAutofixService
         return failureSummary("Task completion failed", failure);
     }
 
-    private record DevelopmentStart(TaskId parentTaskId, TurnId sourceTurnId, GitHubPullRequestIdentity expectedPr, Instant activatedAt) {}
+    private record DevelopmentStart(TaskId parentTaskId, GitHubPullRequestIdentity expectedPr, Instant activatedAt) {}
+
+    private record InheritedFailures(String headSha, Set<Long> failingJobs, Map<Long, String> inherited) {}
 
     private record RebaseGate(CiAutofixRun run, boolean ready)
     {

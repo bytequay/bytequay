@@ -2132,6 +2132,22 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void userTurnOnAnIdleInteractiveTaskStopsChildWritersOutsideTheLockOnce()
+    {
+        task = interactiveTask("Development");
+        List<TaskId> stopped = new ArrayList<>();
+        stopChildren = stoppedTask -> {
+            assertThat(Thread.holdsLock(runtimeRegistry.taskLock(stoppedTask))).isFalse();
+            stopped.add(stoppedTask);
+        };
+
+        AgentTurn turn = service.start(command("Change", "children-first"));
+        assertThat(service.start(command("Change", "children-first")).id()).isEqualTo(turn.id());
+
+        assertThat(stopped).containsExactly(task.id());
+    }
+
+    @Test
     void sharedBranchAdmissionBlocksSourceStartCompleteAndDelete()
     {
         runtimeRegistry = new AgentRuntimeRegistry(stores, candidate -> {

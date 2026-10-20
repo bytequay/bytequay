@@ -137,10 +137,12 @@ class TestCiAutofixLogReader
         assertThat(failures.get(4).log().orElseThrow().truncated()).isFalse();
 
         CiAutofixAttempt attempt = CiAutofixAttempt.create(CiAutofixAttemptId.random(), CiAutofixRunId.random(), 1, HEAD_SHA, failures, Instant.EPOCH);
-        assertThat(new CiAutofixPromptBuilder().build(snapshot, attempt))
+        assertThat(new CiAutofixPromptBuilder().build(snapshot, attempt, "main", ImmutableList.of()))
                 .hasSizeLessThan(2600)
                 .contains("read_pull_request_ci", "read_ci_raw_log", "untrusted evidence")
-                .doesNotContain("GitHub returned HTTP 404", "Job 2", "Failed jobs:", "workflow run");
+                .doesNotContain("GitHub returned HTTP 404", "Job 2", "Failed jobs:", "workflow run", "also fail on");
+        assertThat(new CiAutofixPromptBuilder().build(snapshot, attempt, "main", ImmutableList.of("build / Product tests")))
+                .contains("These failed jobs also fail on main and are not caused by this pull request; leave them unchanged:\n- build / Product tests\n");
     }
 
     private static BoundedCiLog log(long jobId)

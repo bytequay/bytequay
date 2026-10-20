@@ -149,13 +149,13 @@ class TestBranchRebaseService
     }
 
     @Test
-    void rejectsEveryOwnedRebaseEntryAfterItsLiveCoordinatorIsLost()
+    void rejectsEveryOwnedRebaseEntryOnceItsDevelopmentTaskIsGone()
     {
         Tips tips = cleanDivergence();
         BranchRebase started = service.start(command("owned-rebase"));
         CiAutofixRun owner = CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
                 new CiAutofixRun.Scope(PullRequestRef.of("trinodb", "trino", 1), RepoRef.of("trinodb", "trino"), "workspace-1", RepoRef.of("trinodb", "trino"),
-                        "author", workBranch(), "main", "claude-cli", Optional.of("parent")),
+                        "author", workBranch(), "main", "claude-cli", Optional.of(TaskId.random().toString())),
                 tips.original(), tips.original(), tips.base(),
                 new CiAutofixRun.Authorization(NOW), NOW).assignAgentTask(taskId.toString(), NOW);
         when(ciRuns.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(owner));

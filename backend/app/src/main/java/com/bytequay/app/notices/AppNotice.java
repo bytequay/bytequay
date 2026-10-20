@@ -40,7 +40,8 @@ public record AppNotice(
         APPROVAL,
         FAILURE,
         RECOVERY,
-        QUEUE_PAUSED
+        QUEUE_PAUSED,
+        CI_ATTENTION
     }
 
     /** Counts for the latest review run; {@code update} marks a run that covers only changes since the prior review. */

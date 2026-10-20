@@ -210,6 +210,23 @@ class TestCodexLaunchProfile
     }
 
     @Test
+    void turnsOnTheQuestionToolOnlyForASessionThatMayAskTheUser()
+    {
+        List<String> asking = CodexLaunchProfile.arguments(
+                "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, ImmutableList.of(), false, false, Optional.empty(), true);
+        List<String> silent = CodexLaunchProfile.arguments(
+                "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, ImmutableList.of(), false, false, Optional.empty(), false);
+
+        assertThat(asking).containsSequence("--enable", CodexLaunchProfile.ASK_USER_FEATURE);
+        assertThat(silent).doesNotContain(CodexLaunchProfile.ASK_USER_FEATURE);
+        // The isolation guard checks config/read against these, and a resumed thread repeats them.
+        assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, false, true)).containsEntry(CodexLaunchProfile.ASK_USER_FEATURE, true);
+        assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, false, false)).doesNotContainKey(CodexLaunchProfile.ASK_USER_FEATURE);
+        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, false, ImmutableList.of(), false, false, Optional.empty(), true))
+                .containsEntry("features", CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, false, true));
+    }
+
+    @Test
     void pinsAgentEnablementAtProcessAndResumedThreadScope()
     {
         for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {

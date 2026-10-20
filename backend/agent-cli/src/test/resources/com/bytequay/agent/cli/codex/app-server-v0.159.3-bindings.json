@@ -3668,6 +3668,214 @@
         "v2#ModelListParams"
       ],
       "components": []
+    },
+    {
+      "javaType": "UserInputRequest",
+      "mode": "decode",
+      "sources": [
+        "all#ServerRequest[method=item/tool/requestUserInput]"
+      ],
+      "context": {
+        "method": "item/tool/requestUserInput"
+      },
+      "decodeAs": "ServerRequest",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "threadId": "value",
+            "turnId": "value",
+            "itemId": "value",
+            "isBlocking": false,
+            "questions": [
+              {
+                "id": "value",
+                "header": "value",
+                "question": "value"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "UserInputParams",
+      "mode": "decode",
+      "sources": [
+        "all#ToolRequestUserInputParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "itemId",
+          "wireName": "itemId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "isBlocking",
+          "wireName": "isBlocking",
+          "required": true,
+          "nullable": false,
+          "sample": false
+        },
+        {
+          "javaName": "questions",
+          "wireName": "questions",
+          "required": true,
+          "nullable": false,
+          "sample": [
+            {
+              "id": "value",
+              "header": "value",
+              "question": "value"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "javaType": "UserInputQuestion",
+      "mode": "decode",
+      "sources": [
+        "all#ToolRequestUserInputQuestion"
+      ],
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "header",
+          "wireName": "header",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "question",
+          "wireName": "question",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "isOther",
+          "wireName": "isOther",
+          "required": false,
+          "nullable": false,
+          "sample": false
+        },
+        {
+          "javaName": "isSecret",
+          "wireName": "isSecret",
+          "required": false,
+          "nullable": false,
+          "sample": false
+        },
+        {
+          "javaName": "options",
+          "wireName": "options",
+          "required": false,
+          "nullable": true,
+          "sample": [
+            {
+              "label": "value",
+              "description": "value"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "javaType": "UserInputOption",
+      "mode": "decode",
+      "sources": [
+        "all#ToolRequestUserInputOption"
+      ],
+      "components": [
+        {
+          "javaName": "label",
+          "wireName": "label",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "description",
+          "wireName": "description",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "UserInputResponse",
+      "mode": "encode",
+      "sources": [
+        "all#ToolRequestUserInputResponse"
+      ],
+      "components": [
+        {
+          "javaName": "answers",
+          "wireName": "answers",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "value": {
+              "answers": [
+                "value"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "UserInputAnswer",
+      "mode": "encode",
+      "sources": [
+        "all#ToolRequestUserInputAnswer"
+      ],
+      "components": [
+        {
+          "javaName": "answers",
+          "wireName": "answers",
+          "required": true,
+          "nullable": false,
+          "sample": [
+            "value"
+          ]
+        }
+      ]
     }
   ],
   "enums": [

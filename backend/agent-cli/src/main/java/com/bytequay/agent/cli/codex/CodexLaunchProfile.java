@@ -67,6 +67,9 @@ final class CodexLaunchProfile
     private static final List<String> SHELL_ENVIRONMENT_INCLUDE_ONLY = ImmutableList.of("HOME", "LANG", "LC_ALL", "LOGNAME", "PATH", "SHELL", "TERM", "TMPDIR", "USER");
     /** Root, child, and grandchild: the bounded recursive tree proven by the compatibility gate. */
     private static final int MULTI_AGENT_MAX_DEPTH = 2;
+    /** Codex's experimental switch for its question tool outside plan mode. */
+    static final String ASK_USER_FEATURE = "default_mode_request_user_input";
+
     private CodexLaunchProfile() {}
 
     /**
@@ -95,6 +98,25 @@ final class CodexLaunchProfile
             boolean allowGitHubCommands,
             boolean review,
             Optional<DeepSeekProfile> deepSeek)
+    {
+        return arguments(executable, childProfile, codeQueries, textOnly, ciWritableRoots, allowGitHubCommands, review, deepSeek, false);
+    }
+
+    /**
+     * Returns the full argument vector for one App Server launch.
+     *
+     * @param asksUser whether the agent may ask the user a question with choices, which turns on Codex's {@code request_user_input}
+     */
+    static List<String> arguments(
+            String executable,
+            ChildProfile childProfile,
+            Optional<ManagedToolsLaunch> codeQueries,
+            boolean textOnly,
+            List<String> ciWritableRoots,
+            boolean allowGitHubCommands,
+            boolean review,
+            Optional<DeepSeekProfile> deepSeek,
+            boolean asksUser)
     {
         requireNonNull(codeQueries, "codeQueries is null");
         requireNonNull(deepSeek, "deepSeek is null");
@@ -144,6 +166,10 @@ final class CodexLaunchProfile
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
         arguments.add(reviewChildren ? "--enable" : "--disable", "hooks");
         arguments.add(textOnly ? "--disable" : "--enable", "guardian_approval");
+        if (asksUser) {
+            // Outside plan mode, request_user_input is off unless this feature is on.
+            arguments.add("--enable", ASK_USER_FEATURE);
+        }
         if (ci) {
             arguments.add(
                     "-c", "sandbox_workspace_write.writable_roots=" + quotedList(ciWritableRoots),
@@ -207,6 +233,19 @@ final class CodexLaunchProfile
             boolean review,
             Optional<DeepSeekProfile> deepSeek)
     {
+        return threadConfig(childProfile, codeQueries, textOnly, ciWritableRoots, allowGitHubCommands, review, deepSeek, false);
+    }
+
+    static Map<String, Object> threadConfig(
+            ChildProfile childProfile,
+            boolean codeQueries,
+            boolean textOnly,
+            List<String> ciWritableRoots,
+            boolean allowGitHubCommands,
+            boolean review,
+            Optional<DeepSeekProfile> deepSeek,
+            boolean asksUser)
+    {
         requireNonNull(childProfile, "childProfile is null");
         requireNonNull(deepSeek, "deepSeek is null");
         boolean ci = !ciWritableRoots.isEmpty();
@@ -214,7 +253,7 @@ final class CodexLaunchProfile
         checkArgument(!review || (!textOnly && !ci), "Restricted Codex profiles cannot run private review");
         ImmutableMap.Builder<String, Object> config = ImmutableMap.<String, Object>builder()
                 .put("web_search", textOnly || ci ? "disabled" : "live")
-                .put("features", expectedFeatures(childProfile, textOnly, review))
+                .put("features", expectedFeatures(childProfile, textOnly, review, asksUser))
                 .put("shell_environment_policy", expectedShellEnvironmentPolicy())
                 .put("project_doc_max_bytes", 0);
         if (review && childProfile != ChildProfile.NONE) {
@@ -250,10 +289,19 @@ final class CodexLaunchProfile
 
     static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly, boolean review)
     {
+        return expectedFeatures(childProfile, textOnly, review, false);
+    }
+
+    /** The features a launch sets, which config/read must report back; the question feature is named only when it is on. */
+    static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly, boolean review, boolean asksUser)
+    {
         requireNonNull(childProfile, "childProfile is null");
         ImmutableMap.Builder<String, Boolean> features = ImmutableMap.builder();
         features.put("skip_host_skill_discovery", true);
         features.put("guardian_approval", !textOnly);
+        if (asksUser) {
+            features.put(ASK_USER_FEATURE, true);
+        }
         DISABLED_FEATURES.forEach(feature -> features.put(feature, false));
         features.put("hooks", review && childProfile != ChildProfile.NONE);
         if (textOnly) {

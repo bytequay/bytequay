@@ -62,6 +62,7 @@ final class CodexIsolationGuard
     private final List<String> ciWritableRoots;
     private final boolean allowGitHubCommands;
     private final boolean review;
+    private final boolean asksUser;
     private final Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek;
     private boolean accountVerified;
 
@@ -76,6 +77,21 @@ final class CodexIsolationGuard
             boolean review,
             Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek)
     {
+        this(client, codexHome, childProfile, codeQueriesEndpoint, textOnly, ciWritableRoots, allowGitHubCommands, review, false, deepSeek);
+    }
+
+    CodexIsolationGuard(
+            CodexAppServerClient client,
+            Path codexHome,
+            CodexLaunchProfile.ChildProfile childProfile,
+            Optional<URI> codeQueriesEndpoint,
+            boolean textOnly,
+            List<String> ciWritableRoots,
+            boolean allowGitHubCommands,
+            boolean review,
+            boolean asksUser,
+            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek)
+    {
         this.client = requireNonNull(client, "client is null");
         this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath().normalize();
         this.childProfile = requireNonNull(childProfile, "childProfile is null");
@@ -84,6 +100,7 @@ final class CodexIsolationGuard
         this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
         this.allowGitHubCommands = allowGitHubCommands;
         this.review = review;
+        this.asksUser = asksUser;
         this.deepSeek = requireNonNull(deepSeek, "deepSeek is null");
     }
 
@@ -290,7 +307,7 @@ final class CodexIsolationGuard
         if (!features.isObject()) {
             throw unavailable("config/read omitted the feature policy");
         }
-        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile, textOnly, review).entrySet()) {
+        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile, textOnly, review, asksUser).entrySet()) {
             JsonNode value = features.path(feature.getKey());
             if (feature.getKey().equals("network_proxy") && value.isObject()) {
                 value = value.path("enabled");

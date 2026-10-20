@@ -56,6 +56,8 @@ import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -102,6 +104,7 @@ import java.util.stream.Stream;
 
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
+import static com.bytequay.agent.spi.ProviderApprovalRequest.QUESTION_TOOL;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -339,7 +342,7 @@ public final class CodexCliDriver
     private CodexAppServerClient appServerClient(String ownerId, Path workingDirectory, CodexLaunchProfile.ChildProfile childProfile)
     {
         return appServerClient(new ProcessOwner(ProcessOwner.Kind.APP_SERVER, ownerId), workingDirectory, childProfile, Optional.empty(), SessionAccess.FULL,
-                deepSeekSecret.flatMap(Supplier::get), ImmutableList.of(), false, false,
+                deepSeekSecret.flatMap(Supplier::get), ImmutableList.of(), false, false, false,
                 Optional.empty(), launchEnvironment()).client();
     }
 
@@ -353,6 +356,7 @@ public final class CodexCliDriver
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
             boolean review,
+            boolean asksUser,
             Optional<PermissionBroker.CodexRootTools> guardedReviewTools,
             Map<String, String> sessionEnvironment)
     {
@@ -383,7 +387,7 @@ public final class CodexCliDriver
                             // Only sessions without a checkout strip the shell and code tools: a read-only session must
                             // keep them to read the checkout at all, and is contained by its sandbox.
                             CodexLaunchProfile.arguments(executable, childProfile, tools, shellOff(access),
-                                    ciWritableRoots, allowGitHubCommands, review, deepSeek),
+                                    ciWritableRoots, allowGitHubCommands, review, deepSeek, asksUser),
                             workingDirectory,
                             launchEnvironment,
                             OptionalInt.empty(),
@@ -665,6 +669,8 @@ public final class CodexCliDriver
                     ciWritableRoots,
                     allowGitHubCommands,
                     review,
+                    // The same rule as Claude's: a task's turn may ask the user, and a read-only session that opts in.
+                    context.mayAskUser(review),
                     guardedReviewTools,
                     launchEnvironment());
             launch.client().timingTask(context.taskId());
@@ -967,6 +973,7 @@ public final class CodexCliDriver
                     ciWritableRoots,
                     permissionScope.githubCommands(),
                     permissionScope.review(),
+                    context.mayAskUser(permissionScope.review()),
                     deepSeek);
             // Attached before the process is started, so nothing App Server emits can arrive
             // before there is a session to receive it.
@@ -1048,7 +1055,8 @@ public final class CodexCliDriver
                     ciWritableRoots,
                     permissionScope.githubCommands(),
                     permissionScope.review(),
-                    deepSeek));
+                    deepSeek,
+                    context.mayAskUser(permissionScope.review())));
             // Codex prewarms before turn/start; a different effort prevents reuse of that prepared request's context.
             context.effort().ifPresent(effort -> configBuilder.put("model_reasoning_effort", effort));
             Map<String, Object> config = configBuilder.buildOrThrow();
@@ -2157,6 +2165,9 @@ public final class CodexCliDriver
 
         private CompletionStage<?> registerApproval(CodexProtocol.ServerRequest serverRequest, CodexRunningTurn expectedTurn)
         {
+            if (serverRequest instanceof CodexProtocol.UserInputRequest question) {
+                return askUser(question, expectedTurn);
+            }
             ProviderApprovalRequest.Kind kind;
             String title;
             String detail;
@@ -2251,18 +2262,93 @@ public final class CodexCliDriver
                     Optional.empty(),
                     // On-request approval asks only for what the sandbox would not allow.
                     false,
-                    new ProviderAgentEventSource(
-                            Optional.of(serverRequest.threadId()),
-                            lineage.parentOf(serverRequest.threadId()),
-                            lineage.labelOf(serverRequest.threadId()),
-                            serverRequest.turnId(),
-                            Optional.of(itemId)),
+                    source(serverRequest, itemId),
                     Instant.ofEpochMilli(startedAtMs));
+            return ask(approvalRequest, serverRequest).thenApply(value -> approvalResponse(serverRequest, value, expectedTurn));
+        }
+
+        /**
+         * Shows a question with choices as the question approval every lane uses, with the questions as {@link
+         * ProviderApprovalRequest#QUESTION_TOOL}'s input, so the same card asks it; the answers, keyed by question text, go back keyed by
+         * Codex's question ids. A secret, or a question with no options, cannot be a card: a request with nothing else is answered at once
+         * with no answers, so the agent asks in its reply instead.
+         */
+        private CompletionStage<?> askUser(CodexProtocol.UserInputRequest request, CodexRunningTurn expectedTurn)
+        {
+            List<CodexProtocol.UserInputQuestion> shown = request.params().questions().stream()
+                    .filter(question -> !question.isSecret().orElse(false) && question.options().filter(options -> !options.isEmpty()).isPresent())
+                    .collect(toImmutableList());
+            if (shown.isEmpty()) {
+                return CompletableFuture.completedFuture(new CodexProtocol.UserInputResponse(ImmutableMap.of()));
+            }
+            ObjectNode input = objectMapper.createObjectNode();
+            ArrayNode questions = input.putArray("questions");
+            for (CodexProtocol.UserInputQuestion question : shown) {
+                ObjectNode asked = questions.addObject().put("question", question.question()).put("header", question.header()).put("multiSelect", false);
+                ArrayNode options = asked.putArray("options");
+                question.options().orElseThrow().forEach(option -> options.addObject().put("label", option.label()).put("description", option.description()));
+            }
+            ProviderApprovalRequest approvalRequest = new ProviderApprovalRequest(
+                    ProviderApprovalRequest.Kind.TOOL,
+                    "Allow Codex " + QUESTION_TOOL,
+                    sessionRedactor.redact(input.toString()),
+                    ImmutableList.of(QUESTION_TOOL),
+                    ImmutableList.of(ALLOW_ONCE, DENY),
+                    Optional.empty(),
+                    false,
+                    source(request, request.params().itemId()),
+                    Instant.now());
+            return ask(approvalRequest, request).thenApply(value -> userInputResponse(shown, value, expectedTurn));
+        }
+
+        private synchronized CodexProtocol.UserInputResponse userInputResponse(List<CodexProtocol.UserInputQuestion> shown, ProviderApprovalDecision decision,
+                CodexRunningTurn expectedTurn)
+        {
+            synchronized (expectedTurn) {
+                requireActive(expectedTurn);
+                if (decision.timedOut()) {
+                    expire(expectedTurn, "Codex question timed out");
+                }
+                if (decision.decision() != ProviderApprovalDecision.Decision.ALLOW) {
+                    return new CodexProtocol.UserInputResponse(ImmutableMap.of());
+                }
+                ImmutableMap.Builder<String, CodexProtocol.UserInputAnswer> answers = ImmutableMap.builder();
+                for (CodexProtocol.UserInputQuestion question : shown) {
+                    Optional.ofNullable(decision.answers().get(question.question())).filter(answer -> !answer.isBlank())
+                            .ifPresent(answer -> answers.put(question.id(), new CodexProtocol.UserInputAnswer(ImmutableList.of(answer))));
+                }
+                return new CodexProtocol.UserInputResponse(answers.buildKeepingLast());
+            }
+        }
+
+        /** Asks ByteQuay to decide; the pending decision stays findable so a stopping session can settle it. */
+        private CompletableFuture<ProviderApprovalDecision> ask(ProviderApprovalRequest approvalRequest, CodexProtocol.ServerRequest serverRequest)
+        {
             CompletableFuture<ProviderApprovalDecision> decision = context.approvals().request(approvalRequest, APPROVAL_TIMEOUT).toCompletableFuture();
             String requestId = String.valueOf(serverRequest.id());
             pendingApprovals.put(requestId, decision);
             decision.whenComplete((ignored, failure) -> pendingApprovals.remove(requestId, decision));
-            return decision.thenApply(value -> approvalResponse(serverRequest, value, expectedTurn));
+            return decision;
+        }
+
+        private ProviderAgentEventSource source(CodexProtocol.ServerRequest serverRequest, String itemId)
+        {
+            return new ProviderAgentEventSource(
+                    Optional.of(serverRequest.threadId()),
+                    lineage.parentOf(serverRequest.threadId()),
+                    lineage.labelOf(serverRequest.threadId()),
+                    serverRequest.turnId(),
+                    Optional.of(itemId));
+        }
+
+        private void requireActive(CodexRunningTurn expectedTurn)
+        {
+            if (closed
+                    || running != expectedTurn
+                    || expectedTurn.cancellationRequested()
+                    || expectedTurn.completion().toCompletableFuture().isDone()) {
+                throw new AgentUnavailableException("Codex approval no longer belongs to the active turn");
+            }
         }
 
         /**
@@ -2368,12 +2454,7 @@ public final class CodexCliDriver
         private synchronized Object approvalResponse(CodexProtocol.ServerRequest serverRequest, ProviderApprovalDecision decision, CodexRunningTurn expectedTurn)
         {
             synchronized (expectedTurn) {
-                if (closed
-                        || running != expectedTurn
-                        || expectedTurn.cancellationRequested()
-                        || expectedTurn.completion().toCompletableFuture().isDone()) {
-                    throw new AgentUnavailableException("Codex approval no longer belongs to the active turn");
-                }
+                requireActive(expectedTurn);
                 if (decision.scopedPermission().isPresent()) {
                     throw new AgentUnavailableException("Codex approval does not support the requested scoped permission");
                 }

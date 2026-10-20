@@ -103,7 +103,7 @@ final class CodexProtocol
             extends Params
             permits ItemNotificationParams, ItemDeltaParams, PlanUpdatedParams, TokenUsageParams,
             ErrorParams, AutoApprovalReviewParams, CommandApprovalParams, FileChangeApprovalParams,
-            PermissionsApprovalParams, DynamicToolCallParams
+            PermissionsApprovalParams, DynamicToolCallParams, UserInputParams
     {
         String turnId();
 
@@ -819,10 +819,13 @@ final class CodexProtocol
             @JsonSubTypes.Type(
                     name = "item/tool/call",
                     value = DynamicToolCallRequest.class),
+            @JsonSubTypes.Type(
+                    name = "item/tool/requestUserInput",
+                    value = UserInputRequest.class),
     })
     sealed interface ServerRequest
             permits CommandApprovalRequest, FileChangeApprovalRequest, PermissionsApprovalRequest, DynamicToolCallRequest,
-            UnknownServerRequest
+            UserInputRequest, UnknownServerRequest
     {
         Object id();
 
@@ -908,6 +911,85 @@ final class CodexProtocol
         {
             checkIdentifier(type, "type");
             requireNonNull(text, "text is null");
+        }
+    }
+
+    /**
+     * A question with choices the agent asks the user: Codex's experimental {@code request_user_input} tool, which codex-cli 0.159 offers
+     * outside plan mode behind its {@code default_mode_request_user_input} feature.
+     */
+    record UserInputRequest(Object id, UserInputParams params)
+            implements ServerRequest
+    {
+        UserInputRequest
+        {
+            requireNonNull(id, "id is null");
+            requireNonNull(params, "params is null");
+        }
+    }
+
+    record UserInputParams(String threadId, String turnId, String itemId, @JsonProperty("isBlocking") Boolean isBlocking, List<UserInputQuestion> questions)
+            implements TurnScopedParams
+    {
+        UserInputParams
+        {
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+            checkIdentifier(itemId, "itemId");
+            requireNonNull(isBlocking, "isBlocking is null");
+            questions = ImmutableList.copyOf(questions);
+        }
+    }
+
+    /**
+     * One question of a request.
+     *
+     * @param isOther whether the user may answer in their own words beside the options
+     * @param isSecret whether the answer is a secret, such as a password
+     * @param options the choices; absent when the question takes only a typed answer
+     */
+    record UserInputQuestion(
+            String id,
+            String header,
+            String question,
+            @JsonProperty("isOther") Optional<Boolean> isOther,
+            @JsonProperty("isSecret") Optional<Boolean> isSecret,
+            Optional<List<UserInputOption>> options)
+    {
+        UserInputQuestion
+        {
+            checkIdentifier(id, "id");
+            requireNonNull(header, "header is null");
+            requireNonNull(question, "question is null");
+            requireNonNull(isOther, "isOther is null");
+            requireNonNull(isSecret, "isSecret is null");
+            options = requireNonNull(options, "options is null").map(ImmutableList::copyOf);
+        }
+    }
+
+    record UserInputOption(String label, String description)
+    {
+        UserInputOption
+        {
+            requireNonNull(label, "label is null");
+            requireNonNull(description, "description is null");
+        }
+    }
+
+    /** The user's answers, keyed by question id; a question left out has no answer. */
+    record UserInputResponse(Map<String, UserInputAnswer> answers)
+    {
+        UserInputResponse
+        {
+            answers = ImmutableMap.copyOf(answers);
+        }
+    }
+
+    record UserInputAnswer(List<String> answers)
+    {
+        UserInputAnswer
+        {
+            answers = ImmutableList.copyOf(answers);
         }
     }
 

@@ -1255,7 +1255,7 @@ class TestCodexCliDriver
                 """.formatted(server.activeTurn()));
         server.emit("""
                 {"id":103,"method":"item/tool/requestUserInput","params":{
-                "threadId":"thread-1","turnId":"%s","itemId":"unregistered-input","questions":[]}}
+                "threadId":"thread-1","turnId":"%s","itemId":"unregistered-input","isBlocking":true,"questions":[]}}
                 """.formatted(server.activeTurn()));
         server.emit("""
                 {"id":104,"method":"item/permissions/requestApproval","params":{
@@ -1265,15 +1265,16 @@ class TestCodexCliDriver
                 """.formatted(server.activeTurn()));
 
         // Every response is written on the dispatch thread, so wait for all before asserting.
-        List<Long> rejected = ImmutableList.of(92L, 94L, 95L, 97L, 102L, 103L);
-        List<Long> approved = ImmutableList.of(93L, 96L, 99L, 100L, 104L);
+        List<Long> rejected = ImmutableList.of(92L, 94L, 95L, 97L, 102L);
+        List<Long> approved = ImmutableList.of(93L, 96L, 99L, 100L, 103L, 104L);
         awaitCondition(() -> rejected.stream().allMatch(id -> server.error(id) != null)
                 && approved.stream().allMatch(id -> server.result(id) != null));
         assertThat(server.error(92).path("message").asText()).contains("active turn");
         assertThat(server.error(94).path("message").asText()).contains("no active thread");
         assertThat(server.error(95).path("message").asText()).contains("no active thread");
         assertThat(server.error(97).path("message").asText()).contains("approval kind");
-        assertThat(server.error(103).path("message").asText()).contains("active turn");
+        // A question with nothing to choose from shows no card; the agent goes on without an answer.
+        assertThat(server.result(103).path("answers")).isEqualTo(objectMapper.createObjectNode());
         assertThat(server.error(102).path("message").asText()).contains("blank write root");
         assertThat(server.result(93).path("permissions")).isEqualTo(objectMapper.createObjectNode());
         assertThat(server.result(93).path("scope").asText()).isEqualTo("turn");
@@ -1292,6 +1293,54 @@ class TestCodexCliDriver
                 .anySatisfy(detail -> assertThat(detail).contains("network", "enabled"))
                 .anySatisfy(detail -> assertThat(detail).contains("Network approval", "example.com"))
                 .anySatisfy(detail -> assertThat(detail).contains("Requested write root", "/worktree/generated"));
+    }
+
+    @Test
+    void asksCodexQuestionsWithTheSharedQuestionCardAndAnswersByQuestionId()
+            throws IOException
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        List<ProviderApprovalRequest> approvals = new CopyOnWriteArrayList<>();
+        AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> {
+            approvals.add(request);
+            return CompletableFuture.completedFuture(request.source().providerItemId().equals(Optional.of("ask-declined"))
+                    ? ProviderApprovalDecision.deny()
+                    : ProviderApprovalDecision.allow(Optional.empty(), ImmutableMap.of("Which path?", "Read path")));
+        }), event -> {});
+        session.start(command("questions"));
+        AppServerProcess server = supervisor.server();
+        // A task's turn may ask, so the launch turns on Codex's question tool, and config/read must report it.
+        assertThat(supervisor.serverArgv().getLast()).containsSequence("--enable", CodexLaunchProfile.ASK_USER_FEATURE);
+
+        String path = """
+                {"id":"q-path","header":"Path","question":"Which path?","isOther":true,
+                "options":[{"label":"Read path","description":"How a scan skips rows"},{"label":"Write path","description":"How deletes are written"}]}""";
+        server.emit("""
+                {"id":120,"method":"item/tool/requestUserInput","params":{"threadId":"thread-1","turnId":"%s","itemId":"ask-1","isBlocking":true,
+                "questions":[%s,{"id":"q-key","header":"Key","question":"Your API key?","isSecret":true,"options":[{"label":"Paste it","description":""}]}]}}
+                """.formatted(server.activeTurn(), path));
+        server.emit("""
+                {"id":121,"method":"item/tool/requestUserInput","params":{"threadId":"thread-1","turnId":"%s","itemId":"ask-declined","isBlocking":true,
+                "questions":[%s]}}
+                """.formatted(server.activeTurn(), path));
+        server.emit("""
+                {"id":122,"method":"item/tool/requestUserInput","params":{"threadId":"thread-1","turnId":"%s","itemId":"ask-typed","isBlocking":true,
+                "questions":[{"id":"q-name","header":"Name","question":"What name?","options":null}]}}
+                """.formatted(server.activeTurn()));
+        awaitCondition(() -> server.result(120) != null && server.result(121) != null && server.result(122) != null);
+
+        // Answers go back keyed by Codex's question ids; a declined question, and one only typed, get none.
+        assertThat(server.result(120).path("answers")).isEqualTo(objectMapper.readTree("{\"q-path\":{\"answers\":[\"Read path\"]}}"));
+        assertThat(server.result(121).path("answers")).isEqualTo(objectMapper.createObjectNode());
+        assertThat(server.result(122).path("answers")).isEqualTo(objectMapper.createObjectNode());
+        assertThat(approvals).extracting(request -> request.source().providerItemId().orElseThrow()).containsExactlyInAnyOrder("ask-1", "ask-declined");
+        // The question reaches ByteQuay as Claude's does, so one card shows it; the secret stays out of it.
+        ProviderApprovalRequest asked = approvals.stream().filter(request -> request.source().providerItemId().equals(Optional.of("ask-1"))).findFirst().orElseThrow();
+        assertThat(asked.requestedPermissions()).containsExactly(ProviderApprovalRequest.QUESTION_TOOL);
+        assertThat(objectMapper.readTree(asked.detail())).isEqualTo(objectMapper.readTree("""
+                {"questions":[{"question":"Which path?","header":"Path","multiSelect":false,
+                "options":[{"label":"Read path","description":"How a scan skips rows"},{"label":"Write path","description":"How deletes are written"}]}]}"""));
     }
 
     @Test
@@ -4695,7 +4744,8 @@ class TestCodexCliDriver
             boolean review = hasArguments("--enable", "hooks")
                     || (!textOnlyProfile() && hasArguments("--disable", "guardian_approval"));
             ObjectNode config = objectMapper.valueToTree(
-                    CodexLaunchProfile.threadConfig(childProfile(), false, textOnlyProfile(), ciWritableRoots(), allowsGitHubCommands() && !review, review));
+                    CodexLaunchProfile.threadConfig(childProfile(), false, textOnlyProfile(), ciWritableRoots(), allowsGitHubCommands() && !review, review, Optional.empty(),
+                            hasArguments("--enable", CodexLaunchProfile.ASK_USER_FEATURE)));
             for (String argument : argv) {
                 for (String key : ImmutableList.of("approval_policy", "approvals_reviewer")) {
                     String prefix = key + "=";

@@ -81,6 +81,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 
+import static com.bytequay.agent.spi.ProviderApprovalRequest.QUESTION_TOOL;
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -99,8 +100,6 @@ public class ArtifactService
     private static final Logger log = LoggerFactory.getLogger(ArtifactService.class);
     public static final int MAXIMUM_MESSAGE = 4000;
     static final String MAKE_THE_PAGE = "Make the page.";
-    // The tool a question with choices comes through; its card is the one a task shows.
-    private static final String QUESTION_TOOL = "AskUserQuestion";
     private static final Duration MAXIMUM_RUNTIME = Duration.ofMinutes(20);
     private static final int REASON = 200;
     // Events the window reads at once; it asks again from the last one it has.
@@ -113,7 +112,8 @@ public class ArtifactService
             Answer what the user asks, reading the code you need with your tools. You cannot change files or reach the web.
             Keep replies short, a few paragraphs or a short list: say what you found, cite code as path:line at the commit named in the
             message, and leave the full walk-through for the page. While the scope is still open, end every reply by asking what the user
-            wants next with AskUserQuestion: one question, two to four short options for what to look at next, the last one "That's enough".
+            wants next with your tool for asking the user a question with options (AskUserQuestion, or request_user_input): one question,
+            two to four short options for what to look at next, the last one "That's enough".
             When they pick an option, go on with it in the same reply; when they pick "That's enough", offer the page as below; when they
             dismiss the question, end your reply, and they will write what they want instead.
             Never offer a page before the user has answered you at least once. Once the scope is settled with nothing open, for example when

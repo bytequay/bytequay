@@ -260,6 +260,9 @@ public final class DefaultAgentTurnService
         sendTiming.log(System.Logger.Level.DEBUG,
                 () -> "send-timing phase=turn.recovery.begin epochMs=" + System.currentTimeMillis() + " taskId=" + command.taskId() + " turnId=-");
         retryCompletedTurn(command.taskId());
+        AgentTask beforeAdmission = taskStore.require(command.taskId());
+        boolean providerChanged = effectiveSettings(command.taskId()).laneId().filter(lane -> !lane.equals(beforeAdmission.laneId())).isPresent();
+        runtimeRegistry.retireIdleSessions(command.taskId(), providerChanged || !runtimeRegistry.sameWorktree(beforeAdmission));
         sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=turn.recovery.end epochMs=" + System.currentTimeMillis() + " taskId=" + command.taskId() + " turnId=-");
         if (!command.useTrustedTaskCreationReadiness() && turnStore.findByIdempotencyKey(command.taskId(), command.idempotencyKey()).isEmpty()) {
             // A cold check launches the provider CLI several times. Nothing else on this task, such as a retry looking up
@@ -297,7 +300,9 @@ public final class DefaultAgentTurnService
     public AgentTask claimLocalRun(TaskId taskId, String runId)
     {
         requireNonNull(taskId, "taskId is null");
+        runtimeRegistry.retireIdleSessions(taskId, true);
         synchronized (runtimeRegistry.taskLock(taskId)) {
+            runtimeRegistry.requireStoppedSession(taskId);
             AgentTask task = requireStartableTaskWithoutReadiness(taskId);
             if (queueStore.listQueued(taskId).stream().anyMatch(input -> !input.state().historical())) {
                 throw new AgentConflictException("Remove or resume the queued question");
@@ -325,10 +330,12 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(action, "action is null");
+        runtimeRegistry.retireIdleSessions(taskId, true);
         synchronized (runtimeRegistry.taskLock(taskId)) {
             if (taskStore.require(taskId).version() != expectedVersion) {
                 throw new AgentConflictException("Task version changed: " + taskId);
             }
+            runtimeRegistry.requireStoppedSession(taskId);
             // As for Send, a verified branch repair may advance the version while this lock excludes other writers.
             AgentTask task = requireStartableTaskWithoutReadiness(taskId);
             if (queueStore.listQueued(taskId).stream().anyMatch(input -> !input.state().historical())) {
@@ -624,9 +631,11 @@ public final class DefaultAgentTurnService
     public void executeDevelopmentAction(TaskId taskId, TurnId sourceTurnId, Runnable action)
     {
         runtimeRegistry.executeDevelopmentAction(taskId, sourceTurnId, () -> {
+            runtimeRegistry.retireIdleSessions(taskId, true);
             synchronized (runtimeRegistry.taskLock(taskId)) {
                 requireDevelopmentOwner(taskId, sourceTurnId);
                 requireContinuationReady(taskId, sourceTurnId);
+                runtimeRegistry.requireStoppedSession(taskId);
                 requireStartableTaskWithoutReadiness(taskId, Optional.of(sourceTurnId));
             }
             action.run();
@@ -721,13 +730,20 @@ public final class DefaultAgentTurnService
                 sendTiming.log(System.Logger.Level.DEBUG,
                         () -> "send-timing phase=turn.development_baseline.end epochMs=" + System.currentTimeMillis() + " taskId=" + taskId + " turnId=" + turn.id());
             }
+            Optional<AgentSession> existing;
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                task = requireAcceptedLaunch(turn);
+                existing = runtimeRegistry.session(taskId);
+            }
+            AgentSessionContext context = sessionContext(task, turn.id(), turn.settings().orElseThrow());
+            Optional<AgentSession> prepared = prepareExistingSession(task, turn, context, existing);
             synchronized (runtimeRegistry.taskLock(taskId)) {
                 task = requireAcceptedLaunch(turn);
                 if (turn.developmentOrigin().isEmpty() && task.developmentContinuationUnfinished()) {
                     task = taskStore.update(task.withDevelopmentContinuation(false, Instant.now(clock)));
                 }
                 launchAttempted = true;
-                launch = launchLocked(task, new TurnAcceptance(turn, acceptance.deliveryEventId(), message, acceptance.attachments(), reference));
+                launch = launchLocked(task, new TurnAcceptance(turn, acceptance.deliveryEventId(), message, acceptance.attachments(), reference), context, prepared);
             }
         }
         catch (RuntimeException failure) {
@@ -745,7 +761,12 @@ public final class DefaultAgentTurnService
                 launch = new Launch(turn, Optional.empty(), Optional.of(failure));
             }
         }
-        return settleLaunch(launch);
+        try {
+            return settleLaunch(launch);
+        }
+        finally {
+            runtimeRegistry.retainFinishedSession(taskId);
+        }
     }
 
     private AgentTask requireAcceptedLaunch(AgentTurn accepted)
@@ -781,7 +802,7 @@ public final class DefaultAgentTurnService
      * <p>A failure before the send is recorded as a known-unsent failed turn here; a failure after
      * it leaves the turn as it is, because the provider may be running it.
      */
-    private Launch launchLocked(AgentTask task, TurnAcceptance acceptance)
+    private Launch launchLocked(AgentTask task, TurnAcceptance acceptance, AgentSessionContext context, Optional<AgentSession> prepared)
     {
         AgentTurn accepted = acceptance.turn();
         boolean deliveryAttempted = false;
@@ -790,7 +811,7 @@ public final class DefaultAgentTurnService
         try {
             AgentTurnSettings settings = accepted.settings().orElseThrow();
             eventService.drain(acceptance.deliveryEventId());
-            session = session(task, accepted.id(), settings);
+            session = session(task, accepted.id(), context, prepared);
             markDeliveryStarted(accepted, acceptance.reference());
             deliveryAttempted = true;
             sendTiming.log(System.Logger.Level.DEBUG,
@@ -1232,6 +1253,7 @@ public final class DefaultAgentTurnService
         requireNonNull(taskId, "taskId is null");
         retryCompletedTurn(taskId);
         stopChildWriters(taskId);
+        runtimeRegistry.retireIdleSessions(taskId, true);
         TurnAcceptance acceptance;
         synchronized (runtimeRegistry.taskLock(taskId)) {
             drainPending(outboxStore, eventService, taskId);
@@ -1280,6 +1302,10 @@ public final class DefaultAgentTurnService
      */
     private void startQueuedHead(TaskId taskId)
     {
+        if (queueHead(taskId).filter(input -> input.state() == QueuedAgentInput.State.QUEUED).isEmpty()) {
+            return;
+        }
+        runtimeRegistry.retireIdleSessions(taskId, true);
         TurnAcceptance acceptance;
         synchronized (runtimeRegistry.taskLock(taskId)) {
             Optional<QueuedAgentInput> head = queueHead(taskId).filter(input -> input.state() == QueuedAgentInput.State.QUEUED);
@@ -1584,6 +1610,7 @@ public final class DefaultAgentTurnService
         if (lane.equals(task.laneId())) {
             return task;
         }
+        runtimeRegistry.requireStoppedSession(task.id());
         runtimeRegistry.closeSession(task.id());
         return task.withLaneId(lane, acceptedAt);
     }
@@ -1858,23 +1885,31 @@ public final class DefaultAgentTurnService
         }
     }
 
-    private AgentSession session(AgentTask task, TurnId turnId, AgentTurnSettings settings)
+    private Optional<AgentSession> prepareExistingSession(AgentTask task, AgentTurn turn, AgentSessionContext context, Optional<AgentSession> existing)
     {
-        Optional<AgentSession> existing = runtimeRegistry.session(task.id());
         if (existing.isPresent()) {
-            // A provider launch profile may depend on the accepted model. Closing before delivery
-            // lets the stored provider thread resume under the new turn's immutable snapshot.
-            sendTiming.log(System.Logger.Level.DEBUG,
-                    () -> "send-timing phase=turn.session_close.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
-            runtimeRegistry.closeSession(task.id());
-            sendTiming.log(System.Logger.Level.DEBUG,
-                    () -> "send-timing phase=turn.session_close.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
+            try {
+                if (turn.developmentOrigin().isEmpty() && runtimeRegistry.sameWorktree(task)
+                        && existing.orElseThrow().prepareTurn(context, event -> routeEvent(task.id(), turn.id(), event))) {
+                    sendTiming.log(System.Logger.Level.DEBUG,
+                            () -> "send-timing phase=turn.session.reused epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turn.id());
+                    return existing;
+                }
+            }
+            catch (RuntimeException failure) {
+                suppressFailure(failure, () -> runtimeRegistry.closeSession(task.id(), existing.orElseThrow()));
+                throw failure;
+            }
+            runtimeRegistry.closeSession(task.id(), existing.orElseThrow());
         }
+        return Optional.empty();
+    }
 
+    private AgentSessionContext sessionContext(AgentTask task, TurnId turnId, AgentTurnSettings settings)
+    {
         sendTiming.log(System.Logger.Level.DEBUG,
                 () -> "send-timing phase=turn.session_context.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
         driverRegistry.checkWorkspaceAccess(task.laneId(), task.workspaceId());
-        AgentDriver driver = driverRegistry.require(task.laneId());
         TaskResources resources = resourceService.require(task.id());
         AgentSessionContext context = new AgentSessionContext(
                 task.id().toString(),
@@ -1891,12 +1926,25 @@ public final class DefaultAgentTurnService
                 managedInstructions.apply(task) + developmentInstructions(settings));
         sendTiming.log(System.Logger.Level.DEBUG,
                 () -> "send-timing phase=turn.session_context.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
+        return context;
+    }
+
+    private AgentSession session(AgentTask task, TurnId turnId, AgentSessionContext context, Optional<AgentSession> prepared)
+    {
+        if (prepared.isPresent()) {
+            checkArgument(runtimeRegistry.session(task.id()).equals(prepared), "Prepared provider session was replaced");
+            return prepared.orElseThrow();
+        }
+        AgentDriver driver = driverRegistry.require(task.laneId());
         sendTiming.log(System.Logger.Level.DEBUG,
                 () -> "send-timing phase=turn.session_open.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
         AgentSession opened = requireNonNull(driver.open(context,
                 event -> routeEvent(task.id(), turnId, event)), "opened session is null");
         sendTiming.log(System.Logger.Level.DEBUG,
                 () -> "send-timing phase=turn.session_open.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
+        if (runtimeRegistry.processReuse() && task.taskWorktree().isPresent() && turnStore.require(turnId).developmentOrigin().isEmpty()) {
+            opened.allowReuse();
+        }
         AgentSession registered = runtimeRegistry.registerSession(task.id(), opened);
         try {
             AgentSessionRef reference = requireNonNull(registered.reference(), "session reference is null");
@@ -2257,6 +2305,7 @@ public final class DefaultAgentTurnService
             throw drainFailure;
         }
         runtimeRegistry.removeRunning(turn.id(), runningTurn);
+        runtimeRegistry.retainFinishedSession(turn.taskId());
     }
 
     private void recordKnownUnsentFailure(AgentTurn acceptedTurn, RuntimeException failure, boolean providerQuiescent)

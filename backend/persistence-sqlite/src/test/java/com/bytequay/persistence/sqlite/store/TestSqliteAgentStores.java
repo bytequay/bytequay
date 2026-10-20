@@ -58,7 +58,6 @@ import com.bytequay.agent.core.impl.DefaultAgentTurnService;
 import com.bytequay.agent.core.impl.FileAgentResourceService;
 import com.bytequay.agent.core.impl.FileTaskLogStore;
 import com.bytequay.agent.core.impl.StaticAgentDriverRegistry;
-import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
@@ -971,7 +970,7 @@ class TestSqliteAgentStores
         RecordingDriver firstProcess = new RecordingDriver();
         DefaultAgentTurnService beforeRestart = turnService(
                 firstProcess,
-                new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}),
+                new AgentRuntimeRegistry(taskStore, ignored -> {}),
                 new DefaultAgentEventService(logs, outboxStore, taskStore, clock),
                 logs,
                 resources,
@@ -986,7 +985,7 @@ class TestSqliteAgentStores
         entityManager.flush();
         entityManager.clear();
 
-        AgentRuntimeRegistry restartedRuntime = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
+        AgentRuntimeRegistry restartedRuntime = new AgentRuntimeRegistry(taskStore, ignored -> {});
         AgentMaintenance maintenance = new AgentMaintenance(
                 taskStore,
                 turnStore,

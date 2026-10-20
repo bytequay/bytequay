@@ -134,6 +134,7 @@ public class DevelopmentBranchService
             if (pending.isEmpty()) {
                 return task;
             }
+            runtime.requireStoppedSession(task.id());
             checkState(turns.findActive(task.id()).isEmpty()
                     && task.worktreeMutationClaim().filter(claim -> claim.kind() != WorktreeMutationClaim.Kind.RECOVERY).isEmpty(),
                     "The pending branch rename needs a stopped task");
@@ -164,6 +165,7 @@ public class DevelopmentBranchService
                 proposed.remove(task.id(), branch);
                 return task;
             }
+            runtime.requireStoppedSession(task.id());
             checkState(turns.findActive(task.id()).isEmpty() && task.worktreeMutationClaim().isEmpty(), "Branch naming requires a stopped task");
             Optional<AgentTurn> latest = turns.list(task.id()).reversed().stream().filter(turn -> turn.developmentOrigin().isEmpty()).findFirst();
             if (latest.filter(turn -> turn.state() == TurnState.COMPLETED && turn.cancellationRequestedAt().isEmpty()).isEmpty()) {

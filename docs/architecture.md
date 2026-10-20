@@ -195,6 +195,23 @@ agents retain their read-only review scope. Conversations created with the old
 fixed tool contract must be replaced once; their saved provider tool list cannot
 be updated on resume.
 
+Codex can retain one idle process for its own task after a quiet, successful
+conversation turn. Reuse keeps the native thread but replaces the turn's event
+sink, approval handler, and root tool registration. Mutating tools require the
+current native root thread and turn; the shared HTTP token remains read-only
+and never acquires another turn's write authority.
+Changes to credentials, configuration, model, instructions, tool contract, or
+worktree identity require a fresh process. Approvals, subagents, shell activity,
+failures, cancellation, and delivery automation also end the process.
+
+An idle process still owns its launch receipt and excludes other worktree
+writers. Rename, local runs, shared-worktree handoff, and cleanup reserve
+shutdown under the worktree owner's lock and verify it outside that lock before
+mutating the checkout. Idle retention is bounded by time and count. Startup
+recovery examines launch receipts even when the last turn completed; an
+unverifiable process continues to block its worktree. A lost turn acknowledgement
+is never automatically resent.
+
 Each turn keeps a short name for its session's setup: a digest of ByteQuay's
 own instructions for the session, and one of the tools it was given. A task's
 own context, such as its pull request, is left out of the name. Turns with one

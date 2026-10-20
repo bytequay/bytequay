@@ -24,6 +24,7 @@ import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentProcessLaunch;
 import com.bytequay.agent.core.AgentTask;
@@ -35,6 +36,7 @@ import com.bytequay.agent.core.LaunchOwnerKind;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.impl.AgentMaintenance;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
@@ -48,6 +50,7 @@ import com.bytequay.agent.core.store.SteerDeliveryStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -78,6 +81,44 @@ import static org.mockito.Mockito.when;
 
 class TestAgentStartupRecovery
 {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void recoversAnIdleProcessEvenThoughItsLastTurnCompleted(boolean verified)
+    {
+        AgentTaskStore tasks = mock(AgentTaskStore.class);
+        AgentTurnStore turns = mock(AgentTurnStore.class);
+        AgentTask task = openTask(TaskId.random());
+        when(tasks.find(task.id())).thenReturn(Optional.of(task));
+        Instant now = Instant.parse("2026-09-01T00:00:00Z");
+        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO, ImmutableList.of());
+        AgentTurn completed = AgentTurn.accepted(TurnId.random(), task.id(), "finished-message", settings, now)
+                .markDeliveryStarted(now)
+                .running(new ProviderTurnRef("finished-turn"), Optional.empty())
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), now);
+        when(turns.list(task.id())).thenReturn(ImmutableList.of(completed));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        AgentServingGate gate = new AgentServingGate();
+        when(supervisor.recoverOwnedProcesses()).thenAnswer(ignored -> {
+            assertThat(gate.isReady()).isFalse();
+            return ImmutableList.of(recoveryForOwner("idle-codex", ProcessOwner.Kind.APP_SERVER, task.id().toString(),
+                    verified ? OwnedProcessRecovery.Outcome.VERIFIED_STOPPED : OwnedProcessRecovery.Outcome.UNVERIFIABLE));
+        });
+        new AgentStartupRecovery(mock(AgentEventOutboxStore.class), mock(AgentEventService.class), maintenance(tasks, turns),
+                supervisor, gate, launchStore(appServerLaunch("idle-codex", task.id())), tasks, turns, mock(AgentTurnService.class))
+                .afterSingletonsInstantiated();
+        assertThat(gate.isReady()).isTrue();
+        if (verified) {
+            verify(supervisor).acknowledge("idle-codex");
+            verify(tasks, never()).update(any());
+        }
+        else {
+            verify(supervisor, never()).acknowledge("idle-codex");
+            ArgumentCaptor<AgentTask> held = ArgumentCaptor.forClass(AgentTask.class);
+            verify(tasks).update(held.capture());
+            assertThat(held.getValue().worktreeMutationClaim().orElseThrow().kind()).isEqualTo(WorktreeMutationClaim.Kind.RECOVERY);
+        }
+    }
+
     @Test
     void failsLostDevelopmentAfterProcessClassificationBeforeServing()
     {

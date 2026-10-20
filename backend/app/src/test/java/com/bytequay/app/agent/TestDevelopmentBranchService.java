@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.agent;
 
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
@@ -31,6 +32,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
@@ -87,8 +89,8 @@ class TestDevelopmentBranchService
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final AtomicReference<AgentTask> currentTask = new AtomicReference<>(task);
     private final AtomicReference<AgentTurn> currentTurn = new AtomicReference<>(turn);
-    private final DevelopmentBranchService service = new DevelopmentBranchService(tasks, turns, new AgentRuntimeRegistry(mock(AgentTaskStore.class),
-                ignored -> {}), git, reviews, assignments,
+    private final AgentRuntimeRegistry runtime = new AgentRuntimeRegistry(tasks, ignored -> {});
+    private final DevelopmentBranchService service = new DevelopmentBranchService(tasks, turns, runtime, git, reviews, assignments,
             beans.getBeanProvider(DevelopmentFollowupCoordinator.class), journal, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
@@ -110,6 +112,24 @@ class TestDevelopmentBranchService
                 new DevelopmentLocalFacts(worktree.generatedBranch(), base, "clean", 0, 0, false, false)));
         when(turns.findActive(id)).thenAnswer(ignored -> Optional.of(currentTurn.get()).filter(value -> value.state().active()));
         when(turns.list(id)).thenAnswer(ignored -> ImmutableList.of(currentTurn.get()));
+    }
+
+    @Test
+    void renameAndJournalRecoveryRejectAnIdleProviderThatStillOwnsTheCheckout()
+    {
+        service.propose(id, SUFFIX);
+        finishTurn(TurnState.COMPLETED);
+        AgentSession retained = mock(AgentSession.class);
+        when(retained.retained()).thenReturn(true);
+        runtime.registerSession(id, retained);
+        // Send only recovers committed rename intent; an optional proposal stays deferred while the process is warm.
+        assertThat(service.recover(currentTask.get())).isEqualTo(currentTask.get());
+        assertThatThrownBy(() -> service.prepare(currentTask.get())).isInstanceOf(AgentConflictException.class).hasMessageContaining("must stop");
+        when(journal.read(id)).thenReturn(Optional.of(new DevelopmentBranchRename(worktree.generatedBranch(), "user/bytequay/renamed", worktree.startCommit())));
+        assertThatThrownBy(() -> service.recover(currentTask.get())).isInstanceOf(AgentConflictException.class).hasMessageContaining("must stop");
+        verifyNoInteractions(git);
+        runtime.close();
+        verify(retained).close();
     }
 
     @Test

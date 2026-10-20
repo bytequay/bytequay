@@ -70,6 +70,33 @@ class TestPermissionBroker
     private Path temporaryDirectory;
 
     @Test
+    void freshNativeAuthorityCannotBeUsedThroughHttpAndIsRevokedOnRelease()
+            throws Exception
+    {
+        AtomicInteger writes = new AtomicInteger();
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/mcp"), objectMapper, (taskId, query) -> "")
+                .relatedWork(taskId -> Optional.of(new RelatedWorkspaceBridge(arguments -> {
+                    writes.incrementAndGet();
+                    return "linked";
+                }))).build();
+        McpRegistration current = broker.registerTools("task", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty(), SessionAccess.FULL, Optional.empty(), ImmutableList.of()).orElseThrow();
+        broker.nativeOnly(current);
+        JsonNode call = objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"bytequay_call_tool","arguments":{"name":"related_workspace_work","arguments":{}}}}
+                """);
+        assertThat(broker.handle(current.token(), call).status()).isEqualTo(401);
+        assertThat(writes).hasValue(0);
+        assertThat(rootToolCall(broker, current.token(), "related_workspace_work", "{}").at("/result/content/0/text").asText()).isEqualTo("linked");
+        assertThat(writes).hasValue(1);
+        current.close();
+        assertThat(broker.handle(current.token(), call).status()).isEqualTo(401);
+        assertThat(rootToolCall(broker, current.token(), "related_workspace_work", "{}").has("error")).isTrue();
+        assertThat(writes).hasValue(1);
+    }
+
+    @Test
     void providersExposeAndApproveTheSameTaskTools()
             throws Exception
     {

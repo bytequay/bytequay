@@ -106,6 +106,7 @@ import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.QUESTION_TOOL;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -879,11 +880,12 @@ public final class CodexCliDriver
     {
         private final CodexAppServerClient client;
         private final SecretRedactor sessionRedactor;
-        private final AgentSessionContext context;
-        private final AgentEventSink events;
+        private AgentSessionContext context;
+        private AgentEventSink events;
         private final CodexEventMapper eventMapper;
         private final CodexIsolationGuard isolation;
         private final Optional<McpRegistration> codeQueries;
+        private Optional<McpRegistration> turnTools;
         private final Optional<PermissionBroker.CodexRootTools> guardedReviewTools;
         private final AgentSessionRef reference;
         private final ModelProfile modelProfile;
@@ -933,6 +935,11 @@ public final class CodexCliDriver
         private Optional<DevelopmentResultBridge> development = Optional.empty();
         private boolean closed;
         private boolean closing;
+        private boolean reuseAllowed;
+        private boolean reuseBlocked;
+        private boolean parked;
+        private Optional<ExecutorService> unsettledTools = Optional.empty();
+        private final String configurationIdentity;
 
         private CodexSession(
                 CodexAppServerClient client,
@@ -955,10 +962,12 @@ public final class CodexCliDriver
             this.modelProfile = requireNonNull(modelProfile, "modelProfile is null");
             this.childProfile = requireNonNull(childProfile, "childProfile is null");
             this.codeQueries = requireNonNull(codeQueries, "codeQueries is null");
+            this.turnTools = codeQueries;
             this.guardedReviewTools = requireNonNull(guardedReviewTools, "guardedReviewTools is null");
             this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
             this.permissionScope = requireNonNull(permissionScope, "permissionScope is null");
             this.deepSeek = requireNonNull(deepSeek, "deepSeek is null");
+            this.configurationIdentity = configurationIdentity();
             String[] toolInstructions = {codeQueries.flatMap(McpRegistration::instruction).orElse(""),
                     permissionScope.review() && childProfile != CodexLaunchProfile.ChildProfile.NONE ? CodexReviewGate.INSTRUCTION : ""};
             this.developerInstructions = ProviderInstructions.compose(permissionScope, PLAN_INSTRUCTION, context.managedInstructions(), toolInstructions);
@@ -1117,6 +1126,82 @@ public final class CodexCliDriver
             return reference;
         }
 
+        @Override
+        public synchronized void allowReuse()
+        {
+            reuseAllowed = deepSeekSecret.isEmpty() && ciWritableRoots.isEmpty()
+                    && reference.contractVersion() == REVIEW_DYNAMIC_CONTRACT_VERSION && guardedReviewTools.isPresent()
+                    && !context.scratchWorktree() && context.discussionContext().isEmpty() && context.sessionTools().isEmpty();
+        }
+
+        @Override
+        public synchronized boolean retained()
+        {
+            return parked;
+        }
+
+        @Override
+        public synchronized boolean prepareTurn(AgentSessionContext next, AgentEventSink sink)
+        {
+            requireNonNull(next, "context is null");
+            requireNonNull(sink, "events is null");
+            if (!parked || closed || closing || reuseBlocked || running != null
+                    || !next.taskId().equals(context.taskId()) || !next.worktree().equals(context.worktree())
+                    || !next.runtimeDirectory().equals(context.runtimeDirectory()) || !next.providerDirectory().equals(context.providerDirectory())
+                    || !next.sessionReference().equals(Optional.of(reference)) || next.permissionPolicy() != context.permissionPolicy()
+                    || next.access() != context.access() || next.asksUser() != context.asksUser()
+                    || !next.model().equals(context.model()) || !next.effort().equals(context.effort())
+                    || !next.managedInstructions().equals(context.managedInstructions()) || next.discussionContext().isPresent() || !next.sessionTools().isEmpty()
+                    || !configurationIdentity.equals(configurationIdentity())) {
+                return false;
+            }
+            Optional<McpRegistration> fresh = permissions.registerTools(next.taskId(), next.worktree(), next.permissionPolicy(), next.approvals(), sessionRedactor,
+                    next.codeQueries(), next.access(), next.discussionContext(), next.sessionTools());
+            if (fresh.isEmpty()) {
+                return false;
+            }
+            McpRegistration tools = fresh.orElseThrow();
+            McpRegistration initial = codeQueries.orElseThrow();
+            if (!tools.toolsDigest().equals(initial.toolsDigest()) || !tools.instruction().equals(initial.instruction())
+                    || tools.review().isPresent() != initial.review().isPresent()) {
+                tools.close();
+                return false;
+            }
+            permissions.nativeOnly(tools);
+            releaseTurnTools();
+            turnTools = fresh;
+            context = next;
+            events = sink;
+            eventMapper.nextTurn();
+            development = Optional.empty();
+            return true;
+        }
+
+        private String configurationIdentity()
+        {
+            try {
+                var hash = Hashing.sha256().newHasher();
+                for (String name : ImmutableList.of("auth.json", "config.toml")) {
+                    Path file = codexHome.resolve(name);
+                    if (Files.exists(file)) {
+                        checkState(Files.size(file) <= 2 * 1024 * 1024, "Codex configuration is unexpectedly large");
+                        hash.putBytes(Files.readAllBytes(file));
+                    }
+                    hash.putByte((byte) 0);
+                }
+                return hash.hash().toString();
+            }
+            catch (IOException failure) {
+                throw new AgentUnavailableException("Cannot verify Codex configuration for session reuse", failure);
+            }
+        }
+
+        private void releaseTurnTools()
+        {
+            turnTools.filter(tools -> codeQueries.filter(initial -> initial == tools).isEmpty()).ifPresent(McpRegistration::close);
+            turnTools = Optional.empty();
+        }
+
         /** Whether this task's record says the thread already has exactly the current instructions. */
         private boolean instructionsDelivered(String threadId)
         {
@@ -1159,7 +1244,15 @@ public final class CodexCliDriver
             if (running != null && !running.completion().toCompletableFuture().isDone()) {
                 throw new AgentUnavailableException("Codex session already has a running turn");
             }
+            if (parked && turnTools.isEmpty()) {
+                throw new AgentUnavailableException("Codex session needs fresh turn callbacks before reuse");
+            }
+            boolean reused = parked;
+            parked = false;
             client.timingTurn(command.turnId());
+            if (reused) {
+                client.timing("codex.session.reused");
+            }
             client.timing("codex.turn.prepare.begin");
             List<CodexProtocol.UserInput> input = userInput(command.message(), command.attachments());
 
@@ -1203,7 +1296,7 @@ public final class CodexCliDriver
                 recordInstructions(reference.providerValue());
                 instructionUpdate = Optional.empty();
             }
-            development = codeQueries.flatMap(McpRegistration::development)
+            development = turnTools.flatMap(McpRegistration::development)
                     .filter(bridge -> bridge.turnId().equals(command.turnId()));
             running = new CodexRunningTurn(client, sessionRedactor, reference.providerValue(), turnId, setup, this::userInput);
             if (!command.maximumRuntime().isZero()) {
@@ -1305,15 +1398,31 @@ public final class CodexCliDriver
             // report, but the next one counts its own usage from it.
             if (notification instanceof CodexProtocol.TokenUsageUpdatedNotification usage
                     && (running == null || !usage.params().turnId().equals(running.reference().value()))) {
-                eventMapper.observeUsage(usage.params());
+                if (running == null && !parked) {
+                    eventMapper.observeUsage(usage.params());
+                }
                 return;
             }
             if (running == null) {
+                if (parked && (notification instanceof CodexProtocol.TurnStartedNotification || CodexAppServerClient.meaningfulOutput(notification)
+                        || notification instanceof CodexProtocol.AutoApprovalReviewStartedNotification
+                        || notification instanceof CodexProtocol.AutoApprovalReviewCompletedNotification || notification instanceof CodexProtocol.ErrorNotification
+                        || notification instanceof CodexProtocol.ThreadStartedNotification && !notification.threadId().equals(reference.providerValue()))) {
+                    reuseBlocked = true;
+                    Thread.ofVirtual().name("bytequay-codex-unexpected-idle-work").start(this::close);
+                }
                 return;
             }
             // Every thread in this process belongs to this task, so a thread that is not the root
-            // is one of its subagents.
+            // is one of its subagents. Global account/status notifications have no thread.
             boolean rootThread = notification.threadId().equals(reference.providerValue());
+            if (!rootThread && !notification.threadId().isBlank() || notification instanceof CodexProtocol.AutoApprovalReviewStartedNotification
+                    || notification instanceof CodexProtocol.AutoApprovalReviewCompletedNotification || notification instanceof CodexProtocol.ErrorNotification
+                    || notification instanceof CodexProtocol.ItemStartedNotification started
+                    && preventsReuse(started.params().item())
+                    || notification instanceof CodexProtocol.ItemCompletedNotification completed && preventsReuse(completed.params().item())) {
+                reuseBlocked = true;
+            }
             if (rootThread
                     && notification.turnId().isPresent()
                     && !notification.turnId().orElseThrow().equals(running.reference().value())) {
@@ -1358,6 +1467,7 @@ public final class CodexCliDriver
                     // would end it are queued behind this handler.
                     CodexRunningTurn completing = running;
                     CodexProtocol.Turn reported = turnCompleted.params().turn();
+                    reuseBlocked |= reported.items().stream().anyMatch(CodexSession::preventsReuse);
                     reported.items().stream()
                             .filter(CodexProtocol.AgentMessageItem.class::isInstance)
                             .map(CodexProtocol.AgentMessageItem.class::cast)
@@ -1395,6 +1505,9 @@ public final class CodexCliDriver
          */
         private void emitRecorded(ProviderAgentEvent event)
         {
+            if (event instanceof ProviderAgentEvent.DevelopmentResult result && result.report().readyForDelivery()) {
+                reuseBlocked = true;
+            }
             try {
                 events.emit(event);
             }
@@ -1753,16 +1866,50 @@ public final class CodexCliDriver
                         .orElse("the quiescence check failed");
                 unsettled = Optional.of(sessionRedactor.redact(message));
             }
+            boolean graceful;
+            synchronized (this) {
+                graceful = !failed && unsettled.isEmpty() && reuseAllowed && !reuseBlocked && !closing && !turn.cancellationRequested();
+            }
+            if (graceful) {
+                turn.toolCalls.shutdown();
+                if (!awaitTools(turn.toolCalls)) {
+                    synchronized (this) {
+                        reuseBlocked = true;
+                    }
+                }
+            }
+            if (!turn.toolCalls.isTerminated()) {
+                turn.toolCalls.shutdownNow();
+            }
+            boolean toolsStopped = awaitTools(turn.toolCalls);
+            boolean retain;
             synchronized (this) {
                 if (running != turn) {
                     // Cancelled, disconnected, or already finished while we waited.
                     return;
                 }
+                retain = !failed && reported.status() == CodexProtocol.TurnStatus.COMPLETED && unsettled.isEmpty() && reuseAllowed && !reuseBlocked
+                        && !closing && !turn.cancellationRequested() && children.isEmpty() && pendingApprovals.isEmpty() && pendingNotifications.isEmpty()
+                        && turn.toolCalls.isTerminated();
                 running = null;
-                closed = true;
+                if (!toolsStopped) {
+                    unsettledTools = Optional.of(turn.toolCalls);
+                }
+                if (retain) {
+                    parked = true;
+                    releaseTurnTools();
+                }
+                else {
+                    closed = true;
+                }
+            }
+            if (retain) {
+                client.timing("codex.session.retained");
+                turn.complete(reported);
+                return;
             }
             try {
-                if (!failed && unsettled.isEmpty()) {
+                if (!failed && unsettled.isEmpty() && toolsStopped) {
                     client.closeAfterWorkFinished();
                 }
                 else {
@@ -1781,11 +1928,31 @@ public final class CodexCliDriver
                 }
                 return;
             }
+            if (!toolsStopped) {
+                turn.completeUnverifiable(reported, "Local tool callbacks could not be verified stopped");
+                return;
+            }
             if (unsettled.isEmpty()) {
                 turn.complete(reported);
                 return;
             }
             turn.completeFailedButStopped(reported, unsettled.orElseThrow());
+        }
+
+        private static boolean preventsReuse(CodexProtocol.ThreadItem item)
+        {
+            return item instanceof CodexProtocol.CommandExecutionItem || item instanceof CodexProtocol.FileChangeItem;
+        }
+
+        private static boolean awaitTools(ExecutorService tools)
+        {
+            try {
+                return tools.awaitTermination(1, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
         }
 
         /**
@@ -2107,6 +2274,9 @@ public final class CodexCliDriver
                     return CompletableFuture.failedFuture(new AgentUnavailableException("Codex approval thread is not in the active agent graph"));
                 }
                 expectedTurn = running;
+                if (!(serverRequest instanceof CodexProtocol.DynamicToolCallRequest)) {
+                    reuseBlocked = true;
+                }
             }
             if (expectedTurn.cancellationRequested()
                     || expectedTurn.completion().toCompletableFuture().isDone()) {
@@ -2131,6 +2301,13 @@ public final class CodexCliDriver
 
         private CompletionStage<CodexProtocol.DynamicToolCallResponse> callReviewRootTool(CodexProtocol.DynamicToolCallRequest request, CodexRunningTurn expectedTurn)
         {
+            McpRegistration tools;
+            synchronized (this) {
+                if (running != expectedTurn || turnTools.isEmpty()) {
+                    return CompletableFuture.completedFuture(reviewToolResponse("Review turn is no longer active", false));
+                }
+                tools = turnTools.orElseThrow();
+            }
             try {
                 return CompletableFuture.supplyAsync(() -> {
                     try {
@@ -2140,7 +2317,7 @@ public final class CodexCliDriver
                                 return reviewToolResponse("Review turn is no longer active", false);
                             }
                         }
-                        JsonNode body = permissions.callCodexRootTool(codeQueries.orElseThrow().token(), request.params().tool(), request.params().arguments()).body().orElseThrow();
+                        JsonNode body = permissions.callCodexRootTool(tools.token(), request.params().tool(), request.params().arguments()).body().orElseThrow();
                         JsonNode tool = body.path("result");
                         boolean success = !tool.isMissingNode() && !tool.path("isError").asBoolean(false);
                         String message = success || !tool.isMissingNode()
@@ -2379,16 +2556,20 @@ public final class CodexCliDriver
         @Override
         public synchronized void onDisconnect(Throwable failure)
         {
+            closed = true;
+            reuseBlocked = true;
             if (running != null && running.failedCompletion.isPresent()) {
                 // Its authoritative failure already scheduled process-tree shutdown; a disconnect cannot replace that outcome.
                 return;
             }
             if (running != null) {
                 CodexRunningTurn interrupted = running;
+                unsettledTools = Optional.of(interrupted.toolCalls);
+                interrupted.toolCalls.shutdownNow();
                 running = null;
                 // A disconnect that follows the process exiting knows whether its tree stopped; one
                 // that precedes it, such as a protocol failure, cannot claim the worktree is quiet.
-                interrupted.interrupt(failure, client.processTreeVerifiedStopped().orElse(false));
+                interrupted.interrupt(failure, client.processTreeVerifiedStopped().orElse(false) && interrupted.toolCalls.isTerminated());
             }
         }
 
@@ -2418,6 +2599,9 @@ public final class CodexCliDriver
             synchronized (this) {
                 closing = true;
                 interrupted = running;
+                if (interrupted != null) {
+                    unsettledTools = Optional.of(interrupted.toolCalls);
+                }
             }
             if (interrupted != null && !interrupted.completion.isDone()) {
                 interrupted.cancel();
@@ -2437,8 +2621,25 @@ public final class CodexCliDriver
                 running = null;
             }
             codeQueries.ifPresent(McpRegistration::close);
+            synchronized (this) {
+                releaseTurnTools();
+            }
             try {
                 client.close();
+                Optional<ExecutorService> tools;
+                synchronized (this) {
+                    tools = unsettledTools;
+                }
+                tools.ifPresent(executor -> {
+                    executor.shutdownNow();
+                    if (!awaitTools(executor)) {
+                        throw new AgentUnavailableException("Local tool callbacks could not be verified stopped");
+                    }
+                });
+                synchronized (this) {
+                    parked = false;
+                    unsettledTools = Optional.empty();
+                }
             }
             catch (RuntimeException failure) {
                 if (interrupted != null) {

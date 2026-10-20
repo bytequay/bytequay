@@ -70,6 +70,14 @@ final class CodexEventMapper
         this.exposeReasoningSummaries = exposeReasoningSummaries;
     }
 
+    /** Cumulative counters survive reuse; buffered text and completed-turn baselines do not. */
+    void nextTurn()
+    {
+        heldStreams.clear();
+        unlabelledMessages.clear();
+        turnBaselines.clear();
+    }
+
     /**
      * Maps one inbound notification to the events ByteQuay publishes.
      *

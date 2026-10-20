@@ -261,6 +261,12 @@ class TestDefaultAgentTurnService
         private final Path worktree;
         private int cleanupCalls;
         private boolean dirty;
+        private Consumer<TaskWorktree> onCleanup = ignored -> {
+            throw new UnsupportedOperationException();
+        };
+        private Consumer<TaskWorktree> onDelete = ignored -> {
+            throw new UnsupportedOperationException();
+        };
 
         private FixedWorktreeService(Path worktree)
         {
@@ -294,14 +300,14 @@ class TestDefaultAgentTurnService
         @Override
         public void delete(TaskWorktree worktree)
         {
-            throw new UnsupportedOperationException();
+            onDelete.accept(worktree);
         }
 
         @Override
         public void cleanup(TaskWorktree worktree)
         {
             cleanupCalls++;
-            throw new UnsupportedOperationException();
+            onCleanup.accept(worktree);
         }
     }
 
@@ -2966,11 +2972,80 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void warmTurnsKeepOneSessionAndRenameRetiresItBeforeChangingTheBranch()
+    {
+        driver.enableReuse();
+        AgentTurn first = service.start(command("first", "warm-first"));
+        driver.complete("first answer");
+        assertThat(runtimeRegistry.retained(task.id())).isTrue();
+        AgentTurn second = service.start(command("second", "warm-second"));
+        driver.complete("second answer");
+        assertThat(driver.openedContexts()).hasSize(1);
+        assertThat(service.get(first.id()).state()).isEqualTo(TurnState.COMPLETED);
+        assertThat(service.get(second.id()).state()).isEqualTo(TurnState.COMPLETED);
+
+        String renamed = TaskBranches.generate(task.id(), "user", "Renamed task");
+        service.synchronizeWorktree(task.id(), taskService.get(task.id()).version(), current -> {
+            assertThat(runtimeRegistry.session(task.id())).isEmpty();
+            stores.update(current.withBranch(renamed, NOW));
+        });
+        service.start(command("after rename", "warm-renamed"));
+        assertThat(driver.openedContexts()).hasSize(2);
+        assertThat(driver.openedReferences().getLast()).isEqualTo(driver.openedReferences().getFirst());
+        assertThat(instructionTasks.getLast().taskWorktree().orElseThrow().generatedBranch()).isEqualTo(renamed);
+        driver.complete("renamed answer");
+        assertThat(runtimeRegistry.retained(task.id())).isTrue();
+        completionService().complete(new CompleteAgentTaskCommand(task.id(), Optional.empty()));
+        assertThat(runtimeRegistry.session(task.id())).isEmpty();
+        worktrees.onCleanup = checkout -> {
+            assertThat(checkout.generatedBranch()).isEqualTo(renamed);
+            assertThat(runtimeRegistry.session(task.id())).isEmpty();
+        };
+        completionService().cleanupWorktree(task.id());
+        worktrees.onDelete = checkout -> assertThat(checkout.generatedBranch()).isEqualTo(renamed);
+        completionService().delete(task.id());
+        assertThat(stores.find(task.id())).isEmpty();
+    }
+
+    @Test
+    void warmSessionCloseFailurePreventsWorktreeMutationAndIsRetryable()
+    {
+        driver.enableReuse();
+        service.start(command("first", "warm-failed-close"));
+        driver.complete("answer");
+        driver.failNextCloseVerification();
+        AtomicBoolean mutated = new AtomicBoolean();
+        long version = taskService.get(task.id()).version();
+        assertThatThrownBy(() -> service.synchronizeWorktree(task.id(), version, current -> mutated.set(true))).hasMessageContaining("not be verified");
+        assertThat(mutated).isFalse();
+        assertThat(runtimeRegistry.unverifiedClose(task.id())).isPresent();
+        assertThatThrownBy(() -> service.start(command("blocked", "warm-blocked"))).hasMessageContaining("not verified stopped");
+        service.stopRuntime(task.id(), "task:" + taskService.get(task.id()).version());
+        service.synchronizeWorktree(task.id(), taskService.get(task.id()).version(), current -> mutated.set(true));
+        assertThat(mutated).isTrue();
+    }
+
+    @Test
+    void changedInstructionsRestartWarmSessionWithoutChangingConversationIdentity()
+    {
+        driver.enableReuse();
+        service.start(command("first", "warm-instructions-first"));
+        driver.complete("answer");
+        managedInstructions.set("New instructions");
+        service.start(command("second", "warm-instructions-second"));
+        assertThat(driver.openedContexts()).hasSize(2);
+        assertThat(driver.openedReferences().getLast()).isEqualTo(driver.openedReferences().getFirst());
+        driver.complete("answer");
+    }
+
+    @Test
     void resumesPersistedSessionAfterRuntimeRegistryIsLost()
     {
+        driver.enableReuse();
         AgentTurn first = service.start(command("first", "key-1"));
         driver.complete("first response");
         assertThat(service.get(first.id()).state()).isEqualTo(TurnState.COMPLETED);
+        assertThat(runtimeRegistry.retained(task.id())).isTrue();
         AgentSessionRef reference = stores.find(task.id()).orElseThrow().sessionReference().orElseThrow();
 
         DeterministicAgentDriver resumedDriver = new DeterministicAgentDriver();

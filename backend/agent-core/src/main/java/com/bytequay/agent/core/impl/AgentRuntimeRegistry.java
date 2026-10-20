@@ -26,7 +26,11 @@ import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,6 +38,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -50,7 +55,12 @@ import static java.util.Objects.requireNonNull;
 public final class AgentRuntimeRegistry
         implements AutoCloseable
 {
+    private static final Duration IDLE_RETENTION = Duration.ofMinutes(5);
+    private static final int MAXIMUM_IDLE_SESSIONS = 4;
     private final ConcurrentMap<TaskId, AgentSession> sessions = new ConcurrentHashMap<>();
+    private final ConcurrentMap<TaskId, Optional<TaskWorktree>> sessionWorktrees = new ConcurrentHashMap<>();
+    private final ConcurrentMap<TaskId, AgentSession> retiring = new ConcurrentHashMap<>();
+    private final ConcurrentMap<TaskId, IdleSession> idleSessions = new ConcurrentHashMap<>();
     private final ConcurrentMap<TurnId, LiveTurn> runningTurns = new ConcurrentHashMap<>();
     // One monitor per worktree owner for the life of the process: unrelated worktrees must not wait on each
     // other's provider launch. ponytail: never evicted, which is a few bytes per task this backend has seen.
@@ -64,6 +74,7 @@ public final class AgentRuntimeRegistry
     private final Consumer<AgentTask> branchAdmission;
     private final Predicate<AgentTask> heldBetweenTurns;
     private final AgentTaskStore taskStore;
+    private final boolean processReuse;
     private volatile boolean closing;
 
     public AgentRuntimeRegistry(AgentTaskStore taskStore, Consumer<AgentTask> branchAdmission)
@@ -77,16 +88,23 @@ public final class AgentRuntimeRegistry
      */
     public AgentRuntimeRegistry(AgentTaskStore taskStore, Consumer<AgentTask> branchAdmission, Predicate<AgentTask> heldBetweenTurns)
     {
+        this(taskStore, branchAdmission, heldBetweenTurns, true);
+    }
+
+    public AgentRuntimeRegistry(AgentTaskStore taskStore, Consumer<AgentTask> branchAdmission, Predicate<AgentTask> heldBetweenTurns, boolean processReuse)
+    {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.branchAdmission = requireNonNull(branchAdmission, "branchAdmission is null");
         this.heldBetweenTurns = requireNonNull(heldBetweenTurns, "heldBetweenTurns is null");
+        this.processReuse = processReuse;
     }
 
     void checkBranchAdmission(AgentTask task)
     {
+        requireNotRetiring(task.id());
         for (AgentTask other : sharedTasks(task)) {
             if (other.worktreeMutationClaim().isPresent() || other.developmentContinuationUnfinished() || hasDevelopmentOwner(other.id())
-                    || unverifiedClose(other.id()).isPresent() || heldBetweenTurns.test(other)) {
+                    || unverifiedClose(other.id()).isPresent() || heldBetweenTurns.test(other) || retained(other.id()) || retiring.containsKey(other.id())) {
                 throw new AgentConflictException("The shared working copy is in use by " + other.title() + "; wait for it to finish or stop it first");
             }
         }
@@ -124,6 +142,7 @@ public final class AgentRuntimeRegistry
     /** Records causal acceptance order after commit; stored turn timestamps may be equal. */
     void recordAcceptedTurn(AgentTurn turn)
     {
+        idleSessions.remove(turn.taskId());
         latestAcceptedTurns.put(turn.taskId(), turn.id());
         if (turn.developmentOrigin().isEmpty()) {
             stoppedDevelopmentTasks.remove(turn.taskId());
@@ -260,6 +279,7 @@ public final class AgentRuntimeRegistry
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(session, "session is null");
+        requireNotRetiring(taskId);
         AgentSession existing = sessions.putIfAbsent(taskId, session);
         if (existing != null) {
             session.close();
@@ -268,6 +288,7 @@ public final class AgentRuntimeRegistry
             }
             return existing;
         }
+        sessionWorktrees.put(taskId, taskStore.find(taskId).flatMap(AgentTask::taskWorktree));
         // Registration may race the shutdown iterator. Keep the session tracked until its
         // process is verified stopped, including when this late close fails.
         if (closing) {
@@ -292,15 +313,148 @@ public final class AgentRuntimeRegistry
         if (session == null) {
             return;
         }
+        closeSession(taskId, session);
+    }
+
+    void closeSession(TaskId taskId, AgentSession session)
+    {
+        synchronized (taskLock(taskId)) {
+            if (sessions.get(taskId) != session) {
+                return;
+            }
+            reserveRetirement(taskId, session);
+        }
+        closeReserved(taskId, session);
+    }
+
+    private void reserveRetirement(TaskId taskId, AgentSession session)
+    {
+        if (retiring.putIfAbsent(taskId, session) != null) {
+            throw new AgentConflictException("Task provider process is stopping: " + taskId);
+        }
+        idleSessions.remove(taskId);
+    }
+
+    private void closeReserved(TaskId taskId, AgentSession session)
+    {
         try {
             session.close();
+            sessions.remove(taskId, session);
+            sessionWorktrees.remove(taskId);
+            unverifiedCloses.remove(taskId);
         }
         catch (RuntimeException failure) {
             unverifiedCloses.put(taskId, failure);
             throw failure;
         }
-        sessions.remove(taskId, session);
-        unverifiedCloses.remove(taskId);
+        finally {
+            retiring.remove(taskId, session);
+        }
+    }
+
+    boolean retained(TaskId taskId)
+    {
+        return session(taskId).map(AgentSession::retained).orElse(false);
+    }
+
+    boolean processReuse()
+    {
+        return processReuse;
+    }
+
+    boolean sameWorktree(AgentTask task)
+    {
+        return task.taskWorktree().equals(sessionWorktrees.get(task.id()));
+    }
+
+    public void requireStoppedSession(TaskId taskId)
+    {
+        requireNotRetiring(taskId);
+        if (retained(taskId)) {
+            throw new AgentConflictException("Task provider process must stop before changing its working copy: " + taskId);
+        }
+        unverifiedClose(taskId).ifPresent(failure -> {
+            throw new AgentConflictException("Task provider process is not verified stopped: " + failure.getMessage());
+        });
+    }
+
+    private void requireNotRetiring(TaskId taskId)
+    {
+        if (retiring.containsKey(taskId)) {
+            throw new AgentConflictException("Task provider process is stopping: " + taskId);
+        }
+    }
+
+    /** Reserves shutdown under the owner lock, but never waits for provider callbacks while holding it. */
+    void retireIdleSessions(TaskId taskId, boolean includeOwn)
+    {
+        Map<TaskId, AgentSession> selected = new LinkedHashMap<>();
+        synchronized (taskLock(taskId)) {
+            AgentTask task = taskStore.require(taskId);
+            List<AgentTask> candidates = ImmutableList.<AgentTask>builder().addAll(sharedTasks(task)).add(task).build();
+            for (AgentTask candidate : candidates) {
+                if ((!includeOwn && candidate.id().equals(taskId)) || candidate.worktreeMutationClaim().isPresent()) {
+                    continue;
+                }
+                AgentSession session = sessions.get(candidate.id());
+                if (session != null && session.retained()) {
+                    requireNotRetiring(candidate.id());
+                    selected.put(candidate.id(), session);
+                }
+            }
+            selected.forEach(this::reserveRetirement);
+        }
+        RuntimeException failure = null;
+        for (Map.Entry<TaskId, AgentSession> entry : selected.entrySet()) {
+            try {
+                closeReserved(entry.getKey(), entry.getValue());
+            }
+            catch (RuntimeException closeFailure) {
+                if (failure == null) {
+                    failure = closeFailure;
+                }
+                else {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+        }
+        if (failure != null) {
+            throw failure;
+        }
+    }
+
+    void retainFinishedSession(TaskId taskId)
+    {
+        IdleSession idle;
+        synchronized (taskLock(taskId)) {
+            AgentSession session = sessions.get(taskId);
+            if (session == null || !session.retained() || taskStore.find(taskId).filter(task -> task.worktreeMutationClaim().isEmpty()).isEmpty() || closing) {
+                return;
+            }
+            idle = new IdleSession(session, Instant.now());
+            idleSessions.put(taskId, idle);
+        }
+        CompletableFuture.delayedExecutor(IDLE_RETENTION.toMillis(), TimeUnit.MILLISECONDS).execute(() -> expire(taskId, idle));
+        idleSessions.entrySet().stream().sorted(Map.Entry.comparingByValue(Comparator.comparing(IdleSession::since)))
+                .limit(Math.max(0, idleSessions.size() - MAXIMUM_IDLE_SESSIONS))
+                .forEach(entry -> CompletableFuture.runAsync(() -> expire(entry.getKey(), entry.getValue())));
+    }
+
+    private void expire(TaskId taskId, IdleSession expected)
+    {
+        synchronized (taskLock(taskId)) {
+            if (idleSessions.get(taskId) != expected || sessions.get(taskId) != expected.session()
+                    || taskStore.find(taskId).filter(task -> task.worktreeMutationClaim().isEmpty()).isEmpty() || retiring.containsKey(taskId)) {
+                return;
+            }
+            reserveRetirement(taskId, expected.session());
+        }
+        try {
+            closeReserved(taskId, expected.session());
+        }
+        catch (RuntimeException ignored) {
+            // The retained session and unverified-close record keep the worktree blocked for Stop/recovery.
+        }
     }
 
     /** The failure that left a task's process unverified, while its last close has not succeeded. */
@@ -313,9 +467,8 @@ public final class AgentRuntimeRegistry
     /**
      * Releases every session this backend still holds.
      *
-     * <p>A session owns the provider process serving its task, and completing a task is the only
-     * thing that closes one. Without this, shutting the backend down while any task is incomplete
-     * would leave that task's process running with nothing left to reap it until the next start.
+     * <p>Idle sessions retain process ownership too. Shutdown must verify every tracked process
+     * stopped, including tasks with no active turn.
      */
     @Override
     public void close()
@@ -381,6 +534,8 @@ public final class AgentRuntimeRegistry
     }
 
     private record LiveTurn(TaskId taskId, RunningTurn handle) {}
+
+    private record IdleSession(AgentSession session, Instant since) {}
 
     private record DevelopmentOwner(TurnId sourceTurnId, Map<DevelopmentTurnOrigin.Kind, CompletableFuture<DevelopmentTurnCompletion>> turns) {}
 }

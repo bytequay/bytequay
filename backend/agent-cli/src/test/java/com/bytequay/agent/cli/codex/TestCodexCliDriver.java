@@ -3584,6 +3584,211 @@ class TestCodexCliDriver
     }
 
     @Test
+    void reusesOneProcessWithFreshTurnCallbacksAndRootAuthority()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.159.3", false);
+        AtomicInteger generation = new AtomicInteger();
+        List<Integer> writes = new CopyOnWriteArrayList<>();
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                .reviews(taskId -> {
+                    int bound = generation.get();
+                    return Optional.of(new ReviewBridge(ImmutableList.of(
+                            new ReviewTool("review_get_context", "Read context", ImmutableMap.of("type", "object"), arguments -> "context-" + bound, true),
+                            new ReviewTool("review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> {
+                                writes.add(bound);
+                                return "finished";
+                            })), "Review privately"));
+                }).build();
+        CodexCliDriver driver = reusableDriver(supervisor, broker);
+        List<List<ProviderAgentEvent>> events = new ArrayList<>();
+        List<ProviderAgentEvent> firstEvents = new CopyOnWriteArrayList<>();
+        List<Integer> eventCounts = new ArrayList<>();
+        try (AgentSession session = driver.open(reusableContext(Optional.empty()), firstEvents::add)) {
+            session.allowReuse();
+            AppServerProcess server = supervisor.server();
+            String token = supervisor.environments().getLast().get("BYTEQUAY_TOOL_TOKEN");
+            for (int index = 0; index < 3; index++) {
+                generation.set(index);
+                List<ProviderAgentEvent> currentEvents = index == 0 ? firstEvents : new CopyOnWriteArrayList<>();
+                events.add(currentEvents);
+                if (index > 0) {
+                    assertThat(session.prepareTurn(reusableContext(Optional.of(session.reference())), currentEvents::add)).isTrue();
+                }
+                RunningTurn turn = session.start(command("message-" + index));
+                server.emit("""
+                        {"method":"account/rateLimits/updated","params":{"rateLimits":{}}}
+                        """);
+                int requestId = 700 + index;
+                server.emit("""
+                        {"id":%d,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
+                        "callId":"root","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"review_finish","arguments":{}}}}
+                        """.formatted(requestId, server.activeTurn()));
+                awaitCondition(() -> server.result(requestId) != null);
+                assertThat(server.result(requestId).path("success").asBoolean()).isTrue();
+                assertThat(broker.handle(token, objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"review_finish","arguments":{}}}
+                        """)).body().orElseThrow().has("error")).isTrue();
+                assertThat(broker.handle(token, objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"bytequay_call_tool","arguments":{"name":"review_finish","arguments":{}}}}
+                        """)).body().orElseThrow().has("error")).isTrue();
+                assertThat(broker.handle(token, objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"review_get_context","arguments":{}}}
+                        """)).body().orElseThrow().at("/result/content/0/text").asText()).isEqualTo("context-" + index);
+                if (index > 0) {
+                    int staleId = 800 + index;
+                    server.emit("""
+                            {"id":%d,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"turn-%d",
+                            "callId":"stale","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"review_finish","arguments":{}}}}
+                            """.formatted(staleId, index));
+                    awaitCondition(() -> server.error(staleId) != null);
+                    server.emitUsage("thread-1", "turn-" + index, AppServerProcess.tokens(1, 1, 0, 0), AppServerProcess.tokens(1, 1, 0, 0));
+                }
+                server.emitUsage("thread-1", server.activeTurn(),
+                        AppServerProcess.tokens(1100 + 100L * index, 880 + 80L * index, 330 + 30L * index, 220 + 20L * index), AppServerProcess.tokens(100, 80, 30, 20));
+                server.emit("""
+                        {"method":"item/completed","params":{"threadId":"thread-1","turnId":"%s",
+                        "item":{"type":"agentMessage","id":"message","text":"answer-%d","phase":"final_answer"}}}
+                        """.formatted(server.activeTurn(), index));
+                server.completeTurnWithoutOutput();
+                assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+                assertThat(currentEvents).anyMatch(event -> event instanceof ProviderAgentEvent.Message);
+                assertThat(currentEvents).filteredOn(event -> event instanceof ProviderAgentEvent.Usage)
+                        .singleElement().satisfies(event -> assertThat(((ProviderAgentEvent.Usage) event).sample().inputTokens()).isEqualTo(80));
+                for (int previous = 0; previous < index; previous++) {
+                    assertThat(events.get(previous)).hasSize(eventCounts.get(previous));
+                }
+                eventCounts.add(currentEvents.size());
+                assertThat(session.retained()).isTrue();
+                assertThat(server.exit).isNotDone();
+                assertThat(server.finishedWorkStops).hasValue(0);
+            }
+            assertThat(writes).containsExactly(0, 1, 2);
+            assertThat(supervisor.servers()).hasSize(1);
+            assertThat(server.threadRequests()).hasSize(1);
+            assertThat(server.turnRequests()).hasSize(3);
+        }
+        assertThat(supervisor.server().exit).isDone();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"auth", "config", "instructions", "model", "effort", "task", "worktree", "questions"})
+    void incompatibleConfigurationRejectsWarmReuseBeforeSending(String change)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.159.3", false);
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                .relatedWork(taskId -> Optional.of(new RelatedWorkspaceBridge(arguments -> "linked"))).build();
+        CodexCliDriver driver = reusableDriver(supervisor, broker);
+        try (AgentSession session = driver.open(reusableContext(Optional.empty()), event -> {})) {
+            session.allowReuse();
+            RunningTurn first = session.start(command("first"));
+            supervisor.server().completeTurnWithoutOutput();
+            first.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(session.retained()).isTrue();
+            AgentSessionContext original = reusableContext(Optional.of(session.reference()));
+            if (change.equals("auth") || change.equals("config")) {
+                Files.writeString(codexHome().resolve(change.equals("auth") ? "auth.json" : "config.toml"), "changed");
+            }
+            AgentSessionContext next = new AgentSessionContext(
+                    change.equals("task") ? "another-task" : original.taskId(), change.equals("worktree") ? worktree.resolve("other") : original.worktree(),
+                    original.runtimeDirectory(), original.providerDirectory(), original.permissionPolicy(), original.sessionReference(), original.approvals(),
+                    change.equals("model") ? Optional.of("another-model") : original.model(), change.equals("effort") ? Optional.of("high") : original.effort(),
+                    change.equals("questions") ? SessionAccess.READ_ONLY : original.access(), original.codeQueries(),
+                    change.equals("instructions") ? "new instructions" : original.managedInstructions(),
+                    original.discussionContext(), original.sessionTools(), change.equals("questions"));
+            assertThat(session.prepareTurn(next, event -> {})).isFalse();
+            assertThat(supervisor.server().turnRequests()).hasSize(1);
+        }
+        assertThat(supervisor.server().exit).isDone();
+    }
+
+    @Test
+    void uninterruptibleLocalToolKeepsShutdownUnverifiedUntilItReturns()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.159.3", false);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch returned = new CountDownLatch(1);
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                .relatedWork(taskId -> Optional.of(new RelatedWorkspaceBridge(arguments -> {
+                    entered.countDown();
+                    boolean released = false;
+                    while (!released) {
+                        try {
+                            release.await();
+                            released = true;
+                        }
+                        catch (InterruptedException ignored) {
+                            // Simulate a local operation that cannot stop until its external call returns.
+                        }
+                    }
+                    returned.countDown();
+                    return "linked";
+                }))).build();
+        AgentSession session = reusableDriver(supervisor, broker).open(reusableContext(Optional.empty()), event -> {});
+        try {
+            session.allowReuse();
+            RunningTurn turn = session.start(command("slow local tool"));
+            AppServerProcess server = supervisor.server();
+            server.emit("""
+                    {"id":900,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
+                    "callId":"slow","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"related_workspace_work","arguments":{}}}}
+                    """.formatted(server.activeTurn()));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            server.completeTurnWithoutOutput();
+            assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).providerQuiescent()).isFalse();
+            assertThat(session.retained()).isFalse();
+            assertThatThrownBy(session::close).hasMessageContaining("Local tool callbacks could not be verified stopped");
+            release.countDown();
+            assertThat(returned.await(5, TimeUnit.SECONDS)).isTrue();
+            session.close();
+        }
+        finally {
+            release.countDown();
+            session.close();
+        }
+    }
+
+    @Test
+    void approvalActivityForcesShutdownEvenWhenReuseIsEnabled()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.159.3", false);
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                .relatedWork(taskId -> Optional.of(new RelatedWorkspaceBridge(arguments -> "linked"))).build();
+        try (AgentSession session = reusableDriver(supervisor, broker).open(reusableContext(Optional.empty()), event -> {})) {
+            session.allowReuse();
+            RunningTurn turn = session.start(command("permission"));
+            supervisor.server().completeTurn();
+            assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            assertThat(session.retained()).isFalse();
+            assertThat(supervisor.server().exit).isDone();
+        }
+    }
+
+    private CodexCliDriver reusableDriver(ScriptedProcessSupervisor supervisor, PermissionBroker broker)
+            throws IOException
+    {
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        CodexHome.prepare(codexHome());
+        return new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
+                ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
+    }
+
+    private AgentSessionContext reusableContext(Optional<AgentSessionRef> reference)
+            throws IOException
+    {
+        AgentSessionContext original = context(reference, new AtomicReference<>());
+        return new AgentSessionContext(original.taskId(), original.worktree(), Files.createDirectories(worktree.resolve("runtime")),
+                Files.createDirectories(worktree.resolve("runtime/provider")), original.permissionPolicy(), reference, original.approvals(), Optional.of("gpt-5"), original.effort(),
+                original.access(), original.codeQueries(), original.managedInstructions());
+    }
+
+    @Test
     void withdrawsAnApprovalAppServerSettledItself()
             throws Exception
     {

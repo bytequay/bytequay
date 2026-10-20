@@ -113,6 +113,7 @@ public final class DefaultAgentCompletionService
     public TaskCompletion complete(CompleteAgentTaskCommand command)
     {
         requireNonNull(command, "command is null");
+        runtimeRegistry.retireIdleSessions(command.taskId(), true);
         drainPending(outboxStore, eventService, command.taskId());
         AgentTask task = claimCompletion(command.taskId());
         if (task.state() == TaskState.COMPLETED) {
@@ -208,6 +209,7 @@ public final class DefaultAgentCompletionService
         if (reason == null || reason.isBlank()) {
             throw new InvalidAgentRequestException("reason must not be blank");
         }
+        runtimeRegistry.retireIdleSessions(taskId, true);
         synchronized (runtimeRegistry.taskLock(taskId)) {
             requireAbandonable(taskId);
         }
@@ -297,6 +299,7 @@ public final class DefaultAgentCompletionService
     @Override
     public void cleanupWorktree(TaskId taskId)
     {
+        runtimeRegistry.retireIdleSessions(taskId, true);
         requireNonNull(taskId, "taskId is null");
         synchronized (runtimeRegistry.taskLock(taskId)) {
             AgentTask task = taskStore.require(taskId);
@@ -327,6 +330,7 @@ public final class DefaultAgentCompletionService
     @Override
     public void cleanup(TaskId taskId)
     {
+        runtimeRegistry.retireIdleSessions(taskId, true);
         requireNonNull(taskId, "taskId is null");
         synchronized (runtimeRegistry.taskLock(taskId)) {
             AgentTask task = taskStore.require(taskId);
@@ -358,6 +362,9 @@ public final class DefaultAgentCompletionService
     public void delete(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
+        if (taskStore.find(taskId).isPresent()) {
+            runtimeRegistry.retireIdleSessions(taskId, true);
+        }
         synchronized (runtimeRegistry.taskLock(taskId)) {
             if (!deletable(taskId)) {
                 return;
@@ -429,6 +436,7 @@ public final class DefaultAgentCompletionService
 
     private AgentTask prepareIdleWorktree(AgentTask task)
     {
+        runtimeRegistry.requireStoppedSession(task.id());
         turnStore.findActive(task.id()).ifPresent(turn -> {
             throw new AgentConflictException("Task has an active turn: " + turn.id());
         });

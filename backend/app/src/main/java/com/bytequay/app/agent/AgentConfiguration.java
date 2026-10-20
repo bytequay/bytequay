@@ -235,13 +235,14 @@ public class AgentConfiguration
     }
 
     @Bean(destroyMethod = "close")
-    public AgentRuntimeRegistry agentRuntimeRegistry(AgentTaskStore taskStore, ObjectProvider<DevelopmentCiOwnership> ciOwnership, AgentReviewStore reviews)
+    public AgentRuntimeRegistry agentRuntimeRegistry(AgentTaskStore taskStore, ObjectProvider<DevelopmentCiOwnership> ciOwnership, AgentReviewStore reviews,
+            @Value("${bytequay.agent.codex-process-reuse:true}") boolean processReuse)
     {
         // A review run moves through several turns; a developer turn started between two of them would fail the next one.
         return new AgentRuntimeRegistry(taskStore, task -> ciOwnership.getObject().requireSourceAdmission(task), task -> reviews.findReviewByTask(task.id().toString())
                 .filter(review -> review.state() == AgentReview.State.OPEN && !review.followUpPaused())
                 .filter(review -> reviews.listRuns(review.id()).stream().anyMatch(ReviewRun::active))
-                .isPresent());
+                .isPresent(), processReuse);
     }
 
     @Bean

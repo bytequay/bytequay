@@ -176,6 +176,7 @@ public final class PermissionBroker
     private final BridgeResolver<GoogleWorkspaceBridge> googleWorkspace;
     private final BridgeResolver<RelatedWorkspaceBridge> relatedWork;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
+    private final Set<String> nativeOnlyTokens = ConcurrentHashMap.newKeySet();
 
     public static PermissionBrokerBuilder builder(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader)
     {
@@ -329,7 +330,17 @@ public final class PermissionBroker
         return Optional.of(new McpRegistration(
                 token, requireNonNull(endpoint.get(), "endpoint URI is null"), exposed.stream().map(ToolDefinition::name).collect(toImmutableList()), toolsDigest(exposed),
                 managedInstruction(context), context.review(), context.development(),
-                Optional.empty(), Optional.empty(), () -> contexts.remove(token)));
+                Optional.empty(), Optional.empty(), () -> {
+                    contexts.remove(token);
+                    nativeOnlyTokens.remove(token);
+                }));
+    }
+
+    /** Fresh turn authority is reachable only from an already validated native root call. */
+    public void nativeOnly(McpRegistration registration)
+    {
+        checkArgument(contexts.containsKey(registration.token()), "Task token is not registered");
+        nativeOnlyTokens.add(registration.token());
     }
 
     /** Keeps a review child's shared MCP token read-only; the root receives other tools through App Server. */
@@ -347,10 +358,10 @@ public final class PermissionBroker
             checkArgument(readable.contains("review_get_context"), "Review children need readable context");
         }
         else {
-            readable = childReadable(context).collect(ImmutableSet.toImmutableSet());
+            readable = context.codeQueries().stream().map(ignored -> CodeQueryBridge.TOOL_NAME).collect(ImmutableSet.toImmutableSet());
         }
         Set<String> childTools = readable;
-        // Memory reads use the shared MCP token; its mutating actions still require a root-bound dynamic call.
+        // Shared HTTP requests carry no native turn identity; all mutating capabilities stay on the root dispatcher.
         List<String> mcpNames = tools(context).stream().map(ToolDefinition::name)
                 .filter(name -> childTools.contains(name) || (context.review().isPresent() && name.equals(MemoryBridge.TOOL_NAME)))
                 .collect(toImmutableList());
@@ -465,7 +476,7 @@ public final class PermissionBroker
         requireNonNull(bearerToken, "bearerToken is null");
         requireNonNull(body, "body is null");
         PermissionContext context = contexts.get(bearerToken);
-        if (context == null) {
+        if (context == null || nativeOnlyTokens.contains(bearerToken)) {
             return new McpHttpResponse(401, Optional.empty());
         }
         CodexRootTools guarded = context.codexReviewTools().get();
@@ -490,6 +501,14 @@ public final class PermissionBroker
                     if (guarded != null && context.review().isPresent() && name.equals(MemoryBridge.TOOL_NAME)
                             && !ImmutableSet.of("SEARCH", "READ").contains(request.params().path("arguments").path("action").asText(""))) {
                         yield error(request.id(), -32602, "Review child memory access permits only SEARCH and READ");
+                    }
+                    if (guarded != null && name.equals("review_get_context")) {
+                        // Only this read is resolved anew; the token's original permissions and write callbacks never change.
+                        yield runTool(request.id(), context, () -> reviews.resolve(context.taskId())
+                                .flatMap(review -> review.tool("review_get_context")).filter(ReviewTool::childCallable)
+                                .orElseThrow(() -> new IllegalStateException("Review context is no longer available"))
+                                .call().apply(objectMapper.writeValueAsString(request.params().path("arguments"))),
+                                failure -> "Review context is unavailable");
                     }
                     yield callTool(request, context);
                 }

@@ -77,6 +77,7 @@ final class DeterministicAgentDriver
     private boolean failNextStartUncertainly;
     private boolean completeNextStart;
     private boolean failNextCloseVerification;
+    private boolean reuseEnabled;
     private ProviderUsageSample usageOnOpen;
     private Runnable beforeStart = () -> {};
     private Runnable afterStart = () -> {};
@@ -255,6 +256,11 @@ final class DeterministicAgentDriver
         requireCurrentTurn().complete(response);
     }
 
+    void enableReuse()
+    {
+        reuseEnabled = true;
+    }
+
     /** Completes a turn the provider could not show had stopped working. */
     synchronized void completeUnverified(String response)
     {
@@ -306,12 +312,13 @@ final class DeterministicAgentDriver
     private final class DeterministicSession
             implements AgentSession
     {
-        private final AgentSessionContext context;
-        private final AgentEventSink events;
+        private AgentSessionContext context;
+        private AgentEventSink events;
         private final AgentSessionRef reference;
         private final RuntimeException referenceAndCloseFailure;
         private DeterministicRunningTurn running;
         private boolean closed;
+        private boolean reusable;
 
         private DeterministicSession(AgentSessionContext context, AgentEventSink events, AgentSessionRef reference, RuntimeException referenceAndCloseFailure)
         {
@@ -319,6 +326,29 @@ final class DeterministicAgentDriver
             this.events = events;
             this.reference = reference;
             this.referenceAndCloseFailure = referenceAndCloseFailure;
+        }
+
+        @Override
+        public void allowReuse()
+        {
+            reusable = reuseEnabled;
+        }
+
+        @Override
+        public boolean retained()
+        {
+            return reusable && !closed && running != null && running.completion.isDone();
+        }
+
+        @Override
+        public boolean prepareTurn(AgentSessionContext next, AgentEventSink sink)
+        {
+            if (!retained() || !context.model().equals(next.model()) || !context.managedInstructions().equals(next.managedInstructions())) {
+                return false;
+            }
+            context = next;
+            events = sink;
+            return true;
         }
 
         @Override

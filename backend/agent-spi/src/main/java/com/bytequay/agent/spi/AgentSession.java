@@ -30,11 +30,26 @@ public interface AgentSession
      */
     AgentSessionRef reference();
 
+    /** Opts a task-owned session into bounded reuse; one-shot callers keep their existing lifetime. */
+    default void allowReuse() {}
+
+    /** A retained process still owns its working copy, even though no turn is running. */
+    default boolean retained()
+    {
+        return false;
+    }
+
+    /** Binds a compatible idle process to fresh turn callbacks before any input is delivered. */
+    default boolean prepareTurn(AgentSessionContext context, AgentEventSink events)
+    {
+        return false;
+    }
+
     /**
      * Starts one turn in this session.
      *
      * <p>The caller guarantees that no other turn is active. Provider output is
-     * delivered through the sink supplied when this session was opened.
+     * delivered through the sink supplied when this session was opened or prepared for reuse.
      *
      * @param command provider-neutral prompt, attachments, and runtime bound
      * @return handle for completion and cancellation

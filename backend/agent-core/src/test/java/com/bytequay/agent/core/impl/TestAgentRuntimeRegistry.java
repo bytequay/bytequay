@@ -14,6 +14,7 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
@@ -26,6 +27,7 @@ import com.bytequay.agent.spi.RunningTurn;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -34,11 +36,90 @@ import java.util.concurrent.TimeoutException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TestAgentRuntimeRegistry
 {
     private static final TaskId FIRST = TaskId.random();
     private static final TaskId SECOND = TaskId.random();
+
+    @Test
+    void boundsTheNumberOfIdleProcessesWithoutClosingActiveOnes()
+            throws Exception
+    {
+        AgentTaskStore tasks = mock(AgentTaskStore.class);
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(tasks, ignored -> {});
+        List<String> closed = new CopyOnWriteArrayList<>();
+        try {
+            for (int index = 0; index < 5; index++) {
+                TaskId id = TaskId.random();
+                AgentTask task = mock(AgentTask.class);
+                when(task.id()).thenReturn(id);
+                when(tasks.find(id)).thenReturn(Optional.of(task));
+                registry.registerSession(id, new StubSession("idle-" + index, closed)
+                {
+                    @Override
+                    public boolean retained()
+                    {
+                        return true;
+                    }
+                });
+                registry.retainFinishedSession(id);
+            }
+            registry.registerSession(FIRST, session("active", closed));
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (closed.isEmpty() && System.nanoTime() < deadline) {
+                Thread.sleep(1);
+            }
+            assertThat(closed).containsExactly("idle-0");
+            assertThat(registry.session(FIRST)).isPresent();
+        }
+        finally {
+            registry.close();
+        }
+    }
+
+    @Test
+    void retiringAnIdleProcessExcludesWritersWithoutHoldingTheirLock()
+    {
+        AgentTaskStore tasks = mock(AgentTaskStore.class);
+        AgentTask task = mock(AgentTask.class);
+        when(task.id()).thenReturn(FIRST);
+        when(tasks.find(FIRST)).thenReturn(Optional.of(task));
+        when(tasks.require(FIRST)).thenReturn(task);
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(tasks, ignored -> {});
+        List<String> closed = new CopyOnWriteArrayList<>();
+        AgentSession warm = new StubSession("warm", closed)
+        {
+            @Override
+            public boolean retained()
+            {
+                return true;
+            }
+
+            @Override
+            public void close()
+            {
+                assertThat(Thread.holdsLock(registry.taskLock(FIRST))).isFalse();
+                CompletableFuture.runAsync(() -> {
+                    synchronized (registry.taskLock(FIRST)) {
+                        assertThatThrownBy(() -> registry.checkBranchAdmission(task)).hasMessageContaining("stopping");
+                        assertThatThrownBy(() -> registry.requireStoppedSession(FIRST)).hasMessageContaining("stopping");
+                    }
+                }).orTimeout(5, TimeUnit.SECONDS).join();
+                super.close();
+            }
+        };
+        registry.registerSession(FIRST, warm);
+        registry.retireIdleSessions(FIRST, true);
+        assertThat(closed).containsExactly("warm");
+        AgentSession replacement = session("replacement", closed);
+        registry.registerSession(FIRST, replacement);
+        registry.closeSession(FIRST, warm);
+        assertThat(registry.session(FIRST)).contains(replacement);
+        assertThat(closed).containsExactly("warm");
+        registry.close();
+    }
 
     @Test
     void closesEverySessionItStillHolds()

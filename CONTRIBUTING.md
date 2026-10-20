@@ -91,6 +91,11 @@ when comparing phases; `task.naming.background` uses a separate text-only provid
 session after the first turn is accepted and is outside the Send critical path.
 Time between the Codex turn acknowledgement and first output includes Codex
 processing and network time, which these local timestamps cannot separate.
+Eligible Codex conversations retain their task's idle process for up to five
+minutes, with at most four idle processes. Set
+`--bytequay.agent.codex-process-reuse=false` to compare cold starts or disable
+retention. The `codex.session.retained` and `turn.session.reused` timing phases
+distinguish actual reuse from a conservative restart.
 
 ## Claude accounts
 

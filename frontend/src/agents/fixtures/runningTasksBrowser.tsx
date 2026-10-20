@@ -50,7 +50,7 @@ export async function run() {
   const refresh = async () => { window.dispatchEvent(new Event('focus')); await settle(); };
   snapshot = [task]; await refresh();
   const row = () => host.querySelector<HTMLButtonElement>('.app-sidebar__running-item');
-  assert(row()?.textContent?.includes('Running'), 'Running task should appear');
+  assert(row()?.getAttribute('aria-label')?.includes('Running'), 'Running task should appear');
   row()?.click();
   assert(window.location.hash === '#/workspaces/ws-2/tasks/agent/one', 'Click should navigate to the owning workspace');
   const button = host.querySelector<HTMLButtonElement>('[aria-controls="running-tasks"]');
@@ -68,7 +68,7 @@ export async function run() {
   await settle();
   assert(host.textContent === '', 'Deadline should hide the section even without a successful poll');
   fail = false; snapshot = [{ ...task, startedAt: new Date(now).toISOString() }]; await refresh();
-  assert(row()?.textContent?.includes('Running'), 'A new run should reappear without the old deadline');
+  assert(row()?.getAttribute('aria-label')?.includes('Running'), 'A new run should reappear without the old deadline');
   delayRead = true;
   window.dispatchEvent(new Event('focus')); await settle();
   root.unmount();

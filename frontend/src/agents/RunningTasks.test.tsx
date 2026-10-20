@@ -34,6 +34,7 @@ describe('Running sidebar', () => {
     expect(html).toContain('is-completed');
     expect(html).toContain('Finished');
     expect(html).toContain('Fix the connector, Running, owner/repo');
+    expect(html).not.toContain('role="status">Running<');
     expect(visibleRunningTasks([done], now + 599_999)).toHaveLength(1);
     expect(visibleRunningTasks([done], now + 600_000)).toEqual([]);
     expect(visibleRunningTasks([task], now + 600_000)).toEqual([task]);

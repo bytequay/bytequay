@@ -85,7 +85,7 @@ export function RunningTaskList({ tasks }: { tasks: RunningTask[] }) {
           onClick={() => { window.location.hash = runningTaskRoute(task); }}>
           <span aria-hidden="true"><Icon size={16} /></span>
           <span className="app-sidebar__label">{task.title}</span>
-          <span className="app-sidebar__running-status app-sidebar__label" role="status">{label}</span>
+          {task.status !== 'RUNNING' && <span className="app-sidebar__running-status app-sidebar__label" role="status">{label}</span>}
         </button>;
       })}
     </nav>}

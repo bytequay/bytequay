@@ -19,6 +19,7 @@ import {
 import { Card, CardAge, Clickable, IconButton, Pill, SourceIcon } from '../cards/Card';
 import type { AttentionSource } from '../home/attention';
 import { clockTime } from '../home/today';
+import { commentExcerpt } from '../pulls/PrivateThread';
 import { remoteErrorMessage } from '../remoteError';
 import type { AgendaTargetDto, AssistantItemDto, AssistantListStyle, AssistantRowDto } from '../types';
 import { dayLabel, refLabel, rowState, rowTitle, timelineDays } from './model';
@@ -156,6 +157,8 @@ function ItemCard({ id, row, onOpen, onComplete, onPull }: { id: string; row: As
   const at = row.latest?.at ?? row.at;
   // A task's strip names its agent, so the agent's own messages need no name in the body.
   const by = row.latest === null || row.latest.by === row.agent ? null : row.latest.by;
+  // A comment or an agent's message is Markdown, which one line cannot draw; a quote that was only markup leaves just what happened.
+  const said = row.latest === null ? null : commentExcerpt(row.latest.text).replace(/:$/, '');
   const act = (action: CardAction) => {
     setBusy(action.text);
     setRefusal(null);
@@ -173,10 +176,10 @@ function ItemCard({ id, row, onOpen, onComplete, onPull }: { id: string; row: As
       </div>
       <div className="assistant-item-card__body">
         <div className="assistant-item-card__title" title={row.title}>{row.title}</div>
-        {row.latest !== null && (
-          <div className="assistant-item-card__latest" title={row.latest.text}>
+        {said !== null && (
+          <div className="assistant-item-card__latest" title={said}>
             {by !== null && <span className="assistant-item-card__by">{by}</span>}
-            <span className="assistant-item-card__text">{row.latest.text}</span>
+            <span className="assistant-item-card__text">{said}</span>
           </div>
         )}
       </div>

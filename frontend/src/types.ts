@@ -1537,7 +1537,7 @@ export type AssistantRowDto = {
   total: number | null;
   /** When it last moved; for a task, since when it has been in its phase. */
   at: string | null;
-  /** What happened last, for a card's body; its text is the source's own. */
+  /** What happened last, for a card's body; its text is the source's own, Markdown and lines kept, for the card to fold into one line. */
   latest: { by: string | null; text: string; at: string } | null;
   target: AgendaTargetDto;
 };

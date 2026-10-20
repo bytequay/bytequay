@@ -175,7 +175,7 @@ class TestAssistantRows
         assertThat(read.get("pr:trinodb/trino#31402")).isEqualTo(new AssistantRow("pr:trinodb/trino#31402", Kind.PULL, "Retry Iceberg commit on conflict",
                 Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.of("changes_requested"), Optional.of(1), true, false, false, Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(60)), Optional.of(new Latest(Optional.of("bo-t"),
-                        "changes requested: Please split the retry into its own commit", NOW.minusSeconds(300))), AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"))));
+                        "requested changes: Please split the retry into its own commit", NOW.minusSeconds(300))), AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"))));
         assertThat(read.get("issue:trinodb/trino#77")).isEqualTo(new AssistantRow("issue:trinodb/trino#77", Kind.ISSUE, "Snapshot ids in $snapshots", Optional.of("#77"),
                 Optional.of("open"), Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.of(NOW.minusSeconds(900)), Optional.empty(), AgendaTarget.issue("trinodb/trino", 77, "ws1")));
@@ -233,6 +233,22 @@ class TestAssistantRows
     }
 
     @Test
+    void wordsAPullRequestsLatestEventAsNeedsAttentionDoes()
+    {
+        when(credentials.cachedLogin()).thenReturn(Optional.of("bo-t"));
+
+        assertThat(latestText(activity("head_ref_force_pushed", Optional.empty(), Optional.empty()))).isEqualTo("force-pushed");
+        assertThat(latestText(activity("ready_for_review", Optional.empty(), Optional.empty()))).isEqualTo("marked this ready for review");
+        assertThat(latestText(activity("reviewed", Optional.of("APPROVED"), Optional.empty()))).isEqualTo("approved these changes");
+        assertThat(latestText(activity("review_requested", Optional.empty(), Optional.of("bo-t")))).isEqualTo("requested your review");
+        assertThat(latestText(activity("review_requested", Optional.empty(), Optional.of("marlo-t")))).isEqualTo("requested review from marlo-t");
+        assertThat(latestText(activity("some_new_event", Optional.empty(), Optional.empty()))).isEqualTo("updated this pull request");
+        // A quote keeps its lines, so the panel can fold its Markdown into one.
+        assertThat(latestText(new PrActivitySummary("commented", Optional.of("bo-t"), NOW, Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.of("Done\n\n- [x] tests"), Optional.empty(), OptionalInt.empty()))).isEqualTo("commented: Done\n\n- [x] tests");
+    }
+
+    @Test
     void readsAnOpenTaskAsIdleOnceItsTurnSettlesAndAnEndedOneAsEnded()
     {
         Map<String, AssistantRow> read = rows.rows(ImmutableList.of("task:" + SETTLED.id(), "task:" + ENDED.id()));
@@ -266,6 +282,17 @@ class TestAssistantRows
         when(issues.find(1, 77)).thenThrow(new IllegalStateException("database is locked"));
 
         assertThat(rows.rows(ImmutableList.of("issue:trinodb/trino#77", "work:w22"))).containsOnlyKeys("work:w22");
+    }
+
+    private String latestText(PrActivitySummary activity)
+    {
+        when(details.findLatestActivities(ImmutableSet.of(7L))).thenReturn(ImmutableMap.of(7L, activity));
+        return rows.rows(ImmutableList.of("pr:trinodb/trino#31402")).get("pr:trinodb/trino#31402").latest().orElseThrow().text();
+    }
+
+    private static PrActivitySummary activity(String event, Optional<String> state, Optional<String> requested)
+    {
+        return new PrActivitySummary(event, Optional.of("bo-t"), NOW, state, Optional.empty(), requested, Optional.empty(), Optional.empty(), OptionalInt.empty());
     }
 
     private static PullRequest pullRequest(String mergeableState)

@@ -69,6 +69,10 @@ describe('private thread helpers', () => {
     expect(commentExcerpt('## Heads up\n\nPlease use `Optional` — see [the guide](https://x).\n\n```java\nfoo();\n```'))
       .toBe('Heads up Please use Optional — see the guide. foo();');
     expect(commentExcerpt('x'.repeat(400))).toHaveLength(160);
+    expect(commentExcerpt('**Actionable comments posted: 3** for `get_snapshot_id`, _maybe_ ~~later~~ (a*b)'))
+      .toBe('Actionable comments posted: 3 for get_snapshot_id, maybe later (a*b)');
+    expect(commentExcerpt('<!-- auto-generated --> Fixed\n\n---\n\n- [ ] <!-- {"id":1} --> Use `List<String>` <details><summary>Info</summary> here</details> <a href="https://x/y…'))
+      .toBe('Fixed Use List<String> Info here');
   });
 
   it('mentions the commenter once and appends after what the user wrote', () => {

@@ -66,7 +66,7 @@ public record AssistantRow(
     }
 
     /**
-     * The latest event as one line, in the source's own words, clipped.
+     * The latest event in the source's own words, cut to a quote's length with its lines kept; the panel folds its Markdown into one line.
      *
      * @param by who did it, when the source names someone
      */

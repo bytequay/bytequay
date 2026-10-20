@@ -75,7 +75,6 @@ import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static com.bytequay.app.agenda.AgendaReader.clip;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
@@ -88,7 +87,8 @@ import static java.util.Objects.requireNonNull;
 class AssistantRows
 {
     private static final Logger log = LoggerFactory.getLogger(AssistantRows.class);
-    private static final int LINE = 160;
+    // About a hundred words, as a pull request's excerpt; the panel folds a quote's Markdown to one line and cuts that.
+    private static final int QUOTE = 800;
     // ponytail: a search reads each source and filters here; a query in the store once one of them outgrows these bounds.
     private static final int ISSUE_PAGE = 200;
     private static final int ISSUE_PAGES = 5;
@@ -96,6 +96,29 @@ class AssistantRows
     private static final Pattern NUMBER = Pattern.compile("#?(\\d{1,9})");
     /** What a task does while its turn or its automation is still at work; a settled turn leaves the task idle. */
     private static final Set<RunningTask.Status> WORKING = Sets.immutableEnumSet(RunningTask.Status.RUNNING, RunningTask.Status.WAITING, RunningTask.Status.BLOCKED);
+    /** A pull request's timeline events in the words Home's Needs attention uses for them (EVENT_VERBS in its attention model). */
+    private static final Map<String, String> EVENT_WORDS = ImmutableMap.<String, String>builder()
+            .put("commented", "commented")
+            .put("review_thread", "left a review comment")
+            .put("committed", "pushed a commit")
+            .put("review_request_removed", "removed a review request")
+            .put("labeled", "added a label")
+            .put("unlabeled", "removed a label")
+            .put("renamed", "changed the title")
+            .put("cross-referenced", "mentioned this")
+            .put("head_ref_force_pushed", "force-pushed")
+            .put("closed", "closed this")
+            .put("merged", "merged this")
+            .put("reopened", "reopened this")
+            .put("convert_to_draft", "converted this to a draft")
+            .put("ready_for_review", "marked this ready for review")
+            .put("milestoned", "set the milestone")
+            .put("demilestoned", "removed the milestone")
+            .put("assigned", "changed the assignees")
+            .put("unassigned", "changed the assignees")
+            .put("added_to_merge_queue", "queued this for merge")
+            .put("removed_from_merge_queue", "removed this from the merge queue")
+            .buildOrThrow();
 
     private final PullRequestStore pullRequests;
     private final PrDetailStore details;
@@ -211,12 +234,34 @@ class AssistantRows
 
     private static Latest latest(PrActivitySummary activity, Optional<String> viewer)
     {
-        // A review's verdict says more than that someone reviewed.
-        String event = (activity.event().equals("reviewed") ? activity.state().map(AssistantRows::lower).orElse(activity.event()) : activity.event()).replace('_', ' ');
-        String text = activity.excerpt().filter(excerpt -> !excerpt.isBlank()).map(excerpt -> event + ": " + excerpt).orElse(event);
+        String did = eventWords(activity, viewer);
+        String text = activity.excerpt().filter(excerpt -> !excerpt.isBlank()).map(excerpt -> did + ": " + excerpt).orElse(did);
         // The user's own events read as theirs, the way a task's own messages do.
         Optional<String> by = activity.actor().map(actor -> viewer.filter(actor::equalsIgnoreCase).isPresent() ? "You" : actor);
-        return new Latest(by, clip(text, LINE), activity.timestamp());
+        return new Latest(by, quote(text), activity.timestamp());
+    }
+
+    /** What a card quotes, its lines kept so the panel can fold its Markdown and HTML into one plain line. */
+    private static String quote(String text)
+    {
+        String kept = text.strip();
+        return kept.length() <= QUOTE ? kept : kept.substring(0, QUOTE - 1).stripTrailing() + "…";
+    }
+
+    /** What a pull request's latest event did, in the words Home's Needs attention uses; a review's verdict says more than that someone reviewed. */
+    private static String eventWords(PrActivitySummary activity, Optional<String> viewer)
+    {
+        return switch (activity.event()) {
+            case "reviewed" -> switch (activity.state().map(AssistantRows::lower).orElse("")) {
+                case "approved" -> "approved these changes";
+                case "changes_requested" -> "requested changes";
+                default -> "reviewed";
+            };
+            case "review_requested" -> activity.requestedReviewer()
+                    .map(reviewer -> viewer.filter(reviewer::equalsIgnoreCase).isPresent() ? "requested your review" : "requested review from " + reviewer)
+                    .orElse("requested a review");
+            default -> EVENT_WORDS.getOrDefault(activity.event(), "updated this pull request");
+        };
     }
 
     private static AssistantRow issue(Workspace workspace, RepositoryIssue issue)
@@ -231,7 +276,7 @@ class AssistantRows
     private AssistantRow ticket(JiraIssue ticket)
     {
         Optional<Latest> latest = jiraActivity.latest(ticket)
-                .map(activity -> new Latest(activity.actor().map(person -> person.displayName()), clip(said(activity), LINE), activity.at()));
+                .map(activity -> new Latest(activity.actor().map(person -> person.displayName()), quote(said(activity)), activity.at()));
         return new AssistantRow(AgendaRefs.jira(ticket.cloudId(), ticket.id()), Kind.JIRA, ticket.title(), Optional.of(ticket.key()), Optional.of(ticket.status().name()),
                 Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.of(ticket.updatedAt()), latest, AgendaTarget.jira(ticket.connectionId(), ticket.cloudId(), ticket.id(), ticket.workspace().map(link -> link.id())));
@@ -278,7 +323,7 @@ class AssistantRows
         String name = task.state() == TaskState.OPEN ? now.map(value -> lower(value.status().name())).orElse("idle") : lower(task.state().name());
         String agent = shared.agents.get().getOrDefault(task.laneId().value(), task.laneId().value());
         Optional<Latest> latest = Optional.ofNullable(activities.read(ImmutableList.of(task)).get(task.id())).flatMap(activity -> activity.lastMessage())
-                .map(message -> new Latest(Optional.of(message.author() == TaskMessage.Author.AGENT ? agent : "You"), clip(message.text(), LINE), message.at()));
+                .map(message -> new Latest(Optional.of(message.author() == TaskMessage.Author.AGENT ? agent : "You"), quote(message.text()), message.at()));
         return new Phase(name, now.map(RunningTask::startedAt).orElse(task.updatedAt()), agent, latest);
     }
 

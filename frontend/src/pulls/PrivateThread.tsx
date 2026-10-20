@@ -136,13 +136,22 @@ export function usePrivateThreads(source: PrivateThreadSource | undefined, pullR
   };
 }
 
-/** One line of a comment, stripped of the markdown that reads as noise when it cannot render. */
+/**
+ * One line of a comment, stripped of the markdown and HTML that read as noise when they cannot render. Emphasis marks go only at a word's
+ * edge, so snake_case and a*b keep theirs; only HTML's own tag names count as tags, so List<String> stays, and a comment or tag a clipped
+ * body cut short goes too.
+ */
 export function commentExcerpt(body: string): string {
   const line = body
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, ' ')
+    .replace(/<\/?(?:a|b|i|em|strong|code|pre|br|p|img|sub|sup|div|span|kbd|h[1-6]|ul|ol|li|blockquote|hr|table|thead|tbody|tr|td|th|details|summary|picture|source)\b[^>]*(?:>|$)/gi, ' ')
     .replace(/```[^\n]*\n?/g, ' ')
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/gm, '')
     .replace(/^\s{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '')
-    .replace(/[`*_~]/g, '')
+    .replace(/^\[[ xX]\]\s+/gm, '')
+    .replace(/`/g, '')
+    .replace(/(^|[^\p{L}\p{N}*_~])[*_~]+|[*_~]+(?=[^\p{L}\p{N}*_~]|$)/gu, '$1')
     .replace(/\s+/g, ' ')
     .trim();
   return line.length <= 160 ? line : `${line.slice(0, 159).trimEnd()}…`;

@@ -75,7 +75,7 @@ const ROWS: Record<string, AssistantRowDto> = Object.fromEntries([
   row({ ref: 'pr:trinodb/trino#31402', kind: 'PULL', title: 'Retry Iceberg commit on conflict', target: target('PULL', { repo: 'trinodb/trino', number: 31402 }),
     key: '#31402', state: 'open', ci: 'failing', review: 'changes_requested', mine: true, at: ago(60 * 26) }),
   row({ ref: 'task:t1', kind: 'TASK', title: 'Expose snapshot id in metadata', target: target('TASK', { id: 't1' }), agent: 'Claude Code', state: 'waiting',
-    at: ago(45), latest: { by: 'Claude Code', text: 'Which table should hold the snapshot id?', at: ago(45) } }),
+    at: ago(45), latest: { by: 'Claude Code', text: 'Which table should hold the **snapshot id**?', at: ago(45) } }),
   row({ ref: 'jira:cloud:10042', kind: 'JIRA', title: 'Expire snapshots by branch', target: target('JIRA', { id: '10042', connectionId: 'c1', cloudId: 'cloud' }),
     key: 'ICE-7', state: 'In progress', at: ago(60 * 24 * 3) }),
   row({ ref: 'work:w22', kind: 'WORK', title: 'Add a snapshot id column', target: target('WORK', { id: 'w22' }), epic: 'Iceberg write path', state: 'planned',
@@ -424,7 +424,7 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
     assert(types.length === 0, `A strip names no type: ${JSON.stringify(types)}`);
     assert(cards[2].querySelector('.assistant-item-card__lane')?.textContent === 'Claude Code'
       && cards[2].querySelector('.assistant-item-card__latest')?.textContent === 'Which table should hold the snapshot id?',
-      `A task's strip names its agent, so its message needs no name: ${cards[2].querySelector('.assistant-item-card__latest')?.textContent}`);
+      `A task's strip names its agent, so its message needs no name, and its Markdown reads as plain text: ${cards[2].querySelector('.assistant-item-card__latest')?.textContent}`);
     assert(cards[3].querySelector('.assistant-item-card__body .pill') === null && cards[3].querySelector('.assistant-item-card__foot')?.textContent?.includes('In progress') === false,
       'Below the strip, a ticket does not repeat its status');
     assert(cards[5].textContent?.split('3/6').length === 2 && cards[5].querySelector('.assistant-item-card__foot [title="3 of 6 done"]') !== null, 'An Epic says done of total once');

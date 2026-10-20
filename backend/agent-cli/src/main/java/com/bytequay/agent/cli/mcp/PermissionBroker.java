@@ -134,6 +134,18 @@ public final class PermissionBroker
             .flatMap(command -> Stream.of("Bash(" + command + ")", "Bash(" + command + ":*)"))
             .collect(toImmutableList());
     private static final List<String> CREDENTIAL_FILE_READS = ImmutableList.of("Read(~/.config/gh/**)", "Read(~/.git-credentials)", "Read(~/.netrc)", "Read(~/.ssh/**)");
+    /**
+     * Maven launchers that run outside Claude's sandbox: its network proxy needs a login that Maven's resolver never sends.
+     * Claude exempts only the command alone, optionally after {@code cd <dir> &&}; a pipe, redirect, chain, or subshell keeps
+     * it sandboxed, so the session is told to run Maven bare.
+     */
+    private static final List<String> UNSANDBOXED_MAVEN = ImmutableList.of("mvn *", "./mvnw *", "mvnd *");
+    private static final String UNSANDBOXED_MAVEN_INSTRUCTION = """
+            Maven can download dependencies only outside the sandbox, and it runs there only when the Bash command is the
+            Maven call alone: `./mvnw ...`, `mvn ...` or `mvnd ...`, optionally after `cd <dir> &&`. A pipe, redirect, `;`,
+            a later `&&`, a subshell or a leading variable assignment keeps it in the sandbox, where every download fails.
+            For long output, add -q or run the command in the background and read its output afterwards.
+            """;
     private static final int MAX_DETAIL_CHARACTERS = 16 * 1024;
     /** Claude's own cap on one answer; a longer one would make it refuse the whole answered input. */
     private static final int MAX_ANSWER_CHARACTERS = 8 * 1024;
@@ -1527,7 +1539,7 @@ public final class PermissionBroker
                 .put("autoAllowBashIfSandboxed", !gitHubCommands && !reviewSession && permissionPolicy != AgentPermissionPolicy.CHERRY_PICK)
                 // Native Auto mode reviews retries first; unresolved requests use the permission callback.
                 .put("allowUnsandboxedCommands", allowUnsandboxedRetry)
-                .put("excludedCommands", ImmutableList.of())
+                .put("excludedCommands", unsandboxedMaven(scope) ? UNSANDBOXED_MAVEN : ImmutableList.of())
                 .put("filesystem", ImmutableMap.of(
                         // Claude's private scratch allowance does not cover /tmp or macOS Java's host temp root.
                         // ponytail: add a vetted root in BuildCacheRoots when a task toolchain needs one; BuildCacheRoots grants it.
@@ -1576,6 +1588,18 @@ public final class PermissionBroker
                 "matcher", CHILD_GATE_MATCHER,
                 "hooks", ImmutableList.of(ImmutableMap.of("type", "command", "command", "'" + gate.toString().replace("'", "'\\''") + "'")))))));
         return objectMapper.writeValueAsString(settings.buildOrThrow());
+    }
+
+    /** How Claude must run Maven for the sandbox settings {@link #register} writes; empty when Maven stays sandboxed. */
+    public static String sandboxInstruction(AgentPermissionScope scope)
+    {
+        return unsandboxedMaven(scope) ? UNSANDBOXED_MAVEN_INSTRUCTION : "";
+    }
+
+    /** Development and CI repair build the task's own code; a review keeps Maven, and the code under review, in the sandbox. */
+    private static boolean unsandboxedMaven(AgentPermissionScope scope)
+    {
+        return scope.buildNetwork() && !scope.review();
     }
 
     /** Fills the gate's allowlist with the tools that only read: a tool stays root-only until it is marked child-callable. */

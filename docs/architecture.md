@@ -330,6 +330,12 @@ its standard macOS sockets. Containers and host bind mounts managed through that
 daemon are outside the provider's filesystem sandbox. Restricted sessions and
 cherry-pick sessions do not receive this socket allowance.
 
+Claude development and CI repair sessions run bare Maven commands outside the
+provider sandbox, because Maven cannot authenticate to the sandbox's network
+proxy. Auto mode still reviews each command, but the build, its plugins, and its
+tests run with the user's file and network access. Reviews and restricted
+sessions keep Maven sandboxed.
+
 Normal cleanup preserves uncommitted, active, mismatched, or unverifiable work;
 ignored files such as build output go with the worktree. Removing a clean
 worktree does not imply permission to delete its generated branch.

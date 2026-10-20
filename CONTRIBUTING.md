@@ -140,6 +140,15 @@ The login profile does not change the task's working directory or the user's
 including `~/.m2`; ByteQuay supplies `JAVA_HOME` for Java and Maven in Claude's
 macOS sandbox.
 
+Claude development and CI repair sessions run Maven outside the sandbox, because
+Maven cannot log in to the sandbox's network proxy and so cannot download inside
+it. Only a command that is the Maven call alone, `mvn`, `./mvnw`, or `mvnd`,
+optionally after `cd <dir> &&`, runs outside; a pipe, redirect, chain, or
+subshell keeps it sandboxed, and the session is told to run Maven bare. Auto
+mode still reviews each such command, but the build, its plugins, and its tests
+then have your file and network access. Reviews keep Maven sandboxed with their
+own temporary repository.
+
 Claude development, review, and CI repair sessions can use a running Docker
 Desktop or OrbStack daemon for container-backed tests. The sandbox allows the
 standard Docker sockets at `/var/run/docker.sock`, `~/.docker/run/docker.sock`,

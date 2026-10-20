@@ -97,6 +97,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestClaudeCliDriver
 {
     private static final String DEVELOPMENT_POLICY = AgentCommandPolicy.instructions(new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false));
+    private static final String DEVELOPMENT_SANDBOX = PermissionBroker.sandboxInstruction(new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false));
     private static final String TASK_CONTEXT = "This task continues the existing pull request owner/repo#7.";
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -455,7 +456,7 @@ class TestClaudeCliDriver
         AgentSession unbridged = driver.open(plain, event -> {});
         await(unbridged.start(command("second")));
         ProcessSpec plainSpec = supervisor.turns().get(1).spec();
-        assertThat(plainSpec.argv()).containsSequence("--append-system-prompt", DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION);
+        assertThat(plainSpec.argv()).containsSequence("--append-system-prompt", DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + "\n\n" + DEVELOPMENT_SANDBOX);
         assertThat(plainSpec.argv()).noneMatch(argument -> argument.contains("code_query"));
         unbridged.close();
     }
@@ -499,7 +500,7 @@ class TestClaudeCliDriver
             AgentSession session = driver.open(context(reference, instruction), event -> {});
             await(session.start(command("configured")));
             List<String> arguments = supervisor.turns().getLast().spec().argv();
-            String expected = DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + (instruction.isEmpty() ? "" : "\n\n" + instruction);
+            String expected = DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + (instruction.isEmpty() ? "" : "\n\n" + instruction) + "\n\n" + DEVELOPMENT_SANDBOX;
             assertThat(arguments).containsSequence("--append-system-prompt", expected);
             assertThat(arguments.stream().filter(argument -> argument.startsWith("--append-system-prompt"))).hasSize(1);
             assertThat(arguments).noneMatch(argument -> argument.contains("code_query") || argument.contains("review_finish"));

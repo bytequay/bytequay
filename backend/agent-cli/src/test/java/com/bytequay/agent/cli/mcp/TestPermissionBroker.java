@@ -18,6 +18,7 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentPermissionScope;
 import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.IssueContextBridge;
@@ -1568,7 +1569,13 @@ class TestPermissionBroker
                                             : objectMapper.missingNode());
                             assertThat(settings.at("/sandbox/network/allowAllUnixSockets").isMissingNode()).isTrue();
                             assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
-                            assertThat(settings.at("/sandbox/excludedCommands")).isEmpty();
+                            // Maven's resolver cannot log in to Claude's sandbox proxy; code under review stays sandboxed.
+                            boolean unsandboxedMaven = access == SessionAccess.FULL && !reviewSession
+                                    && (policy == AgentPermissionPolicy.AUTO || policy == AgentPermissionPolicy.CI_AUTOFIX);
+                            assertThat(settings.at("/sandbox/excludedCommands"))
+                                    .isEqualTo(objectMapper.valueToTree(unsandboxedMaven ? ImmutableList.of("mvn *", "./mvnw *", "mvnd *") : ImmutableList.of()));
+                            assertThat(PermissionBroker.sandboxInstruction(new AgentPermissionScope(policy, access, reviewSession)).contains("Maven call alone"))
+                                    .isEqualTo(unsandboxedMaven);
                             if (interactive) {
                                 assertThat(settings.at("/sandbox/network/allowedDomains"))
                                         .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));

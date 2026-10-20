@@ -481,7 +481,8 @@ public final class ClaudeCliDriver
                     .iterator());
         }
         registration.toolNames().forEach(name -> allowedTools.add("mcp__bytequay__" + name));
-        String instruction = ProviderInstructions.compose(permissionScope, PLAN_INSTRUCTION, managedInstructions, registration.instruction().orElse(""));
+        String instruction = ProviderInstructions.compose(
+                permissionScope, PLAN_INSTRUCTION, managedInstructions, registration.instruction().orElse(""), PermissionBroker.sandboxInstruction(permissionScope));
         if (instruction.isEmpty()) {
             argv.add("--append-system-prompt=");
         }
@@ -724,7 +725,8 @@ public final class ClaudeCliDriver
                     context.discussionContext(), context.sessionTools());
             this.permissionScope = new AgentPermissionScope(context.permissionPolicy(), context.access(), registration.review().isPresent());
             // ByteQuay's own part of the instructions every turn's launch arguments carry; see argv.
-            this.setup = ProviderInstructions.setup(permissionScope, PLAN_INSTRUCTION, Optional.of(registration.toolsDigest()), registration.instruction().orElse(""));
+            this.setup = ProviderInstructions.setup(permissionScope, PLAN_INSTRUCTION, Optional.of(registration.toolsDigest()),
+                    registration.instruction().orElse(""), PermissionBroker.sandboxInstruction(permissionScope));
             this.redactor = ClaudeCliDriver.this.redactor.withSecret(registration.token());
             this.resume = resume;
         }

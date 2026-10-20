@@ -306,7 +306,7 @@ function AppContent() {
       backToApp();
       setPaletteOpen(false);
       const target = (event as CustomEvent<ZoomedReference>).detail;
-      // A reference that is already open comes back to the top, as it was, instead of opening twice; a start, such as a Goal card's,
+      // A reference that is already open comes back to the top, as it was, instead of opening twice; a start, such as an Epic's Run,
       // still opens its composer.
       setLayers(current => [
         ...current.filter(layer => layerKey(layer) !== layerKey(target)),

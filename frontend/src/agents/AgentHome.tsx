@@ -16,11 +16,11 @@ import { useAgentAvailability } from './availability';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CircleDot, Eye, EyeOff, ListChecks, Pencil, SquareCheck, Sun, type LucideIcon } from 'lucide-react';
 import RepoAvatar from '../RepoAvatar';
-import AttentionList, { type GoalToggle } from '../home/AttentionList';
+import AttentionList from '../home/AttentionList';
 import TodayList, { ACTION_ICONS, openTarget } from '../home/TodayList';
 import { todayKeys } from '../home/today';
 import { useTodayAgenda, type TodayAgenda } from '../home/useTodayAgenda';
-import { Card, CardActions, IconButton, InGoalBadge, Pill } from '../cards/Card';
+import { Card, CardActions, IconButton, Pill } from '../cards/Card';
 import type { AttentionItem, Handled } from '../home/attention';
 import type { WorkspaceAttention } from '../workspaces/workspaceAttention';
 import { zoomReference } from '../githubReference';
@@ -96,10 +96,6 @@ interface AgentHomeProps {
   taskAttention: TaskAttention;
   /** What needs the user in this workspace, read once for all its pages. */
   attention: WorkspaceAttention;
-  /** The pinned goal each attention card can join or leave. */
-  goal?: (item: AttentionItem) => GoalToggle | null;
-  /** Whether a task is in the pinned goal. */
-  inGoal?: (task: AgentTaskDto) => boolean;
   bridge?: AgentBridgePort;
   onOpenTask: (taskId: string) => void;
   onOpenReview: (review: AgentReviewDto) => void;
@@ -111,7 +107,7 @@ interface AgentHomeProps {
 }
 
 export default function AgentHome({
-  workspaceId, headerAction, repository, taskAttention, attention, goal, inGoal, bridge: explicitBridge, onOpenTask, onOpenReview, onOpenSettings, onShowAll, onOpenPullRequest, onOpenIssue, onStartIssue,
+  workspaceId, headerAction, repository, taskAttention, attention, bridge: explicitBridge, onOpenTask, onOpenReview, onOpenSettings, onShowAll, onOpenPullRequest, onOpenIssue, onStartIssue,
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, bridge: live, onOpenTask });
@@ -169,8 +165,6 @@ export default function AgentHome({
       handled={attention.handled}
       viewerLogin={attention.login}
       jiraConnected={attention.jiraConnected}
-      goal={goal}
-      inGoal={inGoal}
       onHandledChange={attention.applyHandled}
       onOpenAttention={openAttention}
       onStartIssue={onStartIssue ? item => {
@@ -194,7 +188,7 @@ export function AgentHomeView({
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenReview, onOpenSettings, onShowAll,
   activity = {}, changes = {}, hiddenTasks, onHideTask, onRenameTask, now = Date.now(),
   attention = [], handled = {}, viewerLogin = null, onHandledChange = () => {}, onOpenAttention = () => {},
-  onStartIssue, attentionError, goal, inGoal, jiraConnected = false,
+  onStartIssue, attentionError, jiraConnected = false,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation, today,
 }: {
   repository: string;
@@ -222,8 +216,6 @@ export function AgentHomeView({
   onOpenAttention?: (item: AttentionItem) => void;
   onStartIssue?: (item: AttentionItem) => void;
   attentionError?: string | null;
-  goal?: (item: AttentionItem) => GoalToggle | null;
-  inGoal?: (task: AgentTaskDto) => boolean;
   /** Whether Jira is connected, so Needs attention offers a Jira tab. */
   jiraConnected?: boolean;
   models: ModelOptionDto[];
@@ -284,7 +276,6 @@ export function AgentHomeView({
           onHandledChange={onHandledChange}
           onOpen={onOpenAttention}
           onStartIssue={onStartIssue}
-          goal={goal}
         />
         <AttentionList
           variant="workspace"
@@ -296,7 +287,6 @@ export function AgentHomeView({
           viewerLogin={viewerLogin}
           onHandledChange={onHandledChange}
           onOpen={onOpenAttention}
-          goal={goal}
         />
         <section className="agt-open-tasks" aria-label="Open tasks">
           <div className="agt-open-tasks__head">
@@ -315,7 +305,6 @@ export function AgentHomeView({
                   item={item}
                   providers={providers}
                   now={now}
-                  inGoal={task !== null && (inGoal?.(task) ?? false)}
                   onOpen={() => { if (review !== null) onOpenReview(review); else if (task !== null) onOpenTask(task.id); }}
                   onRename={task === null || onRenameTask === undefined ? undefined : (title) => onRenameTask(task, title)}
                   onHide={task === null || onHideTask === undefined ? undefined : () => onHideTask(task)}
@@ -382,11 +371,10 @@ export function AgentHomeView({
  * One open task as a compact card: its name and state, what it last said or why it waits on the
  * user, and its lane, age and what its checkout holds. Development cards offer Rename and Hide from Home.
  */
-function HomeTaskCard({ item, providers, now, inGoal, onOpen, onRename, onHide }: {
+function HomeTaskCard({ item, providers, now, onOpen, onRename, onHide }: {
   item: TaskListItem;
   providers: ModelProviderDto[];
   now: number;
-  inGoal: boolean;
   onOpen: () => void;
   onRename?: (title: string) => void;
   onHide?: () => void;
@@ -428,7 +416,6 @@ function HomeTaskCard({ item, providers, now, inGoal, onOpen, onRename, onHide }
             )}
           </CardActions>
         )}
-        {inGoal && <InGoalBadge />}
         <Pill tone={state.tone} spinning={state.spinning}>{state.label}</Pill>
       </div>
       <div className={`agt-open-card__last${state.reason === null ? '' : ' is-needs'}`}>{state.reason ?? item.message?.text ?? ''}</div>

@@ -48,11 +48,6 @@ export function workflowRequest(turn: AgentTurnDto | undefined, prompt: string):
         body: 'Read saved review threads and retain reusable maintainer guidance with its sources.',
         detail: 'Local memory only · User-owned memories stay unchanged',
       };
-      if (prompt.startsWith('Research what a learner needs')) return {
-        action: 'ByteQuay · Research goal', topic: 'Learning notes',
-        body: 'Read the scoped repository, dependencies and pages, then save supported learning notes with citations.',
-        detail: 'Read sources and save local notes · No file edits or publication',
-      };
       return null;
     default:
       return null;

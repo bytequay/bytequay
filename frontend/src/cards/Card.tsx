@@ -22,7 +22,7 @@ export { Card, Clickable, IconButton, Pill } from '@bytequay/ui/cards';
 
 /*
  * The one base every card and card row draws with: Needs attention, Circles, the Tasks page, a workspace's
- * open tasks and a goal's items. A surface keeps only its own layout; the box, its keyboard behaviour, its
+ * open tasks and an Epic's work. A surface keeps only its own layout; the box, its keyboard behaviour, its
  * hover actions, pills and badges come from here.
  */
 
@@ -66,21 +66,6 @@ export function ItemRow({ className = '', label, onOpen, icon, title, marks, met
 /** The actions a card or row shows while the pointer or focus is inside it, in place of an age that follows them. */
 export function CardActions({ label, className = '', children }: { label?: string; className?: string; children: ReactNode }): React.JSX.Element {
   return <span className={`card-actions ${className}`.trim()} role="group" aria-label={label}>{children}</span>;
-}
-
-/** A goal: a target of two rings. */
-export function GoalIcon({ size = 14 }: { size?: number }): React.JSX.Element {
-  return (
-    <svg className="goal-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="4.5" />
-    </svg>
-  );
-}
-
-/** The item is in its workspace's pinned goal. */
-export function InGoalBadge(): React.JSX.Element {
-  return <span className="card-goal" title="In goal"><GoalIcon size={11} />Goal</span>;
 }
 
 /** The work is Local: only on this Mac until it is pushed to GitHub or Jira. */

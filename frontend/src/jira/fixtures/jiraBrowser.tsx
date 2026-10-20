@@ -134,8 +134,8 @@ export async function mountPreview(offline = false, openIssue = true, body = jir
     moveJiraIssue: async (_location, sprintId, boardId, expectedUpdatedAt) => { record('sprint', sprintId, boardId, expectedUpdatedAt); return { ...detail, issue }; },
     createLocalJiraChild: async (_location, id, title, description) => {
       record('local-child', title, description);
-      return { id, workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: null, title, kind: 'DEVELOP', acceptanceCriteria: description, completionRule: 'MERGED_DELIVERY',
-        state: 'PLANNED', revision: 0, links: [], history: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', priority: 'NORMAL', rank: 0, blockedBy: [] };
+      return { id, workspaceId: 'workspace', isEpic: false, contextLinks: [], title, kind: 'DEVELOP', acceptanceCriteria: description, completionRule: 'MERGED_DELIVERY',
+        state: 'PLANNED', revision: 0, links: [], history: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', priority: 'NORMAL', blockedBy: [] };
     },
     listJiraLinkTypes: async () => [{ id: '10000', name: 'Blocks', inward: 'is blocked by', outward: 'blocks' }, { id: '10003', name: 'Relates', inward: 'relates to', outward: 'relates to' }],
     linkJiraIssue: async (_location, typeId, outward, key) => { record('link', typeId, outward, key); detail = { ...detail, links: [...detail.links, { id: 'l3', relation: outward ? 'blocks' : 'is blocked by', issue: { id: '1013', key, title: 'Upgrade the metastore client', type: 'Task', status: { id: 'todo', name: 'To do', category: 'new' }, priority: null, assignee: null } }] }; return { ...detail, issue }; },
@@ -433,8 +433,8 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await mountPreview(false, false);
       issue = { ...issue, isEpic: true, workspace: { id: 'workspace', name: 'Trino' } };
       const work = (id: string, state: WorkItemDto['state']): WorkItemDto => ({
-        id, workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: null, title: `Work ${id}`, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0,
-        links: [], history: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', priority: 'NORMAL', rank: 0, blockedBy: [], epicId: ticketEpicId(issue),
+        id, workspaceId: 'workspace', isEpic: false, contextLinks: [], title: `Work ${id}`, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0,
+        links: [], history: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', priority: 'NORMAL', blockedBy: [], epicId: ticketEpicId(issue),
         epicRank: 0 });
       window.bridge = { ...window.bridge, listWorkItems: async () => [work('a', 'DONE'), work('b', 'PLANNED')] } as Bridge;
       const location = { connectionId: issue.connectionId, cloudId: issue.cloudId, issueId: issue.id };

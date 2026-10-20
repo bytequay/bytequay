@@ -21,7 +21,6 @@ import { Icon } from './icons';
 import { activeCheck, checkActive, checkProgress, plural, REPRODUCTION_LIMITS, shortDate, shortSha } from './model';
 import {
   CHECK_STATE, checkSummary, codeLink, defaultPicks, DISMISS_REASONS, findingFile, MAX_SPECS, moduleRows, pageLabel, specAddress, TYPE_LABEL, TYPE_TONE,
-  type SpecCheckRequest,
 } from './specChecks';
 
 export type SpecCheckData = {
@@ -45,8 +44,8 @@ export function RunLine({ children, blocked = false, workspaceId }: { children: 
 }
 
 /** One directory's spec check: its latest report, and what a new check of it reads. Without a directory it asks for one first. */
-export function SpecCheckDrawer({ data, actions, busy, directory, prefill, onClose }: {
-  data: SpecCheckData; actions: SpecCheckActions; busy: boolean; directory: string | null; prefill?: SpecCheckRequest['prefill']; onClose: () => void;
+export function SpecCheckDrawer({ data, actions, busy, directory, onClose }: {
+  data: SpecCheckData; actions: SpecCheckActions; busy: boolean; directory: string | null; onClose: () => void;
 }) {
   const availability = useAgentAvailability(data.workspaceId);
   const [chosen, setChosen] = useState<string | null>(directory);
@@ -65,8 +64,7 @@ export function SpecCheckDrawer({ data, actions, busy, directory, prefill, onClo
       {!availability.development && <AgentSetupNotice workspaceId={data.workspaceId} />}
       {chosen === null && availability.development && <ChooseDirectory workspaceId={data.workspaceId} onChoose={setChosen} />}
       {check !== null && <Report data={data} check={check} />}
-      {chosen !== null && running === null && availability.development && <StartCheck key={chosen} data={data} actions={actions} busy={busy} directory={chosen} previous={check}
-        prefill={chosen === directory ? prefill : undefined} />}
+      {chosen !== null && running === null && availability.development && <StartCheck key={chosen} data={data} actions={actions} busy={busy} directory={chosen} previous={check} />}
       {chosen !== null && running !== null && running.id !== check?.id && <div className="rcp-note-caption">The check of {running.directory} is running.
         A new check can start when it ends.</div>}
     </div>
@@ -117,8 +115,8 @@ function ChooseDirectory({ workspaceId, onChoose }: { workspaceId: string; onCho
  * What a check reads: the linked pages the user keeps, at first those the code cites the way it cites a specification, and the pages the
  * user adds. The user also picks how many candidates it may reproduce, since each reproduction is a build.
  */
-function StartCheck({ data, actions, busy, directory, previous, prefill }: {
-  data: SpecCheckData; actions: SpecCheckActions; busy: boolean; directory: string; previous: ContextSpecCheckDto | null; prefill?: SpecCheckRequest['prefill'];
+function StartCheck({ data, actions, busy, directory, previous }: {
+  data: SpecCheckData; actions: SpecCheckActions; busy: boolean; directory: string; previous: ContextSpecCheckDto | null;
 }) {
   const [sources, setSources] = useState<ContextSpecSourceDto[] | null>(null);
   const [suggested, setSuggested] = useState<string[]>([]);
@@ -126,9 +124,7 @@ function StartCheck({ data, actions, busy, directory, previous, prefill }: {
   const [error, setError] = useState<string | null>(null);
   const [added, setAdded] = useState<string[]>([]);
   const [draft, setDraft] = useState('');
-  // A card's count rounds up to the nearest limit the form offers.
-  const [limit, setLimit] = useState(prefill === undefined ? REPRODUCTION_LIMITS[0]
-    : REPRODUCTION_LIMITS.find(value => value >= prefill.reproductions) ?? REPRODUCTION_LIMITS[REPRODUCTION_LIMITS.length - 1]);
+  const [limit, setLimit] = useState(REPRODUCTION_LIMITS[0]);
   useEffect(() => {
     let live = true;
     void Promise.resolve().then(() => window.bridge.getRepositoryContextSpecSources(data.workspaceId, directory)).then(found => {
@@ -136,15 +132,13 @@ function StartCheck({ data, actions, busy, directory, previous, prefill }: {
       setSources(found);
       const linked = (url: string) => found.some(source => source.url === url);
       const initial = defaultPicks(found, previous);
-      // A card's pages are picked instead, and the ones the code does not link are added.
-      const picked = prefill === undefined ? initial : prefill.specs.filter(linked);
-      setSuggested([...initial, ...picked.filter(url => !initial.includes(url))]);
-      setPicks(picked);
+      setSuggested(initial);
+      setPicks(initial);
       // A spec the user added to the last check is not in the code's links; it is offered again.
-      setAdded(prefill !== undefined ? prefill.specs.filter(url => !linked(url)) : previous === null ? [] : previous.specs.filter(url => !linked(url)));
+      setAdded(previous === null ? [] : previous.specs.filter(url => !linked(url)));
     }).catch(cause => { if (live) setError(remoteErrorMessage(cause)); });
     return () => { live = false; };
-  }, [data.workspaceId, directory, prefill, previous]);
+  }, [data.workspaceId, directory, previous]);
   const known = sources ?? [];
   // Rows keep their place while the user picks: the suggested ones first, the other links folded below them.
   const featured = known.filter(source => suggested.includes(source.url));

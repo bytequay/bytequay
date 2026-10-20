@@ -19,10 +19,7 @@ import type { PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } fro
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
-import AttentionList, { type GoalToggle } from './AttentionList';
-import { attentionWorkspace, goalHas, goalPicked } from '../goals/model';
-import { goalRef } from '../workitems/model';
-import { toggleGoalItem, usePinnedGoals } from '../goals/useGoals';
+import AttentionList from './AttentionList';
 import {
   ATTENTION_SEED,
   issueAttentionItems,
@@ -269,18 +266,6 @@ function HomePage({
     id: workspace.id, name: workspace.name, repository: `${workspace.monitoredOwner}/${workspace.monitoredRepo}`,
   })), [workspaces]);
   const tasks = useTaskAttention(taskWorkspaces);
-  const pinnedGoals = usePinnedGoals(useMemo(() => workspaces.map(workspace => workspace.id), [workspaces]));
-  // Each card joins the pinned goal of the workspace it belongs to.
-  const goalToggle = (item: AttentionItem): GoalToggle | null => {
-    const workspaceId = attentionWorkspace(item, workspaces);
-    const goal = workspaceId === null ? undefined : pinnedGoals.get(workspaceId);
-    const ref = goalRef(item);
-    const workspace = workspaces.find(candidate => candidate.id === workspaceId);
-    if (workspaceId === null || workspace === undefined || goal === undefined || ref === null) return null;
-    const inGoal = goalHas(goal, ref);
-    return { inGoal, toggle: () => toggleGoalItem(workspaceId, goal.id, ref, inGoal),
-      picked: goalPicked(goal, `${workspace.monitoredOwner}/${workspace.monitoredRepo}`, ref) };
-  };
 
   const candidates = useMemo(
     () => linkTasks(attentionCandidates(attentionPrs ?? [], issueItems.map<AttentionItem>(item => ({
@@ -315,7 +300,6 @@ function HomePage({
       <AttentionList
         candidates={candidates}
         todayKeys={onToday}
-        goal={goalToggle}
         handled={handled}
         viewerLogin={login ?? null}
         jiraConnected={jira.connected}

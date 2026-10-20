@@ -62,29 +62,17 @@ type Props = {
   variant?: 'home' | 'workspace';
   section?: 'attention' | 'my-prs';
   scope?: { workspaceId: string; repository: string };
-  /** The pinned goal each card can join or leave; absent where no goal can hold the card. */
-  goal?: (item: AttentionItem) => GoalToggle | null;
   /** Whether Jira is connected; without it there is no Jira tab unless a Jira card is listed anyway. */
   jiraConnected?: boolean;
   /** The lower-case keys of today's open agenda items, which a row marks with a sun. */
   todayKeys?: ReadonlySet<string>;
 };
 
-/**
- * A card's place in a pinned goal, and the change that flips it.
- *
- * picked: a card under the Goal control offers this same next action.
- */
-export type GoalToggle = { inGoal: boolean; toggle: () => Promise<unknown>; picked?: boolean };
-
-// What still needs the user's own card while a Goal card offers its source as practice.
-const URGENT = new Set<AttentionItem['kind']>(['approval', 'review', 'changes', 'failed', 'ci']);
-
 type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
 
 export default function AttentionList({
-  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', section = 'attention', scope, goal, jiraConnected = false, todayKeys,
+  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', section = 'attention', scope, jiraConnected = false, todayKeys,
 }: Props) {
   const myPrs = section === 'my-prs';
   const title = myPrs ? 'My PRs' : 'Needs attention';
@@ -108,11 +96,9 @@ export default function AttentionList({
 
   // Handled items drop out before the cap, so the next eligible item takes a handled card's place.
   const reminders = useSnoozedAttention(candidates, handled, Math.max(now, Date.now()), scope);
-  // A source the Goal's card offers as practice folds into that card, unless it asks for an approval, a review or a recovery.
   const live = visibleAttention(reminders, handled, Math.max(now, Date.now()))
     .filter(item => !(variant === 'workspace' && item.pr?.state === 'open' && pullRequestIsMine(item.pr, viewerLogin))
-      && !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null)
-      && (URGENT.has(item.kind) || goal?.(item)?.picked !== true));
+      && !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null));
   const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
   const cards = myPrs ? myPullRequestCards(reminders, handled, viewerLogin, Math.max(now, Date.now()))
     : attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam }, Math.max(now, Date.now()));
@@ -185,7 +171,6 @@ export default function AttentionList({
       {cards.length > 0 ? (
         <div className="item-list" role="list">
           {cards.map(item => {
-            const membership = item.issueState === 'closed' ? null : goal?.(item) ?? null;
             const match = teamAttentionMatch(item, circles, viewerLogin);
             return (
               <AttentionRow
@@ -199,13 +184,6 @@ export default function AttentionList({
                 onAcknowledge={myPrs ? undefined : () => acknowledge(item)}
                 onSnooze={anchor => setSnooze({ item, anchor })}
                 onStart={startable(item) ? () => onStartIssue?.(item) : undefined}
-                inGoal={membership?.inGoal ?? false}
-                onToggleGoal={membership === null ? undefined : () => {
-                  void membership.toggle().catch((failure: unknown) => {
-                    toastId.current += 1;
-                    setToast({ id: toastId.current, text: `Could not change the goal: ${failure instanceof Error ? failure.message : String(failure)}`, key: '' });
-                  });
-                }}
               />
             );
           })}

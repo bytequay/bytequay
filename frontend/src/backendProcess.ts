@@ -144,7 +144,7 @@ export function spawnBackend(): void {
     '-XX:+ExitOnOutOfMemoryError',
     `-Dbytequay.launcher-pid=${process.pid}`,
   ];
-  child = spawn(java, [...jvmArgs, '-jar', jar, '--bytequay.experiments.goals=false'], {
+  child = spawn(java, [...jvmArgs, '-jar', jar], {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
     env: {

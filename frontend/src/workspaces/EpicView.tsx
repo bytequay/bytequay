@@ -23,7 +23,6 @@ import { openGoalItem, startTicket } from '../workitems/open';
 import { Candidate, useCandidates } from '../workitems/Candidate';
 import { GOAL_SOURCES, goalRef, isOpen, itemNeedsYou, progressWidths, refKey, summarize, waitingOn } from '../workitems/model';
 import MarkdownBody from '../pulls/MarkdownBody';
-import type { Goals } from '../goals/useGoals';
 import type { AttentionTone } from '../home/attention';
 import { EpicGlyph } from './EpicDrawer';
 import { assignWorkItemEpic, epicIdentity, epicWork, joinEpic, orderEpic, removeFromEpic, startEpicWork, useEpicGoals, useEpicLend, useEpicRecord, type EpicItem } from './epics';
@@ -92,7 +91,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
   /** Every work item of the workspace; the view shows the Epic's. */
   work: WorkItemDto[];
   needsYou: ReadonlySet<string>;
-  goals: Pick<Goals, 'createWork' | 'decideWork' | 'search'>;
+  goals: ReturnType<typeof useEpicGoals>;
   /** Names another Epic, for the notice when work moves here from it. */
   epicTitle: (epicId: string) => string | null;
   onOpenTask: (taskId: string) => void;
@@ -335,7 +334,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
           const name = title.trim();
           if (name === '' || busy) return;
           void run(async () => {
-            await goals.createWork({ id: crypto.randomUUID(), goalId: null, epicId, title: name, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY' });
+            await goals.createWork({ id: crypto.randomUUID(), epicId, title: name, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY' });
             setTitle('');
             setNotice('Added a Local work item to this Epic.');
           });

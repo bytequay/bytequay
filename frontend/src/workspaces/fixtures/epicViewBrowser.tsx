@@ -29,8 +29,8 @@ const epic = issueAttentionItem({ id: 24918, number: 24918, title: 'Iceberg REST
 const link = (kind: GoalItemDto['kind'], key: string, label: string, state: GoalItemDto['state'], status: string): GoalItemDto => ({
   kind, key, label, title: label, state, status, blocked: false, url: null, activity: null, addedAt: NOW });
 const work = (id: string, title: string, state: WorkItemDto['state'], epicRank: number, extra: Partial<WorkItemDto> = {}): WorkItemDto => ({
-  id, workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: null, title, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links: [],
-  history: [], createdAt: NOW, updatedAt: NOW, priority: 'NORMAL', rank: 0, blockedBy: [], epicId: EPIC_ID, epicRank, ...extra });
+  id, workspaceId: 'workspace', isEpic: false, contextLinks: [], title, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links: [],
+  history: [], createdAt: NOW, updatedAt: NOW, priority: 'NORMAL', blockedBy: [], epicId: EPIC_ID, epicRank, ...extra });
 const CANDIDATE = link('ISSUE', 'trinodb/trino#24977', '#24977', 'IDLE', 'Open');
 const child = (number: number, title: string, status: string): EpicChildDto => ({
   identity: `ISSUE:github.com:${number}`, kind: 'ISSUE', key: `trinodb/trino#${number}`, label: `#${number}`, title, status, closed: status === 'Closed', url: null });
@@ -84,7 +84,7 @@ export async function run(): Promise<boolean> {
   const render = (): void => flushSync(() => root.render(<EpicView epic={epic} workspaceId="workspace" repository="trinodb/trino" work={items} needsYou={new Set()}
     goals={{
       createWork: async (request: CreateWorkItem) => {
-        calls.push(`create ${request.title} ${request.epicId} ${request.goalId} ${request.kind} [${request.acceptanceCriteria}] ${request.completionRule}`);
+        calls.push(`create ${request.title} ${request.epicId} ${request.kind} [${request.acceptanceCriteria}] ${request.completionRule}`);
         const created = work(request.id, request.title, 'PLANNED', 9);
         items = [...items, created];
         render();
@@ -199,7 +199,7 @@ export async function run(): Promise<boolean> {
     const input = element<HTMLInputElement>('.epic-view__new input');
     changeInput(input, '  Profile the reader  ');
     element<HTMLFormElement>('.epic-view__new').requestSubmit(); await wait(20);
-    assert(calls.at(-1) === 'create Profile the reader ISSUE:github.com:24918 null DEVELOP [] MERGED_DELIVERY', `Quick add takes a title: ${calls.at(-1)}`);
+    assert(calls.at(-1) === 'create Profile the reader ISSUE:github.com:24918 DEVELOP [] MERGED_DELIVERY', `Quick add takes a title: ${calls.at(-1)}`);
     assert(input.value === '' && rows().some(value => value.textContent?.includes('Profile the reader')), 'The new work joins the list and the field clears');
 
     button('Add existing').click(); await wait(250);
@@ -380,7 +380,7 @@ export async function run(): Promise<boolean> {
     // Unmarking an Epic with work asks first, naming what leaves and what goes.
     let unmarks = 0;
     const unmarked = (): number => unmarks;
-    flushSync(() => root.render(<UnmarkProbe items={[work('x', 'In a Goal', 'WORKING', 0, { goalId: 'goal' }), work('y', 'Only here', 'PLANNED', 1)]}
+    flushSync(() => root.render(<UnmarkProbe items={[work('x', 'Started', 'WORKING', 0), work('y', 'Only here', 'PLANNED', 1)]}
       onUnmark={() => { unmarks++; }} />));
     button('Unmark an empty Epic').click(); await wait(20);
     assert(unmarked() === 1 && document.querySelector('dialog.bq-confirm-dialog') === null, 'An Epic without work unmarks at once');

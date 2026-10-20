@@ -15,7 +15,7 @@ import { useAgentAvailability } from '../agents/availability';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowRight, ArrowUpRight, Check, CircleX, Clock3, MessageSquare, Play, Sun } from 'lucide-react';
 import Avatar from '../Avatar';
-import { CardActions, CardAge, GoalIcon, IconButton, InGoalBadge, ItemRow, LinkKey, Pill, SourceIcon } from '../cards/Card';
+import { CardActions, CardAge, IconButton, ItemRow, LinkKey, Pill, SourceIcon } from '../cards/Card';
 import { jiraIssueLocation } from '../jira/contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
 import ReferenceCard, { previewMarkdown, toneChip, useHoverCard, type HoverCard, type ReferenceCardItem } from '../ReferenceCard';
@@ -72,12 +72,8 @@ type Props = {
   onSnooze: (anchor: DOMRect) => void;
   /** Present for an issue or ticket that can start development. */
   onStart?: () => void;
-  /** Whether the item is in the pinned goal, shown as a badge beside the title. */
-  inGoal?: boolean;
   /** Whether the item is on today's agenda, shown as a sun beside the title. */
   onToday?: boolean;
-  /** Adds the item to the pinned goal, or takes it out; absent where no goal can hold it. */
-  onToggleGoal?: () => void;
 };
 
 /** What the person a row leads with did: authored the pull request, opened the issue, or asked for your review. */
@@ -113,7 +109,7 @@ function latestAt(item: AttentionItem, summary: AttentionSummary): string | null
  * row opens the item's hover card; its actions take the age's place while the pointer or focus is inside.
  */
 export default function AttentionRow({
-  item, viewerLogin, showRepo, showState = true, circle = null, age, onOpen, onAcknowledge, onSnooze, onStart, inGoal = false, onToday = false, onToggleGoal,
+  item, viewerLogin, showRepo, showState = true, circle = null, age, onOpen, onAcknowledge, onSnooze, onStart, onToday = false,
 }: Props) {
   const availability = useAgentAvailability(item.workspaceId ?? undefined);
   const hover = useHoverCard(PREVIEW_OPEN_MS, PREVIEW_CLOSE_MS);
@@ -170,19 +166,12 @@ export default function AttentionRow({
           {/* A task's reference names its lane, which the line below already does. */}
           {item.task === undefined && <span className="card-key">{reference}</span>}
           {showState && <Pill outline>{status ?? summary.tag.label}</Pill>}
-          {inGoal && <InGoalBadge />}
           {onToday && <span className="today-mark" title="On Today"><Sun size={12} aria-hidden="true" /></span>}
         </>}
         meta={meta}
         actions={
           <CardActions label={`Actions for ${reference}`}>
             {target !== null && <PinButton item={{ key: item.key, title: item.title, reference, target }} className="card-iconbtn" />}
-            {onToggleGoal !== undefined && (
-              <IconButton label={`${inGoal ? 'Remove' : 'Add'} ${reference} ${inGoal ? 'from' : 'to'} the goal`} title={inGoal ? 'Remove from goal' : 'Add to goal'}
-                tone={inGoal ? 'active' : undefined} pressed={inGoal} onClick={onToggleGoal}>
-                <GoalIcon size={15} />
-              </IconButton>
-            )}
             {start !== undefined && (
               <IconButton label={`Start development for ${reference}`} title={`Start development in ${item.workspaceName || item.repo}`} onClick={start}>
                 <Play size={14} strokeWidth={1.9} aria-hidden="true" />

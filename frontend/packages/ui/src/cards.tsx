@@ -41,7 +41,7 @@ export function Clickable({ className, label, title, onOpen, children }: Clickab
   );
 }
 
-/** A card: the box every list of things to open draws. Compact ones are the small cards on Home and the goal board. */
+/** A card: the box every list of things to open draws. Compact ones are the small cards on Home. */
 export function Card({ compact = false, selected = false, className = '', ...props }: ClickableProps & { compact?: boolean; selected?: boolean }): React.JSX.Element {
   return <Clickable {...props} className={`card${compact ? ' is-compact' : ''}${selected ? ' is-selected' : ''} ${className}`.trim()} />;
 }

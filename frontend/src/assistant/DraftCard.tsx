@@ -41,7 +41,7 @@ export default function DraftCard({ item, created, onCreated, onOpen }: {
     try {
       // The work item's id is the draft's, so a click retried after a failure, even once the panel closed, finds the work it made instead of making more.
       const work = (await window.bridge.listWorkItems(draft.workspaceId)).find(each => each.id === draft.workItemId)
-        ?? await window.bridge.createWorkItem(draft.workspaceId, { id: draft.workItemId, goalId: null, epicId: null, title: title.trim(), kind: 'DEVELOP',
+        ?? await window.bridge.createWorkItem(draft.workspaceId, { id: draft.workItemId, epicId: null, title: title.trim(), kind: 'DEVELOP',
           acceptanceCriteria: body.trim(), completionRule: 'MERGED_DELIVERY' });
       // The issue is pushed from the work item as made, so later edits would not reach it.
       setMade(true);

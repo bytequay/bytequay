@@ -90,7 +90,7 @@ export type GoalItemDto = {
   blocked: boolean;
   url: string | null;
   activity: { text: string; at: string } | null;
-  /** When it joined the goal; null for a candidate. */
+  /** When it was added; null for a candidate. */
   addedAt: string | null;
   /** The source's own priority, such as a Jira ticket's, shown as it is and never mapped to the work's. */
   priority?: string | null;
@@ -128,7 +128,6 @@ export type WorkItemDto = {
   id: string;
   isEpic: boolean;
   workspaceId: string;
-  goalId: string | null;
   title: string;
   kind: WorkItemKind;
   acceptanceCriteria: string;
@@ -142,16 +141,14 @@ export type WorkItemDto = {
   createdAt: string;
   updatedAt: string;
   priority: WorkItemPriority;
-  /** Its place in its Goal's order, lowest first; equal places keep creation order. */
-  rank: number;
-  /** The same Goal's or Epic's work it waits on. */
+  /** The same Epic's work it waits on. */
   blockedBy: string[];
   /** The Epic the work belongs to: a local item, GitHub issue, or Jira ticket identity. */
   epicId?: string | null;
   /** Its place in its Epic's order, lowest first; equal places keep creation order. */
   epicRank?: number;
 };
-export type CreateWorkItem = Pick<WorkItemDto, 'id' | 'goalId' | 'title' | 'kind' | 'acceptanceCriteria' | 'completionRule' | 'epicId'>;
+export type CreateWorkItem = Pick<WorkItemDto, 'id' | 'title' | 'kind' | 'acceptanceCriteria' | 'completionRule' | 'epicId'>;
 /** Work an Epic took in, and the other Epic it left, if any. */
 export type EpicJoinDto = { item: WorkItemDto; movedFrom: string | null };
 /** A GitHub sub-issue or Jira child ticket an Epic's source reports, as ByteQuay last read it. */
@@ -200,11 +197,10 @@ export type EpicRecordDto = {
 export type WorkItemDecision = {
   operationId: string;
   expectedRevision: number;
-  action: 'EDIT' | 'BEGIN' | 'ACCEPT' | 'DROP' | 'REOPEN' | 'MOVE' | 'PRIORITIZE' | 'BLOCK' | 'UNBLOCK';
+  action: 'EDIT' | 'BEGIN' | 'ACCEPT' | 'DROP' | 'REOPEN' | 'PRIORITIZE' | 'BLOCK' | 'UNBLOCK';
   title?: string;
   acceptanceCriteria?: string;
   completionRule?: CompletionRule;
-  goalId?: string;
   detail: string;
   priority?: WorkItemPriority;
   /** The work BLOCK makes this item wait on, or UNBLOCK stops it waiting on. */
@@ -216,12 +212,10 @@ export type WorkItemDecision = {
 export function parseWorkItem(value: unknown): WorkItemDto {
   const item = object(value, 'work item');
   if (!Number.isSafeInteger(item.revision) || (item.revision as number) < 0) throw new Error('Malformed work item revision');
-  if (!Number.isSafeInteger(item.rank)) throw new Error('Malformed work item rank');
   return {
     id: text(item.id, 'work item id'),
     isEpic: item.isEpic === true,
     workspaceId: text(item.workspaceId, 'work item workspace'),
-    goalId: optionalText(item.goalId),
     title: text(item.title, 'work item title'),
     kind: oneOf(item.kind, ['LEARN', 'INVESTIGATE', 'DEVELOP'] as const, 'work item kind'),
     acceptanceCriteria: text(item.acceptanceCriteria, 'work item criteria'),
@@ -240,7 +234,6 @@ export function parseWorkItem(value: unknown): WorkItemDto {
     createdAt: text(item.createdAt, 'work item created'),
     updatedAt: text(item.updatedAt, 'work item updated'),
     priority: oneOf(item.priority, ['HIGH', 'NORMAL', 'LOW'] as const, 'work item priority'),
-    rank: item.rank as number,
     blockedBy: parseList(item.blockedBy, (value) => text(value, 'work item blocker'), 'work item blockers'),
     ...(item.epicId == null ? {} : { epicId: text(item.epicId, 'work item Epic'), epicRank: Number.isSafeInteger(item.epicRank) ? item.epicRank as number : 0 }),
   };

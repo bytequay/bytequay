@@ -86,8 +86,6 @@ interface AgentTasksViewProps {
   onNewItem?: (type: Exclude<TaskType, 'dev'>) => void;
   /** The workspace's tasks and what they wait on, re-read for all its pages; without it the list shows what it loaded. */
   taskAttention?: TaskAttention;
-  /** Whether a task, or a pull request by number, is in the workspace's pinned goal. */
-  inGoal?: (item: TaskListItem) => boolean;
   /** Where a provider that is not ready gets fixed. */
   onOpenSettings?: () => void;
   /** A launch chosen before the composer opened; the person may change it until the first message creates a task. */
@@ -687,7 +685,6 @@ export default function AgentTasksView({
   onOpenPullRequest,
   onNewItem,
   taskAttention = NO_TASK_ATTENTION,
-  inGoal,
   onOpenSettings,
   launch,
   initialDraft,
@@ -752,7 +749,6 @@ export default function AgentTasksView({
       tasks={tasks}
       items={items}
       activity={taskAttention.activity}
-      inGoal={inGoal}
       changes={changes}
       loading={creation.loading}
       error={error}
@@ -967,7 +963,7 @@ function inType(item: TaskListItem, type: TypeTab): boolean {
 
 export function AgentTaskList({
   workspaceId, workItemId, tasks, items = [], activity = {}, loading, error, laneId, providers, models, selection, draft, blocker, headerAction, repository,
-  onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenItem, onOpenReviewWorkspace, onNewItem, inGoal, onOpenSettings, onArchive, onDelete,
+  onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenItem, onOpenReviewWorkspace, onNewItem, onOpenSettings, onArchive, onDelete,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
   now = Date.now(), initialTab = 'active', initialType = 'all', changes = {},
 }: {
@@ -1002,8 +998,6 @@ export function AgentTaskList({
   onOpenReviewWorkspace?: (review: AgentReviewDto) => void;
   /** Goes where a review, cherry-pick or CI fix begins; a development task begins in the composer below. */
   onNewItem?: (type: Exclude<TaskType, 'dev'>) => void;
-  /** Whether an item is in the workspace's pinned goal, marked on its card or row. */
-  inGoal?: (item: TaskListItem) => boolean;
   onOpenSettings?: () => void;
   /** Shelves or restores the tasks; the caller updates its list as each answer arrives. */
   onArchive?: (ids: string[], archived: boolean) => Promise<void>;
@@ -1112,10 +1106,9 @@ export function AgentTaskList({
   };
   const handlers = (item: TaskListItem): TaskItemHandlers => {
     const { task, review } = item;
-    const goal = inGoal?.(item) ?? false;
     if (task !== null) {
       return {
-        now, you, selecting, inGoal: goal,
+        now, you, selecting,
         checked: selected.includes(task.id),
         onOpen: () => onOpenTask(task.id),
         onToggle: () => toggle(task.id),
@@ -1124,7 +1117,7 @@ export function AgentTaskList({
       };
     }
     return {
-      now, you, selecting, inGoal: goal,
+      now, you, selecting,
       checked: false,
       onOpen: () => onOpenItem?.(item),
       onOpenWorkspace: review === null || onOpenReviewWorkspace === undefined ? undefined : () => onOpenReviewWorkspace(review),

@@ -14,7 +14,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import AgentHome from '../agents/AgentHome';
 import { useTaskAttention } from '../agents/attention';
-import type { TaskListItem } from '../agents/taskList';
 import AgentTaskScreen from '../agents/AgentTaskScreen';
 import AgentTasksView, { type TaskLaunch } from '../agents/AgentTasksView';
 import ReviewTaskScreen from '../agents/ReviewTaskScreen';
@@ -23,24 +22,19 @@ import ArtifactsPage from '../artifacts/ArtifactsPage';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import ProgressView from '../commits/ProgressView';
 import { zoomReference } from '../githubReference';
-import { GoalLayer } from '../goals/GoalLayer';
-import { goalHas, goalPicked } from '../goals/model';
-import { goalRef, needsYouKeys, numberedKey } from '../workitems/model';
-import { useGoals } from '../goals/useGoals';
-import type { GoalToggle } from '../home/AttentionList';
-import { visibleAttention, type AttentionItem } from '../home/attention';
+import { needsYouKeys } from '../workitems/model';
+import { visibleAttention } from '../home/attention';
 import { JiraTicketLayer } from '../jira/JiraScreen';
 import { jiraIssueLocation } from '../jira/contracts';
 import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import MemoryPage from '../memory/MemoryPage';
-import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { settingsRoute } from '../settings/routes';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import CreateEpicDialog from './CreateEpicDialog';
 import EpicDrawer from './EpicDrawer';
-import { EPIC_START, epicIdentity, lendEpicWorkspace, takeEpicStart, useConcludedEpics } from './epics';
+import { EPIC_START, epicIdentity, lendEpicWorkspace, takeEpicStart, useConcludedEpics, useWorkItems } from './epics';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
 import { RelatedWorkspaceView } from './RelatedWorkspaceView';
 import WorkItemsScreen from '../workitems/WorkItemsScreen';
@@ -86,7 +80,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
   const [openReview, setOpenReview] = useState<{ id: string; repo: string; number: number } | null>(null);
   // The launch chosen when development was started from an issue; the composer seeds itself with it.
   const [startLaunch, setStartLaunch] = useState<TaskLaunch>();
-  // The instruction a Goal's work card prepared for the issue's composer.
+  // The instruction an Epic's work prepared for the issue's composer.
   const [startDraft, setStartDraft] = useState<string>();
   const [startReplaces, setStartReplaces] = useState<string>();
   // Epic work without an issue or ticket: the task composer opens with its title, and the task it creates is the work's attempt.
@@ -94,22 +88,19 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
   // An Epic's Run starts its work at once: the issue or work item whose composer sends that message itself, until the composer takes it.
   const [startNow, setStartNow] = useState<number | string>();
   const startTaken = useCallback(() => setStartNow(undefined), []);
-  // A spec check a Goal card asked the Memory page to show.
-  const [specCheck, setSpecCheck] = useState<SpecCheckRequest>();
-  const specShown = useCallback(() => setSpecCheck(undefined), []);
   const monitoredRepository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
   const agentScreens = tab === 'home' || tab === 'tasks';
   const taskDetail = tab === 'tasks' && (initialAgentTaskId !== null || initialAgentReviewId !== null);
   // A cherry-pick execution zooms over the task list; an agent task owns the page instead.
   const zoomedCherryPick = tab === 'tasks' && openCherryPick !== null;
   const zoom = useZoom(useCallback(() => setOpenCherryPick(null), []), zoomedCherryPick);
-  // Read once for every page of the workspace: Home lists what needs you, and the goal counts it.
+  // Read once for every page of the workspace: Home lists what needs you, and an Epic counts it.
   const taskWorkspaces = useMemo(() => [{ id: workspace.id, name: '', repository: monitoredRepository }], [monitoredRepository, workspace.id]);
   const taskAttention = useTaskAttention(taskWorkspaces);
   const attention = useWorkspaceAttention(workspace.id, monitoredRepository, taskAttention);
-  const goals = useGoals(workspace.id);
+  const workItems = useWorkItems(workspace.id);
   const needsYou = needsYouKeys(visibleAttention(attention.candidates, attention.handled, Date.now()));
-  const epics = [...attention.candidates.filter(item => item.isEpic === true), ...goals.workItems.filter(item => item.isEpic)];
+  const epics = [...attention.candidates.filter(item => item.isEpic === true), ...workItems.filter(item => item.isEpic)];
   const concludedEpics = useConcludedEpics(workspace.id, epics.map(epicIdentity).join(' '));
   // Unmarked while open, the Epic's view closes with it.
   const epic = openEpic === null ? undefined : epics.find(item => epicIdentity(item) === openEpic);
@@ -124,17 +115,6 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
     });
     return () => lendEpicWorkspace(workspace.id, null);
   }, [epicTitlesKey, monitoredRepository, needsYouKey, workspace.id]);
-  const goalToggle = useCallback((item: AttentionItem): GoalToggle | null => {
-    const pinned = goals.pinned;
-    const ref = goalRef(item);
-    if (pinned === null || ref === null) return null;
-    const inGoal = goalHas(pinned, ref);
-    return { inGoal, toggle: () => (inGoal ? goals.removeItem(pinned.id, ref.kind, ref.key) : goals.add(pinned.id, ref.kind, ref.key)),
-      picked: goalPicked(pinned, monitoredRepository, ref) };
-  }, [goals, monitoredRepository]);
-  // A task is in the goal itself, or through the pull request it works on.
-  const itemInGoal = (item: TaskListItem): boolean => (item.task !== null && goalHas(goals.pinned, { kind: 'TASK', key: item.task.id }))
-    || item.links.some((link) => link.source === 'pr' && goalHas(goals.pinned, { kind: 'PULL_REQUEST', key: numberedKey(monitoredRepository, Number(link.key.slice(1))) }));
   const openReviewWorkspace = (review: AgentReviewDto): void => {
     setOpenReview(null);
     window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id);
@@ -255,24 +235,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
     ? <WorkspaceUnavailable message="Repository code must be ready before this tab can open." />
     : renderPage();
 
-  // Goals are a development experiment; release builds never mount their controls or conversation.
-  return process.env.NODE_ENV !== 'production' ? (
-    <GoalLayer
-      page={taskDetail ? 'task' : tab}
-      workspaceId={workspace.id}
-      repository={monitoredRepository}
-      goals={goals}
-      needsYou={needsYou}
-      onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
-      onStartIssue={startIssue}
-      onSpecCheck={(spec) => {
-        setSpecCheck(spec);
-        window.location.hash = workspaceRoute(workspace.id, 'context');
-      }}
-    >
-      {page}
-    </GoalLayer>
-  ) : page;
+  return page;
 
   function renderPage(): React.JSX.Element {
     if (tab === 'commits') {
@@ -314,7 +277,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
     }
     if (tab === 'artifacts') return <ArtifactsPage workspaceId={workspace.id} />;
     if (tab === 'context') {
-      return <MemoryPage workspace={workspace} spec={specCheck} onSpecShown={specShown} />;
+      return <MemoryPage workspace={workspace} />;
     }
     if (tab === 'tasks') {
       if (initialCherryPickId !== null) return <div className="cmt-root"><ProgressView
@@ -377,7 +340,6 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
               onSelectTab(type === 'cherry' ? 'commits' : 'prs');
             }}
             taskAttention={taskAttention}
-            inGoal={itemInGoal}
             onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
             onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
           />
@@ -408,7 +370,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
     // The Epic drawer comes first so its trigger is the next tab stop after the sidebar.
     return stage(<>
       {epic === undefined
-        ? <EpicDrawer items={epics} concluded={concludedEpics} work={goals.workItems} onOpen={item => {
+        ? <EpicDrawer items={epics} concluded={concludedEpics} work={workItems} onOpen={item => {
           if ('acceptanceCriteria' in item) zoomReference({ kind: 'work', workspaceId: workspace.id, itemId: item.id });
           else setOpenEpic(epicIdentity(item));
         }} onCreate={() => setCreatingEpic(true)} />
@@ -429,8 +391,6 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
         repository={monitoredRepository}
         taskAttention={taskAttention}
         attention={attention}
-        goal={goalToggle}
-        inGoal={(task) => goalHas(goals.pinned, { kind: 'TASK', key: task.id })}
         onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
         onOpenReview={openReviewWorkspace}
         onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}

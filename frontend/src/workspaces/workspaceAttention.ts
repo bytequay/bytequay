@@ -41,7 +41,7 @@ export type WorkspaceAttention = {
 /**
  * The workspace's slice of what Home lists: pull requests and issues of its monitored repository,
  * Jira tickets assigned to the workspace, and its tasks. Read once for the whole workspace, so its
- * Home and its goal agree on what needs you.
+ * Home and its Epics agree on what needs you.
  */
 export function useWorkspaceAttention(workspaceId: string, repository: string, tasks: TaskAttention): WorkspaceAttention {
   // Opening a workspace again paints the last reads any Home made; the mount still re-reads them.

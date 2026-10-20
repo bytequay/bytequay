@@ -167,8 +167,8 @@ async function epicTabs(): Promise<void> {
   let received = 0;
   const decisions: number[] = [];
   const work = (id: string, title: string, state: WorkItemDto['state'], links: WorkItemDto['links'] = []): WorkItemDto => ({
-    id, workspaceId: 'workspace-1', isEpic: false, contextLinks: [], goalId: null, title, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links,
-    history: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', priority: 'NORMAL', rank: 0, blockedBy: [], epicId: issueEpicId(7024),
+    id, workspaceId: 'workspace-1', isEpic: false, contextLinks: [], title, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links,
+    history: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', priority: 'NORMAL', blockedBy: [], epicId: issueEpicId(7024),
     epicRank: 0 });
   window.bridge = {
     fetchWorkspaceIssue: async (_workspace: string, number: number) => issues.find(issue => issue.number === number),

@@ -28,7 +28,6 @@ const cases = [
   ['CONTEXT_BUILD', 'Check the code in directory x', 'Check specifications', 'No builds, file edits or publication'],
   ['CONTEXT_BUILD', 'Reproduce one spec check candidate', 'Verify specification gap', 'Temporary test only'],
   ['CONTEXT_BUILD', 'Learn repository memory for a/b', 'Learn repository memory', 'User-owned memories stay unchanged'],
-  ['CONTEXT_BUILD', 'Research what a learner needs', 'Research goal', 'No file edits or publication'],
 ] as const;
 
 function render(durable: AgentTurnDto | undefined, users: TranscriptTurn['users']) {

@@ -33,8 +33,8 @@ const workspace = workspaceFixture({
 });
 const now = '2026-10-07T00:00:00Z';
 function local(id: string, title: string, body: string): WorkItemDto {
-  return { id, workspaceId: workspace.id, isEpic: false, contextLinks: [], goalId: null, title, acceptanceCriteria: body, kind: 'DEVELOP', completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0,
-    links: [], history: [], createdAt: now, updatedAt: now, priority: 'NORMAL', rank: 0, blockedBy: [] };
+  return { id, workspaceId: workspace.id, isEpic: false, contextLinks: [], title, acceptanceCriteria: body, kind: 'DEVELOP', completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0,
+    links: [], history: [], createdAt: now, updatedAt: now, priority: 'NORMAL', blockedBy: [] };
 }
 function projected(work: WorkItemDto): UnifiedWorkItem {
   return { id: work.id, source: 'LOCAL', title: work.title, description: work.acceptanceCriteria, status: 'PLANNED', closed: false, updatedAt: now, reference: null, work };

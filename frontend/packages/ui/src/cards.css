@@ -1,6 +1,6 @@
 /* ── Cards ─────────────────────────────────────────────
    The base every card and card row draws with (cards/Card.tsx): Needs attention, Circles, the Tasks
-   page, a workspace's open tasks and a goal's items. A surface's own stylesheet adds only its layout
+   page, a workspace's open tasks and an Epic's work. A surface's own stylesheet adds only its layout
    (padding, gaps, what sits where) and never restyles these properties, so which stylesheet loads
    first does not matter; a surface raised above the page sets --card-surface to its own colour.
    Nothing in a card is bold. */
@@ -156,21 +156,6 @@
 .pill.is-struck {
   text-decoration: line-through;
   text-decoration-color: light-dark(rgba(87, 96, 106, 0.5), rgb(210 220 235 / 50%));
-}
-
-/* The item is in the pinned goal; it reads on white and on a card's tinted strip alike. */
-.card-goal {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 7px 0 5px;
-  border: 1px solid light-dark(rgba(31, 35, 40, 0.12), rgb(210 220 235 / 12%));
-  border-radius: 10px;
-  background: light-dark(rgba(255, 255, 255, 0.7), rgb(41 45 53 / 70%));
-  color: var(--fg-muted);
-  font-size: 11px;
-  white-space: nowrap;
 }
 
 /* Each source's colours: an item's tinted icon, and an attention card's strip. */

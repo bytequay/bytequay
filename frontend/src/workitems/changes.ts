@@ -15,13 +15,13 @@
 import type { Bridge } from '../types';
 import type { WorkItemDecision, WorkItemDto } from './contracts';
 
-/** Fired after any goal change so every view of the workspace's goals reads them again. */
+/** Fired after any work item change so every view of the workspace's work reads it again. */
 export const GOALS_CHANGED = 'bytequay:goals-changed';
 
 /**
  * Sends a decision on a work item. Receipts and summaries record facts and still move an item to its next revision, so a decision the user
- * makes while one lands is sent again once at the new revision when nothing it rests on changed: its state, scope, Goal, priority, order and
- * what it waits on. Any other change still fails, for the user to decide again on what they now see.
+ * makes while one lands is sent again once at the new revision when nothing it rests on changed: its state, scope, priority and what it
+ * waits on. Any other change still fails, for the user to decide again on what they now see.
  */
 export async function decideOnCurrent(bridge: Pick<Bridge, 'decideWorkItem' | 'listWorkItems'>, workspaceId: string, item: WorkItemDto,
   command: WorkItemDecision): Promise<WorkItemDto> {
@@ -32,7 +32,7 @@ export async function decideOnCurrent(bridge: Pick<Bridge, 'decideWorkItem' | 'l
     if (!(failure instanceof Error) || !failure.message.includes('Work item changed')) throw failure;
     const current = (await bridge.listWorkItems(workspaceId)).find((candidate) => candidate.id === item.id);
     const unchanged = current !== undefined && current.state === item.state && current.title === item.title && current.acceptanceCriteria === item.acceptanceCriteria
-      && current.completionRule === item.completionRule && current.goalId === item.goalId && current.priority === item.priority && current.rank === item.rank
+      && current.completionRule === item.completionRule && current.priority === item.priority
       && current.blockedBy.join('\n') === item.blockedBy.join('\n');
     if (!unchanged) throw failure;
     return bridge.decideWorkItem(workspaceId, item.id, { ...command, expectedRevision: current.revision });

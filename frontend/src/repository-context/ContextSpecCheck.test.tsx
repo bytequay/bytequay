@@ -42,13 +42,6 @@ describe('spec check drawer', () => {
     expect(markup).toContain('then up to 3 reproduction turns that write and run tests in its worktree');
   });
 
-  it('starts a check a Goal card asked for with its reproduction count, rounded up to a limit the form offers', () => {
-    const markup = renderToStaticMarkup(<SpecCheckDrawer data={data([], { buildRequestSequence: 0, canStart: true, build: null })} actions={actions} busy={false}
-      directory="plugin/trino-delta-lake/" prefill={{ specs: ['https://github.com/delta-io/delta/blob/master/PROTOCOL.md'], reproductions: 5 }} onClose={() => {}} />);
-    expect(markup).toContain('<option value="3">3</option><option value="8" selected="">8</option>');
-    expect(markup).toContain('then up to 8 reproduction turns');
-  });
-
   it('marks the specifications the check proposed because the code does not link them', () => {
     const done: ContextSpecCheckDto = { ...check, state: 'DONE', endedAt: '2026-10-02T00:30:00Z', specs: [],
       checkedAgainst: ['https://iceberg.apache.org/spec/'] };

@@ -433,9 +433,9 @@ async function localDevelopmentThroughWorkspace(): Promise<void> {
   const item: UnifiedWorkItem = {
     id: 'work-1', source: 'LOCAL', title: 'Profile the reader', description: 'Keep equivalent memory accounting', status: 'PLANNED', closed: false,
     updatedAt: f.issue.updatedAt, reference: null,
-    work: { id: 'work-1', workspaceId: f.workspaceId, isEpic: false, contextLinks: [], goalId: null, title: 'Profile the reader', acceptanceCriteria: 'Keep equivalent memory accounting',
+    work: { id: 'work-1', workspaceId: f.workspaceId, isEpic: false, contextLinks: [], title: 'Profile the reader', acceptanceCriteria: 'Keep equivalent memory accounting',
       kind: 'DEVELOP', completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0, links: [], history: [], createdAt: f.issue.createdAt,
-      updatedAt: f.issue.updatedAt, priority: 'NORMAL', rank: 0, blockedBy: [], epicId: 'ISSUE:github.com:7001', epicRank: 0 },
+      updatedAt: f.issue.updatedAt, priority: 'NORMAL', blockedBy: [], epicId: 'ISSUE:github.com:7001', epicRank: 0 },
   };
   const epic: UnifiedWorkItem = { id: 'ISSUE:github.com:7001', source: 'GITHUB', title: 'Master reader memory accounting', description: '', status: 'Open',
     closed: false, updatedAt: f.issue.updatedAt, work: null,

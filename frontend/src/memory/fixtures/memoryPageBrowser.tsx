@@ -77,9 +77,9 @@ export function mount(withFindings = false) {
     getRepositoryContextSpecSources: async () => [],
     specWorkItem: async (_workspace, checkId, candidateId) => {
       calls.push(`local:${checkId}:${candidateId}`);
-      return { id: 'local-finding', workspaceId: 'workspace', isEpic: false, contextLinks: [], goalId: null, title: finding.title, kind: 'DEVELOP', acceptanceCriteria: finding.draft?.body ?? '',
+      return { id: 'local-finding', workspaceId: 'workspace', isEpic: false, contextLinks: [], title: finding.title, kind: 'DEVELOP', acceptanceCriteria: finding.draft?.body ?? '',
         completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0, links: [], history: [], createdAt: completedCheck.startedAt, updatedAt: completedCheck.startedAt,
-        priority: 'NORMAL', rank: 0, blockedBy: [] };
+        priority: 'NORMAL', blockedBy: [] };
     },
     openInAppBrowser: async (url: string) => { opened.push(url); },
     dismissRepositoryContextSpecFinding: async (_workspace, checkId, candidateId, request) => {
@@ -102,7 +102,6 @@ export function mount(withFindings = false) {
   const root = createRoot(host);
   flushSync(() => root.render(<MemoryPage workspace={workspace} />));
   return { host, calls, opened, copied, searches, harvests,
-    showSpec: () => flushSync(() => root.render(<MemoryPage workspace={workspace} spec={{ directory: null }} />)),
     close: () => { flushSync(() => root.unmount()); host.remove(); } };
 }
 
@@ -215,9 +214,6 @@ export async function run() {
     check?.click(); await settle(); selected('specs');
     assert(view.host.querySelector('[role="dialog"]') !== null, 'Check action opens drawer');
     view.host.querySelector<HTMLButtonElement>('[aria-label="Close"]')?.click(); await settle(); selected('specs');
-    tab('memories').click(); await settle();
-    view.showSpec(); await settle(); selected('specs');
-    assert(view.host.querySelector('[role="dialog"]') !== null, 'External spec request selects its section and opens drawer');
     assert(!view.calls.includes('harvest') && !view.calls.includes('check'), 'Navigation starts no agent runs');
     return [{ name: 'Memory section navigation, filters, scrolling and spec entry' }];
   } finally { view.close(); }

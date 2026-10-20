@@ -340,7 +340,7 @@ function WorkItemForm({ workspaceId, item, epics = [], onClose, onSaved, headerA
     setBusy(true); setError(null);
     try {
       const value = item ? await goals.decideWork(item, { operationId: crypto.randomUUID(), expectedRevision: item.revision, action: 'EDIT', title: title.trim(), acceptanceCriteria: body, detail: '' })
-        : await goals.createWork({ id, goalId: null, title: title.trim(), kind, acceptanceCriteria: body, completionRule: kind === 'DEVELOP' ? 'MERGED_DELIVERY' : 'ACCEPTED_RESULT',
+        : await goals.createWork({ id, title: title.trim(), kind, acceptanceCriteria: body, completionRule: kind === 'DEVELOP' ? 'MERGED_DELIVERY' : 'ACCEPTED_RESULT',
           ...(epic === '' ? {} : { epicId: epic }) });
       await onSaved(value);
     }

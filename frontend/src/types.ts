@@ -20,7 +20,6 @@ import type { RunningTask } from './agents/runningTaskModel';
 import type { GoogleBridge } from '@bytequay/google/contracts';
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
-import type { GoalDto, GoalExchangeDto, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto, TopicLevel } from './goals/contracts';
 import { AgentEventEnvelope } from './agents/events';
 import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
@@ -1726,7 +1725,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   fetchWorkspaceIssue: (workspaceId: string, issueNumber: number) => Promise<RepositoryIssueSnapshotDto['issues'][number] | null>;
   fetchWorkspaceIssueAttention: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   setWorkspaceIssueEpic: (workspaceId: string, issueNumber: number, isEpic: boolean) => Promise<IssueDevelopmentDto>;
-  /** The workspace's goals with every item read locally; nothing here writes to GitHub or Jira. */
+  /** The workspace's work items with every link read locally; nothing here writes to GitHub or Jira. */
   listWorkItems: (workspaceId: string) => Promise<WorkItemDto[]>;
   setLocalWorkItemEpic: (workspaceId: string, itemId: string, isEpic: boolean) => Promise<void>;
   /** New Local work that is an Epic from the start; the context is saved under its own heading. */
@@ -1736,8 +1735,6 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   assignWorkItemEpic: (workspaceId: string, itemId: string, epicId: string) => Promise<EpicJoinDto>;
   createWorkItem: (workspaceId: string, request: CreateWorkItem) => Promise<WorkItemDto>;
   decideWorkItem: (workspaceId: string, itemId: string, command: WorkItemDecision) => Promise<WorkItemDto>;
-  linkWorkItem: (workspaceId: string, itemId: string, revision: number, kind: GoalItemKind, key: string) => Promise<WorkItemDto>;
-  orderWorkItems: (workspaceId: string, goalId: string, ids: string[]) => Promise<WorkItemDto[]>;
   /** Saves the order of an Epic's work, which names each of its items once. */
   orderEpicWork: (workspaceId: string, epicId: string, ids: string[]) => Promise<WorkItemDto[]>;
   /** Puts a source, task or PR in an Epic: the work that owns it joins, leaving any other Epic, or new work takes its title. */
@@ -1761,50 +1758,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   /** Makes a proposal the Epic's work. */
   acceptEpicProposal: (workspaceId: string, epicId: string, proposalId: string) => Promise<EpicRecordDto>;
   dismissEpicProposal: (workspaceId: string, epicId: string, proposalId: string) => Promise<EpicRecordDto>;
-  listGoals: (workspaceId: string) => Promise<GoalDto[]>;
-  createGoal: (workspaceId: string, title: string, description: string) => Promise<GoalDto>;
-  updateGoal: (workspaceId: string, goalId: string, patch: GoalPatch) => Promise<GoalDto>;
-  deleteGoal: (workspaceId: string, goalId: string) => Promise<void>;
-  addGoalItem: (workspaceId: string, goalId: string, kind: GoalItemKind, key: string) => Promise<GoalDto>;
-  removeGoalItem: (workspaceId: string, goalId: string, kind: GoalItemKind, key: string) => Promise<GoalDto>;
   searchGoalCandidates: (workspaceId: string, query: string) => Promise<GoalItemDto[]>;
-  /** Starts a goal from the user's answer to "What do you want to achieve?"; its agent answers in the background. */
-  startGoal: (workspaceId: string, operationId: string, message: string) => Promise<GoalDto>;
-  listGoalExchanges: (workspaceId: string, goalId: string) => Promise<GoalExchangeDto[]>;
-  /** @param lessonId the lesson the user asks about, whose content the agent reads with the question */
-  askGoal: (workspaceId: string, goalId: string, operationId: string, message: string, lessonId?: string | null) => Promise<GoalExchangeDto[]>;
-  retryGoalExchange: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
-  /** Stops the reply the agent is writing; the message stays to ask again. */
-  stopGoalExchange: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
-  /** Update now: asks the goal's agent to reassess the goal from its current facts, also while guidance is paused. */
-  reassessGoal: (workspaceId: string, goalId: string, operationId: string) => Promise<GoalExchangeDto[]>;
-  /** Writes the summary of the goal's finished work again, after its acceptance did not get one. */
-  summarizeGoalWork: (workspaceId: string, goalId: string, workItemId: string) => Promise<void>;
-  /** The model the goal's agent answers and writes lessons with; it follows the workspace's Development model until the goal has its own. */
-  getGoalModel: (workspaceId: string, goalId: string) => Promise<AgentModelSettingDto>;
-  setGoalModel: (workspaceId: string, goalId: string, configId: string, model: string, effort: string | null) => Promise<AgentModelSettingDto>;
-  clearGoalModel: (workspaceId: string, goalId: string) => Promise<AgentModelSettingDto>;
-  acceptGoalDefinition: (workspaceId: string, goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
-  /** Accepts a proposed course: each lesson becomes a Learn work item of the goal, and nothing starts. */
-  acceptGoalCourse: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalDto>;
-  acceptGoalPlan: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalDto>;
-  /** Start on a card under the Goal control: the research, check or work it recommends begins. */
-  startGoalRecommendation: (workspaceId: string, goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
-  dismissGoalRecommendation: (workspaceId: string, goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
-  listGoalKnowledge: (workspaceId: string, goalId: string) => Promise<GoalKnowledgeNoteDto[]>;
-  /** Remember on a note citing a specification page: it becomes the user's SPEC memory of the workspace. */
-  rememberGoalNote: (workspaceId: string, goalId: string, noteId: string) => Promise<GoalKnowledgeNoteDto>;
-  listGoalGaps: (workspaceId: string, goalId: string) => Promise<GoalGapDto[]>;
-  /** Adds a reproduced gap to the goal as work; answers with the goal's gaps. */
-  addGoalGap: (workspaceId: string, goalId: string, candidateId: string) => Promise<GoalGapDto[]>;
-  /** The user's own assessment of a topic, which the agent leaves alone from then on. */
-  setGoalTopic: (workspaceId: string, goalId: string, topic: string, level: TopicLevel) => Promise<GoalDto>;
-  /** Opens a lesson of the goal's course, writing it the first time; opening it is what Start means on its card. */
-  /** Opens a lesson, writing it the first time, or again when asked. */
-  openGoalLesson: (workspaceId: string, goalId: string, lessonId: string, again?: boolean) => Promise<GoalLessonDto>;
-  readGoalLesson: (workspaceId: string, goalId: string, lessonId: string) => Promise<GoalLessonDto>;
-  /** Done is the user's decision: accepts the lesson's work item and tells the goal's agent. */
-  finishGoalLesson: (workspaceId: string, goalId: string, lessonId: string, operationId: string) => Promise<GoalDto>;
   refreshWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   fetchWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;
   refreshWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;

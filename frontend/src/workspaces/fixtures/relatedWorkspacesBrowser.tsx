@@ -137,7 +137,6 @@ async function navigationScenario() {
     getUserProfile: async () => { throw new Error('No profile in this fixture'); },
     fetchPrs: async () => ({ pullRequests: [], page: 0, pageSize: 50, totalPullRequests: 0, openPullRequests: 0, hasMore: false }),
     fetchRecentChanges: async () => [],
-    listGoals: async () => [],
     listWorkItems: async () => [],
     listWorkspaces: async () => [trino, iceberg],
     listRetiredWorkspaces: async () => [],

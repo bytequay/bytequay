@@ -24,7 +24,7 @@ import { RunLine, SpecCheckDrawer, SpecFinding, type SpecCheckActions, type Spec
 import type { ContextBuildViewDto, ContextSpecCheckDto } from '../repository-context/contracts';
 import { Icon, Spinner } from '../repository-context/icons';
 import { activeCheck, checkActive, checkProgress, modelLine, plural, shortDate, shortSha } from '../repository-context/model';
-import { CHECK_STATE, checkSummary, openFindings, type SpecCheckRequest } from '../repository-context/specChecks';
+import { CHECK_STATE, checkSummary, openFindings } from '../repository-context/specChecks';
 import type { AgentRuntimeStopImpactDto, ModelSettingsDto, WorkspaceDto } from '../types';
 import { useNow } from '../useNow';
 import { workItemRoute } from '../workitems/contracts';
@@ -47,19 +47,14 @@ const TABS = [
 ] as const;
 type MemoryTab = typeof TABS[number][0];
 /** What the workspace's one restricted run is called where a message names it. */
-const RUN_NAMES: Record<NonNullable<ContextBuildViewDto['build']>['kind'], string> = { CHECK: 'check', HARVEST: 'harvest', RESEARCH: 'research run' };
-type Drawer = { kind: 'spec'; directory: string | null; prefill?: SpecCheckRequest['prefill'] } | { kind: 'memory'; id: string } | { kind: 'replay'; id: string };
+const RUN_NAMES: Record<NonNullable<ContextBuildViewDto['build']>['kind'], string> = { CHECK: 'check', HARVEST: 'harvest' };
+type Drawer = { kind: 'spec'; directory: string | null } | { kind: 'memory'; id: string } | { kind: 'replay'; id: string };
 
 /**
  * The workspace's repository memory: what agents receive, what needs the user, the guideline files every turn reads, the spec
  * checks, and the review replays. Opening the page only reads local state; a check starts only from Check against spec.
  */
-export default function MemoryPage({ workspace, spec, onSpecShown }: {
-  workspace: WorkspaceDto;
-  /** A spec check another page asked to show, such as a Goal card's; shown once, then handed back. */
-  spec?: SpecCheckRequest;
-  onSpecShown?: () => void;
-}) {
+export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
   const workspaceId = workspace.id;
   const availability = useAgentAvailability(workspaceId);
   const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
@@ -77,12 +72,6 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
   const [tab, setTab] = useState<MemoryTab>('memories');
   const scroll = useRef<HTMLDivElement>(null);
   useEffect(() => { if (scroll.current !== null) scroll.current.scrollTop = 0; }, [tab]);
-  useEffect(() => {
-    if (spec === undefined) return;
-    setTab('specs');
-    setDrawer({ kind: 'spec', directory: spec.directory, prefill: spec.prefill });
-    onSpecShown?.();
-  }, [onSpecShown, spec]);
   const [impact, setImpact] = useState<AgentRuntimeStopImpactDto | null>(null);
   const [kind, setKind] = useState<MemoryKindFilter>('ALL');
   const [source, setSource] = useState<MemorySourceFilter>('ANY');
@@ -413,7 +402,7 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
       <div ref={panel} className="rcp-drawer" role="dialog" aria-modal="true" aria-label={drawer.kind === 'spec' ? 'Spec check' : drawer.kind === 'replay' ? 'Replay' : 'Memory'}
         tabIndex={-1}>
         {drawer.kind === 'spec'
-          ? <SpecCheckDrawer key={drawer.directory ?? 'new'} data={data} actions={actions} busy={busy} directory={drawer.directory} prefill={drawer.prefill}
+          ? <SpecCheckDrawer key={drawer.directory ?? 'new'} data={data} actions={actions} busy={busy} directory={drawer.directory}
             onClose={() => setDrawer(null)} />
           : replay !== null ? <ReplayDrawer replay={replay} busy={busy} now={now} onClose={() => setDrawer(null)} onMark={mark}
             onDelete={() => setDeleting(replay.id)} onOpenUrl={openUrl}

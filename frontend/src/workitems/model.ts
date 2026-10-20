@@ -76,7 +76,7 @@ export function progressWidths(summary: GoalSummary): { finished: string; workin
 
 export type WorkView = 'next' | 'working' | 'blocked' | 'done';
 
-/** What keeps open work from moving: the open work of its Goal it waits on, and its sources that report themselves blocked. */
+/** What keeps open work from moving: the open work it waits on, and its sources that report themselves blocked. */
 export function waitingOn(item: WorkItemDto, items: WorkItemDto[]): string[] {
   return [...items.filter((other) => item.blockedBy.includes(other.id) && isOpen(other)).map((other) => other.title),
     ...item.links.filter((link) => link.blocked).map((link) => `${link.label} is ${link.status}`)];
@@ -96,7 +96,7 @@ export function itemNeedsYou(item: WorkItemDto, needsYou: ReadonlySet<string>): 
   return item.links.some((link) => needsYou.has(refKey(link)));
 }
 
-/** Search results not already in the goal, at most a handful per query. */
+/** Search results not already in the work, at most a handful per query. */
 export function addable(candidates: GoalItemDto[], goal: { items: WorkItemDto[] }, limit = 6): GoalItemDto[] {
   const present = new Set(goal.items.flatMap((item) => item.links).map(refKey));
   return candidates.filter((candidate) => !present.has(refKey(candidate))).slice(0, limit);

@@ -108,7 +108,7 @@ import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
 import { pasteImage } from './clipboard';
 import { agentProviderUnavailableFrom, alreadySent, CHECKING_ACCEPTANCE, unconfirmedRequest } from './contracts';
-import { automationSteps, developmentQuestion, LOCAL_COMMITS_ONLY, stoppingEndsDevelopment } from './developmentAutomation';
+import { automationSteps, developmentQuestion, includesLevel, LOCAL_COMMITS_ONLY, mergeLabel, stoppingEndsDevelopment } from './developmentAutomation';
 import { revealPassage, type SelectedPassage } from './discussions/DiscussableAnswer';
 import { DiscussionsPanel, discussionTurnSummaries } from './discussions/DiscussionsPanel';
 import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
@@ -913,6 +913,7 @@ export function AgentTaskBody({
   ciSubmissionBlocked = false,
   ciStopping = false,
   onStopCi = () => {},
+  onCancelAutoMerge = () => {},
   onRefreshPullRequests,
   pullRequestDetail = NO_PULL_REQUEST_DETAIL,
   pullRequestChanges = NO_PULL_REQUEST_CHANGES,
@@ -1042,6 +1043,7 @@ export function AgentTaskBody({
   /** CI Autofix watches the pull request beside the task; this stops its current run. */
   ciStopping?: boolean;
   onStopCi?: () => void;
+  onCancelAutoMerge?: () => void;
   onRefreshPullRequests?: () => void;
   /** What the wrapper has read for the panel's pull request; this body reads nothing itself. */
   pullRequestDetail?: TaskPullRequestDetail;
@@ -1153,13 +1155,17 @@ export function AgentTaskBody({
     : state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY' ? 'Refining summary…' : null;
   const ciWaiting = pendingApprovals?.some(approval => approval.taskId !== state.task?.id) ?? false;
   const pillTone = ciWaiting || currentCi?.status === 'PAUSED' || currentCi?.activity === 'FIXING' ? 'amber' : 'blue';
+  const autoMerge = state.task?.autoMerge;
   const automationPill = status === 'idle' && automationActive
     ? <AutomationPill tone={pillTone} label={currentCi != null ? ciWaiting ? 'Needs approval' : ciActivity(currentCi) : 'Automation active'}
       stopLabel="Stop automation" stopTitle="Stop automation · your draft is kept" stopDisabled={state.sending || ciSubmissionBlocked} onStop={onStopServer} />
     : !terminal && !automationActive && currentCi != null && status !== 'recovery'
       ? <AutomationPill tone={pillTone} label={ciWaiting ? 'Needs approval' : ciActivity(currentCi)}
         stopLabel="Stop CI Autofix" stopTitle={ciStopping ? 'Stopping…' : 'Stop CI Autofix'} stopDisabled={ciStopping} onStop={onStopCi} />
-      : null;
+      : !terminal && (autoMerge?.state === 'READY' || autoMerge?.state === 'MERGING')
+        ? <AutomationPill tone="blue" label={mergeLabel(autoMerge, now)} stopLabel="Stop auto-merge"
+          stopTitle="Stop auto-merge · the pull request stays open" stopDisabled={autoMerge.state === 'MERGING'} onStop={onCancelAutoMerge} />
+        : null;
   const automationControl = automation === undefined ? undefined
     : automation === null ? <span className="agt-meta">Loading automation settings…</span>
     : <AutomationControl value={automation} status={automationSteps({
@@ -1170,6 +1176,8 @@ export function AgentTaskBody({
       pullRequest: taskPr,
       ci: state.task?.developmentCi ?? null,
       reviewFix: state.task?.reviewFix ?? null,
+      autoMerge: autoMerge ?? null,
+      now,
     })} />;
   const statusLabel =question !== null ? 'Waiting for your response'
     : status === 'running' && waiting ? 'Needs approval'
@@ -1625,8 +1633,8 @@ export default function AgentTaskScreen({
   const previewWork = useRef<Promise<void>>(Promise.resolve());
   previewsRef.current = previews;
   const running = runtimeStatus(state) === 'running';
-  // The clock only ticks while a turn runs; a finished turn's elapsed time is fixed by its events.
-  const now = useNow(running);
+  // The clock only ticks while a turn runs or a merge counts down; a finished turn's elapsed time is fixed by its events.
+  const now = useNow(running || state.task?.autoMerge?.state === 'READY');
   // Resolved when used, not when rendered: the product route reaches Electron's bridge, and a
   // static render has no window to reach.
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
@@ -1921,6 +1929,21 @@ export default function AgentTaskScreen({
       if (mountedRef.current) setCiStopping(false);
     }
   }, [live, taskId, workspaceId]);
+  const cancelAutoMerge = useCallback(() => {
+    live().cancelAgentAutoMerge(taskId, workspaceId)
+      .then(task => { if (mountedRef.current) dispatch({ type: 'task/loaded', task }); })
+      .catch(failure => { if (mountedRef.current) dispatch({ type: 'notice/changed', notice: `Could not stop auto-merge. ${failureText(failure)}` }); });
+  }, [live, taskId, workspaceId]);
+  // Review fixes and merges move in the background, so a task that uses them reads its status again every half minute.
+  const pollDelivery = !pollContinuation && state.task?.state === 'OPEN' && automationSelection !== null
+    && includesLevel(automationSelection.level, 'REVIEW_FIX');
+  useEffect(() => {
+    if (!pollDelivery) return;
+    const timer = setInterval(() => {
+      live().getAgentTask(taskId, workspaceId).then(task => { if (mountedRef.current) dispatch({ type: 'task/loaded', task }); }).catch(() => {});
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [live, taskId, workspaceId, pollDelivery]);
   useEffect(() => {
     if (!taskLoaded) return;
     let active = true;
@@ -2746,6 +2769,7 @@ export default function AgentTaskScreen({
       onStopServer={() => { void stopServer(); }}
       ciStopping={ciStopping}
       onStopCi={() => { void stopCi(); }}
+      onCancelAutoMerge={cancelAutoMerge}
       onMarkFailed={() => { void markFailed(); }}
       onRefreshProvider={() => { void refreshProvider(); }}
       onSignInProvider={taskKeyLane || providerStatus === null ? undefined

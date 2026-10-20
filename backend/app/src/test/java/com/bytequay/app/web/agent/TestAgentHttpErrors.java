@@ -60,6 +60,7 @@ import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.merge.AutoMergeService;
 import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -185,7 +186,8 @@ class TestAgentHttpErrors
                 new AgentStreamRegistry(),
                 mock(IssueDevelopmentService.class),
                 mock(TaskPullRequestOwnership.class),
-                mock(ReviewFixService.class));
+                mock(ReviewFixService.class),
+                mock(AutoMergeService.class));
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

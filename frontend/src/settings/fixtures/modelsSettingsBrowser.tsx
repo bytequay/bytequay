@@ -190,7 +190,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     let fail: (error: Error) => void = () => { throw new Error('No pending refresh'); };
     const bridge: Partial<Bridge> = {
       getAppVersion: async () => ({ version: '0.4.0' }),
-      getAppPreferences: async () => ({ theme: 'SYSTEM' as const, taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 }),
+      getAppPreferences: async () => ({ theme: 'SYSTEM' as const, taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30, autoMergeDelayMinutes: 60 }),
       getModelSettings: async id => scoped(id),
       getWorkspaceSettings: async id => workspaceSettings.get(id) ?? { agents: saved.agents, remotes: [], commitsTarget: null },
       setWorkspaceAgentModel: async (id, type, configId, model, effort) => {

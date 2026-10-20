@@ -70,6 +70,7 @@ export type AgentBridgePort = Pick<Bridge,
   | 'completeAgentTask'
   | 'cleanupAgentTaskWorktree'
   | 'markAgentTaskFailed'
+  | 'cancelAgentAutoMerge'
   | 'getAgentRuntimeStopImpact'
   | 'stopAgentRuntime'
   | 'pickAgentDraftAttachments'

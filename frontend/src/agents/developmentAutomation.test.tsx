@@ -15,7 +15,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AutomationControl, AutomationSlider, CiProviderSelect } from './AutomationControl';
-import { automationSteps, includesLevel, LOCAL_COMMITS_ONLY, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
+import { automationSteps, includesLevel, LOCAL_COMMITS_ONLY, developmentQuestion, mergeLabel, stoppingEndsDevelopment } from './developmentAutomation';
 import { parseAgentTask, parseAgentTurn, parseDevelopmentAutomation, parseDevelopmentResult } from './contracts';
 import { parseAgentEventSequence } from './events';
 import { canComplete, canQueue, canSend, canSteer, createTaskCreationTracker, initialAgentTaskState, runtimeStatus } from './model';
@@ -23,7 +23,7 @@ import contracts from './fixtures/agent-contracts-v1.json';
 import events from './fixtures/agent-events-v2.json';
 import WorkflowPage from '../settings/WorkflowPage';
 import { entryFor, matchesSearch, settingsLocationFromRoute, settingsRoute } from '../settings/routes';
-import type { AgentQueuedInputDto, AgentTaskDto, AgentTaskDefaultsDto, AgentTurnDto, DevelopmentAutomationDto, ModelProviderDto } from '../types';
+import type { AgentQueuedInputDto, AgentTaskDto, AgentTaskDefaultsDto, AgentTurnDto, AutoMergeSummaryDto, DevelopmentAutomationDto, ModelProviderDto } from '../types';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { renderTaskBody } from './fixtures/taskBody';
 import { CI_PROJECTION } from './fixtures/ciAutofix';
@@ -44,7 +44,8 @@ it('treats the scale as cumulative', () => {
 });
 
 it('marks each step done, running, waiting or needing you from what the task reports', () => {
-  const base: Parameters<typeof automationSteps>[0] = { level: 'MERGE', generated: null, delivered: false, failure: null, pullRequest: null, ci: null, reviewFix: null };
+  const base: Parameters<typeof automationSteps>[0] = {
+    level: 'MERGE', generated: null, delivered: false, failure: null, pullRequest: null, ci: null, reviewFix: null, autoMerge: null, now: 0 };
   const states = (input: Parameters<typeof automationSteps>[0]) => Object.fromEntries(Object.entries(automationSteps(input)).map(([step, status]) => [step, status.state]));
   expect(states(base)).toEqual({ COMMIT: 'pending', DRAFT_PR: 'pending', CI_FIX: 'pending', REVIEW_FIX: 'pending', MERGE: 'pending' });
   expect(states({ ...base, generated: 'AUTO_COMMIT' })).toMatchObject({ COMMIT: 'running', DRAFT_PR: 'pending' });
@@ -64,8 +65,34 @@ it('marks each step done, running, waiting or needing you from what the task rep
   expect(automationSteps({ ...base, reviewFix: { ...review, waiting: 2 } }).REVIEW_FIX).toEqual({ state: 'running', note: 'fixing 2 comments' });
   expect(automationSteps({ ...base, reviewFix: { ...review, fixed: 2, declined: 1 } }).REVIEW_FIX).toEqual({ state: 'done', note: '2 fixed · 1 declined' });
   expect(automationSteps({ ...base, reviewFix: { ...review, waiting: 1, needsYou: 1 } }).REVIEW_FIX).toEqual({ state: 'attention', note: '1 comment needs you' });
+  const hour = 3_600_000;
+  const ready: AutoMergeSummaryDto = { state: 'READY', mergeAt: new Date(hour + 5 * 60_000).toISOString(), message: null };
+  expect(automationSteps({ ...base, autoMerge: ready, now: hour }).MERGE).toEqual({ state: 'running', note: 'merging in 5m' });
+  expect(mergeLabel({ ...ready, mergeAt: new Date(3 * hour).toISOString() }, hour)).toBe('Merging in 2h');
+  expect(mergeLabel({ ...ready, mergeAt: new Date(hour + 65 * 60_000).toISOString() }, hour)).toBe('Merging in 1h 5m');
+  expect(mergeLabel(ready, 2 * hour)).toBe('Merging');
+  expect(automationSteps({ ...base, autoMerge: { state: 'FAILED', mergeAt: null, message: 'Head branch was modified' } }).MERGE)
+    .toEqual({ state: 'attention', note: 'Head branch was modified' });
+  expect(automationSteps({ ...base, autoMerge: { state: 'MERGED', mergeAt: null, message: 'Merged' } }).MERGE?.state).toBe('done');
+  expect(automationSteps({ ...base, autoMerge: { state: 'WAITING', mergeAt: null, message: 'Waiting for open review threads' } }).MERGE)
+    .toEqual({ state: 'pending', note: 'Waiting for open review threads' });
+  expect(parseAgentTask({ ...contracts.task, autoMerge: ready }).autoMerge).toEqual(ready);
+  expect(() => parseAgentTask({ ...contracts.task, autoMerge: { ...ready, state: 'SOON' } })).toThrow();
   expect(parseAgentTask({ ...contracts.task, reviewFix: { ...review, fixed: 1 } }).reviewFix).toEqual({ ...review, fixed: 1 });
   expect(() => parseAgentTask({ ...contracts.task, reviewFix: { ...review, fixed: '1' } })).toThrow();
+});
+
+it('counts down a waiting merge in the status pill, whose square stops it', () => {
+  const now = Date.parse('2026-10-21T10:00:00Z');
+  const waiting: AgentTaskDto = { ...task, developmentContinuationUnfinished: false, defaults: { ...task.defaults, developmentAutomation: { level: 'MERGE', ciLaneId: null } },
+    autoMerge: { state: 'READY', mergeAt: '2026-10-21T10:42:00Z', message: null } };
+  const html = renderTaskBody({ ...state, task: waiting }, { now, automation: { level: 'MERGE', ciLaneId: null } });
+  expect(html).toContain('Merging in 42m</span>');
+  expect(html).toMatch(/<button[^>]*class="agt-auto-pill__stop"[^>]*aria-label="Stop auto-merge"[^>]*title="Stop auto-merge · the pull request stays open"/);
+  expect(html).toContain('title="Auto-merge · merging in 42m"');
+  const merging = renderTaskBody({ ...state, task: { ...waiting, autoMerge: { state: 'MERGING', mergeAt: null, message: null } } },
+    { now, automation: { level: 'MERGE', ciLaneId: null } });
+  expect(merging).toMatch(/<button[^>]*aria-label="Stop auto-merge"[^>]*disabled/);
 });
 
 it('shows a started task’s steps as status tiles with their meaning on hover', () => {
@@ -188,15 +215,21 @@ it('explains stop using the matching active turn policy instead of mutable task 
 });
 
 it('shows the chosen step with its slider and keeps CI repair for CI steps', () => {
-  const page = renderToStaticMarkup(<WorkflowPage value={defaults} providers={[]} error={null} onChange={() => {}} />);
+  const preferences = { taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 as const, autoMergeDelayMinutes: 120, theme: 'SYSTEM' as const };
+  const page = renderToStaticMarkup(<WorkflowPage value={defaults} providers={[]} preferences={preferences} error={null} onChange={() => {}} onPreferences={() => {}} />);
   expect(page).toContain('CI fix');
   expect(page).toContain('mark the draft ready');
   expect(page).toContain('aria-valuetext="CI fix"');
   expect(page).toContain('Same agent as development');
   expect(page).toContain('Each step includes the ones before it.');
-  const local = renderToStaticMarkup(<WorkflowPage value={LOCAL_COMMITS_ONLY} providers={[]} error={null} onChange={() => {}} />);
+  expect(page).not.toContain('Auto-merge delay');
+  const local = renderToStaticMarkup(<WorkflowPage value={LOCAL_COMMITS_ONLY} providers={[]} preferences={preferences} error={null} onChange={() => {}} onPreferences={() => {}} />);
   expect(local).toContain('Nothing leaves your Mac.');
   expect(local).not.toContain('CI repair agent');
+  const merging = renderToStaticMarkup(<WorkflowPage value={{ level: 'MERGE', ciLaneId: null }} providers={[]} preferences={preferences} error={null}
+    onChange={() => {}} onPreferences={() => {}} />);
+  expect(merging).toContain('Auto-merge delay');
+  expect(merging).toContain('2 hours');
 });
 
 it('draws one composer icon per step that is on, and locks a started task', () => {

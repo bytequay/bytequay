@@ -168,6 +168,7 @@ public class AppSettingsService
             if (saved instanceof ObjectNode object) {
                 object.remove("refreshIntervalMinutes");
                 object.putIfAbsent("prWarmCount", mapper.getNodeFactory().numberNode(30));
+                object.putIfAbsent("autoMergeDelayMinutes", mapper.getNodeFactory().numberNode(60));
             }
             return mapper.treeToValue(saved, AppPreferences.class);
         }

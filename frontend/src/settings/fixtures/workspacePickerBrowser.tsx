@@ -45,7 +45,7 @@ function stubBridge(reads: string[]) {
     getAppVersion: async () => ({ version: '0.4.0' }),
     listWorkspaces: async () => WORKSPACES,
     getWorkspaceRelationships: async (): Promise<[]> => [],
-    getAppPreferences: async () => ({ taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 as const, theme: 'SYSTEM' }),
+    getAppPreferences: async () => ({ taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 as const, autoMergeDelayMinutes: 60, theme: 'SYSTEM' }),
     getGitHubAccount: async () => ({ configured: false }),
     getWorkspaceSettings: async (id: string): Promise<WorkspaceSettingsDto> => {
       reads.push(id);

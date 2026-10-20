@@ -160,7 +160,7 @@ class TestSettingsController
             throws Exception
     {
         when(settings.preferences()).thenReturn(AppPreferences.DEFAULT);
-        AppPreferences saved = new AppPreferences(30, 21, AppTheme.LIGHT, 30);
+        AppPreferences saved = new AppPreferences(30, 21, AppTheme.LIGHT, 30, 10);
         when(settings.savePreferences(saved)).thenReturn(saved);
         MockMvc mvc = mvc();
 
@@ -170,9 +170,10 @@ class TestSettingsController
                 .andExpect(jsonPath("$.recentRetentionDays").value(14))
                 .andExpect(jsonPath("$.refreshIntervalMinutes").doesNotExist())
                 .andExpect(jsonPath("$.theme").value("SYSTEM"))
-                .andExpect(jsonPath("$.prWarmCount").value(30));
+                .andExpect(jsonPath("$.prWarmCount").value(30))
+                .andExpect(jsonPath("$.autoMergeDelayMinutes").value(60));
         mvc.perform(put("/api/settings/app").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"taskRetentionDays\":30,\"recentRetentionDays\":21,\"theme\":\"LIGHT\",\"prWarmCount\":30}"))
+                        .content("{\"taskRetentionDays\":30,\"recentRetentionDays\":21,\"theme\":\"LIGHT\",\"prWarmCount\":30,\"autoMergeDelayMinutes\":10}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.taskRetentionDays").value(30))
                 .andExpect(jsonPath("$.theme").value("LIGHT"));

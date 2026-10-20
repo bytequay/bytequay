@@ -341,6 +341,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
             />
           )}
           {section === 'workflow' && <WorkflowPage value={automation} providers={modelsScope === modelWorkspaceId ? models?.providers ?? [] : []} error={error}
+            preferences={preferences} onPreferences={savePreferences}
             onChange={next => {
               setAutomation(next);
               setError(null);

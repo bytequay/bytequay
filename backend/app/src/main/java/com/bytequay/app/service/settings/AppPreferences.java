@@ -13,21 +13,27 @@
  */
 package com.bytequay.app.service.settings;
 
+import com.google.common.collect.ImmutableSet;
+
+import java.util.Set;
+
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
  * The app-wide preferences the settings window reads and writes as one value:
  * how long finished task runtime and the local Recent record are kept, how
- * many recent PR details are warmed, and which appearance the window follows.
+ * many recent PR details are warmed, which appearance the window follows, and
+ * how long Auto-merge waits once a pull request can merge.
  *
  * <p>The bounds are what the pickers offer. They exist so a hand-edited
  * settings row cannot stop the retention jobs or hammer GitHub, not to express
  * a product rule.
  */
-public record AppPreferences(int taskRetentionDays, int recentRetentionDays, AppTheme theme, int prWarmCount)
+public record AppPreferences(int taskRetentionDays, int recentRetentionDays, AppTheme theme, int prWarmCount, int autoMergeDelayMinutes)
 {
-    public static final AppPreferences DEFAULT = new AppPreferences(7, 14, AppTheme.SYSTEM, 30);
+    public static final Set<Integer> AUTO_MERGE_DELAYS = ImmutableSet.of(0, 10, 30, 60, 120, 1440);
+    public static final AppPreferences DEFAULT = new AppPreferences(7, 14, AppTheme.SYSTEM, 30, 60);
 
     public AppPreferences
     {
@@ -35,5 +41,6 @@ public record AppPreferences(int taskRetentionDays, int recentRetentionDays, App
         checkArgument(recentRetentionDays >= 1 && recentRetentionDays <= 90, "recentRetentionDays is out of range");
         requireNonNull(theme, "theme is null");
         checkArgument(prWarmCount == 10 || prWarmCount == 30, "prWarmCount must be 10 or 30");
+        checkArgument(AUTO_MERGE_DELAYS.contains(autoMergeDelayMinutes), "autoMergeDelayMinutes must be one of %s", AUTO_MERGE_DELAYS);
     }
 }

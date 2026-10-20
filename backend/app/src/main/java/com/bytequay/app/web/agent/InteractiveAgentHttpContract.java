@@ -33,6 +33,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent.PlanItem;
 import com.bytequay.app.agent.IssueSourceInput;
 import com.bytequay.app.agent.JiraSourceInput;
 import com.bytequay.app.discussion.ReviewFixService;
+import com.bytequay.app.merge.AutoMergeService;
 import com.bytequay.app.web.DevelopmentAutomationDto;
 import com.bytequay.app.web.ci.CiAutofixHttpModels;
 import com.bytequay.core.domain.GitHubIssueSource;
@@ -69,6 +70,7 @@ final class InteractiveAgentHttpContract
             Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
             Optional<TaskPullRequestResponse> pullRequest,
             Optional<ReviewFixService.ReviewFixSummary> reviewFix,
+            Optional<AutoMergeService.AutoMergeSummary> autoMerge,
             Optional<IssueSourceResponse> issueSource,
             Optional<JiraSourceResponse> jiraSource)
     {
@@ -101,6 +103,7 @@ final class InteractiveAgentHttpContract
                 developmentCi,
                 pullRequest,
                 reviewFix,
+                autoMerge,
                 issueSource,
                 jiraSource);
     }
@@ -350,6 +353,7 @@ final class InteractiveAgentHttpContract
             Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
             Optional<TaskPullRequestResponse> pullRequest,
             Optional<ReviewFixService.ReviewFixSummary> reviewFix,
+            Optional<AutoMergeService.AutoMergeSummary> autoMerge,
             Optional<IssueSourceResponse> issueSource,
             Optional<JiraSourceResponse> jiraSource) {}
 

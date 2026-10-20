@@ -611,6 +611,14 @@ export type ReviewFixSummaryDto = {
   needsYou: number;
 };
 
+export type AutoMergeSummaryDto = {
+  state: 'WAITING' | 'READY' | 'MERGING' | 'MERGED' | 'QUEUED' | 'FAILED' | 'CANCELLED';
+  /** When a ready pull request merges. */
+  mergeAt: string | null;
+  /** Why it waits, or what the merge did. */
+  message: string | null;
+};
+
 /** How far a task's delivery goes; each level includes every level before it. */
 export type AutomationLevel = 'COMMIT' | 'DRAFT_PR' | 'CI_FIX' | 'REVIEW_FIX' | 'MERGE';
 
@@ -685,6 +693,8 @@ export type AgentTaskDto = {
   pullRequest?: AgentTaskPullRequestDto | null;
   /** How the review comments Auto-Review fix handed to the agent stand; absent before the first one. */
   reviewFix?: ReviewFixSummaryDto | null;
+  /** Where Auto-merge stands; absent before the pull request is first checked. */
+  autoMerge?: AutoMergeSummaryDto | null;
   id: string;
   workspaceId: string;
   generatedBranch: string | null;
@@ -1313,6 +1323,8 @@ export type AppPreferencesDto = {
   taskRetentionDays: number;
   recentRetentionDays: number;
   prWarmCount: 10 | 30;
+  /** How long Auto-merge waits once a pull request can merge. */
+  autoMergeDelayMinutes: number;
   theme: AppThemeDto;
 };
 
@@ -2086,6 +2098,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   cleanupAgentTaskWorktree: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
   /** Fails a task whose provider could not be shown quiet; its checkout is kept unless clean. */
   markAgentTaskFailed: (taskId: string, workspaceId: string, reason: string) => Promise<AgentTaskDto>;
+  /** Stops the task's merge while it waits for its delay; it stays stopped. */
+  cancelAgentAutoMerge: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
   getAgentRuntimeStopImpact: (taskId: string, workspaceId: string) => Promise<AgentRuntimeStopImpactDto>;
   /** Stops only this task's provider runtime; the generation is the one the user confirmed. */
   stopAgentRuntime: (taskId: string, workspaceId: string, generation: string) => Promise<AgentTaskDto>;

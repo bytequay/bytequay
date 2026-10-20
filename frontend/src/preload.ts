@@ -465,6 +465,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:attachments:remove', taskId, workspaceId, attachmentId),
   markAgentTaskFailed: (taskId, workspaceId, reason) =>
     ipcRenderer.invoke('agent:task:mark-failed', taskId, workspaceId, reason),
+  cancelAgentAutoMerge: (taskId, workspaceId) =>
+    ipcRenderer.invoke('agent:task:auto-merge:cancel', taskId, workspaceId),
   getAgentRuntimeStopImpact: (taskId, workspaceId) =>
     ipcRenderer.invoke('agent:task:stop-impact', taskId, workspaceId),
   stopAgentRuntime: (taskId, workspaceId, generation) =>

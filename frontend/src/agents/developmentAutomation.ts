@@ -14,7 +14,7 @@
 import { ciActivity } from './ciAutofix';
 import { AUTOMATION_LEVELS } from './contracts';
 import type { AgentTaskState } from './model';
-import type { AgentDevelopmentCiDto, AutomationLevel, DevelopmentAutomationDto, ReviewFixSummaryDto } from '../types';
+import type { AgentDevelopmentCiDto, AutoMergeSummaryDto, AutomationLevel, DevelopmentAutomationDto, ReviewFixSummaryDto } from '../types';
 
 /** Keep development commits while leaving publication and follow-up off. */
 export const LOCAL_COMMITS_ONLY: DevelopmentAutomationDto = { level: 'COMMIT', ciLaneId: null };
@@ -49,7 +49,7 @@ export type StepStatus = { state: StepState; note: string };
  * Each step's status from what the task already reports. An earlier step counts as done once a later
  * one has started, so the tiles never show a gap; a stopped run marks its first unfinished step.
  */
-export function automationSteps({ level, generated, delivered, failure, pullRequest, ci, reviewFix }: {
+export function automationSteps({ level, generated, delivered, failure, pullRequest, ci, reviewFix, autoMerge, now }: {
   level: AutomationLevel;
   /** The generated delivery turn running now, if any. */
   generated: 'AUTO_COMMIT' | 'CREATE_DRAFT_PR' | 'REFINE_SUMMARY' | null;
@@ -59,6 +59,8 @@ export function automationSteps({ level, generated, delivered, failure, pullRequ
   pullRequest: { draft: boolean } | null;
   ci: AgentDevelopmentCiDto | null;
   reviewFix: ReviewFixSummaryDto | null;
+  autoMerge: AutoMergeSummaryDto | null;
+  now: number;
 }): Partial<Record<AutomationLevel, StepStatus>> {
   const steps: Partial<Record<AutomationLevel, StepStatus>> = {};
   const set = (step: AutomationLevel, state: StepState, note: string): void => {
@@ -78,7 +80,16 @@ export function automationSteps({ level, generated, delivered, failure, pullRequ
   else if (reviewFix.needsYou > 0) set('REVIEW_FIX', 'attention', `${reviewFix.needsYou} ${reviewFix.needsYou === 1 ? 'comment needs' : 'comments need'} you`);
   else if (reviewFix.waiting > 0) set('REVIEW_FIX', 'running', `fixing ${reviewFix.waiting} ${reviewFix.waiting === 1 ? 'comment' : 'comments'}`);
   else set('REVIEW_FIX', 'done', `${reviewFix.fixed} fixed · ${reviewFix.declined} declined`);
-  set('MERGE', 'pending', 'not started');
+  switch (autoMerge?.state) {
+    case undefined: set('MERGE', 'pending', 'waiting for the earlier steps'); break;
+    case 'WAITING': set('MERGE', 'pending', autoMerge.message ?? 'waiting'); break;
+    case 'READY': set('MERGE', 'running', mergeLabel(autoMerge, now).toLowerCase()); break;
+    case 'MERGING': set('MERGE', 'running', 'merging'); break;
+    case 'QUEUED': set('MERGE', 'running', 'in the merge queue'); break;
+    case 'MERGED': set('MERGE', 'done', 'merged'); break;
+    case 'FAILED': set('MERGE', 'attention', autoMerge.message ?? 'the merge failed'); break;
+    case 'CANCELLED': set('MERGE', 'pending', 'stopped'); break;
+  }
   if (failure !== null) {
     // The failure names the delivery action that stopped; any other stop lands on the first unfinished step.
     const stopped = STOPPED_AT.find(([action]) => failure.startsWith(`Automation stopped. ${action}:`))?.[1]
@@ -89,6 +100,13 @@ export function automationSteps({ level, generated, delivered, failure, pullRequ
     }
   }
   return steps;
+}
+
+/** "Merging in 42m" for a pull request waiting out its delay; "Merging" once the time has come. */
+export function mergeLabel(autoMerge: AutoMergeSummaryDto, now: number): string {
+  const minutes = autoMerge.mergeAt === null ? 0 : Math.ceil((Date.parse(autoMerge.mergeAt) - now) / 60_000);
+  if (minutes <= 0) return 'Merging';
+  return minutes < 60 ? `Merging in ${minutes}m` : `Merging in ${Math.floor(minutes / 60)}h${minutes % 60 === 0 ? '' : ` ${minutes % 60}m`}`;
 }
 
 const STOPPED_AT: readonly [string, AutomationLevel][] = [

@@ -72,7 +72,7 @@ export async function mountPreview(values: JiraConnection[] = [connected, { ...c
   nextRefresh = async value => ({ ...connected, id: value.id });
   nextToken = async (request, id) => ({ ...tokenConnected, id: id ?? tokenConnected.id, tokenEmail: request.email });
   const saveToken = async (request: JiraTokenRequest, id?: string) => { tokenRequests.push({ request, id }); const value = await nextToken(request, id); accounts = [...accounts.filter(account => account.id !== value.id), value]; return value; };
-  let preferences: AppPreferencesDto = { taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30, theme: 'SYSTEM' };
+  let preferences: AppPreferencesDto = { taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30, autoMergeDelayMinutes: 60, theme: 'SYSTEM' };
   const fake = {
     getAppVersion: async () => ({ version: '0.4.0' }),
     getAppPreferences: async () => ({ ...preferences }),

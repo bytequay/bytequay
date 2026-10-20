@@ -46,7 +46,7 @@ export function start(route: string, opened: string[] = [], openLab: () => Promi
     getUserProfile: async () => { throw new Error('No profile in this fixture'); },
     fetchPrs: async () => ({ pullRequests: [], page: 0, pageSize: 50, totalPullRequests: 0, openPullRequests: 0, hasMore: false }),
     getAppVersion: async () => ({ version: 'test' }),
-    getAppPreferences: async () => ({ taskRetentionDays: 14, recentRetentionDays: 14, prWarmCount: 10, theme: 'SYSTEM' }),
+    getAppPreferences: async () => ({ taskRetentionDays: 14, recentRetentionDays: 14, prWarmCount: 10, autoMergeDelayMinutes: 60, theme: 'SYSTEM' }),
   } satisfies Partial<Bridge>;
   window.bridge = bridge as unknown as Bridge;
   window.location.hash = route;

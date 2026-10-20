@@ -43,6 +43,7 @@ import type {
   AgentTaskSummaryDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
+  AutoMergeSummaryDto,
   AutomationLevel,
   CiAutofixRunDto,
   DevelopmentAutomationDto,
@@ -271,6 +272,7 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     developmentCi: source.developmentCi === null || source.developmentCi === undefined ? null : parseAgentDevelopmentCi(source.developmentCi, `${path}.developmentCi`),
     pullRequest: source.pullRequest === null || source.pullRequest === undefined ? null : taskPullRequest(source.pullRequest, `${path}.pullRequest`),
     reviewFix: source.reviewFix === null || source.reviewFix === undefined ? null : reviewFixSummary(source.reviewFix, `${path}.reviewFix`),
+    autoMerge: source.autoMerge === null || source.autoMerge === undefined ? null : autoMergeSummary(source.autoMerge, `${path}.autoMerge`),
     title: text(source.title, `${path}.title`),
     titleSource: text(source.titleSource, `${path}.titleSource`),
     laneId: text(source.laneId, `${path}.laneId`),
@@ -311,6 +313,15 @@ function reviewFixSummary(value: unknown, path: string): ReviewFixSummaryDto {
     fixed: count(source.fixed, `${path}.fixed`),
     declined: count(source.declined, `${path}.declined`),
     needsYou: count(source.needsYou, `${path}.needsYou`),
+  };
+}
+
+function autoMergeSummary(value: unknown, path: string): AutoMergeSummaryDto {
+  const source = object(value, path);
+  return {
+    state: enumText(source.state, ['WAITING', 'READY', 'MERGING', 'MERGED', 'QUEUED', 'FAILED', 'CANCELLED'] as const, `${path}.state`),
+    mergeAt: optionalText(source.mergeAt, `${path}.mergeAt`),
+    message: optionalText(source.message, `${path}.message`),
   };
 }
 

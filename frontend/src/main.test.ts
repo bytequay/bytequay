@@ -763,7 +763,7 @@ it('applies only saved appearance and keeps the current theme when saving fails'
   await startMain();
   const save = desktop.handlers.get('settings:app:save');
   for (const [theme, source] of [['DARK', 'dark'], ['LIGHT', 'light'], ['SYSTEM', 'system']]) {
-    const preferences = { theme, taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 };
+    const preferences = { theme, taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30, autoMergeDelayMinutes: 60 };
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(preferences))));
     await expect(save?.({}, preferences)).resolves.toEqual(preferences);
     expect(nativeTheme.themeSource).toBe(source);

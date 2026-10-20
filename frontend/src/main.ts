@@ -911,6 +911,9 @@ function registerIpc(): void {
     jsonInit('POST', { reason }))
       .then((task) => parseAgentTask(task));
   });
+  ipcMain.handle('agent:task:auto-merge:cancel', (_event, taskId: string, workspaceId: string) =>
+    backendJson(taskUrl(taskId, '/auto-merge/cancel', { workspaceId }), { method: 'POST' })
+      .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:stop-impact', (_event, taskId: string, workspaceId: string) =>
     backendJson(taskUrl(taskId, '/runtime/stop-impact', { workspaceId }))
       .then((impact) => parseAgentRuntimeStopImpact(impact)));

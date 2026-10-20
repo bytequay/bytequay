@@ -60,6 +60,7 @@ import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.discussion.ReviewFixService;
+import com.bytequay.app.merge.AutoMergeService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -144,6 +145,7 @@ public class AgentController
     private final IssueDevelopmentService issueDevelopment;
     private final TaskPullRequestOwnership ownership;
     private final ReviewFixService reviewFixes;
+    private final AutoMergeService autoMerges;
 
     public AgentController(
             AgentTaskService taskService,
@@ -169,7 +171,8 @@ public class AgentController
             AgentStreamRegistry streams,
             IssueDevelopmentService issueDevelopment,
             TaskPullRequestOwnership ownership,
-            ReviewFixService reviewFixes)
+            ReviewFixService reviewFixes,
+            AutoMergeService autoMerges)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.contextBuilds = requireNonNull(contextBuilds, "contextBuilds is null");
@@ -195,6 +198,7 @@ public class AgentController
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
         this.reviewFixes = requireNonNull(reviewFixes, "reviewFixes is null");
+        this.autoMerges = requireNonNull(autoMerges, "autoMerges is null");
     }
 
     /**
@@ -210,9 +214,10 @@ public class AgentController
         Optional<InteractiveAgentHttpContract.TaskPullRequestResponse> pullRequest = ownership.linkedPullRequest(task)
                 .map(pr -> new InteractiveAgentHttpContract.TaskPullRequestResponse(pr.number(), pr.title(), pr.state(), pr.draft()));
         String taskId = task.id().toString();
-        return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest, reviewFixes.summary(taskId), issueDevelopment.source(taskId).map(source ->
-                new InteractiveAgentHttpContract.IssueSourceResponse(source.issue(), source.initialTurnId(), source.instructions())),
-                issueDevelopment.jiraSource(task.id().toString()).map(source ->
+        return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest, reviewFixes.summary(taskId), autoMerges.summary(taskId),
+                issueDevelopment.source(taskId).map(source ->
+                        new InteractiveAgentHttpContract.IssueSourceResponse(source.issue(), source.initialTurnId(), source.instructions())),
+                issueDevelopment.jiraSource(taskId).map(source ->
                         new InteractiveAgentHttpContract.JiraSourceResponse(source.issue(), source.initialTurnId(), source.instructions())));
     }
 
@@ -370,6 +375,15 @@ public class AgentController
                 .collect(toImmutableList());
         return worktrees.changes(workspaceId, checkouts).entrySet().stream()
                 .collect(toImmutableMap(entry -> entry.getKey().toString(), Map.Entry::getValue));
+    }
+
+    /** Stops the task's merge while it waits; a merge that started or ended stays as it is. */
+    @PostMapping("/tasks/{taskId}/auto-merge/cancel")
+    public InteractiveAgentHttpContract.TaskResponse cancelAutoMerge(@PathVariable String taskId, @RequestParam String workspaceId)
+    {
+        AgentTask task = taskService.getInteractive(workspaceId, TaskId.valueOf(taskId));
+        autoMerges.cancel(task.id().toString());
+        return taskResponse(task);
     }
 
     @PostMapping("/tasks/{taskId}/pull-requests/sync")

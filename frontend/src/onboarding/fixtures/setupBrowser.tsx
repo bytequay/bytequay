@@ -35,7 +35,7 @@ const CATALOG: ModelSettingsDto = {
 
 function harness(step: SetupStep = 'APPEARANCE', available = true, connected = false, revisit = false) {
   let setup: SetupPreferencesDto = { step, assistantEnabled: false };
-  let preferences: AppPreferencesDto = { theme: 'SYSTEM', taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 };
+  let preferences: AppPreferencesDto = { theme: 'SYSTEM', taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30, autoMergeDelayMinutes: 60 };
   let models: ModelSettingsDto = { ...CATALOG, providers: CATALOG.providers.map(provider => ({ ...provider, readiness: available ? 'READY' : 'CLI_MISSING' })) };
   let automation = { ...LOCAL_COMMITS_ONLY };
   let agenda: AgendaScheduleDto = { enabled: false, minute: 540, days: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'], calendarAccountId: null };

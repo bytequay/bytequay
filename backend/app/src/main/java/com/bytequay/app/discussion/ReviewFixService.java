@@ -207,6 +207,12 @@ public class ReviewFixService
         }
     }
 
+    /** No comment is being fixed and no review thread is open, so review leaves nothing a merge would skip past. */
+    public boolean settled(AgentTask task, PullRequest pr)
+    {
+        return store.listByTask(task.id().toString()).stream().noneMatch(ReviewFixReply::waiting) && comments.openThreads(pr.repo(), pr.number()).isEmpty();
+    }
+
     /** How the task's handed-over comments stand, for its automation status; empty before the first request. */
     public Optional<ReviewFixSummary> summary(String taskId)
     {

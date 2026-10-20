@@ -113,7 +113,7 @@ class TestAppSettingsService
         assertThat(settings.taskRuntimeRetention()).isEqualTo(Duration.ofDays(7));
         assertThat(settings.recentRetentionDays()).isEqualTo(14);
 
-        settings.savePreferences(new AppPreferences(30, 21, AppTheme.LIGHT, 30));
+        settings.savePreferences(new AppPreferences(30, 21, AppTheme.LIGHT, 30, 120));
 
         assertThat(settings.taskRuntimeRetention()).isEqualTo(Duration.ofDays(30));
         assertThat(settings.recentRetentionDays()).isEqualTo(21);
@@ -122,20 +122,22 @@ class TestAppSettingsService
     }
 
     @Test
-    void oldPreferencesKeepTheirValuesAndDefaultToThirtyWarmPullRequests()
+    void oldPreferencesKeepTheirValuesAndDefaultToThirtyWarmPullRequestsAndAnHourBeforeMerging()
     {
         store.put("app.preferences", "{\"taskRetentionDays\":30,\"recentRetentionDays\":21,\"refreshIntervalMinutes\":15,\"theme\":\"LIGHT\"}");
-        assertThat(settings.preferences()).isEqualTo(new AppPreferences(30, 21, AppTheme.LIGHT, 30));
+        assertThat(settings.preferences()).isEqualTo(new AppPreferences(30, 21, AppTheme.LIGHT, 30, 60));
     }
 
     @Test
     void smallerWarmCountRoundTripsAndInvalidCountsAreRejected()
     {
-        AppPreferences fewer = new AppPreferences(7, 14, AppTheme.SYSTEM, 10);
+        AppPreferences fewer = new AppPreferences(7, 14, AppTheme.SYSTEM, 10, 0);
         settings.savePreferences(fewer);
         assertThat(settings.preferences()).isEqualTo(fewer);
-        assertThatThrownBy(() -> new AppPreferences(7, 14, AppTheme.SYSTEM, 11))
+        assertThatThrownBy(() -> new AppPreferences(7, 14, AppTheme.SYSTEM, 11, 60))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("prWarmCount");
+        assertThatThrownBy(() -> new AppPreferences(7, 14, AppTheme.SYSTEM, 10, 45))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("autoMergeDelayMinutes");
     }
 
     @Test

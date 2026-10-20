@@ -11,15 +11,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { DevelopmentAutomationDto, ModelProviderDto } from '../types';
+import type { AppPreferencesDto, DevelopmentAutomationDto, ModelProviderDto } from '../types';
 import { AUTOMATION_STEPS, includesLevel, levelIndex } from '../agents/developmentAutomation';
 import { AutomationSlider, CiProviderSelect } from '../agents/AutomationControl';
 import AssistantFeatureCard from './AssistantFeatureCard';
-import { SettingsCard, SettingsRow } from './primitives';
+import { SelectPill, SettingsCard, SettingsRow } from './primitives';
 
-export default function WorkflowPage({ value, providers, error, onChange }: {
+const MERGE_DELAYS = [0, 10, 30, 60, 120, 1440];
+
+function delayLabel(minutes: number): string {
+  return minutes === 0 ? 'No delay' : minutes < 60 ? `${minutes} minutes` : minutes === 60 ? '1 hour' : `${minutes / 60} hours`;
+}
+
+export default function WorkflowPage({ value, providers, preferences, error, onChange, onPreferences }: {
   value: DevelopmentAutomationDto | null;
   providers: ModelProviderDto[];
+  preferences: AppPreferencesDto | null;
+  onPreferences: (value: AppPreferencesDto) => void;
   error: string | null;
   onChange: (value: DevelopmentAutomationDto) => void;
 }) {
@@ -35,6 +43,12 @@ export default function WorkflowPage({ value, providers, error, onChange }: {
         </SettingsRow>
         {includesLevel(value.level, 'CI_FIX') && <SettingsRow title="CI repair agent" subtitle="Use the development agent or choose another agent to repair failing CI checks.">
           <CiProviderSelect value={value.ciLaneId} providers={providers} onChange={ciLaneId => onChange({ ...value, ciLaneId })} />
+        </SettingsRow>}
+        {includesLevel(value.level, 'MERGE') && preferences !== null && <SettingsRow title="Auto-merge delay"
+          subtitle="How long a pull request waits once it can merge, so you can still stop it. Applies to merges already waiting.">
+          <SelectPill quiet ariaLabel="Auto-merge delay" value={String(preferences.autoMergeDelayMinutes)} label={delayLabel(preferences.autoMergeDelayMinutes)}
+            options={MERGE_DELAYS.map(minutes => ({ value: String(minutes), label: delayLabel(minutes) }))}
+            onSelect={minutes => onPreferences({ ...preferences, autoMergeDelayMinutes: Number(minutes) })} />
         </SettingsRow>}
       </SettingsCard>
       <p className="setw-footnote">Each step includes the ones before it. Defaults apply to new tasks, which can override them until they start. CI monitoring has no time limit, with up to 3 repairs per run and 3 reruns per revision.</p>

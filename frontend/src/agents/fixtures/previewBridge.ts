@@ -444,6 +444,10 @@ export function createPreviewBridge(
     removeAgentAttachment: async (taskId, id, attachmentId) => {
       record('removeAgentAttachment', taskId, id, attachmentId);
     },
+    cancelAgentAutoMerge: async (taskId, id) => {
+      record('cancelAgentAutoMerge', taskId, id);
+      return { ...previewTask(id, taskId), autoMerge: { state: 'CANCELLED', mergeAt: null, message: 'Auto-merge was stopped' } };
+    },
     markAgentTaskFailed: async (taskId, id, reason) => {
       record('markAgentTaskFailed', taskId, id, reason);
       return {

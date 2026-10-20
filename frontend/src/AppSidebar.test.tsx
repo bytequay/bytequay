@@ -210,11 +210,11 @@ describe('global pinned items', () => {
     expect(render('home', null)).not.toContain(pull.title);
   });
 
-  it('opens stored references and routes a task to its own workspace', () => {
+  it('opens stored references, including tasks, over the current page', () => {
     const { dispatchEvent } = storage();
     const issue: PinnedItem = { key: 'trinodb/trino#5', title: 'Connector issue', target: { kind: 'issue', repo: 'trinodb/trino', number: 5, workspaceId: 'ws-2' } };
     const jira: PinnedItem = { key: 'jira:cloud:6', title: 'Connector ticket', target: { kind: 'jira', connectionId: 'connection', cloudId: 'cloud', issueId: '6' } };
-    for (const item of [pull, issue, jira]) {
+    for (const item of [pull, issue, jira, task]) {
       setPinned(item, true);
       const restored = loadPinned().find(candidate => candidate.key === item.key);
       expect(restored).toBeDefined();
@@ -223,9 +223,8 @@ describe('global pinned items', () => {
       const event = dispatchEvent.mock.calls.at(-1)?.[0] as CustomEvent;
       expect(event.type).toBe(ZOOM_REFERENCE);
       expect(event.detail).toEqual(item.target.kind === 'jira' ? { ...item.target, start: false } : item.target);
+      expect(window.location.hash).toBe('#/');
     }
-    openPinned(task);
-    expect(window.location.hash).toBe('#/workspaces/ws-2/tasks/agent/task-1');
     const review: PinnedItem = { key: 'review:review-1', title: 'Local review', target: { kind: 'review', workspaceId: 'ws-3', reviewId: 'review-1' } };
     setPinned(review, true);
     expect(loadPinned()).toContainEqual(review);

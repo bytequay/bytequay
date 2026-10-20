@@ -13,14 +13,13 @@
  */
 import { useEffect, useState } from 'react';
 import { zoomReference, type ZoomedReference } from '../githubReference';
-import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
+import { workspaceReviewTaskRoute } from '../workspaces/model';
 
 export type PinnedItem = {
   key: string;
   title: string;
   reference?: string;
-  target: ZoomedReference | { kind: 'task'; workspaceId: string; taskId: string }
-    | { kind: 'review'; workspaceId: string; reviewId: string };
+  target: ZoomedReference | { kind: 'review'; workspaceId: string; reviewId: string };
 };
 
 const STORAGE_KEY = 'bytequay.attention.pinned.v1';
@@ -81,7 +80,6 @@ export function usePinnedItems(): PinnedItem[] {
 }
 
 export function openPinned({ target }: PinnedItem): void {
-  if (target.kind === 'task') window.location.hash = workspaceAgentTaskRoute(target.workspaceId, target.taskId);
-  else if (target.kind === 'review') window.location.hash = workspaceReviewTaskRoute(target.workspaceId, target.reviewId);
+  if (target.kind === 'review') window.location.hash = workspaceReviewTaskRoute(target.workspaceId, target.reviewId);
   else zoomReference(target.kind === 'jira' ? { ...target, start: false } : target);
 }

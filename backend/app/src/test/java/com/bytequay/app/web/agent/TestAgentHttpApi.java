@@ -378,14 +378,16 @@ class TestAgentHttpApi
         assertThat(response.getStatusCode()).as("create response: %s", response.getBody()).isEqualTo(HttpStatus.CREATED);
         JsonNode created = response.getBody();
         String taskId = created.required("id").asText();
-        assertThat(created.path("title").asText()).isEqualTo("Name first task");
-        assertThat(created.path("titleSource").asText()).isEqualTo("AGENT");
+        assertThat(created.path("title").asText()).isEqualTo(instruction);
+        assertThat(created.path("titleSource").asText()).isEqualTo("PROVISIONAL");
         assertThat(created.at("/issueSource/instructions").asText()).isEqualTo(instruction);
         assertThat(created.at("/issueSource/body").asText()).isEqualTo(source.body());
         JsonNode firstMessage = StreamSupport.stream(get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody().spliterator(), false)
                 .filter(event -> event.path("type").asText().equals("user_message")).findFirst().orElseThrow();
         assertThat(firstMessage.at("/payload/text").asText()).isEqualTo(instruction);
         assertThat(created.at("/issueSource/initialTurnId").asText()).isEqualTo(firstMessage.path("turnId").asText());
+        awaitCondition(() -> get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody().path("titleSource").asText().equals("AGENT"));
+        assertThat(get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody().path("title").asText()).isEqualTo("Name first task");
         issueRows.delete(workspace.monitoredRepositoryId(), 7);
         JsonNode retained = get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody();
         assertThat(retained.path("issueSource")).isEqualTo(created.path("issueSource"));
@@ -1170,8 +1172,11 @@ class TestAgentHttpApi
         JsonNode secondTerminal = get("/agent/turns/" + second.get("id").asText()).getBody();
         assertThat(secondTerminal.get("state").asText()).isEqualTo("COMPLETED");
 
-        JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody();
-        assertThat(events).isNotNull();
+        JsonNode recordedEvents = get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody();
+        assertThat(recordedEvents).hasSize(14);
+        assertThat(recordedEvents).filteredOn(event -> event.at("/payload/phase").asText().equals("TITLE_UPDATED")).hasSize(1);
+        List<JsonNode> events = StreamSupport.stream(recordedEvents.spliterator(), false)
+                .filter(event -> !event.at("/payload/phase").asText().equals("TITLE_UPDATED")).toList();
         assertThat(events).hasSize(13);
         assertThat(events)
                 .extracting(event -> event.get("type").asText())
@@ -1202,7 +1207,7 @@ class TestAgentHttpApi
         assertThat(events.get(10).get("payload").get("readyForDelivery").asBoolean()).isTrue();
         assertThat(events.get(11).get("payload").get("phase").asText()).isEqualTo("TURN_COMPLETED");
         assertThat(events.get(12).get("payload").get("phase").asText()).isEqualTo("DEVELOPMENT_AUTOMATION_UPDATED");
-        long firstSequence = events.get(6).get("sequence").asLong();
+        long firstSequence = events.get(7).get("sequence").asLong() - 1;
         assertThat(events.get(0).get("schemaVersion").asInt()).isEqualTo(2);
         assertThat(events.get(0).get("eventId").asText()).isNotBlank();
         assertThat(events.get(0).get("source").isObject()).isTrue();
@@ -1283,7 +1288,10 @@ class TestAgentHttpApi
         assertThat(claudeDriver.openCount()).isEqualTo(2);
         assertThat(driver.openCount()).isZero();
 
-        JsonNode claudeEvents = get("/agent/tasks/" + claudeTaskId + "/events?after=0&limit=20").getBody();
+        JsonNode recordedClaudeEvents = get("/agent/tasks/" + claudeTaskId + "/events?after=0&limit=20").getBody();
+        assertThat(recordedClaudeEvents).filteredOn(event -> event.at("/payload/phase").asText().equals("TITLE_UPDATED")).hasSize(1);
+        List<JsonNode> claudeEvents = StreamSupport.stream(recordedClaudeEvents.spliterator(), false)
+                .filter(event -> !event.at("/payload/phase").asText().equals("TITLE_UPDATED")).toList();
         assertThat(claudeEvents)
                 .extracting(event -> event.required("type").asText())
                 .containsExactly("user_message", "lifecycle", "lifecycle", "assistant_message", "lifecycle", "lifecycle");
@@ -1294,7 +1302,7 @@ class TestAgentHttpApi
 
         long userSequence = claudeEvents.get(0).required("sequence").asLong();
         JsonNode replay = get("/agent/tasks/" + claudeTaskId + "/events?after=" + userSequence + "&limit=20").getBody();
-        assertThat(replay).hasSize(5);
+        assertThat(replay).hasSize(6);
         assertThat(objectMapper.readTree(firstSseData(claudeTaskId, userSequence))).isEqualTo(replay.get(0));
 
         ResponseEntity<JsonNode> codexCreated = post("/agent/tasks", createTaskBody("codex", "test-model", "Codex first"), null);
@@ -1344,14 +1352,14 @@ class TestAgentHttpApi
     {
         Map<String, Object> request = createTaskBody("codex");
         long probesBeforeCreation = driver.probeCount();
-        driver.probeReadiness(AgentProviderStatus.Readiness.READY, AgentProviderStatus.Readiness.READY, AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+        driver.probeReadiness(AgentProviderStatus.Readiness.READY, AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
 
         ResponseEntity<JsonNode> created = post("/agent/tasks", request, null);
         ResponseEntity<JsonNode> replay = post("/agent/tasks", request, null);
 
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(driver.probeCount()).isEqualTo(probesBeforeCreation + 2);
+        assertThat(driver.probeCount()).isEqualTo(probesBeforeCreation + 1);
         String taskId = created.getBody().required("id").asText();
         assertThat(get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody())
                 .filteredOn(event -> event.required("type").asText().equals("user_message"))
@@ -1364,7 +1372,7 @@ class TestAgentHttpApi
 
         assertThat(laterTurn.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(laterTurn.getBody().required("readiness").asText()).isEqualTo("AUTHENTICATION_REQUIRED");
-        assertThat(driver.probeCount()).isEqualTo(probesBeforeCreation + 3);
+        assertThat(driver.probeCount()).isEqualTo(probesBeforeCreation + 2);
     }
 
     @Test
@@ -1391,7 +1399,7 @@ class TestAgentHttpApi
         TaskResources existingResources = resources.require(taskId);
         long runtimeEntries = entryCount(existingResources.runtimeDirectory());
         long worktrees = entryCount(workspacePaths.worktrees(workspaceId));
-        assertThat(driver.probeCount()).isEqualTo(probesBeforeCreation + 2);
+        assertThat(driver.probeCount()).isEqualTo(probesBeforeCreation + 1);
         assertThat(turns.findTurnByIdempotencyKey(taskId, idempotencyKey)).isEmpty();
         driver.probeReadiness(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
 
@@ -1399,7 +1407,7 @@ class TestAgentHttpApi
 
         assertThat(failedReplay.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(failedReplay.getBody().required("readiness").asText()).isEqualTo("AUTHENTICATION_REQUIRED");
-        assertThat(driver.probeCount()).isEqualTo(probesBeforeCreation + 3);
+        assertThat(driver.probeCount()).isEqualTo(probesBeforeCreation + 2);
         assertThat(turns.findTurnByIdempotencyKey(taskId, idempotencyKey)).isEmpty();
         assertThat(resources.require(taskId)).isEqualTo(existingResources);
         assertThat(entryCount(existingResources.runtimeDirectory())).isEqualTo(runtimeEntries);

@@ -806,6 +806,33 @@ describe('bounded history pages', () => {
     expect(agentTaskReducer(state, { type: 'live/changed', sequence: 31, turnId: 'turn-1' }).events).toBe(state.events);
   });
 
+  it('refreshes overlapping live output with one read while retaining bounded, contiguous history', async () => {
+    const readAgentHistory = vi.fn().mockResolvedValueOnce(page(2001, 3000, 3000))
+      .mockResolvedValueOnce(page(1001, 2000, 3000)).mockResolvedValueOnce(page(1, 1000, 3000));
+    let history = await readRecentAgentHistory({ readAgentHistory }, 'task-1');
+    for (let sequence = 3001; sequence <= 3010; sequence++) {
+      readAgentHistory.mockResolvedValueOnce(page(sequence - 999, sequence, sequence));
+      history = await readRecentAgentHistory({ readAgentHistory }, 'task-1', history);
+      const events = [...history.earlier, history.page].flatMap(entry => entry.events);
+      expect(events.length).toBeGreaterThan(2000);
+      expect(events.length).toBeLessThanOrEqual(3000);
+      expect(events.map(event => event.sequence)).toEqual(Array.from({ length: events.length }, (_, index) => events[0].sequence + index));
+      expect(events.at(-1)?.sequence).toBe(sequence);
+      expect(history.earlier.at(-1)?.afterCursor).toBe(history.page.beforeCursor);
+    }
+    expect(readAgentHistory).toHaveBeenCalledTimes(13);
+  });
+
+  it('refills missed history after a live update moves beyond the cached window', async () => {
+    const readAgentHistory = vi.fn().mockResolvedValueOnce(page(1, 20, 20));
+    const previous = await readRecentAgentHistory({ readAgentHistory }, 'task-1');
+    readAgentHistory.mockResolvedValueOnce(page(3001, 4000, 4000))
+      .mockResolvedValueOnce(page(2001, 3000, 4000)).mockResolvedValueOnce(page(1001, 2000, 4000));
+    const history = await readRecentAgentHistory({ readAgentHistory }, 'task-1', previous);
+    expect(readAgentHistory.mock.calls.slice(1)).toEqual([['task-1'], ['task-1', 'byte-3001'], ['task-1', 'byte-2001']]);
+    expect(history.earlier.map(entry => entry.events[0].sequence)).toEqual([1001, 2001]);
+  });
+
   it('opens a tail above sequence one and bounds uncompacted history while browsing', () => {
     let state = agentTaskReducer(initialAgentTaskState(), { type: 'history/loaded', page: page(4001, 5000, 5000), direction: 'latest' });
     expect(state.gap).toBe(false);

@@ -41,6 +41,8 @@ import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -76,6 +78,8 @@ import static java.util.Objects.requireNonNull;
 @RequestMapping("/api/agent-review")
 public class ReviewController
 {
+    private static final Logger sendTiming = LoggerFactory.getLogger("com.bytequay.agent.SendTiming");
+
     private final AgentReviewService reviews;
     private final ReviewPublicationService publications;
     private final AgentTurnService turns;
@@ -255,6 +259,7 @@ public class ReviewController
         checkText(idempotencyKey, "Idempotency-Key");
         checkText(request.message(), "message");
         AgentTask task = reviews.task(reviewId);
+        sendTiming.debug("send-timing phase=review.request.begin epochMs={} taskId={} turnId=- reviewId={}", System.currentTimeMillis(), task.id(), reviewId);
         String delivery = Optional.ofNullable(request.delivery()).orElse("TURN").toUpperCase(Locale.ROOT);
         switch (delivery) {
             case "TURN" -> reviews.sendMessage(reviewId, task.version(), request.message(), idempotencyKey, false);
@@ -262,7 +267,9 @@ public class ReviewController
             case "QUEUE" -> reviews.sendMessage(reviewId, task.version(), request.message(), idempotencyKey, true);
             default -> throw new ReviewInvalidRequestException("delivery must be TURN, STEER or QUEUE");
         }
-        return ReviewHttpModels.review(reviews.get(reviewId));
+        ReviewHttpModels.ReviewResponse response = ReviewHttpModels.review(reviews.get(reviewId));
+        sendTiming.debug("send-timing phase=review.request.end epochMs={} taskId={} turnId=- reviewId={}", System.currentTimeMillis(), task.id(), reviewId);
+        return response;
     }
 
     @PostMapping("/{reviewId}/queue/resume")

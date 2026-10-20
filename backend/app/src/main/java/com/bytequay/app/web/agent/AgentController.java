@@ -117,6 +117,7 @@ public class AgentController
     public static final String SESSION_HEADER = "X-ByteQuay-Session";
 
     private static final Logger log = LoggerFactory.getLogger(AgentController.class);
+    private static final Logger sendTiming = LoggerFactory.getLogger("com.bytequay.agent.SendTiming");
 
     private final AgentTaskService taskService;
     private final ContextBuildService contextBuilds;
@@ -237,8 +238,10 @@ public class AgentController
 
     private ResponseEntity<InteractiveAgentHttpContract.TaskResponse> createTask(InteractiveAgentHttpContract.CreateTaskRequest request, List<StoreAgentAttachmentCommand> uploads)
     {
+        TaskId taskId = TaskId.valueOf(request.taskId());
+        sendTiming.debug("send-timing phase=task.request.begin epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
         AgentTask task = taskStarter.start(new InteractiveTaskStart(
-                TaskId.valueOf(request.taskId()),
+                taskId,
                 request.workspaceId(),
                 request.message(),
                 new AgentLaneId(request.laneId()),
@@ -254,7 +257,9 @@ public class AgentController
                 request.jiraSource(),
                 request.workItemId(),
                 uploads));
-        return ResponseEntity.status(HttpStatus.CREATED).body(taskResponse(task));
+        InteractiveAgentHttpContract.TaskResponse response = taskResponse(task);
+        sendTiming.debug("send-timing phase=task.request.end epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     /** Which creation step an in-flight create request is in; the task may not exist yet, so no workspace scope applies. */
@@ -454,6 +459,7 @@ public class AgentController
         checkArgument(request.expectedVersion() != null, "expectedVersion is null");
         checkArgument(request.expectedVersion() >= 0, "expectedVersion is negative");
         TaskId id = TaskId.valueOf(taskId);
+        sendTiming.debug("send-timing phase=turn.request.begin epochMs={} taskId={} turnId=-", System.currentTimeMillis(), id);
         checkArgument(taskService.get(id).interactive(), "Workflow-owned tasks cannot accept interactive input");
         boolean replay = turnService.findTurnByIdempotencyKey(id, idempotencyKey).isPresent();
         // A replay owns its persisted attachments. Re-enter core so its completion/outbox recovery
@@ -468,6 +474,7 @@ public class AgentController
         if (!replay) {
             recordPrompt(taskId, idempotencyKey, request.message());
         }
+        sendTiming.debug("send-timing phase=turn.request.end epochMs={} taskId={} turnId={}", System.currentTimeMillis(), id, turn.id());
         return ResponseEntity.accepted().body(InteractiveAgentHttpContract.turn(turn));
     }
 

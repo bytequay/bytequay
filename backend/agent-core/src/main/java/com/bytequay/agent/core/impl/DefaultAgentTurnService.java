@@ -113,6 +113,7 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingInline;
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
@@ -148,6 +149,7 @@ public final class DefaultAgentTurnService
             questions and never describe text matches as semantic callers.""";
 
     private static final System.Logger log = System.getLogger(DefaultAgentTurnService.class.getName());
+    private static final System.Logger sendTiming = System.getLogger("com.bytequay.agent.SendTiming");
 
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
@@ -174,6 +176,7 @@ public final class DefaultAgentTurnService
     private final BiConsumer<AgentTask, AgentTurn> developmentAccepted;
     private final Consumer<DevelopmentTurnCompletion> developmentCompletion;
     private final Consumer<TaskId> stopChildren;
+    private final UnaryOperator<AgentTask> idleWorktreePreparation;
     /**
      * Each turn from its launch until its terminal state is saved, with the log sequence of its first event. A provider
      * event for a turn missing here came too late, and counting a turn's tools reads back no further than its first event.
@@ -218,7 +221,8 @@ public final class DefaultAgentTurnService
             Predicate<AgentTask> developmentEligibility,
             BiConsumer<AgentTask, AgentTurn> developmentAccepted,
             Consumer<DevelopmentTurnCompletion> developmentCompletion,
-            Consumer<TaskId> stopChildren)
+            Consumer<TaskId> stopChildren,
+            UnaryOperator<AgentTask> idleWorktreePreparation)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
@@ -245,20 +249,27 @@ public final class DefaultAgentTurnService
         this.developmentAccepted = requireNonNull(developmentAccepted, "developmentAccepted is null");
         this.developmentCompletion = requireNonNull(developmentCompletion, "developmentCompletion is null");
         this.stopChildren = requireNonNull(stopChildren, "stopChildren is null");
+        this.idleWorktreePreparation = requireNonNull(idleWorktreePreparation, "idleWorktreePreparation is null");
     }
 
     @Override
     public AgentTurn start(StartAgentTurnCommand command)
     {
         requireNonNull(command, "command is null");
+        sendTiming.log(System.Logger.Level.DEBUG,
+                () -> "send-timing phase=turn.recovery.begin epochMs=" + System.currentTimeMillis() + " taskId=" + command.taskId() + " turnId=-");
         retryCompletedTurn(command.taskId());
+        sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=turn.recovery.end epochMs=" + System.currentTimeMillis() + " taskId=" + command.taskId() + " turnId=-");
         if (!command.useTrustedTaskCreationReadiness() && turnStore.findByIdempotencyKey(command.taskId(), command.idempotencyKey()).isEmpty()) {
             // A cold check launches the provider CLI several times. Nothing else on this task, such as a retry looking up
             // its key, may wait behind it, so it runs before the task lock; the check under the lock then reuses it.
             requireRecentlyReady(taskStore.require(command.taskId()));
         }
         TurnAcceptance acceptance;
+        sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=turn.lock.wait epochMs=" + System.currentTimeMillis() + " taskId=" + command.taskId() + " turnId=-");
         synchronized (runtimeRegistry.taskLock(command.taskId())) {
+            sendTiming.log(System.Logger.Level.DEBUG,
+                    () -> "send-timing phase=turn.lock.acquired epochMs=" + System.currentTimeMillis() + " taskId=" + command.taskId() + " turnId=-");
             drainPending(outboxStore, eventService, command.taskId());
             Optional<AgentTurn> repeated = turnStore.findByIdempotencyKey(command.taskId(), command.idempotencyKey());
             if (repeated.isPresent()) {
@@ -266,12 +277,15 @@ public final class DefaultAgentTurnService
             }
             requireUnusedKey(command.taskId(), command.idempotencyKey());
 
-            AgentTask task = requireStartableTask(command);
             command.expectedTaskVersion().ifPresent(expectedVersion -> {
-                if (task.version() != expectedVersion) {
-                    throw new AgentConflictException("Task version changed: " + task.id());
+                if (taskStore.require(command.taskId()).version() != expectedVersion) {
+                    throw new AgentConflictException("Task version changed: " + command.taskId());
                 }
             });
+            // Recovery may update the saved branch; the caller's version describes the task before that internal repair.
+            AgentTask task = requireStartableTask(command);
+            sendTiming.log(System.Logger.Level.DEBUG,
+                    () -> "send-timing phase=turn.preflight.end epochMs=" + System.currentTimeMillis() + " taskId=" + command.taskId() + " turnId=-");
             acceptance = acceptTurnLocked(task, command);
         }
         return launchAccepted(acceptance);
@@ -310,10 +324,11 @@ public final class DefaultAgentTurnService
         requireNonNull(taskId, "taskId is null");
         requireNonNull(action, "action is null");
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireStartableTaskWithoutReadiness(taskId);
-            if (task.version() != expectedVersion) {
+            if (taskStore.require(taskId).version() != expectedVersion) {
                 throw new AgentConflictException("Task version changed: " + taskId);
             }
+            // As for Send, a verified branch repair may advance the version while this lock excludes other writers.
+            AgentTask task = requireStartableTaskWithoutReadiness(taskId);
             if (queueStore.listQueued(taskId).stream().anyMatch(input -> !input.state().historical())) {
                 throw new AgentConflictException("Remove queued input before updating the review worktree");
             }
@@ -688,11 +703,21 @@ public final class DefaultAgentTurnService
                 // the accepted message first so the transcript shows it while Send is still waiting.
                 launchedTurns.put(turn.id(), eventService.drain(acceptance.deliveryEventId()).sequence());
             }
+            sendTiming.log(System.Logger.Level.DEBUG,
+                    () -> "send-timing phase=turn.user_message.published epochMs=" + System.currentTimeMillis() + " taskId=" + taskId + " turnId=" + turn.id());
+            sendTiming.log(System.Logger.Level.DEBUG,
+                    () -> "send-timing phase=turn.review_input.begin epochMs=" + System.currentTimeMillis() + " taskId=" + taskId + " turnId=" + turn.id());
             ReviewTurnInputResolver.Reference reference = reviewTurnInput.reference(task, turn);
             String message = reviewTurnInput.prepare(task, turn, reference.append(acceptance.message()));
             checkText(message, "prepared review input");
+            sendTiming.log(System.Logger.Level.DEBUG,
+                    () -> "send-timing phase=turn.review_input.end epochMs=" + System.currentTimeMillis() + " taskId=" + taskId + " turnId=" + turn.id());
             if (turn.developmentOrigin().isEmpty() && developmentTurnEligible(task, turn)) {
+                sendTiming.log(System.Logger.Level.DEBUG,
+                        () -> "send-timing phase=turn.development_baseline.begin epochMs=" + System.currentTimeMillis() + " taskId=" + taskId + " turnId=" + turn.id());
                 developmentAccepted.accept(task, turn);
+                sendTiming.log(System.Logger.Level.DEBUG,
+                        () -> "send-timing phase=turn.development_baseline.end epochMs=" + System.currentTimeMillis() + " taskId=" + taskId + " turnId=" + turn.id());
             }
             synchronized (runtimeRegistry.taskLock(taskId)) {
                 task = requireAcceptedLaunch(turn);
@@ -766,6 +791,8 @@ public final class DefaultAgentTurnService
             session = session(task, accepted.id(), settings);
             markDeliveryStarted(accepted, acceptance.reference());
             deliveryAttempted = true;
+            sendTiming.log(System.Logger.Level.DEBUG,
+                    () -> "send-timing phase=turn.provider_send.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + accepted.id());
             RunningTurn runningTurn = session.start(new AgentTurnCommand(
                     accepted.id().toString(),
                     acceptance.message(),
@@ -774,8 +801,12 @@ public final class DefaultAgentTurnService
                     settings.model(),
                     settings.effort(),
                     settings.serviceTier()));
+            sendTiming.log(System.Logger.Level.DEBUG,
+                    () -> "send-timing phase=turn.provider_send.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + accepted.id());
             started = Optional.of(runningTurn);
             registerRunningTurn(accepted, runningTurn, session.reference());
+            sendTiming.log(System.Logger.Level.DEBUG,
+                    () -> "send-timing phase=turn.running.persisted epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + accepted.id());
             try {
                 reviewTurnInput.delivered(task, turnStore.require(accepted.id()));
             }
@@ -1207,6 +1238,7 @@ public final class DefaultAgentTurnService
             }
             QueuedAgentInput head = queueHead(taskId)
                     .orElseThrow(() -> new AgentConflictException("Task has no queued input: " + taskId));
+            sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=queue.resume.begin epochMs=" + System.currentTimeMillis() + " taskId=" + taskId + " turnId=-");
             if (head.state() == QueuedAgentInput.State.UNCERTAIN) {
                 throw new AgentConflictException("The next queued input may already have been delivered; discard it first: " + head.id());
             }
@@ -1239,6 +1271,7 @@ public final class DefaultAgentTurnService
             if (head.isEmpty()) {
                 return;
             }
+            sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=queue.dispatch.begin epochMs=" + System.currentTimeMillis() + " taskId=" + taskId + " turnId=-");
             try {
                 drainPending(outboxStore, eventService, taskId);
             }
@@ -1308,6 +1341,8 @@ public final class DefaultAgentTurnService
         EventId messageEventId = head.messageEventId().orElseGet(EventId::random);
         EventId deliveryEventId = head.messageEventId().isPresent() ? EventId.random() : messageEventId;
         AgentTask executionTask = selectProvider(task, settings, acceptedAt);
+        sendTiming.log(System.Logger.Level.DEBUG,
+                () -> "send-timing phase=queue.persist.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
         unitOfWork.execute(() -> {
             taskStore.update(claimAcceptedTurn(executionTask, turn));
             turnStore.insert(turn);
@@ -1333,6 +1368,7 @@ public final class DefaultAgentTurnService
             }
             return null;
         });
+        sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=queue.persist.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
         runtimeRegistry.recordAcceptedTurn(turn);
         return new TurnAcceptance(turn, deliveryEventId, text, attachments);
     }
@@ -1422,7 +1458,7 @@ public final class DefaultAgentTurnService
             throw new AgentConflictException("Task provider process is not verified stopped: " + failureMessage(failure));
         });
         runtimeRegistry.checkBranchAdmission(task);
-        return task;
+        return idleWorktreePreparation.apply(task);
     }
 
     private AgentTask requireReady(AgentTask task)
@@ -1449,9 +1485,12 @@ public final class DefaultAgentTurnService
         String check = task.id() + ":" + lane.value() + ":" + settings.model().orElse("");
         Instant now = Instant.now(clock);
         if (reuseRecentCheck && readyUntil.getOrDefault(check, Instant.MIN).isAfter(now)) {
+            sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=turn.readiness.reused epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=-");
             return task;
         }
+        sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=turn.readiness.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=-");
         AgentProviderStatus status = driver.probe(settings.model());
+        sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=turn.readiness.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=-");
         if (!status.available()) {
             readyUntil.remove(check);
             throw new AgentProviderUnavailableException(status);
@@ -1501,6 +1540,8 @@ public final class DefaultAgentTurnService
         Instant acceptedAt = Instant.now(clock);
         AgentTurn accepted = AgentTurn.accepted(turnId, task.id(), idempotencyKey, settings, acceptedAt);
         AgentTurn turn = origin.map(accepted::withDevelopmentOrigin).orElse(accepted);
+        sendTiming.log(System.Logger.Level.DEBUG,
+                () -> "send-timing phase=turn.persist.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
         BlobRef messageBlob = logStore.writeBlob(task.id(), ByteBuffer.wrap(message.getBytes(UTF_8)), "text/plain; charset=utf-8");
         EventId messageEventId = EventId.random();
         AgentTask executionTask = selectProvider(task, settings, acceptedAt);
@@ -1517,6 +1558,7 @@ public final class DefaultAgentTurnService
                     Optional.empty()));
             return null;
         });
+        sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=turn.persist.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
         runtimeRegistry.recordAcceptedTurn(turn);
         return new TurnAcceptance(turn, messageEventId, message, attachments);
     }
@@ -1807,27 +1849,39 @@ public final class DefaultAgentTurnService
         if (existing.isPresent()) {
             // A provider launch profile may depend on the accepted model. Closing before delivery
             // lets the stored provider thread resume under the new turn's immutable snapshot.
+            sendTiming.log(System.Logger.Level.DEBUG,
+                    () -> "send-timing phase=turn.session_close.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
             runtimeRegistry.closeSession(task.id());
+            sendTiming.log(System.Logger.Level.DEBUG,
+                    () -> "send-timing phase=turn.session_close.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
         }
 
+        sendTiming.log(System.Logger.Level.DEBUG,
+                () -> "send-timing phase=turn.session_context.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
         driverRegistry.checkWorkspaceAccess(task.laneId(), task.workspaceId());
         AgentDriver driver = driverRegistry.require(task.laneId());
         TaskResources resources = resourceService.require(task.id());
-        AgentSession opened = requireNonNull(driver.open(
-                new AgentSessionContext(
-                        task.id().toString(),
-                        task.worktree(),
-                        resources.runtimeDirectory(),
-                        resources.providerDirectory(),
-                        settings.permissionPolicy(),
-                        task.sessionReference(),
-                        (request, timeout) -> requestApproval(task.id(), turnId, request, timeout),
-                        settings.model(),
-                        settings.effort(),
-                        task.taskWorktree().isPresent() && !task.ownsWorktree() ? SessionAccess.REVIEW_READ_ONLY : SessionAccess.FULL,
-                        codeQueriesBridge(task),
-                        managedInstructions.apply(task) + developmentInstructions(settings)),
+        AgentSessionContext context = new AgentSessionContext(
+                task.id().toString(),
+                task.worktree(),
+                resources.runtimeDirectory(),
+                resources.providerDirectory(),
+                settings.permissionPolicy(),
+                task.sessionReference(),
+                (request, timeout) -> requestApproval(task.id(), turnId, request, timeout),
+                settings.model(),
+                settings.effort(),
+                task.taskWorktree().isPresent() && !task.ownsWorktree() ? SessionAccess.REVIEW_READ_ONLY : SessionAccess.FULL,
+                codeQueriesBridge(task),
+                managedInstructions.apply(task) + developmentInstructions(settings));
+        sendTiming.log(System.Logger.Level.DEBUG,
+                () -> "send-timing phase=turn.session_context.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
+        sendTiming.log(System.Logger.Level.DEBUG,
+                () -> "send-timing phase=turn.session_open.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
+        AgentSession opened = requireNonNull(driver.open(context,
                 event -> routeEvent(task.id(), turnId, event)), "opened session is null");
+        sendTiming.log(System.Logger.Level.DEBUG,
+                () -> "send-timing phase=turn.session_open.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
         AgentSession registered = runtimeRegistry.registerSession(task.id(), opened);
         try {
             AgentSessionRef reference = requireNonNull(registered.reference(), "session reference is null");

@@ -101,6 +101,7 @@ describe('a workflow-owned conversation', () => {
       });
       notify({ kind: 'changed', subscriptionId: 'review-stream', taskId: 'task-1', sequence: latest.latestSequence, turnId: 'turn-1' });
       expect(changes).toEqual([{ type: 'live/changed', sequence: latest.latestSequence, turnId: 'turn-1' }]);
+      expect(readAgentHistory).toHaveBeenCalledTimes(2);
       await vi.advanceTimersByTimeAsync(200);
       expect(state.events).toEqual(preview.events);
       expect(state.historyPages).toHaveLength(1);

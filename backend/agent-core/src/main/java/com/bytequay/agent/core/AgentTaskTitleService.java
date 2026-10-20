@@ -17,7 +17,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 
 import java.util.Optional;
 
-/** Generates task and branch names together before the task worktree exists. */
+/** Suggests task and branch names independently of starting the task's conversation. */
 public interface AgentTaskTitleService
 {
     /** Uses the full request and available issue context in a disposable text-only session; failures return empty. */

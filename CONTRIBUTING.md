@@ -81,6 +81,17 @@ such as `2h` to impose a limit; `0` disables it. Restart ByteQuay to apply the
 setting to newly accepted turns. Login checks and other short helper operations
 keep their separate timeouts.
 
+To diagnose agent-send latency, start the backend with
+`--logging.level.com.bytequay.agent.SendTiming=DEBUG`. The opt-in `send-timing`
+lines contain phase names, epoch milliseconds, and correlation IDs, without
+message text or credentials. They cover task naming and worktree preparation,
+turn admission and persistence, Codex process/session startup, turn submission,
+and first provider output before dispatch. Match task, turn, and client IDs
+when comparing phases; `task.naming.background` uses a separate text-only provider
+session after the first turn is accepted and is outside the Send critical path.
+Time between the Codex turn acknowledgement and first output includes Codex
+processing and network time, which these local timestamps cannot separate.
+
 Goals are a development-only experiment. `./dev.sh` enables their backend and
 `npm start` shows their controls. Packaged releases hide Goals and disable their
 HTTP endpoints and automatic guidance, while keeping saved data. When starting

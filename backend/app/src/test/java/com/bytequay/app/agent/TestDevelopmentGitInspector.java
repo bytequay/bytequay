@@ -22,6 +22,7 @@ import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.impl.FileAgentResourceService;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.git.GitCommandRunner;
@@ -40,6 +41,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,6 +61,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -135,6 +138,7 @@ class TestDevelopmentGitInspector
     @Test
     void capturesLocalFactsWithoutReadingGitHubOrRemote()
     {
+        int before = git.branchReads;
         DevelopmentBaseline baseline = inspector.capture(task);
 
         assertThat(baseline.worktree()).isEqualTo(worktree);
@@ -147,6 +151,117 @@ class TestDevelopmentGitInspector
         assertThat(baseline.route().pushUrl()).isEqualTo(ORIGIN);
         verifyNoInteractions(credentials, pullRequests);
         assertThat(git.remoteReads).isZero();
+        assertThat(git.branchReads - before).isEqualTo(2);
+    }
+
+    @Test
+    void nameOnlyChangeKeepsCodeFingerprintAndLaterGitAndCleanupUseTheNewBranch()
+            throws IOException
+    {
+        DevelopmentBaseline initial = inspector.capture(task);
+        String branch = "user/bytequay/rename-without-changing-code";
+        AtomicReference<AgentTask> saved = new AtomicReference<>(task);
+        DevelopmentBranchRenameJournal journal = journal();
+
+        TaskWorktree renamed = inspector.renameBranch(initial, branch, intent -> journal.write(task.id(), intent),
+                updated -> saved.set(saved.get().withBranch(updated.generatedBranch(), NOW)));
+        journal.clear(task.id());
+        DevelopmentBaseline nextTurn = inspector.capture(saved.get());
+
+        assertThat(nextTurn.local().fingerprint()).isEqualTo(initial.local().fingerprint());
+        assertThat(nextTurn.local().headSha()).isEqualTo(initial.local().headSha());
+        assertThat(nextTurn.local().branch()).isEqualTo(branch);
+        assertThat(worktreeService.currentBranch(renamed)).contains(branch);
+        String head = commit("Work after rename");
+        inspector.pushDevelopmentHead(renamed, nextTurn.route(), head, Optional.empty());
+        assertThat(run(bareRemote, "rev-parse", "refs/heads/" + branch)).isEqualTo(head);
+
+        worktreeService.cleanup(renamed);
+        assertThat(renamed.canonicalWorktree()).doesNotExist();
+        assertThat(run(repository, "rev-parse", "refs/heads/" + branch)).isEqualTo(head);
+        worktreeService.delete(renamed);
+        assertThat(git.run(repository, "show-ref", "--verify", "--quiet", "refs/heads/" + branch).exitCode()).isEqualTo(1);
+        assertThat(git.run(repository, "show-ref", "--verify", "--quiet", "refs/heads/" + worktree.generatedBranch()).exitCode()).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"before-git", "after-git", "after-save", "write-failure", "save-then-throw"})
+    void recoversOnlyTheRecordedRenameAcrossCrashWindows(String phase)
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+        String branch = "user/bytequay/recover-the-recorded-name";
+        DevelopmentBranchRename intent = new DevelopmentBranchRename(worktree.generatedBranch(), branch, baseSha);
+        DevelopmentBranchRenameJournal journal = journal();
+        AtomicReference<AgentTask> saved = new AtomicReference<>(task);
+        if (phase.equals("before-git")) {
+            journal.write(task.id(), intent);
+        }
+        else {
+            assertThatThrownBy(() -> inspector.renameBranch(baseline, branch, rename -> journal.write(task.id(), rename), renamed -> {
+                if (phase.equals("write-failure")) {
+                    throw new IllegalStateException("Database write failed");
+                }
+                if (phase.equals("after-save") || phase.equals("save-then-throw")) {
+                    saved.set(saved.get().withBranch(renamed.generatedBranch(), NOW));
+                }
+                if (phase.equals("save-then-throw")) {
+                    throw new IllegalStateException("Database commit result is uncertain");
+                }
+                // An abrupt process exit never reaches the remaining persistence or cleanup.
+                throw new AssertionError("Simulated process exit");
+            })).isInstanceOf(phase.equals("write-failure") || phase.equals("save-then-throw") ? IllegalStateException.class : AssertionError.class);
+        }
+
+        DevelopmentBranchRenameJournal reopened = journal();
+        TaskWorktree recovered = inspector.recoverRename(saved.get().taskWorktree().orElseThrow(), reopened.read(task.id()).orElseThrow(),
+                renamed -> saved.set(saved.get().withBranch(renamed.generatedBranch(), NOW)));
+        reopened.clear(task.id());
+
+        String expected = phase.equals("before-git") ? worktree.generatedBranch() : branch;
+        assertThat(saved.get().taskWorktree().orElseThrow().generatedBranch()).isEqualTo(expected);
+        assertThat(worktreeService.currentBranch(recovered)).contains(expected);
+        assertThat(inspector.capture(saved.get()).local().headSha()).isEqualTo(baseSha);
+        assertThat(reopened.read(task.id())).isEmpty();
+        AgentTask abandoned = saved.get().fail("Abandoned after recovery", NOW, NOW.plusSeconds(60));
+        worktreeService.cleanup(abandoned.taskWorktree().orElseThrow());
+        assertThat(recovered.canonicalWorktree()).doesNotExist();
+        assertThat(run(repository, "rev-parse", "refs/heads/" + expected)).isEqualTo(baseSha);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"unrelated", "head", "old-ref", "target-ref", "detached"})
+    void recoveryRefusesUnrelatedGitChanges(String change)
+    {
+        String branch = "user/bytequay/recover-the-recorded-name";
+        DevelopmentBranchRename intent = new DevelopmentBranchRename(worktree.generatedBranch(), branch, baseSha);
+        DevelopmentBranchRenameJournal journal = journal();
+        journal.write(task.id(), intent);
+        switch (change) {
+            case "unrelated" -> run(worktree.canonicalWorktree(), "checkout", "-b", "user/bytequay/unrelated");
+            case "head" -> run(worktree.canonicalWorktree(), "commit", "--allow-empty", "-m", "Unrelated work");
+            case "old-ref" -> {
+                run(worktree.canonicalWorktree(), "branch", "-m", branch);
+                run(worktree.canonicalWorktree(), "branch", worktree.generatedBranch(), baseSha);
+            }
+            case "target-ref" -> run(worktree.canonicalWorktree(), "branch", branch, baseSha);
+            case "detached" -> run(worktree.canonicalWorktree(), "checkout", "--detach", baseSha);
+            default -> throw new AssertionError(change);
+        }
+        String before = run(worktree.canonicalWorktree(), "rev-parse", "HEAD");
+
+        assertThatThrownBy(() -> inspector.recoverRename(worktree, journal.read(task.id()).orElseThrow(), ignored -> {
+            throw new AssertionError("Must not adopt an unrelated branch");
+        })).isInstanceOf(RuntimeException.class);
+
+        assertThat(run(worktree.canonicalWorktree(), "rev-parse", "HEAD")).isEqualTo(before);
+        assertThat(journal.read(task.id())).contains(intent);
+    }
+
+    private DevelopmentBranchRenameJournal journal()
+    {
+        FileAgentResourceService resources = new FileAgentResourceService(temporaryDirectory.resolve("runtime"));
+        resources.allocate(task.id());
+        return new DevelopmentBranchRenameJournal(resources, new ObjectMapper());
     }
 
     @ParameterizedTest
@@ -242,7 +357,7 @@ class TestDevelopmentGitInspector
         String branch = "user/bytequay/convert-parquet-time-millis-to-micro";
         List<TaskWorktree> recorded = new ArrayList<>();
 
-        TaskWorktree renamed = inspector.renameBranch(baseline, branch, recorded::add);
+        TaskWorktree renamed = inspector.renameBranch(baseline, branch, ignored -> {}, recorded::add);
 
         assertThat(recorded).containsExactly(renamed);
         assertThat(renamed.generatedBranch()).isEqualTo(branch);
@@ -276,13 +391,13 @@ class TestDevelopmentGitInspector
             run(repository, "config", "branch." + worktree.generatedBranch() + ".merge", "refs/heads/" + worktree.generatedBranch());
         }
         List<TaskWorktree> recorded = new ArrayList<>();
-        assertThat(inspector.renameBranch(baseline, "user/bytequay/convert-parquet-time-millis-to-micro", recorded::add)).isEqualTo(worktree);
+        assertThat(inspector.renameBranch(baseline, "user/bytequay/convert-parquet-time-millis-to-micro", ignored -> {}, recorded::add)).isEqualTo(worktree);
         assertThat(recorded).isEmpty();
         assertThat(worktreeService.currentBranch(worktree)).contains(worktree.generatedBranch());
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"local", "remote", "pull-request", "unverifiable", "namespace", "persistence"})
+    @ValueSource(strings = {"local", "remote", "pull-request", "unverifiable", "namespace"})
     void renameFailuresPreserveTheOriginalBranch(String kind)
     {
         DevelopmentBaseline baseline = inspector.capture(task);
@@ -302,10 +417,7 @@ class TestDevelopmentGitInspector
         if (kind.equals("unverifiable")) {
             git.remoteResult = Optional.of(new Result(128, "offline", false));
         }
-        assertThatThrownBy(() -> inspector.renameBranch(baseline, branch, renamed -> {
-            if (kind.equals("persistence")) {
-                throw new IllegalStateException("Cannot save task");
-            }
+        assertThatThrownBy(() -> inspector.renameBranch(baseline, branch, ignored -> {}, renamed -> {
             throw new AssertionError("Must not record an unsafe rename");
         })).isInstanceOf(RuntimeException.class);
         assertThat(worktreeService.inspect(worktree).head()).isEqualTo(baseSha);
@@ -813,6 +925,7 @@ class TestDevelopmentGitInspector
     {
         private Optional<Result> remoteResult = Optional.empty();
         private int remoteReads;
+        private int branchReads;
         private final List<List<String>> fetches = new ArrayList<>();
         private final List<List<String>> transitions = new ArrayList<>();
         private Optional<Result> fetchResult = Optional.empty();
@@ -822,6 +935,9 @@ class TestDevelopmentGitInspector
         @Override
         public Result run(Path directory, Duration timeout, Map<String, String> environment, List<String> arguments)
         {
+            if (arguments.equals(ImmutableList.of("symbolic-ref", "--quiet", "--short", "HEAD"))) {
+                branchReads++;
+            }
             if (!arguments.isEmpty() && arguments.getFirst().equals("ls-remote")) {
                 remoteReads++;
                 if (remoteResult.isPresent()) {

@@ -49,6 +49,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -105,14 +106,15 @@ class TestDefaultAgentTaskService
         assertThat(stores.find(source.id())).contains(source);
     }
 
-    @Test
-    void rejectsAnAccountOutsideItsWorkspaceBeforeProvisioningAnyTask()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rejectsAnAccountOutsideItsWorkspaceBeforeProvisioningAnyTask(boolean trustedReadiness)
     {
         AgentDriverRegistry registry = mock(AgentDriverRegistry.class);
         doThrow(new AgentUnavailableException("Account belongs to another repository"))
                 .when(registry).checkWorkspaceAccess(driver.id(), Optional.of(WORKSPACE_ID));
         DefaultAgentTaskService scoped = new DefaultAgentTaskService(stores, managedWorktrees, resources, registry, Clock.fixed(NOW, ZoneOffset.UTC));
-        assertThatThrownBy(() -> scoped.createInteractive(interactiveCommand(TaskId.random()))).isInstanceOf(AgentUnavailableException.class);
+        assertThatThrownBy(() -> scoped.createInteractive(interactiveCommand(TaskId.random(), trustedReadiness))).isInstanceOf(AgentUnavailableException.class);
         assertThatThrownBy(() -> scoped.create(command())).isInstanceOf(AgentUnavailableException.class);
         assertThatThrownBy(() -> scoped.prepare(command())).isInstanceOf(AgentUnavailableException.class);
         assertThat(managedWorktrees.provisioned).isEmpty();
@@ -125,7 +127,7 @@ class TestDefaultAgentTaskService
         TaskNames names = new TaskNames("Fix duplicate table samples", "fix-dup-table-sample-issue-31178");
         AgentTask task = service.createInteractive(new CreateInteractiveAgentTaskCommand(
                 input.taskId(), input.workspaceId(), input.laneId(), input.physicalRepository(), input.startCommit(), "user/bytequay/" + names.branch(),
-                "Develop the following GitHub issue", input.defaults(), input.creationFingerprint(), Optional.of(names)));
+                "Develop the following GitHub issue", input.defaults(), input.creationFingerprint(), Optional.of(names), false));
         assertThat(task.title()).isEqualTo(names.title());
         assertThat(task.titleSource()).isEqualTo(TitleSource.AGENT);
         assertThat(task.taskWorktree().orElseThrow().generatedBranch()).isEqualTo("user/bytequay/" + names.branch());
@@ -156,6 +158,40 @@ class TestDefaultAgentTaskService
         assertThatThrownBy(() -> service.createInteractive(interactiveCommand(TaskId.random())))
                 .isInstanceOf(AgentUnavailableException.class);
 
+        assertThat(managedWorktrees.provisioned).isEmpty();
+        assertThat(resources.allocated).isEmpty();
+        assertThat(stores.tasks()).isEmpty();
+    }
+
+    @Test
+    void trustedCreationSkipsTheDuplicateProbeWhileDirectCreationStillRequiresIt()
+    {
+        driver.unavailable();
+
+        AgentTask trusted = service.createInteractive(interactiveCommand(TaskId.random(), true));
+
+        assertThat(trusted.state()).isEqualTo(TaskState.OPEN);
+        assertThat(driver.probeCount()).isZero();
+        assertThatThrownBy(() -> service.createInteractive(interactiveCommand(TaskId.random())))
+                .isInstanceOf(AgentUnavailableException.class);
+        assertThatThrownBy(() -> service.create(command())).isInstanceOf(AgentUnavailableException.class);
+        assertThat(driver.probeCount()).isEqualTo(2);
+        assertThat(managedWorktrees.provisioned).containsExactly(trusted.taskWorktree().orElseThrow());
+        assertThat(stores.tasks()).containsExactly(trusted);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = AgentPermissionPolicy.class, names = {"CI_AUTOFIX", "CHERRY_PICK"})
+    void trustedCreationStillRequiresAnEnforceablePermissionPolicy(AgentPermissionPolicy policy)
+    {
+        CreateInteractiveAgentTaskCommand input = interactiveCommand(TaskId.random(), true);
+        CreateInteractiveAgentTaskCommand unsupported = new CreateInteractiveAgentTaskCommand(
+                input.taskId(), input.workspaceId(), input.laneId(), input.physicalRepository(), input.startCommit(), input.generatedBranch(),
+                input.message(), AgentTaskDefaults.forPermission(policy), input.creationFingerprint(), input.names(), true);
+
+        assertThatThrownBy(() -> service.createInteractive(unsupported))
+                .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("cannot enforce " + policy);
+        assertThat(driver.probeCount()).isZero();
         assertThat(managedWorktrees.provisioned).isEmpty();
         assertThat(resources.allocated).isEmpty();
         assertThat(stores.tasks()).isEmpty();
@@ -434,6 +470,11 @@ class TestDefaultAgentTaskService
 
     private CreateInteractiveAgentTaskCommand interactiveCommand(TaskId taskId)
     {
+        return interactiveCommand(taskId, false);
+    }
+
+    private CreateInteractiveAgentTaskCommand interactiveCommand(TaskId taskId, boolean trustedReadiness)
+    {
         return new CreateInteractiveAgentTaskCommand(
                 taskId,
                 WORKSPACE_ID,
@@ -443,7 +484,7 @@ class TestDefaultAgentTaskService
                 TaskBranches.generate(taskId, "user", "Interactive task"),
                 "Interactive task",
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                "creation-fingerprint", Optional.empty());
+                "creation-fingerprint", Optional.empty(), trustedReadiness);
     }
 
     private static final class RecordingWorktreeService

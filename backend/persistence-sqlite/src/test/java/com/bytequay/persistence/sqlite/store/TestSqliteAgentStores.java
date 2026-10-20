@@ -1068,7 +1068,8 @@ class TestSqliteAgentStores
                 task -> false,
                 (task, turn) -> {},
                 outcome -> {},
-                ignored -> {});
+                ignored -> {},
+                task -> task);
     }
 
     private static QueuedAgentInput queuedInput(TaskId taskId, long position, String idempotencyKey, Instant now)

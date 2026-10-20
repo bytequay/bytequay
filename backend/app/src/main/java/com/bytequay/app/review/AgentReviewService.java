@@ -131,6 +131,7 @@ import static java.util.Objects.requireNonNull;
 public class AgentReviewService
 {
     private static final Logger log = LoggerFactory.getLogger(AgentReviewService.class);
+    private static final Logger sendTiming = LoggerFactory.getLogger("com.bytequay.agent.SendTiming");
     private static final List<String> GIT_OPERATION_PATHS = ImmutableList.of(
             "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "BISECT_LOG", "BISECT_START", "rebase-merge", "rebase-apply");
     // The states the pull-request store keeps for one GitHub no longer shows as open.
@@ -725,8 +726,13 @@ public class AgentReviewService
     /** Admits a discussion input under the same lock as review head updates and closure. */
     public void sendMessage(String reviewId, long expectedTaskVersion, String message, String idempotencyKey, boolean queued)
     {
+        sendTiming.debug("send-timing phase=review.lock.wait epochMs={} taskId=- turnId=- reviewId={}", System.currentTimeMillis(), reviewId);
         withLock(locks.lock(reviewId), () -> {
-            TaskInput.send(turns, TaskId.valueOf(requireOpen(reviewId).taskId()), expectedTaskVersion, message, idempotencyKey, queued, Optional.empty());
+            TaskId taskId = TaskId.valueOf(requireOpen(reviewId).taskId());
+            sendTiming.debug("send-timing phase=review.lock.acquired epochMs={} taskId={} turnId=- reviewId={}", System.currentTimeMillis(), taskId, reviewId);
+            TaskInput.Accepted accepted = TaskInput.send(turns, taskId, expectedTaskVersion, message, idempotencyKey, queued, Optional.empty());
+            sendTiming.debug("send-timing phase=review.admission.end epochMs={} taskId={} turnId={} reviewId={}",
+                    System.currentTimeMillis(), taskId, accepted.turnId().map(TurnId::toString).orElse("-"), reviewId);
             return null;
         });
     }

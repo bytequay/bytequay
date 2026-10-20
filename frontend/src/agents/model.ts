@@ -142,7 +142,7 @@ export interface AgentTaskState {
 }
 
 /** What was sent, and the live sequence it was sent after: the next user message beyond it is its durable copy. */
-export type PendingMessage = { text: string; attachments: AgentAttachmentDto[]; after: number };
+export type PendingMessage = { text: string; attachments: AgentAttachmentDto[]; after: number; unconfirmed?: boolean };
 
 export type AgentTaskAction =
   | { type: 'task/loaded'; task: AgentTaskDto }
@@ -160,6 +160,7 @@ export type AgentTaskAction =
   | { type: 'composer/sending'; sending: boolean }
   | { type: 'message/sent'; text: string; attachments?: AgentAttachmentDto[] }
   | { type: 'message/cleared' }
+  | { type: 'message/unconfirmed' }
   | { type: 'settings/loaded'; settings: AgentTurnSettingsDto }
   | { type: 'notice/changed'; notice: string | null }
   | { type: 'queue/loaded'; queue: AgentQueuedInputDto[] }
@@ -234,6 +235,8 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
       return { ...state, pendingMessage: { text: action.text, attachments: action.attachments ?? [], after: state.lastSequence } };
     case 'message/cleared':
       return { ...state, pendingMessage: null };
+    case 'message/unconfirmed':
+      return state.pendingMessage === null ? state : { ...state, pendingMessage: { ...state.pendingMessage, unconfirmed: true } };
     case 'notice/changed':
       return { ...state, notice: action.notice };
     case 'queue/loaded':
@@ -476,12 +479,26 @@ function fields(value: unknown): Record<string, unknown> {
 
 type AgentTaskSessionBridge = Pick<Bridge, 'getAgentTask' | 'readAgentHistory' | 'subscribeAgentTask'>;
 
-/** Fill the existing bounded window so streamed output does not crowd out the conversation. */
-export async function readRecentAgentHistory(bridge: Pick<Bridge, 'readAgentHistory'>, taskId: string): Promise<{
+type RecentAgentHistory = {
   page: AgentHistoryPageDto;
   earlier: AgentHistoryPageDto[];
-}> {
+};
+
+/** Reuse the unchanged prefix of the bounded window when the latest transport page overlaps it. */
+export async function readRecentAgentHistory(bridge: Pick<Bridge, 'readAgentHistory'>, taskId: string, previous?: RecentAgentHistory): Promise<RecentAgentHistory> {
   const page = await bridge.readAgentHistory(taskId);
+  const firstSequence = page.events[0]?.sequence;
+  if (page.beforeCursor !== null && firstSequence !== undefined && previous !== undefined) {
+    // Keep raw transport pages: cutting a compacted delta could discard text from before the cut.
+    const cached = [...previous.earlier, previous.page];
+    const boundary = cached.findIndex(entry => entry.events.some(event => event.sequence === firstSequence - 1));
+    if (boundary >= 0) {
+      const earlier = cached.slice(0, boundary + 1);
+      earlier[earlier.length - 1] = { ...cached[boundary],
+        events: cached[boundary].events.filter(event => event.sequence < firstSequence), afterCursor: page.beforeCursor };
+      return { page, earlier: compactHistoryPages(earlier, false).slice(-2) };
+    }
+  }
   const earlier: AgentHistoryPageDto[] = [];
   let before = page.beforeCursor;
   while (before !== null && earlier.length < 2) {
@@ -518,9 +535,9 @@ export async function startAgentConversationSession(
   subscribe = true,
 ): Promise<() => void> {
   const noop = (): void => {};
-  const { page, earlier } = await readRecentAgentHistory(bridge, taskId);
+  let recent = await readRecentAgentHistory(bridge, taskId);
   if (!isActive()) return noop;
-  dispatch({ type: 'history/loaded', page, earlier, direction: 'latest' });
+  dispatch({ type: 'history/loaded', ...recent, direction: 'latest' });
   if (!subscribe) {
     dispatch({ type: 'connection/changed', state: 'open' });
     return noop;
@@ -536,7 +553,8 @@ export async function startAgentConversationSession(
     reading = true;
     dirty = false;
     try {
-      const latest = await readRecentAgentHistory(bridge, taskId);
+      const latest = await readRecentAgentHistory(bridge, taskId, recent);
+      recent = latest;
       if (!stopped && isActive() && isLivePage()) dispatch({ type: 'history/loaded', ...latest, direction: 'latest' });
     }
     catch (failure) {
@@ -544,16 +562,20 @@ export async function startAgentConversationSession(
     }
     finally {
       reading = false;
-      if (dirty && !stopped) timer = setTimeout(() => { void refresh(); }, 200);
+      // The first update is immediate; only sustained output waits for the refresh cooldown.
+      if (!stopped) timer = setTimeout(() => {
+        timer = undefined;
+        if (dirty) void refresh();
+      }, 200);
     }
   };
-  const stop = await bridge.subscribeAgentTask(taskId, page.latestSequence, (message) => {
+  const stop = await bridge.subscribeAgentTask(taskId, recent.page.latestSequence, (message) => {
     if (!isActive() || stopped) return;
     if (message.kind === 'events' || message.kind === 'changed') {
       if (message.kind === 'events') dispatch({ type: 'events/observed', events: message.events });
       else dispatch({ type: 'live/changed', sequence: message.sequence, turnId: message.turnId });
       dirty = true;
-      if (timer === undefined && !reading && isLivePage()) timer = setTimeout(() => { void refresh(); }, 200);
+      if (timer === undefined && !reading && isLivePage()) void refresh();
     }
     else dispatch({ type: 'connection/changed', state: message.state, detail: message.detail });
   }, true);

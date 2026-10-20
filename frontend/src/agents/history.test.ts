@@ -49,6 +49,14 @@ function pages(events: AgentEventEnvelope[], size = 1000): AgentHistoryPageDto[]
 const flattened = (value: AgentHistoryPageDto[]): AgentEventEnvelope[] => value.flatMap(page => page.events);
 
 describe('compact conversation history', () => {
+  it('joins the transport cache without compacting deltas that later pages may overlap', () => {
+    const events = [message(1, 'one '), message(2, 'two '), message(3, 'three ')];
+    const cached = compactHistoryPages(pages(events, 1), false);
+    expect(cached).toHaveLength(1);
+    expect(cached[0].events).toEqual(events);
+    expect(cached[0]).toMatchObject({ beforeCursor: null, afterCursor: null, latestSequence: 3 });
+  });
+
   it('keeps 7,000 command updates and their surrounding messages in one bounded logical page', () => {
     const before = message(1, 'Running the build.', true);
     const after = message(7002, 'The build finished.', true);

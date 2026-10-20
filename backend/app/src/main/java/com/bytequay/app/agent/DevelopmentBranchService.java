@@ -31,20 +31,28 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.PullRequestTaskStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
-/** Local branch naming within the active development turn's existing worktree claim. */
+/** Names are suggestions until an idle worktree boundary grants authority to change Git. */
 @Component
 public class DevelopmentBranchService
 {
+    private static final Logger log = LoggerFactory.getLogger(DevelopmentBranchService.class);
+
     private final AgentTaskStore tasks;
     private final AgentTurnStore turns;
     private final AgentRuntimeRegistry runtime;
@@ -52,10 +60,14 @@ public class DevelopmentBranchService
     private final AgentReviewStore reviews;
     private final PullRequestTaskStore assignments;
     private final ObjectProvider<DevelopmentFollowupCoordinator> followups;
+    private final DevelopmentBranchRenameJournal journal;
     private final Clock clock;
+    private final ConcurrentMap<TaskId, String> proposed = new ConcurrentHashMap<>();
+    private final Set<TaskId> agentNamed = ConcurrentHashMap.newKeySet();
 
     public DevelopmentBranchService(AgentTaskStore tasks, AgentTurnStore turns, AgentRuntimeRegistry runtime, DevelopmentGitInspector git,
-            AgentReviewStore reviews, PullRequestTaskStore assignments, ObjectProvider<DevelopmentFollowupCoordinator> followups, Clock clock)
+            AgentReviewStore reviews, PullRequestTaskStore assignments, ObjectProvider<DevelopmentFollowupCoordinator> followups,
+            DevelopmentBranchRenameJournal journal, Clock clock)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -64,7 +76,19 @@ public class DevelopmentBranchService
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
         this.followups = requireNonNull(followups, "followups is null");
+        this.journal = requireNonNull(journal, "journal is null");
         this.clock = requireNonNull(clock, "clock is null");
+    }
+
+    /** An optional naming helper never changes Git, and cannot replace the agent's own suggestion. */
+    public void propose(TaskId taskId, String suffix)
+    {
+        new TaskNames("Name branch", suffix);
+        synchronized (runtime.taskLock(taskId)) {
+            if (!agentNamed.contains(taskId)) {
+                tasks.find(taskId).filter(this::eligible).ifPresent(task -> proposed.putIfAbsent(taskId, fullName(task, suffix)));
+            }
+        }
     }
 
     public String rename(TaskId taskId, TurnId turnId, String suffix)
@@ -86,18 +110,112 @@ public class DevelopmentBranchService
             if (assignments.findByTaskId(taskId.toString()).isPresent()) {
                 return "Keep the imported PR branch: " + previous.generatedBranch();
             }
-            String prefix = TaskBranches.prefix(previous.generatedBranch().split("/", 2)[0]);
-            checkState(previous.generatedBranch().startsWith(prefix), "The task branch has no user namespace");
-            return WorkspaceOperationLocks.withLock(previous.workspaceId(), () -> {
-                TaskWorktree renamed = git.renameBranch(git.capture(task), prefix + suffix, updated -> {
-                    tasks.update(tasks.require(taskId).withBranch(updated.generatedBranch(), Instant.now(clock)));
-                });
-                if (!renamed.equals(previous)) {
-                    followups.getObject().branchRenamed(taskId, turnId, previous, renamed);
-                    return "Renamed the local task branch: " + renamed.generatedBranch();
+            String branch = fullName(task, suffix);
+            agentNamed.add(taskId);
+            proposed.put(taskId, branch);
+            return "Recorded proposed branch: " + branch + ". ByteQuay will apply it after this turn and its processes stop, before automatic publication. "
+                    + "Keep using the current branch for this turn: " + previous.generatedBranch();
+        }
+    }
+
+    /** Called under core's verified idle authority, before another turn or cleanup reads the task. */
+    public AgentTask recover(AgentTask supplied)
+    {
+        synchronized (runtime.taskLock(supplied.id())) {
+            AgentTask task = tasks.require(supplied.id());
+            if (task.state().terminal()) {
+                proposed.remove(task.id());
+                agentNamed.remove(task.id());
+            }
+            if (!task.ownsWorktree() || task.worktreeRemovedAt().isPresent()) {
+                return task;
+            }
+            Optional<DevelopmentBranchRename> pending = journal.read(task.id());
+            if (pending.isEmpty()) {
+                return task;
+            }
+            checkState(turns.findActive(task.id()).isEmpty()
+                    && task.worktreeMutationClaim().filter(claim -> claim.kind() != WorktreeMutationClaim.Kind.RECOVERY).isEmpty(),
+                    "The pending branch rename needs a stopped task");
+            TaskWorktree persisted = task.taskWorktree().orElseThrow();
+            return WorkspaceOperationLocks.withLock(persisted.workspaceId(), () -> {
+                TaskWorktree renamed = git.recoverRename(persisted, pending.orElseThrow(), updated -> record(task.id(), updated));
+                TaskWorktree original = new TaskWorktree(persisted.taskId(), persisted.workspaceId(), persisted.physicalRepository(), persisted.canonicalWorktree(),
+                        pending.orElseThrow().previousBranch(), persisted.startCommit());
+                if (!original.equals(renamed)) {
+                    followups.getObject().branchRenamed(task.id(), original, renamed);
                 }
-                return "Keep the current branch (already named or published): " + previous.generatedBranch();
+                journal.clear(task.id());
+                return tasks.require(task.id());
             });
         }
+    }
+
+    /** The caller retains continuation authority after successful provider shutdown until this returns. */
+    public AgentTask prepare(AgentTask supplied)
+    {
+        synchronized (runtime.taskLock(supplied.id())) {
+            AgentTask task = recover(supplied);
+            String branch = proposed.get(task.id());
+            if (branch == null) {
+                return task;
+            }
+            if (!eligible(task)) {
+                proposed.remove(task.id(), branch);
+                return task;
+            }
+            checkState(turns.findActive(task.id()).isEmpty() && task.worktreeMutationClaim().isEmpty(), "Branch naming requires a stopped task");
+            Optional<AgentTurn> latest = turns.list(task.id()).reversed().stream().filter(turn -> turn.developmentOrigin().isEmpty()).findFirst();
+            if (latest.filter(turn -> turn.state() == TurnState.COMPLETED && turn.cancellationRequestedAt().isEmpty()).isEmpty()) {
+                return task;
+            }
+            // A retained review has its own immutable worktree snapshot. Keep its shared branch stable.
+            if (tasks.listByWorkspace(task.workspaceId().orElseThrow()).stream()
+                    .anyMatch(other -> !other.id().equals(task.id()) && other.taskWorktree().map(TaskWorktree::taskId).filter(task.id()::equals).isPresent())) {
+                proposed.remove(task.id(), branch);
+                return task;
+            }
+            TaskWorktree previous = task.taskWorktree().orElseThrow();
+            return WorkspaceOperationLocks.withLock(previous.workspaceId(), () -> {
+                TaskWorktree renamed;
+                try {
+                    renamed = git.renameBranch(git.capture(task), branch, intent -> journal.write(task.id(), intent), updated -> record(task.id(), updated));
+                }
+                catch (RuntimeException failure) {
+                    // Once intent exists, Git or persistence may have changed and recovery must remain mandatory.
+                    if (agentNamed.contains(task.id()) || journal.read(task.id()).isPresent()) {
+                        throw failure;
+                    }
+                    proposed.remove(task.id(), branch);
+                    log.debug("Skipping optional branch name for task {} before rename intent", task.id(), failure);
+                    return tasks.require(task.id());
+                }
+                if (!renamed.equals(previous)) {
+                    followups.getObject().branchRenamed(task.id(), previous, renamed);
+                    journal.clear(task.id());
+                }
+                proposed.remove(task.id(), branch);
+                return tasks.require(task.id());
+            });
+        }
+    }
+
+    private void record(TaskId taskId, TaskWorktree renamed)
+    {
+        tasks.update(tasks.require(taskId).withBranch(renamed.generatedBranch(), Instant.now(clock)));
+    }
+
+    private boolean eligible(AgentTask task)
+    {
+        return task.interactive() && task.state() == TaskState.OPEN && task.ownsWorktree() && task.worktreeRemovedAt().isEmpty()
+                && reviews.findReviewByTask(task.id().toString()).isEmpty() && assignments.findByTaskId(task.id().toString()).isEmpty();
+    }
+
+    private static String fullName(AgentTask task, String suffix)
+    {
+        String current = task.taskWorktree().orElseThrow().generatedBranch();
+        String prefix = TaskBranches.prefix(current.split("/", 2)[0]);
+        checkState(current.startsWith(prefix), "The task branch has no user namespace");
+        return prefix + suffix;
     }
 }

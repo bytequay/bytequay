@@ -20,6 +20,6 @@ it('recovers stale review controls without losing or resending the draft in Chro
     entry: 'src/pulls/agent-review/fixtures/reviewTurnRecoveryBrowser.tsx',
     global: 'ReviewTurnRecoveryTests',
   });
-  expect(results).toHaveLength(6);
+  expect(results).toHaveLength(15);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, deadline(30_000));

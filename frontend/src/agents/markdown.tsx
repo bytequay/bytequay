@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 import { inline, markdownBlocks } from '../pulls/MarkdownBody';
 
 /** A discussion attaches its footer to the block containing the quoted passage. */
@@ -42,15 +42,28 @@ export function renderMarkdownBlocks(text: string, repository?: string | null, p
             <td key={column} style={{ textAlign: block.aligns[column] }}>{marks(cell)}</td>)}</tr>)}</tbody>
         </table></div>, text: [block.headers, ...block.rows].flat().join(' '),
       };
-      case 'details': return { node: <details key={key}><summary>{marks(block.summary)}</summary>{renderMarkdown(block.text, repository)}</details>,
+      case 'details': return { node: <details key={key}><summary>{marks(block.summary)}</summary>{markdownContent(block.text, repository)}</details>,
         text: `${block.summary} ${block.text}` };
-      case 'alert': return { node: <blockquote key={key}><strong>{block.label}</strong>{renderMarkdown(block.text, repository)}</blockquote>, text: block.text };
+      case 'alert': return { node: <blockquote key={key}><strong>{block.label}</strong>{markdownContent(block.text, repository)}</blockquote>, text: block.text };
       case 'code-reference': return { node: <p key={key}>{marks(block.reference.href)}</p>, text: block.reference.href };
       case 'rule': return { node: <hr key={key} />, text: '' };
     }
   });
 }
 
-export function renderMarkdown(text: string, repository?: string | null, preserveLineBreaks = false): React.ReactNode {
+// Discussion highlighting walks the rendered children, including nested details and alerts.
+function markdownContent(text: string, repository?: string | null, preserveLineBreaks = false): React.JSX.Element {
   return <div className="agt-md">{renderMarkdownBlocks(text, repository, preserveLineBreaks).map(block => block.node)}</div>;
+}
+
+const AgentMarkdown = memo(function AgentMarkdown({ text, repository, preserveLineBreaks }: {
+  text: string;
+  repository?: string | null;
+  preserveLineBreaks: boolean;
+}): React.JSX.Element {
+  return markdownContent(text, repository, preserveLineBreaks);
+});
+
+export function renderMarkdown(text: string, repository?: string | null, preserveLineBreaks = false): React.ReactNode {
+  return <AgentMarkdown text={text} repository={repository} preserveLineBreaks={preserveLineBreaks} />;
 }

@@ -29,7 +29,7 @@ public final class TaskBranches
     private static final int MAX_SLUG_LENGTH = 32;
     private static final String LOGIN = "[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?";
     private static final Pattern BRANCH = Pattern.compile(LOGIN + "/bytequay/[a-z0-9]+(?:-[a-z0-9]+)*");
-    // ponytail: English request lead-ins only; semantic summaries would need naming before provisioning.
+    // The provisional slug is local; semantic naming runs after the conversation starts.
     private static final Pattern REQUEST_PREFIX = Pattern.compile("^(?:(?:let['’]s|let us|please|(?:can|could|would|will) you|"
             + "(?:i|we) (?:want|need|would like) to|(?:i|we)['’]d like to|help (?:me|us)(?: to)?)\\b[\\s,:;!]*)++");
 

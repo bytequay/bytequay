@@ -28,7 +28,7 @@ import type { PendingMessage } from '../../agents/model';
 import type { AgentPendingApprovalDto, AgentStreamConnectionState, AgentTurnDto, ModelOptionDto, ModelProviderDto } from '../../types';
 import type { AgentReviewDto, ReviewModelSelection } from './contracts';
 import type { LocalReviewThreads } from '../local-review/types';
-import { reviewRecoveryRequired, reviewRequests, reviewRunning } from './model';
+import { reviewConversationEvents, reviewRecoveryRequired, reviewRequests, reviewRunning } from './model';
 
 const EMPTY_HISTORY: ConversationHistory = { before: null, after: null, loading: false, onLoad: () => {}, onFollow: () => {} };
 
@@ -102,21 +102,23 @@ export default function ReviewActivity({
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [logChoice, setLogChoice] = useState<string | null>(null);
   const latestTurn = Object.values(turns).at(-1);
-  const pendingIds = new Set(pendingApprovals.map(approval => approval.approvalId));
+  const pendingIds = useMemo(() => new Set(pendingApprovals.map(approval => approval.approvalId)), [pendingApprovals]);
   const requests = useMemo(() => reviewRequests(review), [review]);
-  // History can arrive before a synchronous launch saves its discussion association.
-  // Keep that input out of the transcript until it can render directly as its card.
-  const visibleEvents = useMemo(() => {
-    const requestTurns = new Set(requests.map(request => request.turnId));
-    const requestEvents = new Set(requests.map(request => request.messageEventId));
-    const visible = events.filter(event => event.type !== 'user_message' || event.sequence <= reviewSequence
-      || requestEvents.has(event.eventId) || (event.payload.deliveryKind !== 'STEER' && event.turnId !== null && requestTurns.has(event.turnId)));
-    return visible.length === events.length ? events : visible;
-  }, [events, requests, reviewSequence]);
+  const visibleEvents = useMemo(() => reviewConversationEvents(events, requests, reviewSequence), [events, requests, reviewSequence]);
+  const visiblePendingMessage = pendingMessage !== null && visibleEvents.some(event => event.type === 'user_message' && event.sequence > pendingMessage.after)
+    ? null : pendingMessage;
   const scroll = useConversationHistory(visibleEvents, latestTurn?.endedAt, history);
-  const projected = withApprovalAuthority(projectTranscript(visibleEvents, null, turns, history.before === null, history.after === null && (scroll.following || (events.at(-1)?.sequence ?? 0) >= lastSequence)), pendingIds);
-  const agents = review.task.nestedAgents ? projectAgents(events, review.activeTurn?.id ?? null, history.after === null) : [];
-  const agentLabels = Object.fromEntries(agents.map(agent => [agent.threadId, agent.label]));
+  const atLatest = history.after === null && (scroll.following || (events.at(-1)?.sequence ?? 0) >= lastSequence);
+  const projected = useMemo(() => withApprovalAuthority(projectTranscript(visibleEvents, null, turns, history.before === null, atLatest), pendingIds),
+    [visibleEvents, turns, history.before, atLatest, pendingIds]);
+  const agents = useMemo(() => review.task.nestedAgents ? projectAgents(events, review.activeTurn?.id ?? null, history.after === null) : [],
+    [review.task.nestedAgents, events, review.activeTurn?.id, history.after]);
+  const showingAgent = conversationPanel?.bodyTarget != null && conversationPanel.active === 'agents';
+  const agentTranscript = useMemo(() => !showingAgent || openAgent === null ? []
+    : withApprovalAuthority(projectTranscript(events, openAgent, turns, history.before === null, history.after === null), pendingIds),
+  [showingAgent, openAgent, events, turns, history.before, history.after, pendingIds]);
+  const agentLabels = useMemo(() => Object.fromEntries(agents.map(agent => [agent.threadId, agent.label])), [agents]);
+  const discussionTurns = useMemo(() => discussionTurnSummaries(projected), [projected]);
   const openSubagent = (threadId: string): void => {
     setOpenAgent(threadId);
     setAgentsOpen(true);
@@ -143,14 +145,14 @@ export default function ReviewActivity({
       </>, conversationPanel.tabTarget)}
       {conversationPanel.bodyTarget !== null && conversationPanel.active === 'agents' && createPortal(
         <SubagentsPanel agents={agents} openAgent={openAgent} expiredChildren={[]} deleteAfter={null}
-          transcript={openAgent === null ? [] : withApprovalAuthority(projectTranscript(events, openAgent, turns, history.before === null, history.after === null), pendingIds)}
+          transcript={agentTranscript}
           now={now} repository={review.repo} activityChoice={activityChoice} onOpenAgent={openSubagent} onCloseAgent={() => setOpenAgent(null)}
           onToggleActivity={toggleActivity} onDecide={onDecide} logChoice={logChoice} onToggleLog={setLogChoice}
           historyUnloaded={history.before !== null || history.after !== null} historyLoading={history.loading}
           onLoadEarlier={() => scroll.loadHistory('older')} />, conversationPanel.bodyTarget)}
       {conversationPanel.bodyTarget !== null && conversationPanel.active === 'discussions' && createPortal(
         <DiscussionsPanel discussions={discussions} repository={review.repo} focus={discussionFocus}
-          turns={discussionTurnSummaries(projected)} onJump={revealPassage} onHover={setHoveredDiscussion} />, conversationPanel.bodyTarget)}
+          turns={discussionTurns} onJump={revealPassage} onHover={setHoveredDiscussion} />, conversationPanel.bodyTarget)}
     </>}
     <AgentConversation
       turns={projected} repository={review.repo} durableTurns={turns} models={models} now={now} scroll={scroll} workspaceId={review.workspaceId}
@@ -159,7 +161,7 @@ export default function ReviewActivity({
         : async (passage, question) => { const discussion = await discussions.open({ ...passage, question }); openDiscussion(discussion.id); }}
       onOpenDiscussion={openDiscussion} focusedDiscussion={hoveredDiscussion} onHoverDiscussion={setHoveredDiscussion}
       localReview={localReview} reviewRequests={requests} onOpenReview={onOpenReview}
-      connection={connection} running={running} activeTurn={review.activeTurn} waiting={waiting} pendingMessage={pendingMessage}
+      connection={connection} running={running} activeTurn={review.activeTurn} waiting={waiting} pendingMessage={visiblePendingMessage}
       activityChoice={activityChoice} turnChoice={turnChoice} pendingApprovals={pendingApprovals}
       generatedTurnIds={new Set(review.byteQuayTurnIds)} label="Review agent conversation"
       onToggleTurn={(id, open) => setTurnChoice(choices => ({ ...choices, [id]: open }))}

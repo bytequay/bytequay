@@ -54,6 +54,21 @@ it('answers a timeout with a request that may still finish', async () => {
   await expect(backendJson('/local')).rejects.toThrow(UNCONFIRMED_REQUEST);
 });
 
+it('keeps a write uncertain when the accepted response is lost before headers or during its body', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed'); }));
+  await expect(backendJson('/turns', { method: 'POST' })).rejects.toThrow(UNCONFIRMED_REQUEST);
+  await expect(backendJson('/turns')).rejects.toThrow('fetch failed');
+
+  const response = new Response(new ReadableStream({ start(controller) { controller.error(new Error('socket closed')); } }));
+  vi.stubGlobal('fetch', vi.fn(async () => response));
+  await expect(backendJson('/turns', { method: 'POST' })).rejects.toThrow(UNCONFIRMED_REQUEST);
+});
+
+it('keeps a server rejection distinct from a lost write response', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ message: 'Task version changed' }, { status: 409 })));
+  await expect(backendJson('/turns', { method: 'POST' })).rejects.toThrow('Task version changed');
+});
+
 it('preserves the provider sign-in details in a typed failure', async () => {
   const detail = { timestamp: '2026-10-16T00:00:00Z', status: 503, code: 'AGENT_PROVIDER_UNAVAILABLE', laneId: 'claude',
     readiness: 'AUTHENTICATION_REQUIRED', diagnostic: 'Sign in', signInCommand: 'claude auth login', path: '/local' };

@@ -1026,6 +1026,8 @@ export function useConversationHistory(events: AgentEventEnvelope[], endedAt: st
   const followSend = (): void => {
     glide.current = follow.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     scrollIntent.current = 0;
+    pendingHistory.current = null;
+    if (after !== null || loading) onLoad('latest');
     changeFollowing(true);
     setSends(count => count + 1);
   };
@@ -1167,18 +1169,18 @@ export function AgentConversation({
   /** The workspace whose memory a Remembered row's Undo changes; without it the rows show no Undo. */
   workspaceId?: string | null;
 }): React.JSX.Element {
-  const pending = scroll.after === null ? pendingMessage : null;
+  const pending = scroll.after === null || scroll.following ? pendingMessage : null;
   const liveTurn = turns.find(turn => turn.turnId === activeTurnId);
   // Picked per log, not per live line: the line remounts as it moves between turns.
   const [critter] = useState(randomCritter);
   const liveLabel = connection !== 'open' || gap ? 'Reconnecting…'
-    : pending !== null ? 'Sending…'
+    : pending !== null ? pending.unconfirmed ? 'Checking acceptance…' : 'Sending…'
     : waiting ? 'Waiting for approval'
       : activeTurn?.cancellationRequestedAt != null ? 'Stopping…'
         : activeTurn?.state === 'ACCEPTED' ? 'Starting…'
           : liveTurn?.endedAt != null ? 'Finishing…' : null;
-  // Reading earlier in the live page must not hide what the agent is doing; only an older page can.
-  const liveActivity = (running || pending !== null) && scroll.after === null
+  // A pending send stays visible while returning from older history; other live work belongs to the latest page.
+  const liveActivity = (running || pending !== null) && (scroll.after === null || pending !== null)
     && <LiveActivity label={liveLabel} animated={!waiting && connection === 'open' && !gap} critter={critter} />;
   const tailRef = useRef<HTMLDivElement>(null);
   const transcriptRef = scroll.transcriptProps.ref;

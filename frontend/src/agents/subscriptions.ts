@@ -90,7 +90,10 @@ export class AgentSubscriptions {
           changed = { kind: 'changed', sequence: event.sequence, turnId: event.turnId ?? changed?.turnId ?? null };
         }
         // Only bounded task progress bypasses watermarks; transcript payloads stay in history pages.
-        if (flushTimer === null && changed !== null) flushTimer = setTimeout(flush, 100);
+        if (flushTimer === null && changed !== null) {
+          flush();
+          flushTimer = setTimeout(flush, 100);
+        }
       },
     }).finally(() => { flush(); this.subscriptions.delete(subscriptionId); });
     return subscriptionId;

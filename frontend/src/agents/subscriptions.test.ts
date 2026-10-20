@@ -55,6 +55,7 @@ describe('AgentSubscriptions', () => {
     await vi.waitFor(() => expect(sender.pushed).toContainEqual({ subscriptionId, taskId: progress.taskId,
       kind: 'changed', sequence: 4, turnId: afterProgress.turnId }));
     expect(sender.pushed.filter(message => (message as { kind: string }).kind !== 'state')).toEqual([
+      { subscriptionId, taskId: progress.taskId, kind: 'changed', sequence: 1, turnId: fixture.events[0].turnId },
       { subscriptionId, taskId: progress.taskId, kind: 'changed', sequence: 2, turnId: fixture.events[1].turnId },
       { subscriptionId, taskId: progress.taskId, kind: 'events', events: [{ ...progress, payload: { ...progress.payload, message: progress.payload.message.slice(0, 500) } }] },
       { subscriptionId, taskId: progress.taskId, kind: 'changed', sequence: 4, turnId: afterProgress.turnId },
@@ -83,9 +84,40 @@ describe('AgentSubscriptions', () => {
       sequence: closing.sequence,
       turnId: fixture.events.at(-1)?.turnId,
     }));
-    expect(sender.pushed.filter(message => (message as { kind: string }).kind === 'changed')).toHaveLength(1);
+    expect(sender.pushed.filter(message => (message as { kind: string }).kind === 'changed')).toHaveLength(2);
     expect(sender.pushed.some(message => (message as { kind: string }).kind === 'events')).toBe(false);
     expect(JSON.stringify(sender.pushed)).not.toContain('Review the authentication change');
+  });
+
+  it('pushes the first live update immediately and coalesces the rest of the burst', async () => {
+    vi.useFakeTimers();
+    const stream = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = stream.writable.getWriter();
+    const subscriptions = new AgentSubscriptions(async () => new Response(stream.readable));
+    const sender = new FakeSender();
+    const subscriptionId = subscriptions.start(sender, fixture.events[0].taskId, 0, true);
+    const write = async (index: number): Promise<void> => {
+      const event = fixture.events[index];
+      await writer.write(new TextEncoder().encode(`id: ${event.sequence}\ndata: ${JSON.stringify(event)}\n\n`));
+      await vi.advanceTimersByTimeAsync(0);
+    };
+    const updates = () => sender.pushed.filter(message => (message as { kind: string }).kind === 'changed');
+    try {
+      await write(0);
+      expect(updates()).toEqual([{ subscriptionId, taskId: fixture.events[0].taskId,
+        kind: 'changed', sequence: 1, turnId: fixture.events[0].turnId }]);
+      await write(1);
+      await write(2);
+      expect(updates()).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(updates()).toHaveLength(2);
+      expect(updates().at(-1)).toMatchObject({ sequence: 3 });
+    }
+    finally {
+      subscriptions.stop(subscriptionId);
+      await writer.close();
+      vi.useRealTimers();
+    }
   });
 
   it('stamps every push with its subscription and task', () => {

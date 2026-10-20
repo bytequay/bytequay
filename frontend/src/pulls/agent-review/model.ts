@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { ReviewRequest, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
+import type { AgentEventEnvelope } from '../../agents/events';
 import { formatDuration } from '../../agents/transcript';
 import { shortSha } from '@bytequay/ui/displayText';
 import type {
@@ -459,6 +460,15 @@ export function shortPath(path: string, maximum = 44): string {
   const tail = path.slice(-(maximum - 1));
   const cut = tail.indexOf('/');
   return `…${cut === -1 ? tail : tail.slice(cut)}`;
+}
+
+/** History may arrive before the review saves the input's discussion-card identity. */
+export function reviewConversationEvents(events: AgentEventEnvelope[], requests: ReviewRequest[], reviewSequence: number): AgentEventEnvelope[] {
+  const requestTurns = new Set(requests.map(request => request.turnId));
+  const requestEvents = new Set(requests.map(request => request.messageEventId));
+  const visible = events.filter(event => event.type !== 'user_message' || event.sequence <= reviewSequence
+    || requestEvents.has(event.eventId) || (event.payload.deliveryKind !== 'STEER' && event.turnId !== null && requestTurns.has(event.turnId)));
+  return visible.length === events.length ? events : visible;
 }
 
 /** Saved discussion and delivery identities select cards, never words in the generated prompt. */

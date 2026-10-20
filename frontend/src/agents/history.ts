@@ -91,16 +91,18 @@ function compactEvents(events: AgentEventEnvelope[]): { events: AgentEventEnvelo
   return { events: retained.map(value => value.event), bytes: 2 + retained.reduce((sum, value) => sum + value.bytes, 0) + Math.max(0, retained.length - 1) };
 }
 
-/** Transport pages become bounded logical pages, so thousands of deltas cannot evict a few readable messages. */
-export function compactHistoryPages(pages: AgentHistoryPageDto[]): AgentHistoryPageDto[] {
+/** Join bounded pages, keeping raw deltas only for the overlapping transport-page cache. */
+export function compactHistoryPages(pages: AgentHistoryPageDto[], compactDeltas = true): AgentHistoryPageDto[] {
   const result: AgentHistoryPageDto[] = [];
+  const contents = (events: AgentEventEnvelope[]) => compactDeltas ? compactEvents(events)
+    : { events, bytes: encoder.encode(JSON.stringify(events)).byteLength };
   for (const page of pages) {
-    const compact = compactEvents(page.events);
+    const compact = contents(page.events);
     const current = { ...page, events: compact.events };
     const previous = result.at(-1);
     const adjacent = previous !== undefined && previous.afterCursor !== null && previous.afterCursor === current.beforeCursor;
     if (adjacent) {
-      const combined = compactEvents([...previous.events, ...current.events]);
+      const combined = contents([...previous.events, ...current.events]);
       if (combined.events.length <= MAX_EVENTS && combined.bytes <= MAX_BYTES) {
         result[result.length - 1] = {
           events: combined.events,

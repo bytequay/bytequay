@@ -21,7 +21,12 @@ import static com.bytequay.core.domain.Checks.checkSha;
 import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
-/** Path-free input for one workspace-owned interactive task. */
+/**
+ * Path-free input for one workspace-owned interactive task.
+ *
+ * @param useTrustedCreationReadiness true only when the application creator has just checked this
+ * lane and these defaults in the same creation operation; never accepted from external input
+ */
 public record CreateInteractiveAgentTaskCommand(
         TaskId taskId,
         String workspaceId,
@@ -32,7 +37,8 @@ public record CreateInteractiveAgentTaskCommand(
         String message,
         AgentTaskDefaults defaults,
         String creationFingerprint,
-        Optional<TaskNames> names)
+        Optional<TaskNames> names,
+        boolean useTrustedCreationReadiness)
 {
     public CreateInteractiveAgentTaskCommand
     {

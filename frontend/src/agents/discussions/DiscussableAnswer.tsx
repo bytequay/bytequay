@@ -14,7 +14,7 @@
 
 
 import Composer from '../../Composer';
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 
 import { DiscussionFooter } from './DiscussionFooter';
 import { remoteErrorMessage } from '../../remoteError';
@@ -88,7 +88,7 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
   // A composer the reader moved or resized keeps where they put it until it closes.
   const [moved, setMoved] = useState<{ left: number; top: number } | null>(null);
   const [sized, setSized] = useState<CSSProperties>({});
-  const blocks = renderMarkdownBlocks(text, repository);
+  const blocks = useMemo(() => renderMarkdownBlocks(text, repository), [text, repository]);
 
   const placed = new Map<number, { discussion: TaskDiscussionDto; nth: number }[]>();
   const adrift: TaskDiscussionDto[] = [];

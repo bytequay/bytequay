@@ -144,6 +144,7 @@ public final class CodexCliDriver
         implements AgentDriver
 {
     private static final Logger log = LoggerFactory.getLogger(CodexCliDriver.class);
+    private static final Logger sendTiming = LoggerFactory.getLogger("com.bytequay.agent.SendTiming");
     private static final AgentLaneId LANE_ID = new AgentLaneId("codex");
     private static final int CONTRACT_VERSION = 1;
     private static final int REVIEW_DYNAMIC_CONTRACT_VERSION = 3;
@@ -165,6 +166,7 @@ public final class CodexCliDriver
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
+    private static final Duration READINESS_REUSE = Duration.ofMinutes(10);
     private static final Duration DEFAULT_QUIESCENCE_TIMEOUT = Duration.ofMinutes(2);
     private static final Duration QUIESCENCE_POLL = Duration.ofMillis(100);
     /** A subagent still working is not about to finish, and each pass rereads every agent. */
@@ -224,6 +226,7 @@ public final class CodexCliDriver
     private final AtomicReference<String> appServerVersion = new AtomicReference<>();
     private volatile ModelCatalog modelCatalog;
     private volatile String detectedVersion = "unknown";
+    private volatile Instant readyUntil = Instant.MIN;
 
     /**
      * @param codexHome ByteQuay's own Codex home; every Codex process this driver starts runs with
@@ -418,6 +421,16 @@ public final class CodexCliDriver
     @Override
     public AgentProviderStatus probe()
     {
+        readyUntil = Instant.MIN;
+        AgentProviderStatus status = probeAvailability();
+        if (status.available()) {
+            readyUntil = Instant.now().plus(READINESS_REUSE);
+        }
+        return status;
+    }
+
+    private AgentProviderStatus probeAvailability()
+    {
         try {
             ProviderCli.Result versionResult = run(executable, "--version");
             if (versionResult.exitCode() != 0) {
@@ -556,7 +569,7 @@ public final class CodexCliDriver
         }
     }
 
-    private ModelCatalog modelCatalog()
+    private synchronized ModelCatalog modelCatalog()
     {
         ModelCatalog cached = modelCatalog;
         return cached == null ? refreshModelCatalog() : cached;
@@ -586,10 +599,19 @@ public final class CodexCliDriver
     {
         requireNonNull(context, "context is null");
         requireNonNull(events, "events is null");
+        timing("codex.session.open.begin", context);
         if (context.sessionReference().stream().anyMatch(reference -> reference.contractVersion() == 2)) {
             throw new AgentUnavailableException("This Codex conversation has an outdated tool list. Start a new task to use live tool discovery");
         }
-        requireAvailable();
+        // Turn admission already checked readiness; opening its process must not run the same CLI helpers again.
+        if (!readyUntil.isAfter(Instant.now())) {
+            requireAvailable();
+        }
+        timing("codex.session.readiness.end", context);
+        CodexIsolationGuard.rejectRuleFiles(codexHome);
+        if (deepSeekSecret.isPresent()) {
+            DeepSeekModelCatalog.verifyHome(codexHome);
+        }
         String runningVersion = rememberAppServerVersion();
         // The process runs in the task worktree so its sandbox grants writes there
         // without a separately registered execution environment.
@@ -645,6 +667,8 @@ public final class CodexCliDriver
                     review,
                     guardedReviewTools,
                     launchEnvironment());
+            launch.client().timingTask(context.taskId());
+            launch.client().timing("codex.session.launch_config.end");
         }
         catch (RuntimeException failure) {
             codeQueries.ifPresent(McpRegistration::close);
@@ -660,6 +684,14 @@ public final class CodexCliDriver
             launch.client().close();
             codeQueries.ifPresent(McpRegistration::close);
             throw failure;
+        }
+    }
+
+    private static void timing(String phase, AgentSessionContext context)
+    {
+        if (sendTiming.isDebugEnabled()) {
+            sendTiming.debug("send-timing phase={} epochMs={} taskId={} turnId=- clientId=- textOnly={}",
+                    phase, System.currentTimeMillis(), context.taskId(), context.textOnly());
         }
     }
 
@@ -939,13 +971,18 @@ public final class CodexCliDriver
             // Attached before the process is started, so nothing App Server emits can arrive
             // before there is a session to receive it.
             client.listen(this);
+            context.sessionReference().ifPresent(previous -> client.timingThread(previous.providerValue()));
             client.start();
+            client.timing("codex.session.isolation.begin");
             Path worktree = canonicalWorktree();
             // Sent only as a turn root: a launch-time writable root is what selects the CI profile.
             verifyCiWorktree(worktree);
             isolation.verify(worktree);
+            client.timing("codex.session.isolation.end");
             String threadId = openThread(context, worktree);
+            client.timing("codex.thread.verify.begin");
             isolation.verifyThread(threadId);
+            client.timing("codex.thread.verify.end");
             if (context.sessionReference().isEmpty()) {
                 recordInstructions(threadId);
             }
@@ -962,6 +999,7 @@ public final class CodexCliDriver
             if (context.sessionReference().isPresent() && childProfile != CodexLaunchProfile.ChildProfile.NONE) {
                 restoreChildren();
             }
+            client.timing("codex.session.open.end");
         }
 
         /**
@@ -1003,14 +1041,17 @@ public final class CodexCliDriver
             String approvalPolicy = approvalPolicy();
             String sandbox = context.restricted() ? "read-only" : "workspace-write";
 
-            Map<String, Object> config = CodexLaunchProfile.threadConfig(
+            ImmutableMap.Builder<String, Object> configBuilder = ImmutableMap.<String, Object>builder().putAll(CodexLaunchProfile.threadConfig(
                     childProfile,
                     codeQueries.isPresent(),
                     shellOff(context.access()),
                     ciWritableRoots,
                     permissionScope.githubCommands(),
                     permissionScope.review(),
-                    deepSeek);
+                    deepSeek));
+            // Codex prewarms before turn/start; a different effort prevents reuse of that prepared request's context.
+            context.effort().ifPresent(effort -> configBuilder.put("model_reasoning_effort", effort));
+            Map<String, Object> config = configBuilder.buildOrThrow();
             String method = existing.isPresent() ? "thread/resume" : "thread/start";
             existing.ifPresent(previous -> {
                 // Root tools cannot be added to a thread after it starts. A thread that has them may resume without
@@ -1051,7 +1092,11 @@ public final class CodexCliDriver
                         ImmutableList.of());
             }
             try {
-                return client.request(method, params, CodexProtocol.ThreadResponse.class, REQUEST_TIMEOUT).thread().id();
+                client.timing(existing.isPresent() ? "codex.thread.resume.begin" : "codex.thread.start.begin");
+                String threadId = client.request(method, params, CodexProtocol.ThreadResponse.class, REQUEST_TIMEOUT).thread().id();
+                client.timingThread(threadId);
+                client.timing(existing.isPresent() ? "codex.thread.resume.end" : "codex.thread.start.end");
+                return threadId;
             }
             catch (RuntimeException failure) {
                 throw appServerFailure(method, failure);
@@ -1106,6 +1151,8 @@ public final class CodexCliDriver
             if (running != null && !running.completion().toCompletableFuture().isDone()) {
                 throw new AgentUnavailableException("Codex session already has a running turn");
             }
+            client.timingTurn(command.turnId());
+            client.timing("codex.turn.prepare.begin");
             List<CodexProtocol.UserInput> input = userInput(command.message(), command.attachments());
 
             // Re-checked before every turn: a writable turn could leave a hook or policy file
@@ -1131,6 +1178,7 @@ public final class CodexCliDriver
                     instructionUpdate.map(update -> ImmutableMap.of(INSTRUCTIONS_CONTEXT,
                             new CodexProtocol.AdditionalContextEntry(INSTRUCTIONS_UPDATE + update, "application"))).orElse(ImmutableMap.of()));
             rememberAppServerVersion();
+            client.timing("codex.turn.prepare.end");
             CodexProtocol.TurnStartResponse response;
             try {
                 response = client.request("turn/start", params, CodexProtocol.TurnStartResponse.class, REQUEST_TIMEOUT);
@@ -1309,7 +1357,7 @@ public final class CodexCliDriver
                     // An interrupt and a natural finish can both report the turn complete. Only the
                     // first starts the wait, or the second would repeat its work and terminate a
                     // background process twice.
-                    if (completing.beginSettling()) {
+                    if (completing.beginSettling(reported)) {
                         Thread.ofVirtual()
                                 .name("bytequay-codex-quiescence")
                                 .start(() -> settle(completing, reported));
@@ -1679,9 +1727,17 @@ public final class CodexCliDriver
          */
         private void settle(CodexRunningTurn turn, CodexProtocol.Turn reported)
         {
+            boolean failed = reported.status() == CodexProtocol.TurnStatus.FAILED;
             Optional<String> unsettled;
             try {
-                unsettled = awaitQuiescence(turn);
+                if (failed) {
+                    // Failed roots can retain systemError or stale history; stop their whole process tree instead of waiting for idle.
+                    turn.toolCalls.shutdownNow();
+                    unsettled = Optional.empty();
+                }
+                else {
+                    unsettled = awaitQuiescence(turn);
+                }
             }
             catch (RuntimeException failure) {
                 String message = Optional.ofNullable(failure.getMessage())
@@ -1698,7 +1754,7 @@ public final class CodexCliDriver
                 closed = true;
             }
             try {
-                if (unsettled.isEmpty()) {
+                if (!failed && unsettled.isEmpty()) {
                     client.closeAfterWorkFinished();
                 }
                 else {
@@ -2237,6 +2293,10 @@ public final class CodexCliDriver
         @Override
         public synchronized void onDisconnect(Throwable failure)
         {
+            if (running != null && running.failedCompletion.isPresent()) {
+                // Its authoritative failure already scheduled process-tree shutdown; a disconnect cannot replace that outcome.
+                return;
+            }
             if (running != null) {
                 CodexRunningTurn interrupted = running;
                 running = null;
@@ -2361,6 +2421,7 @@ public final class CodexCliDriver
         private volatile Optional<String> finalResponse = Optional.empty();
         private volatile boolean finalAnswerSeen;
         private volatile Optional<String> interruptionReason = Optional.empty();
+        private volatile Optional<CodexProtocol.Turn> failedCompletion = Optional.empty();
 
         private CodexRunningTurn(
                 CodexAppServerClient client,
@@ -2523,7 +2584,7 @@ public final class CodexCliDriver
                 case CANCELLED -> Optional.of(detail);
                 case FAILED, INTERRUPTED -> Optional.of("Codex CLI " + rememberAppServerVersion() + ": " + detail);
             };
-            if (interruptionReason.isPresent()) {
+            if (interruptionReason.isPresent() && turn.status() != CodexProtocol.TurnStatus.FAILED) {
                 state = AgentTurnResult.State.INTERRUPTED;
                 reason = interruptionReason;
             }
@@ -2544,6 +2605,11 @@ public final class CodexCliDriver
         private void interrupt(Throwable failure, boolean providerQuiescent)
         {
             String message = interruptionReason.orElseGet(failure::getMessage);
+            if (failedCompletion.isPresent()) {
+                complete(failedCompletion.orElseThrow(), providerQuiescent ? Optional.empty()
+                        : Optional.of(sessionRedactor.redact(message == null || message.isBlank() ? "Codex disconnected before stop verification" : message)));
+                return;
+            }
             completion.complete(new AgentTurnResult(
                     AgentTurnResult.State.INTERRUPTED,
                     finalResponse,
@@ -2560,9 +2626,15 @@ public final class CodexCliDriver
          *
          * @return true for the first caller only
          */
-        private boolean beginSettling()
+        private boolean beginSettling(CodexProtocol.Turn reported)
         {
-            return settling.compareAndSet(false, true);
+            if (!settling.compareAndSet(false, true)) {
+                return false;
+            }
+            if (reported.status() == CodexProtocol.TurnStatus.FAILED) {
+                failedCompletion = Optional.of(reported);
+            }
+            return true;
         }
 
         private synchronized boolean cancellationRequested()

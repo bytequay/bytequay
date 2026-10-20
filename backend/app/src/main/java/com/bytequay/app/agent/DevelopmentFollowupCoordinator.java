@@ -76,12 +76,13 @@ public class DevelopmentFollowupCoordinator
     private final GitHubPullRequestWriteClient writes;
     private final Clock clock;
     private final Runnable waitForCi;
+    private final DevelopmentBranchService branches;
     private final ConcurrentMap<TaskId, Accepted> accepted = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, PendingPublication> publications = new ConcurrentHashMap<>();
 
     public DevelopmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
             Executor executor, CiAutofixService ci, GitHubActionsClient actions, CredentialService credentials, GitHubPullRequestReadClient pullRequests,
-            GitHubPullRequestWriteClient writes, Clock clock, Runnable waitForCi)
+            GitHubPullRequestWriteClient writes, Clock clock, Runnable waitForCi, DevelopmentBranchService branches)
     {
         this.turns = requireNonNull(turns, "turns is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
@@ -94,6 +95,7 @@ public class DevelopmentFollowupCoordinator
         this.writes = requireNonNull(writes, "writes is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.waitForCi = requireNonNull(waitForCi, "waitForCi is null");
+        this.branches = requireNonNull(branches, "branches is null");
     }
 
     /** Called after turn admission and before provider launch, outside the task lock. */
@@ -146,12 +148,15 @@ public class DevelopmentFollowupCoordinator
     }
 
     /** Keeps the accepted destination and starting revision while adopting a verified unpublished name. */
-    public void branchRenamed(TaskId taskId, TurnId turnId, TaskWorktree previous, TaskWorktree renamed)
+    public void branchRenamed(TaskId taskId, TaskWorktree previous, TaskWorktree renamed)
     {
         accepted.computeIfPresent(taskId, (id, source) -> {
-            checkState(source.turnId().equals(turnId) && source.baseline().worktree().equals(previous), "The accepted development branch changed");
+            if (source.baseline().worktree().equals(renamed)) {
+                return source;
+            }
+            checkState(source.baseline().worktree().equals(previous), "The accepted development branch changed");
             DevelopmentBaseline baseline = source.baseline();
-            return new Accepted(turnId, new DevelopmentBaseline(renamed, baseline.route().withHeadBranch(renamed.generatedBranch()), baseline.local()),
+            return new Accepted(source.turnId(), new DevelopmentBaseline(renamed, baseline.route().withHeadBranch(renamed.generatedBranch()), baseline.local()),
                     source.summaryBaseline(), source.localPending(), source.remote().thenApply(remote ->
                             new RemoteBaseline(Optional.of(new DevelopmentPublicationFacts(Optional.empty(), ImmutableList.of())), Optional.empty(), remote.pending())));
         });
@@ -159,15 +164,18 @@ public class DevelopmentFollowupCoordinator
 
     private void advance(DevelopmentTurnCompletion completion, Instant activatedAt)
     {
-        Optional<Accepted> captured = Optional.ofNullable(accepted.get(completion.task().id()))
-                .filter(value -> value.turnId().equals(completion.turn().id()));
         if (!owns(completion)) {
-            captured.ifPresent(value -> accepted.remove(completion.task().id(), value));
+            accepted.computeIfPresent(completion.task().id(), (id, value) -> value.turnId().equals(completion.turn().id()) ? null : value);
             return;
         }
         String action = "Check development result";
         try {
             requireSuccessful(completion);
+            if (completion.turn().developmentResult().filter(DevelopmentResultReport::readyForDelivery).isPresent()) {
+                turns.executeDevelopmentAction(completion.task().id(), completion.turn().id(), () -> branches.prepare(completion.task()));
+            }
+            Optional<Accepted> captured = Optional.ofNullable(accepted.get(completion.task().id()))
+                    .filter(value -> value.turnId().equals(completion.turn().id()));
             DevelopmentAutomation automation = completion.turn().settings().orElseThrow().developmentAutomation().orElse(DevelopmentAutomation.LOCAL_ONLY);
             if (!automation.enabled()) {
                 finish(completion);

@@ -253,7 +253,7 @@ export function AgentHomeView({
   today?: TodayAgenda;
 }): React.JSX.Element {
   const availability = useAgentAvailability(workspaceId);
-  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction }} />;
+  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, error, headerAction }} />;
   const [owner, repo = ''] = repository.split('/');
   const onToday = todayKeys(today?.agenda ?? null);
   // Open items only: a chip opens the work, and a done or set-aside one has nothing left to start.

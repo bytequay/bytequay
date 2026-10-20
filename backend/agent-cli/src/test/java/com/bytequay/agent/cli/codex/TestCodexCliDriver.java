@@ -256,6 +256,46 @@ class TestCodexCliDriver
                 .containsExactly(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void threadStartupUsesTheSelectedEffortBeforeTheFirstTurn(boolean resume)
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportModelCatalog("""
+                {"data":[{"id":"gpt-5","displayName":"GPT-5","description":"d",
+                "supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"max"}],
+                "defaultReasoningEffort":"low","isDefault":true,"hidden":false}]}
+                """);
+        CodexCliDriver driver = driver(supervisor);
+        Optional<AgentSessionRef> reference = resume ? Optional.of(new AgentSessionRef(driver.id(), 1, "thread-1")) : Optional.empty();
+        AgentSessionContext context = context(reference, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty())),
+                Optional.of("gpt-5"), Optional.of("max"));
+
+        try (AgentSession session = driver.open(context, event -> {})) {
+            AppServerProcess server = supervisor.server();
+            assertThat(server.resumeCount()).isEqualTo(resume ? 1 : 0);
+            assertThat(server.threadRequests().getFirst().at("/config/model_reasoning_effort").asText()).isEqualTo("max");
+            session.start(command("Continue"));
+            assertThat(server.turnRequests().getFirst().path("effort").asText()).isEqualTo("max");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void threadStartupLeavesUnselectedEffortToTheProvider(boolean resume)
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        Optional<AgentSessionRef> reference = resume ? Optional.of(new AgentSessionRef(driver.id(), 1, "thread-1")) : Optional.empty();
+        try (AgentSession session = driver.open(context(reference, new AtomicReference<>()), event -> {})) {
+            AppServerProcess server = supervisor.server();
+            assertThat(server.resumeCount()).isEqualTo(resume ? 1 : 0);
+            assertThat(server.threadRequests().getFirst().path("config").has("model_reasoning_effort")).isFalse();
+            session.start(command("Continue"));
+            assertThat(server.turnRequests().getFirst().has("effort")).isFalse();
+        }
+    }
+
     @Test
     void probesResumesAndMapsAnAuthoritativeRedactedResult()
             throws Exception
@@ -957,6 +997,59 @@ class TestCodexCliDriver
     }
 
     @Test
+    void reusesRecentReadinessWhenOpeningAndResumingATask()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        assertThat(driver.probe().available()).isTrue();
+        AgentSessionRef reference;
+        try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
+            reference = session.reference();
+        }
+        try (AgentSession session = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {})) {
+            assertThat(session.reference()).isEqualTo(reference);
+        }
+
+        assertThat(supervisor.probeCommands).hasValue(2);
+        assertThat(supervisor.servers()).hasSize(2);
+        supervisor.loggedOut();
+        assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+        assertThatThrownBy(() -> driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {}))
+                .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("not signed in");
+        assertThat(supervisor.servers()).hasSize(2);
+    }
+
+    @Test
+    void checksNewExecPolicyRulesEvenWhenReadinessIsRecent()
+            throws IOException
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        assertThat(driver.probe().available()).isTrue();
+        Path rules = codexHome().resolve("rules");
+        Files.createDirectories(rules);
+        Files.writeString(rules.resolve("default.rules"), "prefix_rule(pattern=[\"git\"], decision=\"allow\")\n");
+
+        assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
+                .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("exec-policy rules");
+        assertThat(supervisor.probeCommands).hasValue(2);
+        assertThat(supervisor.servers()).isEmpty();
+    }
+
+    @Test
+    void verifiesTheAccountAgainWhenReadinessIsRecent()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        assertThat(driver.probe().available()).isTrue();
+        supervisor.reportAccount("{\"requiresOpenaiAuth\":true,\"account\":null}");
+
+        assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
+                .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("isolated ChatGPT account");
+        assertThat(supervisor.probeCommands).hasValue(2);
+    }
+
+    @Test
     void namesTheCommandThatSignsByteQuaysHomeIn()
     {
         ScriptedProcessSupervisor loggedOut = new ScriptedProcessSupervisor(objectMapper);
@@ -1021,6 +1114,46 @@ class TestCodexCliDriver
             assertThat(none).containsSequence("--disable", "multi_agent_v2");
             assertThat(none).doesNotContain("agents.max_depth=2");
         }
+    }
+
+    @Test
+    void concurrentTaskStartsShareTheInitialModelCatalog()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        assertThat(driver.probe().available()).isTrue();
+        CountDownLatch catalogStarted = new CountDownLatch(1);
+        CompletableFuture<Void> releaseCatalog = new CompletableFuture<>();
+        supervisor.beforeCatalog = () -> {
+            catalogStarted.countDown();
+            releaseCatalog.join();
+        };
+        AtomicReference<Thread> secondThread = new AtomicReference<>();
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}));
+            try {
+                assertThat(catalogStarted.await(5, TimeUnit.SECONDS)).isTrue();
+                var second = executor.submit(() -> {
+                    secondThread.set(Thread.currentThread());
+                    return driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+                });
+                // Both opens reached the catalog while its first discovery still owns the lock.
+                awaitCondition(() -> secondThread.get() != null && secondThread.get().getState() == Thread.State.BLOCKED);
+                releaseCatalog.complete(null);
+                try (AgentSession firstSession = first.get(5, TimeUnit.SECONDS);
+                        AgentSession secondSession = second.get(5, TimeUnit.SECONDS)) {
+                    assertThat(firstSession.reference()).isNotNull();
+                    assertThat(secondSession.reference()).isNotNull();
+                    assertThat(supervisor.catalogLaunches).hasValue(1);
+                }
+            }
+            finally {
+                releaseCatalog.complete(null);
+            }
+        }
+        driver.models();
+        assertThat(supervisor.catalogLaunches).hasValue(2);
     }
 
     @Test
@@ -1637,7 +1770,10 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
-        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        AgentSession session = driver.open(context(Optional.empty(),
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty())),
+                Optional.of("gpt-5"), Optional.of("low")), event -> {});
+        assertThat(supervisor.server().threadRequests().getFirst().at("/config/model_reasoning_effort").asText()).isEqualTo("low");
 
         RunningTurn first = session.start(new AgentTurnCommand(
                 "turn-a",
@@ -1735,6 +1871,150 @@ class TestCodexCliDriver
         assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);
         assertThat(supervisor.server().finishedWorkStops).hasValue(2);
         assertThat(supervisor.server().historyRequests).allSatisfy(request -> assertThat(request.path("includeTurns").asBoolean()).isFalse());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"systemError", "missing-history", "stale-history"})
+    void stopsFailedTurnsWithoutWaitingForIdleHistory(String condition)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("rate limited"));
+        AppServerProcess server = supervisor.server();
+        if (condition.equals("systemError")) {
+            server.threadStatuses.put("thread-1", "systemError");
+        }
+        else {
+            String history = condition.equals("missing-history") ? "[]" : "[{\"id\":\"prior-turn\",\"status\":\"completed\",\"items\":[]}]";
+            server.historyOverrides.put("thread-1", "{\"thread\":{\"id\":\"thread-1\",\"sessionId\":\"session-1\","
+                    + "\"status\":{\"type\":\"idle\"},\"turns\":" + history + "}}");
+        }
+        server.failTurn("exceeded retry limit, last status: 429 Too Many Requests");
+
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+        assertThat(result.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("429 Too Many Requests"));
+        assertThat(result.providerQuiescent()).isTrue();
+        assertThat(server.stopRequests).hasValue(1);
+        assertThat(server.finishedWorkStops).hasValue(0);
+        assertThat(server.historyRequests).isEmpty();
+        assertThat(server.turnLists).hasValue(0);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void disconnectCannotReplaceTheAuthoritativeFailureBeforeItsStopVerificationBegins(boolean verifiedStop)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        if (!verifiedStop) {
+            supervisor.leaveProcessTreeUnverifiable();
+        }
+        AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("failure races disconnect"));
+        AppServerProcess server = supervisor.server();
+        CodexMessageDispatcher.Listener listener = (CodexMessageDispatcher.Listener) session;
+        CodexProtocol.Turn reported = new CodexProtocol.Turn(server.activeTurn(), CodexProtocol.TurnStatus.FAILED,
+                Optional.of(new CodexProtocol.TurnError("429 Too Many Requests known-secret")), Optional.of(2L), ImmutableList.of());
+        // Hold the session monitor so the asynchronous settler cannot win this race by chance.
+        synchronized (session) {
+            listener.onNotification(new CodexProtocol.TurnCompletedNotification(new CodexProtocol.TurnNotificationParams("thread-1", reported)));
+            listener.onDisconnect(new IllegalStateException("connection lost known-secret"));
+            assertThat(turn.completion().toCompletableFuture()).isNotDone();
+        }
+
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+        assertThat(result.providerQuiescent()).isEqualTo(verifiedStop);
+        assertThat(result.terminalReason()).hasValueSatisfying(reason -> {
+            assertThat(reason).contains("429 Too Many Requests [REDACTED]").doesNotContain("connection lost", "known-secret");
+            if (!verifiedStop) {
+                assertThat(reason).contains("Runtime cleanup:", "could not be verified stopped");
+            }
+        });
+        assertThat(server.stopRequests).hasValue(1);
+        assertThat(server.finishedWorkStops).hasValue(0);
+    }
+
+    @Test
+    void failedTurnWaitsForProcessTreeStopEvenWhenChildrenAndTerminalsStillRun()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("failure with descendants"));
+        AppServerProcess server = supervisor.server();
+        server.inventoryChildren.put("thread-1", ImmutableList.of("busy-child"));
+        server.threadStatuses.put("busy-child", "active");
+        server.turnStatuses.put("busy-child", "inProgress");
+        supervisor.reportBackgroundTerminal();
+        server.stopVerificationGate = new CompletableFuture<>();
+
+        server.failTurn();
+        awaitCondition(() -> server.stopRequests.get() == 1);
+
+        assertThat(turn.completion().toCompletableFuture()).isNotDone();
+        assertThat(server.finishedWorkStops).hasValue(0);
+        server.stopVerificationGate.complete(null);
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+        assertThat(result.providerQuiescent()).isTrue();
+        assertThat(result.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("provider failed"));
+    }
+
+    @Test
+    void preservesProviderFailureAndPartialAnswerWhenProcessStopCannotBeVerified()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.leaveProcessTreeUnverifiable();
+        AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("failure before cleanup"));
+        AppServerProcess server = supervisor.server();
+        server.emit("""
+                {"method":"item/completed","params":{"threadId":"thread-1","turnId":"%s",
+                "item":{"type":"agentMessage","id":"partial","text":"partial known-secret","phase":"commentary"}}}
+                """.formatted(server.activeTurn()));
+        server.failTurn("429 Too Many Requests known-secret");
+
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+        assertThat(result.finalResponse()).contains("partial [REDACTED]");
+        assertThat(result.providerQuiescent()).isFalse();
+        assertThat(result.terminalReason()).hasValueSatisfying(reason -> assertThat(reason)
+                .contains("429 Too Many Requests [REDACTED]", "Runtime cleanup:", "could not be verified stopped").doesNotContain("known-secret"));
+        assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);
+        assertThat(server.stopRequests).hasValue(2);
+        assertThat(server.finishedWorkStops).hasValue(0);
+        assertThat(turn.completion().toCompletableFuture().join()).isEqualTo(result);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void errorNotificationsDoNotStopATurnBeforeItsTerminalCompletion(boolean willRetry)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("retry transient failure"));
+        AppServerProcess server = supervisor.server();
+        server.emit("""
+                {"method":"error","params":{"threadId":"thread-1","turnId":"%s",
+                "error":{"message":"temporarily unavailable"},"willRetry":%s}}
+                """.formatted(server.activeTurn(), willRetry));
+        awaitCondition(() -> events.stream().anyMatch(ProviderAgentEvent.Error.class::isInstance));
+
+        assertThat(turn.completion().toCompletableFuture()).isNotDone();
+        assertThat(server.stopRequests).hasValue(0);
+        assertThat(events.stream().filter(ProviderAgentEvent.Error.class::isInstance).map(ProviderAgentEvent.Error.class::cast))
+                .singleElement().satisfies(error -> assertThat(error.retryable()).isEqualTo(willRetry));
+        server.completeTurn();
+        assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
     }
 
     @Test
@@ -3786,6 +4066,9 @@ class TestCodexCliDriver
         private volatile String versionOutput;
         private boolean loggedIn = true;
         private boolean executableMissing;
+        private final AtomicInteger probeCommands = new AtomicInteger();
+        private final AtomicInteger catalogLaunches = new AtomicInteger();
+        private Runnable beforeCatalog = () -> {};
         // One App Server process per task, so the harness keeps every launch rather than the last.
         private final List<AppServerProcess> servers = new CopyOnWriteArrayList<>();
         private final List<Path> serverCwds = new CopyOnWriteArrayList<>();
@@ -4098,14 +4381,20 @@ class TestCodexCliDriver
                 throw new AgentUnavailableException("Unable to start process: /fake/codex", new IOException("missing"));
             }
             if (spec.argv().contains("--version")) {
+                probeCommands.incrementAndGet();
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(versionOutput + "\n"));
                 return ImmediateProcess.success(probeTermination);
             }
             if (spec.argv().contains("login")) {
+                probeCommands.incrementAndGet();
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(loggedIn ? "Logged in using ChatGPT\n" : "Not logged in\n"));
                 return loggedIn ? ImmediateProcess.success(probeTermination) : ImmediateProcess.failure(probeTermination);
             }
             boolean catalog = spec.owner().id().equals("codex-model-catalog");
+            if (catalog) {
+                catalogLaunches.incrementAndGet();
+                beforeCatalog.run();
+            }
             AppServerProcess server = new AppServerProcess(
                     objectMapper,
                     output,
@@ -4199,8 +4488,9 @@ class TestCodexCliDriver
     @Override
         public CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
         {
+            stopRequests.incrementAndGet();
             cancel();
-            return exit().thenApply(ProcessExit::treeTermination);
+            return stopVerificationGate.thenCompose(ignored -> exit().thenApply(ProcessExit::treeTermination));
         }
 
         @Override
@@ -4261,6 +4551,8 @@ class TestCodexCliDriver
         private final ConcurrentMap<String, String> agentPaths = new ConcurrentHashMap<>();
         private volatile int inventoryPageSize = Integer.MAX_VALUE;
         private final AtomicInteger finishedWorkStops = new AtomicInteger();
+        private final AtomicInteger stopRequests = new AtomicInteger();
+        private volatile CompletableFuture<Void> stopVerificationGate = CompletableFuture.completedFuture(null);
 
         private List<String> backgroundTerminalThreads()
         {
@@ -4903,9 +5195,14 @@ class TestCodexCliDriver
 
         private void failTurn()
         {
+            failTurn("provider failed");
+        }
+
+        private void failTurn(String message)
+        {
             emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread-1\","
                     + "\"turn\":{\"id\":\"" + activeTurn
-                    + "\",\"status\":\"failed\",\"error\":{\"message\":\"provider failed\"},\"durationMs\":2,\"items\":[]}}}");
+                    + "\",\"status\":\"failed\",\"error\":" + objectMapper.createObjectNode().put("message", message) + ",\"durationMs\":2,\"items\":[]}}}");
         }
 
         private void disconnect()

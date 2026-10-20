@@ -30,7 +30,11 @@ import org.slf4j.event.Level;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -79,6 +83,7 @@ final class CodexAppServerClient
         implements AutoCloseable
 {
     private static final Logger log = LoggerFactory.getLogger(CodexAppServerClient.class);
+    private static final Logger sendTiming = LoggerFactory.getLogger("com.bytequay.agent.SendTiming");
     private static final Duration START_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration WRITE_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
@@ -100,8 +105,14 @@ final class CodexAppServerClient
     private final CodexMessageDispatcher dispatcher = new CodexMessageDispatcher();
     private final Utf8LineBuffer protocolLines = new Utf8LineBuffer(MAX_PROTOCOL_LINE_BYTES, true, this::receive);
     private final Utf8LineBuffer diagnosticLines;
+    private final String clientId = UUID.randomUUID().toString();
+    private final FirstOutputTiming firstProviderOutput = new FirstOutputTiming();
 
     private volatile Thread readerThread;
+    private volatile String timingTaskId = "-";
+    private volatile String timingThreadId = "-";
+    private volatile String timingTurnId = "-";
+    private volatile long timingTurnRequestId = -1;
     private volatile ManagedProcess process;
     private volatile boolean closed;
     private volatile boolean workFinished;
@@ -161,6 +172,43 @@ final class CodexAppServerClient
         dispatcher.listen(listener);
     }
 
+    void timingTask(String taskId)
+    {
+        timingTaskId = taskId;
+    }
+
+    void timingThread(String threadId)
+    {
+        timingThreadId = threadId;
+    }
+
+    void timingTurn(String turnId)
+    {
+        firstProviderOutput.cancel();
+        timingTurnId = turnId;
+    }
+
+    void timing(String phase)
+    {
+        timing(phase, -1, "-");
+    }
+
+    private void timing(String phase, long requestId, String providerTurnId)
+    {
+        if (sendTiming.isDebugEnabled()) {
+            timing(phase, requestId, providerTurnId, System.currentTimeMillis());
+        }
+    }
+
+    private void timing(String phase, long requestId, String providerTurnId, long epochMs)
+    {
+        if (sendTiming.isDebugEnabled()) {
+            sendTiming.debug("send-timing phase={} epochMs={} taskId={} turnId={} clientId={} providerThreadId={} providerTurnId={} requestId={}",
+                    phase, epochMs, timingTaskId, timingTurnId, clientId,
+                    redactor.redact(timingThreadId), redactor.redact(providerTurnId), requestId);
+        }
+    }
+
     /**
      * Launches the App Server process and completes the initialize handshake.
      *
@@ -174,6 +222,7 @@ final class CodexAppServerClient
                 throw new AgentUnavailableException("Codex App Server is closed");
             }
             checkState(process == null, "Codex App Server was already started");
+            timing("codex.process.launch.begin");
             process = supervisor.prepare(processSpec).start(new ProcessOutputSink()
             {
                 @Override
@@ -188,6 +237,7 @@ final class CodexAppServerClient
                     outputTruncated(stream);
                 }
             });
+            timing("codex.process.launch.end");
             process.exit().whenComplete((result, failure) -> processExited(result, failure));
 
             try {
@@ -196,12 +246,14 @@ final class CodexAppServerClient
                 CodexProtocol.InitializeParams initialize = new CodexProtocol.InitializeParams(
                         new CodexProtocol.ClientInfo("bytequay", "ByteQuay", "0.5.0"),
                         new CodexProtocol.InitializeCapabilities(true));
+                timing("codex.initialize.begin");
                 CodexProtocol.JsonRpcEnvelope initialized = awaitRequest("initialize", initialize, START_TIMEOUT);
                 codexHome.set(initialized.result()
                         .map(result -> codec.decodeResult(result, CodexProtocol.InitializeResponse.class))
                         .map(CodexProtocol.InitializeResponse::codexHome)
                         .orElse(null));
                 sendNotification("initialized", new CodexProtocol.EmptyParams());
+                timing("codex.initialize.end");
             }
             catch (RuntimeException failure) {
                 process.cancel();
@@ -217,6 +269,12 @@ final class CodexAppServerClient
         CompletableFuture<CodexProtocol.JsonRpcEnvelope> response = new CompletableFuture<>();
         pending.put(id, response);
         try {
+            if (method.equals("turn/start")) {
+                timingTurnRequestId = id;
+                if (sendTiming.isDebugEnabled()) {
+                    firstProviderOutput.begin();
+                }
+            }
             sendRequest(new CodexProtocol.JsonRpcRequest(id, method, params));
             return await(response, timeout, method);
         }
@@ -224,6 +282,9 @@ final class CodexAppServerClient
             // A timeout must not retain its future forever. Match the exact future so a response
             // racing this cleanup cannot remove anything else.
             pending.remove(id, response);
+            if (timingTurnRequestId == id) {
+                timingTurnRequestId = -1;
+            }
         }
     }
 
@@ -268,7 +329,13 @@ final class CodexAppServerClient
                 throw failure;
             }
             try {
+                if (message instanceof CodexProtocol.JsonRpcRequest rpc && rpc.method().equals("turn/start")) {
+                    timing("codex.turn.write.begin", rpc.id(), "-");
+                }
                 await(current.write(ByteBuffer.wrap(bytes)).toCompletableFuture(), WRITE_TIMEOUT, "input write");
+                if (message instanceof CodexProtocol.JsonRpcRequest rpc && rpc.method().equals("turn/start")) {
+                    timing("codex.turn.write.end", rpc.id(), "-");
+                }
             }
             catch (RuntimeException failure) {
                 AgentUnavailableException unavailable = new AgentUnavailableException("Unable to write to Codex App Server", failure);
@@ -359,7 +426,41 @@ final class CodexAppServerClient
 
     private void receiveNotification(CodexProtocol.Notification notification)
     {
+        // The dispatcher can wait behind turn/start's monitor; this marks provider arrival before that queue.
+        if (sendTiming.isDebugEnabled() && notification.threadId().equals(timingThreadId) && meaningfulOutput(notification)) {
+            notification.turnId().flatMap(turnId -> firstProviderOutput.receive(turnId, System.currentTimeMillis()))
+                    .ifPresent(this::timingFirstOutput);
+        }
         dispatcher.dispatch(notification);
+    }
+
+    static boolean meaningfulOutput(CodexProtocol.Notification notification)
+    {
+        return switch (notification) {
+            case CodexProtocol.AgentMessageDeltaNotification value -> !value.params().delta().isBlank();
+            case CodexProtocol.PlanDeltaNotification value -> !value.params().delta().isBlank();
+            case CodexProtocol.CommandOutputNotification value -> !value.params().delta().isBlank();
+            case CodexProtocol.ItemStartedNotification value -> meaningfulItem(value.params().item(), true);
+            case CodexProtocol.ItemCompletedNotification value -> meaningfulItem(value.params().item(), false);
+            case CodexProtocol.PlanUpdatedNotification value -> !value.params().plan().isEmpty();
+            case CodexProtocol.AutoApprovalReviewStartedNotification ignored -> true;
+            case CodexProtocol.AutoApprovalReviewCompletedNotification ignored -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean meaningfulItem(CodexProtocol.ThreadItem item, boolean started)
+    {
+        return switch (item) {
+            case CodexProtocol.AgentMessageItem value -> !started && !value.text().isBlank();
+            case CodexProtocol.PlanTextItem value -> !started && !value.text().isBlank();
+            case CodexProtocol.ReasoningItem value -> !started && value.summary().stream().flatMap(Collection::stream).anyMatch(text -> !text.isBlank());
+            case CodexProtocol.FileChangeItem value -> !started && value.status() == CodexProtocol.ActivityStatus.COMPLETED && !value.changes().isEmpty();
+            case CodexProtocol.UserMessageItem ignored -> false;
+            case CodexProtocol.SubAgentActivityItem ignored -> false;
+            case CodexProtocol.UnknownThreadItem ignored -> false;
+            default -> true;
+        };
     }
 
     /**
@@ -380,10 +481,74 @@ final class CodexAppServerClient
             return;
         }
         if (envelope.error().isPresent()) {
+            if (id == timingTurnRequestId) {
+                firstProviderOutput.cancel();
+                timing("codex.turn.rejected", id, "-");
+            }
             response.completeExceptionally(new RequestRefused("Codex request failed: " + redactor.redact(envelope.error().orElseThrow().message())));
         }
         else {
+            if (id == timingTurnRequestId) {
+                String providerTurnId = envelope.result().map(result -> result.path("turn").path("id").asText("-")).orElse("-");
+                timing("codex.turn.ack", id, providerTurnId);
+                firstProviderOutput.accept(providerTurnId).ifPresent(this::timingFirstOutput);
+            }
             response.complete(envelope);
+        }
+    }
+
+    private void timingFirstOutput(TimedProviderOutput output)
+    {
+        timing("codex.provider.first_output", -1, output.providerTurnId(), output.epochMs());
+    }
+
+    record TimedProviderOutput(String providerTurnId, long epochMs) {}
+
+    /** Correlates early reader arrivals only after turn/start identifies the accepted provider turn. */
+    static final class FirstOutputTiming
+    {
+        private final Map<String, Long> early = new HashMap<>();
+        private String acceptedTurnId;
+        private boolean active;
+
+        synchronized void begin()
+        {
+            early.clear();
+            acceptedTurnId = null;
+            active = true;
+        }
+
+        synchronized void cancel()
+        {
+            early.clear();
+            active = false;
+        }
+
+        synchronized Optional<TimedProviderOutput> accept(String turnId)
+        {
+            acceptedTurnId = turnId;
+            Long epochMs = early.get(turnId);
+            early.clear();
+            return epochMs == null ? Optional.empty() : receive(turnId, epochMs);
+        }
+
+        synchronized Optional<TimedProviderOutput> receive(String turnId, long epochMs)
+        {
+            if (!active) {
+                return Optional.empty();
+            }
+            if (acceptedTurnId == null) {
+                // Only IDs and the first timestamp are retained; unrelated notifications cannot grow this without bound.
+                if (early.size() < 16) {
+                    early.putIfAbsent(turnId, epochMs);
+                }
+                return Optional.empty();
+            }
+            if (!acceptedTurnId.equals(turnId)) {
+                return Optional.empty();
+            }
+            active = false;
+            return Optional.of(new TimedProviderOutput(turnId, epochMs));
         }
     }
 

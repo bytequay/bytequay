@@ -31,6 +31,8 @@ import com.bytequay.core.domain.JiraIssueSource;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -45,6 +47,8 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class InteractiveAgentTaskStarter
 {
+    private static final Logger sendTiming = LoggerFactory.getLogger("com.bytequay.agent.SendTiming");
+
     private final InteractiveAgentTaskCreator taskCreator;
     private final IssueDevelopmentService issueDevelopment;
     private final WorkItemService workItems;
@@ -54,6 +58,7 @@ public class InteractiveAgentTaskStarter
     private final ModelSettingsService modelSettings;
     private final AgentTaskStartupProgress startupProgress;
     private final RecentTouchRecorder recent;
+    private final InteractiveTaskNaming naming;
 
     public InteractiveAgentTaskStarter(
             InteractiveAgentTaskCreator taskCreator,
@@ -64,7 +69,8 @@ public class InteractiveAgentTaskStarter
             AgentResourceService resourceService,
             ModelSettingsService modelSettings,
             AgentTaskStartupProgress startupProgress,
-            RecentTouchRecorder recent)
+            RecentTouchRecorder recent,
+            InteractiveTaskNaming naming)
     {
         this.taskCreator = requireNonNull(taskCreator, "taskCreator is null");
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
@@ -75,6 +81,7 @@ public class InteractiveAgentTaskStarter
         this.modelSettings = requireNonNull(modelSettings, "modelSettings is null");
         this.startupProgress = requireNonNull(startupProgress, "startupProgress is null");
         this.recent = requireNonNull(recent, "recent is null");
+        this.naming = requireNonNull(naming, "naming is null");
     }
 
     public AgentTask start(InteractiveTaskStart start)
@@ -117,10 +124,12 @@ public class InteractiveAgentTaskStarter
             if (!replay && !uploads.isEmpty()) {
                 startupProgress.record(taskId, AgentTaskStartupProgress.Phase.ATTACHMENTS);
             }
+            sendTiming.debug("send-timing phase=task.attachments.begin epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
             List<AgentAttachment> attachments = replay ? ImmutableList.of() : uploads.stream()
                     .map(resourceService::storeAttachment)
                     .map(StoredAgentAttachment::input)
                     .collect(toImmutableList());
+            sendTiming.debug("send-timing phase=task.attachments.end epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
             startupProgress.record(taskId, AgentTaskStartupProgress.Phase.SESSION);
             turnService.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
                     taskId,
@@ -129,6 +138,11 @@ public class InteractiveAgentTaskStarter
                     start.idempotencyKey()).withDevelopmentAutomation(start.initialAutomation()));
             AgentTask task = taskService.get(taskId);
             if (!replay) {
+                String context = source.map(issue -> "GitHub issue #" + issue.number() + ": " + issue.title() + "\n" + issue.body()
+                                + "\n\nUser request:\n" + start.message())
+                        .or(() -> jiraSource.map(issue -> "Jira " + issue.key() + ": " + issue.title() + "\n" + issue.body()
+                                + "\n\nUser request:\n" + start.message())).orElse(start.message());
+                naming.schedule(taskId, start.laneId(), start.defaults(), context);
                 // Recent swallows its own failures, so filing the prompt never decides the response.
                 recent.taskPrompted(taskId.toString(), start.idempotencyKey(), start.message(), task.repository().toString(), task.laneId().value());
             }

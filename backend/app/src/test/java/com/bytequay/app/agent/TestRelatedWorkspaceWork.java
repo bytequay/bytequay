@@ -22,7 +22,6 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
-import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
@@ -192,7 +191,7 @@ class TestRelatedWorkspaceWork
             return target;
         });
         creator = new InteractiveAgentTaskCreator(taskService, turnService, drivers, models, repositories, provisioning, git, appSettings,
-                new AgentTaskStartupProgress(), mock(AgentTaskTitleService.class), mock(PullRequestStore.class), credentials);
+                new AgentTaskStartupProgress(), mock(PullRequestStore.class), credentials);
         when(turnService.start(any())).thenAnswer(call -> {
             StartAgentTurnCommand request = call.getArgument(0);
             AgentTurn turn = accepted(request.taskId(), request.idempotencyKey());
@@ -434,7 +433,7 @@ class TestRelatedWorkspaceWork
     private RelatedWorkspaceWork service()
     {
         return new RelatedWorkspaceWork(settings, new ObjectMapper().findAndRegisterModules(), relationships, repositories, tasks, turns,
-                mock(AgentApprovalStore.class), logs, mock(AgentReviewStore.class), creator, turnService, taskService, models, appSettings, git);
+                mock(AgentApprovalStore.class), logs, mock(AgentReviewStore.class), creator, turnService, taskService, models, appSettings, git, mock(InteractiveTaskNaming.class));
     }
 
     private RelatedWorkspaceWork.Request request(String key, String commit)

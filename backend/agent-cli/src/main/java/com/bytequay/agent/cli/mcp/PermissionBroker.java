@@ -844,7 +844,7 @@ public final class PermissionBroker
             return error(id, -32602, "Invalid rename_task_branch arguments");
         }
         return runTool(id, context, () -> bridge.orElseThrow().branchRenamer().orElseThrow().apply(branch),
-                failure -> context.redactor().redact("Branch rename was refused: " + failureReason(failure)));
+                failure -> context.redactor().redact("Branch name proposal was refused: " + failureReason(failure)));
     }
 
     private static String requireText(JsonNode arguments, String field, int maximumCharacters)
@@ -1362,7 +1362,7 @@ public final class PermissionBroker
                 DevelopmentResultTool.schema(bridge))));
         context.development().filter(bridge -> bridge.branchRenamer().isPresent()).ifPresent(ignored -> tools.add(new ToolDefinition(
                 DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME,
-                "Name this task's unpublished branch after the actual change, only during its first turn and before first pushing",
+                "Propose a branch name during the first turn; applied after verified provider shutdown. Keep using the current branch during this turn",
                 ImmutableMap.of(
                         "type", "object",
                         "properties", ImmutableMap.of("branch", ImmutableMap.of("type", "string", "minLength", 3, "maxLength", 64)),

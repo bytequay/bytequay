@@ -18,9 +18,10 @@ import { parseAgentProviderUnavailable, UNCONFIRMED_REQUEST } from './agents/con
 export async function backendJson<T = unknown>(input: string | URL, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('X-ByteQuay-Session', sessionToken());
+  const mutation = !['GET', 'HEAD'].includes((init?.method ?? 'GET').toUpperCase());
   const response = await fetch(input, { signal: AbortSignal.timeout(60_000), ...init, headers }).catch((failure: unknown) => {
-    // A timeout says nothing about whether the backend acted, so it answers with that rather than an abort error.
-    throw (failure as { name?: unknown } | null)?.name === 'TimeoutError' ? new Error(UNCONFIRMED_REQUEST) : failure;
+    // A lost connection cannot prove that a write was rejected; its request key must survive retry.
+    throw mutation || (failure as { name?: unknown } | null)?.name === 'TimeoutError' ? new Error(UNCONFIRMED_REQUEST) : failure;
   });
   if (!response.ok) {
     const text = await response.text().catch(() => '');
@@ -41,6 +42,12 @@ export async function backendJson<T = unknown>(input: string | URL, init?: Reque
     throw new Error(text || `${init?.method ?? 'GET'} ${input.toString()} returned ${response.status}`);
   }
   if (response.status === 204) return null as T;
-  const text = await response.text();
-  return text ? JSON.parse(text) as T : null as T;
+  try {
+    const text = await response.text();
+    return text ? JSON.parse(text) as T : null as T;
+  }
+  catch (failure) {
+    // Headers may arrive before a connection fails midway through the accepted response body.
+    throw mutation ? new Error(UNCONFIRMED_REQUEST) : failure;
+  }
 }

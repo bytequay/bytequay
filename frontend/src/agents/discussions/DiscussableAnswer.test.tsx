@@ -108,6 +108,15 @@ describe('placing a footer', () => {
     expect(marked).toBe('<p>Key both maps <mark>by the bare </mark><code><mark>path</mark></code>'
       + '<mark>, as </mark><code><mark>FileEntryKey</mark></code> does.</p>');
   });
+
+  it.each([
+    '<details><summary>Details</summary>\n\nRead the `nested` passage.\n\n</details>',
+    '> [!NOTE]\n> Read the `nested` passage.',
+  ])('keeps nested Markdown available for discussion highlighting: %s', text => {
+    const marked = renderToStaticMarkup(<>{markPassage(renderMarkdownBlocks(text)[0].node,
+      'nested passage', 1, body => <mark>{body}</mark>)}</>);
+    expect(marked).toContain('<code><mark>nested</mark></code><mark> passage</mark>');
+  });
 });
 
 describe('a footer row', () => {

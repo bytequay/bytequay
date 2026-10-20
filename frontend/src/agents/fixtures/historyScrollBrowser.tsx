@@ -16,13 +16,13 @@ import { useReducer, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { AgentConversation, useConversationHistory } from '../AgentConversation';
-import { AgentTaskBody } from '../AgentTaskScreen';
-import type { AgentHistoryPageDto, AgentTurnDto } from '../../types';
+import AgentTaskScreen, { AgentTaskBody } from '../AgentTaskScreen';
+import type { AgentHistoryPageDto, AgentTaskDto, AgentTurnDto } from '../../types';
 import type { AgentEventEnvelope } from '../events';
 import { agentTaskReducer, historyAfter, historyBefore, initialAgentTaskState } from '../model';
 import { projectTranscript } from '../transcript';
-import { previewTask, TASK_BODY_NOOPS } from './previewBridge';
-import { assert, settle } from '../../fixtures/harness';
+import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from './previewBridge';
+import { assert, changeInput, settle, until } from '../../fixtures/harness';
 
 declare global {
   interface Window {
@@ -397,6 +397,78 @@ async function sentMessageGlidesToTop(): Promise<void> {
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
+async function sendsWhileOlderHistoryLoads(): Promise<void> {
+  const bridge = createPreviewBridge('workspace');
+  const task: AgentTaskDto = { ...previewTask('workspace', 'scroll-fixture'), mutationClaim: null, developmentContinuationUnfinished: false };
+  const events = page(1, 5000).map(event => event.sequence % 1000 > 970 || event.sequence % 1000 === 0 ? event : {
+    ...event, source: { ...event.source, providerThreadId: 'child-thread', parentProviderThreadId: 'thread', logicalAgentPath: '/child' },
+  });
+  const read = (end: number): AgentHistoryPageDto => ({
+    events: events.slice(Math.max(0, end - 1000), end), beforeCursor: end > 1000 ? String(end - 1000) : null,
+    afterCursor: end < events.length ? String(end) : null, latestSequence: events.length,
+  });
+  let reads = 0;
+  let olderReply: ((result: AgentHistoryPageDto) => void) | null = null;
+  let latestReply: ((result: AgentHistoryPageDto) => void) | null = null;
+  bridge.getAgentTask = async () => task;
+  bridge.getAgentTurn = async () => durable('turn', 'COMPLETED');
+  bridge.readAgentPendingApprovals = async () => [];
+  bridge.readAgentHistory = async (_taskId, before) => {
+    if (before === undefined) {
+      if (++reads === 1) return read(5000);
+      return new Promise(resolve => { latestReply = resolve; });
+    }
+    if (before === '1000') return new Promise(resolve => { olderReply = resolve; });
+    return read(Number(before));
+  };
+  bridge.subscribeAgentTask = async (taskId, _after, listener) => {
+    listener({ subscriptionId: 'history-send', taskId, kind: 'state', state: 'open' });
+    return () => {};
+  };
+  bridge.startAgentTurn = () => new Promise(() => {});
+  const host = document.createElement('div');
+  host.style.cssText = 'height: 560px; width: 760px; font: 14px -apple-system, sans-serif';
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace" taskId={task.id} bridge={bridge} onBack={() => {}} />));
+    await until(() => host.querySelector<HTMLButtonElement>('[aria-label="Send message"]') !== null
+      && host.textContent?.includes('Message 5000') === true, 'The task should load its latest history');
+    const container = host.querySelector<HTMLElement>('.agt-transcript');
+    assert(container !== null, 'The transcript must exist');
+    const scrollOlder = (): void => {
+      container.scrollTop = 0;
+      container.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }));
+    };
+    scrollOlder();
+    await until(() => host.textContent?.includes('Message 1971') === true && !host.textContent?.includes('Message 5000'),
+      'Paging earlier should leave the latest history window');
+    scrollOlder();
+    await until(() => olderReply !== null, 'Another older history request should remain in flight');
+    const input = host.querySelector<HTMLTextAreaElement>('[aria-label="Message the agent"]');
+    assert(input !== null, 'The composer must exist while reading history');
+    changeInput(input, 'Continue from the latest result');
+    await settle();
+    const send = host.querySelector<HTMLButtonElement>('[aria-label="Send message"]');
+    assert(send !== null && !send.disabled, 'An idle task must allow sending while history loads');
+    flushSync(() => send.click());
+    assert(latestReply !== null && reads === 2, 'Sending must start one latest history request without waiting for the older read');
+    const pending = host.querySelector('[data-history-anchor="pending-message"]');
+    assert(pending?.textContent?.includes('Continue from the latest result') === true,
+      'The sent message must appear before either history response or turn startup returns');
+    assert(host.querySelector('.agt-live')?.textContent === 'Sending…', 'The pending message must show sending progress on an older page');
+    const delivered = [request(5001, 'next-turn', 'Continue from the latest result'), message(5002, 'next-turn', 'Reading the latest result.')];
+    (latestReply as (result: AgentHistoryPageDto) => void)(latest(delivered));
+    await until(() => host.textContent?.includes('Reading the latest result.') === true, 'The latest reply should show the new log');
+    (olderReply as (result: AgentHistoryPageDto) => void)(read(1000));
+    await settle();
+    assert(host.textContent?.includes('Reading the latest result.') === true && !host.textContent?.includes('Message 1'),
+      'A late older-history response must not replace the message and log just sent');
+    assert(host.querySelectorAll('.agt-user__bubble').length === 1, 'The durable message must replace its pending bubble exactly once');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
 async function trailingNoticeKeepsRequestAtTop(): Promise<void> {
   const events = [request(1, 'earlier', 'Explain the build'),
     ...Array.from({ length: 30 }, (_, index) => message(index + 2, 'earlier', `Earlier commentary ${index}. The build output is being read.`)),
@@ -542,6 +614,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   await check('puts a new request at the top with room for its reply', latestRequestAtTop);
   await check('keeps a new request at the top while a trailing notice comes and goes', trailingNoticeKeepsRequestAtTop);
   await check('shows a sent message at once and glides it to the top', sentMessageGlidesToTop);
+  await check('shows Send immediately while an older history read is in flight', sendsWhileOlderHistoryLoads);
   await check('streams output to someone reading earlier without moving them', streamsWhileReadingEarlier);
   return results;
 }

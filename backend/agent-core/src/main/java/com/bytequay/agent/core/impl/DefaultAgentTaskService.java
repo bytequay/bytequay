@@ -54,6 +54,8 @@ import static java.util.Objects.requireNonNull;
 public final class DefaultAgentTaskService
         implements AgentTaskService
 {
+    private static final System.Logger sendTiming = System.getLogger("com.bytequay.agent.SendTiming");
+
     private final AgentTaskStore taskStore;
     private final WorktreeService worktreeService;
     private final AgentResourceService resourceService;
@@ -81,17 +83,31 @@ public final class DefaultAgentTaskService
         requireNonNull(command, "command is null");
         requireNonNull(persistTask, "persistTask is null");
         driverRegistry.checkWorkspaceAccess(command.laneId(), Optional.of(command.workspaceId()));
-        requireReady(command.laneId(), command.defaults().permissionPolicy());
+        sendTiming.log(System.Logger.Level.DEBUG,
+                () -> "send-timing phase=task.core_readiness.begin epochMs=" + System.currentTimeMillis() + " taskId=" + command.taskId() + " turnId=-");
+        if (command.useTrustedCreationReadiness()) {
+            // Only the application creator supplies this after validating the same lane and defaults
+            // before repository preparation. Workspace access and policy enforcement still apply here.
+            requirePolicy(command.laneId(), command.defaults().permissionPolicy());
+        }
+        else {
+            requireReady(command.laneId(), command.defaults().permissionPolicy());
+        }
+        sendTiming.log(System.Logger.Level.DEBUG,
+                () -> "send-timing phase=task.core_readiness.end epochMs=" + System.currentTimeMillis() + " taskId=" + command.taskId() + " turnId=-");
         if (taskStore.find(command.taskId()).isPresent()) {
             throw new AgentConflictException("Task already exists: " + command.taskId());
         }
 
+        sendTiming.log(System.Logger.Level.DEBUG,
+                () -> "send-timing phase=task.worktree.begin epochMs=" + System.currentTimeMillis() + " taskId=" + command.taskId() + " turnId=-");
         TaskWorktree worktree = worktreeService.provision(new ProvisionWorktreeCommand(
                 command.taskId(),
                 command.workspaceId(),
                 command.physicalRepository(),
                 command.startCommit(),
                 command.generatedBranch()));
+        sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=task.worktree.end epochMs=" + System.currentTimeMillis() + " taskId=" + command.taskId() + " turnId=-");
         return createManaged(
                 command.taskId(),
                 true,
@@ -229,14 +245,20 @@ public final class DefaultAgentTaskService
 
     private void requireReady(AgentLaneId laneId, AgentPermissionPolicy permissionPolicy)
     {
-        AgentDriver driver = driverRegistry.require(laneId);
-        if (!driver.capabilities().permissionPolicies().contains(permissionPolicy)) {
-            throw new AgentUnavailableException("Agent lane " + laneId + " cannot enforce " + permissionPolicy);
-        }
+        AgentDriver driver = requirePolicy(laneId, permissionPolicy);
         AgentProviderStatus status = driver.probe();
         if (!status.available()) {
             throw new AgentProviderUnavailableException(status);
         }
+    }
+
+    private AgentDriver requirePolicy(AgentLaneId laneId, AgentPermissionPolicy permissionPolicy)
+    {
+        AgentDriver driver = driverRegistry.require(laneId);
+        if (!driver.capabilities().permissionPolicies().contains(permissionPolicy)) {
+            throw new AgentUnavailableException("Agent lane " + laneId + " cannot enforce " + permissionPolicy);
+        }
+        return driver;
     }
 
     private void rollbackManagedCreation(TaskId taskId, TaskWorktree worktree, RuntimeException failure)
@@ -269,9 +291,13 @@ public final class DefaultAgentTaskService
     {
         AgentTask task;
         try {
+            sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=task.resources.begin epochMs=" + System.currentTimeMillis() + " taskId=" + taskId + " turnId=-");
             resourceService.allocate(taskId);
+            sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=task.resources.end epochMs=" + System.currentTimeMillis() + " taskId=" + taskId + " turnId=-");
             task = AgentTask.created(taskId, interactive, creationFingerprint, title, titleSource, laneId, worktree, defaults, Instant.now(clock));
+            sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=task.persist.begin epochMs=" + System.currentTimeMillis() + " taskId=" + taskId + " turnId=-");
             persistTask.accept(task);
+            sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=task.persist.end epochMs=" + System.currentTimeMillis() + " taskId=" + taskId + " turnId=-");
         }
         catch (RuntimeException failure) {
             rollbackManagedCreation(taskId, worktree, failure);

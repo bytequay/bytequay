@@ -84,12 +84,13 @@ public class RelatedWorkspaceWork
     private final ModelSettingsService models;
     private final AppSettingsService appSettings;
     private final GitCommandRunner git;
+    private final InteractiveTaskNaming naming;
     private final Striped<Lock> requests = Striped.lock(64);
 
     public RelatedWorkspaceWork(AppSettingsStore settings, ObjectMapper mapper, WorkspaceRelationships relationships,
             WorkspaceRepositoryService repositories, AgentTaskStore tasks, AgentTurnStore turns, AgentApprovalStore approvals,
             TaskLogStore logs, AgentReviewStore reviews, InteractiveAgentTaskCreator creator, AgentTurnService turnService,
-            AgentTaskService taskService, ModelSettingsService models, AppSettingsService appSettings, GitCommandRunner git)
+            AgentTaskService taskService, ModelSettingsService models, AppSettingsService appSettings, GitCommandRunner git, InteractiveTaskNaming naming)
     {
         this.settings = requireNonNull(settings, "settings is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -106,6 +107,7 @@ public class RelatedWorkspaceWork
         this.models = requireNonNull(models, "models is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.git = requireNonNull(git, "git is null");
+        this.naming = requireNonNull(naming, "naming is null");
     }
 
     public enum Purpose { INVESTIGATE, FIX }
@@ -197,6 +199,7 @@ public class RelatedWorkspaceWork
                 requireDestination(workspaceId, link);
                 turnService.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(target, message, ImmutableList.of(), key)
                         .withDevelopmentAutomation(link.defaults().developmentAutomation()));
+                naming.schedule(target, link.laneId(), link.defaults(), message);
                 save(workspaceId, link.withFailure(Optional.empty()));
             }
             catch (RuntimeException failure) {

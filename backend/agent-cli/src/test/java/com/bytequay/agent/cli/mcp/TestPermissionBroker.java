@@ -468,13 +468,13 @@ class TestPermissionBroker
     void branchNamingUsesTheSameTurnBoundToolOnBothProviders()
             throws Exception
     {
-        AtomicReference<String> renamed = new AtomicReference<>();
+        AtomicReference<String> proposed = new AtomicReference<>();
         AtomicReference<String> activeTurn = new AtomicReference<>("turn-1");
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
                 .developments(taskId -> Optional.of(new DevelopmentResultBridge(activeTurn.get(), DevelopmentResultBridge.BRANCH_INSTRUCTION, false,
                         Optional.of(branch -> {
-                            renamed.set(branch);
-                            return "user/bytequay/" + branch;
+                            proposed.set(branch);
+                            return "Proposed branch: user/bytequay/" + branch + ". Keep using the current branch during this turn.";
                         })))).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
         AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
@@ -483,20 +483,23 @@ class TestPermissionBroker
             for (String token : ImmutableList.of(codex.token(), claude.token())) {
                 assertThat(localReviewCall(broker, token, DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME,
                         "{\"branch\":\"convert-parquet-time-millis-to-micro\"}").at("/result/content/0/text").asText())
-                        .isEqualTo("user/bytequay/convert-parquet-time-millis-to-micro");
-                assertThat(renamed.get()).isEqualTo("convert-parquet-time-millis-to-micro");
+                        .isEqualTo("Proposed branch: user/bytequay/convert-parquet-time-millis-to-micro. Keep using the current branch during this turn.");
+                assertThat(proposed.get()).isEqualTo("convert-parquet-time-millis-to-micro");
                 for (String invalid : ImmutableList.of("{}", "{\"branch\":\"user/bytequay/fix-bug\"}", "{\"branch\":\"../main\"}",
                         "{\"branch\":\"fix-bug\",\"taskId\":\"other\"}")) {
                     assertThat(localReviewCall(broker, token, DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME, invalid).at("/error/code").asInt()).isEqualTo(-32602);
                 }
             }
-            assertThat(codex.instruction()).hasValueSatisfying(instruction -> assertThat(instruction)
-                    .contains("BEFORE any first git push", "actual diff", "instead of git branch -m"));
+            for (McpRegistration registration : ImmutableList.of(codex, claude)) {
+                assertThat(registration.instruction()).hasValueSatisfying(instruction -> assertThat(instruction)
+                        .contains("provider process is verified stopped", "candidate is not the active branch", "actual diff", "instead of git branch -m")
+                        .doesNotContain("Use the returned full branch name"));
+            }
             activeTurn.set("turn-2");
-            renamed.set(null);
+            proposed.set(null);
             assertThat(localReviewCall(broker, codex.token(), DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME,
                     "{\"branch\":\"fix-another-bug\"}").at("/error/code").asInt()).isEqualTo(-32602);
-            assertThat(renamed.get()).isNull();
+            assertThat(proposed.get()).isNull();
         }
     }
 

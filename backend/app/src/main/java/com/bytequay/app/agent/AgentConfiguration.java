@@ -335,6 +335,7 @@ public class AgentConfiguration
             AgentReviewStore reviews,
             PullRequestTaskStore pullRequestTasks,
             ObjectProvider<DevelopmentFollowupCoordinator> development,
+            ObjectProvider<DevelopmentBranchService> branches,
             ObjectProvider<CiAutofixService> ci,
             DevelopmentCiOwnership ciOwnership,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
@@ -395,13 +396,14 @@ public class AgentConfiguration
                 task -> reviews.findReviewByTask(task.id().toString()).isEmpty(),
                 (task, turn) -> development.getObject().accepted(task, turn),
                 outcome -> development.getObject().completed(outcome),
-                taskId -> ci.getObject().stopDevelopment(taskId));
+                taskId -> ci.getObject().stopDevelopment(taskId),
+                task -> branches.getObject().recover(task));
     }
 
     @Bean
     public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
             CiAutofixService ci, GitHubActionsClient actions, CredentialService credentials, GitHubPullRequestReadClient pullRequests,
-            GitHubPullRequestWriteClient writes, Clock agentClock,
+            GitHubPullRequestWriteClient writes, Clock agentClock, DevelopmentBranchService branches,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         return new DevelopmentFollowupCoordinator(turns, turnStore, git,
@@ -413,7 +415,7 @@ public class AgentConfiguration
                         Thread.currentThread().interrupt();
                         throw new IllegalStateException("Development CI monitoring was stopped", interrupted);
                     }
-                });
+                }, branches);
     }
 
     @Bean
@@ -438,6 +440,7 @@ public class AgentConfiguration
             AgentMetricsService metricsService,
             AppSettingsService appSettings,
             GoalReceipts goalReceipts,
+            ObjectProvider<DevelopmentBranchService> branches,
             Clock agentClock)
     {
         return new DefaultAgentCompletionService(
@@ -454,7 +457,8 @@ public class AgentConfiguration
                 metricsService,
                 appSettings::taskRuntimeRetention,
                 goalReceipts::capture,
-                agentClock);
+                agentClock,
+                task -> branches.getObject().recover(task));
     }
 
     @Bean

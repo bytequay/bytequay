@@ -19,13 +19,11 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
-import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskNames;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentUnavailableException;
@@ -46,6 +44,8 @@ import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.Striped;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -64,6 +64,8 @@ import static java.util.Objects.requireNonNull;
 @Component
 public final class InteractiveAgentTaskCreator
 {
+    private static final Logger sendTiming = LoggerFactory.getLogger("com.bytequay.agent.SendTiming");
+
     private final AgentTaskService tasks;
     private final AgentTurnService turns;
     private final AgentDriverRegistry drivers;
@@ -73,7 +75,6 @@ public final class InteractiveAgentTaskCreator
     private final WorkspaceProvisioningService provisioning;
     private final GitCommandRunner git;
     private final AgentTaskStartupProgress progress;
-    private final AgentTaskTitleService names;
     private final PullRequestStore pullRequests;
     private final CredentialService credentials;
     private final Striped<Lock> creationLocks = Striped.lock(64);
@@ -88,7 +89,6 @@ public final class InteractiveAgentTaskCreator
             GitCommandRunner git,
             AppSettingsService settings,
             AgentTaskStartupProgress progress,
-            AgentTaskTitleService names,
             PullRequestStore pullRequests,
             CredentialService credentials)
     {
@@ -101,7 +101,6 @@ public final class InteractiveAgentTaskCreator
         this.git = requireNonNull(git, "git is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.progress = requireNonNull(progress, "progress is null");
-        this.names = requireNonNull(names, "names is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
     }
@@ -147,7 +146,9 @@ public final class InteractiveAgentTaskCreator
         requireNonNull(initialAutomation, "initialAutomation is null");
         requireNonNull(attachmentDigest, "attachmentDigest is null");
         Lock lock = creationLocks.get(taskId);
+        sendTiming.debug("send-timing phase=task.creation_lock.wait epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
         return withLock(lock, () -> {
+            sendTiming.debug("send-timing phase=task.creation_lock.acquired epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
             checkText(workspaceId, "workspaceId");
             drivers.checkWorkspaceAccess(laneId, Optional.of(workspaceId));
             checkText(message, "message");
@@ -170,13 +171,16 @@ public final class InteractiveAgentTaskCreator
             settings.validateDevelopmentAutomation(automation);
             initialAutomation.ifPresent(settings::validateDevelopmentAutomation);
             progress.record(taskId, Phase.PROVIDER);
+            sendTiming.debug("send-timing phase=task.readiness.begin epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
             requireReady(drivers, laneId, defaults.permissionPolicy(), defaults.model());
             models.validateSelection(
                     laneId.value(),
                     defaults.model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")),
                     defaults.effort(),
                     defaults.serviceTier());
+            sendTiming.debug("send-timing phase=task.readiness.end epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
             progress.record(taskId, Phase.REPOSITORY);
+            sendTiming.debug("send-timing phase=task.repository.begin epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
             if (!provisioning.synchronizeCode(workspaceId).successful()) {
                 throw new AgentUnavailableException("Cannot start task: workspace repository synchronization failed. Check repository access and connectivity, then retry.");
             }
@@ -186,16 +190,13 @@ public final class InteractiveAgentTaskCreator
             if (!head.successful() || head.truncated() || head.output().isBlank() || startCommit.filter(commit -> !commit.equals(head.output().strip())).isPresent()) {
                 throw new AgentStorageException("Cannot resolve the workspace start commit");
             }
-            progress.record(taskId, Phase.NAMING);
-            String context = issueSource.map(source -> "GitHub issue #" + source.number() + ": " + source.title() + "\n" + source.body()
-                    + "\n\nUser request:\n" + message)
-                    .or(() -> jiraSource.map(source -> "Jira " + source.key() + ": " + source.title() + "\n" + source.body() + "\n\nUser request:\n" + message)).orElse(message);
-            Optional<TaskNames> generated = names.generate(laneId, defaults, context);
+            sendTiming.debug("send-timing phase=task.repository.end epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
             progress.record(taskId, Phase.WORKTREE);
             Lock workspaceLock = WorkspaceOperationLocks.get(workspaceId);
+            sendTiming.debug("send-timing phase=task.workspace_lock.wait epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
             return withLock(workspaceLock, () -> {
-                String branch = TaskBranches.prefix(credentials.resolveGitHubCredential().profile().login())
-                        + generated.map(TaskNames::branch).orElse("task-" + taskId.toString().substring(0, 8));
+                sendTiming.debug("send-timing phase=task.workspace_lock.acquired epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
+                String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), message);
                 try {
                     Result existing = git.run(workspace.repository(), "for-each-ref", "--format=%(refname)",
                             "refs/heads/" + branch, "refs/remotes/origin/" + branch, "refs/remotes/upstream/" + branch);
@@ -215,7 +216,8 @@ public final class InteractiveAgentTaskCreator
                             message,
                             defaults.withDevelopmentAutomation(automation),
                             fingerprint,
-                            generated);
+                            Optional.empty(),
+                            true);
                     return persistTask.map(writer -> tasks.createInteractive(command, writer)).orElseGet(() -> tasks.createInteractive(command));
                 }
                 catch (AgentConflictException conflict) {

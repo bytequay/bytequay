@@ -60,6 +60,8 @@ import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -71,10 +73,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 
 class TestDefaultAgentCompletionService
 {
@@ -89,6 +94,7 @@ class TestDefaultAgentCompletionService
     private AgentRuntimeRegistry runtimeRegistry;
     private TaskId taskId;
     private Consumer<AgentTask> beforeRemoval = task -> {};
+    private UnaryOperator<AgentTask> idleWorktreePreparation = task -> task;
 
     @BeforeEach
     void setUp()
@@ -182,6 +188,99 @@ class TestDefaultAgentCompletionService
         assertThat(failed.developmentContinuationUnfinished()).isFalse();
         assertThat(failed.worktreeMutationClaim()).isEmpty();
         assertThat(worktrees.deleted).isEmpty();
+    }
+
+    @Test
+    void completionAndCleanupUseTheBranchRecoveredWhileTheTaskIsStillIdle()
+    {
+        String branch = "user/bytequay/recovered-branch";
+        List<AgentTask> preparations = new ArrayList<>();
+        idleWorktreePreparation = current -> {
+            assertThat(stores.findActive(current.id())).isEmpty();
+            assertThat(current.worktreeMutationClaim()).isEmpty();
+            preparations.add(current);
+            return current.state() == TaskState.OPEN ? stores.update(current.withBranch(branch, NOW)) : current;
+        };
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
+        service.cleanupWorktree(taskId);
+
+        assertThat(preparations).extracting(AgentTask::state).containsExactly(TaskState.OPEN, TaskState.COMPLETED);
+        assertThat(worktrees.inspected).singleElement().satisfies(snapshot -> assertThat(snapshot.worktree().generatedBranch()).isEqualTo(branch));
+        assertThat(worktrees.cleaned).singleElement().satisfies(worktree -> assertThat(worktree.generatedBranch()).isEqualTo(branch));
+        assertThat(stores.find(taskId).orElseThrow().taskWorktree().orElseThrow().generatedBranch()).isEqualTo(branch);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void abandonRecoversTheBranchAfterVerifiedStopBeforeMakingTheTaskTerminal(boolean recoveryClaim)
+    {
+        if (recoveryClaim) {
+            stores.update(stores.find(taskId).orElseThrow().claimWorktreeMutation(WorktreeMutationClaim.recovery("lost-launch", NOW), NOW));
+        }
+        RecordingSession session = new RecordingSession();
+        runtimeRegistry.registerSession(taskId, session);
+        String branch = "user/bytequay/recovered-branch";
+        List<AgentTask> preparations = new ArrayList<>();
+        idleWorktreePreparation = current -> {
+            assertThat(session.closed).isTrue();
+            assertThat(stores.findActive(current.id())).isEmpty();
+            preparations.add(current);
+            return current.state() == TaskState.OPEN ? stores.update(current.withBranch(branch, NOW)) : current;
+        };
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        AgentTask failed = service.abandon(taskId, "Stopped after recovery");
+        service.cleanupWorktree(taskId);
+
+        assertThat(failed.state()).isEqualTo(TaskState.FAILED);
+        assertThat(failed.worktreeMutationClaim()).isEmpty();
+        assertThat(preparations).extracting(AgentTask::state).containsExactly(TaskState.OPEN, TaskState.FAILED);
+        assertThat(worktrees.cleaned).singleElement().satisfies(worktree -> assertThat(worktree.generatedBranch()).isEqualTo(branch));
+    }
+
+    @Test
+    void deleteUsesTheRecoveredBranchAfterVerifiedStop()
+    {
+        RecordingSession session = new RecordingSession();
+        runtimeRegistry.registerSession(taskId, session);
+        String branch = "user/bytequay/recovered-branch";
+        idleWorktreePreparation = current -> {
+            assertThat(session.closed).isTrue();
+            return stores.update(current.withBranch(branch, NOW));
+        };
+
+        service(Clock.fixed(NOW, ZoneOffset.UTC)).delete(taskId);
+
+        assertThat(worktrees.deleted).singleElement().satisfies(worktree -> assertThat(worktree.generatedBranch()).isEqualTo(branch));
+        assertThat(stores.find(taskId)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"active", "unverified"})
+    void refusesIdleRecoveryForCompletionDeletionAndAbandonUntilTheWriterIsStopped(String blocker)
+    {
+        idleWorktreePreparation = current -> {
+            throw new AssertionError("An active or unverified worktree must not be prepared");
+        };
+        if (blocker.equals("active")) {
+            stores.insert(AgentTurn.accepted(TurnId.random(), taskId, "active", turnSettings(), NOW));
+        }
+        else {
+            AgentSession session = mock(AgentSession.class);
+            doThrow(new IllegalStateException("process tree still running")).when(session).close();
+            runtimeRegistry.registerSession(taskId, session);
+            assertThatThrownBy(() -> runtimeRegistry.closeSession(taskId)).isInstanceOf(IllegalStateException.class);
+        }
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty()))).isInstanceOf(AgentConflictException.class);
+        assertThatThrownBy(() -> service.delete(taskId)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> service.abandon(taskId, "Cannot proceed yet")).isInstanceOf(RuntimeException.class);
+        assertThat(worktrees.inspected).isEmpty();
+        assertThat(worktrees.deleted).isEmpty();
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
     }
 
     @Test
@@ -418,6 +517,9 @@ class TestDefaultAgentCompletionService
     @Test
     void abandonsATaskStuckHoldingAWorktreeClaim()
     {
+        idleWorktreePreparation = current -> {
+            throw new AssertionError("A stale turn claim is not idle recovery authority");
+        };
         TurnId turnId = TurnId.random();
         stores.update(stores.find(taskId).orElseThrow()
                 .claimWorktreeMutation(WorktreeMutationClaim.turn(turnId, NOW), NOW));
@@ -668,7 +770,8 @@ class TestDefaultAgentCompletionService
                 new FixedMetrics(),
                 () -> Duration.ofDays(7),
                 task -> beforeRemoval.accept(task),
-                clock);
+                clock,
+                task -> idleWorktreePreparation.apply(task));
     }
 
     private static final class StaticTaskLog

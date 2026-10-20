@@ -20,7 +20,7 @@ import {
   PanelRight,
   TriangleAlert
 } from 'lucide-react';
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { ConfirmDialog } from '../ConfirmDialog';
 import '../css/agents.css';
@@ -108,7 +108,7 @@ import { taskAttentionAfterQueue, taskAttentionItem } from './attention';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
 import { pasteImage } from './clipboard';
-import { agentProviderUnavailableFrom, alreadySent, unconfirmedRequest } from './contracts';
+import { agentProviderUnavailableFrom, alreadySent, CHECKING_ACCEPTANCE, unconfirmedRequest } from './contracts';
 import { developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { revealPassage, type SelectedPassage } from './discussions/DiscussableAnswer';
 import { DiscussionsPanel, discussionTurnSummaries } from './discussions/DiscussionsPanel';
@@ -1075,28 +1075,33 @@ export function AgentTaskBody({
   });
   const { following, changeFollowing, followSend, loadHistory } = scroll;
   useNoticeSource(state.task?.id ?? null);
-  const pendingIds = new Set(pendingApprovals?.map((approval) => approval.approvalId) ?? []);
-  const project = (threadId: string | null): TranscriptTurn[] => {
-    const atLatest = after === null && (following || (state.events.at(-1)?.sequence ?? 0) >= state.lastSequence);
+  const pendingIds = useMemo(() => new Set(pendingApprovals?.map((approval) => approval.approvalId) ?? []), [pendingApprovals]);
+  const atLatest = after === null && (following || (state.events.at(-1)?.sequence ?? 0) >= state.lastSequence);
+  const hasHistoryPages = state.historyPages.length > 0;
+  const project = useCallback((threadId: string | null): TranscriptTurn[] => {
     const projected = projectTranscript(state.events, threadId, state.turns, before === null, atLatest);
-    return state.historyPages.length > 0 ? withApprovalAuthority(projected, pendingIds) : projected;
-  };
-  const projectedTurns = project(null);
+    return hasHistoryPages ? withApprovalAuthority(projected, pendingIds) : projected;
+  }, [state.events, state.turns, before, atLatest, hasHistoryPages, pendingIds]);
+  const projectedTurns = useMemo(() => project(null), [project]);
   const terminalTask = state.task !== null && state.task.state !== 'OPEN';
-  const turns = projectedTurns.map((turn, index) => (
+  const turns = useMemo(() => projectedTurns.map((turn, index) => (
     terminalTask && index === projectedTurns.length - 1
       ? settleFinalTurn(turn, state.task?.terminalAt ?? null, state.task?.state === 'COMPLETED')
       : turn
-  ));
+  )), [projectedTurns, terminalTask, state.task?.terminalAt, state.task?.state]);
   // The group header names the answer a thread hangs under; a turn that has left the loaded window
   // has no ordinal and no synopsis, and the panel then draws no header rather than a useless one.
-  const discussionTurns = discussionTurnSummaries(turns);
+  const discussionTurns = useMemo(() => discussionTurnSummaries(turns), [turns]);
   const onSend = (): void => { followSend(); send(); };
   const onSteer = (): void => { changeFollowing(true); steer(); };
   const supportsNestedAgents = state.capabilities?.nestedAgentActivity === true;
-  const agents = supportsNestedAgents ? projectAgents(state.events, state.historyPages.length === 0 ? undefined : state.turn?.state === 'RUNNING' ? state.turn.id : null, after === null) : [];
-  const agentLabels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
-  const working = activeAgents(agents);
+  const activeAgentTurnId = !hasHistoryPages ? undefined : state.turn?.state === 'RUNNING' ? state.turn.id : null;
+  const agents = useMemo(() => supportsNestedAgents ? projectAgents(state.events, activeAgentTurnId, after === null) : [],
+    [supportsNestedAgents, state.events, activeAgentTurnId, after]);
+  const agentTranscript = useMemo(() => !supportsNestedAgents || !panelOpen || openAgent === null ? [] : project(openAgent),
+    [supportsNestedAgents, panelOpen, openAgent, project]);
+  const agentLabels = useMemo(() => Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label])), [agents]);
+  const working = useMemo(() => activeAgents(agents), [agents]);
   // A child the summary names but the events no longer hold: its steps were cleaned up.
   const expiredChildren = (supportsNestedAgents ? state.task?.summary?.children ?? [] : [])
     .filter((child) => !agents.some((agent) => agent.threadId === child.threadId));
@@ -1402,7 +1407,7 @@ export function AgentTaskBody({
             openAgent={supportsNestedAgents ? openAgent : null}
             expiredChildren={expiredChildren}
             deleteAfter={state.task.deleteAfter}
-            transcript={!supportsNestedAgents || openAgent === null ? [] : project(openAgent)}
+            transcript={agentTranscript}
             historyUnloaded={before !== null || after !== null}
             onLoadEarlier={() => loadHistory('older')}
             historyLoading={historyLoading}
@@ -1589,7 +1594,7 @@ export default function AgentTaskScreen({
   // of replacing it with "Checking for a pull request…" again.
   const pullRequestChecked = useRef(false);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const historyLoadingRef = useRef(false);
+  const historyRequestRef = useRef<symbol | null>(null);
   const followingHistory = useRef(true);
   const [pendingApprovals, setPendingApprovals] = useState<AgentPendingApprovalDto[] | null>(null);
   const [ciApprovalState, setCiApprovalState] = useState<{ runId: string; approvals: AgentPendingApprovalDto[]; error: string | null } | null>(null);
@@ -1609,6 +1614,10 @@ export default function AgentTaskScreen({
   // static render has no window to reach.
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const mountedRef = useRef(true);
+  const actionRequestRef = useRef<symbol | null>(null);
+  const sendRequestRef = useRef<symbol | null>(null);
+  const currentTaskId = useRef(taskId);
+  currentTaskId.current = taskId;
   const projectionRevisionRef = useRef(0);
   const submissionRef = useRef<DraftSubmissionTracker | null>(null);
   if (submissionRef.current === null) submissionRef.current = createDraftSubmissionTracker();
@@ -1629,9 +1638,11 @@ export default function AgentTaskScreen({
     const projectionRevision = projectionRevisionRef;
     return () => {
       mountedRef.current = false;
+      actionRequestRef.current = null;
+      sendRequestRef.current = null;
       projectionRevision.current++;
     };
-  }, []);
+  }, [taskId, workspaceId]);
 
   /** Reads one coherent server projection; a later request or mutation invalidates its result. */
   const refreshProjection = useCallback(async (turnId: string | null) => {
@@ -1641,7 +1652,7 @@ export default function AgentTaskScreen({
       turnId === null ? Promise.resolve(null) : live().getAgentTurn(turnId),
       live().listAgentQueue(taskId, workspaceId),
     ]);
-    if (!mountedRef.current || projectionRevision !== projectionRevisionRef.current) return;
+    if (!mountedRef.current || currentTaskId.current !== taskId || projectionRevision !== projectionRevisionRef.current) return;
     dispatch({ type: 'task/loaded', task });
     if (turn !== null) dispatch({ type: 'turn/changed', turn });
     dispatch({ type: 'queue/loaded', queue });
@@ -1684,6 +1695,8 @@ export default function AgentTaskScreen({
   const taskLaneId = state.task?.laneId ?? null;
   useEffect(() => {
     let active = true;
+    historyRequestRef.current = null;
+    setHistoryLoading(false);
     // Streaming pauses only while an older page is on screen: reading earlier in the live page still
     // gets the output, held in place by the transcript's reading anchor.
     const session = startAgentTaskSession(live(), taskId, workspaceId, dispatch, () => active,
@@ -1693,31 +1706,36 @@ export default function AgentTaskScreen({
     });
     return () => {
       active = false;
+      historyRequestRef.current = null;
       void session.then((stop) => stop(), () => {});
     };
   }, [live, taskId, workspaceId]);
 
   const loadHistory = useCallback(async (direction: 'older' | 'newer' | 'latest') => {
-    if (historyLoadingRef.current) return;
+    if (historyRequestRef.current !== null && direction !== 'latest') return;
     const current = stateRef.current;
     const before = direction === 'older' ? historyBefore(current) : null;
     const after = direction === 'newer' ? historyAfter(current) : null;
     if ((direction === 'older' && before === null) || (direction === 'newer' && after === null)) return;
-    historyLoadingRef.current = true;
+    const request = Symbol();
+    historyRequestRef.current = request;
+    const isCurrent = () => mountedRef.current && historyRequestRef.current === request;
     setHistoryLoading(true);
     followingHistory.current = direction === 'latest';
     try {
       const history = direction === 'latest'
         ? await readRecentAgentHistory(live(), taskId)
         : { page: await live().readAgentHistory(taskId, before ?? undefined, after ?? undefined) };
-      if (mountedRef.current) dispatch({ type: 'history/loaded', ...history, direction });
+      if (isCurrent()) dispatch({ type: 'history/loaded', ...history, direction });
     }
     catch (failure) {
-      if (mountedRef.current) dispatch({ type: 'notice/changed', notice: failureText(failure) });
+      if (isCurrent()) dispatch({ type: 'notice/changed', notice: failureText(failure) });
     }
     finally {
-      historyLoadingRef.current = false;
-      if (mountedRef.current) setHistoryLoading(false);
+      if (isCurrent()) {
+        historyRequestRef.current = null;
+        setHistoryLoading(false);
+      }
     }
   }, [live, taskId]);
 
@@ -1939,12 +1957,18 @@ export default function AgentTaskScreen({
   const pullRequestPendingComments = pullRequestReview.key === reviewKey ? pullRequestReview.pendingComments : [];
 
   /** Runs one bridge command, surfacing its failure in the notice strip instead of losing it. */
-  const run = useCallback(async (action: () => Promise<void>) => {
+  const run = useCallback(async (action: (current: () => boolean) => Promise<void>) => {
+    const request = Symbol();
+    actionRequestRef.current = request;
+    projectionRevisionRef.current++;
+    const current = () => mountedRef.current && currentTaskId.current === taskId && actionRequestRef.current === request;
     dispatch({ type: 'notice/changed', notice: null });
     try {
-      await action();
+      await action(current);
     }
     catch (failure) {
+      if (!current()) return;
+      dispatch({ type: 'notice/changed', notice: unconfirmedRequest(failure) ? CHECKING_ACCEPTANCE : failureText(failure) });
       // Another window or a background worktree operation can change durable task facts. Re-read them while
       // keeping the draft and its retry identity intact, so the next deliberate action can use
       // the newly observed version instead of conflicting forever.
@@ -1955,9 +1979,8 @@ export default function AgentTaskScreen({
         // The command's original failure is the useful notice; the live stream can reconnect the
         // projection later if this best-effort read also failed.
       }
-      dispatch({ type: 'notice/changed', notice: failureText(failure) });
     }
-  }, [refreshProjection]);
+  }, [refreshProjection, taskId]);
 
   const refreshProviderStatus = useCallback(async (): Promise<AgentProviderStatus | null> => {
     const laneId = stateRef.current.task?.laneId;
@@ -2037,6 +2060,9 @@ export default function AgentTaskScreen({
   }), [applyTask, attentionAction, live, run, state.task, taskId, workspaceId]);
 
   const startTurn = useCallback(async (message: string, attachments: string[], idempotencyKey: string, expectedTaskVersion: number, developmentAutomation?: DevelopmentAutomationDto) => {
+    const request = actionRequestRef.current;
+    const submission = sendRequestRef.current;
+    const current = () => mountedRef.current && currentTaskId.current === taskId && actionRequestRef.current === request;
     dispatch({ type: 'composer/sending', sending: true });
     try {
       const turn = await live().startAgentTurn({
@@ -2048,6 +2074,7 @@ export default function AgentTaskScreen({
         attachments,
       });
       submissions.settled(idempotencyKey);
+      if (!current()) return turn;
       attentionAction('prompt');
       applyTurn(turn);
       try {
@@ -2061,94 +2088,110 @@ export default function AgentTaskScreen({
       return turn;
     }
     catch (failure) {
-      recordProviderUnavailable(failure);
+      if (current()) recordProviderUnavailable(failure);
       throw failure;
     }
     finally {
-      dispatch({ type: 'composer/sending', sending: false });
+      if (sendRequestRef.current === submission) sendRequestRef.current = null;
+      if (current()) dispatch({ type: 'composer/sending', sending: false });
     }
   }, [applyTurn, attentionAction, live, recordProviderUnavailable, refreshProjection, submissions, taskId]);
 
-  const send = useCallback(() => run(async () => {
-    const draft = stateRef.current;
-    const ciText = ciMessage(draft.composer);
-    if (ciText !== null) {
-      if (ciSending.current || attachmentPendingRef.current || confirmation !== null || confirming || ciPollingError !== null || ciMessageUnavailable(draft) !== null) return;
-      const ci = draft.task?.developmentCi;
-      if (ci == null) return;
-      ciSending.current = true;
-      dispatch({ type: 'composer/sending', sending: true });
-      if (ciRequest.current?.runId !== ci.runId || ciRequest.current.message !== ciText) {
-        ciRequest.current = { runId: ci.runId, message: ciText, key: crypto.randomUUID(),
-          expectedTurnId: ci.status === 'ACTIVE' ? ci.currentTurnId ?? undefined : undefined };
-      }
-      try {
-        // Retain both the delivery key and target on retry, even if polling shows a later repair turn.
-        const result = await live().sendCiAutofixMessage(ci.runId, ciText, ciRequest.current.key, ciRequest.current.expectedTurnId);
-        if (!mountedRef.current) return;
-        if (result.id !== ci.runId || result.parentTaskId !== taskId || result.workspaceId !== workspaceId) {
-          throw new Error('CI run does not belong to this development task');
+  const send = useCallback(() => {
+    // Repeated Enter before React commits must not replace the action whose failure we are awaiting.
+    if (sendRequestRef.current !== null) return Promise.resolve();
+    const request = Symbol();
+    sendRequestRef.current = request;
+    return run(async current => {
+      const draft = stateRef.current;
+      const ciText = ciMessage(draft.composer);
+      if (ciText !== null) {
+        if (ciSending.current || attachmentPendingRef.current || confirmation !== null || confirming || ciPollingError !== null || ciMessageUnavailable(draft) !== null) return;
+        const ci = draft.task?.developmentCi;
+        if (ci == null) return;
+        ciSending.current = true;
+        dispatch({ type: 'composer/sending', sending: true });
+        if (ciRequest.current?.runId !== ci.runId || ciRequest.current.message !== ciText) {
+          ciRequest.current = { runId: ci.runId, message: ciText, key: crypto.randomUUID(),
+            expectedTurnId: ci.status === 'ACTIVE' ? ci.currentTurnId ?? undefined : undefined };
         }
-        attentionAction('prompt');
-        ciRequest.current = null;
-        dispatch({ type: 'composer/changed', text: '' });
-        dispatch({ type: 'notice/changed', notice: 'Message sent to CI Autofix.' });
-        try { await refreshProjection(stateRef.current.latestTurnId); }
-        catch { /* The CI service accepted the message; task polling will refresh its activity. */ }
-      } finally {
-        ciSending.current = false;
-        if (mountedRef.current) dispatch({ type: 'composer/sending', sending: false });
+        try {
+          // Retain both the delivery key and target on retry, even if polling shows a later repair turn.
+          const result = await live().sendCiAutofixMessage(ci.runId, ciText, ciRequest.current.key, ciRequest.current.expectedTurnId);
+          if (!mountedRef.current) return;
+          if (result.id !== ci.runId || result.parentTaskId !== taskId || result.workspaceId !== workspaceId) {
+            throw new Error('CI run does not belong to this development task');
+          }
+          attentionAction('prompt');
+          ciRequest.current = null;
+          dispatch({ type: 'composer/changed', text: '' });
+          dispatch({ type: 'notice/changed', notice: 'Message sent to CI Autofix.' });
+          try { await refreshProjection(stateRef.current.latestTurnId); }
+          catch { /* The CI service accepted the message; task polling will refresh its activity. */ }
+        } finally {
+          ciSending.current = false;
+          if (sendRequestRef.current === request) sendRequestRef.current = null;
+          if (mountedRef.current) dispatch({ type: 'composer/sending', sending: false });
+        }
+        return;
       }
-      return;
-    }
-    if (attachmentPendingRef.current || automationBlocked || !canSend(stateRef.current)) return;
-    const message = state.composer.trim();
-    if (ciMessage(message) !== null) return;
-    const task = state.task;
-    if (message.length === 0 || task === null) return;
-    const attachmentIds = state.attachments.map((attachment) => attachment.id);
-    const idempotencyKey = submissions.keyFor('send', taskId, taskId, message, attachmentIds);
-    // The draft moves into the transcript at once, as local progress its durable user-message event
-    // replaces; a development turn's request can return seconds after that event. Restoring the draft
-    // without draftChanged keeps its idempotency key for a retry.
-    const shownTurnId = state.latestTurnId;
-    dispatch({ type: 'composer/changed', text: '' });
-    dispatch({ type: 'attachments/cleared' });
-    dispatch({ type: 'message/sent', text: message, attachments: state.attachments });
-    const restore = () => {
-      dispatch({ type: 'message/cleared' });
-      dispatch({ type: 'composer/changed', text: state.composer });
-      dispatch({ type: 'attachments/added', attachments: state.attachments });
-      // A screen left mid-send gets the text back when the task opens again.
-      if (!mountedRef.current) prepareAgentInput(taskId, message);
-    };
-    let turn: AgentTurnDto;
-    try {
-      turn = await startTurn(message, attachmentIds, idempotencyKey, task.version, submissionAutomation);
-    }
-    catch (failure) {
-      if (alreadySent(failure)) {
-        // Queued or steered before under this key, so the message is already in the conversation.
-        submissions.settled(idempotencyKey);
+      if (attachmentPendingRef.current || automationBlocked || !canSend(stateRef.current)) return;
+      const message = state.composer.trim();
+      if (ciMessage(message) !== null) return;
+      const task = state.task;
+      if (message.length === 0 || task === null) return;
+      const attachmentIds = state.attachments.map((attachment) => attachment.id);
+      const idempotencyKey = submissions.keyFor('send', taskId, taskId, message, attachmentIds);
+      // The draft moves into the transcript at once, as local progress its durable user-message event
+      // replaces; a development turn's request can return seconds after that event. Restoring the draft
+      // without draftChanged keeps its idempotency key for a retry.
+      const shownTurnId = state.latestTurnId;
+      dispatch({ type: 'composer/changed', text: '' });
+      dispatch({ type: 'attachments/cleared' });
+      dispatch({ type: 'message/sent', text: message, attachments: state.attachments });
+      const restore = () => {
+        if (!current()) {
+          if (!mountedRef.current) prepareAgentInput(taskId, message);
+          return;
+        }
         dispatch({ type: 'message/cleared' });
+        dispatch({ type: 'composer/changed', text: state.composer });
+        dispatch({ type: 'attachments/added', attachments: state.attachments });
+      };
+      let turn: AgentTurnDto;
+      try {
+        turn = await startTurn(message, attachmentIds, idempotencyKey, task.version, submissionAutomation);
       }
-      else if (unconfirmedRequest(failure) && !mountedRef.current) {
-        // It may still start; handing the text to a later screen, whose new key the backend cannot match, could send it twice.
-        dispatch({ type: 'message/cleared' });
+      catch (failure) {
+        if (!current()) {
+          if (!unconfirmedRequest(failure) && !alreadySent(failure) && !mountedRef.current) prepareAgentInput(taskId, message);
+          throw failure;
+        }
+        if (alreadySent(failure)) {
+          // Queued or steered before under this key, so the message is already in the conversation.
+          submissions.settled(idempotencyKey);
+          dispatch({ type: 'message/cleared' });
+        }
+        else if (unconfirmedRequest(failure)) {
+          dispatch({ type: 'message/unconfirmed' });
+          dispatch({ type: 'composer/changed', text: state.composer });
+          dispatch({ type: 'attachments/added', attachments: state.attachments });
+        }
+        else {
+          restore();
+        }
+        throw failure;
       }
-      else {
+      if (!current()) return;
+      if (turn.state === 'FAILED' && turn.knownUnsent) {
+        // A retried key answered with the earlier attempt, which never reached the agent; the next Send is a new message.
         restore();
+        throw new Error(`Not sent: ${turn.terminalReason ?? 'the agent did not start'}`);
       }
-      throw failure;
-    }
-    if (turn.state === 'FAILED' && turn.knownUnsent) {
-      // A retried key answered with the earlier attempt, which never reached the agent; the next Send is a new message.
-      restore();
-      throw new Error(`Not sent: ${turn.terminalReason ?? 'the agent did not start'}`);
-    }
-    // A retried key answers with the turn it already started, whose durable message is already shown.
-    if (turn.id === shownTurnId) dispatch({ type: 'message/cleared' });
-  }), [attentionAction, automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
+      // A retried key answers with the turn it already started, whose durable message is already shown.
+      if (turn.id === shownTurnId) dispatch({ type: 'message/cleared' });
+    }).finally(() => { if (sendRequestRef.current === request) sendRequestRef.current = null; });
+  }, [attentionAction, automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
   const taskCommentDisabled = state.task?.state !== 'OPEN' ? 'This task is closed.'
     : state.task?.developmentContinuationUnfinished ? 'Wait for the current follow-up to finish.'
@@ -2600,6 +2643,9 @@ export default function AgentTaskScreen({
   }), [attentionAction, live, run]);
 
   const currentCiApprovals = ciApprovalState?.runId === state.task?.developmentCi?.runId ? ciApprovalState : null;
+  const conversationApprovals = useMemo(() => [...(pendingApprovals ?? []), ...((currentCiApprovals?.approvals ?? []).map(approval => ({
+    ...approval, title: `CI Autofix · ${approval.title}`,
+  })))], [pendingApprovals, currentCiApprovals?.approvals]);
 
   return (<>
     {signingIn !== null && (
@@ -2640,9 +2686,7 @@ export default function AgentTaskScreen({
         followingHistory.current = following;
         if (resumed && stateRef.current.lastSequence > (stateRef.current.events.at(-1)?.sequence ?? 0)) void loadHistory('latest');
       }}
-      pendingApprovals={[...(pendingApprovals ?? []), ...((currentCiApprovals?.approvals ?? []).map(approval => ({
-        ...approval, title: `CI Autofix · ${approval.title}`,
-      })))]}
+      pendingApprovals={conversationApprovals}
       ciApprovalError={currentCiApprovals?.error}
       models={models}
       provider={provider}

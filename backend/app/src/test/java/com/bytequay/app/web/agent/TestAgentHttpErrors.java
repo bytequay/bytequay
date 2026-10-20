@@ -53,6 +53,7 @@ import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.AgentTaskStartupProgress;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.InteractiveAgentTaskStarter;
+import com.bytequay.app.agent.InteractiveTaskNaming;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
@@ -152,7 +153,6 @@ class TestAgentHttpErrors
                         git,
                         appSettings,
                         startupProgress,
-                        mock(com.bytequay.agent.core.AgentTaskTitleService.class),
                         mock(PullRequestStore.class),
                         mock(CredentialService.class)),
                         mock(IssueDevelopmentService.class),
@@ -162,7 +162,8 @@ class TestAgentHttpErrors
                         mock(AgentResourceService.class),
                         mock(ModelSettingsService.class),
                         startupProgress,
-                        mock(RecentTouchRecorder.class)),
+                        mock(RecentTouchRecorder.class),
+                        mock(InteractiveTaskNaming.class)),
                 startupRecovery,
                 turnService,
                 mock(AgentEventService.class),

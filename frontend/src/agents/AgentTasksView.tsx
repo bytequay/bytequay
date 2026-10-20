@@ -44,7 +44,7 @@ import type {
   ModelOptionDto, ModelProviderDto, ModelSettingsDto, UserProfileDto,
 } from '../types';
 import { acceptsImages, createTaskCreationTracker, type AgentBridgePort, type TaskCreationTracker } from './model';
-import { agentProviderUnavailableFrom } from './contracts';
+import { agentProviderUnavailableFrom, CHECKING_ACCEPTANCE, unconfirmedRequest } from './contracts';
 import { pasteImage } from './clipboard';
 import { ImageAttachment } from './ImageAttachment';
 import { ATTENTION_SEED } from '../home/attention';
@@ -430,6 +430,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
           .catch(() => {});
         return;
       }
+      setError(unconfirmedRequest(failure) ? CHECKING_ACCEPTANCE : failure instanceof Error ? failure.message : 'Unable to create the agent task');
       // The retained request makes the same click safe when the backend answer was lost.
       try {
         // A failed IPC answer is ambiguous. Replaying the whole composite request is what finishes
@@ -545,7 +546,7 @@ export function startupSteps(
 }
 
 /** The first message is visible while the existing create-and-start request is in flight. */
-export function StartingAgentTask({ draft, images, laneId, providers, models, selection, startup = null, headerAction, workspaceId, workItemId }: {
+export function StartingAgentTask({ draft, images, laneId, providers, models, selection, startup = null, error = null, headerAction, workspaceId, workItemId }: {
   draft: string;
   images: DraftImage[];
   laneId: string;
@@ -553,6 +554,7 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
   models: ModelOptionDto[];
   selection: TaskModelSelection | null;
   startup?: AgentTaskStartupPhase | null;
+  error?: string | null;
   headerAction?: React.ReactNode;
   workspaceId?: string;
   workItemId?: string;
@@ -575,6 +577,7 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
         <span className="agt-spacer" />
         {headerAction}
       </div>
+      {error !== null && <div className="agt-notice" role="alert">{error}</div>}
       <div className="agt-transcript" aria-label="Starting task conversation">
         <div>
           <div className="agt-user">
@@ -588,7 +591,7 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
           <details className="agt-act agt-starting">
             <summary className="agt-act__fold">
               <Chevron />
-              <span role="status">Starting task…{current && ` ${current.label}`}</span>
+              <span role="status">{error === CHECKING_ACCEPTANCE ? 'Checking acceptance…' : <>Starting task…{current && ` ${current.label}`}</>}</span>
             </summary>
             <ol className="agt-act__body agt-starting-steps" aria-label="Task startup steps">
               {steps.map((step) => (
@@ -1042,7 +1045,7 @@ export function AgentTaskList({
     return () => window.removeEventListener('keydown', onKey);
   }, [selecting]);
 
-  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction, workspaceId, workItemId }} />;
+  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, error, headerAction, workspaceId, workItemId }} />;
 
   const active = tab === 'active';
   const chainShelf = backports.chains.filter(view => view.archived === !active);

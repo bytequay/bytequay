@@ -210,6 +210,22 @@ or closed on GitHub, as read from the stored pull requests after each list
 refresh; completion keeps its refusals, so a running turn, queued input or
 uncommitted changes keep the task open until a later refresh.
 
+Interactive creation uses a prompt-derived title and a unique local branch immediately.
+An optional naming session runs after the first turn is accepted; its title can replace
+only a provisional title. Branch suggestions from that helper or the agent are applied
+only after a successful turn reports readiness for delivery and its processes are verified
+stopped, before automatic publication.
+The active agent keeps its original branch and permission grants for the entire turn.
+Imported, published, and borrowed branches stay stable. A late suggestion never delays
+Send or publication; it can be considered at the next successful idle boundary.
+
+A branch rename records a durable intent outside the checkout before changing Git.
+Recovery reconciles only the recorded old/new branch pair at the recorded commit, under
+the task and workspace locks. Admission, completion, and cleanup reload the reconciled
+task before using its branch; unrelated refs or changed commits remain blocked for
+inspection. Code fingerprints exclude branch names, so renaming alone is not unfinished
+development work.
+
 Each supervised provider starts in its own operating-system process session.
 Cleanup checks every process group in that session and the recorded identities
 of observed descendants, including children reparented after a shell exits.

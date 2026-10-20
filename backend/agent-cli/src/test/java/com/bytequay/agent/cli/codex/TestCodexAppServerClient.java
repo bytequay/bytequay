@@ -56,6 +56,86 @@ class TestCodexAppServerClient
     @TempDir
     private Path worktree;
 
+    @Test
+    void firstOutputUsesTheAcknowledgedTurnAndPreservesItsArrivalTime()
+    {
+        CodexAppServerClient.FirstOutputTiming timing = new CodexAppServerClient.FirstOutputTiming();
+        timing.begin();
+        assertThat(timing.receive("previous-turn", 100)).isEmpty();
+        assertThat(timing.receive("accepted-turn", 200)).isEmpty();
+        assertThat(timing.receive("accepted-turn", 300)).isEmpty();
+        assertThat(timing.accept("accepted-turn")).contains(new CodexAppServerClient.TimedProviderOutput("accepted-turn", 200));
+        assertThat(timing.receive("accepted-turn", 400)).isEmpty();
+    }
+
+    @Test
+    void firstOutputIgnoresStaleNotificationsAfterAcknowledgement()
+    {
+        CodexAppServerClient.FirstOutputTiming timing = new CodexAppServerClient.FirstOutputTiming();
+        timing.begin();
+        assertThat(timing.accept("accepted-turn")).isEmpty();
+        assertThat(timing.receive("previous-turn", 100)).isEmpty();
+        assertThat(timing.receive("accepted-turn", 200)).contains(new CodexAppServerClient.TimedProviderOutput("accepted-turn", 200));
+    }
+
+    @Test
+    void rejectedTurnDiscardsEarlyOutputAndNextTurnStartsFresh()
+    {
+        CodexAppServerClient.FirstOutputTiming timing = new CodexAppServerClient.FirstOutputTiming();
+        timing.begin();
+        timing.receive("rejected-turn", 100);
+        timing.cancel();
+        assertThat(timing.receive("rejected-turn", 200)).isEmpty();
+        timing.begin();
+        assertThat(timing.accept("accepted-turn")).isEmpty();
+        assertThat(timing.receive("rejected-turn", 300)).isEmpty();
+        assertThat(timing.receive("accepted-turn", 400)).contains(new CodexAppServerClient.TimedProviderOutput("accepted-turn", 400));
+    }
+
+    @Test
+    void timingCountsOnlyCompletedNonemptyFileChanges()
+    {
+        CodexProtocol.FileUpdateChange change = new CodexProtocol.FileUpdateChange("file.txt", new CodexProtocol.FileChangeKind("add", Optional.empty()), "+text");
+        for (CodexProtocol.ActivityStatus status : CodexProtocol.ActivityStatus.values()) {
+            CodexProtocol.ItemNotificationParams params = new CodexProtocol.ItemNotificationParams(
+                    new CodexProtocol.FileChangeItem("item-1", ImmutableList.of(change), status), "thread-1", "turn-1");
+            assertThat(CodexAppServerClient.meaningfulOutput(new CodexProtocol.ItemStartedNotification(params))).isFalse();
+            assertThat(CodexAppServerClient.meaningfulOutput(new CodexProtocol.ItemCompletedNotification(params)))
+                    .isEqualTo(status == CodexProtocol.ActivityStatus.COMPLETED);
+        }
+        CodexProtocol.ItemNotificationParams empty = new CodexProtocol.ItemNotificationParams(
+                new CodexProtocol.FileChangeItem("item-1", ImmutableList.of(), CodexProtocol.ActivityStatus.COMPLETED), "thread-1", "turn-1");
+        assertThat(CodexAppServerClient.meaningfulOutput(new CodexProtocol.ItemCompletedNotification(empty))).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"method\":\"turn/started\",\"params\":{\"threadId\":\"thread-1\",\"turn\":{\"id\":\"turn-1\",\"status\":\"inProgress\",\"items\":[]}}}",
+            "{\"method\":\"item/agentMessage/delta\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-1\",\"itemId\":\"item-1\",\"delta\":\" \\n\"}}",
+            "{\"method\":\"item/started\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-1\",\"item\":{\"type\":\"agentMessage\",\"id\":\"item-1\",\"text\":\"\"}}}",
+            "{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-1\",\"item\":{\"type\":\"userMessage\",\"id\":\"item-1\",\"content\":[]}}}",
+            "{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-1\",\"item\":{\"type\":\"reasoning\",\"id\":\"item-1\",\"summary\":[]}}}",
+            "{\"method\":\"turn/plan/updated\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-1\",\"plan\":[]}}"})
+    void timingDoesNotCountLifecycleEchoesOrEmptyOutput(String json)
+    {
+        CodexProtocol.Notification notification = new CodexProtocolCodec(new ObjectMapper()).decode(json, CodexProtocol.Notification.class);
+        assertThat(CodexAppServerClient.meaningfulOutput(notification)).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"method\":\"item/agentMessage/delta\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-1\",\"itemId\":\"item-1\",\"delta\":\"Hello\"}}",
+            "{\"method\":\"item/commandExecution/outputDelta\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-1\",\"itemId\":\"item-1\",\"delta\":\"Output\"}}",
+            "{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-1\","
+                    + "\"item\":{\"type\":\"agentMessage\",\"id\":\"item-1\",\"text\":\"Hello\"}}}",
+            "{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-1\","
+                    + "\"item\":{\"type\":\"reasoning\",\"id\":\"item-1\",\"summary\":[\"Summary\"]}}}"})
+    void timingRecognizesMeaningfulProviderOutput(String json)
+    {
+        CodexProtocol.Notification notification = new CodexProtocolCodec(new ObjectMapper()).decode(json, CodexProtocol.Notification.class);
+        assertThat(CodexAppServerClient.meaningfulOutput(notification)).isTrue();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"Tool call", "Command"})
     void expectedReviewChildDenialsAreDebugDiagnostics(String call)

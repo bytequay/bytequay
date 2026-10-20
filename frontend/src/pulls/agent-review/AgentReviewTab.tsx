@@ -20,6 +20,7 @@ import { ConfirmDialog } from '../../ConfirmDialog';
 import type { ReviewCardFocus, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
 import {
   agentTaskReducer,
+  createDraftSubmissionTracker,
   historyAfter,
   historyBefore,
   initialAgentTaskState,
@@ -27,6 +28,7 @@ import {
   startAgentConversationSession,
   type AgentTaskAction,
 } from '../../agents/model';
+import { alreadySent, CHECKING_ACCEPTANCE, unconfirmedRequest } from '../../agents/contracts';
 import { usePreparedAgentInput } from '../../agents/preparedInput';
 import { useReviewCardFocus } from '../../agents/reviewCardNavigation';
 import { useNoticeSource } from '../../notices/useNoticeSource';
@@ -54,7 +56,7 @@ import ReviewSummaryCard from './ReviewSummaryCard';
 import { FindingsHead, shownRound } from './SummaryTimeline';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
 import { findingLines } from './contracts';
-import { explanationRun, findingInResults, isExplanationRun, latestRun, newCommits, openFindings, provisional, reviewElapsed, reviewProgress, reviewRecoveryRequired, reviewRunning, reviewStatus, reviewWorktreeNotice, shortSha } from './model';
+import { explanationRun, findingInResults, isExplanationRun, latestRun, newCommits, openFindings, provisional, reviewConversationEvents, reviewElapsed, reviewProgress, reviewRecoveryRequired, reviewRequests, reviewRunning, reviewStatus, reviewWorktreeNotice, shortSha } from './model';
 import { recordReviewAttentionAction, useFindingActions } from './useFindingActions';
 
 export type ReviewNavigationTarget = {
@@ -151,6 +153,10 @@ export default function AgentReviewTab({
   const currentTaskId = useRef(review?.task.id ?? null);
   currentTaskId.current = review?.task.id ?? null;
   const projectionRevision = useRef(0);
+  const mounted = useRef(true);
+  const actionRequest = useRef<symbol | null>(null);
+  const [submissions] = useState(createDraftSubmissionTracker);
+  const pendingSend = useRef<{ key: string; after: number } | null>(null);
   const { events, turns } = conversation;
   const [approvals, setApprovals] = useState<AgentPendingApprovalDto[]>([]);
   const [composer, setComposer] = useState('');
@@ -211,8 +217,22 @@ export default function AgentReviewTab({
   }, [laneId, mode, workspaceId]);
 
   const dispatchConversation = useCallback((action: AgentTaskAction) => {
-    setConversation(current => agentTaskReducer(current, action));
+    setConversation(current => {
+      const updated = agentTaskReducer(current, action);
+      // The review's saved card identity can lag behind its accepted input in history.
+      return current.pendingMessage !== null && (action.type === 'history/loaded' || action.type === 'events/applied')
+        ? { ...updated, pendingMessage: current.pendingMessage } : updated;
+    });
   }, []);
+
+  useEffect(() => {
+    const pending = conversation.pendingMessage;
+    if (pending === null || review === null) return;
+    const visible = reviewConversationEvents(conversation.events, reviewRequests(review), reviewSequence);
+    if (visible.some(event => event.type === 'user_message' && event.sequence > pending.after)) {
+      setConversation(current => current.pendingMessage === pending ? { ...current, pendingMessage: null } : current);
+    }
+  }, [conversation.pendingMessage, conversation.events, review, reviewSequence]);
 
   const refresh = useCallback(async (reviewId: string, turnId: string | null = null, reloadHistory = false, sequence = 0) => {
     const taskId = currentTaskId.current;
@@ -221,7 +241,7 @@ export default function AgentReviewTab({
       ? null : await readRecentAgentHistory({ readAgentHistory: (id, before, after) => window.bridge.readAgentReviewHistory(reviewId, id, before, after) }, taskId);
     const observedSequence = Math.max(sequence, history?.page.latestSequence ?? conversationRef.current.lastSequence);
     // Read the review after history so every exposed input has its saved presentation available.
-    const current = () => currentReviewId.current === reviewId && projectionRevision.current === revision;
+    const current = () => mounted.current && currentReviewId.current === reviewId && currentTaskId.current === taskId && projectionRevision.current === revision;
     const [updated, turn] = await Promise.all([
       window.bridge.getAgentReview(reviewId).then(updated => {
         if (!current()) return null;
@@ -238,31 +258,53 @@ export default function AgentReviewTab({
     return updated;
   }, [dispatchConversation, mode, onReviewChange]);
 
-  const run_ = useCallback(async (action: () => Promise<void>, pending: PendingAction = 'other', propagate = false) => {
+  const run_ = useCallback(async (action: (current: () => boolean) => Promise<void>, pending: PendingAction = 'other', propagate = false) => {
+    const request = Symbol();
+    actionRequest.current = request;
+    const reviewId = currentReviewId.current;
+    const taskId = currentTaskId.current;
+    const current = () => mounted.current && currentReviewId.current === reviewId && currentTaskId.current === taskId && actionRequest.current === request;
     projectionRevision.current++;
     setPendingAction(pending);
     setError(null);
     setUpdateNotice(null);
     try {
-      await action();
+      await action(current);
     }
     catch (failure) {
+      if (!current()) {
+        if (propagate) throw failure;
+        return;
+      }
+      if (pending !== 'refresh') setError(unconfirmedRequest(failure) ? CHECKING_ACCEPTANCE : remoteErrorMessage(failure));
       // A turn can finish before its stream update reaches this view. Keep the draft and original error,
       // but adopt the durable state so the next deliberate action does not repeat the same stale command.
-      const reviewId = currentReviewId.current;
       if (reviewId !== null) await refresh(reviewId, conversationRef.current.latestTurnId, true).catch(() => {});
-      if (pending !== 'refresh') setError(remoteErrorMessage(failure));
       if (propagate) throw failure;
     }
     finally {
-      projectionRevision.current++;
-      setPendingAction(null);
+      if (current()) {
+        projectionRevision.current++;
+        setPendingAction(null);
+      }
     }
   }, [refresh]);
 
   const reviewId = review?.id ?? null;
   const taskId = review?.task.id ?? null;
   const reviewOpen = review?.state === 'OPEN';
+  useEffect(() => {
+    const revisions = projectionRevision;
+    mounted.current = true;
+    pendingSend.current = null;
+    setPendingAction(null);
+    setError(null);
+    return () => {
+      mounted.current = false;
+      actionRequest.current = null;
+      revisions.current++;
+    };
+  }, [reviewId, taskId]);
   useEffect(() => {
     const requests = recoveryRequest;
     setRecoveryConfirmation(null);
@@ -365,7 +407,7 @@ export default function AgentReviewTab({
   }, [conversationBridge, dispatchConversation, mode, ownStream, refresh, reviewId, reviewOpen, taskId]);
 
   const loadHistory = useCallback(async (direction: 'older' | 'newer' | 'latest') => {
-    if (conversationBridge === null || taskId === null || historyRequestRef.current !== null) return;
+    if (conversationBridge === null || taskId === null || (historyRequestRef.current !== null && direction !== 'latest')) return;
     const before = direction === 'older' ? historyBefore(conversationRef.current) : null;
     const after = direction === 'newer' ? historyAfter(conversationRef.current) : null;
     if ((direction === 'older' && before === null) || (direction === 'newer' && after === null)) return;
@@ -378,8 +420,8 @@ export default function AgentReviewTab({
       const history = direction === 'latest'
         ? await readRecentAgentHistory(conversationBridge, taskId)
         : { page: await conversationBridge.readAgentHistory(taskId, before ?? undefined, after ?? undefined) };
-      if (current() && reviewId !== null) await refresh(reviewId, history.page.events.at(-1)?.turnId ?? null, false, history.page.latestSequence);
       if (current()) dispatchConversation({ type: 'history/loaded', ...history, direction });
+      if (current() && reviewId !== null) await refresh(reviewId, history.page.events.at(-1)?.turnId ?? null, false, history.page.latestSequence);
     }
     catch (failure) {
       if (current()) setError(remoteErrorMessage(failure));
@@ -564,27 +606,43 @@ export default function AgentReviewTab({
     }
   }, 'update');
 
-  const message = (delivery: 'TURN' | 'STEER' | 'QUEUE') => run_(async () => {
+  const message = (delivery: 'TURN' | 'STEER' | 'QUEUE') => run_(async current => {
     const text = composer.trim();
     if (text === '') return;
-    const key = `review-${delivery.toLowerCase()}:${review.id}:${text.length}:${Date.now()}`;
-    if (delivery !== 'TURN') {
-      // A steer is for the turn on screen; if that turn has ended, the backend refuses rather than steering the next one.
-      onReviewChange(await window.bridge.messageAgentReview(review.id, text, delivery, key, delivery === 'STEER' ? review.activeTurn?.id : undefined));
+    const key = submissions.keyFor(delivery === 'TURN' ? 'send' : delivery === 'STEER' ? 'steer' : 'queue',
+      review.activeTurn?.id ?? review.task.id, review.task.id, text, []);
+    if (delivery === 'TURN') {
+      // A new turn's message moves into the conversation at once; its durable event replaces it there.
+      // A lost response can be retried after its original event has already reached history.
+      const after = pendingSend.current?.key === key ? pendingSend.current.after : conversationRef.current.lastSequence;
+      pendingSend.current = { key, after };
+      setConversation(current => ({ ...current, pendingMessage: { text, attachments: [], after } }));
+      setComposer('');
+    }
+    try {
+      // A steer is for the turn on screen; the retained key also makes changing delivery after a lost answer safe.
+      const updated = await window.bridge.messageAgentReview(review.id, text, delivery, key, delivery === 'STEER' ? review.activeTurn?.id : undefined);
+      submissions.settled(key);
+      if (pendingSend.current?.key === key && conversationRef.current.pendingMessage === null) pendingSend.current = null;
+      if (!current()) return;
+      onReviewChange(updated);
       recordReviewAttentionAction(review, 'prompt');
       setComposer('');
-      return;
-    }
-    // A new turn's message moves into the conversation at once; its durable event replaces it there.
-    dispatchConversation({ type: 'message/sent', text });
-    setComposer('');
-    try {
-      onReviewChange(await window.bridge.messageAgentReview(review.id, text, delivery, key));
-      recordReviewAttentionAction(review, 'prompt');
     }
     catch (failure) {
-      dispatchConversation({ type: 'message/cleared' });
-      setComposer(composer);
+      if (!current()) throw failure;
+      // Steer or Queue can finish while an earlier Send still awaits its review presentation.
+      const ownsPending = pendingSend.current?.key === key;
+      if (ownsPending && !unconfirmedRequest(failure)) pendingSend.current = null;
+      if (alreadySent(failure)) {
+        submissions.settled(key);
+        if (ownsPending) dispatchConversation({ type: 'message/cleared' });
+        setComposer('');
+      }
+      else {
+        if (ownsPending) dispatchConversation({ type: unconfirmedRequest(failure) ? 'message/unconfirmed' : 'message/cleared' });
+        setComposer(composer);
+      }
       throw failure;
     }
   });
@@ -844,7 +902,7 @@ export default function AgentReviewTab({
           now={now}
           composer={composer}
           busy={busy}
-          onCompose={setComposer}
+          onCompose={text => { submissions.draftChanged(review.task.id, text, []); setComposer(text); }}
           onSend={() => { void message('TURN'); }}
           onSteer={() => { void message('STEER'); }}
           onQueue={() => { void message('QUEUE'); }}

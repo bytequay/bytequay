@@ -16,7 +16,7 @@ import type { AgentTurnDto } from '../types';
 
 /**
  * The transcript as the screen draws it: turns, each with the user's message, the agent's
- * intermediate blocks, and its answer. Everything here is derived from events on every render;
+ * intermediate blocks, and its answer. Everything here is derived from the loaded events;
  * nothing is persisted, so a folded summary can never disagree with the events it came from.
  */
 

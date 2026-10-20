@@ -28,8 +28,9 @@ public record DevelopmentResultBridge(String turnId, String instruction, boolean
     public static final String BRANCH_INSTRUCTION = """
 
             The task's initial branch name is provisional because it was chosen before investigation.
-            Once the actual change is clear, call rename_task_branch before your first turn's final
-            response and BEFORE any first git push or PR creation, even when publishing in this turn.
+            Once the actual change is clear, call rename_task_branch to propose a name before your first
+            turn's final response. The tool records a proposal; ByteQuay applies it only after this turn's
+            provider process is verified stopped and only while the branch is still unpublished.
             Branch naming is available only during this first turn. If no concrete change is known by
             its end, keep the initial name. Respect an explicit branch name from the user.
             Supply only a concise English action-and-component suffix describing the actual diff, using
@@ -37,9 +38,10 @@ public record DevelopmentResultBridge(String turnId, String instruction, boolean
             for example convert-parquet-time-millis-to-micro, not find-and-fix-issue. Do not summarize
             the user's generic request or include a username, slash, random ID, or hash. ByteQuay preserves
             the username/bytequay/ prefix and updates task ownership. Use this tool instead of git branch -m.
-            The tool keeps already published or imported PR branches unchanged. On a name collision,
-            choose another accurate suffix; never overwrite a branch. Use the returned full branch name
-            for subsequent Git and GitHub commands. Renaming locally does not authorize publication.
+            Keep using the current branch for every Git and GitHub command during this turn: a returned
+            candidate is not the active branch. If you publish the current branch before the turn ends,
+            ByteQuay keeps that published name. Imported PR branches also stay unchanged, and an existing
+            branch is never overwritten. Proposing a branch name does not authorize publication.
             """;
     public static final String INSTRUCTION = """
             Development result reporting is managed by ByteQuay for this turn. Before your final response,

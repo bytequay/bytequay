@@ -239,7 +239,7 @@ class TestCiAutofixEndToEnd
                 sourceTaskId, fixture.workspaceId(), ScriptedAgentDriver.LANE, RepositoryIdentity.valueOf(pr.repoFullName()), repository.baseSha(),
                 "author/bytequay/implement-the-requested-change-" + sourceTaskId.toString().substring(0, 8),
                 "Implement the requested change", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO).withDevelopmentAutomation(automation),
-                "development-e2e", Optional.empty()));
+                "development-e2e", Optional.empty(), false));
         Path sourceWorktree = source.taskWorktree().orElseThrow().canonicalWorktree();
         String branch = source.taskWorktree().orElseThrow().generatedBranch();
         AtomicBoolean published = new AtomicBoolean();

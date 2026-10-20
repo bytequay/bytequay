@@ -122,8 +122,9 @@ class TestDevelopmentFollowupCoordinator
     private final Runnable waitForCi = mock(Runnable.class);
     private final ArrayDeque<Runnable> pending = new ArrayDeque<>();
     private final List<AgentTurn> history = new ArrayList<>();
+    private final DevelopmentBranchService branches = mock(DevelopmentBranchService.class);
     private final DevelopmentFollowupCoordinator coordinator = new DevelopmentFollowupCoordinator(
-            turns, turnStore, git, pending::add, ci, actions, credentials, pullRequests, writes, clock, waitForCi);
+            turns, turnStore, git, pending::add, ci, actions, credentials, pullRequests, writes, clock, waitForCi, branches);
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
@@ -192,7 +193,8 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(REFINE_SUMMARY)), anyString());
         verify(git, never()).inspectPublication(any(), any());
-        verifyNoInteractions(ci, writes);
+        verify(turns, never()).executeDevelopmentAction(any(), any(), any());
+        verifyNoInteractions(branches, ci, writes);
         noFollowup();
     }
 
@@ -786,6 +788,7 @@ class TestDevelopmentFollowupCoordinator
         outcome = new DevelopmentTurnCompletion(task, source, quiescent, quiescent ? Optional.of("Cleanup failed") : Optional.empty());
         advance();
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Automation stopped"));
+        verifyNoInteractions(branches);
         noFollowup();
     }
 
@@ -883,7 +886,7 @@ class TestDevelopmentFollowupCoordinator
         var rejected = new DevelopmentFollowupCoordinator(turns, turnStore, git, ignored -> {
             throw new RejectedExecutionException("stopped");
         },
-                ci, actions, credentials, pullRequests, writes, clock, waitForCi);
+                ci, actions, credentials, pullRequests, writes, clock, waitForCi, branches);
         rejected.completed(outcome);
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Could not start"));
     }
@@ -976,7 +979,10 @@ class TestDevelopmentFollowupCoordinator
     {
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
         TaskWorktree renamed = task.withBranch("owner/bytequay/convert-parquet-time-millis-to-micro", NOW).taskWorktree().orElseThrow();
-        coordinator.branchRenamed(taskId, source.id(), worktree, renamed);
+        when(branches.prepare(task)).thenAnswer(ignored -> {
+            coordinator.branchRenamed(taskId, worktree, renamed);
+            return task.withBranch(renamed.generatedBranch(), NOW);
+        });
         route = route.withHeadBranch(renamed.generatedBranch());
         when(git.inspectLocal(renamed, route)).thenReturn(local(HEAD, false));
         AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.empty(), Optional.empty());
@@ -995,6 +1001,68 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
         verify(git, never()).pushDevelopmentHead(eq(worktree), any(), anyString(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aDeferredNameOnlyChangeDoesNotBecomeUndeliveredCode(boolean hasReport)
+    {
+        prepare(local(BASE, false), local(BASE, false), DRAFT_ONLY, true);
+        if (!hasReport) {
+            AgentTurn noReport = AgentTurn.accepted(source.id(), taskId, source.idempotencyKey(), source.settings().orElseThrow(), NOW)
+                    .markDeliveryStarted(NOW).running(new ProviderTurnRef("provider"), Optional.empty())
+                    .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
+            history.set(history.size() - 1, noReport);
+            outcome = new DevelopmentTurnCompletion(task, noReport, true, Optional.empty());
+        }
+        TaskWorktree renamed = task.withBranch("owner/bytequay/name-the-investigation", NOW).taskWorktree().orElseThrow();
+        when(branches.prepare(task)).thenAnswer(ignored -> {
+            coordinator.branchRenamed(taskId, worktree, renamed);
+            return task.withBranch(renamed.generatedBranch(), NOW);
+        });
+        route = route.withHeadBranch(renamed.generatedBranch());
+        when(git.inspectLocal(renamed, route)).thenReturn(local(BASE, false));
+
+        advance();
+
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).startGeneratedTurn(any(), any(), anyString());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+        verifyNoInteractions(writes);
+        if (!hasReport) {
+            verifyNoInteractions(branches);
+            verify(turns, never()).executeDevelopmentAction(any(), any(), any());
+        }
+    }
+
+    @Test
+    void oldRemoteReadCompletingAfterRenameCannotRestoreTheOldRoute()
+    {
+        source = running(DRAFT_ONLY);
+        history.add(source);
+        DevelopmentPublicationRoute originalRoute = route;
+        when(git.capture(task)).thenReturn(new DevelopmentBaseline(worktree, route, local(BASE, false)));
+        coordinator.accepted(task, source);
+        Runnable oldRemoteRead = pending.remove();
+        source = source.withDevelopmentResult(report(true)).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
+        history.set(0, source);
+        outcome = new DevelopmentTurnCompletion(task, source, true, Optional.empty());
+        when(turns.ownsDevelopmentContinuation(taskId, source.id())).thenReturn(true);
+        TaskWorktree renamed = task.withBranch("owner/bytequay/name-the-investigation", NOW).taskWorktree().orElseThrow();
+        route = route.withHeadBranch(renamed.generatedBranch());
+        when(git.inspectLocal(renamed, route)).thenReturn(local(BASE, false));
+        when(git.inspectPublication(worktree, originalRoute)).thenThrow(new IllegalStateException("Task worktree is on another branch"));
+        when(branches.prepare(task)).thenAnswer(ignored -> {
+            coordinator.branchRenamed(taskId, worktree, renamed);
+            oldRemoteRead.run();
+            return task.withBranch(renamed.generatedBranch(), NOW);
+        });
+
+        advance();
+
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+        verify(git, never()).inspectLocal(eq(worktree), any());
     }
 
     @ParameterizedTest

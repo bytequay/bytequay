@@ -83,7 +83,7 @@ public class DevelopmentGitInspector
     public DevelopmentBaseline capture(AgentTask task)
     {
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new IllegalStateException("Development task has no managed worktree"));
-        worktrees.inspect(worktree);
+        WorktreeSnapshot snapshot = worktrees.inspect(worktree);
         Workspace workspace = workspace(worktree);
         String sourceRemote = workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin";
         Optional<PullRequestRef> assigned = assignedPullRequest(worktree);
@@ -100,12 +100,17 @@ public class DevelopmentGitInspector
         DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(
                 workspace.selectedRepository(), workspace.monitoredRepository(), workspace.originCloneUrl(), sourceRemote,
                 baseBranch, baseSha, headBranch, assigned);
-        return new DevelopmentBaseline(worktree, route, inspectLocal(worktree, route));
+        return new DevelopmentBaseline(worktree, route, inspectLocal(worktree, route, snapshot));
     }
 
     public DevelopmentLocalFacts inspectLocal(TaskWorktree worktree, DevelopmentPublicationRoute route)
     {
-        WorktreeSnapshot snapshot = verify(worktree, route);
+        return inspectLocal(worktree, route, worktrees.inspect(worktree));
+    }
+
+    private DevelopmentLocalFacts inspectLocal(TaskWorktree worktree, DevelopmentPublicationRoute route, WorktreeSnapshot snapshot)
+    {
+        verify(worktree, route, snapshot);
         requireCommit(worktree, route.baseSha());
         String tree = output(worktree, "rev-parse", "--verify", "HEAD^{tree}").strip();
         checkSha(tree, "sha");
@@ -114,7 +119,7 @@ public class DevelopmentGitInspector
         Hasher digest = Hashing.sha256().newHasher();
         add(digest, snapshot.head());
         add(digest, tree);
-        add(digest, worktree.generatedBranch());
+        // Branch identity is verified separately; a descriptive rename does not change code.
         add(digest, status);
         add(digest, output(worktree, "diff", "--binary", "--no-ext-diff", "--no-textconv", "--cached", "--"));
         add(digest, output(worktree, "diff", "--binary", "--no-ext-diff", "--no-textconv", "--"));
@@ -153,8 +158,8 @@ public class DevelopmentGitInspector
         return facts;
     }
 
-    /** Renames only an unpublished branch; persistence failure restores the original local name. */
-    public TaskWorktree renameBranch(DevelopmentBaseline baseline, String branch, Consumer<TaskWorktree> recordRename)
+    /** Renames only an unpublished branch, recording intent before Git so an uncertain save can be reconciled. */
+    public TaskWorktree renameBranch(DevelopmentBaseline baseline, String branch, Consumer<DevelopmentBranchRename> recordIntent, Consumer<TaskWorktree> recordRename)
     {
         TaskWorktree worktree = baseline.worktree();
         DevelopmentPublicationRoute route = baseline.route();
@@ -179,22 +184,58 @@ public class DevelopmentGitInspector
         checkState(target.remoteHeadSha().isEmpty() && target.matchingPullRequests().isEmpty(), "The proposed branch name is already in use on GitHub");
         WorktreeSnapshot checked = verify(worktree, route);
         checkState(checked.head().equals(before.head()) && !checked.gitOperationInProgress(), "Task changed while checking its branch name");
+        recordIntent.accept(new DevelopmentBranchRename(worktree.generatedBranch(), branch, checked.head()));
         output(worktree, "branch", "-m", branch);
-        try {
-            verify(renamed, renamedRoute);
+        verify(renamed, renamedRoute);
+        // A save may commit before reporting failure. Keep Git at the recorded target and let
+        // recovery finish the task row; compensating here could undo a committed rename.
+        recordRename.accept(renamed);
+        return renamed;
+    }
+
+    /** Called only while no provider or other admitted writer can change this checkout. */
+    public TaskWorktree recoverRename(TaskWorktree persisted, DevelopmentBranchRename intent, Consumer<TaskWorktree> recordRename)
+    {
+        checkState(intent.previousBranch().substring(0, intent.previousBranch().lastIndexOf('/') + 1)
+                        .equals(intent.proposedBranch().substring(0, intent.proposedBranch().lastIndexOf('/') + 1)),
+                "The pending rename changes the task namespace");
+        checkState(persisted.generatedBranch().equals(intent.previousBranch()) || persisted.generatedBranch().equals(intent.proposedBranch()),
+                "The saved task branch does not match its pending rename");
+        TaskWorktree original = new TaskWorktree(persisted.taskId(), persisted.workspaceId(), persisted.physicalRepository(),
+                persisted.canonicalWorktree(), intent.previousBranch(), persisted.startCommit());
+        TaskWorktree renamed = new TaskWorktree(persisted.taskId(), persisted.workspaceId(), persisted.physicalRepository(),
+                persisted.canonicalWorktree(), intent.proposedBranch(), persisted.startCommit());
+        Path checkout = worktrees.ownedCheckout(persisted);
+        Result branch = git.run(checkout, "symbolic-ref", "--quiet", "--short", "HEAD");
+        checkState(branch.successful() && !branch.truncated() && !branch.output().isBlank(), "The pending rename checkout has no verifiable branch");
+        String current = branch.output().strip();
+        checkState(current.equals(intent.previousBranch()) || current.equals(intent.proposedBranch()), "The pending rename checkout is on an unrelated branch");
+        WorktreeSnapshot snapshot = worktrees.inspect(current.equals(intent.previousBranch()) ? original : renamed);
+        checkState(snapshot.head().equals(intent.expectedHead()) && !snapshot.gitOperationInProgress(), "The pending rename checkout changed; inspect it before continuing");
+        Optional<String> oldRef = localRef(persisted, intent.previousBranch());
+        Optional<String> newRef = localRef(persisted, intent.proposedBranch());
+        if (current.equals(intent.previousBranch())) {
+            checkState(persisted.generatedBranch().equals(intent.previousBranch()) && oldRef.filter(intent.expectedHead()::equals).isPresent() && newRef.isEmpty(),
+                    "The pending rename refs do not match the original task");
+            return original;
+        }
+        checkState(oldRef.isEmpty() && newRef.filter(intent.expectedHead()::equals).isPresent(), "The pending rename refs do not match the renamed task");
+        if (!persisted.equals(renamed)) {
             recordRename.accept(renamed);
         }
-        catch (RuntimeException failure) {
-            try {
-                verify(renamed, renamedRoute);
-                output(renamed, "branch", "-m", worktree.generatedBranch());
-            }
-            catch (RuntimeException rollbackFailure) {
-                failure.addSuppressed(rollbackFailure);
-            }
-            throw failure;
-        }
         return renamed;
+    }
+
+    private Optional<String> localRef(TaskWorktree worktree, String branch)
+    {
+        Result result = git.run(worktree.canonicalWorktree(), "rev-parse", "--verify", "--quiet", "refs/heads/" + branch + "^{commit}");
+        if (result.exitCode() == 1 && !result.truncated() && result.output().isBlank()) {
+            return Optional.empty();
+        }
+        checkState(result.successful() && !result.truncated(), "Cannot verify the pending rename refs");
+        String head = result.output().strip();
+        checkSha(head, "head");
+        return Optional.of(head);
     }
 
     private DevelopmentPublicationFacts readPublication(TaskWorktree worktree, DevelopmentPublicationRoute route)
@@ -307,7 +348,11 @@ public class DevelopmentGitInspector
 
     private WorktreeSnapshot verify(TaskWorktree worktree, DevelopmentPublicationRoute route)
     {
-        WorktreeSnapshot snapshot = worktrees.inspect(worktree);
+        return verify(worktree, route, worktrees.inspect(worktree));
+    }
+
+    private WorktreeSnapshot verify(TaskWorktree worktree, DevelopmentPublicationRoute route, WorktreeSnapshot snapshot)
+    {
         checkState(snapshot.worktree().equals(worktree), "Development worktree ownership changed");
         Workspace workspace = workspace(worktree);
         String sourceRemote = workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin";

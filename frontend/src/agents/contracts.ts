@@ -59,6 +59,7 @@ const AGENT_PROVIDER_UNAVAILABLE_MARKER = 'AGENT_PROVIDER_UNAVAILABLE:';
 
 /** Main's message for a request whose answer did not arrive in time; the backend may still finish it. */
 export const UNCONFIRMED_REQUEST = 'ByteQuay did not answer in time. The request may still finish, so check before trying again.';
+export const CHECKING_ACCEPTANCE = 'The response did not arrive. Checking whether the message was accepted…';
 /** The backend's refusal of a message already sent another way, such as Queue after a Send whose answer was lost. */
 const ALREADY_SENT = 'This message was already sent';
 

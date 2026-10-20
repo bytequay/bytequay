@@ -48,6 +48,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
 import static com.bytequay.agent.core.impl.AgentEventOutboxDrainer.drainPending;
@@ -76,6 +77,7 @@ public final class DefaultAgentCompletionService
     // Runs before a task's event log or rows are removed, such as the Goal recording what it has not yet of the task; a failure keeps them.
     private final Consumer<AgentTask> beforeRemoval;
     private final Clock clock;
+    private final UnaryOperator<AgentTask> idleWorktreePreparation;
 
     public DefaultAgentCompletionService(
             AgentTaskStore taskStore,
@@ -91,7 +93,8 @@ public final class DefaultAgentCompletionService
             AgentMetricsService metricsService,
             Supplier<Duration> retentionPeriod,
             Consumer<AgentTask> beforeRemoval,
-            Clock clock)
+            Clock clock,
+            UnaryOperator<AgentTask> idleWorktreePreparation)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
@@ -108,6 +111,7 @@ public final class DefaultAgentCompletionService
         this.retentionPeriod = requireNonNull(retentionPeriod, "retentionPeriod is null");
         this.beforeRemoval = requireNonNull(beforeRemoval, "beforeRemoval is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.idleWorktreePreparation = requireNonNull(idleWorktreePreparation, "idleWorktreePreparation is null");
     }
 
     @Override
@@ -155,6 +159,7 @@ public final class DefaultAgentCompletionService
             task.worktreeMutationClaim().ifPresent(owner -> {
                 throw new AgentConflictException(owner.conflictMessage());
             });
+            AgentTask prepared = prepareIdleWorktree(task);
             List<QueuedAgentInput> queue = queueStore.listQueued(task.id());
             queue.stream().filter(input -> input.state().live()).findFirst().ifPresent(input -> {
                 throw new AgentConflictException("Task still has queued input: " + input.id());
@@ -167,7 +172,7 @@ public final class DefaultAgentCompletionService
                 queue.stream()
                         .filter(input -> input.state() == QueuedAgentInput.State.UNCERTAIN)
                         .forEach(input -> queueStore.update(input.abandoned("Task completed without resending it", claimedAt)));
-                return taskStore.update(task.claimWorktreeMutation(claim, claimedAt));
+                return taskStore.update(prepared.claimWorktreeMutation(claim, claimedAt));
             });
         }
     }
@@ -217,6 +222,10 @@ public final class DefaultAgentCompletionService
         runtimeRegistry.closeSession(taskId);
         synchronized (runtimeRegistry.taskLock(taskId)) {
             requireAbandonable(taskId);
+            AgentTask idle = taskStore.require(taskId);
+            if (idle.worktreeMutationClaim().filter(claim -> claim.kind() != WorktreeMutationClaim.Kind.RECOVERY).isEmpty()) {
+                prepareIdleWorktree(idle);
+            }
             Instant failedAt = Instant.now(clock);
             Duration retention = retentionPeriod.get();
             return eventCommitter.commit(
@@ -371,7 +380,8 @@ public final class DefaultAgentCompletionService
             AgentTask task = taskStore.require(taskId);
             resourceService.pathsForDeletion(taskId);
             runtimeRegistry.requireNoWorktreeBorrowers(task);
-            task.taskWorktree().filter(ignored -> task.ownsWorktree()).ifPresent(worktreeService::delete);
+            AgentTask prepared = prepareIdleWorktree(task);
+            prepared.taskWorktree().filter(ignored -> prepared.ownsWorktree()).ifPresent(worktreeService::delete);
             resourceService.delete(taskId);
             unitOfWork.execute(() -> {
                 taskStore.delete(taskId);
@@ -419,9 +429,24 @@ public final class DefaultAgentCompletionService
             return task;
         }
         runtimeRegistry.requireNoWorktreeBorrowers(task);
-        task.taskWorktree().filter(ignored -> task.ownsWorktree()).ifPresent(worktreeService::cleanup);
+        AgentTask prepared = prepareIdleWorktree(task);
+        prepared.taskWorktree().filter(ignored -> prepared.ownsWorktree()).ifPresent(worktreeService::cleanup);
         resourceService.deleteWorktreeCache(task.id());
-        return taskStore.update(task.withWorktreeRemovedAt(Instant.now(clock)));
+        return taskStore.update(prepared.withWorktreeRemovedAt(Instant.now(clock)));
+    }
+
+    private AgentTask prepareIdleWorktree(AgentTask task)
+    {
+        turnStore.findActive(task.id()).ifPresent(turn -> {
+            throw new AgentConflictException("Task has an active turn: " + turn.id());
+        });
+        task.worktreeMutationClaim().filter(claim -> claim.kind() != WorktreeMutationClaim.Kind.RECOVERY).ifPresent(claim -> {
+            throw new AgentConflictException(claim.conflictMessage());
+        });
+        runtimeRegistry.unverifiedClose(task.id()).ifPresent(failure -> {
+            throw new AgentConflictException("Task provider process is not verified stopped: " + message(failure));
+        });
+        return idleWorktreePreparation.apply(task);
     }
 
     private static TaskCompletion completion(AgentTask task)

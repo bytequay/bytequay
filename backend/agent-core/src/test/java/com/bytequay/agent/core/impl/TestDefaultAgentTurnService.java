@@ -134,6 +134,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
@@ -176,6 +177,7 @@ class TestDefaultAgentTurnService
     private Consumer<TaskId> stopChildren = ignored -> {};
     private BiConsumer<AgentTask, AgentTurn> developmentAccepted = (acceptedTask, turn) -> {};
     private ReviewTurnInputResolver reviewTurnInput = ReviewTurnInputResolver.NONE;
+    private UnaryOperator<AgentTask> idleWorktreePreparation = task -> task;
 
     @BeforeEach
     void setUp()
@@ -494,6 +496,73 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void recoversTheIdleBranchBeforeAcceptingTheNextTurnAndBuildingItsProviderContext()
+    {
+        service.start(command("First", "first"));
+        driver.complete("Done");
+        String branch = "user/bytequay/recovered-branch";
+        AtomicInteger preparations = new AtomicInteger();
+        idleWorktreePreparation = current -> {
+            assertThat(stores.findActive(current.id())).isEmpty();
+            assertThat(current.worktreeMutationClaim()).isEmpty();
+            assertThat(runtimeRegistry.unverifiedClose(current.id())).isEmpty();
+            assertThat(driver.commands()).hasSize(1);
+            preparations.incrementAndGet();
+            managedInstructions.set("Current branch: " + branch);
+            return stores.update(current.withBranch(branch, NOW));
+        };
+
+        long expectedVersion = stores.find(task.id()).orElseThrow().version();
+        AgentTurn next = service.start(new StartAgentTurnCommand(task.id(), expectedVersion, "Continue", ImmutableList.of(), "second"));
+
+        assertThat(next.state()).isEqualTo(TurnState.RUNNING);
+        assertThat(preparations).hasValue(1);
+        assertThat(instructionTasks.getLast().taskWorktree().orElseThrow().generatedBranch()).isEqualTo(branch);
+        assertThat(stores.find(task.id()).orElseThrow().taskWorktree().orElseThrow().generatedBranch()).isEqualTo(branch);
+        assertThat(driver.openedContexts().getLast().worktree()).isEqualTo(task.worktree());
+        assertThat(driver.openedContexts().getLast().managedInstructions()).contains("Current branch: " + branch);
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("First", "Continue");
+        driver.complete("Done again");
+    }
+
+    @Test
+    void rejectsAnExternallyStaleTaskVersionBeforeAttemptingIdleBranchRecovery()
+    {
+        long staleVersion = task.version();
+        stores.update(task.withUpdatedAt(NOW));
+        idleWorktreePreparation = current -> {
+            throw new AssertionError("A stale caller must not repair or mutate this task");
+        };
+
+        assertThatThrownBy(() -> service.start(new StartAgentTurnCommand(task.id(), staleVersion, "Stale request", ImmutableList.of(), "stale")))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Task version changed");
+        assertThat(stores.list(task.id())).isEmpty();
+        assertThat(driver.openedContexts()).isEmpty();
+    }
+
+    @Test
+    void neverPreparesTheIdleWorktreeWhileItsProviderTurnOrUnverifiedWriterStillOwnsIt()
+    {
+        AtomicInteger preparations = new AtomicInteger();
+        idleWorktreePreparation = current -> {
+            preparations.incrementAndGet();
+            return current;
+        };
+        service.start(command("First", "first"));
+        assertThat(preparations).hasValue(1);
+
+        assertThatThrownBy(() -> service.start(command("While active", "second")))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("active turn");
+        assertThat(preparations).hasValue(1);
+        driver.completeUnverified("Provider result without stop proof");
+
+        assertThatThrownBy(() -> service.start(command("While unverified", "second")))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("claimed by TURN");
+        assertThat(preparations).hasValue(1);
+        assertThat(driver.commands()).hasSize(1);
+    }
+
+    @Test
     void aComposerProviderChangeAppliesOnlyToTheNextTurnWithAFreshSession()
     {
         DeterministicAgentDriver nextDriver = new DeterministicAgentDriver(new AgentLaneId("next-provider"));
@@ -615,7 +684,7 @@ class TestDefaultAgentTurnService
                 TaskBranches.generate(taskId, "user", "DeepSeek task"), "DeepSeek task",
                 new AgentTaskDefaults(Optional.of("deepseek-flash"), Optional.of("high"), AgentPermissionPolicy.AUTO)
                         .withDevelopmentAutomation(DevelopmentAutomation.DEFAULT),
-                "deepseek-fingerprint", Optional.empty()));
+                "deepseek-fingerprint", Optional.empty(), false));
 
         assertThat(service.effectiveSettings(deepSeek.id()).developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
 
@@ -929,6 +998,50 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void worktreeSynchronizationAcceptsItsRequestedVersionBeforeRecoveringTheBranch()
+    {
+        long expectedVersion = task.version();
+        String branch = "user/bytequay/recovered-review-branch";
+        AtomicInteger preparations = new AtomicInteger();
+        idleWorktreePreparation = current -> {
+            assertThat(current.version()).isEqualTo(expectedVersion);
+            assertThat(current.worktreeMutationClaim()).isEmpty();
+            preparations.incrementAndGet();
+            return stores.update(current.withBranch(branch, NOW));
+        };
+        AtomicBoolean inspected = new AtomicBoolean();
+
+        service.synchronizeWorktree(task.id(), expectedVersion, claimed -> {
+            assertThat(claimed.version()).isGreaterThan(expectedVersion);
+            assertThat(claimed.taskWorktree().orElseThrow().generatedBranch()).isEqualTo(branch);
+            assertThat(claimed.worktreeMutationClaim().orElseThrow().kind()).isEqualTo(WorktreeMutationClaim.Kind.COMPLETION);
+            inspected.set(true);
+        });
+
+        assertThat(preparations).hasValue(1);
+        assertThat(inspected).isTrue();
+        AgentTask current = taskService.get(task.id());
+        assertThat(current.worktreeMutationClaim()).isEmpty();
+        assertThat(current.taskWorktree().orElseThrow().generatedBranch()).isEqualTo(branch);
+    }
+
+    @Test
+    void worktreeSynchronizationRejectsAStaleCallerBeforeRecoveringOrClaimingTheBranch()
+    {
+        long staleVersion = task.version();
+        AgentTask changed = stores.update(task.withUpdatedAt(NOW));
+        idleWorktreePreparation = current -> {
+            throw new AssertionError("A stale worktree request must not perform internal recovery");
+        };
+
+        assertThatThrownBy(() -> service.synchronizeWorktree(task.id(), staleVersion, claimed -> {
+            throw new AssertionError("A stale worktree request must not run its action");
+        })).isInstanceOf(AgentConflictException.class).hasMessageContaining("Task version changed");
+        assertThat(taskService.get(task.id())).isEqualTo(changed);
+        assertThat(changed.worktreeMutationClaim()).isEmpty();
+    }
+
+    @Test
     void worktreeSynchronizationReleasesClaimOnSuccessAndFailure()
     {
         service.synchronizeWorktree(task.id(), task.version(), ignored -> {});
@@ -975,7 +1088,7 @@ class TestDefaultAgentTurnService
                 TaskBranches.generate(taskId, "user", firstMessage),
                 firstMessage,
                 new AgentTaskDefaults(Optional.of("model-a"), Optional.of("low"), AgentPermissionPolicy.AUTO),
-                "test-creation-fingerprint", Optional.empty()));
+                "test-creation-fingerprint", Optional.empty(), false));
     }
 
     @Test
@@ -3884,7 +3997,8 @@ class TestDefaultAgentTurnService
                 ignored -> developmentListener.isPresent(),
                 (acceptedTask, turn) -> developmentAccepted.accept(acceptedTask, turn),
                 completion -> developmentListener.orElseThrow().accept(completion),
-                stoppedTask -> stopChildren.accept(stoppedTask));
+                stoppedTask -> stopChildren.accept(stoppedTask),
+                task -> idleWorktreePreparation.apply(task));
     }
 
     private DefaultAgentCompletionService completionService()
@@ -3903,7 +4017,8 @@ class TestDefaultAgentTurnService
                 metrics,
                 () -> Duration.ofDays(7),
                 task -> {},
-                CLOCK);
+                CLOCK,
+                task -> task);
     }
 
     private DefaultAgentApprovalService durableApprovals(AgentRuntimeRegistry runtimeRegistry)

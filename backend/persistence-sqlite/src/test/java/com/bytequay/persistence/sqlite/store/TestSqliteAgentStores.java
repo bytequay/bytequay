@@ -111,8 +111,6 @@ import static org.mockito.Mockito.mock;
 class TestSqliteAgentStores
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-agent-store-" + UUID.randomUUID() + ".db").toString();
-
     @Autowired
     private SqliteAgentTaskStore taskStore;
 
@@ -150,7 +148,7 @@ class TestSqliteAgentStores
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
         // Match production startup: create fresh tables and their unique indexes through schema update.
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "update");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-agent-store-") + "?foreign_keys=ON", "update");
     }
 
     @Test

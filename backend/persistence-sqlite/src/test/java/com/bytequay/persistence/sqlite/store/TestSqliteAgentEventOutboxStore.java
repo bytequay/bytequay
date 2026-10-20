@@ -50,7 +50,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -59,7 +58,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteAgentEventOutboxStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-agent-event-outbox-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-09-01T00:00:00Z");
 
     @Autowired
@@ -80,7 +78,7 @@ class TestSqliteAgentEventOutboxStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-agent-event-outbox-") + "?foreign_keys=ON", "create-drop");
     }
 
     @BeforeEach

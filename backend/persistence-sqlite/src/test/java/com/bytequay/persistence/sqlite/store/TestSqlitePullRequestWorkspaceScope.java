@@ -30,12 +30,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -44,7 +42,6 @@ class TestSqlitePullRequestWorkspaceScope
         extends AbstractTestSqliteStore
 {
     private static final Instant RETENTION_CUTOFF = Instant.parse("2026-08-01T00:00:00Z");
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-pr-scope-" + UUID.randomUUID() + ".db").toString();
 
     @Autowired
     private SqlitePullRequestStore store;
@@ -64,7 +61,7 @@ class TestSqlitePullRequestWorkspaceScope
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-pr-scope-") + "?foreign_keys=ON", "create-drop");
     }
 
     @Test

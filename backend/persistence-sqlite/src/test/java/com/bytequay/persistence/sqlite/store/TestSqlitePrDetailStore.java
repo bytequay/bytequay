@@ -41,13 +41,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -56,7 +54,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestSqlitePrDetailStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-pr-detail-store-" + UUID.randomUUID() + ".db").toString();
     private static final PullRequestRef PULL_REQUEST = PullRequestRef.of("bytequay", "sample", 42);
     private static final Instant NOW = Instant.parse("2026-08-18T00:00:00Z");
 
@@ -83,7 +80,7 @@ class TestSqlitePrDetailStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-pr-detail-store-") + "?foreign_keys=ON", "create-drop");
         registry.add("spring.jpa.properties.hibernate.session_factory.statement_inspector", RecordingStatementInspector.class::getName);
     }
 

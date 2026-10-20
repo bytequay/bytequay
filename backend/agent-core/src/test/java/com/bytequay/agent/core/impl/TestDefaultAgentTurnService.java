@@ -111,7 +111,6 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -4321,42 +4320,6 @@ class TestDefaultAgentTurnService
         public Flow.Publisher<AgentEventEnvelope> subscribe(TaskId taskId, long afterSequence)
         {
             return delegate.subscribe(taskId, afterSequence);
-        }
-    }
-
-    private static final class AdvancingClock
-            extends Clock
-    {
-        private Instant instant;
-
-        private AdvancingClock(Instant instant)
-        {
-            this.instant = instant;
-        }
-
-        @Override
-        public ZoneOffset getZone()
-        {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone)
-        {
-            return this;
-        }
-
-        @Override
-        public synchronized Instant instant()
-        {
-            Instant current = instant;
-            instant = instant.plusMillis(1);
-            return current;
-        }
-
-        private synchronized void advance(Duration duration)
-        {
-            instant = instant.plus(duration);
         }
     }
 }

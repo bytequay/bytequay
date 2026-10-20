@@ -35,7 +35,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,8 +42,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteLocalReviewStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-local-review-" + UUID.randomUUID() + ".db").toString();
-
     @Autowired
     private SqliteLocalReviewStore store;
 
@@ -57,7 +54,7 @@ class TestSqliteLocalReviewStore
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE, "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-local-review-"), "create-drop");
     }
 
     @Test

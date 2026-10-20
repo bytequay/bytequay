@@ -363,14 +363,7 @@ class TestCherryPickExecutionService
     @Test
     void cancellationRecoversThePreassignedTaskAfterAStartCrash()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
-        agent.beforeTaskCreate(() -> {
-            throw new AssertionError("simulated process death");
-        });
-        assertThatThrownBy(() -> start(base, ImmutableList.of())).isInstanceOf(AssertionError.class);
-        CherryPickExecution persisted = store.listRecent(10).getFirst();
+        CherryPickExecution persisted = startUntilTaskCreationCrashes();
         TaskId taskId = TaskId.valueOf(persisted.agentTaskId().orElseThrow());
         agent.terminalizeOnComplete();
 
@@ -385,14 +378,7 @@ class TestCherryPickExecutionService
     @Test
     void cancellationPreservesTheStartCrashGapUntilItsTaskCanBeVerified()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
-        agent.beforeTaskCreate(() -> {
-            throw new AssertionError("simulated process death");
-        });
-        assertThatThrownBy(() -> start(base, ImmutableList.of())).isInstanceOf(AssertionError.class);
-        CherryPickExecution persisted = store.listRecent(10).getFirst();
+        CherryPickExecution persisted = startUntilTaskCreationCrashes();
         TaskId taskId = TaskId.valueOf(persisted.agentTaskId().orElseThrow());
         when(workspaceRepositories.requireReadyRepository(WORKSPACE_ID))
                 .thenReturn(workspaceContext(RepoRef.of("trinodb", "other")));
@@ -413,14 +399,7 @@ class TestCherryPickExecutionService
     @Test
     void refusesToProvisionACrashedStartInANewRepositorySelection()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
-        agent.beforeTaskCreate(() -> {
-            throw new AssertionError("simulated process death");
-        });
-        assertThatThrownBy(() -> start(base, ImmutableList.of())).isInstanceOf(AssertionError.class);
-        CherryPickExecution persisted = store.listRecent(10).getFirst();
+        CherryPickExecution persisted = startUntilTaskCreationCrashes();
         TaskId taskId = TaskId.valueOf(persisted.agentTaskId().orElseThrow());
         when(workspaceRepositories.requireReadyRepository(WORKSPACE_ID))
                 .thenReturn(workspaceContext(RepoRef.of("trinodb", "other")));
@@ -1268,6 +1247,18 @@ class TestCherryPickExecutionService
                                 .map(stage -> new CherryPickItem.IndexStage(stage.stage(), stage.mode(), stage.blobSha()))
                                 .collect(toImmutableList())))
                 .collect(toImmutableList());
+    }
+
+    private CherryPickExecution startUntilTaskCreationCrashes()
+    {
+        String base = head(upstream);
+        write(upstream, "file.txt", "content\n");
+        commit(upstream, "Upstream change");
+        agent.beforeTaskCreate(() -> {
+            throw new AssertionError("simulated process death");
+        });
+        assertThatThrownBy(() -> start(base, ImmutableList.of())).isInstanceOf(AssertionError.class);
+        return store.listRecent(10).getFirst();
     }
 
     private CherryPickExecution start(String baseRef, List<String> skipped)

@@ -24,17 +24,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteMemoryStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-memory-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-10-02T10:00:00.123Z");
 
     @Autowired
@@ -49,7 +46,7 @@ class TestSqliteMemoryStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-memory-") + "?foreign_keys=ON", "create-drop");
     }
 
     @Test

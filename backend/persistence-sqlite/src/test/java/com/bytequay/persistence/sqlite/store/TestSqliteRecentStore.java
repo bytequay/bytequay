@@ -23,18 +23,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteRecentStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-recent-store-" + UUID.randomUUID() + ".db").toString();
     private static final LocalDate TODAY = LocalDate.parse("2026-08-28");
     private static final Instant MORNING = Instant.parse("2026-08-28T09:00:00Z");
     private static final Instant AFTERNOON = Instant.parse("2026-08-28T14:00:00Z");
@@ -45,7 +42,7 @@ class TestSqliteRecentStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH, "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-recent-store-"), "create-drop");
     }
 
     @Test

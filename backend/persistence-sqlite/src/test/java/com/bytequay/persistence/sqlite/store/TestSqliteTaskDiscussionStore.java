@@ -25,10 +25,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -36,7 +34,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteTaskDiscussionStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-discussion-store-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-09-21T00:00:00Z");
     private static final String HASH = "a".repeat(64);
     private static final String OTHER_HASH = "b".repeat(64);
@@ -47,7 +44,7 @@ class TestSqliteTaskDiscussionStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-discussion-store-") + "?foreign_keys=ON", "create-drop");
     }
 
     @Test

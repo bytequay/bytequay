@@ -25,6 +25,8 @@ import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.RunningTurn;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 import java.util.Optional;
@@ -221,21 +223,9 @@ class TestAgentRuntimeRegistry
         assertThatThrownBy(() -> registry.reserveDevelopmentOwner(FIRST, source)).isInstanceOf(AgentConflictException.class);
     }
 
-    @Test
-    void stopRevokesBeforeDrainingAdmittedDevelopmentAction()
-            throws Exception
-    {
-        assertDrainsDevelopmentAction(false);
-    }
-
-    @Test
-    void shutdownRevokesBeforeDrainingAdmittedDevelopmentAction()
-            throws Exception
-    {
-        assertDrainsDevelopmentAction(true);
-    }
-
-    private static void assertDrainsDevelopmentAction(boolean shutdown)
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void stopAndShutdownRevokeBeforeDrainingAdmittedDevelopmentAction(boolean shutdown)
             throws Exception
     {
         AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true);

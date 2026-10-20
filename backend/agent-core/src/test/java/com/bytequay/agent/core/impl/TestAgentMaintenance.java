@@ -56,7 +56,6 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
@@ -637,37 +636,6 @@ class TestAgentMaintenance
         public void delete(TaskId taskId)
         {
             throw new UnsupportedOperationException();
-        }
-    }
-
-    private static final class AdvancingClock
-            extends Clock
-    {
-        private Instant instant;
-
-        private AdvancingClock(Instant instant)
-        {
-            this.instant = instant;
-        }
-
-        @Override
-        public ZoneId getZone()
-        {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone)
-        {
-            return this;
-        }
-
-        @Override
-        public synchronized Instant instant()
-        {
-            Instant current = instant;
-            instant = instant.plusMillis(1);
-            return current;
         }
     }
 }

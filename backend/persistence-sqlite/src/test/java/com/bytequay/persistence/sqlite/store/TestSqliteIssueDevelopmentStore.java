@@ -37,7 +37,6 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,7 +45,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteIssueDevelopmentStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-issue-development-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-09-15T10:00:00.123Z");
     private static final long REPOSITORY_ID = 100;
 
@@ -68,7 +66,7 @@ class TestSqliteIssueDevelopmentStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-issue-development-") + "?foreign_keys=ON", "create-drop");
     }
 
     @Test

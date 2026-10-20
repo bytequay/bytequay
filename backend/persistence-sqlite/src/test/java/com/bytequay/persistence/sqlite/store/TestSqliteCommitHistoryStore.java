@@ -25,17 +25,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteCommitHistoryStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-commit-history-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-08-23T00:00:00Z");
     private static final String SHA = "0123456789abcdef";
 
@@ -57,7 +54,7 @@ class TestSqliteCommitHistoryStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-commit-history-") + "?foreign_keys=ON", "create-drop");
     }
 
     @Test

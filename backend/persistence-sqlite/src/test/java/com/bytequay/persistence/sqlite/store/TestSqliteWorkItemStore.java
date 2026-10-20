@@ -29,7 +29,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -40,7 +39,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteWorkItemStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-work-items-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.EPOCH;
 
     private final String sourceIdentity = "ISSUE:github.com:" + UUID.randomUUID();
@@ -54,7 +52,7 @@ class TestSqliteWorkItemStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-work-items-") + "?foreign_keys=ON", "create-drop");
     }
 
     @Test

@@ -20,7 +20,11 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -43,12 +47,30 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class TestGitHubPullRequestWriteClient
 {
+    private MockRestServiceServer server;
+    private MockRestServiceServer graphServer;
+    private GitHubPullRequestWriteClient client;
+
+    @BeforeEach
+    void setUp()
+    {
+        RestClient.Builder rest = RestClient.builder().baseUrl("https://api.github.test");
+        RestClient.Builder graph = RestClient.builder().baseUrl("https://api.github.test/graphql");
+        server = MockRestServiceServer.bindTo(rest).build();
+        graphServer = MockRestServiceServer.bindTo(graph).build();
+        client = new GitHubPullRequestWriteClient(rest.build(), graph.build());
+    }
+
+    @AfterEach
+    void verifyRequests()
+    {
+        server.verify();
+        graphServer.verify();
+    }
+
     @Test
     void sendsTheDisplayedHeadAndPropagatesAChangedHeadRejection()
     {
-        RestClient.Builder rest = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(rest.build(), RestClient.create());
         server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/merge"))
                 .andExpect(method(HttpMethod.PUT))
                 .andExpect(content().json("{\"merge_method\":\"rebase\",\"sha\":\"displayed-head\"}", true))
@@ -58,16 +80,12 @@ class TestGitHubPullRequestWriteClient
                 new MergePullRequestCommand("rebase", Optional.empty(), Optional.empty(), Optional.of("displayed-head"))))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("409");
-        server.verify();
     }
 
     @Test
     void approvesTheViewedCommitWithoutInlineComments()
     {
         String viewedCommit = "a".repeat(40);
-        RestClient.Builder rest = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(rest.build(), RestClient.create());
         server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/reviews"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -76,18 +94,11 @@ class TestGitHubPullRequestWriteClient
                         "{\"id\":77,\"state\":\"APPROVED\",\"user\":{\"login\":\"reviewer\"},\"commit_id\":\"%s\"}".formatted(viewedCommit), MediaType.APPLICATION_JSON));
 
         assertThat(client.submitReview("pat", PullRequestRef.of("owner", "repo", 7), "APPROVE", "", ImmutableList.of(), viewedCommit).commitId()).isEqualTo(viewedCommit);
-
-        server.verify();
     }
 
     @Test
     void submitsInlineCommentsAndThreadRepliesInOneReview()
     {
-        RestClient.Builder rest = RestClient.builder().baseUrl("https://api.github.test");
-        RestClient.Builder graph = RestClient.builder().baseUrl("https://api.github.test/graphql");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
-        MockRestServiceServer graphServer = MockRestServiceServer.bindTo(graph).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(rest.build(), graph.build());
         server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/reviews"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().json("""
@@ -108,18 +119,11 @@ class TestGitHubPullRequestWriteClient
         assertThat(client.submitReviewWithReplies("pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix", ImmutableList.of(
                 new InlineReviewComment("A.java", "New comment", 3, "RIGHT", null, null, "head", OptionalLong.empty()),
                 new InlineReviewComment("A.java", "Reply", 1, "RIGHT", null, null, null, OptionalLong.of(61))), ImmutableMap.of(61L, "PRRT_61"), "head").githubId()).isEqualTo(77);
-        server.verify();
-        graphServer.verify();
     }
 
     @Test
     void doesNotPublishOrRetryWhenAPendingReplyFails()
     {
-        RestClient.Builder rest = RestClient.builder().baseUrl("https://api.github.test");
-        RestClient.Builder graph = RestClient.builder().baseUrl("https://api.github.test/graphql");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
-        MockRestServiceServer graphServer = MockRestServiceServer.bindTo(graph).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(rest.build(), graph.build());
         server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/reviews"))
                 .andExpect(content().json("{\"commit_id\":\"head\"}", true))
                 .andRespond(withSuccess("{\"id\":77,\"node_id\":\"PRR_77\",\"state\":\"PENDING\"}", MediaType.APPLICATION_JSON));
@@ -129,17 +133,12 @@ class TestGitHubPullRequestWriteClient
         assertThatThrownBy(() -> client.submitReviewWithReplies("pat", PullRequestRef.of("owner", "repo", 7), "COMMENT", "", ImmutableList.of(
                 new InlineReviewComment("A.java", "Reply", 1, "RIGHT", null, null, null, OptionalLong.of(61))), ImmutableMap.of(61L, "PRRT_61"), "head"))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Check the pending or submitted review on GitHub");
-        server.verify();
-        graphServer.verify();
     }
 
     @Test
     void marksTheExactPullRequestReadyOnce()
     {
-        RestClient.Builder graph = RestClient.builder().baseUrl("https://api.github.test/graphql");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(graph).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(RestClient.create("https://api.github.test"), graph.build());
-        server.expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(method(HttpMethod.POST)).andExpect(header("Authorization", "Bearer pat"))
                 .andExpect(content().json("""
                         {"query":"mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id isDraft}}}","variables":{"id":"PR_exact"}}
@@ -147,47 +146,35 @@ class TestGitHubPullRequestWriteClient
                 .andRespond(withSuccess("{\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_exact\",\"isDraft\":false}}}}", MediaType.APPLICATION_JSON));
 
         client.markReadyForReview("pat", "PR_exact");
-
-        server.verify();
     }
 
-    @Test
-    void uncertainReadyResponsesAreNeverRetriedOrReversed()
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{}",
+            "{\"errors\":[{\"message\":\"uncertain\"}]}",
+            "{\"errors\":{},\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_exact\",\"isDraft\":false}}}}",
+            "{\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_other\",\"isDraft\":false}}}}",
+            "{\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_exact\",\"isDraft\":true}}}}",
+            "{\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_exact\"}}}}"})
+    void uncertainReadyResponsesAreNeverRetriedOrReversed(String response)
     {
-        for (String response : ImmutableList.of("{}", "{\"errors\":[{\"message\":\"uncertain\"}]}",
-                "{\"errors\":{},\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_exact\",\"isDraft\":false}}}}",
-                "{\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_other\",\"isDraft\":false}}}}",
-                "{\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_exact\",\"isDraft\":true}}}}",
-                "{\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_exact\"}}}}")) {
-            RestClient.Builder graph = RestClient.builder().baseUrl("https://api.github.test/graphql");
-            MockRestServiceServer server = MockRestServiceServer.bindTo(graph).build();
-            GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(RestClient.create("https://api.github.test"), graph.build());
-            server.expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+        graphServer.expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
 
-            assertThatThrownBy(() -> client.markReadyForReview("pat", "PR_exact"))
-                    .isInstanceOf(ResponseStatusException.class).hasMessageContaining("will not be retried");
-            server.verify();
-        }
+        assertThatThrownBy(() -> client.markReadyForReview("pat", "PR_exact"))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("will not be retried");
     }
 
     @Test
     void readyTransportFailureDoesNotSendASecondMutation()
     {
-        RestClient.Builder graph = RestClient.builder().baseUrl("https://api.github.test/graphql");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(graph).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(RestClient.create("https://api.github.test"), graph.build());
-        server.expect(requestTo("https://api.github.test/graphql")).andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+        graphServer.expect(requestTo("https://api.github.test/graphql")).andRespond(withStatus(HttpStatus.BAD_GATEWAY));
 
         assertThatThrownBy(() -> client.markReadyForReview("pat", "PR_exact")).isInstanceOf(ResponseStatusException.class);
-        server.verify();
     }
 
     @Test
     void closesPullRequest()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -195,16 +182,11 @@ class TestGitHubPullRequestWriteClient
                 .andRespond(withSuccess());
 
         client.closePullRequest("pat", PullRequestRef.of("upstream", "project", 12));
-
-        server.verify();
     }
 
     @Test
     void updatesOnlyThePullRequestTitle()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -212,16 +194,11 @@ class TestGitHubPullRequestWriteClient
                 .andRespond(withSuccess());
 
         client.updatePullRequestTitle("pat", PullRequestRef.of("upstream", "project", 12), "Updated title");
-
-        server.verify();
     }
 
     @Test
     void updatesPullRequestDescription()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -229,16 +206,11 @@ class TestGitHubPullRequestWriteClient
                 .andRespond(withSuccess());
 
         client.updatePullRequestDescription("pat", PullRequestRef.of("upstream", "project", 12), "Updated description");
-
-        server.verify();
     }
 
     @Test
     void closesIssue()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -247,16 +219,11 @@ class TestGitHubPullRequestWriteClient
                 .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
 
         client.closeIssue("pat", PullRequestRef.of("upstream", "project", 12));
-
-        server.verify();
     }
 
     @Test
     void addsReactionsToEachSupportedGitHubResourceWhenViewerHasNotReacted()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12/reactions"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -277,16 +244,11 @@ class TestGitHubPullRequestWriteClient
         assertThat(client.togglePullRequestReaction("pat", pullRequest, "heart", null)).isTrue();
         assertThat(client.toggleIssueCommentReaction("pat", pullRequest, 41, "+1", null)).isTrue();
         assertThat(client.toggleReviewCommentReaction("pat", pullRequest, 42, "eyes", null)).isTrue();
-
-        server.verify();
     }
 
     @Test
     void removesReactionsFromEachSupportedGitHubResourceWhenViewerHasReacted()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12/reactions"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -325,16 +287,11 @@ class TestGitHubPullRequestWriteClient
         assertThat(client.togglePullRequestReaction("pat", pullRequest, "heart", null)).isFalse();
         assertThat(client.toggleIssueCommentReaction("pat", pullRequest, 41, "+1", null)).isFalse();
         assertThat(client.toggleReviewCommentReaction("pat", pullRequest, 42, "eyes", null)).isFalse();
-
-        server.verify();
     }
 
     @Test
     void honorsKnownViewerReactionState()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         String url = "https://api.github.test/repos/upstream/project/issues/12/reactions";
         server.expect(requestTo(url))
                 .andExpect(method(HttpMethod.POST))
@@ -353,16 +310,11 @@ class TestGitHubPullRequestWriteClient
         PullRequestRef pullRequest = PullRequestRef.of("upstream", "project", 12);
         assertThat(client.togglePullRequestReaction("pat", pullRequest, "heart", true)).isTrue();
         assertThat(client.togglePullRequestReaction("pat", pullRequest, "eyes", false)).isFalse();
-
-        server.verify();
     }
 
     @Test
     void reportsDeleteFailureAfterCreatingAReactionForDesiredFalseState()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         String url = "https://api.github.test/repos/upstream/project/issues/12/reactions";
         server.expect(requestTo(url))
                 .andExpect(method(HttpMethod.POST))
@@ -375,15 +327,11 @@ class TestGitHubPullRequestWriteClient
 
         assertThatThrownBy(() -> client.togglePullRequestReaction("pat", PullRequestRef.of("upstream", "project", 12), "eyes", false))
                 .isInstanceOf(ResponseStatusException.class);
-        server.verify();
     }
 
     @Test
     void postsSingleInlineReviewComment()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12/comments"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -450,15 +398,11 @@ class TestGitHubPullRequestWriteClient
                 assertThat(reaction.count()).isEqualTo(1);
             });
         });
-        server.verify();
     }
 
     @Test
     void submitsInlineCommentsAsOneReview()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12/reviews"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -495,16 +439,11 @@ class TestGitHubPullRequestWriteClient
                         new InlineReviewComment("src/Main.java", "First note", 18, "RIGHT", null, null, "head-sha", OptionalLong.empty()),
                         new InlineReviewComment("src/Other.java", "Second note", 9, "LEFT", null, null, "head-sha", OptionalLong.empty())),
                 "head-sha");
-
-        server.verify();
     }
 
     @Test
     void createsPullRequestThroughExistingWriteClient()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -524,15 +463,11 @@ class TestGitHubPullRequestWriteClient
         CreatedPullRequest created = client.createPullRequest("pat", RepoRef.of("upstream", "project"), "contributor:bump-branch", "main", "PR title", "PR body", false);
 
         assertThat(created).isEqualTo(new CreatedPullRequest(900, 12, "https://github.com/upstream/project/pull/12"));
-        server.verify();
     }
 
     @Test
     void updatesIssueTypeThroughTheIssuesEndpoint()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -545,15 +480,11 @@ class TestGitHubPullRequestWriteClient
                         """, MediaType.APPLICATION_JSON));
 
         assertThat(client.updateIssueType("pat", PullRequestRef.of("upstream", "project", 12), "Bug")).isEqualTo("Bug");
-        server.verify();
     }
 
     @Test
     void updatesIssueAssigneesAndLabelsThroughTheIssuesEndpoint()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -570,15 +501,11 @@ class TestGitHubPullRequestWriteClient
 
         assertThat(client.updateIssueMetadata("pat", PullRequestRef.of("upstream", "project", 12), ImmutableList.of("alice"), ImmutableList.of("bug")))
                 .isEqualTo(new GitHubPullRequestWriteClient.IssueMetadata(ImmutableList.of("alice"), ImmutableList.of("bug"), java.time.Instant.parse("2026-08-23T10:00:00Z")));
-        server.verify();
     }
 
     @Test
     void addsAndRemovesRequestedReviewers()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         String url = "https://api.github.test/repos/upstream/project/pulls/12/requested_reviewers";
         server.expect(requestTo(url))
                 .andExpect(method(HttpMethod.POST))
@@ -602,15 +529,11 @@ class TestGitHubPullRequestWriteClient
         client.updateReviewerRequest("pat", pullRequest, "alice", false);
         client.updateReviewerRequest("pat", pullRequest, "upstream/core", true);
         client.updateReviewerRequest("pat", pullRequest, "upstream/core", false);
-        server.verify();
     }
 
     @Test
     void editsIssueCommentsReviewCommentsAndReviewBodies()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/comments/41"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -631,18 +554,12 @@ class TestGitHubPullRequestWriteClient
         client.updateIssueComment("pat", pullRequest, 41, "Edited comment");
         client.updateReviewComment("pat", pullRequest, 42, "Edited inline comment");
         client.updateReviewBody("pat", pullRequest, 501, "Edited review");
-
-        server.verify();
     }
 
     @Test
     void resolvesAndUnresolvesReviewThreadsWithGraphQl()
     {
-        RestClient.Builder restBuilder = RestClient.builder().baseUrl("https://api.github.test");
-        RestClient.Builder graphQlBuilder = RestClient.builder().baseUrl("https://api.github.test/graphql");
-        MockRestServiceServer graphQlServer = MockRestServiceServer.bindTo(graphQlBuilder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(restBuilder.build(), graphQlBuilder.build());
-        graphQlServer.expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
                 .andExpect(content().string(containsString("resolveReviewThread")))
@@ -650,7 +567,7 @@ class TestGitHubPullRequestWriteClient
                 .andRespond(withSuccess("""
                         {"data":{"resolveReviewThread":{"thread":{"id":"PRRT_1","isResolved":true}}}}
                         """, MediaType.APPLICATION_JSON));
-        graphQlServer.expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
                 .andExpect(content().string(containsString("unresolveReviewThread")))
@@ -660,7 +577,5 @@ class TestGitHubPullRequestWriteClient
 
         client.setReviewThreadResolved("pat", "PRRT_1", true);
         client.setReviewThreadResolved("pat", "PRRT_1", false);
-
-        graphQlServer.verify();
     }
 }

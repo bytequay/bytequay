@@ -19,6 +19,9 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.DynamicPropertyRegistry;
 
+import java.nio.file.Path;
+import java.util.UUID;
+
 /**
  * Shared wiring for the SQLite store tests. Each subclass still declares its own
  * {@code @DynamicPropertySource} method: {@code DynamicPropertiesContextCustomizer} compares only the
@@ -30,6 +33,11 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 @ContextConfiguration(classes = SqlitePersistenceConfiguration.class)
 abstract class AbstractTestSqliteStore
 {
+    protected static String newDatabaseUrl(String prefix)
+    {
+        return "jdbc:sqlite:" + Path.of(System.getProperty("java.io.tmpdir"), prefix + UUID.randomUUID() + ".db");
+    }
+
     protected static void registerSqliteProperties(DynamicPropertyRegistry registry, String url, String ddlAuto)
     {
         registry.add("spring.datasource.url", () -> url);

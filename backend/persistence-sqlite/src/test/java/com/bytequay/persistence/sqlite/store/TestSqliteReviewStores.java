@@ -52,20 +52,17 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteReviewStores
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-review-store-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-09-01T00:00:00Z");
     private static final String BASE_SHA = "0000000000000000000000000000000000000000";
     private static final String MERGE_BASE_SHA = "1111111111111111111111111111111111111111";
@@ -110,7 +107,7 @@ class TestSqliteReviewStores
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-review-store-") + "?foreign_keys=ON", "create-drop");
     }
 
     @Test

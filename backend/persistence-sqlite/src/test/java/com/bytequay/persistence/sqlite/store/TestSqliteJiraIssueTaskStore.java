@@ -32,7 +32,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -40,7 +39,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteJiraIssueTaskStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-jira-task-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-09-16T00:00:00.123Z");
     private static final JiraIssueSource SOURCE = new JiraIssueSource("connection", "cloud", "10001", "APP-7",
             "https://company.atlassian.net/browse/APP-7", "Accepted title", "Accepted **description**", NOW);
@@ -60,7 +58,7 @@ class TestSqliteJiraIssueTaskStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-jira-task-") + "?foreign_keys=ON", "create-drop");
     }
 
     @Test

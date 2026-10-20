@@ -26,10 +26,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,7 +35,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestSqliteRepositoryMetadataStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-repository-metadata-" + UUID.randomUUID() + ".db").toString();
     private static final RepoRef REPOSITORY = RepoRef.of("owner", "project");
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
 
@@ -53,7 +50,7 @@ class TestSqliteRepositoryMetadataStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-repository-metadata-") + "?foreign_keys=ON", "create-drop");
     }
 
     @Test

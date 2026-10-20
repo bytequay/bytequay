@@ -185,10 +185,7 @@ class TestSettingsController
     void anOutOfRangePreferenceIsRejectedBeforeItReachesTheStore()
             throws Exception
     {
-        MockMvc mvc = standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler())
-                .setMessageConverters(new MappingJackson2HttpMessageConverter(appMapper()))
-                .setControllerAdvice(new GlobalExceptionHandler())
-                .build();
+        MockMvc mvc = mvc();
 
         mvc.perform(put("/api/settings/app").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"taskRetentionDays\":0,\"recentRetentionDays\":14,\"theme\":\"SYSTEM\",\"prWarmCount\":30}"))

@@ -27,18 +27,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqlitePrDiffStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-pr-diff-store-" + UUID.randomUUID() + ".db").toString();
-
     @Autowired
     private SqlitePrDiffStore store;
 
@@ -48,7 +44,7 @@ class TestSqlitePrDiffStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH, "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-pr-diff-store-"), "create-drop");
     }
 
     @Test

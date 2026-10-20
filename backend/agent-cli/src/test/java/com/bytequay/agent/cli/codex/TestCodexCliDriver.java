@@ -119,9 +119,7 @@ class TestCodexCliDriver
     void readOnlyDiscussionsReceiveTheirContextToolWithoutWritePermissions()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper).withTaskTools();
         CodexCliDriver driver = driver(supervisor);
         AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
         AgentSessionContext discussion = new AgentSessionContext(plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(),
@@ -149,9 +147,7 @@ class TestCodexCliDriver
     void independentReviewReceivesOnlyItsReadContextTool()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper).withTaskTools();
         CodexCliDriver driver = driver(supervisor);
         AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
         AgentSessionContext discussion = new AgentSessionContext(plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(),
@@ -194,9 +190,7 @@ class TestCodexCliDriver
     void toolsOnlySessionKeepsItsThreadWithOnlyByteQuayTools()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper).withTaskTools();
         CodexCliDriver driver = driver(supervisor);
         AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
         Path runtime = worktree.resolve("task-runtime");
@@ -399,7 +393,7 @@ class TestCodexCliDriver
     void routesCiApprovalsThroughByteQuayOnStartResumeAndTurns()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = ciSupervisor();
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper).withTaskTools();
         CodexCliDriver driver = driver(supervisor);
         // CI pins both its Git writes and the fixed build caches across fresh and resumed sessions.
         Files.createDirectories(worktree.resolve(".m2/repository"));
@@ -488,7 +482,7 @@ class TestCodexCliDriver
     void resumesCiWithNarrowerWritesDuringProgramOwnedRebase()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = ciSupervisor();
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper).withTaskTools();
         CodexCliDriver driver = driver(supervisor);
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int attempt = 0; attempt < 3; attempt++) {
@@ -527,7 +521,7 @@ class TestCodexCliDriver
     void refusesCiBranchDriftBeforeAnotherTurnStarts()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = ciSupervisor();
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper).withTaskTools();
         AgentSessionContext context = ciContext(Optional.empty());
         try (AgentSession session = driver(supervisor).open(context, event -> {})) {
             Path gitDirectory = Path.of(GitWorktreeWriteRoots.writableRoots(context.worktree()).get(1));
@@ -561,7 +555,7 @@ class TestCodexCliDriver
     private void assertCiDriftRejected(String override, String diagnostic)
             throws IOException
     {
-        ScriptedProcessSupervisor supervisor = ciSupervisor();
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper).withTaskTools();
         try (AgentSession session = driver(supervisor).open(ciContext(Optional.empty()), event -> {})) {
             supervisor.configBody = override;
             assertThatThrownBy(() -> session.start(command("repair CI")))
@@ -569,14 +563,6 @@ class TestCodexCliDriver
                     .hasMessageContaining(diagnostic);
             assertThat(supervisor.server().turnRequests()).isEmpty();
         }
-    }
-
-    private ScriptedProcessSupervisor ciSupervisor()
-    {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
-        return supervisor;
     }
 
     private AgentSessionContext ciContext(Optional<AgentSessionRef> reference)
@@ -2850,20 +2836,6 @@ class TestCodexCliDriver
     }
 
     @Test
-    void waitsForCanonicalV2PathWhenThreadMetadataArrivesFirst()
-            throws Exception
-    {
-        assertStableLiveV2Path(true);
-    }
-
-    @Test
-    void keepsCanonicalV2PathWhenThreadMetadataArrivesLater()
-            throws Exception
-    {
-        assertStableLiveV2Path(false);
-    }
-
-    @Test
     void finishesAnIdleInventoryConfirmedV2ChildWithoutInventingItsMissingDisplayPath()
             throws Exception
     {
@@ -3200,7 +3172,9 @@ class TestCodexCliDriver
         return turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
     }
 
-    private void assertStableLiveV2Path(boolean threadMetadataFirst)
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void keepsCanonicalV2PathRegardlessOfThreadMetadataOrder(boolean threadMetadataFirst)
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
@@ -3295,10 +3269,8 @@ class TestCodexCliDriver
     void privateReviewPolicyRestrictsInitialAndResumedSessionsWithoutReportingTools()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false).withTaskTools();
         supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         ReviewBridge review = new ReviewBridge(ImmutableList.of(), "Keep private experiments uncommitted");
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
                 .reviews(taskId -> Optional.of(review)).build();
@@ -3408,10 +3380,8 @@ class TestCodexCliDriver
     void endingATurnInterruptsItsRunningRootTool(boolean cancel)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false).withTaskTools();
         supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch interrupted = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -3461,10 +3431,8 @@ class TestCodexCliDriver
     void guardedReviewUsesReadOnlyMcpAndStickyRootToolsAcrossResume()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false).withTaskTools();
         supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         ReviewBridge review = new ReviewBridge(ImmutableList.of(
                 new ReviewTool("review_get_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "context", true),
                 new ReviewTool("review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> "finished")), "Review privately");
@@ -3535,10 +3503,8 @@ class TestCodexCliDriver
     void relatedWorkUsesRootToolsAcrossResumeAndRejectsChildAndStaleTurnCalls()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false).withTaskTools();
         supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         AtomicInteger calls = new AtomicInteger();
         var related = new RelatedWorkspaceBridge(arguments -> {
             calls.incrementAndGet();
@@ -3774,8 +3740,7 @@ class TestCodexCliDriver
             throws IOException
     {
         supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        supervisor.withTaskTools();
         CodexHome.prepare(codexHome());
         return new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
                 ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
@@ -3933,10 +3898,8 @@ class TestCodexCliDriver
     void restoresDevelopmentPermissionsForAPreviouslyRestrictedTask()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false).withTaskTools();
         supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         AtomicBoolean localReview = new AtomicBoolean();
         var related = new RelatedWorkspaceBridge(arguments -> "linked");
         ReviewBridge privateReview = new ReviewBridge(ImmutableList.of(), "This task is in private local review of commit abc.");
@@ -4012,9 +3975,7 @@ class TestCodexCliDriver
     void approvesOnlyTheFixedLearningToolsOnInitialAndResumedSessions()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false).withTaskTools();
         List<String> names = ImmutableList.of("repository_context_read", "repository_context_spec_search");
         ReviewBridge review = new ReviewBridge(names.stream()
                 .map(name -> new ReviewTool(name, "Fixed task tool", ImmutableMap.of("type", "object"), arguments -> "captured"))
@@ -4062,10 +4023,8 @@ class TestCodexCliDriver
     void taskToolsUseTheTaskEndpointOnOpenAndResumeWithoutRestrictingChildren(TaskTool tool)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper).withTaskTools();
         supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         BridgedTool bridged = switch (tool) {
             case ISSUE_CONTEXT -> {
                 IssueContextBridge issue = new IssueContextBridge(() -> "Accepted issue context", IssueContextBridge.INSTRUCTION);
@@ -4120,9 +4079,7 @@ class TestCodexCliDriver
     @Test
     void bridgedSessionLaunchesWithTheTaskMcpEndpointAndKeepsTheTokenOffTheCommandLine()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper).withTaskTools();
         CodexCliDriver driver = driver(supervisor);
         AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
         AgentSessionContext bridged = new AgentSessionContext(
@@ -4587,6 +4544,13 @@ class TestCodexCliDriver
             this.objectMapper = objectMapper;
             this.versionOutput = versionOutput;
             this.failThreadStart = failThreadStart;
+        }
+
+        private ScriptedProcessSupervisor withTaskTools()
+        {
+            configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
+            mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+            return this;
         }
 
         @Override

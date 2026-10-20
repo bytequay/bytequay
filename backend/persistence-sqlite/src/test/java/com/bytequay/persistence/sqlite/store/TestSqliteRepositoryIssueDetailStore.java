@@ -22,17 +22,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteRepositoryIssueDetailStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-issue-detail-store-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-08-24T00:00:00Z");
 
     @Autowired
@@ -44,7 +41,7 @@ class TestSqliteRepositoryIssueDetailStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH, "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-issue-detail-store-"), "create-drop");
     }
 
     @Test

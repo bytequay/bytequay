@@ -21,17 +21,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
 import java.time.Instant;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteEpicStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-epic-store-" + UUID.randomUUID() + ".db").toString();
-
     @Autowired
     private SqliteEpicStore store;
 
@@ -44,7 +40,7 @@ class TestSqliteEpicStore
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE, "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-epic-store-"), "create-drop");
     }
 
     @Test

@@ -60,7 +60,6 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -71,7 +70,6 @@ import static org.mockito.Mockito.when;
 class TestSqliteCiAutofixStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-ci-autofix-store-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-08-17T00:00:00Z");
     private static final String HEAD = "a".repeat(40);
     private static final String BASE = "b".repeat(40);
@@ -99,7 +97,7 @@ class TestSqliteCiAutofixStore
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
         // Match production startup: create fresh tables and their unique indexes through schema update.
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "update");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-ci-autofix-store-") + "?foreign_keys=ON", "update");
     }
 
     @ParameterizedTest

@@ -29,7 +29,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,7 +36,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteBranchRebaseStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-rebase-store-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
     private static final String ORIGINAL = "a".repeat(40);
     private static final String BASE = "b".repeat(40);
@@ -49,7 +47,7 @@ class TestSqliteBranchRebaseStore
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-rebase-store-") + "?foreign_keys=ON", "create-drop");
     }
 
     @Test

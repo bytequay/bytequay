@@ -20,25 +20,21 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteTeamActivityStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-team-activity-" + UUID.randomUUID() + ".db").toString();
-
     @Autowired
     private SqliteTeamActivityStore store;
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE, "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-team-activity-"), "create-drop");
     }
 
     @Test

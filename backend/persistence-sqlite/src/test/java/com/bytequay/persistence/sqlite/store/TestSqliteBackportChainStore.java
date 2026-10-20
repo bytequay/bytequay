@@ -27,7 +27,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -38,8 +37,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteBackportChainStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-chain-" + UUID.randomUUID() + ".db").toString();
-
     @Autowired
     private SqliteBackportChainStore store;
 
@@ -52,7 +49,7 @@ class TestSqliteBackportChainStore
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry)
     {
-        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE + "?foreign_keys=ON", "create-drop");
+        registerSqliteProperties(registry, newDatabaseUrl("bytequay-chain-") + "?foreign_keys=ON", "create-drop");
     }
 
     @Test

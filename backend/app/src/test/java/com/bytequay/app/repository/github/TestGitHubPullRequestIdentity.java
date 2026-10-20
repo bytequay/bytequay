@@ -21,8 +21,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -36,6 +34,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubPullRequestIdentity
+        extends AbstractGitHubClientTest
 {
     private static final RepoRef BASE = RepoRef.of("acme", "project");
     private static final RepoRef HEAD = RepoRef.of("alice", "project");
@@ -43,28 +42,27 @@ class TestGitHubPullRequestIdentity
     private static final String SHA = "a".repeat(40);
     private static final String FIRST_PAGE = "https://api.github.test/repos/acme/project/pulls?state=all&head=alice%3Abytequay%2Ftask%2Ftest&per_page=100&page=1";
 
+    private final GitHubPullRequestReadClient client = new GitHubPullRequestReadClient(restClient, graphQlClient);
+
     @Test
     void readsTheExactPullRequestAgainAfterReadyMutation()
     {
-        Fixture fixture = fixture();
-        fixture.server().expect(requestTo("https://api.github.test/repos/acme/project/pulls/7"))
+        server.expect(requestTo("https://api.github.test/repos/acme/project/pulls/7"))
                 .andRespond(withSuccess(row(7, "open", "null", "main").replace("\"draft\":true", "\"draft\":false"), MediaType.APPLICATION_JSON));
-        GitHubPullRequestIdentity identity = fixture.client().fetchPullRequestIdentity("token", PullRequestRef.of("acme", "project", 7));
+        GitHubPullRequestIdentity identity = client.fetchPullRequestIdentity("token", PullRequestRef.of("acme", "project", 7));
         assertThat(identity.draft()).isFalse();
         assertThat(identity.headSha()).isEqualTo(SHA);
         assertThat(identity.baseRepository()).isEqualTo(BASE);
-        fixture.server().verify();
     }
 
     @Test
     void retainsOpenClosedMergedAndWrongBaseFactsWithExactForkIdentity()
     {
-        Fixture fixture = fixture();
-        fixture.server().expect(requestTo(FIRST_PAGE)).andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer token"))
+        server.expect(requestTo(FIRST_PAGE)).andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer token"))
                 .andRespond(withSuccess("[" + row(1, "open", "null", "main") + "," + row(2, "closed", "null", "release") + ","
                         + row(3, "closed", "\"2026-09-01T00:00:00Z\"", "main") + "]", MediaType.APPLICATION_JSON));
 
-        var identities = fixture.client().fetchPullRequestIdentities("token", BASE, HEAD, BRANCH);
+        var identities = client.fetchPullRequestIdentities("token", BASE, HEAD, BRANCH);
 
         assertThat(identities).extracting(GitHubPullRequestIdentity::state)
                 .containsExactly(GitHubPullRequestIdentity.State.OPEN, GitHubPullRequestIdentity.State.CLOSED, GitHubPullRequestIdentity.State.MERGED);
@@ -76,83 +74,71 @@ class TestGitHubPullRequestIdentity
             assertThat(identity.draft()).isTrue();
         });
         assertThat(identities.get(1).baseBranch()).isEqualTo("release");
-        fixture.server().verify();
     }
 
     @Test
     void readsEveryPageInsteadOfChoosingTheNewestOpenMatch()
     {
-        Fixture fixture = fixture();
-        fixture.server().expect(requestTo(FIRST_PAGE)).andRespond(withSuccess(
+        server.expect(requestTo(FIRST_PAGE)).andRespond(withSuccess(
                 IntStream.rangeClosed(1, 100).mapToObj(number -> row(number, "open", "null", "main")).collect(joining(",", "[", "]")), MediaType.APPLICATION_JSON));
-        fixture.server().expect(requestTo(FIRST_PAGE.replace("&page=1", "&page=2")))
+        server.expect(requestTo(FIRST_PAGE.replace("&page=1", "&page=2")))
                 .andRespond(withSuccess("[" + row(101, "closed", "null", "main") + "]", MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().fetchPullRequestIdentities("token", BASE, HEAD, BRANCH)).hasSize(101);
-        fixture.server().verify();
+        assertThat(client.fetchPullRequestIdentities("token", BASE, HEAD, BRANCH)).hasSize(101);
     }
 
     @Test
     void rejectsDifferentHeadRepositoryInsteadOfTreatingItAsAbsent()
     {
-        Fixture fixture = fixture();
-        fixture.server().expect(requestTo(FIRST_PAGE)).andRespond(withSuccess(
+        server.expect(requestTo(FIRST_PAGE)).andRespond(withSuccess(
                 "[" + row(1, "open", "null", "main").replace("alice/project", "alice/another") + "]", MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client().fetchPullRequestIdentities("token", BASE, HEAD, BRANCH))
+        assertThatThrownBy(() -> client.fetchPullRequestIdentities("token", BASE, HEAD, BRANCH))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("another pull-request head");
-        fixture.server().verify();
     }
 
     @Test
     void rejectsMissingIdentityFacts()
     {
-        Fixture fixture = fixture();
-        fixture.server().expect(requestTo(FIRST_PAGE)).andRespond(withSuccess(
+        server.expect(requestTo(FIRST_PAGE)).andRespond(withSuccess(
                 "[" + row(1, "open", "null", "main").replace("\"draft\":true,", "") + "]", MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client().fetchPullRequestIdentities("token", BASE, HEAD, BRANCH))
+        assertThatThrownBy(() -> client.fetchPullRequestIdentities("token", BASE, HEAD, BRANCH))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("could not be verified");
-        fixture.server().verify();
     }
 
     @Test
     void rejectsMissingResponseInsteadOfTreatingItAsNoPullRequest()
     {
-        Fixture fixture = fixture();
-        fixture.server().expect(requestTo(FIRST_PAGE)).andRespond(withSuccess("null", MediaType.APPLICATION_JSON));
+        server.expect(requestTo(FIRST_PAGE)).andRespond(withSuccess("null", MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client().fetchPullRequestIdentities("token", BASE, HEAD, BRANCH))
+        assertThatThrownBy(() -> client.fetchPullRequestIdentities("token", BASE, HEAD, BRANCH))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("no pull-request identity response");
-        fixture.server().verify();
     }
 
     @Test
     void readsCompleteMergeEvidenceAcrossPagesAndRechecksIt()
     {
-        Fixture fixture = fixture();
         List<String> commits = IntStream.rangeClosed(1, 101).mapToObj(value -> "%040x".formatted(value)).toList();
         String detail = mergedRow(101).replace(SHA, commits.getLast());
         String url = "https://api.github.test/repos/acme/project/pulls/7";
-        fixture.server().expect(requestTo(url)).andRespond(withSuccess(detail, MediaType.APPLICATION_JSON));
-        fixture.server().expect(requestTo(url + "/commits?per_page=100&page=1"))
+        server.expect(requestTo(url)).andRespond(withSuccess(detail, MediaType.APPLICATION_JSON));
+        server.expect(requestTo(url + "/commits?per_page=100&page=1"))
                 .andRespond(withSuccess(commitRows(commits.subList(0, 100)), MediaType.APPLICATION_JSON));
-        fixture.server().expect(requestTo(url + "/commits?per_page=100&page=2"))
+        server.expect(requestTo(url + "/commits?per_page=100&page=2"))
                 .andRespond(withSuccess(commitRows(commits.subList(100, 101)), MediaType.APPLICATION_JSON));
-        fixture.server().expect(requestTo(url)).andRespond(withSuccess(detail, MediaType.APPLICATION_JSON));
+        server.expect(requestTo(url)).andRespond(withSuccess(detail, MediaType.APPLICATION_JSON));
 
-        var merged = fixture.client().fetchMergedPullRequest("token", PullRequestRef.of("acme", "project", 7));
+        var merged = client.fetchMergedPullRequest("token", PullRequestRef.of("acme", "project", 7));
         assertThat(merged.commits()).containsExactlyElementsOf(commits);
         assertThat(merged.repositoryId()).isEqualTo(42);
         assertThat(merged.mergeSha()).isEqualTo("b".repeat(40));
-        fixture.server().verify();
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"unmerged", "missing-merge", "too-many", "missing-count", "missing-repository"})
     void refusesMissingOrUnsupportedMergeFacts(String problem)
     {
-        Fixture fixture = fixture();
         String detail = switch (problem) {
             case "unmerged" -> mergedRow(1).replace("\"merged\":true", "\"merged\":false");
             case "missing-merge" -> mergedRow(1).replace("\"merge_commit_sha\":\"" + "b".repeat(40) + "\",", "");
@@ -161,18 +147,16 @@ class TestGitHubPullRequestIdentity
             case "missing-repository" -> mergedRow(1).replace("\"id\":42,", "");
             default -> throw new AssertionError(problem);
         };
-        fixture.server().expect(requestTo("https://api.github.test/repos/acme/project/pulls/7"))
+        server.expect(requestTo("https://api.github.test/repos/acme/project/pulls/7"))
                 .andRespond(withSuccess(detail, MediaType.APPLICATION_JSON));
-        assertThatThrownBy(() -> fixture.client().fetchMergedPullRequest("token", PullRequestRef.of("acme", "project", 7)))
+        assertThatThrownBy(() -> client.fetchMergedPullRequest("token", PullRequestRef.of("acme", "project", 7)))
                 .isInstanceOfAny(IllegalArgumentException.class, IllegalStateException.class);
-        fixture.server().verify();
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"short-list", "duplicate", "wrong-head", "changed-evidence"})
     void refusesIncompleteOrMovingCommitEvidence(String problem)
     {
-        Fixture fixture = fixture();
         String detail = mergedRow(2);
         String rows = switch (problem) {
             case "short-list" -> commitRows(ImmutableList.of(SHA));
@@ -181,14 +165,13 @@ class TestGitHubPullRequestIdentity
             default -> commitRows(ImmutableList.of("c".repeat(40), SHA));
         };
         String url = "https://api.github.test/repos/acme/project/pulls/7";
-        fixture.server().expect(requestTo(url)).andRespond(withSuccess(detail, MediaType.APPLICATION_JSON));
-        fixture.server().expect(requestTo(url + "/commits?per_page=100&page=1")).andRespond(withSuccess(rows, MediaType.APPLICATION_JSON));
+        server.expect(requestTo(url)).andRespond(withSuccess(detail, MediaType.APPLICATION_JSON));
+        server.expect(requestTo(url + "/commits?per_page=100&page=1")).andRespond(withSuccess(rows, MediaType.APPLICATION_JSON));
         if (problem.equals("changed-evidence")) {
-            fixture.server().expect(requestTo(url)).andRespond(withSuccess(detail.replace("b".repeat(40), "d".repeat(40)), MediaType.APPLICATION_JSON));
+            server.expect(requestTo(url)).andRespond(withSuccess(detail.replace("b".repeat(40), "d".repeat(40)), MediaType.APPLICATION_JSON));
         }
-        assertThatThrownBy(() -> fixture.client().fetchMergedPullRequest("token", PullRequestRef.of("acme", "project", 7)))
+        assertThatThrownBy(() -> client.fetchMergedPullRequest("token", PullRequestRef.of("acme", "project", 7)))
                 .isInstanceOf(IllegalStateException.class);
-        fixture.server().verify();
     }
 
     private static String mergedRow(int count)
@@ -211,13 +194,4 @@ class TestGitHubPullRequestIdentity
                  "base":{"ref":"%s","sha":"%s","repo":{"full_name":"acme/project"}}}
                 """.formatted(number, number, state, mergedAt, BRANCH, SHA, baseBranch, SHA);
     }
-
-    private static Fixture fixture()
-    {
-        RestClient.Builder api = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(api).build();
-        return new Fixture(new GitHubPullRequestReadClient(api.build(), RestClient.create("https://api.github.test/graphql")), server);
-    }
-
-    private record Fixture(GitHubPullRequestReadClient client, MockRestServiceServer server) {}
 }

@@ -18,8 +18,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -36,46 +34,46 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubHarvestClient
+        extends AbstractGitHubClientTest
 {
     private static final RepoRef REPOSITORY = RepoRef.of("trinodb", "trino");
+
+    private final GitHubHarvestClient client = new GitHubHarvestClient(restClient, graphQlClient);
 
     @Test
     void listsTheClosedPullRequestsThePersonWroteOrReviewedNewestCloseFirst()
     {
-        Fixture fixture = fixture();
-        fixture.rest().expect(requestTo(allOf(containsString("/search/issues"), containsString("author%3Aalice"))))
+        server.expect(requestTo(allOf(containsString("/search/issues"), containsString("author%3Aalice"))))
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
                 .andRespond(withSuccess("""
                         {"total_count":2,"incomplete_results":false,"items":[
                           {"id":1,"number":101,"title":"Mine","closed_at":"2026-09-01T00:00:00Z","pull_request":{"merged_at":"2026-09-01T00:00:00Z"}},
                           {"id":2,"number":7,"title":"An issue","closed_at":"2026-09-02T00:00:00Z"}]}
                         """, MediaType.APPLICATION_JSON));
-        fixture.rest().expect(requestTo(allOf(containsString("/search/issues"), containsString("reviewed-by%3Aalice"))))
+        server.expect(requestTo(allOf(containsString("/search/issues"), containsString("reviewed-by%3Aalice"))))
                 .andRespond(withSuccess("""
                         {"total_count":2,"incomplete_results":false,"items":[
                           {"id":3,"number":103,"title":"Reviewed","closed_at":"2026-09-03T00:00:00Z","pull_request":{"merged_at":null}},
                           {"id":1,"number":101,"title":"Mine","closed_at":"2026-09-01T00:00:00Z","pull_request":{"merged_at":"2026-09-01T00:00:00Z"}}]}
                         """, MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().closedPulls("pat", REPOSITORY, "alice")).containsExactly(
+        assertThat(client.closedPulls("pat", REPOSITORY, "alice")).containsExactly(
                 new GitHubHarvestClient.ClosedPull(103, "Reviewed", Instant.parse("2026-09-03T00:00:00Z"), false),
                 new GitHubHarvestClient.ClosedPull(101, "Mine", Instant.parse("2026-09-01T00:00:00Z"), true));
-        fixture.rest().verify();
-        assertThatThrownBy(() -> fixture.client().closedPulls("pat", REPOSITORY, "alice bob")).hasMessageContaining("Invalid GitHub login");
+        assertThatThrownBy(() -> client.closedPulls("pat", REPOSITORY, "alice bob")).hasMessageContaining("Invalid GitHub login");
     }
 
     @Test
     void findsAClosedPullRequestByNumberOrByEveryWordInItsTitle()
     {
-        Fixture fixture = fixture();
-        fixture.rest().expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/31354")).andRespond(withSuccess("""
+        server.expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/31354")).andRespond(withSuccess("""
                 {"id":1,"number":31354,"title":"Fix checkpoint write","closed_at":"2026-09-20T00:00:00Z","pull_request":{"merged_at":"2026-09-20T00:00:00Z"}}
                 """, MediaType.APPLICATION_JSON));
-        fixture.rest().expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/31355")).andRespond(withSuccess("""
+        server.expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/31355")).andRespond(withSuccess("""
                 {"id":2,"number":31355,"title":"Still open","closed_at":null,"pull_request":{"merged_at":null}}
                 """, MediaType.APPLICATION_JSON));
-        fixture.rest().expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/9")).andRespond(withStatus(HttpStatus.NOT_FOUND));
-        fixture.rest().expect(requestTo(allOf(containsString("/search/issues"), containsString("trinodb"),
+        server.expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/9")).andRespond(withStatus(HttpStatus.NOT_FOUND));
+        server.expect(requestTo(allOf(containsString("/search/issues"), containsString("trinodb"),
                         containsString("%20is%3Apr%20is%3Aclosed%20in%3Atitle%20%22checkpoint%22%20%22is%22%20%22open%22%20%22null%22"), containsString("per_page=10"))))
                 .andRespond(withSuccess("""
                         {"total_count":2,"incomplete_results":false,"items":[
@@ -83,40 +81,36 @@ class TestGitHubHarvestClient
                           {"id":4,"number":8,"title":"An issue about checkpoints","closed_at":"2026-09-02T00:00:00Z"}]}
                         """, MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, " #31354 "))
+        assertThat(client.findClosedPulls("pat", REPOSITORY, " #31354 "))
                 .containsExactly(new GitHubHarvestClient.ClosedPull(31354, "Fix checkpoint write", Instant.parse("2026-09-20T00:00:00Z"), true));
-        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, "31355")).isEmpty();
-        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, "9")).isEmpty();
+        assertThat(client.findClosedPulls("pat", REPOSITORY, "31355")).isEmpty();
+        assertThat(client.findClosedPulls("pat", REPOSITORY, "9")).isEmpty();
         // Search syntax in the typed words is split into quoted words, so the repository and state qualifiers cannot be replaced.
-        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, "checkpoint \"is:open\" (null)"))
+        assertThat(client.findClosedPulls("pat", REPOSITORY, "checkpoint \"is:open\" (null)"))
                 .containsExactly(new GitHubHarvestClient.ClosedPull(31200, "Checkpoint null counts", Instant.parse("2026-09-01T00:00:00Z"), false));
-        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, " :: ")).isEmpty();
-        fixture.rest().verify();
+        assertThat(client.findClosedPulls("pat", REPOSITORY, " :: ")).isEmpty();
     }
 
     @Test
     void findsAPullRequestByItsLinkOnlyInTheMonitoredRepository()
     {
-        Fixture fixture = fixture();
         for (int read = 0; read < 2; read++) {
-            fixture.rest().expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/28755")).andRespond(withSuccess("""
+            server.expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/28755")).andRespond(withSuccess("""
                     {"id":1,"number":28755,"title":"Add table credentials","closed_at":"2026-08-20T00:00:00Z","pull_request":{"merged_at":"2026-08-20T00:00:00Z"}}
                     """, MediaType.APPLICATION_JSON));
         }
         GitHubHarvestClient.ClosedPull expected = new GitHubHarvestClient.ClosedPull(28755, "Add table credentials", Instant.parse("2026-08-20T00:00:00Z"), true);
 
-        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, "https://github.com/trinodb/trino/pull/28755")).containsExactly(expected);
-        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, " github.com/TrinoDB/Trino/pull/28755/files#diff-1 ")).containsExactly(expected);
-        assertThatThrownBy(() -> fixture.client().findClosedPulls("pat", REPOSITORY, "https://github.com/apache/iceberg/pull/28755"))
+        assertThat(client.findClosedPulls("pat", REPOSITORY, "https://github.com/trinodb/trino/pull/28755")).containsExactly(expected);
+        assertThat(client.findClosedPulls("pat", REPOSITORY, " github.com/TrinoDB/Trino/pull/28755/files#diff-1 ")).containsExactly(expected);
+        assertThatThrownBy(() -> client.findClosedPulls("pat", REPOSITORY, "https://github.com/apache/iceberg/pull/28755"))
                 .hasMessage("Only a pull request of trinodb/trino, the repository this workspace learns from, can be learned from");
-        fixture.rest().verify();
     }
 
     @Test
     void readsAClosedPullRequestsThreadsReviewsAndCommentsWithTheirAuthorsRoles()
     {
-        Fixture fixture = fixture();
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess("""
+        graphServer.expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess("""
                 {"data":{"repository":{"pullRequest":{"number":31201,"title":"Add a property","url":"https://github.com/trinodb/trino/pull/31201","merged":true,
                   "closedAt":"2026-09-20T10:00:00Z",
                   "reviewThreads":{"nodes":[{"id":"thread-1","isResolved":true,"isOutdated":false,"path":"plugin/x/A.java","comments":{"nodes":[
@@ -138,7 +132,7 @@ class TestGitHubHarvestClient
                 }}}}
                 """, MediaType.APPLICATION_JSON));
 
-        GitHubHarvestClient.PullDiscussion discussion = fixture.client().discussion("pat", REPOSITORY, 31201).orElseThrow();
+        GitHubHarvestClient.PullDiscussion discussion = client.discussion("pat", REPOSITORY, 31201).orElseThrow();
 
         assertThat(discussion.merged()).isTrue();
         GitHubHarvestClient.ReviewThread thread = discussion.threads().getFirst();
@@ -155,8 +149,7 @@ class TestGitHubHarvestClient
     @Test
     void readsAMergedPullRequestsReviewHeadsAndThreadLinesForAReplay()
     {
-        Fixture fixture = fixture();
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess("""
+        graphServer.expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess("""
                 {"data":{"repository":{"pullRequest":{"number":31201,"title":"Add a property","url":"https://github.com/trinodb/trino/pull/31201","merged":true,
                   "baseRefName":"master","author":{"__typename":"User","login":"alice"},"mergeCommit":{"oid":"%s"},
                   "reviews":{"nodes":[
@@ -173,7 +166,7 @@ class TestGitHubHarvestClient
                 }}}}
                 """.formatted("m".repeat(40), "a".repeat(40), "a".repeat(40)), MediaType.APPLICATION_JSON));
 
-        GitHubHarvestClient.PullReplay replay = fixture.client().replay("pat", REPOSITORY, 31201).orElseThrow();
+        GitHubHarvestClient.PullReplay replay = client.replay("pat", REPOSITORY, 31201).orElseThrow();
 
         assertThat(replay.mergeCommit()).contains("m".repeat(40));
         assertThat(replay.baseRef()).isEqualTo("master");
@@ -193,28 +186,16 @@ class TestGitHubHarvestClient
     @Test
     void anOpenPullRequestHasNothingToLearnAndARateLimitStops()
     {
-        Fixture fixture = fixture();
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess("""
+        graphServer.expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess("""
                 {"data":{"repository":{"pullRequest":{"number":5,"title":"Open","url":"u","merged":false,"closedAt":null,
                   "reviewThreads":{"nodes":[]},"reviews":{"nodes":[]},"comments":{"nodes":[]}}}}}
                 """, MediaType.APPLICATION_JSON));
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess("""
+        graphServer.expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess("""
                 {"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}
                 """, MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().discussion("pat", REPOSITORY, 5)).isEqualTo(Optional.empty());
-        assertThatThrownBy(() -> fixture.client().discussion("pat", REPOSITORY, 6)).isInstanceOf(ResponseStatusException.class)
+        assertThat(client.discussion("pat", REPOSITORY, 5)).isEqualTo(Optional.empty());
+        assertThatThrownBy(() -> client.discussion("pat", REPOSITORY, 6)).isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("rate limit");
     }
-
-    private static Fixture fixture()
-    {
-        RestClient.Builder rest = RestClient.builder().baseUrl("https://api.github.test");
-        RestClient.Builder graphql = RestClient.builder().baseUrl("https://api.github.test/graphql");
-        MockRestServiceServer restServer = MockRestServiceServer.bindTo(rest).build();
-        MockRestServiceServer graphqlServer = MockRestServiceServer.bindTo(graphql).build();
-        return new Fixture(new GitHubHarvestClient(rest.build(), graphql.build()), restServer, graphqlServer);
-    }
-
-    private record Fixture(GitHubHarvestClient client, MockRestServiceServer rest, MockRestServiceServer graphql) {}
 }

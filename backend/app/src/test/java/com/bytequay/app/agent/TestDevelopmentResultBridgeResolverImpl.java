@@ -27,7 +27,6 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
-import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,9 +37,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.OptionalInt;
-import java.util.OptionalLong;
 
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -130,24 +128,8 @@ class TestDevelopmentResultBridgeResolverImpl
 
         AgentTask review = task(true, Optional.of(AUTOMATION));
         accept(review, Optional.of(AUTOMATION));
-        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(new AgentReview(
-                "review",
-                "workspace",
-                "bytequay/sample",
-                OptionalInt.of(1),
-                OptionalLong.empty(),
-                review.id().toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                review.createdAt(),
-                review.createdAt(),
-                Optional.empty(),
-                Optional.empty())));
+        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(pullRequestReview("review", "workspace", "bytequay/sample", 1,
+                review.id().toString(), review.createdAt())));
         assertThat(resolver.resolve(review.id().toString())).isEmpty();
     }
 

@@ -76,7 +76,9 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.app.git.GitTestSupport.cloneFork;
 import static com.bytequay.app.git.GitTestSupport.commit;
+import static com.bytequay.app.git.GitTestSupport.commitFile;
 import static com.bytequay.app.git.GitTestSupport.git;
 import static com.bytequay.app.git.GitTestSupport.head;
 import static com.bytequay.app.git.GitTestSupport.initRepository;
@@ -122,7 +124,7 @@ class TestCherryPickExecutionService
         write(upstream, "seed.txt", "seed\n");
         write(upstream, "pom.xml", "<project/>\n");
         commit(upstream, "Seed");
-        fork = cloneOf(upstream, "fork");
+        fork = cloneFork(upstream, temporaryDirectory.resolve("fork"));
 
         clone = init(WORKSPACE_ID + "/repository");
         // GitHub-shaped remote URLs mapped to the local fixtures, so repository
@@ -173,9 +175,7 @@ class TestCherryPickExecutionService
     @Test
     void rechecksDependencyAfterPreviewAndBeforeReusingAnExecution()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
         CherryPickPreview preview = preview(base);
         StartCherryPickExecutionCommand command = command(preview, ImmutableList.of(), "dependency-check");
         org.mockito.Mockito.doThrow(new IllegalArgumentException("Dependency transfer blocked"))
@@ -253,9 +253,7 @@ class TestCherryPickExecutionService
     @Test
     void pausesAnExecutionWithoutAnAgentTaskWithoutTouchingGit()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
 
         CherryPickExecution started = start(base, ImmutableList.of());
         CherryPickExecution incomplete = CherryPickExecution.create(
@@ -285,9 +283,7 @@ class TestCherryPickExecutionService
         String base = head(upstream);
         write(upstream, "kept.txt", "kept\n");
         commit(upstream, "Kept change");
-        write(upstream, "skipped.txt", "skipped\n");
-        commit(upstream, "Skipped change");
-        String skippedSha = head(upstream);
+        String skippedSha = commitFile(upstream, "skipped.txt", "skipped\n", "Skipped change");
 
         CherryPickExecution finished = runToCompletion(start(base, ImmutableList.of(skippedSha)));
 
@@ -306,9 +302,7 @@ class TestCherryPickExecutionService
         String base = head(upstream);
         git(upstream, "commit", "--quiet", "--allow-empty", "-m", "Empty upstream");
         String emptyUpstream = head(upstream);
-        write(upstream, "shared.txt", "shared\n");
-        commit(upstream, "Redundant change");
-        String redundant = head(upstream);
+        String redundant = commitFile(upstream, "shared.txt", "shared\n", "Redundant change");
         write(upstream, "unique.txt", "unique\n");
         commit(upstream, "Unique change");
 
@@ -329,9 +323,7 @@ class TestCherryPickExecutionService
     @Test
     void recoversThePreassignedTaskAfterAStartCrash()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
         agent.beforeTaskCreate(() -> {
             throw new AssertionError("simulated process death");
         });
@@ -413,9 +405,7 @@ class TestCherryPickExecutionService
     @Test
     void returnsTheSameExecutionForARepeatedIdempotencyKey()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
 
         CherryPickPreview preview = preview(base);
         StartCherryPickExecutionCommand command = command(preview, ImmutableList.of(), "same-key");
@@ -431,9 +421,7 @@ class TestCherryPickExecutionService
     @Test
     void adoptsTheTaskCreatedByAConcurrentRepeatedStart()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
         CherryPickPreview preview = preview(base);
         StartCherryPickExecutionCommand command = command(preview, ImmutableList.of(), "concurrent-key");
         AtomicReference<CherryPickExecution> concurrent = new AtomicReference<>();
@@ -451,9 +439,7 @@ class TestCherryPickExecutionService
     void providerReadinessFailureCreatesNoWorktree()
             throws IOException
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
         CherryPickPreview preview = preview(base);
         AgentCapabilities capabilities = driver.capabilities();
         when(driver.probe()).thenReturn(new AgentProviderStatus(
@@ -474,9 +460,7 @@ class TestCherryPickExecutionService
     void rejectsPreviewExecutionAndCancelFromAnotherWorkspace()
             throws IOException
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
         CherryPickPreview preview = preview(base);
 
         assertThatThrownBy(() -> service.start(command(preview, ImmutableList.of(), "wrong-workspace"), "another-workspace", clone, PHYSICAL_REPOSITORY))
@@ -494,9 +478,7 @@ class TestCherryPickExecutionService
     @Test
     void rejectsAStalePreviewAndAnIneligibleSkip()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
         CherryPickPreview preview = preview(base);
 
         assertThatThrownBy(() -> service.start(
@@ -526,9 +508,7 @@ class TestCherryPickExecutionService
     void rejectsWhenTheSynchronizedTargetMovedAfterPreview()
             throws IOException
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
         CherryPickPreview preview = preview(base);
 
         write(fork, "target-moved.txt", "new target\n");
@@ -544,9 +524,7 @@ class TestCherryPickExecutionService
     @Test
     void rejectsASecondExecutionForTheSameTargetBranch()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
 
         service.start(command(preview(base), ImmutableList.of(), "first-key"), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY);
 
@@ -558,9 +536,7 @@ class TestCherryPickExecutionService
     @Test
     void cancellationRemovesTheCleanWorktreeAndRetainsItsGeneratedBranch()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
 
         CherryPickExecution started = start(base, ImmutableList.of());
         String localTarget = git(clone, "rev-parse", started.workspace().localTargetBranch());
@@ -588,9 +564,7 @@ class TestCherryPickExecutionService
     @Test
     void retriesFinishedCancellationAfterTaskCompletionFails()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
         CherryPickExecution started = start(base, ImmutableList.of());
         agent.terminalizeOnComplete()
                 .failNextCompletion(new AgentConflictException("simulated task completion failure"));
@@ -611,12 +585,8 @@ class TestCherryPickExecutionService
     @Test
     void handsAConflictToTheAgentAndAcceptsOnlyWhatGitShows()
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
+        String base = conflictingChange();
         String conflicting = head(upstream);
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
@@ -648,12 +618,8 @@ class TestCherryPickExecutionService
     @Test
     void retriesTheSameConflictAndStopsAfterThreeAttempts()
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
+        String base = conflictingChange();
         String conflicting = head(upstream);
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
 
         CherryPickExecution started = start(base, ImmutableList.of());
         // The agent claims success every time but never stages anything.
@@ -673,11 +639,7 @@ class TestCherryPickExecutionService
     @Test
     void pausesWhenTheTurnItselfFails()
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
+        String base = conflictingChange();
 
         CherryPickExecution started = start(base, ImmutableList.of());
         agent.then(() -> {}, TurnState.FAILED);
@@ -693,9 +655,7 @@ class TestCherryPickExecutionService
     void retainsAResolutionPairThatReturnsToTheOriginalTree()
     {
         String base = head(upstream);
-        write(upstream, "seed.txt", "shared result\n");
-        commit(upstream, "Conflicting change");
-        String conflicting = head(upstream);
+        String conflicting = commitFile(upstream, "seed.txt", "shared result\n", "Conflicting change");
         write(upstream, "later.txt", "later\n");
         commit(upstream, "Later change");
         write(fork, "seed.txt", "fork edit\n");
@@ -719,11 +679,7 @@ class TestCherryPickExecutionService
     @Test
     void promptTellsTheAgentToStageAndStopAndNeverReadsItsReply()
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
+        String base = conflictingChange();
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
@@ -745,12 +701,8 @@ class TestCherryPickExecutionService
     @Test
     void acceptsAResolutionWithoutBuildingIt()
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
+        String base = conflictingChange();
         String conflicting = head(upstream);
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
@@ -770,12 +722,8 @@ class TestCherryPickExecutionService
     @Test
     void asksTheAgentToAmendTheSameFixupWhenMarkersRemain()
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
+        String base = conflictingChange();
         String source = head(upstream);
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
@@ -798,12 +746,8 @@ class TestCherryPickExecutionService
     @ValueSource(booleans = {false, true})
     void pausesWhenAFixupAddsUnexpectedHistory(boolean repair)
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
+        String base = conflictingChange();
         String source = head(upstream);
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
@@ -878,9 +822,7 @@ class TestCherryPickExecutionService
     @Test
     void reconcilesAnAppliedCommitCreatedBeforeACrash()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
         String source = head(upstream);
 
         CherryPickExecution started = start(base, ImmutableList.of());
@@ -930,12 +872,8 @@ class TestCherryPickExecutionService
     @Test
     void adoptsAConflictSnapshotCreatedBeforeItsResultWasSaved()
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
+        String base = conflictingChange();
         String source = head(upstream);
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
@@ -969,12 +907,8 @@ class TestCherryPickExecutionService
     @Test
     void adoptsAnAgentFixupCreatedBeforeATurnWasSaved()
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
+        String base = conflictingChange();
         String source = head(upstream);
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
 
         CherryPickExecution started = start(base, ImmutableList.of());
         CherryPickExecution waitingForFixup = service.advance(started.id());
@@ -995,12 +929,8 @@ class TestCherryPickExecutionService
     @Test
     void pausesWhenTheConflictPairMovesBeforeFinalization()
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
+        String base = conflictingChange();
         String source = head(upstream);
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
@@ -1019,12 +949,8 @@ class TestCherryPickExecutionService
     @Test
     void recordsTheVerifiedConflictPairAfterARestart()
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
+        String base = conflictingChange();
         String source = head(upstream);
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
@@ -1046,12 +972,8 @@ class TestCherryPickExecutionService
     @Test
     void retainsAnEmptyFixupPairForItsConflictAttribution()
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
+        String base = conflictingChange();
         String source = head(upstream);
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
@@ -1075,9 +997,7 @@ class TestCherryPickExecutionService
     @Test
     void summarizesTheRangeAndClosesTheAgentTask()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
 
         CherryPickExecution started = start(base, ImmutableList.of());
         agent.beforeNextCompletion(() -> assertThat(store.find(started.id()).orElseThrow().status())
@@ -1097,9 +1017,7 @@ class TestCherryPickExecutionService
     @Test
     void persistsTheFinishedRangeBeforeRetryableWorktreeCleanup()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
         agent.failNextCleanup(new IllegalStateException("worktree busy"));
 
         CherryPickExecution finished = runToCompletion(start(base, ImmutableList.of()));
@@ -1114,9 +1032,7 @@ class TestCherryPickExecutionService
     @Test
     void refusesToAdoptACommitThePlanNeverAuthorised()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
@@ -1135,11 +1051,7 @@ class TestCherryPickExecutionService
     @Test
     void acceptsARecoveryMessageOnlyForAPausedRange()
     {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
+        String base = conflictingChange();
 
         CherryPickExecution started = start(base, ImmutableList.of());
         assertThatThrownBy(() -> service.sendMessage(started.id(), "try harder"))
@@ -1168,9 +1080,7 @@ class TestCherryPickExecutionService
     @Test
     void cancellationPreservesAWorktreeItCannotRecognise()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
@@ -1189,9 +1099,7 @@ class TestCherryPickExecutionService
     @Test
     void cancellationPreservesDirtyWork()
     {
-        String base = head(upstream);
-        write(upstream, "file.txt", "content\n");
-        commit(upstream, "Upstream change");
+        String base = singleChange();
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
@@ -1249,11 +1157,27 @@ class TestCherryPickExecutionService
                 .collect(toImmutableList());
     }
 
-    private CherryPickExecution startUntilTaskCreationCrashes()
+    private String singleChange()
     {
         String base = head(upstream);
         write(upstream, "file.txt", "content\n");
         commit(upstream, "Upstream change");
+        return base;
+    }
+
+    private String conflictingChange()
+    {
+        String base = head(upstream);
+        write(upstream, "seed.txt", "upstream edit\n");
+        commit(upstream, "Conflicting change");
+        write(fork, "seed.txt", "fork edit\n");
+        commit(fork, "Fork edit");
+        return base;
+    }
+
+    private CherryPickExecution startUntilTaskCreationCrashes()
+    {
+        String base = singleChange();
         agent.beforeTaskCreate(() -> {
             throw new AssertionError("simulated process death");
         });
@@ -1292,25 +1216,6 @@ class TestCherryPickExecutionService
                 .filter(value -> value.sourceSha().equals(sourceSha))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("commit not in plan: " + sourceSha));
-    }
-
-    /**
-     * Clones a seeded repository as the fork. One clone leaves the same remote,
-     * branch and committer identity that separate init, remote, fetch and
-     * checkout commands did, for a fifth of the Git processes.
-     */
-    private Path cloneOf(Path source, String name)
-            throws IOException
-    {
-        Path root = temporaryDirectory.resolve(name);
-        git(temporaryDirectory,
-                "clone", "--quiet",
-                "--origin", "upstream",
-                "--config", "user.name=ByteQuay Test",
-                "--config", "user.email=bytequay@example.com",
-                source.toString(),
-                root.toString());
-        return root.toRealPath();
     }
 
     private WorkspaceRepositoryContext workspaceContext(RepoRef selectedRepository)

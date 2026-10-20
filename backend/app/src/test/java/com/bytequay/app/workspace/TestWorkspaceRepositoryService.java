@@ -63,11 +63,15 @@ class TestWorkspaceRepositoryService
 {
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
 
+    private final CredentialService credentials = mock(CredentialService.class);
+    private final GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+    private final InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+    private final WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
+    private final WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
+
     @Test
     void watchingOwnedRepositoriesKeepsOriginalDirectAndLinksForkToUpstream()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
         when(gitHub.fetchRepository("token", 200L))
@@ -100,8 +104,6 @@ class TestWorkspaceRepositoryService
     void concurrentRepeatReturnsOnePersistedWorkspace()
             throws Exception
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
         WorkspaceRepositoryService service = service(store, gitHub);
@@ -131,8 +133,6 @@ class TestWorkspaceRepositoryService
     @Test
     void mapsMissingAndNotReadyWorkspacesToStableErrors()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
         WorkspaceRepositoryService service = service(store, gitHub);
@@ -150,11 +150,8 @@ class TestWorkspaceRepositoryService
     void unwatchRetainsWorktreeAndRewatchRestoresTheSameWorkspace(@TempDir Path temporaryDirectory)
             throws IOException
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
         WorkspacePaths paths = new WorkspacePaths(temporaryDirectory.toString());
-        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
         WorkspaceRepositoryService service = service(store, gitHub, provisioning, paths);
         Workspace workspace = watch(service, 100);
         Path taskWorktree = paths.worktrees(workspace.id()).resolve("task-1");
@@ -182,14 +179,9 @@ class TestWorkspaceRepositoryService
     @Test
     void retiredListExcludesWatchedAndDeletedWorkspacesWithoutSchedulingRefreshes()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
         when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(direct(200, "owner")));
-        CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
-        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
-        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         RemoteSourceStore remotes = remoteSources();
         List<Runnable> queued = new ArrayList<>();
@@ -216,8 +208,6 @@ class TestWorkspaceRepositoryService
     @Test
     void rewatchRequiresTheCurrentRoutingPreview()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
         WorkspaceRepositoryService service = service(store, gitHub);
         Workspace workspace = watch(service, 100);
@@ -237,13 +227,8 @@ class TestWorkspaceRepositoryService
     @Test
     void queuedRepositoryRefreshesSkipUnwatchedAndDeletedWorkspaces()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
-        CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
-        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
-        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         List<Runnable> queued = new ArrayList<>();
         WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials,
@@ -269,10 +254,7 @@ class TestWorkspaceRepositoryService
     @Test
     void synchronizesMissingCodeBeforeReturningRepository()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
-        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
         WorkspaceRepositoryService service = service(store, gitHub, provisioning);
         Workspace unsynced = watch(service, 100);
         reset(provisioning);
@@ -289,10 +271,7 @@ class TestWorkspaceRepositoryService
     @Test
     void localRepositoryResolutionNeverStartsSynchronization()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
-        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
         WorkspaceRepositoryService service = service(store, gitHub, provisioning);
         Workspace unsynced = watch(service, 100);
         reset(provisioning, gitHub);
@@ -307,8 +286,6 @@ class TestWorkspaceRepositoryService
     @Test
     void usesTheLastSuccessfulCodeSyncForReadyRepositories()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
         WorkspaceRepositoryService service = service(store, gitHub);
@@ -322,15 +299,10 @@ class TestWorkspaceRepositoryService
     @Test
     void staleSyncQueuesCodeAndMetadata()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
-        CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
-        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
-        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         WorkspaceRepositoryService service = new WorkspaceRepositoryService(
                 store,
                 remoteSources(),
@@ -361,14 +333,9 @@ class TestWorkspaceRepositoryService
     @CsvSource({"false, 4", "true, 3"})
     void refreshesDeduplicatePendingWorkAndAllowRetryAfterFailures(boolean rejectInitially, int pending)
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
-        CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
-        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
         when(provisioning.synchronizeCode(anyString())).thenThrow(new IllegalStateException("fetch failed"));
-        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         List<Runnable> queued = new ArrayList<>();
         AtomicBoolean reject = new AtomicBoolean(rejectInitially);
         WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials,
@@ -396,16 +363,11 @@ class TestWorkspaceRepositoryService
     @Test
     void startupRecoveryUsesTheSameFreshnessAndSchedulingPath()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
         when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(direct(200, "owner")));
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "owner")));
-        CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
-        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
-        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         WorkspaceRepositoryService service = new WorkspaceRepositoryService(
                 store,
                 remoteSources(),
@@ -438,14 +400,10 @@ class TestWorkspaceRepositoryService
     @Test
     void persistsPendingWorkspaceBeforeSchedulingProvisioning()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
-        CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
-        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
         PullRequestRefreshService pullRequestRefresh = mock(PullRequestRefreshService.class);
         AtomicReference<Optional<Instant>> observed = new AtomicReference<>();
         when(provisioning.synchronizeCode(anyString())).thenAnswer(invocation -> {
@@ -522,8 +480,6 @@ class TestWorkspaceRepositoryService
     @Test
     void previewShowsExactRoutingAndRejectsPermissionChanges()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 200L))
                 .thenReturn(Optional.of(fork(200, 300, true)))
                 .thenReturn(Optional.of(fork(200, 300, false)));
@@ -549,8 +505,6 @@ class TestWorkspaceRepositoryService
     @Test
     void forkPreviewUsesUpstreamVisibilityAndKeepsTheRequestedAndPushRepositories()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo upstream = new UserRepo(300, "upstream", "project", "upstream/project", Optional.empty(), false, "internal", false,
                 "master", "https://github.com/upstream/project.git", Optional.empty());
         UserRepo personalFork = new UserRepo(200, "owner", "project", "owner/project", Optional.empty(), true, "private", true,
@@ -574,8 +528,6 @@ class TestWorkspaceRepositoryService
     @Test
     void linksAndUnlinksAnyReadableRepository()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "upstream")));
         WorkspaceRepositoryService service = service(store, gitHub);
@@ -602,8 +554,6 @@ class TestWorkspaceRepositoryService
     @Test
     void rejectsSelectedAndUnreadableUpstreamRepositories()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
         when(gitHub.fetchRepository("token", 999L)).thenReturn(Optional.empty());
         WorkspaceRepositoryService service = service(store, gitHub);
@@ -622,8 +572,6 @@ class TestWorkspaceRepositoryService
     @Test
     void searchIncludesStableIdentityAndExistingWorkspace()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo repository = direct(100, "owner");
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(repository));
         when(gitHub.fetchUserRepos("token")).thenReturn(ImmutableList.of(repository));
@@ -643,8 +591,6 @@ class TestWorkspaceRepositoryService
     @Test
     void rejectsCredentialBearingCloneUrlsBeforePreviewOrPersistence()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo unsafe = new UserRepo(
                 100,
                 "owner",
@@ -669,8 +615,6 @@ class TestWorkspaceRepositoryService
     @Test
     void watchingUpstreamOrForkReusesPersonalForkEvenWithUpstreamWriteAccess()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo upstream = direct(300, "upstream");
         UserRepo personalFork = fork(200, 300);
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
@@ -695,13 +639,11 @@ class TestWorkspaceRepositoryService
     @Test
     void watchingLegacyUpstreamPreservesItsWorkspaceAndCreatesTheForkWorkspace()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace original = new Workspace("original-workspace", "upstream/project", 300, RepoRef.of("upstream", "project"),
                 Optional.empty(), Optional.empty(), 300, RepoRef.of("upstream", "project"), Topology.DIRECT,
                 "main", "https://github.com/upstream/project.git", Optional.empty(), Optional.empty(),
                 "/tmp/bytequay-workspaces/original-workspace/repository", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW);
         store.save(original);
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo upstream = direct(300, "upstream");
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
         when(gitHub.findOwnedFork("token", upstream, "owner")).thenReturn(Optional.of(fork(200, 300)));
@@ -719,8 +661,6 @@ class TestWorkspaceRepositoryService
     @Test
     void watchingSomeoneElsesForkUsesPersonalForkAndCanonicalUpstream()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo upstream = direct(300, "upstream");
         UserRepo otherFork = new UserRepo(400, "someone", "project", "someone/project", Optional.empty(), true, "public", true,
                 "other-branch", "https://github.com/someone/project.git", fork(200, 300).upstream());
@@ -739,8 +679,6 @@ class TestWorkspaceRepositoryService
     @Test
     void watchingAForkOfAnOwnedOriginalClonesTheSelectedRepositoryDirectly()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo original = direct(300, "owner");
         UserRepo otherFork = new UserRepo(400, "someone", "project", "someone/project", Optional.empty(), true, "public", false,
                 "main", "https://github.com/someone/project.git", Optional.of(new UserRepo.Upstream(
@@ -763,8 +701,6 @@ class TestWorkspaceRepositoryService
     @Test
     void confirmedWatchRelinksAnExistingPersonalForkWithoutChangingItsIdentity()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo upstream = direct(300, "upstream");
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
         when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(fork(200, 300)));
@@ -786,8 +722,6 @@ class TestWorkspaceRepositoryService
     @Test
     void creatingMissingForkRequiresConfirmedCurrentPreviewAndExplicitConsent()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo upstream = direct(300, "upstream");
         UserRepo personalFork = fork(200, 300);
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
@@ -818,8 +752,6 @@ class TestWorkspaceRepositoryService
     @Test
     void forkCreationFailureDoesNotSaveWorkspaceOrFallBackToUpstreamPushes()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo upstream = direct(300, "upstream");
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
         when(gitHub.createFork("token", upstream)).thenThrow(new IllegalStateException("Fork creation unavailable"));
@@ -834,8 +766,6 @@ class TestWorkspaceRepositoryService
     @Test
     void anExistingForkThatAppearsAfterPreviewRequiresReviewInsteadOfCreation()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo upstream = direct(300, "upstream");
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
         WorkspaceRepositoryService service = service(store, gitHub);
@@ -852,8 +782,6 @@ class TestWorkspaceRepositoryService
     @CsvSource({"private, upstream, DIRECT", "internal, upstream, DIRECT", "public, upstream, FORK", "public, owner, DIRECT", "private, owner, DIRECT"})
     void recommendsWorkflowFromVisibilityAndOwnership(String visibility, String owner, Topology expected)
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo repository = new UserRepo(300, owner, "project", owner + "/project", Optional.empty(), false, visibility, true,
                 "main", "https://github.com/" + owner + "/project.git", Optional.empty());
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(repository));
@@ -883,8 +811,6 @@ class TestWorkspaceRepositoryService
     @Test
     void directCloneCanFollowAReadOnlyPublicRepositoryWithoutLookingForForks()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo repository = new UserRepo(300, "upstream", "project", "upstream/project", Optional.empty(), false, "public", false,
                 "main", "https://github.com/upstream/project.git", Optional.empty());
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(repository));
@@ -905,8 +831,6 @@ class TestWorkspaceRepositoryService
     @Test
     void privateRepositoriesCanExplicitlyUseForkModeButCannotReuseDirectConsent()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo repository = new UserRepo(300, "upstream", "project", "upstream/project", Optional.empty(), false, "private", true,
                 "main", "https://github.com/upstream/project.git", Optional.empty());
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(repository));
@@ -932,8 +856,6 @@ class TestWorkspaceRepositoryService
     @Test
     void ownedForkDefaultsToDirectAndCanSwitchMonitoringAfterConfirmation()
     {
-        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
-        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(fork(200, 300)));
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "upstream")));
         WorkspaceRepositoryService service = service(store, gitHub);

@@ -27,8 +27,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.http.client.MockClientHttpRequest;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -43,22 +41,24 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubPullRequestSummaryClient
+        extends AbstractGitHubClientTest
 {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String ENDPOINT = "https://api.github.test/graphql";
     private static final PullRequestRef REF = PullRequestRef.of("owner", "repo", 1);
 
+    private final GitHubPullRequestSummaryClient client = new GitHubPullRequestSummaryClient(graphQlClient);
+
     @Test
     void readsCardAndNotificationFactsWithoutDetailEndpoints()
             throws Exception
     {
-        Fixture fixture = fixture();
         ObjectNode row = row(1);
         row.withObject("/viewerReviews").withArray("nodes").add(MAPPER.readTree("""
                 {"databaseId":42,"state":"APPROVED","submittedAt":"2026-09-20T10:00:00Z",
                   "author":{"login":"viewer","avatarUrl":"https://avatars/viewer"},"commit":{"oid":"reviewed-sha"}}
                 """));
-        fixture.server().expect(requestTo(ENDPOINT)).andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
+        graphServer.expect(requestTo(ENDPOINT)).andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
                 .andExpect(request -> {
                     var payload = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString());
                     assertThat(payload.path("query").asText()).contains("databaseId:fullDatabaseId", "reviews(last:1", "checkRunCountsByState", "reviewRequested:timelineItems(last:20")
@@ -67,7 +67,7 @@ class TestGitHubPullRequestSummaryClient
                     assertThat(payload.path("variables").path("login").asText()).isEqualTo("viewer");
                 }).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
 
-        GitHubPullRequestSummary summary = fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        GitHubPullRequestSummary summary = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
 
         assertThat(summary.pullRequest().origin()).isEqualTo(Origin.REVIEW_REQUESTED);
         assertThat(summary.pullRequest().requestedReviewers()).containsExactly("viewer");
@@ -84,50 +84,44 @@ class TestGitHubPullRequestSummaryClient
         assertThat(summary.viewerReview()).isPresent();
         assertThat(summary.viewerReview().orElseThrow().commitId()).isEqualTo("reviewed-sha");
         assertThat(summary.reviewRequestedAt()).contains(Instant.parse("2026-09-21T11:00:00Z"));
-        fixture.server().verify();
     }
 
     @Test
     void viewerReviewOnACollectedCommitKeepsTheSummary()
             throws Exception
     {
-        Fixture fixture = fixture();
         ObjectNode row = row(1);
         row.withObject("/viewerReviews").withArray("nodes").add(MAPPER.readTree("""
                 {"databaseId":42,"state":"COMMENTED","submittedAt":"2026-09-20T10:00:00Z",
                   "author":{"login":"viewer","avatarUrl":"https://avatars/viewer"},"commit":null}
                 """));
-        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
 
-        GitHubPullRequestSummary summary = fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        GitHubPullRequestSummary summary = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
 
         assertThat(summary.viewerReview().orElseThrow().commitId()).isNull();
-        fixture.server().verify();
     }
 
     @Test
     void cardActivityCarriesOneCommentWithoutClaimingCiIsDiscussionActivity()
             throws Exception
     {
-        Fixture fixture = fixture();
         ObjectNode value = row(1);
         ObjectNode comment = value.withObject("/activity").putArray("nodes").addObject();
         comment.put("__typename", "IssueComment").put("createdAt", "2026-09-21T11:00:00Z").put("body", "A new reply");
         comment.putObject("author").put("login", "reviewer");
-        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(value), MediaType.APPLICATION_JSON));
-        GitHubPullRequestSummary summary = fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(value), MediaType.APPLICATION_JSON));
+        GitHubPullRequestSummary summary = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
         assertThat(summary.discussionUpdatedAt()).isEqualTo(Instant.parse("2026-09-21T11:00:00Z"));
         assertThat(summary.latestActivity()).isPresent();
         assertThat(summary.latestActivity().orElseThrow().actor()).contains("reviewer");
         assertThat(summary.latestActivity().orElseThrow().excerpt()).contains("A new reply");
-        fixture.server().verify();
     }
 
     @Test
     void batchesFiveDistinctReferencesAndDoesNotFetchEmptySelections()
             throws Exception
     {
-        Fixture fixture = fixture();
         List<PullRequestRef> refs = IntStream.rangeClosed(1, 31).mapToObj(number -> PullRequestRef.of("owner", "repo", number)).toList();
         for (int offset = 0; offset < refs.size(); offset += 5) {
             int firstNumber = offset + 1;
@@ -137,7 +131,7 @@ class TestGitHubPullRequestSummaryClient
             for (int index = 0; index < batchSize; index++) {
                 data.putObject("r" + index).set("pullRequest", row(firstNumber + index));
             }
-            fixture.server().expect(requestTo(ENDPOINT)).andExpect(request -> {
+            graphServer.expect(requestTo(ENDPOINT)).andExpect(request -> {
                 var payload = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString());
                 var variables = payload.path("variables");
                 assertThat(variables.size()).isEqualTo(1 + batchSize * 3);
@@ -148,17 +142,15 @@ class TestGitHubPullRequestSummaryClient
             }).andRespond(withSuccess(response.toString(), MediaType.APPLICATION_JSON));
         }
 
-        assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(), "viewer")).isEmpty();
-        assertThat(fixture.client().fetchSummaries("pat", ImmutableList.<PullRequestRef>builder().addAll(refs).add(REF).build(), "viewer"))
+        assertThat(client.fetchSummaries("pat", ImmutableList.of(), "viewer")).isEmpty();
+        assertThat(client.fetchSummaries("pat", ImmutableList.<PullRequestRef>builder().addAll(refs).add(REF).build(), "viewer"))
                 .extracting(summary -> summary.pullRequest().number()).containsExactlyElementsOf(IntStream.rangeClosed(1, 31).boxed().toList());
-        fixture.server().verify();
     }
 
     @Test
     void refusesPartialOrUnknownFactsInsteadOfOverwritingGoodLocalState()
             throws Exception
     {
-        Fixture fixture = fixture();
         ObjectNode response = MAPPER.createObjectNode();
         ObjectNode data = response.putObject("data");
         ObjectNode partialLabels = row(1);
@@ -173,37 +165,33 @@ class TestGitHubPullRequestSummaryClient
         data.putObject("r3").set("pullRequest", row(4));
         data.putObject("r4").set("pullRequest", row(5));
         response.putArray("errors").addObject().put("message", "Unavailable").putArray("path").add("r3").add("pullRequest").add("statusCheckRollup");
-        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response.toString(), MediaType.APPLICATION_JSON));
+        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response.toString(), MediaType.APPLICATION_JSON));
 
         List<PullRequestRef> refs = IntStream.rangeClosed(1, 5).mapToObj(number -> PullRequestRef.of("owner", "repo", number)).toList();
-        assertThat(fixture.client().fetchSummaries("pat", refs, "viewer")).extracting(summary -> summary.pullRequest().number()).containsExactly(5);
-        fixture.server().verify();
+        assertThat(client.fetchSummaries("pat", refs, "viewer")).extracting(summary -> summary.pullRequest().number()).containsExactly(5);
     }
 
     @Test
     void rejectsMalformedScalarAndCollectionFacts()
             throws Exception
     {
-        Fixture fixture = fixture();
         ObjectNode nullCheck = row(1);
         nullCheck.withArray("/statusCheckRollup/contexts/checkRunCountsByState").addNull();
         ObjectNode missingAuthor = row(1);
         missingAuthor.withObject("/author").remove("login");
         List<ObjectNode> malformed = ImmutableList.of(row(1).put("isDraft", "false"), row(1).put("additions", "15"), nullCheck, missingAuthor);
         for (ObjectNode row : malformed) {
-            fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+            graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
         }
         for (int index = 0; index < malformed.size(); index++) {
-            assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer")).isEmpty();
+            assertThat(client.fetchSummaries("pat", ImmutableList.of(REF), "viewer")).isEmpty();
         }
-        fixture.server().verify();
     }
 
     @Test
     void mapsAllCheckStatesAndDistinguishesNoChecks()
             throws Exception
     {
-        Fixture fixture = fixture();
         Map<String, CiStatus> states = ImmutableMap.of("SUCCESS", CiStatus.PASSING, "PENDING", CiStatus.PENDING, "EXPECTED", CiStatus.PENDING,
                 "FAILURE", CiStatus.FAILING, "ERROR", CiStatus.FAILING, "NONE", CiStatus.NONE);
         for (String state : states.keySet()) {
@@ -214,19 +202,17 @@ class TestGitHubPullRequestSummaryClient
             else {
                 row.withObject("/statusCheckRollup").put("state", state);
             }
-            fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+            graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
         }
         for (Map.Entry<String, CiStatus> entry : states.entrySet()) {
-            assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().ciStatus()).isEqualTo(entry.getValue());
+            assertThat(client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().ciStatus()).isEqualTo(entry.getValue());
         }
-        fixture.server().verify();
     }
 
     @Test
     void normalizesReviewRequiredWithoutLosingDismissedReviewEvidence()
             throws Exception
     {
-        Fixture fixture = fixture();
         ObjectNode noDecision = row(1).putNull("reviewDecision");
         noDecision.withObject("/viewerReviews").withArray("nodes").add(MAPPER.readTree("""
                 {"databaseId":42,"state":"DISMISSED","submittedAt":"2026-09-20T10:00:00Z",
@@ -236,27 +222,25 @@ class TestGitHubPullRequestSummaryClient
         ObjectNode approved = noDecision.deepCopy().put("reviewDecision", "APPROVED");
         ObjectNode changesRequested = noDecision.deepCopy().put("reviewDecision", "CHANGES_REQUESTED");
         for (ObjectNode row : ImmutableList.of(noDecision, required, approved, changesRequested)) {
-            fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+            graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
         }
 
-        GitHubPullRequestSummary baseline = fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
-        GitHubPullRequestSummary pending = fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        GitHubPullRequestSummary baseline = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        GitHubPullRequestSummary pending = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
 
         assertThat(baseline.reviewDecision()).isEmpty();
         assertThat(pending.reviewDecision()).isEmpty();
         assertThat(pending.activityVersion()).isEqualTo(baseline.activityVersion());
         assertThat(pending.viewerReview()).isEqualTo(baseline.viewerReview());
         assertThat(pending.viewerReview().orElseThrow().state()).isEqualTo("DISMISSED");
-        assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().reviewDecision()).contains("APPROVED");
-        assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().reviewDecision()).contains("CHANGES_REQUESTED");
-        fixture.server().verify();
+        assertThat(client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().reviewDecision()).contains("APPROVED");
+        assertThat(client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().reviewDecision()).contains("CHANGES_REQUESTED");
     }
 
     @Test
     void tracksTimelineAndIndividualCheckProgressWithoutPullRequestUpdateChanges()
             throws Exception
     {
-        Fixture fixture = fixture();
         ObjectNode original = row(1);
         ObjectNode checksChanged = original.deepCopy();
         checksChanged.withObject("/statusCheckRollup/contexts").withArray("checkRunCountsByState")
@@ -268,51 +252,45 @@ class TestGitHubPullRequestSummaryClient
         ObjectNode reviewChanged = original.deepCopy().put("reviewDecision", "CHANGES_REQUESTED");
         List<ObjectNode> changes = ImmutableList.of(checksChanged, timelineChanged, headChanged, mergeChanged, reviewChanged);
         for (ObjectNode row : ImmutableList.<ObjectNode>builder().add(original).addAll(changes).build()) {
-            fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+            graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
         }
-        String initial = fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().activityVersion();
+        String initial = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().activityVersion();
         for (int index = 0; index < changes.size(); index++) {
-            assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().activityVersion()).isNotEqualTo(initial);
+            assertThat(client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().activityVersion()).isNotEqualTo(initial);
         }
-        fixture.server().verify();
     }
 
     @Test
     void rejectsAQueryLevelFailure()
     {
-        Fixture fixture = fixture();
-        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess("""
+        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess("""
                 {"data":{},"errors":[{"message":"Query failed"}]}
                 """, MediaType.APPLICATION_JSON));
-        assertThatThrownBy(() -> fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer"))
+        assertThatThrownBy(() -> client.fetchSummaries("pat", ImmutableList.of(REF), "viewer"))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("GraphQL request failed");
-        fixture.server().verify();
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void rateLimitedGraphQlResponsesStopBeforeTheNextBatch(boolean includesData)
     {
-        Fixture fixture = fixture();
         ObjectNode response = MAPPER.createObjectNode();
         if (includesData) {
             response.putNull("data");
         }
         response.putArray("errors").addObject().put("type", "RATE_LIMITED").put("message", "Rate limit exceeded")
                 .putArray("path").add("r0").add("pullRequest");
-        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response.toString(), MediaType.APPLICATION_JSON));
+        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response.toString(), MediaType.APPLICATION_JSON));
         List<PullRequestRef> refs = IntStream.rangeClosed(1, 6).mapToObj(number -> PullRequestRef.of("owner", "repo", number)).toList();
 
-        assertThatThrownBy(() -> fixture.client().fetchSummaries("pat", refs, "viewer"))
+        assertThatThrownBy(() -> client.fetchSummaries("pat", refs, "viewer"))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
-        fixture.server().verify();
     }
 
     @Test
     void findsAuthorRepliesBeyondTheFirstThreadAndNewestCommentPageThenCachesTheAnswer()
     {
-        Fixture fixture = fixture();
-        fixture.server().expect(requestTo(ENDPOINT)).andExpect(request -> {
+        graphServer.expect(requestTo(ENDPOINT)).andExpect(request -> {
             var payload = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString());
             assertThat(payload.path("query").asText()).contains("reviewThreads(first:100", "root:comments(first:1)", "comments(last:100)")
                     .doesNotContain("body", "reactions", "diffHunk");
@@ -322,7 +300,7 @@ class TestGitHubPullRequestSummaryClient
                   "nodes":[{"id":"OTHER_THREAD","root":{"nodes":[{"author":{"login":"someone-else"}}]}}],
                   "pageInfo":{"hasNextPage":true,"endCursor":"next-thread"}}}}}}
                 """, MediaType.APPLICATION_JSON));
-        fixture.server().expect(requestTo(ENDPOINT)).andExpect(request -> {
+        graphServer.expect(requestTo(ENDPOINT)).andExpect(request -> {
             var payload = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString());
             assertThat(payload.path("variables").path("after").asText()).isEqualTo("next-thread");
         }).andRespond(withSuccess("""
@@ -332,7 +310,7 @@ class TestGitHubPullRequestSummaryClient
                       "pageInfo":{"hasPreviousPage":true,"startCursor":"older-comments"}}}],
                   "pageInfo":{"hasNextPage":true,"endCursor":"unneeded-next-thread"}}}}}}
                 """, MediaType.APPLICATION_JSON));
-        fixture.server().expect(requestTo(ENDPOINT)).andExpect(request -> {
+        graphServer.expect(requestTo(ENDPOINT)).andExpect(request -> {
             var payload = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString());
             assertThat(payload.path("variables").path("id").asText()).isEqualTo("VIEWER_THREAD");
             assertThat(payload.path("variables").path("before").asText()).isEqualTo("older-comments");
@@ -343,26 +321,24 @@ class TestGitHubPullRequestSummaryClient
                 """, MediaType.APPLICATION_JSON));
 
         Instant reviewedAt = Instant.parse("2026-09-20T10:00:00Z");
-        assertThat(fixture.client().hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-1")).isTrue();
-        assertThat(fixture.client().hasAuthorReplyAfter("pat", REF, "VIEWER", "AUTHOR", reviewedAt, "activity-1")).isTrue();
-        fixture.server().verify();
+        assertThat(client.hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-1")).isTrue();
+        assertThat(client.hasAuthorReplyAfter("pat", REF, "VIEWER", "AUTHOR", reviewedAt, "activity-1")).isTrue();
     }
 
     @Test
     void cachesOnlyCompleteReplyAnswersAndChecksAgainWhenActivityChanges()
     {
-        Fixture fixture = fixture();
-        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess("""
+        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess("""
                 {"data":{},"errors":[{"message":"Unavailable","path":["repository","pullRequest","reviewThreads"]}]}
                 """, MediaType.APPLICATION_JSON));
-        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess("""
+        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess("""
                 {"data":{"repository":{"pullRequest":{"reviewThreads":{
                   "nodes":[{"id":"VIEWER_THREAD","root":{"nodes":[{"author":{"login":"viewer"}}]},
                     "comments":{"nodes":[{"createdAt":"2026-09-19T10:00:00Z","author":{"login":"author"},"replyTo":{"id":"ROOT"}}],
                       "pageInfo":{"hasPreviousPage":false,"startCursor":null}}}],
                   "pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}
                 """, MediaType.APPLICATION_JSON));
-        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess("""
+        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess("""
                 {"data":{"repository":{"pullRequest":{"reviewThreads":{
                   "nodes":[{"id":"VIEWER_THREAD","root":{"nodes":[{"author":{"login":"viewer"}}]},
                     "comments":{"nodes":[{"createdAt":"2026-09-21T10:00:00Z","author":{"login":"author"},"replyTo":{"id":"ROOT"}}],
@@ -371,12 +347,11 @@ class TestGitHubPullRequestSummaryClient
                 """, MediaType.APPLICATION_JSON));
 
         Instant reviewedAt = Instant.parse("2026-09-20T10:00:00Z");
-        assertThatThrownBy(() -> fixture.client().hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-1"))
+        assertThatThrownBy(() -> client.hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-1"))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThat(fixture.client().hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-1")).isFalse();
-        assertThat(fixture.client().hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-1")).isFalse();
-        assertThat(fixture.client().hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-2")).isTrue();
-        fixture.server().verify();
+        assertThat(client.hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-1")).isFalse();
+        assertThat(client.hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-1")).isFalse();
+        assertThat(client.hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-2")).isTrue();
     }
 
     private static ObjectNode row(int number)
@@ -403,13 +378,4 @@ class TestGitHubPullRequestSummaryClient
         response.putObject("data").putObject("r0").set("pullRequest", row);
         return response.toString();
     }
-
-    private static Fixture fixture()
-    {
-        RestClient.Builder builder = RestClient.builder().baseUrl(ENDPOINT);
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        return new Fixture(new GitHubPullRequestSummaryClient(builder.build()), server);
-    }
-
-    private record Fixture(GitHubPullRequestSummaryClient client, MockRestServiceServer server) {}
 }

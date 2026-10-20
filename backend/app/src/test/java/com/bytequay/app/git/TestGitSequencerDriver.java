@@ -25,7 +25,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static com.bytequay.app.git.GitTestSupport.commit;
+import static com.bytequay.app.git.GitTestSupport.commitFile;
 import static com.bytequay.app.git.GitTestSupport.git;
+import static com.bytequay.app.git.GitTestSupport.head;
+import static com.bytequay.app.git.GitTestSupport.initRepository;
+import static com.bytequay.app.git.GitTestSupport.write;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestGitSequencerDriver
@@ -43,19 +48,14 @@ class TestGitSequencerDriver
             throws IOException
     {
         Path created = Files.createDirectories(temporaryDirectory.resolve("repo"));
-        git(temporaryDirectory, "init", "--quiet", "-b", "main", created.toString());
-        git(created, "config", "user.name", "ByteQuay Test");
-        git(created, "config", "user.email", "bytequay@example.com");
-        repository = created.toRealPath();
+        repository = initRepository(created);
         driver = new GitSequencerDriver(GIT);
     }
 
     @Test
     void appliesOneSourceCommit()
     {
-        write("seed.txt", "seed\n");
-        commit("Base");
-        String target = head();
+        String target = commitFile(repository, "seed.txt", "seed\n", "Base");
 
         git(repository, "checkout", "--quiet", "-b", "source");
         String first = change("one.txt", "First change");
@@ -72,18 +72,14 @@ class TestGitSequencerDriver
     @Test
     void stopsOnAConflictAndNamesTheCommitAndPaths()
     {
-        write("file.txt", "one\ntwo\nthree\n");
-        commit("Base");
+        write(repository, "file.txt", "one\ntwo\nthree\n");
+        commit(repository, "Base");
 
         git(repository, "checkout", "--quiet", "-b", "source");
-        write("file.txt", "one\nSOURCE\nthree\n");
-        commit("Conflicting change");
-        String conflicting = head();
+        String conflicting = commitFile(repository, "file.txt", "one\nSOURCE\nthree\n", "Conflicting change");
 
         git(repository, "checkout", "--quiet", "main");
-        write("file.txt", "one\nTARGET\nthree\n");
-        commit("Target change");
-        String target = head();
+        String target = commitFile(repository, "file.txt", "one\nTARGET\nthree\n", "Target change");
 
         SequenceState state = driver.beginCherryPick(repository, target, conflicting);
 
@@ -107,22 +103,16 @@ class TestGitSequencerDriver
     @Test
     void treatsBothKindsOfEmptyTheSameAndSkipsOneAtATime()
     {
-        write("seed.txt", "seed\n");
-        commit("Base");
-        String base = head();
+        String base = commitFile(repository, "seed.txt", "seed\n", "Base");
 
         git(repository, "checkout", "--quiet", "-b", "source");
         git(repository, "commit", "--quiet", "--allow-empty", "-m", "Empty upstream");
-        String emptyUpstream = head();
-        write("shared.txt", "shared\n");
-        commit("Redundant change");
-        String redundant = head();
+        String emptyUpstream = head(repository);
+        String redundant = commitFile(repository, "shared.txt", "shared\n", "Redundant change");
         String unique = change("unique.txt", "Unique change");
 
         git(repository, "checkout", "--quiet", "-B", "main", base);
-        write("shared.txt", "shared\n");
-        commit("Target already has it");
-        String target = head();
+        String target = commitFile(repository, "shared.txt", "shared\n", "Target already has it");
 
         SequenceState first = driver.beginCherryPick(repository, target, emptyUpstream);
         assertThat(first.kind()).as("empty upstream").isEqualTo(Kind.STOPPED_EMPTY);
@@ -148,16 +138,14 @@ class TestGitSequencerDriver
     @Test
     void refusesToSkipWhenAnythingDisagrees()
     {
-        write("seed.txt", "seed\n");
-        commit("Base");
-        String base = head();
+        String base = commitFile(repository, "seed.txt", "seed\n", "Base");
 
         git(repository, "checkout", "--quiet", "-b", "source");
         git(repository, "commit", "--quiet", "--allow-empty", "-m", "Empty upstream");
-        String empty = head();
+        String empty = head(repository);
 
         git(repository, "checkout", "--quiet", "-B", "main", base);
-        String target = head();
+        String target = head(repository);
         driver.beginCherryPick(repository, target, empty);
 
         assertThat(driver.skipEmpty(repository, "0".repeat(40), empty).kind())
@@ -172,18 +160,14 @@ class TestGitSequencerDriver
     @Test
     void refusesToBeginWhenAnOperationIsAlreadyOpenOrHeadMoved()
     {
-        write("file.txt", "one\n");
-        commit("Base");
+        write(repository, "file.txt", "one\n");
+        commit(repository, "Base");
 
         git(repository, "checkout", "--quiet", "-b", "source");
-        write("file.txt", "source\n");
-        commit("Source change");
-        String source = head();
+        String source = commitFile(repository, "file.txt", "source\n", "Source change");
 
         git(repository, "checkout", "--quiet", "main");
-        write("file.txt", "target\n");
-        commit("Target change");
-        String target = head();
+        String target = commitFile(repository, "file.txt", "target\n", "Target change");
 
         assertThat(driver.beginCherryPick(repository, "0".repeat(40), source).kind())
                 .as("HEAD is not what the caller expected")
@@ -199,9 +183,9 @@ class TestGitSequencerDriver
     @Test
     void reportsADirtyWorktreeWithNoOperationAsUnsafe()
     {
-        write("file.txt", "one\n");
-        commit("Base");
-        write("file.txt", "edited outside ByteQuay\n");
+        write(repository, "file.txt", "one\n");
+        commit(repository, "Base");
+        write(repository, "file.txt", "edited outside ByteQuay\n");
 
         SequenceState state = driver.observe(repository);
         assertThat(state.kind()).isEqualTo(Kind.UNSAFE);
@@ -212,19 +196,13 @@ class TestGitSequencerDriver
     @ValueSource(strings = {"file.txt", "报告.txt", "quoted\"file.txt", "tab\tfile.txt", "line\nfile.txt"})
     void commitsTheConflictSnapshotWithItsCherryPickOrigin(String filename)
     {
-        write(filename, "base\n");
-        commit("Base");
-        String base = head();
+        String base = commitFile(repository, filename, "base\n", "Base");
 
         git(repository, "checkout", "--quiet", "-b", "source");
-        write(filename, "source\n");
-        commit("Conflicting change");
-        String source = head();
+        String source = commitFile(repository, filename, "source\n", "Conflicting change");
 
         git(repository, "checkout", "--quiet", "-B", "main", base);
-        write(filename, "target\n");
-        commit("Target change");
-        String target = head();
+        String target = commitFile(repository, filename, "target\n", "Target change");
 
         SequenceState conflict = driver.beginCherryPick(repository, target, source);
         assertThat(conflict.conflicts()).extracting(ConflictedPath::path).containsExactly(filename);
@@ -236,23 +214,6 @@ class TestGitSequencerDriver
 
     private String change(String name, String subject)
     {
-        write(name, subject + "\n");
-        commit(subject);
-        return head();
-    }
-
-    private void write(String name, String content)
-    {
-        GitTestSupport.write(repository, name, content);
-    }
-
-    private void commit(String subject)
-    {
-        GitTestSupport.commit(repository, subject);
-    }
-
-    private String head()
-    {
-        return GitTestSupport.head(repository);
+        return commitFile(repository, name, subject + "\n", subject);
     }
 }

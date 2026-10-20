@@ -100,6 +100,8 @@ class TestClaudeCliDriver
     private static final String DEVELOPMENT_SANDBOX = PermissionBroker.sandboxInstruction(new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false));
     private static final String TASK_CONTEXT = "This task continues the existing pull request owner/repo#7.";
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+    private final List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
 
     @TempDir
     private Path worktree;
@@ -108,7 +110,6 @@ class TestClaudeCliDriver
     void readOnlyDiscussionsReceiveTheirContextToolWithoutWritePermissions()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSessionContext plain = context(Optional.empty(), AgentPermissionPolicy.AUTO);
         AgentSessionContext discussion = new AgentSessionContext(plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(),
@@ -117,7 +118,7 @@ class TestClaudeCliDriver
         try (AgentSession session = driver.open(discussion, event -> {})) {
             RunningTurn turn = session.start(command("explain this"));
             assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-            ProcessSpec spec = supervisor.turns().getLast().spec();
+            ProcessSpec spec = supervisor.turns.getLast().spec;
             // The setup's first half names the instructions the turn was launched with, all but the task's own context, which a
             // read-only session starts with.
             String instructions = spec.argv().get(spec.argv().indexOf("--append-system-prompt") + 1);
@@ -136,7 +137,6 @@ class TestClaudeCliDriver
     void independentReviewReceivesOnlyItsReadContextTool()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSessionContext plain = context(Optional.empty(), AgentPermissionPolicy.AUTO);
         AgentSessionContext discussion = new AgentSessionContext(plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(),
@@ -145,7 +145,7 @@ class TestClaudeCliDriver
                 ImmutableList.of(new ReviewTool("review_get_context", "Read captured context", ImmutableMap.of("type", "object"), query -> "saved context", true)));
         try (AgentSession session = driver.open(discussion, event -> {})) {
             assertThat(await(session.start(command("explain this"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-            ProcessSpec spec = supervisor.turns().getLast().spec();
+            ProcessSpec spec = supervisor.turns.getLast().spec;
             assertThat(spec.argv()).containsSequence("--tools", "Bash,Glob,Grep,Read");
             assertThat(spec.argv()).anyMatch(argument -> argument.contains("mcp__bytequay__review_get_context"));
             assertThat(spec.argv()).anyMatch(argument -> argument.contains("Read the independent assignment."));
@@ -158,7 +158,6 @@ class TestClaudeCliDriver
     void readOnlySessionInAScratchFolderLaunchesAsControlWork()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSessionContext plain = context(Optional.empty(), AgentPermissionPolicy.AUTO);
         AgentSessionContext scratch = new AgentSessionContext(plain.taskId(), Files.createDirectories(runtimeDirectory().resolve("scratch-worktree")),
@@ -167,7 +166,7 @@ class TestClaudeCliDriver
         try (AgentSession session = driver.open(scratch, event -> {})) {
             assertThat(await(session.start(command("plan the day"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
             // It reaches no task worktree, so startup recovery keeps a leftover process as evidence instead of blocking every task.
-            assertThat(supervisor.turns().getLast().spec().owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
+            assertThat(supervisor.turns.getLast().spec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
         }
         driver.close();
     }
@@ -176,7 +175,6 @@ class TestClaudeCliDriver
     void artifactWriterReadsItsCheckoutAsControlWorkAndAloneMaySaveAndAsk()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSessionContext plain = context(Optional.empty(), AgentPermissionPolicy.AUTO);
         Path checkout = Files.createDirectories(runtimeDirectory().resolveSibling("artifacts").resolve("ws1"));
@@ -186,7 +184,7 @@ class TestClaudeCliDriver
                 ImmutableList.of(new ReviewTool("artifact_save", "Save the page", ImmutableMap.of("type", "object"), page -> "Saved", false)), true);
         try (AgentSession session = driver.open(writer, event -> {})) {
             assertThat(await(session.start(command("teach me delete files"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-            ProcessSpec spec = supervisor.turns().getLast().spec();
+            ProcessSpec spec = supervisor.turns.getLast().spec;
             // The checkout outlives each run so a later ask can resume, but no task owns it: a leftover process blocks no task.
             assertThat(spec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
             // It may ask the user a question with choices; other read-only sessions may not.
@@ -201,7 +199,6 @@ class TestClaudeCliDriver
     void toolsOnlySessionResumesWithOnlyItsByteQuayToolsAndNoChildren()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSessionContext plain = context(Optional.empty(), AgentPermissionPolicy.AUTO);
         Path day = Files.createDirectories(runtimeDirectory().resolveSibling("assistant").resolve("2026-10-17"));
@@ -212,7 +209,7 @@ class TestClaudeCliDriver
         AgentSessionRef reference;
         try (AgentSession session = driver.open(toolsOnly(plain, day, Optional.empty(), tools), event -> {})) {
             assertThat(await(session.start(command("what is waiting on me?"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-            ProcessSpec spec = supervisor.turns().getLast().spec();
+            ProcessSpec spec = supervisor.turns.getLast().spec;
             assertThat(spec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
             assertThat(spec.workingDirectory().toRealPath()).isEqualTo(day.toRealPath());
             assertThat(spec.argv()).contains("--tools=", "--disable-slash-commands").doesNotContain("--no-session-persistence");
@@ -229,7 +226,7 @@ class TestClaudeCliDriver
         }
         try (AgentSession session = driver.open(toolsOnly(plain, day, Optional.of(reference), tools), event -> {})) {
             assertThat(await(session.start(command("start it"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-            assertThat(supervisor.turns().getLast().spec().argv()).containsSequence("--resume", reference.providerValue());
+            assertThat(supervisor.turns.getLast().spec.argv()).containsSequence("--resume", reference.providerValue());
         }
         // Claude finds the conversation by its folder, so only a stable assistant folder outside the run's scratch may hold it.
         assertThatThrownBy(() -> toolsOnly(plain, Files.createDirectories(runtimeDirectory().resolve("assistant/2026-10-17")), Optional.empty(), tools))
@@ -403,7 +400,6 @@ class TestClaudeCliDriver
                 "review_get_context", "Read local review context", ImmutableMap.of("type", "object"), input -> "review context")), "Review the pull request");
         PermissionBroker permissions = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
                 .reviews(taskId -> Optional.of(review)).build();
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         try (ClaudeCliDriver driver = new ClaudeCliDriver(
                 executable.toString(), objectMapper, permissions, supervisor, claudeHome(),
                 ImmutableMap.of("HOME", worktree.toString(), "PATH", "/usr/bin:/bin"))) {
@@ -453,7 +449,6 @@ class TestClaudeCliDriver
     void advertisesCodeQueriesAndInstructionsOnlyWhenBridged()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSessionContext plain = context(Optional.empty());
         AgentSessionContext bridged = new AgentSessionContext(
@@ -472,7 +467,7 @@ class TestClaudeCliDriver
 
         AgentSession session = driver.open(bridged, event -> {});
         await(session.start(command("first")));
-        ProcessSpec spec = supervisor.turns().getFirst().spec();
+        ProcessSpec spec = supervisor.turns.getFirst().spec;
         assertThat(spec.argv().get(spec.argv().indexOf("--append-system-prompt") + 1))
                 .contains(DEVELOPMENT_POLICY, ClaudeCliDriver.PLAN_INSTRUCTION, "use the graph", "bytequay_list_tools", "bytequay_get_tool");
         int allowed = spec.argv().indexOf("--allowedTools");
@@ -482,7 +477,7 @@ class TestClaudeCliDriver
 
         AgentSession unbridged = driver.open(plain, event -> {});
         await(unbridged.start(command("second")));
-        ProcessSpec plainSpec = supervisor.turns().get(1).spec();
+        ProcessSpec plainSpec = supervisor.turns.get(1).spec;
         assertThat(plainSpec.argv()).containsSequence("--append-system-prompt", DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + "\n\n" + DEVELOPMENT_SANDBOX);
         assertThat(plainSpec.argv()).noneMatch(argument -> argument.contains("code_query"));
         unbridged.close();
@@ -492,7 +487,6 @@ class TestClaudeCliDriver
     void transportsLargeReviewReferenceInputOnInitialAndResumedTurns()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         String instructions = "p".repeat(100_000);
         String reference = "reference-body-marker\n" + "知".repeat(10_000);
@@ -504,12 +498,12 @@ class TestClaudeCliDriver
             try (AgentSession session = driver.open(context(sessionReference, instructions), event -> {})) {
                 assertThat(await(session.start(new AgentTurnCommand("context-turn-" + index, input, ImmutableList.of(), Duration.ofMinutes(1)))).state())
                         .isEqualTo(AgentTurnResult.State.COMPLETED);
-                ScriptedTurn turn = supervisor.turns().getLast();
-                assertThat(turn.prompt()).isEqualTo(input + "\n");
-                assertThat(turn.spec().argv().get(turn.spec().argv().indexOf("--append-system-prompt") + 1))
+                ScriptedTurn turn = supervisor.turns.getLast();
+                assertThat(turn.prompt).isEqualTo(input + "\n");
+                assertThat(turn.spec.argv().get(turn.spec.argv().indexOf("--append-system-prompt") + 1))
                         .contains(DEVELOPMENT_POLICY, instructions);
-                assertThat(turn.spec().argv()).noneMatch(argument -> argument.contains("reference-body-marker"));
-                assertThat(turn.spec().argv().contains("--resume")).isEqualTo(index == 1);
+                assertThat(turn.spec.argv()).noneMatch(argument -> argument.contains("reference-body-marker"));
+                assertThat(turn.spec.argv().contains("--resume")).isEqualTo(index == 1);
                 sessionReference = Optional.of(session.reference());
             }
         }
@@ -520,13 +514,12 @@ class TestClaudeCliDriver
     void replacesManagedInstructionsOnResumeWithoutAddingTools()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         Optional<AgentSessionRef> reference = Optional.empty();
         for (String instruction : ImmutableList.of("Keep explanations concise", "Lead with the next action", "")) {
             AgentSession session = driver.open(context(reference, instruction), event -> {});
             await(session.start(command("configured")));
-            List<String> arguments = supervisor.turns().getLast().spec().argv();
+            List<String> arguments = supervisor.turns.getLast().spec.argv();
             String expected = DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + (instruction.isEmpty() ? "" : "\n\n" + instruction) + "\n\n" + DEVELOPMENT_SANDBOX;
             assertThat(arguments).containsSequence("--append-system-prompt", expected);
             assertThat(arguments.stream().filter(argument -> argument.startsWith("--append-system-prompt"))).hasSize(1);
@@ -542,9 +535,7 @@ class TestClaudeCliDriver
     void probesStreamsResumesHandlesMalformedAndTrailingEventsAndCancels()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
 
         assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
         assertThat(driver.capabilities().permissionPolicies())
@@ -592,7 +583,7 @@ class TestClaudeCliDriver
             }
         });
         assertThat(projectedMessages).containsExactly(Map.entry(messages.getFirst().source().providerItemId().orElseThrow(), "authoritative [REDACTED]"));
-        ProcessSpec firstSpec = supervisor.turns().getFirst().spec();
+        ProcessSpec firstSpec = supervisor.turns.getFirst().spec;
         assertThat(firstSpec.environment()).containsEntry("ANTHROPIC_API_KEY", "known-secret")
                 .doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "SSH_AUTH_SOCK");
         // Probes and turns alike derive their environment from the driver's, so `--version`, `--help`,
@@ -604,7 +595,7 @@ class TestClaudeCliDriver
         assertThat(firstSpec.argv()).contains("--permission-prompt-tool", "mcp__bytequay__permission_prompt");
         assertThat(firstSpec.argv()).containsSequence("--permission-mode", "auto");
         assertThat(firstSpec.argv()).doesNotContain("first");
-        assertThat(supervisor.turns().getFirst().prompt()).isEqualTo("first\n");
+        assertThat(supervisor.turns.getFirst().prompt).isEqualTo("first\n");
         assertThat(events).anyMatch(ProviderAgentEvent.Error.class::isInstance);
         assertThat(events).filteredOn(ProviderAgentEvent.Tool.class::isInstance)
                 .anySatisfy(event -> assertThat(((ProviderAgentEvent.Tool) event).name())
@@ -618,7 +609,7 @@ class TestClaudeCliDriver
 
         AgentTurnResult second = await(session.start(command("second")));
         assertThat(second.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-        assertThat(supervisor.turns().get(1).spec().argv())
+        assertThat(supervisor.turns.get(1).spec.argv())
                 .containsSequence("--resume", reference.providerValue());
 
         AgentTurnResult failed = await(session.start(command("fail")));
@@ -644,7 +635,7 @@ class TestClaudeCliDriver
         AgentAttachment attachment = new AgentAttachment("github-actions.log", "text/plain; charset=utf-8", log);
         assertThat(await(ciSession.start(command("ci-fix", ImmutableList.of(attachment)))).state())
                 .isEqualTo(AgentTurnResult.State.COMPLETED);
-        ProcessSpec ciSpec = supervisor.turns().getLast().spec();
+        ProcessSpec ciSpec = supervisor.turns.getLast().spec;
         assertThat(ciSpec.argv()).containsSequence("--permission-mode", "auto");
         assertThat(ciSpec.argv()).contains("--strict-mcp-config");
         assertThat(ciSpec.argv()).contains("--setting-sources=");
@@ -655,7 +646,7 @@ class TestClaudeCliDriver
         assertThat(allowedTools).isGreaterThanOrEqualTo(0);
         assertThat(ciSpec.argv().get(allowedTools + 1))
                 .contains("mcp__bytequay__read_ci_memory", "Read(/" + realLog + ")");
-        assertThat(supervisor.turns().getLast().prompt()).contains(realLog.toString());
+        assertThat(supervisor.turns.getLast().prompt).contains(realLog.toString());
         assertThat(ciSpec.environment()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "SSH_AUTH_SOCK");
         Path settingsFile = runtimeDirectory().resolve("provider/scratch/sandbox-settings.json");
         assertThat(settingsFile).exists();
@@ -664,7 +655,7 @@ class TestClaudeCliDriver
 
         AgentSession cherryPickSession = driver.open(context(Optional.empty(), AgentPermissionPolicy.CHERRY_PICK), events::add);
         assertThat(await(cherryPickSession.start(command("resolve"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-        ProcessSpec cherryPickSpec = supervisor.turns().getLast().spec();
+        ProcessSpec cherryPickSpec = supervisor.turns.getLast().spec;
         assertThat(cherryPickSpec.environment()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR");
         assertThat(cherryPickSpec.argv()).containsSequence("--permission-mode", "auto");
         assertThat(cherryPickSpec.argv()).contains("--strict-mcp-config", "--setting-sources=", "--settings");
@@ -676,7 +667,7 @@ class TestClaudeCliDriver
 
         AgentSession autoSession = driver.open(context(Optional.empty(), AgentPermissionPolicy.AUTO), events::add);
         assertThat(await(autoSession.start(command("auto"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-        ProcessSpec autoSpec = supervisor.turns().getLast().spec();
+        ProcessSpec autoSpec = supervisor.turns.getLast().spec;
         assertThat(autoSpec.environment()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "SSH_AUTH_SOCK");
         assertThat(autoSpec.stdoutCaptureLimit()).isEmpty();
         assertThat(autoSpec.argv()).containsSequence("--permission-mode", "auto");
@@ -690,7 +681,7 @@ class TestClaudeCliDriver
                 Optional.empty(), AgentPermissionPolicy.AUTO, Optional.of("sonnet"), Optional.of("Extra"), SessionAccess.TEXT_ONLY),
                 events::add);
         assertThat(await(textSession.start(command("rewrite"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-        ProcessSpec textSpec = supervisor.turns().getLast().spec();
+        ProcessSpec textSpec = supervisor.turns.getLast().spec;
         assertThat(textSpec.environment()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR");
         assertThat(textSpec.stdoutCaptureLimit()).isEmpty();
         assertThat(textSpec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
@@ -710,7 +701,7 @@ class TestClaudeCliDriver
 
         AgentSession readOnlySession = driver.open(context(Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty(), SessionAccess.READ_ONLY), events::add);
         assertThat(await(readOnlySession.start(command("explain"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-        ProcessSpec readOnlySpec = supervisor.turns().getLast().spec();
+        ProcessSpec readOnlySpec = supervisor.turns.getLast().spec;
         // Attributable to its task, unlike a text-only probe, because it reaches a real worktree.
         assertThat(readOnlySpec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.DISCUSSION, "task-1"));
         assertThat(readOnlySpec.argv()).containsSequence("--tools", "Bash,Glob,Grep,Read");
@@ -727,8 +718,7 @@ class TestClaudeCliDriver
     @Test
     void probeKeepsRecoveryEvidenceWhenItsProcessTreeIsUnverifiable()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.leaveProbeTreeUnverifiable();
+        supervisor.probeTreeUnverifiable = true;
 
         AgentProviderStatus status = driver(supervisor).probe();
 
@@ -741,13 +731,13 @@ class TestClaudeCliDriver
     void distinguishesUnsupportedFromUnparseableVersions()
     {
         ScriptedProcessSupervisor unsupportedSupervisor = new ScriptedProcessSupervisor();
-        unsupportedSupervisor.versionOutput("1.0.0");
+        unsupportedSupervisor.versionOutput = "1.0.0";
         ClaudeCliDriver unsupportedDriver = driver(unsupportedSupervisor);
         assertThat(unsupportedDriver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.UNSUPPORTED);
         unsupportedDriver.close();
 
         ScriptedProcessSupervisor unparseableSupervisor = new ScriptedProcessSupervisor();
-        unparseableSupervisor.versionOutput("future-build");
+        unparseableSupervisor.versionOutput = "future-build";
         ClaudeCliDriver unparseableDriver = driver(unparseableSupervisor);
         assertThat(unparseableDriver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
         unparseableDriver.close();
@@ -766,15 +756,14 @@ class TestClaudeCliDriver
     @Test
     void rejectsClaudeWithoutAutoPermissionMode()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.helpOutput(supervisor.helpOutput().replace("\"auto\" ", ""));
+        supervisor.helpOutput = supervisor.helpOutput.replace("\"auto\" ", "");
         ClaudeCliDriver driver = driver(supervisor);
 
         AgentProviderStatus status = driver.probe();
 
         assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.UNSUPPORTED);
         assertThat(status.diagnostic()).contains("auto permission mode");
-        assertThat(supervisor.authenticationProbes()).isZero();
+        assertThat(supervisor.authenticationProbes).isZero();
         driver.close();
     }
 
@@ -786,7 +775,7 @@ class TestClaudeCliDriver
             supervisor.autoModeDefaults = defaults;
             try (ClaudeCliDriver driver = driver(supervisor)) {
                 assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.UNSUPPORTED);
-                assertThat(supervisor.authenticationProbes()).isZero();
+                assertThat(supervisor.authenticationProbes).isZero();
             }
         }
     }
@@ -794,11 +783,10 @@ class TestClaudeCliDriver
     @Test
     void acceptsLargeAutoModeDefaultsBeforeAuthentication()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         supervisor.autoModeDefaults = "{\"hard_deny\":[\"" + "policy ".repeat(16 * 1024) + "\"]}";
         try (ClaudeCliDriver driver = driver(supervisor)) {
             assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
-            assertThat(supervisor.authenticationProbes()).isOne();
+            assertThat(supervisor.authenticationProbes).isOne();
         }
     }
 
@@ -818,7 +806,7 @@ class TestClaudeCliDriver
                 AgentProviderStatus status = driver.probe();
                 assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
                 assertThat(status.diagnostic()).contains("auto-mode defaults output was truncated");
-                assertThat(supervisor.authenticationProbes()).isZero();
+                assertThat(supervisor.authenticationProbes).isZero();
             }
         }
     }
@@ -840,7 +828,7 @@ class TestClaudeCliDriver
                 else {
                     assertThat(status.diagnostic()).contains("auto-mode defaults failed", "Unable to load defaults: [REDACTED]").doesNotContain("known-secret");
                 }
-                assertThat(supervisor.authenticationProbes()).isZero();
+                assertThat(supervisor.authenticationProbes).isZero();
             }
         }
     }
@@ -849,19 +837,18 @@ class TestClaudeCliDriver
     void appliesDistinctPerTurnSnapshotsToNewAndResumedInvocations()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), AgentPermissionPolicy.AUTO, Optional.of("opus"), Optional.of("High"), SessionAccess.FULL), ignored -> {});
 
         await(session.start(new AgentTurnCommand("turn-first", "first", ImmutableList.of(), Duration.ofMinutes(1), Optional.of("sonnet"), Optional.of("Low"))));
         await(session.start(new AgentTurnCommand("turn-second", "second", ImmutableList.of(), Duration.ofMinutes(1), Optional.of("haiku"), Optional.of("Extra"))));
 
-        assertThat(supervisor.turns().getFirst().spec().argv())
+        assertThat(supervisor.turns.getFirst().spec.argv())
                 .containsSequence("--model", "sonnet")
                 .containsSequence("--effort", "low")
                 .contains("--session-id")
                 .doesNotContain("--resume");
-        assertThat(supervisor.turns().get(1).spec().argv())
+        assertThat(supervisor.turns.get(1).spec.argv())
                 .containsSequence("--model", "haiku")
                 .containsSequence("--effort", "xhigh")
                 .contains("--resume");
@@ -902,16 +889,14 @@ class TestClaudeCliDriver
     void redactsTheRuntimeTaskTokenFromTranscriptAndDiagnostics()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AgentSession session = driver.open(context(Optional.empty()), events::add);
         Path configFile = runtimeDirectory().resolve("provider/scratch/bytequay-mcp.json");
         String authorization = objectMapper.readTree(Files.readString(configFile))
                 .at("/mcpServers/bytequay/headers/Authorization")
                 .asText();
         String token = authorization.substring("Bearer ".length());
-        supervisor.runtimeSecret(token);
+        supervisor.runtimeSecret = token;
 
         AgentTurnResult completed = await(session.start(command("token")));
 
@@ -937,10 +922,9 @@ class TestClaudeCliDriver
     @Test
     void checksReadinessWithoutNetworkAccess()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         try (ClaudeCliDriver driver = driver(supervisor)) {
             assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
-            assertThat(supervisor.specs()).isNotEmpty().allSatisfy(spec -> assertThat(spec.argv())
+            assertThat(supervisor.specs).isNotEmpty().allSatisfy(spec -> assertThat(spec.argv())
                     .startsWith("/usr/bin/sandbox-exec", "-p", "(version 1) (allow default) (deny network*)", "/fake/claude"));
         }
     }
@@ -948,9 +932,8 @@ class TestClaudeCliDriver
     @Test
     void failedAccountCheckDoesNotTellTheUsageMeterToSignIn()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.versionOutput("2.1.294 (Claude Code)");
-        supervisor.authenticationTimeout();
+        supervisor.versionOutput = "2.1.294 (Claude Code)";
+        supervisor.authenticationTimeout = true;
         try (ClaudeCliDriver driver = driver(supervisor)) {
             assertThat(driver.quota().message()).contains("Claude account status is temporarily unavailable. Try again.");
         }
@@ -1007,7 +990,7 @@ class TestClaudeCliDriver
         nonzeroLoggedInDriver.close();
 
         ScriptedProcessSupervisor timedOut = new ScriptedProcessSupervisor();
-        timedOut.authenticationTimeout();
+        timedOut.authenticationTimeout = true;
         ClaudeCliDriver timedOutDriver = driver(timedOut);
         assertThat(timedOutDriver.probe().readiness())
                 .isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
@@ -1034,7 +1017,6 @@ class TestClaudeCliDriver
     {
         Path profile = worktree.resolve("ByteQuay's Claude home");
         String executable = worktree.resolve("Claude CLI's bin/claude").toString();
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         supervisor.authentication("{\"loggedIn\":false}", "", 1);
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         try (ClaudeCliDriver driver = new ClaudeCliDriver(executable, objectMapper, broker, supervisor, profile,
@@ -1043,12 +1025,12 @@ class TestClaudeCliDriver
             assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
             assertThat(status.signInCommand().orElseThrow()).isEqualTo("CLAUDE_CONFIG_DIR='" + profile.toString().replace("'", "'\"'\"'")
                     + "' '" + executable.replace("'", "'\"'\"'") + "' auth login");
-            assertThat(supervisor.specs()).isNotEmpty().allSatisfy(spec -> assertThat(spec.environment()).containsEntry("CLAUDE_CONFIG_DIR", profile.toString()));
+            assertThat(supervisor.specs).isNotEmpty().allSatisfy(spec -> assertThat(spec.environment()).containsEntry("CLAUDE_CONFIG_DIR", profile.toString()));
 
             try (AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
                 assertThat(await(session.start(command("profile-check"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
             }
-            assertThat(supervisor.turns().getFirst().spec().environment()).containsEntry("CLAUDE_CONFIG_DIR", profile.toString());
+            assertThat(supervisor.turns.getFirst().spec.environment()).containsEntry("CLAUDE_CONFIG_DIR", profile.toString());
         }
     }
 
@@ -1110,12 +1092,12 @@ class TestClaudeCliDriver
             }
             for (ScriptedProcessSupervisor supervisor : ImmutableList.of(workSupervisor, personalSupervisor)) {
                 Path expected = supervisor == workSupervisor ? workHome : personalHome;
-                assertThat(supervisor.specs()).isNotEmpty().allSatisfy(spec -> assertThat(spec.environment())
+                assertThat(supervisor.specs).isNotEmpty().allSatisfy(spec -> assertThat(spec.environment())
                         .containsEntry("CLAUDE_CONFIG_DIR", expected.toString())
                         .containsEntry("HOME", buildHome.toString())
                         .containsEntry("JAVA_HOME", System.getProperty("java.home"))
                         .doesNotContainKeys("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"));
-                assertThat(supervisor.specs()).filteredOn(spec -> spec.argv().contains("status"))
+                assertThat(supervisor.specs).filteredOn(spec -> spec.argv().contains("status"))
                         .allSatisfy(spec -> assertThat(spec.argv()).startsWith("/usr/bin/sandbox-exec", "-p", "(version 1) (allow default) (deny network*)"));
                 for (String content : supervisor.sandboxSettings) {
                     JsonNode settings = objectMapper.readTree(content);
@@ -1123,10 +1105,10 @@ class TestClaudeCliDriver
                             .contains(objectMapper.getNodeFactory().textNode(buildHome.toRealPath().resolve(".m2").toString()));
                 }
             }
-            assertThat(workSupervisor.turns()).allSatisfy(turn -> assertThat(turn.spec().workingDirectory()).isEqualTo(worktree.resolve("repository-a/task-worktree")));
-            assertThat(personalSupervisor.turns()).allSatisfy(turn -> assertThat(turn.spec().workingDirectory()).isEqualTo(worktree.resolve("repository-b/task-worktree")));
-            assertThat(workSupervisor.turns()).hasSize(2);
-            assertThat(personalSupervisor.turns()).hasSize(1);
+            assertThat(workSupervisor.turns).allSatisfy(turn -> assertThat(turn.spec.workingDirectory()).isEqualTo(worktree.resolve("repository-a/task-worktree")));
+            assertThat(personalSupervisor.turns).allSatisfy(turn -> assertThat(turn.spec.workingDirectory()).isEqualTo(worktree.resolve("repository-b/task-worktree")));
+            assertThat(workSupervisor.turns).hasSize(2);
+            assertThat(personalSupervisor.turns).hasSize(1);
         }
     }
 
@@ -1146,7 +1128,6 @@ class TestClaudeCliDriver
                 printf '%s' "$CLAUDE_CONFIG_DIR"
                 """);
         Files.setPosixFilePermissions(executable, PosixFilePermissions.fromString("rwx------"));
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         supervisor.authentication("{\"loggedIn\":false}", "", 1);
         Path profile = worktree.resolve("Work account's profile");
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
@@ -1166,9 +1147,7 @@ class TestClaudeCliDriver
     void classifiesMidTurnAuthenticationExpiryOnlyFromTypedFollowUpProbe()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
         supervisor.authentication("{\"loggedIn\":false}", "expired", 1);
         AgentSession session = driver.open(context(Optional.empty()), events::add);
@@ -1178,7 +1157,7 @@ class TestClaudeCliDriver
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
         assertThat(result.failureKind()).contains(AgentTurnFailureKind.AUTHENTICATION_REQUIRED);
         assertThat(result.terminalReason()).contains("Claude sign-in required");
-        assertThat(supervisor.authenticationProbes()).isEqualTo(2);
+        assertThat(supervisor.authenticationProbes).isEqualTo(2);
         assertThat(events).filteredOn(ProviderAgentEvent.Error.class::isInstance)
                 .map(ProviderAgentEvent.Error.class::cast)
                 .singleElement()
@@ -1194,13 +1173,12 @@ class TestClaudeCliDriver
     @CsvSource({"write, Unable to write Claude prompt", "close, Unable to close Claude prompt input"})
     void rejectsTurnWhenPromptInputFails(String operation, String message)
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         boolean closeInput = operation.equals("close");
         if (closeInput) {
-            supervisor.failNextPromptClose();
+            supervisor.failNextPromptClose = true;
         }
         else {
-            supervisor.failNextPromptWrite();
+            supervisor.failNextPromptWrite = true;
         }
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), ignored -> {});
@@ -1210,9 +1188,9 @@ class TestClaudeCliDriver
                 .hasMessageContaining(message)
                 .hasRootCauseMessage("simulated prompt " + operation + " failure");
 
-        assertThat(supervisor.turns()).singleElement().satisfies(turn -> {
-            assertThat(turn.cancelled()).isTrue();
-            assertThat(turn.inputClosed()).isEqualTo(closeInput);
+        assertThat(supervisor.turns).singleElement().satisfies(turn -> {
+            assertThat(turn.cancelled).isTrue();
+            assertThat(turn.inputClosed).isEqualTo(closeInput);
         });
         session.close();
         driver.close();
@@ -1222,15 +1200,14 @@ class TestClaudeCliDriver
     void steersClaudeAndWaitsForEveryInputBeforeClosingTheProcess()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.versionOutput("2.1.295 (Claude Code)");
+        supervisor.versionOutput = "2.1.295 (Claude Code)";
         try (ClaudeCliDriver driver = driver(supervisor);
                 AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
             assertThat(driver.probe().capabilities().steering()).isTrue();
             RunningTurn turn = session.start(command("Review the change"));
-            ScriptedTurn process = supervisor.turns().getFirst();
-            assertThat(process.spec().argv()).containsSequence("--input-format", "stream-json");
-            assertThat(process.inputClosed()).isFalse();
+            ScriptedTurn process = supervisor.turns.getFirst();
+            assertThat(process.spec.argv()).containsSequence("--input-format", "stream-json");
+            assertThat(process.inputClosed).isFalse();
 
             turn.steer(new AgentTurnInput("Docker started now\nCheck the container tests", ImmutableList.of()));
             assertThat(process.inputs).hasSize(2);
@@ -1242,13 +1219,13 @@ class TestClaudeCliDriver
 
             process.streamingResult("Original result");
             process.inputLifecycle(0, "completed");
-            assertThat(process.inputClosed()).isFalse();
+            assertThat(process.inputClosed).isFalse();
             assertThat(turn.completion().toCompletableFuture()).isNotDone();
 
             process.inputLifecycle(1, "started");
             process.streamingResult("Container tests checked");
             process.inputLifecycle(1, "completed");
-            assertThat(process.inputClosed()).isTrue();
+            assertThat(process.inputClosed).isTrue();
             assertThat(turn.completion().toCompletableFuture()).isNotDone();
             process.exit.complete(new ProcessExit(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ofMillis(10), false, false));
             assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
@@ -1256,7 +1233,7 @@ class TestClaudeCliDriver
                     .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("not accepting");
 
             RunningTurn next = session.start(command("Follow up"));
-            assertThat(supervisor.turns().getLast().spec().argv()).containsSequence("--resume", session.reference().providerValue());
+            assertThat(supervisor.turns.getLast().spec.argv()).containsSequence("--resume", session.reference().providerValue());
             next.cancel();
             assertThat(await(next).state()).isEqualTo(AgentTurnResult.State.CANCELLED);
         }
@@ -1267,13 +1244,12 @@ class TestClaudeCliDriver
     void waitsForTheMatchingClaudeInputReceiptAndHandlesExitWhileWaiting(boolean exitBeforeReceipt)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.versionOutput("2.1.295");
+        supervisor.versionOutput = "2.1.295";
         try (ClaudeCliDriver driver = driver(supervisor);
                 AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
             driver.probe();
             RunningTurn turn = session.start(command("Review"));
-            ScriptedTurn process = supervisor.turns().getFirst();
+            ScriptedTurn process = supervisor.turns.getFirst();
             process.acknowledgeInput = false;
             CompletableFuture<Void> delivery = CompletableFuture.runAsync(() -> turn.steer(new AgentTurnInput("Docker started", ImmutableList.of())));
             process.steeringInput.get(5, TimeUnit.SECONDS);
@@ -1281,7 +1257,7 @@ class TestClaudeCliDriver
             assertThat(delivery).isNotDone();
             process.streamingResult("Original result");
             process.inputLifecycle(0, "completed");
-            assertThat(process.inputClosed()).isFalse();
+            assertThat(process.inputClosed).isFalse();
             if (!exitBeforeReceipt) {
                 process.inputLifecycle(1, "queued");
                 delivery.get(5, TimeUnit.SECONDS);
@@ -1301,17 +1277,16 @@ class TestClaudeCliDriver
     void failsAnUncertainClaudeSteeringWriteWithoutHangingTheTurn()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.versionOutput("2.1.295");
+        supervisor.versionOutput = "2.1.295";
         try (ClaudeCliDriver driver = driver(supervisor);
                 AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
             driver.probe();
             RunningTurn turn = session.start(command("Review"));
-            ScriptedTurn process = supervisor.turns().getFirst();
+            ScriptedTurn process = supervisor.turns.getFirst();
             process.failSteerWrite = true;
             assertThatThrownBy(() -> turn.steer(new AgentTurnInput("Docker started", ImmutableList.of())))
                     .isInstanceOf(AgentDeliveryUncertainException.class);
-            assertThat(process.cancelled()).isTrue();
+            assertThat(process.cancelled).isTrue();
             assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
         }
     }
@@ -1319,11 +1294,10 @@ class TestClaudeCliDriver
     @Test
     void leavesSteeringUnavailableWithoutTheVerifiedClaudeProtocol()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         try (ClaudeCliDriver driver = driver(supervisor)) {
             assertThat(driver.probe().capabilities().steering()).isFalse();
-            supervisor.versionOutput("2.1.295");
-            supervisor.helpOutput(supervisor.helpOutput().replace("--input-format", ""));
+            supervisor.versionOutput = "2.1.295";
+            supervisor.helpOutput = supervisor.helpOutput.replace("--input-format", "");
             assertThat(driver.probe().capabilities().steering()).isFalse();
         }
     }
@@ -1332,16 +1306,15 @@ class TestClaudeCliDriver
     void stopsClaudeWhenItDiscardsAcceptedInput()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.versionOutput("2.1.295");
+        supervisor.versionOutput = "2.1.295";
         try (ClaudeCliDriver driver = driver(supervisor);
                 AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
             driver.probe();
             RunningTurn turn = session.start(command("Review"));
             turn.steer(new AgentTurnInput("Docker started", ImmutableList.of()));
-            ScriptedTurn process = supervisor.turns().getFirst();
+            ScriptedTurn process = supervisor.turns.getFirst();
             process.inputLifecycle(1, "cancelled");
-            assertThat(process.cancelled()).isTrue();
+            assertThat(process.cancelled).isTrue();
             assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
         }
     }
@@ -1350,17 +1323,16 @@ class TestClaudeCliDriver
     void stopsClaudeWhenStreamingInputCannotClose()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.versionOutput("2.1.295");
-        supervisor.failNextPromptClose();
+        supervisor.versionOutput = "2.1.295";
+        supervisor.failNextPromptClose = true;
         try (ClaudeCliDriver driver = driver(supervisor);
                 AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
             driver.probe();
             RunningTurn turn = session.start(command("Review"));
-            ScriptedTurn process = supervisor.turns().getFirst();
+            ScriptedTurn process = supervisor.turns.getFirst();
             process.streamingResult("Done");
             process.inputLifecycle(0, "completed");
-            assertThat(process.cancelled()).isTrue();
+            assertThat(process.cancelled).isTrue();
             assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
             assertThat(await(turn).terminalReason().orElseThrow()).contains("Unable to close Claude prompt input");
         }
@@ -1370,8 +1342,7 @@ class TestClaudeCliDriver
     void doesNotResumeClaudeBasedOnlyOnAQueuedInputReceipt()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.versionOutput("2.1.295");
+        supervisor.versionOutput = "2.1.295";
         try (ClaudeCliDriver driver = driver(supervisor);
                 AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
             driver.probe();
@@ -1379,7 +1350,7 @@ class TestClaudeCliDriver
             turn.cancel();
             await(turn);
             RunningTurn next = session.start(command("Try again"));
-            assertThat(supervisor.turns().getLast().spec().argv()).contains("--session-id").doesNotContain("--resume");
+            assertThat(supervisor.turns.getLast().spec.argv()).contains("--session-id").doesNotContain("--resume");
             next.cancel();
             await(next);
         }
@@ -1390,13 +1361,11 @@ class TestClaudeCliDriver
     void interruptsTurnWhenFinalUsageCannotPersist(boolean streaming)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         if (streaming) {
-            supervisor.versionOutput("2.1.295");
+            supervisor.versionOutput = "2.1.295";
         }
         ClaudeCliDriver driver = driver(supervisor);
         driver.probe();
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AtomicBoolean failUsage = new AtomicBoolean(true);
         AgentSession session = driver.open(context(Optional.empty()), event -> {
             if (event instanceof ProviderAgentEvent.Usage && failUsage.compareAndSet(true, false)) {
@@ -1407,7 +1376,7 @@ class TestClaudeCliDriver
 
         RunningTurn turn = session.start(command("usage-failure"));
         if (streaming) {
-            supervisor.turns().getFirst().streamingResult("Done");
+            supervisor.turns.getFirst().streamingResult("Done");
         }
         AgentTurnResult result = await(turn);
 
@@ -1424,7 +1393,6 @@ class TestClaudeCliDriver
     void refusesToCompleteATurnWhoseProcessTreeIsUnverifiable()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), event -> {});
         Path scratch = Files.createDirectories(worktree.resolve(".claude/.cc-writes"));
@@ -1441,7 +1409,7 @@ class TestClaudeCliDriver
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("process tree could not be verified stopped");
 
-        supervisor.turns().getFirst().verifyNextStop();
+        supervisor.turns.getFirst().verifyNextStop();
         session.close();
         driver.close();
     }
@@ -1450,7 +1418,6 @@ class TestClaudeCliDriver
     void issueContextToolIsAllowedAndInstructedOnOpenAndResumeWithoutRestrictingDelegation()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         IssueContextBridge issue = new IssueContextBridge(() -> "Accepted issue context", IssueContextBridge.INSTRUCTION);
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
                 .issueContexts(taskId -> Optional.of(issue)).build();
@@ -1460,7 +1427,7 @@ class TestClaudeCliDriver
             try (AgentSession session = driver.open(context(reference), event -> {})) {
                 assertThat(await(session.start(command("issue-info"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
                 reference = Optional.of(session.reference());
-                List<String> argv = supervisor.turns().getLast().spec().argv();
+                List<String> argv = supervisor.turns.getLast().spec.argv();
                 assertThat(argv).doesNotContain("--disable-slash-commands", "--tools");
                 assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains("mcp__bytequay__" + IssueContextBridge.TOOL_NAME);
                 assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1)).contains(IssueContextBridge.INSTRUCTION);
@@ -1473,7 +1440,6 @@ class TestClaudeCliDriver
     void pullRequestCiToolIsAllowedAndInstructedOnOpenAndResumeWithoutRestrictingDelegation()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty());
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
                 .pullRequestChecks(taskId -> Optional.of(ci)).build();
@@ -1483,7 +1449,7 @@ class TestClaudeCliDriver
             try (AgentSession session = driver.open(context(reference), event -> {})) {
                 assertThat(await(session.start(command("ci-info"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
                 reference = Optional.of(session.reference());
-                List<String> argv = supervisor.turns().getLast().spec().argv();
+                List<String> argv = supervisor.turns.getLast().spec.argv();
                 assertThat(argv).doesNotContain("--disable-slash-commands", "--tools");
                 assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains("mcp__bytequay__" + PullRequestCiBridge.TOOL_NAME);
                 assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1)).contains(PullRequestCiBridge.INSTRUCTION);
@@ -1496,7 +1462,6 @@ class TestClaudeCliDriver
     void privateLocalReviewToolsPreserveDevelopmentAndNativeDelegationOnResume(boolean apiKey)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         LocalReviewBridge local = new LocalReviewBridge((commentId, contextOffset) -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
                 .developments(taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())))
@@ -1511,8 +1476,8 @@ class TestClaudeCliDriver
         try (AgentSession session = driver.open(context(Optional.of(reference)), event -> {})) {
             await(session.start(command("local-review-again")));
         }
-        for (ScriptedTurn turn : supervisor.turns()) {
-            List<String> argv = turn.spec().argv();
+        for (ScriptedTurn turn : supervisor.turns) {
+            List<String> argv = turn.spec.argv();
             assertThat(argv).doesNotContain("--disable-slash-commands", "--tools");
             assertThat(argv.get(argv.indexOf("--allowedTools") + 1).split(",")).containsExactlyInAnyOrder(
                     "mcp__bytequay__" + LocalReviewBridge.LIST_TOOL,
@@ -1530,7 +1495,6 @@ class TestClaudeCliDriver
     void privateReviewPolicyNeedsNoReportingToolsOnInitialOrResumedSessions()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ReviewBridge review = new ReviewBridge(ImmutableList.of(), "Keep private experiments uncommitted");
         try (ClaudeCliDriver driver = driver(supervisor, taskId -> Optional.of(review))) {
             Optional<AgentSessionRef> reference = Optional.empty();
@@ -1539,7 +1503,7 @@ class TestClaudeCliDriver
                     await(session.start(command("private review")));
                     reference = Optional.of(session.reference());
                 }
-                List<String> argv = supervisor.turns().getLast().spec().argv();
+                List<String> argv = supervisor.turns.getLast().spec.argv();
                 assertThat(argv).contains("--disable-slash-commands");
                 assertThat(argv).containsSequence("--permission-mode", "auto");
                 assertThat(argv).containsSequence("--append-system-prompt", AgentCommandPolicy.reviewInstructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + "\n\n" + review.instruction());
@@ -1547,7 +1511,7 @@ class TestClaudeCliDriver
                 assertThat(argv.get(argv.indexOf("--tools") + 1).split(","))
                         .contains("Bash", "Read", "Edit", "Write")
                         .doesNotContain("Agent", "Task", "Skill", "Workflow");
-                assertThat(supervisor.turns().getLast().spec().environment()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN");
+                assertThat(supervisor.turns.getLast().spec.environment()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN");
             }
         }
     }
@@ -1556,7 +1520,6 @@ class TestClaudeCliDriver
     void restoresDevelopmentScopeOnAFormerlyRestrictedSession()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         AtomicReference<Optional<ReviewBridge>> review = new AtomicReference<>(Optional.of(new ReviewBridge(ImmutableList.of(), "Keep experiments uncommitted")));
         try (ClaudeCliDriver driver = driver(supervisor, taskId -> review.get())) {
             AgentSessionRef reference;
@@ -1569,7 +1532,7 @@ class TestClaudeCliDriver
                 assertThat(session.reference()).isEqualTo(reference);
                 await(session.start(command("Push the changes and update the PR description")));
             }
-            List<String> argv = supervisor.turns().getLast().spec().argv();
+            List<String> argv = supervisor.turns.getLast().spec.argv();
             assertThat(argv).doesNotContain("--disable-slash-commands", "--tools");
             assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1))
                     .contains(DEVELOPMENT_POLICY, "replaces earlier ByteQuay private-review restrictions")
@@ -1593,7 +1556,7 @@ class TestClaudeCliDriver
                 try (AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
                     await(session.start(command("review")));
                 }
-                List<String> argv = supervisor.turns().getLast().spec().argv();
+                List<String> argv = supervisor.turns.getLast().spec.argv();
                 String[] nativeTools = argv.get(argv.indexOf("--tools") + 1).split(",");
                 assertThat(nativeTools).doesNotContain("Task", "Skill", "Workflow", "SendMessage");
                 assertThat(ImmutableList.copyOf(nativeTools).contains("Agent")).isEqualTo(verified);
@@ -1625,7 +1588,6 @@ class TestClaudeCliDriver
     void restrictsNativeReviewToolsOnInitialAndResumedSessions()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ReviewBridge review = new ReviewBridge(ImmutableList.of(
                 new ReviewTool("review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> "{}"),
                 new ReviewTool("review_extra_evidence", "Read more evidence", ImmutableMap.of("type", "object"), arguments -> "{}")), "Review this PR");
@@ -1637,8 +1599,8 @@ class TestClaudeCliDriver
         AgentSession resumed = driver.open(context(Optional.of(reference), "Keep explanations concise"), event -> {});
         await(resumed.start(command("review-again")));
 
-        for (ScriptedTurn turn : supervisor.turns()) {
-            List<String> argv = turn.spec().argv();
+        for (ScriptedTurn turn : supervisor.turns) {
+            List<String> argv = turn.spec.argv();
             assertThat(argv).contains("--disable-slash-commands");
             assertThat(argv).containsSequence("--permission-mode", "auto");
             assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1)).contains(AgentCommandPolicy.reviewInstructions(),
@@ -1659,7 +1621,6 @@ class TestClaudeCliDriver
     void resolvesAnObservationGapAfterConfirmedClaudeWorkFinishes()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), event -> {});
 
@@ -1668,7 +1629,7 @@ class TestClaudeCliDriver
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         assertThat(result.finalResponse()).contains("authoritative [REDACTED]");
         assertThat(result.providerQuiescent()).isTrue();
-        assertThat(supervisor.turns().getFirst().workFinished).isTrue();
+        assertThat(supervisor.turns.getFirst().workFinished).isTrue();
         session.close();
         driver.close();
     }
@@ -1680,7 +1641,6 @@ class TestClaudeCliDriver
     void preservesClaudeResultWhenKnownProcessCleanupStillFails(String prompt, AgentTurnResult.State state, String finalResponse, String terminalReason)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), event -> {});
 
@@ -1690,9 +1650,9 @@ class TestClaudeCliDriver
         assertThat(result.finalResponse()).isEqualTo(Optional.ofNullable(finalResponse));
         assertThat(result.terminalReason()).isEqualTo(Optional.ofNullable(terminalReason));
         assertThat(result.providerQuiescent()).isFalse();
-        assertThat(supervisor.turns().getFirst().workFinished).isTrue();
+        assertThat(supervisor.turns.getFirst().workFinished).isTrue();
         assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);
-        supervisor.turns().getFirst().verifyNextStop();
+        supervisor.turns.getFirst().verifyNextStop();
         session.close();
         driver.close();
     }
@@ -1702,7 +1662,6 @@ class TestClaudeCliDriver
     void doesNotUseAFailedResultToHideUnfinishedOrUncertainWork(String prompt)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), event -> {});
 
@@ -1710,9 +1669,9 @@ class TestClaudeCliDriver
 
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
         assertThat(result.providerQuiescent()).isFalse();
-        assertThat(supervisor.turns().getFirst().workFinished).isFalse();
+        assertThat(supervisor.turns.getFirst().workFinished).isFalse();
         assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);
-        supervisor.turns().getFirst().verifyNextStop();
+        supervisor.turns.getFirst().verifyNextStop();
         session.close();
         driver.close();
     }
@@ -1721,20 +1680,19 @@ class TestClaudeCliDriver
     void retainsTheAnswerWhenTheAsynchronousCompletionReceiptFails()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), event -> {});
         RunningTurn running = session.start(command("finished-delayed"));
 
         assertThat(running.completion().toCompletableFuture()).isNotDone();
-        supervisor.turns().getFirst().finishedStop.completeExceptionally(new IllegalStateException("receipt write failed"));
+        supervisor.turns.getFirst().finishedStop.completeExceptionally(new IllegalStateException("receipt write failed"));
         AgentTurnResult result = await(running);
 
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         assertThat(result.finalResponse()).contains("authoritative [REDACTED]");
         assertThat(result.providerQuiescent()).isFalse();
         assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);
-        supervisor.turns().getFirst().verifyNextStop();
+        supervisor.turns.getFirst().verifyNextStop();
         session.close();
         driver.close();
     }
@@ -1743,7 +1701,6 @@ class TestClaudeCliDriver
     void doesNotUseAnIncompleteSubagentStreamAsCompletionProof()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         supervisor.versionOutput = "2.1.218 (Claude Code)";
         ClaudeCliDriver driver = driver(supervisor);
         assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.DEGRADED);
@@ -1753,8 +1710,8 @@ class TestClaudeCliDriver
         AgentTurnResult result = await(session.start(command("finished-gap")));
 
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
-        assertThat(supervisor.turns().getFirst().workFinished).isFalse();
-        supervisor.turns().getFirst().verifyNextStop();
+        assertThat(supervisor.turns.getFirst().workFinished).isFalse();
+        supervisor.turns.getFirst().verifyNextStop();
         session.close();
         driver.close();
     }
@@ -1763,7 +1720,6 @@ class TestClaudeCliDriver
     void doesNotRecordFinishedWorkWhileABackgroundTaskHasNoTerminalNotification()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), event -> {});
 
@@ -1771,8 +1727,8 @@ class TestClaudeCliDriver
 
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
         assertThat(result.providerQuiescent()).isFalse();
-        assertThat(supervisor.turns().getFirst().workFinished).isFalse();
-        supervisor.turns().getFirst().verifyNextStop();
+        assertThat(supervisor.turns.getFirst().workFinished).isFalse();
+        supervisor.turns.getFirst().verifyNextStop();
         session.close();
         driver.close();
     }
@@ -1781,7 +1737,6 @@ class TestClaudeCliDriver
     void closingASessionWaitsForItsLiveProcessTreeToStop()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), event -> {});
         RunningTurn running = session.start(command("cancel"));
@@ -1791,7 +1746,7 @@ class TestClaudeCliDriver
         AgentTurnResult result = await(running);
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.CANCELLED);
         assertThat(result.providerQuiescent()).isTrue();
-        assertThat(supervisor.turns()).singleElement().satisfies(turn -> assertThat(turn.cancelled()).isTrue());
+        assertThat(supervisor.turns).singleElement().satisfies(turn -> assertThat(turn.cancelled).isTrue());
         driver.close();
     }
 
@@ -1799,7 +1754,6 @@ class TestClaudeCliDriver
     void removesOnlyTheEmptyClaudeScratchAfterVerifiedProcessExit()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), event -> {});
         Path claudeDirectory = Files.createDirectories(worktree.resolve(".claude"));
@@ -1816,7 +1770,6 @@ class TestClaudeCliDriver
     void leavesClaudeFilesNonemptyDirectoriesAndSymlinksUntouched()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), event -> {});
         Path claudeDirectory = Files.createDirectories(worktree.resolve(".claude"));
@@ -1859,7 +1812,6 @@ class TestClaudeCliDriver
     void failsActionablyWhenEmptyClaudeScratchCannotBeRemoved()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), event -> {});
         Path claudeDirectory = Files.createDirectories(worktree.resolve(".claude"));
@@ -1887,7 +1839,6 @@ class TestClaudeCliDriver
     void approvalTimeoutStopsItsTurnWhileAnExplicitDenialAllowsContinuation(boolean timedOut)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         AgentSessionContext plain = context(Optional.empty());
@@ -1911,8 +1862,8 @@ class TestClaudeCliDriver
             assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
             assertThat(result.terminalReason()).contains("Claude approval timed out");
             assertThat(result.providerQuiescent()).isTrue();
-            assertThat(supervisor.turns().getFirst().cancelled()).isTrue();
-            assertThat(supervisor.turns().getFirst().workFinished).isFalse();
+            assertThat(supervisor.turns.getFirst().cancelled).isTrue();
+            assertThat(supervisor.turns.getFirst().workFinished).isFalse();
         }
         else {
             assertThat(turn.completion().toCompletableFuture()).isNotDone();
@@ -1922,7 +1873,7 @@ class TestClaudeCliDriver
         session.close();
         AgentSession resumed = driver.open(context(Optional.of(session.reference())), event -> {});
         assertThat(await(resumed.start(command("next"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-        assertThat(supervisor.turns().getLast().spec().argv()).containsSequence("--resume", session.reference().providerValue());
+        assertThat(supervisor.turns.getLast().spec.argv()).containsSequence("--resume", session.reference().providerValue());
         resumed.close();
     }
 
@@ -1930,7 +1881,6 @@ class TestClaudeCliDriver
     void anOldApprovalExpiryCannotCancelTheNextClaudeTurn()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
@@ -1967,15 +1917,14 @@ class TestClaudeCliDriver
     void unlimitedTurnsStillSupportCancellation(boolean streaming)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         if (streaming) {
-            supervisor.versionOutput("2.1.295");
+            supervisor.versionOutput = "2.1.295";
         }
         try (ClaudeCliDriver driver = driver(supervisor);
                 AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
             driver.probe();
             RunningTurn turn = session.start(new AgentTurnCommand("unlimited", "cancel", ImmutableList.of(), Duration.ZERO));
-            assertThat(supervisor.turns().getFirst().spec().maximumRuntime()).isEqualTo(Duration.ZERO);
+            assertThat(supervisor.turns.getFirst().spec.maximumRuntime()).isEqualTo(Duration.ZERO);
             assertThat(turn.completion().toCompletableFuture()).isNotDone();
             turn.cancel();
             AgentTurnResult result = await(turn);
@@ -1989,21 +1938,20 @@ class TestClaudeCliDriver
     void runtimeTimeoutReportsInterruptionWithoutFabricatingFinishedWork(boolean streaming)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         if (streaming) {
-            supervisor.versionOutput("2.1.295");
+            supervisor.versionOutput = "2.1.295";
         }
         try (ClaudeCliDriver driver = driver(supervisor);
                 AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
             assertThat(driver.probe().capabilities().steering()).isEqualTo(streaming);
             RunningTurn turn = session.start(command("cancel"));
-            supervisor.turns().getFirst().exit.complete(new ProcessExit(
+            supervisor.turns.getFirst().exit.complete(new ProcessExit(
                     143, ProcessExit.Reason.TIMED_OUT, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ofMinutes(1), false, false));
             AgentTurnResult result = await(turn);
             assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
             assertThat(result.terminalReason()).contains("Claude turn timed out");
             assertThat(result.providerQuiescent()).isTrue();
-            assertThat(supervisor.turns().getFirst().workFinished).isFalse();
+            assertThat(supervisor.turns.getFirst().workFinished).isFalse();
         }
     }
 
@@ -2180,11 +2128,6 @@ class TestClaudeCliDriver
             return new ScriptedLaunch(spec);
         }
 
-        private List<ProcessSpec> specs()
-        {
-            return specs;
-        }
-
         @Override
         public List<OwnedProcessRecovery> recoverOwnedProcesses()
         {
@@ -2265,31 +2208,6 @@ class TestClaudeCliDriver
             return turn;
         }
 
-        private List<ScriptedTurn> turns()
-        {
-            return turns;
-        }
-
-        private void versionOutput(String output)
-        {
-            versionOutput = output;
-        }
-
-        private void leaveProbeTreeUnverifiable()
-        {
-            probeTreeUnverifiable = true;
-        }
-
-        private String helpOutput()
-        {
-            return helpOutput;
-        }
-
-        private void helpOutput(String output)
-        {
-            helpOutput = output;
-        }
-
         private void authentication(String stdout, String stderr, int exitCode)
         {
             authenticationStdout = stdout;
@@ -2298,11 +2216,6 @@ class TestClaudeCliDriver
             authenticationTimeout = false;
             authenticationHostWaitTimeout = false;
             authenticationTruncated = false;
-        }
-
-        private void authenticationTimeout()
-        {
-            authenticationTimeout = true;
         }
 
         private void authenticationHostWaitTimeout()
@@ -2321,25 +2234,6 @@ class TestClaudeCliDriver
             authenticationTruncated = true;
         }
 
-        private int authenticationProbes()
-        {
-            return authenticationProbes;
-        }
-
-        private void runtimeSecret(String secret)
-        {
-            runtimeSecret = secret;
-        }
-
-        private void failNextPromptWrite()
-        {
-            failNextPromptWrite = true;
-        }
-
-        private void failNextPromptClose()
-        {
-            failNextPromptClose = true;
-        }
     }
 
     private static final class ScriptedTurn
@@ -2376,26 +2270,6 @@ class TestClaudeCliDriver
             this.failPromptWrite = failPromptWrite;
             this.failPromptClose = failPromptClose;
             this.runtimeSecret = runtimeSecret;
-        }
-
-        private ProcessSpec spec()
-        {
-            return spec;
-        }
-
-        private String prompt()
-        {
-            return prompt;
-        }
-
-        private boolean cancelled()
-        {
-            return cancelled;
-        }
-
-        private boolean inputClosed()
-        {
-            return inputClosed;
         }
 
         private void verifyNextStop()

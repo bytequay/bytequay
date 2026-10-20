@@ -115,6 +115,8 @@ import java.util.stream.IntStream;
 
 import static com.bytequay.app.review.ReviewTestData.discoveryCandidate;
 import static com.bytequay.app.review.ReviewTestData.perspectives;
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
+import static com.bytequay.app.review.ReviewTestData.withSource;
 import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
 import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -184,7 +186,7 @@ class TestReviewTools
     void setUp()
     {
         store = new InMemoryReviewStore();
-        store.insertReview(review(AgentReview.State.OPEN));
+        store.insertReview(pullRequestReview(REVIEW_ID, WORKSPACE_ID, REPO, 42, TASK_ID, NOW));
         store.insertRun(run());
 
         pullRequests = mock(PullRequestService.class);
@@ -227,24 +229,7 @@ class TestReviewTools
     {
         String source = TaskId.random().toString();
         AgentReview original = store.findReview(REVIEW_ID).orElseThrow();
-        store.updateReview(new AgentReview(
-                original.id(),
-                original.workspaceId(),
-                original.repo(),
-                OptionalInt.empty(),
-                OptionalLong.empty(),
-                original.taskId(),
-                Optional.of(source),
-                original.state(),
-                original.followUpPaused(),
-                original.latestCompletedRunId(),
-                original.observedHeadSha(),
-                original.worktreeHeadSha(),
-                original.version(),
-                original.createdAt(),
-                original.updatedAt(),
-                original.closedAt(),
-                Optional.empty()));
+        store.updateReview(withSource(original, OptionalInt.empty(), OptionalLong.empty(), Optional.of(source), Optional.empty()));
         String request = "initial request " + "long reference ".repeat(2000) + "request end";
         when(events.readAfter(TaskId.valueOf(source), 0, 100)).thenReturn(ImmutableList.of(new AgentEventEnvelope(
                 AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, TaskId.valueOf(source), Optional.empty(), AgentEventSource.root(), NOW,
@@ -278,24 +263,7 @@ class TestReviewTools
     void localReviewReadsFrozenScopeAndDiffWithoutAPullRequest()
     {
         AgentReview original = store.findReview(REVIEW_ID).orElseThrow();
-        store.updateReview(new AgentReview(
-                original.id(),
-                original.workspaceId(),
-                original.repo(),
-                OptionalInt.empty(),
-                OptionalLong.empty(),
-                original.taskId(),
-                Optional.of("development-task"),
-                original.state(),
-                original.followUpPaused(),
-                original.latestCompletedRunId(),
-                original.observedHeadSha(),
-                original.worktreeHeadSha(),
-                original.version(),
-                original.createdAt(),
-                original.updatedAt(),
-                original.closedAt(),
-                Optional.empty()));
+        store.updateReview(withSource(original, OptionalInt.empty(), OptionalLong.empty(), Optional.of("development-task"), Optional.empty()));
 
         JsonNode scope = call("review_get_context", ImmutableMap.of("kind", "scope"));
         assertThat(scope.path("headSha").asText()).isEqualTo(store.listRuns(REVIEW_ID).getFirst().headSha());
@@ -314,7 +282,7 @@ class TestReviewTools
         assertThat(tools.bridge(TASK_ID)).isPresent();
         assertThat(tools.bridge("task-of-some-other-work")).isEmpty();
 
-        store.updateReview(review(AgentReview.State.OPEN).closed(NOW));
+        store.updateReview(pullRequestReview(REVIEW_ID, WORKSPACE_ID, REPO, 42, TASK_ID, NOW).closed(NOW));
 
         assertThat(tools.bridge(TASK_ID)).isEmpty();
     }
@@ -1120,9 +1088,7 @@ class TestReviewTools
     void replaysReadNoCurrentGitHubDataAndCiteOnlyMemoryTheyCouldHaveKnown()
     {
         AgentReview original = store.findReview(REVIEW_ID).orElseThrow();
-        store.updateReview(new AgentReview(original.id(), original.workspaceId(), original.repo(), OptionalInt.empty(), OptionalLong.empty(), original.taskId(),
-                Optional.empty(), original.state(), original.followUpPaused(), original.latestCompletedRunId(), original.observedHeadSha(), original.worktreeHeadSha(),
-                original.version(), original.createdAt(), original.updatedAt(), original.closedAt(),
+        store.updateReview(withSource(original, OptionalInt.empty(), OptionalLong.empty(), Optional.empty(),
                 Optional.of(new AgentReview.Replay("replay-1", 31188, true, MemoryFixtures.NOW.plusSeconds(3600)))));
         for (String kind : ImmutableList.of("pr", "timeline", "thread", "checks", "issue", "history")) {
             assertThat(call("review_get_context", ImmutableMap.of("kind", kind, "number", 31188)).at("/error/message").asText())
@@ -3190,28 +3156,6 @@ class TestReviewTools
                 "expectedRevision", expectedRevision,
                 "evidenceRefs", ImmutableList.of("E1"),
                 "explanation", "the concern no longer holds");
-    }
-
-    private static AgentReview review(AgentReview.State state)
-    {
-        return new AgentReview(
-                REVIEW_ID,
-                WORKSPACE_ID,
-                REPO,
-                OptionalInt.of(42),
-                OptionalLong.empty(),
-                TASK_ID,
-                Optional.empty(),
-                state,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty());
     }
 
     private static ReviewRun run()

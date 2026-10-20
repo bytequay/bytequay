@@ -38,7 +38,6 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
 import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.git.GitTestSupport;
 import com.bytequay.app.git.RebaseSequencerDriver;
 import com.bytequay.app.git.SequenceState;
 import com.bytequay.core.ci.CiAutofixConflictException;
@@ -77,7 +76,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.app.git.GitTestSupport.commit;
+import static com.bytequay.app.git.GitTestSupport.commitFile;
 import static com.bytequay.app.git.GitTestSupport.git;
+import static com.bytequay.app.git.GitTestSupport.head;
+import static com.bytequay.app.git.GitTestSupport.initRepository;
+import static com.bytequay.app.git.GitTestSupport.write;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -111,11 +115,8 @@ class TestBranchRebaseService
     {
         taskId = TaskId.random();
         Path created = Files.createDirectories(temporaryDirectory.resolve(taskId.toString()));
-        git(temporaryDirectory, "init", "--quiet", "-b", "main", created.toString());
-        git(created, "config", "user.name", "ByteQuay Test");
-        git(created, "config", "user.email", "bytequay@example.com");
+        repository = initRepository(created);
         git(created, "remote", "add", "origin", "https://github.com/trinodb/trino.git");
-        repository = created.toRealPath();
         taskWorktree = new TaskWorktree(taskId, "workspace-1", REPOSITORY_ID, repository, workBranch(), "a".repeat(40));
         store = new InMemoryStore();
         turns = new FakeTurns();
@@ -164,7 +165,7 @@ class TestBranchRebaseService
         assertThatThrownBy(() -> service.advance(started.id())).isInstanceOf(CiAutofixConflictException.class);
         assertThatThrownBy(() -> service.sendMessage(started.id(), "Resume")).isInstanceOf(CiAutofixConflictException.class);
         assertThatThrownBy(() -> service.cancel(started.id())).isInstanceOf(CiAutofixConflictException.class);
-        assertThat(head()).isEqualTo(tips.original());
+        assertThat(head(repository)).isEqualTo(tips.original());
         assertThat(driver.observe(repository).kind()).isEqualTo(SequenceState.Kind.COMPLETED);
     }
 
@@ -180,7 +181,7 @@ class TestBranchRebaseService
         assertThat(result.status()).isEqualTo(Status.FINISHED);
         assertThat(result.finishReason()).contains(FinishReason.COMPLETED);
         assertThat(result.resultWorkTip()).contains(original);
-        assertThat(head()).isEqualTo(original);
+        assertThat(head(repository)).isEqualTo(original);
     }
 
     @Test
@@ -191,7 +192,7 @@ class TestBranchRebaseService
 
         assertThat(driver.begin(repository, tips.original(), tips.base()).kind())
                 .isEqualTo(com.bytequay.app.git.SequenceState.Kind.COMPLETED);
-        String rebased = head();
+        String rebased = head(repository);
         BranchRebase recovered = service.advance(started.id());
 
         assertThat(recovered.status()).isEqualTo(Status.FINISHED);
@@ -211,7 +212,7 @@ class TestBranchRebaseService
 
         rebase = service.advance(rebase.id());
         assertThat(rebase.currentTurnId()).isPresent();
-        write("file.txt", "resolved\n");
+        write(repository, "file.txt", "resolved\n");
         git(repository, "add", "file.txt");
         turns.completeCurrent();
 
@@ -221,7 +222,7 @@ class TestBranchRebaseService
         rebase = service.advance(rebase.id());
 
         assertThat(rebase.status()).isEqualTo(Status.FINISHED);
-        assertThat(git(repository, "merge-base", "--is-ancestor", conflict.base(), head())).isEmpty();
+        assertThat(git(repository, "merge-base", "--is-ancestor", conflict.base(), head(repository))).isEmpty();
         assertThat(Files.readString(repository.resolve("file.txt"))).isEqualTo("resolved\n");
     }
 
@@ -232,7 +233,7 @@ class TestBranchRebaseService
         BranchRebase rebase = service.start(command("empty"));
         rebase = service.advance(rebase.id());
         rebase = service.advance(rebase.id());
-        write("file.txt", "main\n");
+        write(repository, "file.txt", "main\n");
         git(repository, "add", "file.txt");
         turns.completeCurrent();
 
@@ -252,7 +253,7 @@ class TestBranchRebaseService
         BranchRebase rebase = service.start(command("recover-continue"));
         rebase = service.advance(rebase.id());
         rebase = service.advance(rebase.id());
-        write("file.txt", "resolved\n");
+        write(repository, "file.txt", "resolved\n");
         git(repository, "add", "file.txt");
         turns.completeCurrent();
         rebase = service.advance(rebase.id());
@@ -273,7 +274,7 @@ class TestBranchRebaseService
         BranchRebase rebase = service.start(command("recover-skip"));
         rebase = service.advance(rebase.id());
         rebase = service.advance(rebase.id());
-        write("file.txt", "main\n");
+        write(repository, "file.txt", "main\n");
         git(repository, "add", "file.txt");
         turns.completeCurrent();
         rebase = service.advance(rebase.id());
@@ -294,7 +295,7 @@ class TestBranchRebaseService
         BranchRebase rebase = service.start(command("agent-continued"));
         rebase = service.advance(rebase.id());
         rebase = service.advance(rebase.id());
-        write("file.txt", "resolved\n");
+        write(repository, "file.txt", "resolved\n");
         git(repository, "add", "file.txt");
         git(repository, "-c", "core.editor=true", "rebase", "--continue");
         turns.completeCurrent();
@@ -334,7 +335,7 @@ class TestBranchRebaseService
 
         assertThat(cancelled.status()).isEqualTo(Status.FINISHED);
         assertThat(cancelled.finishReason()).contains(FinishReason.CANCELLED);
-        assertThat(head()).isEqualTo(conflict.original());
+        assertThat(head(repository)).isEqualTo(conflict.original());
     }
 
     @Test
@@ -346,7 +347,7 @@ class TestBranchRebaseService
         BranchRebase.ActionJournal abort = new BranchRebase.ActionJournal(
                 BranchRebase.ActionType.ABORT,
                 rebase.conflictCommitSha(),
-                head(),
+                head(repository),
                 rebase.attemptCount(),
                 rebase.id() + ":abort",
                 NOW);
@@ -357,7 +358,7 @@ class TestBranchRebaseService
 
         assertThat(recovered.status()).isEqualTo(Status.FINISHED);
         assertThat(recovered.finishReason()).contains(FinishReason.CANCELLED);
-        assertThat(head()).isEqualTo(conflict.original());
+        assertThat(head(repository)).isEqualTo(conflict.original());
     }
 
     @Test
@@ -373,7 +374,7 @@ class TestBranchRebaseService
 
         assertThat(paused.status()).isEqualTo(Status.PAUSED);
         assertThat(paused.pauseReason()).contains(PauseReason.UNSAFE_GIT_STATE);
-        assertThat(head()).isNotEqualTo(conflict.original());
+        assertThat(head(repository)).isNotEqualTo(conflict.original());
     }
 
     @Test
@@ -391,7 +392,7 @@ class TestBranchRebaseService
         BranchRebase cancelled = service.advance(rebase.id());
         assertThat(cancelled.status()).isEqualTo(Status.FINISHED);
         assertThat(cancelled.finishReason()).contains(FinishReason.CANCELLED);
-        assertThat(head()).isEqualTo(conflict.original());
+        assertThat(head(repository)).isEqualTo(conflict.original());
     }
 
     @Test
@@ -450,7 +451,7 @@ class TestBranchRebaseService
 
         assertThat(rebase.status()).isEqualTo(Status.FINISHED);
         assertThat(rebase.resultWorkTip()).contains(base);
-        assertThat(head()).isEqualTo(base).isNotEqualTo(original);
+        assertThat(head(repository)).isEqualTo(base).isNotEqualTo(original);
     }
 
     @Test
@@ -474,7 +475,7 @@ class TestBranchRebaseService
     {
         seed();
         git(repository, "checkout", "--quiet", "-b", workBranch());
-        write("dirty.txt", "not committed\n");
+        write(repository, "dirty.txt", "not committed\n");
         assertThatThrownBy(() -> service.start(command("dirty")))
                 .isInstanceOf(BranchRebaseException.class)
                 .hasMessageContaining("dirty");
@@ -533,17 +534,13 @@ class TestBranchRebaseService
 
     private Conflict conflict()
     {
-        write("file.txt", "seed\n");
-        commit("Base");
+        write(repository, "file.txt", "seed\n");
+        commit(repository, "Base");
         git(repository, "checkout", "--quiet", "-b", workBranch());
-        write("file.txt", "feature\n");
-        commit("Feature conflict");
-        String source = head();
+        String source = commitFile(repository, "file.txt", "feature\n", "Feature conflict");
         String original = source;
         git(repository, "checkout", "--quiet", "main");
-        write("file.txt", "main\n");
-        commit("Main conflict");
-        String base = head();
+        String base = commitFile(repository, "file.txt", "main\n", "Main conflict");
         git(repository, "checkout", "--quiet", workBranch());
         return new Conflict(original, base, source);
     }
@@ -555,30 +552,13 @@ class TestBranchRebaseService
 
     private void seed()
     {
-        write("seed.txt", "seed\n");
-        commit("Base");
+        write(repository, "seed.txt", "seed\n");
+        commit(repository, "Base");
     }
 
     private String change(String path, String content, String message)
     {
-        write(path, content);
-        commit(message);
-        return head();
-    }
-
-    private void write(String path, String content)
-    {
-        GitTestSupport.write(repository, path, content);
-    }
-
-    private void commit(String message)
-    {
-        GitTestSupport.commit(repository, message);
-    }
-
-    private String head()
-    {
-        return GitTestSupport.head(repository);
+        return commitFile(repository, path, content, message);
     }
 
     private WorktreeSnapshot worktreeSnapshot()
@@ -588,7 +568,7 @@ class TestBranchRebaseService
             throw new BranchRebaseException("Worktree is not on the generated task branch");
         }
         String status = git(repository, "status", "--porcelain=v1", "--untracked-files=all");
-        return new WorktreeSnapshot(taskWorktree, head(), !status.isBlank(), false, !status.isBlank());
+        return new WorktreeSnapshot(taskWorktree, head(repository), !status.isBlank(), false, !status.isBlank());
     }
 
     private String workBranch()

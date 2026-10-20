@@ -104,6 +104,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
+import static com.bytequay.app.review.ReviewTestData.openReview;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -862,24 +863,7 @@ class TestTaskDiscussionAnswers
                 REVIEW,
                 KEY,
                 "")).isInstanceOf(AgentConflictException.class).hasMessage("A replay reviews past code, so it has no private threads");
-        when(reviews.findReview(REVIEW)).thenReturn(Optional.of(new AgentReview(
-                REVIEW,
-                "w1",
-                REPO,
-                OptionalInt.empty(),
-                OptionalLong.empty(),
-                REVIEW_TASK.toString(),
-                Optional.of("development-task"),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty())));
+        when(reviews.findReview(REVIEW)).thenReturn(Optional.of(openReview(REVIEW, "w1", REPO, OptionalInt.empty(), REVIEW_TASK.toString(), Optional.of("development-task"), NOW)));
         assertThatThrownBy(() -> service.askReviewComment(REVIEW, KEY, "")).isInstanceOf(AgentConflictException.class).hasMessage("This review has no pull request");
         assertThatThrownBy(() -> service.listReviewThreads("missing")).isInstanceOf(ReviewNotFoundException.class);
     }
@@ -947,24 +931,7 @@ class TestTaskDiscussionAnswers
     @Test
     void localAndReplayReviewsCanDiscussTheirOwnAnswersAndRetryFailures()
     {
-        hostReview(new AgentReview(
-                REVIEW,
-                "w1",
-                REPO,
-                OptionalInt.empty(),
-                OptionalLong.empty(),
-                REVIEW_TASK.toString(),
-                Optional.of(TASK.toString()),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty()));
+        hostReview(openReview(REVIEW, "w1", REPO, OptionalInt.empty(), REVIEW_TASK.toString(), Optional.of(TASK.toString()), NOW));
         TurnId turn = TurnId.random();
         events.add(new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, REVIEW_TASK, Optional.of(turn),
                 AgentEventSource.root(), NOW, new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "Cancellation releases the writer.")));

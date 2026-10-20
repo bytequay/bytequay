@@ -14,13 +14,10 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.UserRepo;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
@@ -37,21 +34,13 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubAccountClientForks
+        extends AbstractGitHubClientTest
 {
     private static final UserRepo UPSTREAM = new UserRepo(
             40, "canonical", "project", "canonical/project", Optional.empty(), false, "public", false,
             "main", "https://github.com/canonical/project.git", Optional.empty());
 
-    private MockRestServiceServer server;
-    private GitHubAccountClient client;
-
-    @BeforeEach
-    void setUp()
-    {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        server = MockRestServiceServer.bindTo(builder).build();
-        client = new GitHubAccountClient(builder.build(), RestClient.create());
-    }
+    private final GitHubAccountClient client = new GitHubAccountClient(restClient, graphQlClient);
 
     @Test
     void findsRenamedNestedForkBySourceIdentity()
@@ -69,7 +58,6 @@ class TestGitHubAccountClientForks
         assertThat(fork.id()).isEqualTo(42);
         assertThat(fork.fullName()).isEqualTo("contributor/renamed-project");
         assertThat(fork.upstream()).hasValueSatisfying(source -> assertThat(source.id()).isEqualTo(40));
-        server.verify();
     }
 
     @Test
@@ -86,7 +74,6 @@ class TestGitHubAccountClientForks
                 .andRespond(withSuccess(forkJson(42, "renamed-project", 40), MediaType.APPLICATION_JSON));
 
         assertThat(client.findOwnedFork("pat", UPSTREAM, "contributor")).hasValueSatisfying(fork -> assertThat(fork.id()).isEqualTo(42));
-        server.verify();
     }
 
     @Test
@@ -105,7 +92,6 @@ class TestGitHubAccountClientForks
 
         assertThat(fork.id()).isEqualTo(42);
         assertThat(fork.viewerCanPush()).isFalse();
-        server.verify();
     }
 
     @Test
@@ -114,7 +100,6 @@ class TestGitHubAccountClientForks
         expectOwnedRepos(1, "[]");
 
         assertThat(client.findOwnedFork("pat", UPSTREAM, "contributor")).isEmpty();
-        server.verify();
     }
 
     @Test
@@ -127,7 +112,6 @@ class TestGitHubAccountClientForks
         assertThatThrownBy(() -> client.findOwnedFork("pat", UPSTREAM, "contributor"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Fork access denied");
-        server.verify();
     }
 
     @Test
@@ -148,7 +132,6 @@ class TestGitHubAccountClientForks
         assertThatThrownBy(() -> client.findOwnedFork("pat", UPSTREAM, "contributor"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("did not identify the source");
-        server.verify();
     }
 
     @Test
@@ -166,7 +149,6 @@ class TestGitHubAccountClientForks
         assertThat(fork.owner()).isEqualTo("contributor");
         assertThat(fork.cloneUrl()).isEqualTo("https://github.com/contributor/project.git");
         assertThat(fork.viewerCanPush()).isTrue();
-        server.verify();
     }
 
     @Test
@@ -179,7 +161,6 @@ class TestGitHubAccountClientForks
         assertThatThrownBy(() -> client.createFork("pat", UPSTREAM))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("did not return a fork of the selected upstream");
-        server.verify();
     }
 
     private void expectOwnedRepos(int page, String body)

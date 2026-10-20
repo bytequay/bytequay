@@ -32,6 +32,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
+import static com.bytequay.app.review.ReviewTestData.openReview;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -119,23 +120,6 @@ class TestReviewTaskObserver
 
     private static AgentReview review(String id, int number, Optional<String> sourceTaskId)
     {
-        return new AgentReview(
-                id,
-                "workspace-1",
-                "acme/widgets",
-                OptionalInt.of(number),
-                OptionalLong.empty(),
-                TaskId.random().toString(),
-                sourceTaskId,
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                Instant.EPOCH,
-                Instant.EPOCH,
-                Optional.empty(),
-                Optional.empty());
+        return openReview(id, "workspace-1", "acme/widgets", OptionalInt.of(number), TaskId.random().toString(), sourceTaskId, Instant.EPOCH);
     }
 }

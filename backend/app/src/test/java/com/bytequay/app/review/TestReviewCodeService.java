@@ -76,13 +76,13 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
 import static com.bytequay.app.git.GitTestSupport.git;
 import static com.bytequay.app.git.GitTestSupport.write;
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -1163,24 +1163,8 @@ class TestReviewCodeService
 
     private AgentReview review(AgentReview.State state)
     {
-        return new AgentReview(
-                REVIEW_ID,
-                WORKSPACE_ID,
-                REPOSITORY.fullName(),
-                OptionalInt.of(7),
-                OptionalLong.empty(),
-                worktree.taskId().toString(),
-                Optional.empty(),
-                state,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW,
-                state == AgentReview.State.CLOSED ? Optional.of(NOW) : Optional.empty(),
-                Optional.empty());
+        AgentReview review = pullRequestReview(REVIEW_ID, WORKSPACE_ID, REPOSITORY.fullName(), 7, worktree.taskId().toString(), NOW);
+        return state == AgentReview.State.CLOSED ? review.closed(NOW).withFollowUpPaused(false, NOW) : review;
     }
 
     private static ReviewRun run(String headSha)

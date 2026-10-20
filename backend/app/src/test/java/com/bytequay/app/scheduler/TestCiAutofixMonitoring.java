@@ -61,12 +61,13 @@ class TestCiAutofixMonitoring
     private static final Instant MONITOR_NOW = Instant.parse("2026-09-01T00:00:00Z");
     private static final Clock CLOCK = Clock.fixed(MONITOR_NOW, ZoneOffset.UTC);
 
+    private final AgentTaskStore taskStore = mock(AgentTaskStore.class);
+    private final CiAutofixService service = mock(CiAutofixService.class);
+    private final CiAutofixStore store = mock(CiAutofixStore.class);
+
     @Test
     void advancesABoundedBatchAndContinuesAfterOneRunFails()
     {
-        CiAutofixStore store = mock(CiAutofixStore.class);
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
-        CiAutofixService service = mock(CiAutofixService.class);
         CiAutofixRun first = run();
         CiAutofixRun second = run();
         when(store.listNonFinished(20)).thenReturn(ImmutableList.of(first, second));
@@ -82,9 +83,6 @@ class TestCiAutofixMonitoring
     @CsvSource({"2026-08-18T00:00:00Z, 1", "2026-09-01T00:00:00Z, 0"})
     void retriesTaskCompletionAfterBackoff(String updatedAt, int expectedAdvances)
     {
-        CiAutofixStore store = mock(CiAutofixStore.class);
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
-        CiAutofixService service = mock(CiAutofixService.class);
         TaskId taskId = TaskId.random();
         CiAutofixRun finished = run()
                 .assignAgentTask(taskId.toString(), Instant.parse("2026-08-18T00:00:01Z"))
@@ -111,9 +109,6 @@ class TestCiAutofixMonitoring
     @Test
     void retriesWorktreeCleanupForFinishedRunsWithTerminalTasks()
     {
-        CiAutofixStore store = mock(CiAutofixStore.class);
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
-        CiAutofixService service = mock(CiAutofixService.class);
         TaskId unfinishedTaskId = TaskId.random();
         TaskId taskId = TaskId.random();
         CiAutofixRun finished = run()
@@ -157,10 +152,6 @@ class TestCiAutofixMonitoring
     @Test
     void doesNotAdvanceWhileAgentRecoveryIsIncomplete()
     {
-        CiAutofixStore store = mock(CiAutofixStore.class);
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
-        CiAutofixService service = mock(CiAutofixService.class);
-
         monitor(store, taskStore, service, new AgentServingGate(), CLOCK).monitorCiAutofix();
 
         verifyNoInteractions(store, taskStore, service);
@@ -169,9 +160,6 @@ class TestCiAutofixMonitoring
     @Test
     void excludesDevelopmentOwnedCiRunsFromBothCleanupPasses()
     {
-        CiAutofixStore store = mock(CiAutofixStore.class);
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
-        CiAutofixService service = mock(CiAutofixService.class);
         AgentTask task = liveTask();
         CiAutofixRun finished = run(Optional.of("parent-task"))
                 .assignAgentTask(task.id().toString(), MONITOR_NOW.minusSeconds(90))
@@ -189,9 +177,6 @@ class TestCiAutofixMonitoring
     @Test
     void selectsEachCleanupPassAfterAdvancingThePreviousPassEvenWhenCleanupFails()
     {
-        CiAutofixStore store = mock(CiAutofixStore.class);
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
-        CiAutofixService service = mock(CiAutofixService.class);
         CiAutofixRun running = run();
         AgentTask task = liveTask();
         CiAutofixRun finished = run().assignAgentTask(task.id().toString(), MONITOR_NOW.minusSeconds(90))

@@ -32,10 +32,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.OptionalInt;
-import java.util.OptionalLong;
 
 import static com.bytequay.agent.spi.AgentPermissionPolicy.AUTO;
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static com.bytequay.app.service.settings.AgentSkillScope.DEVELOPMENT;
 import static com.bytequay.app.service.settings.AgentSkillScope.GLOBAL;
 import static com.bytequay.app.service.settings.AgentSkillScope.REVIEW;
@@ -317,23 +316,6 @@ class TestAgentSkillService
 
     private static AgentReview review(AgentTask task)
     {
-        return new AgentReview(
-                "review-" + task.id(),
-                "workspace",
-                "owner/repository",
-                OptionalInt.of(1),
-                OptionalLong.empty(),
-                task.id().toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                Instant.EPOCH,
-                Instant.EPOCH,
-                Optional.empty(),
-                Optional.empty());
+        return pullRequestReview("review-" + task.id(), "workspace", "owner/repository", 1, task.id().toString(), Instant.EPOCH);
     }
 }

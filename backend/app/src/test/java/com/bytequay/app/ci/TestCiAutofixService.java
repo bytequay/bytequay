@@ -280,27 +280,7 @@ class TestCiAutofixService
         runtimes = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true);
         ownership = new DevelopmentCiOwnership(store, taskStore, turnStore, mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
                 eventService, runtimes);
-        service = new CiAutofixService(
-                store,
-                gitHub,
-                writes,
-                pullRequestReads,
-                taskService,
-                turnService,
-                completionService,
-                drivers,
-                worktreeService,
-                workspaces,
-                provisioning,
-                logReader,
-                memoryService,
-                gitService,
-                rebaseService,
-                timelineService,
-                credentials,
-                Clock.fixed(NOW, ZoneOffset.UTC),
-                ownership,
-                recovery);
+        service = service(store, Clock.fixed(NOW, ZoneOffset.UTC), ownership);
     }
 
     @Test
@@ -383,12 +363,7 @@ class TestCiAutofixService
     @Test
     void waitsForTheOwnedRebaseBeforeStartingTheFirstFixTurn()
     {
-        AtomicReference<BranchRebase> started = new AtomicReference<>();
-        doAnswer(invocation -> {
-            BranchRebase rebase = runningRebase(invocation.getArgument(0));
-            started.set(rebase);
-            return rebase;
-        }).when(rebaseService).start(any());
+        AtomicReference<BranchRebase> started = deferRebases(false);
 
         CiAutofixRun run = service.start(startCommand("wait-for-rebase"));
         BranchRebase rebase = started.get();
@@ -412,17 +387,7 @@ class TestCiAutofixService
     @Test
     void refreshesAnUnstartedAttemptWhenTheBaseMoves()
     {
-        AtomicReference<BranchRebase> firstRebase = new AtomicReference<>();
-        AtomicInteger starts = new AtomicInteger();
-        doAnswer(invocation -> {
-            StartBranchRebaseCommand command = invocation.getArgument(0);
-            if (starts.getAndIncrement() == 0) {
-                BranchRebase rebase = runningRebase(command);
-                firstRebase.set(rebase);
-                return rebase;
-            }
-            return completedRebase(command);
-        }).when(rebaseService).start(any());
+        AtomicReference<BranchRebase> firstRebase = deferRebases(true);
         CiAutofixRun run = service.start(startCommand("base-moves-before-turn"));
         assertThat(run.taskStartCommit()).isEqualTo(HEAD);
         BranchRebase rebase = firstRebase.get();
@@ -449,12 +414,7 @@ class TestCiAutofixService
     @Test
     void mirrorsARebasePauseAndResumesItFromTheUserMessage()
     {
-        AtomicReference<BranchRebase> started = new AtomicReference<>();
-        doAnswer(invocation -> {
-            BranchRebase rebase = runningRebase(invocation.getArgument(0));
-            started.set(rebase);
-            return rebase;
-        }).when(rebaseService).start(any());
+        AtomicReference<BranchRebase> started = deferRebases(false);
         CiAutofixRun run = service.start(startCommand("paused-rebase"));
         BranchRebase pausedRebase = started.get().pause(BranchRebase.PauseReason.UNSAFE_GIT_STATE, "Resolve the worktree state", NOW.plusSeconds(1));
         when(rebaseService.get(pausedRebase.id())).thenReturn(pausedRebase);
@@ -479,12 +439,7 @@ class TestCiAutofixService
     @Test
     void cancelsTheLinkedRebaseWhenTheCiRunIsCancelled()
     {
-        AtomicReference<BranchRebase> started = new AtomicReference<>();
-        doAnswer(invocation -> {
-            BranchRebase rebase = runningRebase(invocation.getArgument(0));
-            started.set(rebase);
-            return rebase;
-        }).when(rebaseService).start(any());
+        AtomicReference<BranchRebase> started = deferRebases(false);
         CiAutofixRun run = service.start(startCommand("cancel-rebase"));
         when(rebaseService.cancel(started.get().id())).thenReturn(started.get());
 
@@ -499,12 +454,7 @@ class TestCiAutofixService
     @Test
     void doesNotFinishCiUntilTheLinkedRebaseAbortIsDurable()
     {
-        AtomicReference<BranchRebase> started = new AtomicReference<>();
-        doAnswer(invocation -> {
-            BranchRebase rebase = runningRebase(invocation.getArgument(0));
-            started.set(rebase);
-            return rebase;
-        }).when(rebaseService).start(any());
+        AtomicReference<BranchRebase> started = deferRebases(false);
         CiAutofixRun run = service.start(startCommand("cancel-rebase-failure"));
         when(rebaseService.cancel(started.get().id()))
                 .thenThrow(new IllegalStateException("rebase store unavailable"));
@@ -520,17 +470,7 @@ class TestCiAutofixService
     @Test
     void publishesAProgramRebaseEvenWhenTheAgentAddsNoCommit()
     {
-        AtomicReference<BranchRebase> firstRebase = new AtomicReference<>();
-        AtomicInteger starts = new AtomicInteger();
-        doAnswer(invocation -> {
-            StartBranchRebaseCommand command = invocation.getArgument(0);
-            if (starts.getAndIncrement() == 0) {
-                BranchRebase rebase = runningRebase(command);
-                firstRebase.set(rebase);
-                return rebase;
-            }
-            return completedRebase(command);
-        }).when(rebaseService).start(any());
+        AtomicReference<BranchRebase> firstRebase = deferRebases(true);
         CiAutofixRun run = service.start(startCommand("publish-program-rebase"));
         BranchRebase rebase = firstRebase.get();
         when(rebaseService.get(rebase.id())).thenReturn(rebase);
@@ -619,10 +559,7 @@ class TestCiAutofixService
         CiAutofixRun run = service.start(startCommand("fork-routing"));
         assertThat(run.scope().headRepository()).isEqualTo(snapshot.headRepository());
         assertThat(run.scope().physicalRepository()).isEqualTo(FORK);
-        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
-        run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
-        run = service.advance(run.id());
+        run = finishRepair(run, "fingerprint");
         when(gitService.push(any())).thenReturn(CiPushResult.pushed(FIXED_HEAD));
 
         run = service.advance(run.id());
@@ -652,10 +589,7 @@ class TestCiAutofixService
     {
         useForkWorkspace(true);
         CiAutofixRun run = service.start(startCommand("fork-changed-before-push"));
-        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
-        run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
-        run = service.advance(run.id());
+        run = finishRepair(run, "fingerprint");
         assertThat(run.pushJournal()).isPresent();
         when(gitHub.inspect(any())).thenReturn(changedScopeSnapshot(baseRetarget));
 
@@ -1324,14 +1258,7 @@ class TestCiAutofixService
     void reconcilesAnUncertainPushFromItsJournalAfterRestart()
     {
         CiAutofixRun run = service.start(startCommand("uncertain-push"));
-        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
-        run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
-                FIXED_HEAD,
-                "fingerprint-1",
-                ImmutableList.of("src/Main.java"),
-                ImmutableList.of("Fix feature")));
-        run = service.advance(run.id());
+        run = finishRepair(run, "fingerprint-1");
         when(gitService.push(any())).thenReturn(CiPushResult.failed(CiPushResult.Outcome.UNCERTAIN, "remote read timed out"));
         CiAutofixRun uncertain = service.advance(run.id());
         assertThat(uncertain.pushJournal()).isPresent();
@@ -1410,14 +1337,7 @@ class TestCiAutofixService
     void cancellationAfterPushJournalingPreventsTheRemoteWrite()
     {
         CiAutofixRun run = service.start(startCommand("cancel-before-push"));
-        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
-        run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
-                FIXED_HEAD,
-                "fingerprint-1",
-                ImmutableList.of("src/Main.java"),
-                ImmutableList.of("Fix feature")));
-        run = service.advance(run.id());
+        run = finishRepair(run, "fingerprint-1");
         assertThat(run.pushJournal()).isPresent();
 
         CiAutofixRun cancelled = service.cancel(run.id());
@@ -1460,10 +1380,7 @@ class TestCiAutofixService
     void replaysOnlyTaskCompletionAfterARestartWithAPersistedValidFinalCheck()
     {
         CiAutofixRun run = service.start(startCommand("final-check-replay"));
-        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
-        run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
-        run = service.advance(run.id());
+        run = finishRepair(run, "fingerprint");
         when(gitService.push(any())).thenReturn(CiPushResult.pushed(FIXED_HEAD));
         run = service.advance(run.id());
         run = service.advance(run.id());
@@ -1496,10 +1413,7 @@ class TestCiAutofixService
     void pausesAfterOneInvalidFinalFixupCheckWithoutStartingACorrectionTurn()
     {
         CiAutofixRun run = service.start(startCommand("invalid-final-check"));
-        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
-        run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
-        run = service.advance(run.id());
+        run = finishRepair(run, "fingerprint");
         when(gitService.push(any())).thenReturn(CiPushResult.pushed(FIXED_HEAD));
         run = service.advance(run.id());
         run = service.advance(run.id());
@@ -1955,10 +1869,7 @@ class TestCiAutofixService
         AgentTask parent = developmentParent();
         reserveParent(parent);
         CiAutofixRun run = service.startDevelopment(startCommand("owned-push"), parent.id(), publishedPr(), NOW);
-        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
-        run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
-        run = service.advance(run.id());
+        run = finishRepair(run, "fingerprint");
         CiAutofixRun pending = run;
         assertThat(pending.pushJournal()).isPresent();
         CiAutofixService restarted = service(store);
@@ -2401,6 +2312,12 @@ class TestCiAutofixService
 
     private CiAutofixService service(InMemoryCiAutofixStore requestedStore, Clock requestedClock)
     {
+        return service(requestedStore, requestedClock, new DevelopmentCiOwnership(requestedStore, taskStore, turnStore,
+                mock(PullRequestTaskStore.class), mock(PullRequestStore.class), eventService, runtimes));
+    }
+
+    private CiAutofixService service(InMemoryCiAutofixStore requestedStore, Clock requestedClock, DevelopmentCiOwnership requestedOwnership)
+    {
         return new CiAutofixService(
                 requestedStore,
                 gitHub,
@@ -2420,9 +2337,33 @@ class TestCiAutofixService
                 timelineService,
                 credentials,
                 requestedClock,
-                new DevelopmentCiOwnership(requestedStore, taskStore, turnStore, mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
-                        eventService, runtimes),
+                requestedOwnership,
                 recovery);
+    }
+
+    private AtomicReference<BranchRebase> deferRebases(boolean completeAfterFirst)
+    {
+        AtomicReference<BranchRebase> deferred = new AtomicReference<>();
+        AtomicInteger starts = new AtomicInteger();
+        doAnswer(invocation -> {
+            StartBranchRebaseCommand command = invocation.getArgument(0);
+            if (completeAfterFirst && starts.getAndIncrement() > 0) {
+                return completedRebase(command);
+            }
+            BranchRebase rebase = runningRebase(command);
+            deferred.set(rebase);
+            return rebase;
+        }).when(rebaseService).start(any());
+        return deferred;
+    }
+
+    private CiAutofixRun finishRepair(CiAutofixRun run, String fingerprint)
+    {
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
+                FIXED_HEAD, fingerprint, ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
+        return service.advance(run.id());
     }
 
     private BranchRebase completedRebase(StartBranchRebaseCommand command)

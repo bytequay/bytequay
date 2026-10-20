@@ -15,10 +15,8 @@ package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
-import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -29,7 +27,6 @@ import org.junit.jupiter.api.io.TempDir;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -139,16 +136,8 @@ class TestTaskToolDiscovery
 
     private McpRegistration register()
     {
-        return broker.registerTools(
-                "review",
-                directory,
-                AgentPermissionPolicy.AUTO,
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")),
-                Optional.empty(),
-                SessionAccess.FULL,
-                Optional.empty(),
-                ImmutableList.of()).orElseThrow();
+        return McpTestSupport.registerCodex(
+                broker, "review", directory, AgentPermissionPolicy.AUTO, SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"))).orElseThrow();
     }
 
     private JsonNode call(McpRegistration registration, String name, String arguments)

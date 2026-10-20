@@ -55,10 +55,12 @@ import static org.mockito.Mockito.when;
 
 class TestPullRequestRefreshService
 {
+    private final PullRequestService pullRequests = mock(PullRequestService.class);
+    private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
+
     @Test
     void directDetailRefreshReturnsTheRefreshedResultWithoutRereading()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService service = service(pullRequests);
         when(pullRequests.refreshPullRequestDetailFromGitHub("owner/repo", 7))
                 .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
@@ -74,7 +76,6 @@ class TestPullRequestRefreshService
     @Test
     void warmingOneDetailUsesTheWarmFreshnessAndPublishesTheStoredHead()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         when(pullRequests.findHeadSha("owner/repo", 7)).thenReturn(Optional.of("head"));
         List<Object> published = new ArrayList<>();
         PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials(credential("token-a", "alice")), noWorkspaces(), published::add);
@@ -89,7 +90,6 @@ class TestPullRequestRefreshService
     @Test
     void openingReturnsFullDiscussionEvenWhenAnotherViewAlreadyRefreshedTheCache()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         when(pullRequests.refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7))
                 .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
 
@@ -104,7 +104,6 @@ class TestPullRequestRefreshService
     @Test
     void directDiffRefreshPersistsBeforeReading()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         DiffFile file = new DiffFile("src/App.java", "modified", 1, 1, "patch");
         when(pullRequests.getPullRequestDiffFiles("owner/repo", 7, "base", "head"))
                 .thenReturn(ImmutableList.of(file));
@@ -121,7 +120,6 @@ class TestPullRequestRefreshService
     @Test
     void refreshesTheDashboardBeforeReturning()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService service = service(pullRequests);
 
         service.refreshDashboard();
@@ -132,8 +130,6 @@ class TestPullRequestRefreshService
     @Test
     void toolbarRefreshesDashboardAndDistinctWorkspaceRows()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        WorkspaceStore workspaces = mock(WorkspaceStore.class);
         RepoRef firstRepository = RepoRef.of("owner", "first");
         RepoRef secondRepository = RepoRef.of("owner", "second");
         Workspace first = workspace("first", 1, firstRepository, 0);
@@ -157,8 +153,6 @@ class TestPullRequestRefreshService
     @Test
     void skipsUnwatchedOrDeletedWorkspaceRefreshes()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        WorkspaceStore workspaces = mock(WorkspaceStore.class);
         when(workspaces.isWatched("unwatched")).thenReturn(false);
         when(workspaces.isWatched("deleted")).thenReturn(false);
         PullRequestRefreshService service = service(pullRequests, workspaces);
@@ -173,8 +167,6 @@ class TestPullRequestRefreshService
     void repositoryRefreshDoesNotBlockLocalWorkspaceOperations()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        WorkspaceStore workspaces = mock(WorkspaceStore.class);
         Workspace workspace = workspace("workspace", 1, RepoRef.of("owner", "repo"), 0);
         when(workspaces.isWatched(workspace.id())).thenReturn(true);
         when(workspaces.findById(workspace.id())).thenReturn(Optional.of(workspace));
@@ -205,8 +197,6 @@ class TestPullRequestRefreshService
     @Test
     void toolbarUsesCurrentRoutingInsteadOfItsWorkspaceListSnapshot()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        WorkspaceStore workspaces = mock(WorkspaceStore.class);
         RepoRef previousRepository = RepoRef.of("owner", "old");
         RepoRef currentRepository = RepoRef.of("upstream", "current");
         when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace("workspace", 1, previousRepository, 0)));
@@ -223,8 +213,6 @@ class TestPullRequestRefreshService
     void toolbarReleasesTheRefreshLockBeforeWaitingForAWorkspace()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        WorkspaceStore workspaces = mock(WorkspaceStore.class);
         Workspace workspace = workspace("workspace", 1, RepoRef.of("owner", "repo"), 0);
         CountDownLatch listed = new CountDownLatch(1);
         when(workspaces.findAll()).thenAnswer(invocation -> {
@@ -253,8 +241,6 @@ class TestPullRequestRefreshService
     void toolbarReportsAnInFlightRefreshWithoutWaitingOrReloadingStaleRows()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
-        WorkspaceStore workspaces = mock(WorkspaceStore.class);
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         doAnswer(invocation -> {
@@ -288,7 +274,6 @@ class TestPullRequestRefreshService
     @Test
     void reusesARecentDashboardRefresh()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService service = service(pullRequests);
 
         service.refreshDashboard();
@@ -300,7 +285,6 @@ class TestPullRequestRefreshService
     @Test
     void scheduledRefreshDoesNotSkipAnIntervalBecauseThePreviousScanFinishedRecently()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService service = service(pullRequests);
 
         service.refreshDashboard();
@@ -314,7 +298,6 @@ class TestPullRequestRefreshService
     void coalescesConcurrentDashboardRefreshes()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         doAnswer(invocation -> {
@@ -341,7 +324,6 @@ class TestPullRequestRefreshService
     @Test
     void refreshesAgainAfterCredentialChanges()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         CredentialService credentials = mock(CredentialService.class);
         GitHubCredential firstCredential = credential("token-a", "alice");
         GitHubCredential secondCredential = credential("token-b", "bob");
@@ -360,7 +342,6 @@ class TestPullRequestRefreshService
     void credentialChangeDuringRefreshRunsAgainAfterCurrentRefresh()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         CredentialService credentials = mock(CredentialService.class);
         GitHubCredential firstCredential = credential("token-a", "alice");
         GitHubCredential secondCredential = credential("token-b", "bob");
@@ -394,7 +375,6 @@ class TestPullRequestRefreshService
     void recentDashboardRefreshDoesNotWaitBehindRepositoryRefresh()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         RepoRef repository = RepoRef.of("owner", "repo");
         CountDownLatch repositoryEntered = new CountDownLatch(1);
         CountDownLatch releaseRepository = new CountDownLatch(1);
@@ -421,7 +401,6 @@ class TestPullRequestRefreshService
     @Test
     void refreshesOneRepositoryBeforeReturning()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService service = service(pullRequests);
         RepoRef repository = RepoRef.of("owner", "repo");
 
@@ -433,7 +412,6 @@ class TestPullRequestRefreshService
     @Test
     void failedDashboardRefreshCanBeRetried()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         doThrow(new IllegalStateException("provider unavailable"))
                 .doNothing()
                 .when(pullRequests).syncFromGitHub();
@@ -451,7 +429,6 @@ class TestPullRequestRefreshService
     void serializesDashboardAndRepositoryRefreshes()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         CountDownLatch repositoryRefreshed = new CountDownLatch(1);

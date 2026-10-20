@@ -33,8 +33,21 @@ public final class ReviewTestData
 
     public static AgentReview pullRequestReview(String id, String workspaceId, String repo, int number, String taskId, Instant now)
     {
-        return new AgentReview(id, workspaceId, repo, OptionalInt.of(number), OptionalLong.empty(), taskId, Optional.empty(), AgentReview.State.OPEN,
+        return openReview(id, workspaceId, repo, OptionalInt.of(number), taskId, Optional.empty(), now);
+    }
+
+    public static AgentReview openReview(String id, String workspaceId, String repo, OptionalInt number, String taskId, Optional<String> sourceTaskId, Instant now)
+    {
+        return new AgentReview(id, workspaceId, repo, number, OptionalLong.empty(), taskId, sourceTaskId, AgentReview.State.OPEN,
                 false, Optional.empty(), Optional.empty(), Optional.empty(), 0, now, now, Optional.empty(), Optional.empty());
+    }
+
+    public static AgentReview withSource(
+            AgentReview review, OptionalInt number, OptionalLong pullRequestId, Optional<String> sourceTaskId, Optional<AgentReview.Replay> replay)
+    {
+        return new AgentReview(review.id(), review.workspaceId(), review.repo(), number, pullRequestId, review.taskId(), sourceTaskId, review.state(),
+                review.followUpPaused(), review.latestCompletedRunId(), review.observedHeadSha(), review.worktreeHeadSha(), review.version(),
+                review.createdAt(), review.updatedAt(), review.closedAt(), replay);
     }
 
     public static ReviewCandidate discoveryCandidate(int number, String hypothesis)

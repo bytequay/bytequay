@@ -133,6 +133,8 @@ import java.util.function.Function;
 
 import static com.bytequay.app.review.ReviewTestData.discoveryCandidate;
 import static com.bytequay.app.review.ReviewTestData.perspectives;
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
+import static com.bytequay.app.review.ReviewTestData.withSource;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -184,10 +186,11 @@ class TestAgentReviewService
             AgentPermissionPolicy.AUTO,
             Duration.ofMinutes(30), ImmutableList.of(), Optional.empty(), Optional.empty());
 
+    private final Fixture fixture = new Fixture();
+
     @Test
     void composerSelectionUpdatesOnlyTheReviewTaskAndChecksWorkspaceAccess()
     {
-        Fixture fixture = new Fixture();
         AgentReviewProjection review = fixture.service.start(WORKSPACE, REPO, NUMBER);
         AgentLaneId selectedLane = new AgentLaneId("claude");
         when(fixture.drivers.require(selectedLane)).thenReturn(fixture.driver);
@@ -209,7 +212,6 @@ class TestAgentReviewService
     @Test
     void developmentReviewSharesTheCheckoutWithASeparateConversation()
     {
-        Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
         localSource(fixture, source, HEAD);
         when(fixture.worktrees.inspect(source.taskWorktree().orElseThrow()))
@@ -240,7 +242,6 @@ class TestAgentReviewService
     @Test
     void localReviewIncludesUncommittedFilesWithoutAnyCommits()
     {
-        Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
         localSource(fixture, source, HEAD);
         when(fixture.browse.history(source.worktree(), MERGE_BASE, HEAD)).thenReturn(new WorktreeDiffReader.History(ImmutableList.of(), false));
@@ -261,7 +262,6 @@ class TestAgentReviewService
     @Test
     void importedDevelopmentReviewUsesThePullRequestBaseRatherThanItsInitialHead()
     {
-        Fixture fixture = new Fixture();
         AgentTask source = developmentSource(HEAD);
         localSource(fixture, source, HEAD);
         when(fixture.assignments.findByTaskId(source.id().toString()))
@@ -282,7 +282,6 @@ class TestAgentReviewService
     @Test
     void localReviewUpdatesReuseTheReviewerAndDoNotFollowRemoteHeads()
     {
-        Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
         localSource(fixture, source, HEAD);
         AgentReviewProjection first = fixture.service.startForTask(WORKSPACE, source.id().toString());
@@ -308,7 +307,6 @@ class TestAgentReviewService
     @Test
     void reviewAgainCapturesNewLocalEditsAtTheSameHead()
     {
-        Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
         localSource(fixture, source, HEAD);
         AgentReviewProjection first = fixture.service.startForTask(WORKSPACE, source.id().toString());
@@ -329,7 +327,6 @@ class TestAgentReviewService
     @Test
     void localReviewRejectsUnavailableOrWrongWorkspaceSourceBeforeProvisioning()
     {
-        Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
         localSource(fixture, source, HEAD);
         when(fixture.tasks.getInteractive("other-workspace", source.id())).thenThrow(new AgentConflictException("Wrong workspace"));
@@ -346,7 +343,6 @@ class TestAgentReviewService
     @ValueSource(strings = {"pull-request", "development", "exploration", "replay"})
     void failedReviewInsertionDiscardsOnlyTheUnstartedReviewer(String entryPoint)
     {
-        Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
         localSource(fixture, source, HEAD);
         when(fixture.tasks.prepare(any(CreateAgentTaskCommand.class))).thenReturn(idleTask());
@@ -376,7 +372,6 @@ class TestAgentReviewService
     @Test
     void reviewInsertionRollbackPreservesTheOriginalFailureWhenCleanupFails()
     {
-        Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
         localSource(fixture, source, HEAD);
         ReviewConflictException failure = new ReviewConflictException("The review row could not be stored");
@@ -392,7 +387,6 @@ class TestAgentReviewService
     @Test
     void reviewInsertionWithAnUncertainResponseKeepsItsRecordedTask()
     {
-        Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
         localSource(fixture, source, HEAD);
         ReviewConflictException failure = new ReviewConflictException("The insertion response was interrupted");
@@ -409,7 +403,6 @@ class TestAgentReviewService
     @Test
     void deletingDevelopmentSourceRetainsReviewerResultsAndRefusesFurtherUpdates()
     {
-        Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
         localSource(fixture, source, HEAD);
         AgentReviewProjection original = fixture.service.startForTask(WORKSPACE, source.id().toString());
@@ -426,7 +419,6 @@ class TestAgentReviewService
     @Test
     void explicitLocalUpdateAdoptsANewlyCreatedPullRequestWithoutReplacingReviewer()
     {
-        Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
         localSource(fixture, source, HEAD);
         AgentReviewProjection original = fixture.service.startForTask(WORKSPACE, source.id().toString());
@@ -491,7 +483,6 @@ class TestAgentReviewService
     @ValueSource(booleans = {false, true})
     void startCreatesOneTaskAndOneRunningRunDrivenByAByteQuayRequest(boolean children)
     {
-        Fixture fixture = new Fixture();
         when(fixture.driver.capabilities()).thenReturn(new AgentCapabilities(true, true, true, ImmutableSet.of(AgentPermissionPolicy.AUTO), ImmutableSet.of("text/plain")));
         when(fixture.driver.reviewChildAgents(idleTask().sessionReference(), idleTask().defaults().model())).thenReturn(children);
 
@@ -529,7 +520,6 @@ class TestAgentReviewService
     @Test
     void listingReviewsDoesNotInspectEveryWorkingCopy()
     {
-        Fixture fixture = new Fixture();
         AgentReviewProjection started = fixture.service.start(WORKSPACE, REPO, NUMBER);
         clearInvocations(fixture.worktrees, fixture.git, fixture.experiments);
 
@@ -548,8 +538,6 @@ class TestAgentReviewService
     @Test
     void startIsIdempotentForTheSamePullRequest()
     {
-        Fixture fixture = new Fixture();
-
         AgentReviewProjection first = fixture.service.start(WORKSPACE, REPO, NUMBER);
         AgentReviewProjection second = fixture.service.start(WORKSPACE, "Owner/Repo", NUMBER);
 
@@ -563,7 +551,6 @@ class TestAgentReviewService
     @Test
     void explorationPreparesOnceWithoutAProviderAndLaterReviewReusesItsTask()
     {
-        Fixture fixture = new Fixture();
         when(fixture.tasks.prepare(any(CreateAgentTaskCommand.class))).thenReturn(idleTask());
         when(fixture.driver.probe()).thenThrow(new AssertionError("Exploration must not probe the agent provider"));
 
@@ -591,8 +578,6 @@ class TestAgentReviewService
     @Test
     void explorationRejectsAPullRequestOutsideTheWatchedRepository()
     {
-        Fixture fixture = new Fixture();
-
         assertThatThrownBy(() -> fixture.service.prepare(WORKSPACE, "someone/else", NUMBER)).hasMessageContaining("does not belong to this workspace");
 
         verify(fixture.tasks, never()).prepare(any(CreateAgentTaskCommand.class));
@@ -603,7 +588,6 @@ class TestAgentReviewService
     @Test
     void aReplayReviewsItsPastHeadOutsideThePullRequestsReviewsAndEndsWithItsRun()
     {
-        Fixture fixture = new Fixture();
         when(fixture.browse.history(REPOSITORY, MERGE_BASE, HEAD)).thenReturn(new WorktreeDiffReader.History(ImmutableList.of(
                 new DiffCommit(HEAD, MERGE_BASE, "Fix the parser", "Alice", NOW)), false));
         when(fixture.browse.diff(REPOSITORY, MERGE_BASE, Optional.of(HEAD))).thenReturn(new WorktreeDiffReader.Diff(ImmutableList.of(
@@ -639,7 +623,6 @@ class TestAgentReviewService
     @Test
     void projectionKeepsValidationEvidenceOutsideTheInitialContextSelection()
     {
-        Fixture fixture = new Fixture();
         ReviewRun run = fixture.store.findRun(fixture.service.start(WORKSPACE, REPO, NUMBER).runs().getFirst().id()).orElseThrow();
         ReviewEvidence context = new ReviewEvidence("E1", "src/App.java", "frozen head", "parse(input)", "");
         ReviewEvidence validation = new ReviewEvidence("E2", "command output: regression test", "validation turn", "HEAD passed; old condition failed", "");
@@ -653,8 +636,6 @@ class TestAgentReviewService
     @Test
     void startRefusesAPullRequestOutsideTheMonitoredRepository()
     {
-        Fixture fixture = new Fixture();
-
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, "other/repo", NUMBER))
                 .isInstanceOf(ReviewInvalidRequestException.class)
                 .hasMessageContaining("does not belong to this workspace");
@@ -666,7 +647,6 @@ class TestAgentReviewService
     @Test
     void unavailableGitHubAccountPreventsTaskCreation()
     {
-        Fixture fixture = new Fixture();
         when(fixture.credentials.resolveGitHubCredential()).thenThrow(new IllegalStateException("GitHub credential unavailable"));
 
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER))
@@ -681,7 +661,6 @@ class TestAgentReviewService
     @Test
     void preparationFailureEndsTheRunAndPausesFollowUp()
     {
-        Fixture fixture = new Fixture();
         when(fixture.turns.findTurnByIdempotencyKey(eq(TASK_ID), anyString())).thenThrow(new AgentConflictException("Assignment unavailable"))
                 .thenReturn(Optional.empty());
 
@@ -701,7 +680,6 @@ class TestAgentReviewService
     @Test
     void reconcileDispatchesAPersistedStartupAssignmentExactlyOnce()
     {
-        Fixture fixture = new Fixture();
         when(fixture.turns.findTurnByIdempotencyKey(eq(TASK_ID), anyString())).thenThrow(new NoClassDefFoundError("Startup class unavailable"))
                 .thenAnswer(invocation -> Optional.ofNullable(fixture.acceptedTurns.get(invocation.getArgument(1))));
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).isInstanceOf(NoClassDefFoundError.class);
@@ -724,7 +702,6 @@ class TestAgentReviewService
     @Test
     void acceptedHistoricalTurnsAndLaterAssignmentsKeepTheirOriginalContext()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         clearInvocations(fixture.workspaces);
         fixture.service.reconcile(reviewId);
@@ -737,7 +714,6 @@ class TestAgentReviewService
     @Test
     void resumeContinuesAPersistedStartupOnTheSameReviewAndTask()
     {
-        Fixture fixture = new Fixture();
         when(fixture.turns.findTurnByIdempotencyKey(eq(TASK_ID), anyString())).thenThrow(new NoClassDefFoundError("Startup class unavailable"))
                 .thenAnswer(invocation -> Optional.ofNullable(fixture.acceptedTurns.get(invocation.getArgument(1))));
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).isInstanceOf(NoClassDefFoundError.class);
@@ -758,7 +734,6 @@ class TestAgentReviewService
     @Test
     void reconcileReattachesAnAcceptedTurnEvenAfterTheFirstRepairWriteFails()
     {
-        Fixture fixture = new Fixture();
         doThrow(new ReviewConflictException("Initial attachment failed"))
                 .doThrow(new ReviewConflictException("Repair attachment failed"))
                 .doCallRealMethod()
@@ -784,7 +759,6 @@ class TestAgentReviewService
     @Test
     void reconcileReattachesTheInvestigationBeforeStartingValidation()
     {
-        Fixture fixture = new Fixture();
         doThrow(new ReviewConflictException("Initial attachment failed"))
                 .doCallRealMethod()
                 .when(fixture.store).updateRun(any(ReviewRun.class));
@@ -814,7 +788,6 @@ class TestAgentReviewService
     void reconcileCannotTreatAnInProgressStartupAsAnOrphan()
             throws Exception
     {
-        Fixture fixture = new Fixture();
         CountDownLatch preparing = new CountDownLatch(1);
         CountDownLatch continueStartup = new CountDownLatch(1);
         CountDownLatch reconciling = new CountDownLatch(1);
@@ -858,7 +831,6 @@ class TestAgentReviewService
     @Test
     void askStartsATurnWhenTheTaskIsIdle()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         String runId = fixture.store.listRuns(reviewId).getLast().id();
 
@@ -885,7 +857,6 @@ class TestAgentReviewService
     @Test
     void cardQuestionKeepsItsRunAndSelectedContent()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun original = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(original.withSummary(summary(), NOW));
@@ -926,7 +897,6 @@ class TestAgentReviewService
     @ValueSource(booleans = {false, true})
     void questionCardIdentityIsReadableBeforeDispatchReturns(boolean queued)
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         EventId eventId = EventId.random();
         Runnable assertAccepted = () -> {
@@ -965,7 +935,6 @@ class TestAgentReviewService
     @Test
     void askEnqueuesWhenTheTaskIsBusy()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
         when(fixture.turns.enqueue(any(QueueAgentInputCommand.class))).thenAnswer(invocation -> {
@@ -994,7 +963,6 @@ class TestAgentReviewService
     @ValueSource(booleans = {false, true})
     void questionNothingAcceptedIsRemovedWhenAdmissionFails(boolean queued)
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(run.withSummary(summary(), NOW));
@@ -1026,7 +994,6 @@ class TestAgentReviewService
     @ValueSource(booleans = {false, true})
     void questionRecoversAcceptedDeliveryWhenAdmissionThrows(boolean queued)
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         AgentConflictException failure = new AgentConflictException("Provider launch failed after acceptance");
         if (queued) {
@@ -1059,7 +1026,6 @@ class TestAgentReviewService
     @Test
     void queuedQuestionProjectionKeepsItsMessageEventAcrossRetry()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
         when(fixture.turns.enqueue(any(QueueAgentInputCommand.class))).thenReturn(queuedInput());
@@ -1097,7 +1063,6 @@ class TestAgentReviewService
     @Test
     void askRefusesAStaleRevision()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         String runId = fixture.store.listRuns(reviewId).getLast().id();
         ReviewFinding original = finding("finding-1", reviewId, runId, 1, ReviewFinding.State.OPEN);
@@ -1120,7 +1085,6 @@ class TestAgentReviewService
     @ValueSource(booleans = {false, true})
     void askContinuesAWithdrawnFindingDiscussion(boolean queued)
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         String runId = fixture.store.listRuns(reviewId).getLast().id();
         ReviewFinding withdrawn = fixture.store.insertFinding(finding("finding-1", reviewId, runId, 1, ReviewFinding.State.WITHDRAWN));
@@ -1152,7 +1116,6 @@ class TestAgentReviewService
     @Test
     void resolveAndReopenAreVersionChecked()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         String runId = fixture.store.listRuns(reviewId).getLast().id();
         ReviewFinding stored = fixture.store.insertFinding(finding("finding-1", reviewId, runId, 1, ReviewFinding.State.OPEN));
@@ -1178,7 +1141,6 @@ class TestAgentReviewService
     @Test
     void developerResolvesWhatItFixedAndCannotUndoTheUsersResolution()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         String runId = fixture.store.listRuns(reviewId).getLast().id();
         ReviewFinding stored = fixture.store.insertFinding(finding("finding-1", reviewId, runId, 1, ReviewFinding.State.OPEN));
@@ -1223,7 +1185,6 @@ class TestAgentReviewService
     @Test
     void developerReplyIsRecordedWithoutAskingTheReviewerOrClosingTheFinding()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         String runId = fixture.store.listRuns(reviewId).getLast().id();
         ReviewFinding stored = fixture.store.insertFinding(finding("finding-1", reviewId, runId, 1, ReviewFinding.State.OPEN));
@@ -1265,7 +1226,6 @@ class TestAgentReviewService
     @ValueSource(booleans = {false, true})
     void zeroFindingsCompleteWithoutAnotherDiscoveryRoundAfterCleanup(boolean paused)
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
         completeValidation(fixture, validating);
@@ -1292,7 +1252,6 @@ class TestAgentReviewService
     @ValueSource(booleans = {false, true})
     void reconcileAcceptsACompletedRunWithASummaryAndCoverage(boolean paused)
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         ReviewRun validating = beginValidation(fixture, run);
@@ -1316,7 +1275,6 @@ class TestAgentReviewService
     @ValueSource(booleans = {false, true})
     void laterReviewsRetainTheFirstExplanationAndAdvanceTheirOwnCoverageBaseline(boolean firstReviewAccepted)
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun initial = fixture.store.listRuns(reviewId).getLast();
         if (firstReviewAccepted) {
@@ -1380,7 +1338,6 @@ class TestAgentReviewService
     @Test
     void explicitExplanationRefreshUsesTheNewHeadWithoutReviewingItsFindings()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun initial = fixture.store.listRuns(reviewId).getLast();
         completeCleanReview(fixture, beginValidation(fixture, initial));
@@ -1442,7 +1399,6 @@ class TestAgentReviewService
     @Test
     void explanationRefreshRepairsOnlyItsOwnMissingReportAndRetainsThePreviousExplanation()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun initial = fixture.store.listRuns(reviewId).getLast();
         completeCleanReview(fixture, beginValidation(fixture, initial));
@@ -1474,7 +1430,6 @@ class TestAgentReviewService
     @Test
     void explanationRefreshRejectsStaleDisplayedCardsAndConcurrentAssignments()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun initial = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(initial.withSummary(summary(), NOW));
@@ -1497,7 +1452,6 @@ class TestAgentReviewService
     @Test
     void findingQuestionsAfterExplanationRefreshKeepTheFindingsScope()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun initial = fixture.store.listRuns(reviewId).getLast();
         completeCleanReview(fixture, beginValidation(fixture, initial));
@@ -1519,7 +1473,6 @@ class TestAgentReviewService
     @EnumSource(value = TurnState.class, names = {"CANCELLED", "FAILED"})
     void unsuccessfulExplanationRefreshDoesNotReplaceEvenACompleteDraft(TurnState state)
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun initial = fixture.store.listRuns(reviewId).getLast();
         completeCleanReview(fixture, beginValidation(fixture, initial));
@@ -1543,7 +1496,6 @@ class TestAgentReviewService
     @Test
     void explanationRefreshRecoversAnAcceptedTurnWhoseAssociationWasNotSaved()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun initial = fixture.store.listRuns(reviewId).getLast();
         completeCleanReview(fixture, beginValidation(fixture, initial));
@@ -1571,7 +1523,6 @@ class TestAgentReviewService
     @Test
     void developmentExplanationRefreshFreezesTheLatestCommittedSourceHead()
     {
-        Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
         localSource(fixture, source, HEAD);
         String reviewId = fixture.service.startForTask(WORKSPACE, source.id().toString()).review().id();
@@ -1596,7 +1547,6 @@ class TestAgentReviewService
     @Test
     void pausedInvestigationWaitsForResumeBeforeStartingValidation()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(sealInvestigation(run.withSummary(summary(), NOW).withInvestigation(investigation(), NOW)));
@@ -1622,7 +1572,6 @@ class TestAgentReviewService
     @Test
     void validationWaitsForTheSecondReaderAndSettlesItsLeadsAsCandidates()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         verify(fixture.sweeps).start(any(AgentReview.class), argThat(started -> started.id().equals(run.id())), any(AgentTask.class), any(Runnable.class));
@@ -1669,7 +1618,6 @@ class TestAgentReviewService
     @Test
     void leadsBeyondTheCandidateCapacityAreLeftOut()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         int capacity = ReviewTools.candidateLimit(fixture.store, run);
@@ -1694,7 +1642,6 @@ class TestAgentReviewService
     @Test
     void investigationStartsOneValidationTurnOnlyAfterItsWorktreeClaimIsReleased()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(sealInvestigation(run.withSummary(summary(), NOW).withInvestigation(investigation(), NOW)));
@@ -1726,7 +1673,6 @@ class TestAgentReviewService
     @Test
     void investigationAndValidationEachRecoverWithoutRestartingTheReview()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(run.withSummary(summary(), NOW));
@@ -1773,7 +1719,6 @@ class TestAgentReviewService
     @Test
     void validationReattachesAfterDispatchWithoutStartingAnotherTurn()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(sealInvestigation(run.withSummary(summary(), NOW).withInvestigation(investigation(), NOW)));
@@ -1796,7 +1741,6 @@ class TestAgentReviewService
     @Test
     void aPersistedValidationAssignmentDispatchesExactlyOnce()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(sealInvestigation(run.withSummary(summary(), NOW).withInvestigation(investigation(), NOW))
@@ -1822,7 +1766,6 @@ class TestAgentReviewService
     @Test
     void repairReattachesBeforeACompletedValidationCanExhaustItsBudget()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
         when(fixture.turns.get(TURN_TWO)).thenReturn(settledTurn(TURN_TWO, TurnState.COMPLETED, Optional.empty()));
@@ -1842,7 +1785,6 @@ class TestAgentReviewService
     @Test
     void requestsSpecificEvidenceThenValidatesTheNewInvestigation()
     {
-        Fixture fixture = new Fixture();
         ReviewRun validating = beginCandidateValidation(fixture);
         submitCandidateValidation(fixture, validating, ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE);
 
@@ -1873,7 +1815,6 @@ class TestAgentReviewService
     @Test
     void aCarriedFindingCanRequestEvidenceWithoutPrematureReportRepair()
     {
-        Fixture fixture = new Fixture();
         ReviewRun validating = beginCandidateValidation(fixture);
         ReviewFinding carried = finding("carried", validating.reviewId(), "earlier-run", 1, ReviewFinding.State.OPEN).pendingReassessment(NOW);
         fixture.store.insertFinding(carried);
@@ -1890,7 +1831,6 @@ class TestAgentReviewService
     @Test
     void aCompleteReportCannotSilentlyDropACarriedOpenFinding()
     {
-        Fixture fixture = new Fixture();
         ReviewRun validating = beginCandidateValidation(fixture);
         ReviewFinding carried = finding("carried", validating.reviewId(), "earlier-run", 1, ReviewFinding.State.OPEN).pendingReassessment(NOW);
         fixture.store.insertFinding(carried);
@@ -1908,7 +1848,6 @@ class TestAgentReviewService
     @Test
     void evidenceLoopStopsAfterTwoCollectionsWithoutAdvancingTheBaseline()
     {
-        Fixture fixture = new Fixture();
         ReviewRun current = beginCandidateValidation(fixture);
         for (int round = 0; round < 2; round++) {
             submitCandidateValidation(fixture, current, ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE);
@@ -1935,7 +1874,6 @@ class TestAgentReviewService
     @Test
     void pausedEvidenceRequestWaitsForResumeAndReattachesAnAcceptedCollection()
     {
-        Fixture fixture = new Fixture();
         ReviewRun validating = beginCandidateValidation(fixture);
         submitCandidateValidation(fixture, validating, ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE);
         fixture.service.stop(validating.reviewId());
@@ -1958,7 +1896,6 @@ class TestAgentReviewService
     @Test
     void anUnresolvedCandidateStopsWithoutSpendingAnEvidenceRound()
     {
-        Fixture fixture = new Fixture();
         ReviewRun validating = beginCandidateValidation(fixture);
         submitCandidateValidation(fixture, validating, ReviewCandidateValidation.Outcome.UNRESOLVED);
 
@@ -1974,7 +1911,6 @@ class TestAgentReviewService
     @Test
     void validationCanRequestInvestigationOfANewCandidate()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
         ReviewEvidence evidence = new ReviewEvidence("E1", "src/App.java", "frozen head", "new Parser()", "allocation");
@@ -1996,7 +1932,6 @@ class TestAgentReviewService
     @Test
     void aSavedEvidenceResponseWaitsForItsOwnTurnToComplete()
     {
-        Fixture fixture = new Fixture();
         ReviewRun validating = beginCandidateValidation(fixture);
         submitCandidateValidation(fixture, validating, ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE);
         fixture.service.reconcile(validating.reviewId());
@@ -2019,7 +1954,6 @@ class TestAgentReviewService
     @ValueSource(strings = {"revision", "withdrawn", "outdated", "head"})
     void changedFindingCannotReuseAnEarlierValidation(String change)
     {
-        Fixture fixture = new Fixture();
         ReviewRun validating = beginCandidateValidation(fixture);
         ReviewFinding finding = fixture.store.insertFinding(finding("finding-1", validating.reviewId(), validating.id(), 1, ReviewFinding.State.OPEN));
         ReviewCandidateValidation candidate = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "The owner never closes the parser",
@@ -2051,7 +1985,6 @@ class TestAgentReviewService
     @Test
     void unavailableOptionalTestsDoNotPreventAcceptingAValidatedFinding()
     {
-        Fixture fixture = new Fixture();
         ReviewRun validating = beginCandidateValidation(fixture);
         ReviewFinding finding = fixture.store.insertFinding(finding("finding-1", validating.reviewId(), validating.id(), 1, ReviewFinding.State.OPEN));
         ReviewCandidateValidation candidate = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "The owner never closes the parser",
@@ -2079,7 +2012,6 @@ class TestAgentReviewService
     @Test
     void validationCannotAcceptAnEarlierInvestigationRevision()
     {
-        Fixture fixture = new Fixture();
         ReviewRun validating = beginCandidateValidation(fixture);
         submitCandidateValidation(fixture, validating, ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE);
         fixture.service.reconcile(validating.reviewId());
@@ -2109,7 +2041,6 @@ class TestAgentReviewService
     @Test
     void partialCoveragePreservesTheLastSuccessfulIncrementalBaselineWithoutRepair()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun baseline = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
         completeCleanReview(fixture, baseline);
@@ -2147,7 +2078,6 @@ class TestAgentReviewService
     @ValueSource(booleans = {false, true})
     void anExplicitInvestigationOmissionStopsBeforeValidationOrRepair(boolean paused)
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(run.withSummary(summary(), NOW)
@@ -2171,7 +2101,6 @@ class TestAgentReviewService
     @Test
     void incompleteCommitExplanationsCannotCompleteValidation()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
         ReviewSummary missingCommit = new ReviewSummary(2, "Fix parser state", ImmutableList.of(), "", Optional.empty(), ImmutableList.of());
@@ -2189,7 +2118,6 @@ class TestAgentReviewService
     @Test
     void completedReviewWaitsForItsRecoveryClaimBeforeBecomingAnAcceptedBaseline()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         ReviewRun validating = beginValidation(fixture, run);
@@ -2212,7 +2140,6 @@ class TestAgentReviewService
     @Test
     void recoveryPreservesTheReviewAndRequiresAnAcceptedBaselineBeforeIncrementalReview()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun original = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(original.withSummary(summary(), NOW).withCoverage(coverage(), NOW));
@@ -2293,7 +2220,6 @@ class TestAgentReviewService
     @Test
     void aChangedBaseStartsAFullReviewEvenWhenThePullRequestHeadIsUnchanged()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun first = fixture.store.listRuns(reviewId).getFirst();
         ReviewRun validating = beginValidation(fixture, first);
@@ -2326,7 +2252,6 @@ class TestAgentReviewService
     @Test
     void reopeningAResolvedFindingCanStartExplicitReassessmentAtTheSameHeadAndBase()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun first = fixture.store.listRuns(reviewId).getFirst();
         completeCleanReview(fixture, beginValidation(fixture, first));
@@ -2364,7 +2289,6 @@ class TestAgentReviewService
     @Test
     void reconcileSpendsTheRepairBudgetOnAMissingCoverageRecord()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         beginValidation(fixture, run);
@@ -2388,7 +2312,6 @@ class TestAgentReviewService
     @ValueSource(booleans = {false, true})
     void reconcileMarksARunIncompleteOnceTheRepairBudgetIsSpent(boolean paused)
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         ReviewRun validating = beginValidation(fixture, run);
@@ -2431,7 +2354,6 @@ class TestAgentReviewService
     @Test
     void reconcileStopsTheRunAndPausesFollowUpForACancelledTurn()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         when(fixture.turns.get(TURN_ONE)).thenReturn(settledTurn(TURN_ONE, TurnState.CANCELLED, Optional.of("Stopped")));
 
@@ -2448,7 +2370,6 @@ class TestAgentReviewService
     @EnumSource(value = TurnState.class, names = {"FAILED", "INTERRUPTED"})
     void aKnownInterruptedTurnContinuesTheSameFrozenReviewAfterCleanup(TurnState state)
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(run.withSummary(summary(), NOW));
@@ -2482,7 +2403,6 @@ class TestAgentReviewService
     @Test
     void automaticContinuationPreservesAnAlreadySealedValidation()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
         completeValidation(fixture, validating);
@@ -2507,7 +2427,6 @@ class TestAgentReviewService
     @ValueSource(strings = {"stop", "authentication", "unknown-delivery"})
     void automaticContinuationDoesNotOverrideAStopOrRequiredUserAction(String blocker)
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         AgentTurn turn = AgentTurn.accepted(TURN_ONE, TASK_ID, run.currentStep().orElseThrow().key(run.id()), SETTINGS, NOW).markDeliveryStarted(NOW);
@@ -2530,7 +2449,6 @@ class TestAgentReviewService
     @Test
     void anUnsentLaunchFailureIsRetriedWithoutWaitingForAUserOrTaskEvent()
     {
-        Fixture fixture = new Fixture();
         doThrow(new IllegalStateException("Temporary launch failure"))
                 .doAnswer(invocation -> fixture.acceptTurn(invocation.getArgument(0)))
                 .when(fixture.turns).start(any(StartAgentTurnCommand.class));
@@ -2550,7 +2468,6 @@ class TestAgentReviewService
     @Test
     void anAcceptedLaunchIsReattachedAfterItsResponseFails()
     {
-        Fixture fixture = new Fixture();
         doAnswer(invocation -> {
             fixture.acceptTurn(invocation.getArgument(0));
             throw new IllegalStateException("Response lost after acceptance");
@@ -2566,7 +2483,6 @@ class TestAgentReviewService
     @Test
     void aPersistentLaunchFailureStopsAfterTheAutomaticAttempt()
     {
-        Fixture fixture = new Fixture();
         doThrow(new IllegalStateException("Launch unavailable")).when(fixture.turns).start(any(StartAgentTurnCommand.class));
 
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).hasMessage("Launch unavailable");
@@ -2580,7 +2496,6 @@ class TestAgentReviewService
     @Test
     void aLaunchRequiringAuthenticationIsNotRetried()
     {
-        Fixture fixture = new Fixture();
         doThrow(new AgentProviderUnavailableException(new AgentProviderStatus(LANE, AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
                 Optional.empty(), "Sign in required", AgentCapabilities.none())))
                 .when(fixture.turns).start(any(StartAgentTurnCommand.class));
@@ -2592,7 +2507,6 @@ class TestAgentReviewService
     @Test
     void stopCancelsTheActiveTurnAndPausesFollowUp()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
         when(fixture.turns.get(TURN_ONE)).thenReturn(AgentTurn.accepted(TURN_ONE, TASK_ID, "review-run", SETTINGS, NOW));
@@ -2609,7 +2523,6 @@ class TestAgentReviewService
     @Test
     void projectionCarriesTheStoredPullRequest()
     {
-        Fixture fixture = new Fixture();
         PullRequest stored = new PullRequest(
                 1L, REPO, NUMBER, "Avoid duplicate field index lookup", "alice", "url", NOW, NOW, PullRequest.Origin.AUTHORED,
                 ImmutableList.of(), null, false, null, null, null, ImmutableList.of(), null,
@@ -2622,7 +2535,6 @@ class TestAgentReviewService
     @Test
     void projectionPreparesTheExistingDraftBeforeShowingItsPreview()
     {
-        Fixture fixture = new Fixture();
         ReviewDraft saved = ReviewDraft.empty(REPO, NUMBER, NOW).withReview("User notes", "COMMENT", NOW);
         ReviewDraft prepared = saved.withVersion(1);
         when(fixture.drafts.find(REPO, NUMBER)).thenReturn(Optional.of(saved));
@@ -2638,7 +2550,6 @@ class TestAgentReviewService
     void endClosesTheReviewBeforeAskingForWorktreeCleanup()
             throws IOException
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         Path mavenRepository = ReviewMavenRepository.local(reviewId, HEAD);
         Files.createDirectories(mavenRepository.resolve("org/example"));
@@ -2662,7 +2573,6 @@ class TestAgentReviewService
     @Test
     void endDropsAWaitingQuestionBeforeItStopsObservingTheReview()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         when(fixture.turns.queued(TASK_ID)).thenReturn(ImmutableList.of(queuedInput().paused("Turn failed: provider stopped", NOW)));
 
@@ -2678,7 +2588,6 @@ class TestAgentReviewService
     @Test
     void resumeSaysWhyAWaitingQuestionKeepsTheReviewFromMoving()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(run.ended(ReviewRun.State.FAILED, Optional.of("Stopped for test"), NOW));
@@ -2691,7 +2600,6 @@ class TestAgentReviewService
     @Test
     void askingAgainWithTheSameKeyReturnsTheSameQuestion()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
 
         ReviewMessage first = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Why is the parser reset here?", "question-1");
@@ -2708,7 +2616,6 @@ class TestAgentReviewService
     @Test
     void updateResumeAndEndRefuseWhileARunHoldsTheWorkingCopy()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask().claimWorktreeMutation(WorktreeMutationClaim.localRun("run-1", NOW), NOW));
 
@@ -2725,7 +2632,6 @@ class TestAgentReviewService
     @Test
     void workingCopyEditsRunUnderTheClaimOnlyWhileNothingElseHoldsTheWorkingCopy()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         AtomicInteger mutations = new AtomicInteger();
         Function<AgentTask, String> mutation = claimed -> "saved " + claimed.id() + " " + mutations.incrementAndGet();
@@ -2766,7 +2672,6 @@ class TestAgentReviewService
     @Test
     void endWaitsForAPrivateThreadAnswerThatReadsTheWorkingCopy()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         when(fixture.discussions.isAnswering(TASK_ID)).thenReturn(true);
 
@@ -2783,7 +2688,6 @@ class TestAgentReviewService
     @Test
     void endRefusesSavedEditsBeforeItStopsObservingTheReview()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false, true));
 
@@ -2823,7 +2727,6 @@ class TestAgentReviewService
     @Test
     void aPullRequestStillOpenOrNotStoredLeavesItsReviewOpen()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
 
         assertThat(fixture.service.endIfPullRequestEnded(REPO, NUMBER)).isFalse();
@@ -2840,7 +2743,6 @@ class TestAgentReviewService
     @Test
     void aReviewWithSavedEditsStaysOpenUntilALaterRefreshFindsThemGone()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         when(fixture.pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(storedPullRequest("merged")));
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false, true));
@@ -2865,26 +2767,9 @@ class TestAgentReviewService
     @Test
     void observeHeadRecordsTheNewerHeadOnlyOnTheMatchingReview()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
-        AgentReview other = fixture.store.insertReview(new AgentReview(
-                "other-review",
-                WORKSPACE,
-                REPO,
-                OptionalInt.of(9),
-                OptionalLong.empty(),
-                TaskId.random().toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.of(HEAD),
-                Optional.of(HEAD),
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty()));
+        AgentReview other = fixture.store.insertReview(pullRequestReview("other-review", WORKSPACE, REPO, 9, TaskId.random().toString(), NOW)
+                .withObservedHead(HEAD, NOW).withWorktreeHead(HEAD, NOW));
         when(fixture.turns.get(TURN_ONE)).thenReturn(AgentTurn.accepted(TURN_ONE, TASK_ID, "review-run", SETTINGS, NOW));
 
         fixture.service.observeHead("Owner/Repo", NUMBER, NEW_HEAD);
@@ -3062,24 +2947,7 @@ class TestAgentReviewService
         Fixture fixture = rewrittenHistory();
         AutoCheckout checkout = new AutoCheckout(fixture);
         AgentReview review = fixture.store.listOpenReviews().getFirst();
-        fixture.store.updateReview(new AgentReview(
-                review.id(),
-                review.workspaceId(),
-                review.repo(),
-                review.number(),
-                review.pullRequestId(),
-                review.taskId(),
-                Optional.of("development-task"),
-                review.state(),
-                review.followUpPaused(),
-                review.latestCompletedRunId(),
-                review.observedHeadSha(),
-                review.worktreeHeadSha(),
-                review.version(),
-                review.createdAt(),
-                review.updatedAt(),
-                review.closedAt(),
-                Optional.empty()));
+        fixture.store.updateReview(withSource(review, review.number(), review.pullRequestId(), Optional.of("development-task"), Optional.empty()));
 
         fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
         fixture.service.reconcile(review.id());
@@ -3153,7 +3021,6 @@ class TestAgentReviewService
     @Test
     void aNewRemoteHeadDoesNotInterruptTheCurrentInvestigationAndValidation()
     {
-        Fixture fixture = new Fixture();
         AutoCheckout checkout = new AutoCheckout(fixture);
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         pushHead(fixture, NEW_HEAD);
@@ -3178,7 +3045,6 @@ class TestAgentReviewService
     @Test
     void retryAtANewerHeadMovesTheWorktreeSoALaterRewriteCanRealignFromThere()
     {
-        Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         when(fixture.turns.get(TURN_ONE)).thenReturn(settledTurn(TURN_ONE, TurnState.FAILED, Optional.of("Provider failed")));
         fixture.service.reconcile(reviewId);
@@ -3296,7 +3162,6 @@ class TestAgentReviewService
     @Test
     void anUpdateCarriesAnAcceptedReviewToAHeadWithTheSameChange()
     {
-        Fixture fixture = new Fixture();
         ReviewFinding finding = acceptReviewWithOneSupportedFinding(fixture);
         String reviewId = finding.reviewId();
         ReviewRun accepted = fixture.store.listRuns(reviewId).getLast();

@@ -59,19 +59,8 @@ class TestPullRequestCiTool
         }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())));
         PermissionBroker broker = broker(taskId -> taskId.equals("task-1") ? current.get() : Optional.empty(), BridgeResolver.none());
         String expiredToken;
-        try (McpRegistration codex = broker.registerTools(
-                "task-1",
-                temporaryDirectory,
-                AgentPermissionPolicy.AUTO,
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                redactor,
-                Optional.empty(),
-                SessionAccess.FULL,
-                Optional.empty(),
-                ImmutableList.of()).orElseThrow();
-                McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
-                        SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor,
-                        Optional.empty(), ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
+        try (McpRegistration codex = McpTestSupport.registerCodex(broker, "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO, redactor).orElseThrow();
+                McpRegistration claude = McpTestSupport.registerClaude(broker, "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO, redactor)) {
             expiredToken = codex.token();
             assertThat(codex.review()).isEmpty();
             assertThat(codex.development()).isEmpty();
@@ -92,16 +81,7 @@ class TestPullRequestCiTool
             assertThat(text(unavailable)).contains("unavailable for this task");
         }
         assertThat(broker.handle(expiredToken, objectMapper.readTree("{}")).status()).isEqualTo(401);
-        assertThat(broker.registerTools(
-                "task-2",
-                temporaryDirectory,
-                AgentPermissionPolicy.AUTO,
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                redactor,
-                Optional.empty(),
-                SessionAccess.FULL,
-                Optional.empty(),
-                ImmutableList.of())).isEmpty();
+        assertThat(McpTestSupport.registerCodex(broker, "task-2", temporaryDirectory, AgentPermissionPolicy.AUTO, redactor)).isEmpty();
     }
 
     @Test
@@ -114,20 +94,8 @@ class TestPullRequestCiTool
             reads.add(id + ":" + offset);
             return "complete raw page known-secret";
         }, PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())), BridgeResolver.none());
-        try (McpRegistration codex = broker.registerTools(
-                "ci-task",
-                temporaryDirectory,
-                AgentPermissionPolicy.CI_AUTOFIX,
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                redactor,
-                Optional.empty(),
-                SessionAccess.FULL,
-                Optional.empty(),
-                ImmutableList.of()).orElseThrow();
-                McpRegistration claude = broker.register("ci-task", temporaryDirectory, temporaryDirectory, temporaryDirectory,
-                        AgentPermissionPolicy.CI_AUTOFIX, SessionAccess.FULL,
-                        (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty(), ImmutableMap.of(),
-                        Optional.empty(), ImmutableList.of())) {
+        try (McpRegistration codex = McpTestSupport.registerCodex(broker, "ci-task", temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX, redactor).orElseThrow();
+                McpRegistration claude = McpTestSupport.registerClaude(broker, "ci-task", temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX, redactor)) {
             for (String token : ImmutableList.of(codex.token(), claude.token())) {
                 assertThat(list(broker, token).at("/result/tools").findValuesAsText("name"))
                         .contains(PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME);
@@ -150,16 +118,7 @@ class TestPullRequestCiTool
         PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> {
             throw new AssertionError("Invalid tool arguments reached the CI reader");
         }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())), BridgeResolver.none());
-        try (McpRegistration registration = broker.registerTools(
-                "task-1",
-                temporaryDirectory,
-                AgentPermissionPolicy.AUTO,
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                redactor,
-                Optional.empty(),
-                SessionAccess.FULL,
-                Optional.empty(),
-                ImmutableList.of()).orElseThrow()) {
+        try (McpRegistration registration = McpTestSupport.registerCodex(broker, "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO, redactor).orElseThrow()) {
             for (String arguments : ImmutableList.of(
                     "null", "[]", "false", "{\"jobId\":null}", "{\"jobId\":0}", "{\"jobId\":-1}", "{\"jobId\":1.5}",
                     "{\"jobId\":\"7\"}", "{\"jobId\":9223372036854775808}", "{\"repo\":\"other/repo\"}",
@@ -178,22 +137,11 @@ class TestPullRequestCiTool
         };
         PermissionBroker broker = broker(reader, BridgeResolver.none());
         for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.CHERRY_PICK)) {
-            try (McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, policy, SessionAccess.FULL,
-                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty(), ImmutableMap.of(),
-                    Optional.empty(), ImmutableList.of())) {
+            try (McpRegistration claude = McpTestSupport.registerClaude(broker, "task-1", temporaryDirectory, policy, redactor)) {
                 assertThat(list(broker, claude.token()).at("/result/tools").findValuesAsText("name")).doesNotContain(PullRequestCiBridge.TOOL_NAME);
                 assertThat(call(broker, claude.token(), "{}").at("/error/code").intValue()).isEqualTo(-32602);
             }
-            Optional<McpRegistration> codex = broker.registerTools(
-                    "task-1",
-                    temporaryDirectory,
-                    policy,
-                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                    redactor,
-                    Optional.empty(),
-                    SessionAccess.FULL,
-                    Optional.empty(),
-                    ImmutableList.of());
+            Optional<McpRegistration> codex = McpTestSupport.registerCodex(broker, "task-1", temporaryDirectory, policy, redactor);
             if (codex.isPresent()) {
                 try (McpRegistration registration = codex.orElseThrow()) {
                     assertThat(list(broker, registration.token()).at("/result/tools").findValuesAsText("name")).doesNotContain(PullRequestCiBridge.TOOL_NAME);
@@ -235,16 +183,7 @@ class TestPullRequestCiTool
         PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> {
             throw new IllegalStateException("known-secret " + "x".repeat(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH));
         }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())), BridgeResolver.none());
-        try (McpRegistration registration = broker.registerTools(
-                "task-1",
-                temporaryDirectory,
-                AgentPermissionPolicy.AUTO,
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                redactor,
-                Optional.empty(),
-                SessionAccess.FULL,
-                Optional.empty(),
-                ImmutableList.of()).orElseThrow()) {
+        try (McpRegistration registration = McpTestSupport.registerCodex(broker, "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO, redactor).orElseThrow()) {
             JsonNode response = call(broker, registration.token(), "{}");
             assertThat(response.at("/result/isError").booleanValue()).isTrue();
             assertThat(text(response)).contains("no partial log was returned").doesNotContain("known-secret");
@@ -262,19 +201,8 @@ class TestPullRequestCiTool
                     return "Saved";
                 }), Optional.empty())), BridgeResolver.none());
         for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX)) {
-            try (McpRegistration codex = broker.registerTools(
-                    "task-1",
-                    temporaryDirectory,
-                    policy,
-                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                    redactor,
-                    Optional.empty(),
-                    SessionAccess.FULL,
-                    Optional.empty(),
-                    ImmutableList.of()).orElseThrow();
-                    McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, policy, SessionAccess.FULL,
-                            (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty(),
-                            ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
+            try (McpRegistration codex = McpTestSupport.registerCodex(broker, "task-1", temporaryDirectory, policy, redactor).orElseThrow();
+                    McpRegistration claude = McpTestSupport.registerClaude(broker, "task-1", temporaryDirectory, policy, redactor)) {
                 for (String token : ImmutableList.of(codex.token(), claude.token())) {
                     JsonNode request = objectMapper.readTree("""
                             {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"propose_ci_description",
@@ -309,19 +237,8 @@ class TestPullRequestCiTool
                     return "Assessment saved";
                 }))), BridgeResolver.none());
         for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX)) {
-            try (McpRegistration codex = broker.registerTools(
-                    "task-1",
-                    temporaryDirectory,
-                    policy,
-                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                    redactor,
-                    Optional.empty(),
-                    SessionAccess.FULL,
-                    Optional.empty(),
-                    ImmutableList.of()).orElseThrow();
-                    McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, policy, SessionAccess.FULL,
-                            (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty(),
-                            ImmutableMap.of(), Optional.empty(), ImmutableList.of())) {
+            try (McpRegistration codex = McpTestSupport.registerCodex(broker, "task-1", temporaryDirectory, policy, redactor).orElseThrow();
+                    McpRegistration claude = McpTestSupport.registerClaude(broker, "task-1", temporaryDirectory, policy, redactor)) {
                 for (String token : ImmutableList.of(codex.token(), claude.token())) {
                     JsonNode request = objectMapper.readTree("""
                             {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"request_ci_rerun",

@@ -23,8 +23,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
@@ -38,7 +36,10 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubAccountClientRepositoryRouting
+        extends AbstractGitHubClientTest
 {
+    private final GitHubAccountClient client = new GitHubAccountClient(restClient, graphQlClient);
+
     @ParameterizedTest
     @CsvSource(value = {
             "true|{\"permissions\":{\"push\":true}}",
@@ -50,21 +51,14 @@ class TestGitHubAccountClientRepositoryRouting
     }, delimiter = '|')
     void repositoryPermissionsRequireExplicitPushAccess(boolean expected, String response)
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubAccountClient client = new GitHubAccountClient(builder.build(), RestClient.create());
         server.expect(requestTo("https://api.github.test/repos/owner/repo")).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
 
         assertThat(client.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).isEqualTo(expected);
-        server.verify();
     }
 
     @Test
     void fetchesAnotherUsersPublicProfile()
     {
-        RestClient.Builder apiBuilder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(apiBuilder).build();
-        GitHubAccountClient client = new GitHubAccountClient(apiBuilder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/users/octocat"))
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withSuccess("""
@@ -87,16 +81,12 @@ class TestGitHubAccountClientRepositoryRouting
         assertThat(profile.login()).isEqualTo("octocat");
         assertThat(profile.name()).isEqualTo("The Octocat");
         assertThat(profile.followers()).isEqualTo(42);
-        server.verify();
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void repositoryReadUsesCanonicalSourceAndPermissionSummary(boolean byId)
     {
-        RestClient.Builder apiBuilder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(apiBuilder).build();
-        GitHubAccountClient client = new GitHubAccountClient(apiBuilder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test" + (byId ? "/repositories/42" : "/repos/contributor/project")))
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withSuccess("""
@@ -133,16 +123,12 @@ class TestGitHubAccountClientRepositoryRouting
         assertThat(repository.visibility()).isEqualTo("private");
         assertThat(repository.viewerCanPush()).isTrue();
         assertThat(repository.upstream()).contains(new UserRepo.Upstream(40, "canonical", "project", "main", "https://github.com/canonical/project.git"));
-        server.verify();
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void repositoryReadsPreserveMissingAndFailedResponses(boolean byId)
     {
-        RestClient.Builder apiBuilder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(apiBuilder).build();
-        GitHubAccountClient client = new GitHubAccountClient(apiBuilder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         String url = "https://api.github.test" + (byId ? "/repositories/42" : "/repos/contributor/project");
         server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.NOT_FOUND));
         server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.UNAUTHORIZED));
@@ -154,6 +140,5 @@ class TestGitHubAccountClientRepositoryRouting
                 failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED));
         assertThatThrownBy(fetch::get).isInstanceOfSatisfying(ResponseStatusException.class,
                 failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR));
-        server.verify();
     }
 }

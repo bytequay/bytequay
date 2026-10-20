@@ -17,8 +17,6 @@ import com.bytequay.core.domain.RepoRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,59 +26,46 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubPullRequestCodeSnippetClient
+        extends AbstractGitHubClientTest
 {
     private static final String COMMIT = "4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa";
+
+    private final GitHubPullRequestReadClient client = new GitHubPullRequestReadClient(restClient, graphQlClient);
 
     @Test
     void encodesRepositoryPathsAndReturnsOnlyRequestedLines()
     {
-        Fixture fixture = fixture();
-        fixture.server.expect(requestTo("https://api.github.test/repos/trinodb/trino/contents/src/%7Bgenerated%7D.ts?ref=" + COMMIT))
+        server.expect(requestTo("https://api.github.test/repos/trinodb/trino/contents/src/%7Bgenerated%7D.ts?ref=" + COMMIT))
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
                 .andExpect(header(HttpHeaders.ACCEPT, "application/vnd.github.raw+json"))
                 .andRespond(withSuccess("first\r\nsecond\nthird\nfourth\n", MediaType.TEXT_PLAIN));
 
-        assertThat(fixture.client.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/{generated}.ts", COMMIT, 2, 3))
+        assertThat(client.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/{generated}.ts", COMMIT, 2, 3))
                 .hasValue(java.util.List.of("second", "third"));
-        fixture.server.verify();
     }
 
     @Test
     void returnsCompleteEarlyLinesWithoutReadingAnOversizedRemainder()
     {
-        Fixture fixture = fixture();
-        expectSource(fixture, "first\n" + "x".repeat(1024 * 1024 + 1));
+        expectSource("first\n" + "x".repeat(1024 * 1024 + 1));
 
-        assertThat(fixture.client.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 1, 1))
+        assertThat(client.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 1, 1))
                 .hasValue(java.util.List.of("first"));
-        fixture.server.verify();
     }
 
     @Test
     void rejectsARequestedLineBeyondTheBoundedRead()
     {
-        Fixture fixture = fixture();
-        expectSource(fixture, "x".repeat(1024 * 1024 + 1));
+        expectSource("x".repeat(1024 * 1024 + 1));
 
-        assertThatThrownBy(() -> fixture.client.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 1, 1))
+        assertThatThrownBy(() -> client.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 1, 1))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("snippet read limit");
-        fixture.server.verify();
     }
 
-    private static void expectSource(Fixture fixture, String source)
+    private void expectSource(String source)
     {
-        fixture.server.expect(requestTo("https://api.github.test/repos/trinodb/trino/contents/src/Main.java?ref=" + COMMIT))
+        server.expect(requestTo("https://api.github.test/repos/trinodb/trino/contents/src/Main.java?ref=" + COMMIT))
                 .andRespond(withSuccess(source, MediaType.TEXT_PLAIN));
     }
-
-    private static Fixture fixture()
-    {
-        RestClient.Builder api = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(api).build();
-        GitHubPullRequestReadClient client = new GitHubPullRequestReadClient(api.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
-        return new Fixture(client, server);
-    }
-
-    private record Fixture(GitHubPullRequestReadClient client, MockRestServiceServer server) {}
 }

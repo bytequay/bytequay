@@ -15,7 +15,6 @@ package com.bytequay.app.cherrypick;
 
 import com.bytequay.app.cherrypick.ConflictPreview.Status;
 import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.git.GitTestSupport;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,7 +25,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
+import static com.bytequay.app.git.GitTestSupport.commit;
+import static com.bytequay.app.git.GitTestSupport.commitFile;
 import static com.bytequay.app.git.GitTestSupport.git;
+import static com.bytequay.app.git.GitTestSupport.head;
+import static com.bytequay.app.git.GitTestSupport.initRepository;
+import static com.bytequay.app.git.GitTestSupport.write;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestCherryPickConflictScout
@@ -44,35 +48,24 @@ class TestCherryPickConflictScout
             throws IOException
     {
         Path created = Files.createDirectories(temporaryDirectory.resolve("repo"));
-        git(temporaryDirectory, "init", "--quiet", "-b", "main", created.toString());
-        git(created, "config", "user.name", "ByteQuay Test");
-        git(created, "config", "user.email", "bytequay@example.com");
-        repository = created.toRealPath();
+        repository = initRepository(created);
         scout = new CherryPickConflictScout(GIT);
     }
 
     @Test
     void simulatesTheCleanPrefixAndStopsAtTheFirstConflict()
     {
-        write("core/pom.xml", "<project/>\n");
-        write("core/src/Main.java", "one\ntwo\nthree\n");
-        commit("Base");
+        write(repository, "core/pom.xml", "<project/>\n");
+        write(repository, "core/src/Main.java", "one\ntwo\nthree\n");
+        commit(repository, "Base");
 
         git(repository, "checkout", "--quiet", "-b", "source");
-        write("core/src/Clean.java", "clean\n");
-        commit("Clean change");
-        String clean = head();
-        write("core/src/Main.java", "one\nSOURCE\nthree\n");
-        commit("Conflicting change");
-        String conflicting = head();
-        write("core/src/After.java", "after\n");
-        commit("Later change");
-        String later = head();
+        String clean = commitFile(repository, "core/src/Clean.java", "clean\n", "Clean change");
+        String conflicting = commitFile(repository, "core/src/Main.java", "one\nSOURCE\nthree\n", "Conflicting change");
+        String later = commitFile(repository, "core/src/After.java", "after\n", "Later change");
 
         git(repository, "checkout", "--quiet", "main");
-        write("core/src/Main.java", "one\nTARGET\nthree\n");
-        commit("Target change");
-        String movedTarget = head();
+        String movedTarget = commitFile(repository, "core/src/Main.java", "one\nTARGET\nthree\n", "Target change");
 
         Map<String, ConflictPreview> previews = scout.scout(repository, movedTarget, ImmutableList.of(clean, conflicting, later));
 
@@ -90,35 +83,25 @@ class TestCherryPickConflictScout
     @Test
     void reportsAddAddAndModifyDeleteConflicts()
     {
-        write("seed.txt", "seed\n");
-        commit("Base");
-        String base = head();
+        String base = commitFile(repository, "seed.txt", "seed\n", "Base");
 
         git(repository, "checkout", "--quiet", "-b", "source");
-        write("both.txt", "source version\n");
-        commit("Add both.txt on source");
-        String addAdd = head();
+        String addAdd = commitFile(repository, "both.txt", "source version\n", "Add both.txt on source");
 
         git(repository, "checkout", "--quiet", "main");
-        write("both.txt", "target version\n");
-        commit("Add both.txt on target");
-        String target = head();
+        String target = commitFile(repository, "both.txt", "target version\n", "Add both.txt on target");
 
         Map<String, ConflictPreview> previews = scout.scout(repository, target, ImmutableList.of(addAdd));
         assertThat(previews.get(addAdd).paths()).containsExactly("both.txt");
 
         git(repository, "checkout", "--quiet", "-B", "source2", base);
-        write("victim.txt", "content\n");
-        commit("Add victim");
-        String withVictim = head();
-        write("victim.txt", "changed content\n");
-        commit("Change victim");
-        String changed = head();
+        String withVictim = commitFile(repository, "victim.txt", "content\n", "Add victim");
+        String changed = commitFile(repository, "victim.txt", "changed content\n", "Change victim");
 
         git(repository, "checkout", "--quiet", "-B", "target2", withVictim);
         git(repository, "rm", "--quiet", "victim.txt");
         git(repository, "commit", "--quiet", "-m", "Delete victim on target");
-        String deletedTarget = head();
+        String deletedTarget = head(repository);
 
         Map<String, ConflictPreview> deletion = scout.scout(repository, deletedTarget, ImmutableList.of(changed));
         assertThat(deletion.get(changed).paths()).containsExactly("victim.txt");
@@ -127,22 +110,14 @@ class TestCherryPickConflictScout
     @Test
     void keepsGoingPastACommitTheTargetAlreadyContains()
     {
-        write("seed.txt", "seed\n");
-        commit("Base");
-        String base = head();
+        String base = commitFile(repository, "seed.txt", "seed\n", "Base");
 
         git(repository, "checkout", "--quiet", "-b", "source");
-        write("shared.txt", "shared\n");
-        commit("Redundant change");
-        String redundant = head();
-        write("unique.txt", "unique\n");
-        commit("Unique change");
-        String unique = head();
+        String redundant = commitFile(repository, "shared.txt", "shared\n", "Redundant change");
+        String unique = commitFile(repository, "unique.txt", "unique\n", "Unique change");
 
         git(repository, "checkout", "--quiet", "-B", "target", base);
-        write("shared.txt", "shared\n");
-        commit("Target already has it");
-        String target = head();
+        String target = commitFile(repository, "shared.txt", "shared\n", "Target already has it");
 
         Map<String, ConflictPreview> previews = scout.scout(repository, target, ImmutableList.of(redundant, unique));
 
@@ -156,9 +131,7 @@ class TestCherryPickConflictScout
     @Test
     void removesItsWorktreeEvenWhenTheSimulationCannotStart()
     {
-        write("seed.txt", "seed\n");
-        commit("Base");
-        String target = head();
+        String target = commitFile(repository, "seed.txt", "seed\n", "Base");
 
         Map<String, ConflictPreview> previews = scout.scout(repository, target, ImmutableList.of("0".repeat(40)));
 
@@ -173,20 +146,5 @@ class TestCherryPickConflictScout
                 .doesNotContain("bytequay-preview-");
         assertThat(git(repository, "rev-parse", "HEAD")).isEqualTo(expectedHead);
         assertThat(git(repository, "status", "--porcelain")).isEmpty();
-    }
-
-    private void write(String name, String content)
-    {
-        GitTestSupport.write(repository, name, content);
-    }
-
-    private void commit(String subject)
-    {
-        GitTestSupport.commit(repository, subject);
-    }
-
-    private String head()
-    {
-        return GitTestSupport.head(repository);
     }
 }

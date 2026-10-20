@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static com.bytequay.app.git.GitTestSupport.commit;
+import static com.bytequay.app.git.GitTestSupport.commitFile;
 import static com.bytequay.app.git.GitTestSupport.gitOutput;
 import static com.bytequay.app.git.GitTestSupport.head;
 import static com.bytequay.app.git.GitTestSupport.initRepository;
@@ -78,9 +79,7 @@ class TestGitBrowseService
     void diffSplitsPerFileWithStatusesAndCounts()
     {
         write(repository, "kept.txt", "line\n");
-        write(repository, "gone.txt", "bye\n");
-        commit(repository, "Base");
-        String base = head(repository);
+        String base = commitFile(repository, "gone.txt", "bye\n", "Base");
         write(repository, "kept.txt", "line\nmore\n");
         write(repository, "fresh.txt", "hello\n");
         gitOutput(repository, "rm", "--quiet", "gone.txt");
@@ -103,9 +102,7 @@ class TestGitBrowseService
     @Test
     void diffHandlesPathsWithSpaces()
     {
-        write(repository, "seed.txt", "seed\n");
-        commit(repository, "Base");
-        String base = head(repository);
+        String base = commitFile(repository, "seed.txt", "seed\n", "Base");
         write(repository, "docs/My Design File.html", "<html>\n");
         commit(repository, "Add design");
 
@@ -121,9 +118,7 @@ class TestGitBrowseService
     @Test
     void diffFileContentReturnsBothRevisions()
     {
-        write(repository, "folder/file.txt", "before\n");
-        commit(repository, "Base");
-        String base = head(repository);
+        String base = commitFile(repository, "folder/file.txt", "before\n", "Base");
         write(repository, "folder/file.txt", "after\n");
         commit(repository, "Change");
 
@@ -171,9 +166,7 @@ class TestGitBrowseService
     {
         write(repository, "seed.txt", "seed\n");
         commit(repository, "Seed");
-        write(repository, "a.txt", "one\n");
-        commit(repository, "First");
-        String first = head(repository);
+        String first = commitFile(repository, "a.txt", "one\n", "First");
         write(repository, "b.txt", "two\n");
         commit(repository, "Second");
 
@@ -189,12 +182,8 @@ class TestGitBrowseService
     {
         write(repository, "a.txt", "one\n");
         commit(repository, "Keep below");
-        write(repository, "b.txt", "two\n");
-        commit(repository, "Span start");
-        String base = head(repository);
-        write(repository, "c.txt", "three\n");
-        commit(repository, "Span end");
-        String tip = head(repository);
+        String base = commitFile(repository, "b.txt", "two\n", "Span start");
+        String tip = commitFile(repository, "c.txt", "three\n", "Span end");
         write(repository, "d.txt", "four\n");
         commit(repository, "Keep above");
 
@@ -209,9 +198,7 @@ class TestGitBrowseService
     @Test
     void rewritesRefuseADirtyWorktree()
     {
-        write(repository, "a.txt", "one\n");
-        commit(repository, "First");
-        String first = head(repository);
+        String first = commitFile(repository, "a.txt", "one\n", "First");
         write(repository, "a.txt", "changed\n");
 
         assertThatThrownBy(() -> service.reword(repository, "main", first, "New message"))

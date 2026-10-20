@@ -89,8 +89,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.OptionalLong;
 
+import static com.bytequay.app.review.ReviewTestData.openReview;
+import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -437,24 +438,7 @@ class TestLocalReviewService
         task = AgentTask.created(taskId, false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, task.taskWorktree().orElseThrow(),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
         when(tasks.get(taskId)).thenReturn(task);
-        AgentReview review = new AgentReview(
-                "review",
-                "workspace",
-                "owner/repo",
-                OptionalInt.of(7),
-                OptionalLong.empty(),
-                taskId.toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                Instant.EPOCH,
-                Instant.EPOCH,
-                Optional.empty(),
-                Optional.empty());
+        AgentReview review = pullRequestReview("review", "workspace", "owner/repo", 7, taskId.toString(), Instant.EPOCH);
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         doAnswer(call -> {
             String prompt = call.getArgument(2);
@@ -564,24 +548,7 @@ class TestLocalReviewService
         task = AgentTask.created(taskId, false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, task.taskWorktree().orElseThrow(),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
         when(tasks.get(taskId)).thenReturn(task);
-        AgentReview review = new AgentReview(
-                "review",
-                "workspace",
-                "owner/repo",
-                OptionalInt.of(7),
-                OptionalLong.empty(),
-                taskId.toString(),
-                Optional.empty(),
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                Instant.EPOCH,
-                Instant.EPOCH,
-                Optional.empty(),
-                Optional.empty());
+        AgentReview review = pullRequestReview("review", "workspace", "owner/repo", 7, taskId.toString(), Instant.EPOCH);
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         when(reviews.listReviews("workspace")).thenReturn(ImmutableList.of(review));
 
@@ -802,24 +769,7 @@ class TestLocalReviewService
 
     private static AgentReview review(String id, OptionalInt number, Optional<String> sourceTaskId)
     {
-        return new AgentReview(
-                id,
-                "workspace",
-                "owner/repo",
-                number,
-                OptionalLong.empty(),
-                "task-of-" + id,
-                sourceTaskId,
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                Instant.EPOCH,
-                Instant.EPOCH,
-                Optional.empty(),
-                Optional.empty());
+        return openReview(id, "workspace", "owner/repo", number, "task-of-" + id, sourceTaskId, Instant.EPOCH);
     }
 
     private static ReviewFinding finding(String id, String reviewId)

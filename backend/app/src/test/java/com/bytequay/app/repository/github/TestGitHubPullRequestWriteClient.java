@@ -20,16 +20,12 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
@@ -46,27 +42,9 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubPullRequestWriteClient
+        extends AbstractGitHubClientTest
 {
-    private MockRestServiceServer server;
-    private MockRestServiceServer graphServer;
-    private GitHubPullRequestWriteClient client;
-
-    @BeforeEach
-    void setUp()
-    {
-        RestClient.Builder rest = RestClient.builder().baseUrl("https://api.github.test");
-        RestClient.Builder graph = RestClient.builder().baseUrl("https://api.github.test/graphql");
-        server = MockRestServiceServer.bindTo(rest).build();
-        graphServer = MockRestServiceServer.bindTo(graph).build();
-        client = new GitHubPullRequestWriteClient(rest.build(), graph.build());
-    }
-
-    @AfterEach
-    void verifyRequests()
-    {
-        server.verify();
-        graphServer.verify();
-    }
+    private final GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(restClient, graphQlClient);
 
     @Test
     void sendsTheDisplayedHeadAndPropagatesAChangedHeadRejection()

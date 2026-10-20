@@ -33,15 +33,12 @@ import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
-import com.bytequay.agent.core.StoreAgentAttachmentCommand;
-import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
-import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
@@ -51,12 +48,9 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionRef;
-import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderTurnRef;
-import com.bytequay.agent.spi.ProviderUsageSample;
-import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -71,14 +65,19 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.function.UnaryOperator;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class TestDefaultAgentCompletionService
 {
@@ -87,8 +86,16 @@ class TestDefaultAgentCompletionService
     private static final RepositoryIdentity REPOSITORY = new RepositoryIdentity("bytequay", "sample");
     private static final AgentMetrics METRICS = new AgentMetrics(10, 2, 3, Optional.empty(), Duration.ofSeconds(4));
 
+    private final AgentMetricsService metrics = mock(AgentMetricsService.class, invocation -> {
+        throw new UnsupportedOperationException();
+    });
     private InMemoryAgentStores stores;
-    private RecordingResources resources;
+    private AgentResourceService resources;
+    private int worktreeCacheDeletions;
+    private boolean failCacheDeletion;
+    private boolean failResourceDeletion;
+    private int resourceDeletions;
+    private int retainedTranscripts;
     private RecordingWorktreeService worktrees;
     private AgentRuntimeRegistry runtimeRegistry;
     private TaskId taskId;
@@ -97,8 +104,9 @@ class TestDefaultAgentCompletionService
     @BeforeEach
     void setUp()
     {
+        doReturn(METRICS).when(metrics).taskTotals(any());
         stores = new InMemoryAgentStores();
-        resources = new RecordingResources();
+        resources = resourceService();
         worktrees = new RecordingWorktreeService();
         runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
         taskId = TaskId.random();
@@ -217,12 +225,12 @@ class TestDefaultAgentCompletionService
         if (recoveryClaim) {
             stores.update(stores.find(taskId).orElseThrow().claimWorktreeMutation(WorktreeMutationClaim.recovery("lost-launch", NOW), NOW));
         }
-        RecordingSession session = new RecordingSession();
+        AgentSession session = session();
         runtimeRegistry.registerSession(taskId, session);
         String branch = "user/bytequay/recovered-branch";
         List<AgentTask> preparations = new ArrayList<>();
         idleWorktreePreparation = current -> {
-            assertThat(session.closed).isTrue();
+            verify(session, atLeastOnce()).close();
             assertThat(stores.findActive(current.id())).isEmpty();
             preparations.add(current);
             return current.state() == TaskState.OPEN ? stores.update(current.withBranch(branch, NOW)) : current;
@@ -241,11 +249,11 @@ class TestDefaultAgentCompletionService
     @Test
     void deleteUsesTheRecoveredBranchAfterVerifiedStop()
     {
-        RecordingSession session = new RecordingSession();
+        AgentSession session = session();
         runtimeRegistry.registerSession(taskId, session);
         String branch = "user/bytequay/recovered-branch";
         idleWorktreePreparation = current -> {
-            assertThat(session.closed).isTrue();
+            verify(session, atLeastOnce()).close();
             return stores.update(current.withBranch(branch, NOW));
         };
 
@@ -284,7 +292,7 @@ class TestDefaultAgentCompletionService
     @Test
     void completesAtomicallyAndIsIdempotent()
     {
-        RecordingSession session = new RecordingSession();
+        AgentSession session = session();
         runtimeRegistry.registerSession(taskId, session);
         DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
 
@@ -305,13 +313,13 @@ class TestDefaultAgentCompletionService
                         && inline.payload() instanceof AgentEventPayload.Lifecycle lifecycle
                         && lifecycle.phase() == AgentEventPayload.LifecyclePhase.TASK_COMPLETED)
                 .hasSize(1);
-        assertThat(session.closed).isTrue();
+        verify(session, atLeastOnce()).close();
         assertThat(worktrees.cleaned).isEmpty();
 
         service.cleanupWorktree(taskId);
         service.cleanupWorktree(taskId);
         assertThat(worktrees.cleaned).hasSize(1);
-        assertThat(resources.worktreeCacheDeletions).isOne();
+        assertThat(worktreeCacheDeletions).isOne();
         assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).contains(NOW);
     }
 
@@ -328,12 +336,12 @@ class TestDefaultAgentCompletionService
         assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
         assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).isEmpty();
         assertThat(stores.find(taskId).orElseThrow().updatedAt()).isEqualTo(NOW.plusSeconds(1));
-        assertThat(resources.worktreeCacheDeletions).isZero();
+        assertThat(worktreeCacheDeletions).isZero();
 
         worktrees.failCleanup = false;
         service(Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC)).cleanupWorktree(taskId);
         assertThat(worktrees.cleaned).hasSize(2);
-        assertThat(resources.worktreeCacheDeletions).isOne();
+        assertThat(worktreeCacheDeletions).isOne();
         assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).contains(NOW.plusSeconds(2));
     }
 
@@ -341,13 +349,13 @@ class TestDefaultAgentCompletionService
     void retriesCacheDeletionBeforeMarkingTheWorktreeRemoved()
     {
         service(Clock.fixed(NOW, ZoneOffset.UTC)).complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
-        resources.failCacheDeletion = true;
+        failCacheDeletion = true;
         assertThatThrownBy(() -> service(Clock.fixed(NOW.plusSeconds(1), ZoneOffset.UTC)).cleanupWorktree(taskId))
                 .hasMessage("cache busy");
         assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).isEmpty();
-        resources.failCacheDeletion = false;
+        failCacheDeletion = false;
         service(Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC)).cleanupWorktree(taskId);
-        assertThat(resources.worktreeCacheDeletions).isEqualTo(2);
+        assertThat(worktreeCacheDeletions).isEqualTo(2);
         assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).contains(NOW.plusSeconds(2));
     }
 
@@ -414,7 +422,7 @@ class TestDefaultAgentCompletionService
         stores.insert(uncertain);
         // A consumed input is history and blocks nothing.
         stores.insert(queuedInput(taskId, 2, "queue-2").starting(TurnId.random(), EventId.random(), NOW).started(NOW));
-        runtimeRegistry.registerSession(taskId, new RecordingSession());
+        runtimeRegistry.registerSession(taskId, session());
 
         service(Clock.fixed(NOW, ZoneOffset.UTC)).complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
 
@@ -441,24 +449,24 @@ class TestDefaultAgentCompletionService
     void deletesAnIdleTaskWithItsCheckoutBranchResourcesAndRows()
     {
         stores.insert(queuedInput(taskId, 1, "queue-1"));
-        RecordingSession session = new RecordingSession();
+        AgentSession session = session();
         runtimeRegistry.registerSession(taskId, session);
         DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
 
         service.delete(taskId);
 
-        assertThat(session.closed).isTrue();
+        verify(session, atLeastOnce()).close();
         // Delete, not cleanup: the branch goes with the checkout, dirty or not.
         assertThat(worktrees.deleted).hasSize(1);
         assertThat(worktrees.cleaned).isEmpty();
-        assertThat(resources.deletions).isEqualTo(1);
+        assertThat(resourceDeletions).isEqualTo(1);
         assertThat(stores.find(taskId)).isEmpty();
         assertThat(stores.listQueued(taskId)).isEmpty();
 
         // Deleting what is already gone is a no-op, not an error.
         service.delete(taskId);
         assertThat(worktrees.deleted).hasSize(1);
-        assertThat(resources.deletions).isEqualTo(1);
+        assertThat(resourceDeletions).isEqualTo(1);
     }
 
     @Test
@@ -477,7 +485,7 @@ class TestDefaultAgentCompletionService
                 .hasMessageContaining("claimed");
 
         assertThat(worktrees.deleted).isEmpty();
-        assertThat(resources.deletions).isZero();
+        assertThat(resourceDeletions).isZero();
         assertThat(stores.find(taskId)).isPresent();
         assertThat(stores.find(claimed)).isPresent();
     }
@@ -508,7 +516,7 @@ class TestDefaultAgentCompletionService
                 .hasMessageContaining("branch checked out elsewhere");
 
         // Git refused first, so nothing else was touched and the task is still there to retry.
-        assertThat(resources.deletions).isZero();
+        assertThat(resourceDeletions).isZero();
         assertThat(stores.find(taskId)).isPresent();
     }
 
@@ -521,7 +529,7 @@ class TestDefaultAgentCompletionService
         TurnId turnId = TurnId.random();
         stores.update(stores.find(taskId).orElseThrow()
                 .claimWorktreeMutation(WorktreeMutationClaim.turn(turnId, NOW), NOW));
-        RecordingSession session = new RecordingSession();
+        AgentSession session = session();
         runtimeRegistry.registerSession(taskId, session);
         DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
 
@@ -535,7 +543,7 @@ class TestDefaultAgentCompletionService
         assertThat(failed.terminalReason()).contains("provider activity could not be shown stopped");
         assertThat(worktrees.cleaned).isEmpty();
         // The task's own process is stopped before the task is given up on.
-        assertThat(session.closed).isTrue();
+        verify(session, atLeastOnce()).close();
     }
 
     @Test
@@ -640,7 +648,7 @@ class TestDefaultAgentCompletionService
         service(Clock.fixed(NOW, ZoneOffset.UTC))
                 .complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
         AgentTask completed = stores.find(taskId).orElseThrow();
-        resources.failDeletion = true;
+        failResourceDeletion = true;
         DefaultAgentCompletionService dueService = service(Clock.fixed(NOW.plus(Duration.ofDays(8)), ZoneOffset.UTC));
 
         assertThat(cleanup(dueService)).isEqualTo(CleanupState.RETRY_PENDING);
@@ -648,11 +656,11 @@ class TestDefaultAgentCompletionService
         assertThat(retry.state()).isEqualTo(completed.state());
         assertThat(retry.summary()).isEqualTo(completed.summary());
 
-        resources.failDeletion = false;
+        failResourceDeletion = false;
         assertThat(cleanup(dueService)).isEqualTo(CleanupState.DELETED);
         assertThat(cleanup(dueService)).isEqualTo(CleanupState.DELETED);
-        assertThat(resources.transcriptKept).isEqualTo(2);
-        assertThat(resources.deletions).isZero();  // retention keeps the transcript; only deleting the task removes it
+        assertThat(retainedTranscripts).isEqualTo(2);
+        assertThat(resourceDeletions).isZero();  // retention keeps the transcript; only deleting the task removes it
     }
 
     @Test
@@ -663,11 +671,11 @@ class TestDefaultAgentCompletionService
         worktrees.failCleanup = true;
 
         assertThat(cleanup(dueService)).isEqualTo(CleanupState.RETRY_PENDING);
-        assertThat(resources.transcriptKept).isZero();
+        assertThat(retainedTranscripts).isZero();
 
         worktrees.failCleanup = false;
         assertThat(cleanup(dueService)).isEqualTo(CleanupState.DELETED);
-        assertThat(resources.transcriptKept).isOne();
+        assertThat(retainedTranscripts).isOne();
     }
 
     @Test
@@ -706,12 +714,12 @@ class TestDefaultAgentCompletionService
 
         assertThat(cleanup(due)).isEqualTo(CleanupState.RETRY_PENDING);
         assertThat(worktrees.cleaned).isEmpty();
-        assertThat(resources.transcriptKept).isZero();
+        assertThat(retainedTranscripts).isZero();
         assertThat(stores.listPending(taskId, 10)).hasSize(1);
 
         assertThat(cleanup(due)).isEqualTo(CleanupState.DELETED);
         assertThat(worktrees.cleaned).hasSize(1);
-        assertThat(resources.transcriptKept).isOne();
+        assertThat(retainedTranscripts).isOne();
         assertThat(stores.listPending(taskId, 10)).isEmpty();
     }
 
@@ -739,7 +747,7 @@ class TestDefaultAgentCompletionService
                 worktrees,
                 resources,
                 runtimeRegistry,
-                new FixedMetrics(),
+                metrics,
                 () -> Duration.ofDays(7),
                 clock,
                 task -> idleWorktreePreparation.apply(task));
@@ -847,136 +855,55 @@ class TestDefaultAgentCompletionService
         }
     }
 
-    private static final class RecordingResources
-            implements AgentResourceService
+    private AgentResourceService resourceService()
     {
-        private int worktreeCacheDeletions;
-        private boolean failCacheDeletion;
-
-        @Override
-        public void deleteWorktreeCache(TaskId taskId)
-        {
+        AgentResourceService resources = mock(AgentResourceService.class, invocation -> {
+            throw new UnsupportedOperationException();
+        });
+        doAnswer(invocation -> {
             worktreeCacheDeletions++;
             if (failCacheDeletion) {
                 throw new IllegalStateException("cache busy");
             }
-        }
+            return null;
+        }).when(resources).deleteWorktreeCache(any());
+        doAnswer(invocation -> resources(invocation.getArgument(0))).when(resources).require(any());
+        doAnswer(invocation -> resources(invocation.getArgument(0))).when(resources).pathsForDeletion(any());
+        doAnswer(invocation -> {
+            resourceDeletions++;
+            deleteResources();
+            return null;
+        }).when(resources).delete(any());
+        doAnswer(invocation -> {
+            retainedTranscripts++;
+            deleteResources();
+            return null;
+        }).when(resources).deleteExceptTranscript(any());
+        return resources;
+    }
 
-        @Override
-        public void validateAttachment(StoreAgentAttachmentCommand command)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public StoredAgentAttachment storeAttachment(StoreAgentAttachmentCommand command)
-        {
-            throw new UnsupportedOperationException("attachments are not part of this test");
-        }
-
-        @Override
-        public StoredAgentAttachment readAttachment(TaskId taskId, String attachmentId)
-        {
-            throw new UnsupportedOperationException("attachments are not part of this test");
-        }
-
-        @Override
-        public void deleteAttachment(TaskId taskId, String attachmentId)
-        {
-            throw new UnsupportedOperationException("attachments are not part of this test");
-        }
-        private boolean failDeletion;
-        private int deletions;
-        private int transcriptKept;
-
-        @Override
-        public TaskResources allocate(TaskId taskId)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public TaskResources require(TaskId taskId)
-        {
-            // Completion hands these paths to the code graph for index deletion; nothing here touches the disk.
-            Path runtime = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-completion-test", taskId.toString()).toAbsolutePath().normalize();
-            return new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider").resolve("scratch"));
-        }
-
-        @Override
-        public TaskResources pathsForDeletion(TaskId taskId)
-        {
-            return require(taskId);
-        }
-
-        @Override
-        public void delete(TaskId taskId)
-        {
-            deletions++;
-            if (failDeletion) {
-                throw new IllegalStateException("disk busy");
-            }
-        }
-
-        @Override
-        public void deleteExceptTranscript(TaskId taskId)
-        {
-            transcriptKept++;
-            if (failDeletion) {
-                throw new IllegalStateException("disk busy");
-            }
+    private void deleteResources()
+    {
+        if (failResourceDeletion) {
+            throw new IllegalStateException("disk busy");
         }
     }
 
-    private static final class FixedMetrics
-            implements AgentMetricsService
+    private static TaskResources resources(TaskId taskId)
     {
-        @Override
-        public AgentMetrics record(TaskId taskId, TurnId turnId, ProviderUsageSample sample)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public ToolCounters countTools(TaskId taskId, TurnId turnId, OptionalLong firstSequence)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public AgentMetrics finishTurn(TurnId turnId, TurnState terminalState, ToolCounters counters)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public AgentMetrics taskTotals(TaskId taskId)
-        {
-            return METRICS;
-        }
+        // Completion hands these paths to the code graph for index deletion; nothing here touches the disk.
+        Path runtime = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-completion-test", taskId.toString()).toAbsolutePath().normalize();
+        return new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider").resolve("scratch"));
     }
 
-    private static final class RecordingSession
-            implements AgentSession
+    private static AgentSession session()
     {
-        private boolean closed;
-
-        @Override
-        public AgentSessionRef reference()
-        {
-            return new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "session");
-        }
-
-        @Override
-        public RunningTurn start(AgentTurnCommand command)
-        {
+        AgentSession session = mock(AgentSession.class, invocation -> {
             throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void close()
-        {
-            closed = true;
-        }
+        });
+        doReturn(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "session")).when(session).reference();
+        doReturn(false).when(session).retained();
+        doNothing().when(session).close();
+        return session;
     }
 }

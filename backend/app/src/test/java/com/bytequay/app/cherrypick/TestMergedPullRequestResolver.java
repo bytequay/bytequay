@@ -66,6 +66,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 import static com.bytequay.app.git.GitTestSupport.commit;
+import static com.bytequay.app.git.GitTestSupport.commitFile;
 import static com.bytequay.app.git.GitTestSupport.git;
 import static com.bytequay.app.git.GitTestSupport.head;
 import static com.bytequay.app.git.GitTestSupport.initRepository;
@@ -136,9 +137,8 @@ class TestMergedPullRequestResolver
         resolver = resolver(GIT);
 
         git(source, "checkout", "--quiet", "-b", "feature");
-        write(source, "feature.txt", "<<<<<<< HEAD\nprivate change\n=======\nP4 change\n>>>>>>> source\n");
-        commit(source, "Apply P4 change\n\n(cherry picked from commit " + "4".repeat(40) + ")");
-        String applied = head(source);
+        String applied = commitFile(source, "feature.txt", "<<<<<<< HEAD\nprivate change\n=======\nP4 change\n>>>>>>> source\n",
+                "Apply P4 change\n\n(cherry picked from commit " + "4".repeat(40) + ")");
         write(source, "feature.txt", "P3 adaptation of the P4 change\n");
         commit(source, "fixup! Resolve P3 conflict");
         original = ImmutableList.of(applied, head(source));
@@ -154,9 +154,7 @@ class TestMergedPullRequestResolver
         if (!conflictSnapshot) {
             git(source, "checkout", "--quiet", "feature");
             git(source, "reset", "--hard", seed);
-            write(source, "feature.txt", "P4 change\n");
-            commit(source, "Apply P4 change\n\n(cherry picked from commit " + "4".repeat(40) + ")");
-            String applied = head(source);
+            String applied = commitFile(source, "feature.txt", "P4 change\n", "Apply P4 change\n\n(cherry picked from commit " + "4".repeat(40) + ")");
             write(source, "feature.txt", "P3 adaptation of the P4 change\n");
             commit(source, "fixup! Adapt P4 change");
             original = ImmutableList.of(applied, head(source));
@@ -311,9 +309,7 @@ class TestMergedPullRequestResolver
     {
         git(source, "merge", "--ff-only", "feature");
         git(source, "checkout", "--quiet", "feature");
-        write(source, "third.txt", "Third PR commit\n");
-        commit(source, "Third change");
-        String third = head(source);
+        String third = commitFile(source, "third.txt", "Third PR commit\n", "Third change");
         git(source, "update-ref", "refs/pull/7/head", third);
         original = ImmutableList.of(original.getFirst(), third);
         git(source, "checkout", "--quiet", "main");
@@ -379,9 +375,7 @@ class TestMergedPullRequestResolver
     void holdsWhenBothASquashAndARebasedSequenceMatch()
     {
         git(source, "checkout", "--quiet", "feature");
-        write(source, "feature.txt", "seed\n");
-        commit(source, "Undo the first changes");
-        String reverted = head(source);
+        String reverted = commitFile(source, "feature.txt", "seed\n", "Undo the first changes");
         write(source, "feature.txt", "P3 final change\n");
         commit(source, "Final change");
         original = ImmutableList.of(original.getFirst(), original.getLast(), reverted, head(source));

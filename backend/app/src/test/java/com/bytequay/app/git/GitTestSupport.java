@@ -50,6 +50,14 @@ public final class GitTestSupport
         return root.toRealPath();
     }
 
+    public static Path cloneFork(Path source, Path root)
+            throws IOException
+    {
+        git(root.getParent(), "clone", "--quiet", "--origin", "upstream",
+                "--config", "user.name=ByteQuay Test", "--config", "user.email=bytequay@example.com", source.toString(), root.toString());
+        return root.toRealPath();
+    }
+
     public static void write(Path repository, String path, String content)
     {
         write(repository.resolve(path), content);
@@ -70,6 +78,13 @@ public final class GitTestSupport
     {
         git(repository, "add", "-A");
         git(repository, "commit", "--quiet", "-m", subject);
+    }
+
+    public static String commitFile(Path repository, String path, String content, String subject)
+    {
+        write(repository, path, content);
+        commit(repository, subject);
+        return head(repository);
     }
 
     public static String head(Path repository)

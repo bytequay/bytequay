@@ -20,8 +20,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,25 +29,26 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubClientMergeQueue
+        extends AbstractGitHubClientTest
 {
+    private final GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(restClient, graphQlClient);
+
     @Test
     void detectsMergeQueueForBranch()
     {
-        Fixture fixture = fixture();
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"repository":{"mergeQueue":{"id":"MQ_1"}}}}
                         """, MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().hasMergeQueue("pat", RepoRef.of("owner", "repo"), "main")).isTrue();
+        assertThat(client.hasMergeQueue("pat", RepoRef.of("owner", "repo"), "main")).isTrue();
     }
 
     @Test
     void enqueuesPullRequest()
     {
-        Fixture fixture = fixture();
-        expectMergeQueue(fixture, true);
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+        expectMergeQueue(true);
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(content().json("""
                         {"query":"mutation($id: ID!, $head: GitObjectID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, expectedHeadOid: $head }) { pullRequest { mergeQueueEntry { position state } autoMergeRequest { enabledAt } } } }",
                          "variables":{"id":"PR_1","head":"displayed-head"}}
@@ -58,20 +57,18 @@ class TestGitHubClientMergeQueue
                         {"data":{"enablePullRequestAutoMerge":{"pullRequest":{"mergeQueueEntry":{"position":2,"state":"QUEUED"},"autoMergeRequest":null}}}}
                         """, MediaType.APPLICATION_JSON));
 
-        MergeResult result = fixture.client().mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head");
+        MergeResult result = client.mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head");
 
         assertThat(result.queued()).isTrue();
         assertThat(result.merged()).isFalse();
         assertThat(result.message()).contains("position 2");
-        fixture.graphql().verify();
     }
 
     @Test
     void schedulesQueueEntryWhileRequirementsArePending()
     {
-        Fixture fixture = fixture();
-        expectMergeQueue(fixture, true);
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+        expectMergeQueue(true);
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(content().json("""
                         {"query":"mutation($id: ID!, $head: GitObjectID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, expectedHeadOid: $head }) { pullRequest { mergeQueueEntry { position state } autoMergeRequest { enabledAt } } } }",
                          "variables":{"id":"PR_1","head":"displayed-head"}}
@@ -80,42 +77,35 @@ class TestGitHubClientMergeQueue
                         {"data":{"enablePullRequestAutoMerge":{"pullRequest":{"mergeQueueEntry":null,"autoMergeRequest":{"enabledAt":"2026-01-01T00:00:00Z"}}}}}
                         """, MediaType.APPLICATION_JSON));
 
-        MergeResult result = fixture.client().mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head");
+        MergeResult result = client.mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head");
 
         assertThat(result.queued()).isFalse();
         assertThat(result.merged()).isFalse();
         assertThat(result.message()).isEqualTo("Will join the merge queue when all requirements pass");
-        fixture.graphql().verify();
     }
 
     @Test
     void doesNotEnableAutoMergeWhenTheBranchNoLongerHasAQueue()
     {
-        Fixture fixture = fixture();
-        expectMergeQueue(fixture, false);
+        expectMergeQueue(false);
 
-        assertThatThrownBy(() -> fixture.client().mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head"))
+        assertThatThrownBy(() -> client.mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("no longer has a merge queue");
-
-        fixture.graphql().verify();
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"{\"id\":\"PR_1\"}", "{\"isMergeQueueEnabled\":true}"})
     void doesNotEnableAutoMergeWithoutCompleteQueueMetadata(String pullRequest)
     {
-        Fixture fixture = fixture();
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"repository":{"pullRequest":%s}}}
                         """.formatted(pullRequest), MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client().mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head"))
+        assertThatThrownBy(() -> client.mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("incomplete GraphQL data");
-
-        fixture.graphql().verify();
     }
 
     @ParameterizedTest
@@ -128,12 +118,11 @@ class TestGitHubClientMergeQueue
     })
     void rejectsIncompleteMergeWhenReadyAcknowledgment(String response)
     {
-        Fixture fixture = fixture();
-        expectMergeQueue(fixture, true);
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+        expectMergeQueue(true);
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client().mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head"))
+        assertThatThrownBy(() -> client.mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("no queue entry or auto-merge request");
     }
@@ -141,15 +130,14 @@ class TestGitHubClientMergeQueue
     @Test
     void reportsMergeWhenReadyRejectionEvenWithPartialData()
     {
-        Fixture fixture = fixture();
-        expectMergeQueue(fixture, true);
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+        expectMergeQueue(true);
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"enablePullRequestAutoMerge":{"pullRequest":{"mergeQueueEntry":{"position":2,"state":"QUEUED"}}}},
                          "errors":[{"message":"Head changed"}]}
                         """, MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client().mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head"))
+        assertThatThrownBy(() -> client.mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Head changed");
     }
@@ -157,8 +145,7 @@ class TestGitHubClientMergeQueue
     @Test
     void dequeuesPullRequestUsingItsNodeId()
     {
-        Fixture fixture = fixture();
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(content().json("""
                         {"query":"mutation($id: ID!) { dequeuePullRequest(input: { id: $id }) { clientMutationId } }","variables":{"id":"PR_1"}}
                         """))
@@ -166,20 +153,17 @@ class TestGitHubClientMergeQueue
                         {"data":{"dequeuePullRequest":{"clientMutationId":null}}}
                         """, MediaType.APPLICATION_JSON));
 
-        fixture.client().dequeuePullRequest("pat", "PR_1");
-
-        fixture.graphql().verify();
+        client.dequeuePullRequest("pat", "PR_1");
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"data\":{}}", "{\"data\":{\"dequeuePullRequest\":null}}"})
     void rejectsIncompleteDequeueAcknowledgment(String response)
     {
-        Fixture fixture = fixture();
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client().dequeuePullRequest("pat", "PR_1"))
+        assertThatThrownBy(() -> client.dequeuePullRequest("pat", "PR_1"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("incomplete GraphQL data");
     }
@@ -187,20 +171,19 @@ class TestGitHubClientMergeQueue
     @Test
     void reportsDequeueRejectionEvenWithPartialData()
     {
-        Fixture fixture = fixture();
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"dequeuePullRequest":{"clientMutationId":null}},"errors":[{"message":"Write access is required"}]}
                         """, MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client().dequeuePullRequest("pat", "PR_1"))
+        assertThatThrownBy(() -> client.dequeuePullRequest("pat", "PR_1"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Write access is required");
     }
 
-    private static void expectMergeQueue(Fixture fixture, boolean enabled)
+    private void expectMergeQueue(boolean enabled)
     {
-        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(content().json("""
                         {"query":"query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { id isMergeQueueEnabled } } }",
                          "variables":{"owner":"owner","name":"repo","number":7}}
@@ -209,14 +192,4 @@ class TestGitHubClientMergeQueue
                         {"data":{"repository":{"pullRequest":{"id":"PR_1","isMergeQueueEnabled":%s}}}}
                         """.formatted(enabled), MediaType.APPLICATION_JSON));
     }
-
-    private static Fixture fixture()
-    {
-        RestClient.Builder restBuilder = RestClient.builder().baseUrl("https://api.github.test");
-        RestClient.Builder graphqlBuilder = RestClient.builder().baseUrl("https://api.github.test/graphql");
-        MockRestServiceServer graphql = MockRestServiceServer.bindTo(graphqlBuilder).build();
-        return new Fixture(new GitHubPullRequestWriteClient(restBuilder.build(), graphqlBuilder.build()), graphql);
-    }
-
-    private record Fixture(GitHubPullRequestWriteClient client, MockRestServiceServer graphql) {}
 }

@@ -26,7 +26,6 @@ import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
-import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -45,7 +44,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -61,13 +59,17 @@ import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.spy;
 
 class TestDefaultAgentEventService
 {
     private static final Instant NOW = Instant.parse("2026-08-16T00:00:00Z");
 
     private RecordingTaskLogStore logStore;
-    private RecordingEventOutboxStore outboxStore;
+    private InMemoryAgentStores outboxStore;
     private InMemoryAgentStores taskStore;
     private DefaultAgentEventService service;
     private AgentTask task;
@@ -76,7 +78,7 @@ class TestDefaultAgentEventService
     void setUp()
     {
         logStore = new RecordingTaskLogStore();
-        outboxStore = new RecordingEventOutboxStore();
+        outboxStore = spy(new InMemoryAgentStores());
         taskStore = new InMemoryAgentStores();
         service = new DefaultAgentEventService(logStore, outboxStore, taskStore, Clock.fixed(NOW, ZoneOffset.UTC));
         task = AgentTask.created(
@@ -459,7 +461,7 @@ class TestDefaultAgentEventService
         AgentEventOutboxEntry later = inlineOutbox("later");
         outboxStore.insert(unmarked);
         outboxStore.insert(later);
-        outboxStore.failNextMark = true;
+        doThrow(new AgentStorageException("mark failed")).doCallRealMethod().when(outboxStore).markAppended(any(), anyLong());
 
         assertThatThrownBy(() -> service.drain(unmarked.eventId()))
                 .isInstanceOf(AgentStorageException.class)
@@ -493,7 +495,7 @@ class TestDefaultAgentEventService
         TestSubscriber subscriber = new TestSubscriber(logStore, outboxStore);
         service.subscribe(task.id(), 0).subscribe(subscriber);
         subscriber.request(Long.MAX_VALUE);
-        outboxStore.failNextPendingCheck = true;
+        doThrow(new AgentStorageException("pending check failed")).doCallRealMethod().when(outboxStore).hasPending(any());
 
         assertThatThrownBy(() -> service.drain(terminalEntry.eventId()))
                 .isInstanceOf(AgentStorageException.class)
@@ -559,7 +561,8 @@ class TestDefaultAgentEventService
 
     private AgentEventOutboxEntry outbox(AgentEventOutboxPayload payload)
     {
-        return new AgentEventOutboxEntry(EventId.random(), task.id(), Optional.empty(), root(), payload, NOW.plusSeconds(outboxStore.size() + 1L), Optional.empty());
+        Instant occurredAt = NOW.plusSeconds(outboxStore.outboxEntries().size() + 1L);
+        return new AgentEventOutboxEntry(EventId.random(), task.id(), Optional.empty(), root(), payload, occurredAt, Optional.empty());
     }
 
     private AgentTask failedTask()
@@ -584,7 +587,7 @@ class TestDefaultAgentEventService
             implements Flow.Subscriber<AgentEventEnvelope>
     {
         private final RecordingTaskLogStore logStore;
-        private final RecordingEventOutboxStore outboxStore;
+        private final InMemoryAgentStores outboxStore;
         private final List<AgentEventEnvelope> events = new ArrayList<>();
         private Flow.Subscription subscription;
         private boolean observedUnpersistedEvent;
@@ -593,7 +596,7 @@ class TestDefaultAgentEventService
         private Throwable failure;
         private Consumer<AgentEventEnvelope> onNext = item -> {};
 
-        private TestSubscriber(RecordingTaskLogStore logStore, RecordingEventOutboxStore outboxStore)
+        private TestSubscriber(RecordingTaskLogStore logStore, InMemoryAgentStores outboxStore)
         {
             this.logStore = logStore;
             this.outboxStore = outboxStore;
@@ -741,88 +744,6 @@ class TestDefaultAgentEventService
                 throw new AgentStorageException("blob is missing");
             }
             return ByteBuffer.wrap(stored).asReadOnlyBuffer();
-        }
-    }
-
-    private static final class RecordingEventOutboxStore
-            implements AgentEventOutboxStore
-    {
-        private final Map<EventId, AgentEventOutboxEntry> entries = new LinkedHashMap<>();
-        private boolean failNextMark;
-        private boolean failNextPendingCheck;
-
-        @Override
-        public void insert(AgentEventOutboxEntry entry)
-        {
-            if (entries.putIfAbsent(entry.eventId(), entry) != null) {
-                throw new AgentStorageException("event already exists");
-            }
-        }
-
-        @Override
-        public Optional<AgentEventOutboxEntry> find(EventId eventId)
-        {
-            return Optional.ofNullable(entries.get(eventId));
-        }
-
-        @Override
-        public List<AgentEventOutboxEntry> listPending(int limit)
-        {
-            return entries.values().stream()
-                    .filter(entry -> entry.sequence().isEmpty())
-                    .limit(limit)
-                    .collect(toImmutableList());
-        }
-
-        @Override
-        public List<AgentEventOutboxEntry> listPending(TaskId taskId, int limit)
-        {
-            return entries.values().stream()
-                    .filter(entry -> entry.taskId().equals(taskId))
-                    .filter(entry -> entry.sequence().isEmpty())
-                    .limit(limit)
-                    .collect(toImmutableList());
-        }
-
-        @Override
-        public boolean hasPending(TaskId taskId)
-        {
-            if (failNextPendingCheck) {
-                failNextPendingCheck = false;
-                throw new AgentStorageException("pending check failed");
-            }
-            return entries.values().stream()
-                    .anyMatch(entry -> entry.taskId().equals(taskId) && entry.sequence().isEmpty());
-        }
-
-        @Override
-        public void markAppended(EventId eventId, long sequence)
-        {
-            if (failNextMark) {
-                failNextMark = false;
-                throw new AgentStorageException("mark failed");
-            }
-            AgentEventOutboxEntry entry = find(eventId)
-                    .orElseThrow(() -> new AgentStorageException("event is missing"));
-            if (entry.sequence().isPresent()) {
-                if (entry.sequence().orElseThrow() != sequence) {
-                    throw new AgentStorageException("event sequence changed");
-                }
-                return;
-            }
-            entries.put(eventId, new AgentEventOutboxEntry(
-                    entry.eventId(),
-                    entry.taskId(),
-                    entry.turnId(),
-                    entry.source(),
-                    entry.payload(),
-                    entry.occurredAt(),
-                    Optional.of(sequence)));
-        }
-
-        public int size()
-        {
-            return entries.size();
         }
     }
 }

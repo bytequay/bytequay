@@ -27,8 +27,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -40,9 +38,12 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubTeamActivityClient
+        extends AbstractGitHubClientTest
 {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Identity IDENTITY = new Identity(1, "viewer", ImmutableMap.of(2L, "alice"));
+
+    private final GitHubTeamActivityClient client = new GitHubTeamActivityClient(restClient);
 
     @Test
     void deduplicatesCommentAcrossSourcesAndRecognizesExactMentions()
@@ -118,8 +119,6 @@ class TestGitHubTeamActivityClient
     @Test
     void readsPrivateReviewRequestsFromFirstAndLastTimelinePagesAndRetainsValidRowsAfterMalformedRecord()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         String time = Instant.now().truncatedTo(ChronoUnit.SECONDS).toString();
         String summary = """
                 {"number":7,"title":"Internal PR","user":{"id":2,"login":"alice"},"created_at":"%s","pull_request":{}}
@@ -145,21 +144,18 @@ class TestGitHubTeamActivityClient
                           "created_at":"%s"}]
                         """.formatted(time), MediaType.APPLICATION_JSON));
 
-        GitHubTeamActivityClient.Observation result = new GitHubTeamActivityClient(builder.build()).repository("pat", "owner/repo", IDENTITY, 0, (number, updatedAt) -> Optional.empty());
+        GitHubTeamActivityClient.Observation result = client.repository("pat", "owner/repo", IDENTITY, 0, (number, updatedAt) -> Optional.empty());
         assertThat(result.events()).filteredOn(event -> event.kind().equals("REVIEW_REQUESTED")).singleElement().satisfies(event -> {
             assertThat(event.source()).isEqualTo("REPOSITORY");
             assertThat(event.actorId()).isEqualTo(1);
             assertThat(event.viewerInteractionMemberIds()).containsExactly(2L);
         });
         assertThat(result.errors()).containsExactly("A malformed GitHub activity record was skipped");
-        server.verify();
     }
 
     @Test
     void reusesCompleteSharedDetailsForReviewsRequestsAndMergeWithoutFetchingThoseGroups()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         Instant time = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         String summary = """
                 {"number":7,"title":"Internal PR","state":"closed","user":{"id":2,"login":"alice"},
@@ -181,7 +177,7 @@ class TestGitHubTeamActivityClient
                         new PrTimelineEvent(10L, "merged", "viewer", time, null, PrTimelinePayload.empty(), Optional.empty())),
                 ImmutableList.of(), ImmutableList.of(), false);
 
-        GitHubTeamActivityClient.Observation result = new GitHubTeamActivityClient(builder.build()).repository("pat", "owner/repo", IDENTITY, 0, (number, updatedAt) -> {
+        GitHubTeamActivityClient.Observation result = client.repository("pat", "owner/repo", IDENTITY, 0, (number, updatedAt) -> {
             assertThat(number).isEqualTo(7);
             assertThat(updatedAt).isEqualTo(time);
             return Optional.of(cached);
@@ -194,19 +190,14 @@ class TestGitHubTeamActivityClient
             assertThat(event.actorId()).isEqualTo(1);
             assertThat(event.subjectAuthorId()).contains(2L);
         });
-        server.verify();
     }
 
     @Test
     void readsPublicOnlyEndpointAndPropagatesPartialFailures()
     {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         server.expect(requestTo("https://api.github.test/users/alice/events/public?per_page=100&page=1"))
                 .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
-        assertThat(new GitHubTeamActivityClient(builder.build()).publicEvents("pat", "alice", IDENTITY).errors()).isEmpty();
-        server.verify();
-        GitHubTeamActivityClient client = new GitHubTeamActivityClient(builder.build());
+        assertThat(client.publicEvents("pat", "alice", IDENTITY).errors()).isEmpty();
         assertThatThrownBy(() -> client.repository("pat", "owner/..", IDENTITY, 0, (number, updatedAt) -> Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> client.repository("pat", "owner/.", IDENTITY, 0, (number, updatedAt) -> Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         Collector collector = new Collector(IDENTITY);

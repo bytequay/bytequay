@@ -23,19 +23,13 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
-import com.bytequay.agent.core.ApprovalDecision;
-import com.bytequay.agent.core.ApprovalId;
-import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupState;
-import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
-import com.bytequay.agent.core.ResolveApprovalCommand;
-import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskSummary;
@@ -50,20 +44,29 @@ import com.bytequay.agent.spi.ProviderTurnRef;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletionStage;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 class TestAgentMaintenance
 {
@@ -71,30 +74,44 @@ class TestAgentMaintenance
     private static final Path WORKTREE = Path.of("/tmp/bytequay-recovery-worktree");
     private static final RepositoryIdentity REPOSITORY = new RepositoryIdentity("bytequay", "sample");
 
+    private final InMemoryAgentStores stores = new InMemoryAgentStores();
+    private final AgentApprovalService approvals = mock(AgentApprovalService.class, invocation -> {
+        throw new UnsupportedOperationException();
+    });
+    private final AgentCompletionService completion = mock(AgentCompletionService.class, invocation -> {
+        throw new UnsupportedOperationException();
+    });
+
+    @BeforeEach
+    void setUp()
+    {
+        doReturn(ImmutableList.of()).when(approvals).listPending(any());
+        doNothing().when(approvals).denyAllPending();
+        doThrow(new AssertionError("Recovery should close all durable approvals before recovering turns")).when(approvals).denyPending(any());
+        doNothing().when(completion).cleanup(any());
+    }
+
     @Test
     void interruptsKnownUnsentTurnAndReleasesItsClaim()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
         TurnId turnId = TurnId.random();
         stores.insert(managedTask(taskId));
         stores.insert(AgentTurn.accepted(turnId, taskId, "request-1", turnSettings(), NOW));
-        RecordingApprovals approvals = new RecordingApprovals();
 
-        maintenance(stores, approvals, new RecordingCompletion(), new AdvancingClock(NOW.plusSeconds(10))).recover();
+        maintenance(new AdvancingClock(NOW.plusSeconds(10))).recover();
 
         assertThat(stores.find(turnId).orElseThrow().state()).isEqualTo(TurnState.INTERRUPTED);
         assertThat(stores.find(turnId).orElseThrow().terminalReason())
                 .contains("Backend restarted while the turn was active");
         assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim()).isEmpty();
         assertThat(stores.listPending(taskId, 10)).hasSize(1);
-        assertThat(approvals.recoveredAll).isTrue();
+        verify(approvals).denyAllPending();
     }
 
     @Test
     void skipsATaskWhoseActiveTurnDoesNotOwnItsClaimAndRecoversTheRest()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId inconsistent = TaskId.random();
         TurnId foreign = TurnId.random();
         stores.insert(managedTask(inconsistent));
@@ -106,7 +123,7 @@ class TestAgentMaintenance
         stores.insert(managedTask(healthy));
         stores.insert(AgentTurn.accepted(unsent, healthy, "request-2", turnSettings(), NOW));
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), new AdvancingClock(NOW.plusSeconds(10))).recover();
+        maintenance(new AdvancingClock(NOW.plusSeconds(10))).recover();
 
         assertThat(stores.find(foreign).orElseThrow().state()).isEqualTo(TurnState.ACCEPTED);
         assertThat(stores.find(inconsistent).orElseThrow().worktreeMutationClaim().map(WorktreeMutationClaim::kind))
@@ -115,51 +132,35 @@ class TestAgentMaintenance
         assertThat(stores.find(healthy).orElseThrow().worktreeMutationClaim()).isEmpty();
     }
 
-    @Test
-    void keepsUncertainTurnAndItsClaimAfterRestart()
+    @ParameterizedTest
+    @EnumSource(value = TurnState.class, names = {"ACCEPTED", "RUNNING"})
+    void keepsDeliveredTurnAndItsClaimAfterRestart(TurnState state)
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
-        AgentTurn uncertain = AgentTurn.accepted(TurnId.random(), taskId, "uncertain", turnSettings(), NOW)
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), taskId, state == TurnState.RUNNING ? "delivered" : "uncertain", turnSettings(), NOW)
                 .markDeliveryStarted(NOW.plusSeconds(1));
+        if (state == TurnState.RUNNING) {
+            turn = turn.running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        }
         stores.insert(managedTask(taskId));
-        stores.insert(uncertain);
+        stores.insert(turn);
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10)).recover();
+        maintenance(NOW.plusSeconds(10)).recover();
 
-        assertThat(stores.find(uncertain.id()).orElseThrow().state()).isEqualTo(TurnState.ACCEPTED);
+        assertThat(stores.find(turn.id()).orElseThrow().state()).isEqualTo(state);
         assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim())
-                .contains(WorktreeMutationClaim.turn(uncertain.id(), uncertain.createdAt()));
-    }
-
-    @Test
-    void keepsRunningProviderTurnAndItsClaimAfterRestart()
-    {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
-        TaskId taskId = TaskId.random();
-        AgentTurn running = AgentTurn.accepted(TurnId.random(), taskId, "delivered", turnSettings(), NOW)
-                .markDeliveryStarted(NOW.plusSeconds(1))
-                .running(new ProviderTurnRef("provider-turn"), Optional.empty());
-        stores.insert(managedTask(taskId));
-        stores.insert(running);
-
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10)).recover();
-
-        assertThat(stores.find(running.id()).orElseThrow().state()).isEqualTo(TurnState.RUNNING);
-        assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim())
-                .contains(WorktreeMutationClaim.turn(running.id(), running.createdAt()));
+                .contains(WorktreeMutationClaim.turn(turn.id(), turn.createdAt()));
     }
 
     @Test
     void interruptsARestartedTurnAndReleasesItsWorktreeWhenItsProcessVerifiedStopped()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
         AgentTurn running = runningTurn(taskId);
         stores.insert(managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.turn(running.id(), running.createdAt()), NOW));
         stores.insert(running);
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
+        maintenance(NOW.plusSeconds(10))
                 .settleAfterProcessRecovery(ImmutableMap.of(), ImmutableSet.of("launch-1"), true);
 
         // The transport is gone either way; a verified stop is what makes the worktree safe again.
@@ -171,13 +172,12 @@ class TestAgentMaintenance
     @Test
     void interruptsARestartedTurnAndReservesItsWorktreeWhenItsProcessIsUnverifiable()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
         AgentTurn running = runningTurn(taskId);
         stores.insert(managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.turn(running.id(), running.createdAt()), NOW));
         stores.insert(running);
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
+        maintenance(NOW.plusSeconds(10))
                 .settleAfterProcessRecovery(ImmutableMap.of(taskId, "launch-1"), ImmutableSet.of(), true);
 
         // The launch, not the finished turn, is what now blocks, so a later verification of that
@@ -194,14 +194,13 @@ class TestAgentMaintenance
     @Test
     void swapsARetainedTurnClaimForTheUnverifiableLaunchThatStillBlocks()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
         AgentTurn terminal = runningTurn(taskId)
                 .finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("not shown stopped"), NOW.plusSeconds(2));
         stores.insert(managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.turn(terminal.id(), terminal.createdAt()), NOW));
         stores.insert(terminal);
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
+        maintenance(NOW.plusSeconds(10))
                 .settleAfterProcessRecovery(ImmutableMap.of(taskId, "launch-1"), ImmutableSet.of(), true);
 
         assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim())
@@ -211,13 +210,12 @@ class TestAgentMaintenance
     @Test
     void releasesARecoveryClaimOnceItsLaunchVerifiesStopped()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId released = TaskId.random();
         TaskId stillBlocked = TaskId.random();
         stores.insert(managedTask(released).claimWorktreeMutation(WorktreeMutationClaim.recovery("launch-1", NOW), NOW));
         stores.insert(managedTask(stillBlocked).claimWorktreeMutation(WorktreeMutationClaim.recovery("launch-2", NOW), NOW));
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
+        maintenance(NOW.plusSeconds(10))
                 .settleAfterProcessRecovery(ImmutableMap.of(), ImmutableSet.of("launch-1"), true);
 
         assertThat(stores.find(released).orElseThrow().worktreeMutationClaim()).isEmpty();
@@ -228,11 +226,10 @@ class TestAgentMaintenance
     @Test
     void movesARecoveryClaimToAnotherUnverifiableLaunchFromTheSameTask()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
         stores.insert(managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.recovery("launch-1", NOW), NOW));
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
+        maintenance(NOW.plusSeconds(10))
                 .settleAfterProcessRecovery(ImmutableMap.of(taskId, "launch-2"), ImmutableSet.of("launch-1"), true);
 
         assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim())
@@ -242,11 +239,10 @@ class TestAgentMaintenance
     @Test
     void explicitRecoveryCheckReleasesOrRetargetsTheClaimWithoutRuntimeState()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
         AgentTask blocked = managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.recovery("launch-1", NOW), NOW);
         stores.insert(blocked);
-        AgentMaintenance maintenance = maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10));
+        AgentMaintenance maintenance = maintenance(NOW.plusSeconds(10));
 
         AgentTask stillBlocked = maintenance.settleRecoveryClaim(taskId, blocked.version(), "launch-1", Optional.of("launch-2"));
 
@@ -261,7 +257,6 @@ class TestAgentMaintenance
     @Test
     void leavesOtherRestartedTurnsAloneWhileAProcessRemainsUnattributed()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId blocked = TaskId.random();
         TaskId unknown = TaskId.random();
         AgentTurn blockedTurn = runningTurn(blocked);
@@ -271,7 +266,7 @@ class TestAgentMaintenance
         stores.insert(blockedTurn);
         stores.insert(unknownTurn);
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
+        maintenance(NOW.plusSeconds(10))
                 .settleAfterProcessRecovery(ImmutableMap.of(blocked, "launch-1"), ImmutableSet.of(), false);
 
         // The stray process could belong to the task nobody could pin it to, so only the task with
@@ -304,7 +299,6 @@ class TestAgentMaintenance
     @Test
     void pausesTheQueueOnRestartAndSettlesAClaimedInputByWhatItsTurnProves()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId waitingTask = TaskId.random();
         TaskId unsentTask = TaskId.random();
         TaskId uncertainTask = TaskId.random();
@@ -324,7 +318,7 @@ class TestAgentMaintenance
         stores.insert(sent);
         stores.insert(claimedSent);
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10)).recover();
+        maintenance(NOW.plusSeconds(10)).recover();
 
         assertThat(stores.find(waiting.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.PAUSED);
         assertThat(stores.find(waiting.id()).orElseThrow().pauseReason()).contains("Backend restarted");
@@ -336,7 +330,6 @@ class TestAgentMaintenance
     @Test
     void settlesSteersCaughtByARestartWithoutResendingThem()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
         stores.insert(managedTask(taskId));
         AgentTurn running = runningTurn(taskId);
@@ -346,7 +339,7 @@ class TestAgentMaintenance
         stores.insert(accepted);
         stores.insert(sending);
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10)).recover();
+        maintenance(NOW.plusSeconds(10)).recover();
 
         assertThat(stores.steers()).extracting(AgentInputDelivery::state)
                 .containsExactly(AgentInputDelivery.State.FAILED, AgentInputDelivery.State.UNKNOWN);
@@ -366,12 +359,11 @@ class TestAgentMaintenance
     @Test
     void releasesAbandonedCompletionClaim()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
         WorktreeMutationClaim claim = new WorktreeMutationClaim(WorktreeMutationClaim.Kind.COMPLETION, "completion-1", NOW);
         stores.insert(managedTask(taskId).claimWorktreeMutation(claim, NOW));
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10)).recover();
+        maintenance(NOW.plusSeconds(10)).recover();
 
         assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
         assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim()).isEmpty();
@@ -380,12 +372,11 @@ class TestAgentMaintenance
     @Test
     void releasesALocalRunClaimAtStartupAndReservesTheWorktreeAgainForItsUnverifiableLaunch()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId verified = TaskId.random();
         TaskId unverifiable = TaskId.random();
         stores.insert(managedTask(verified).claimWorktreeMutation(WorktreeMutationClaim.localRun("run-1", NOW), NOW));
         stores.insert(managedTask(unverifiable).claimWorktreeMutation(WorktreeMutationClaim.localRun("run-2", NOW), NOW));
-        AgentMaintenance maintenance = maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10));
+        AgentMaintenance maintenance = maintenance(NOW.plusSeconds(10));
 
         maintenance.recover();
 
@@ -401,7 +392,6 @@ class TestAgentMaintenance
     @Test
     void retainsTerminalTurnClaimUntilProviderQuiescenceIsProved()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
         AgentTurn terminal = AgentTurn.accepted(TurnId.random(), taskId, "terminal", turnSettings(), NOW)
                 .markDeliveryStarted(NOW.plusSeconds(1))
@@ -411,7 +401,7 @@ class TestAgentMaintenance
         stores.insert(managedTask(taskId).claimWorktreeMutation(claim, NOW));
         stores.insert(terminal);
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10)).recover();
+        maintenance(NOW.plusSeconds(10)).recover();
 
         assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim()).contains(claim);
     }
@@ -419,11 +409,10 @@ class TestAgentMaintenance
     @Test
     void leavesIdleManagedTaskOpen()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
         stores.insert(managedTask(taskId));
 
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10)).recover();
+        maintenance(NOW.plusSeconds(10)).recover();
 
         assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
         assertThat(stores.listPending(taskId, 10)).isEmpty();
@@ -432,7 +421,6 @@ class TestAgentMaintenance
     @Test
     void archivesOnlyCompletedInteractiveTasksOlderThanTheWindow()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         AgentTask oldCompleted = interactiveTask(TaskId.random()).complete(summary(), NOW, NOW.plus(Duration.ofDays(7)));
         AgentTask freshCompleted = interactiveTask(TaskId.random()).complete(summary(), NOW.plus(Duration.ofDays(5)), NOW.plus(Duration.ofDays(12)));
         AgentTask failed = interactiveTask(TaskId.random()).fail("failed", NOW, NOW.plus(Duration.ofDays(7)));
@@ -442,7 +430,7 @@ class TestAgentMaintenance
             stores.insert(task);
         }
         Instant sweepTime = NOW.plus(Duration.ofDays(8));
-        AgentMaintenance maintenance = maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), sweepTime);
+        AgentMaintenance maintenance = maintenance(sweepTime);
 
         assertThat(maintenance.archiveDue(Duration.ofDays(7), 10)).isEqualTo(1);
 
@@ -457,48 +445,44 @@ class TestAgentMaintenance
     @Test
     void submitsDueAndRetryPendingTasksForCleanup()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         AgentTask failed = managedTask(TaskId.random()).fail("failed", NOW, NOW.plus(Duration.ofDays(7)));
         stores.insert(failed);
-        RecordingCompletion completion = new RecordingCompletion();
         Instant maintenanceTime = NOW.plus(Duration.ofDays(8));
-        AgentMaintenance maintenance = maintenance(stores, new RecordingApprovals(), completion, maintenanceTime);
+        AgentMaintenance maintenance = maintenance(maintenanceTime);
 
         maintenance.cleanupDue(10);
 
-        assertThat(completion.cleaned).containsExactly(failed.id());
+        verify(completion).cleanup(failed.id());
+        verifyNoMoreInteractions(completion);
     }
 
     @Test
     void backsOffFailedRetentionCleanupSoAnotherDueTaskCanProgress()
     {
         Instant maintenanceTime = NOW.plus(Duration.ofDays(8));
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         AgentTask retryPending = managedTask(TaskId.random())
                 .fail("failed", NOW, NOW.plus(Duration.ofDays(7)))
                 .withCleanupState(CleanupState.RETRY_PENDING, Optional.of("still dirty"), maintenanceTime.minusSeconds(30));
         AgentTask due = managedTask(TaskId.random()).fail("failed", NOW.plusSeconds(1), NOW.plus(Duration.ofDays(7)).plusSeconds(1));
         stores.insert(retryPending);
         stores.insert(due);
-        RecordingCompletion completion = new RecordingCompletion();
 
-        maintenance(stores, new RecordingApprovals(), completion, maintenanceTime).cleanupDue(1);
+        maintenance(maintenanceTime).cleanupDue(1);
 
-        assertThat(completion.cleaned).containsExactly(due.id());
+        verify(completion).cleanup(due.id());
+        verifyNoMoreInteractions(completion);
     }
 
     @Test
     void preservesWorkflowWorktreeUntilItsWorkflowRecordsCleanup()
     {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
         AgentTask workflowTask = managedTask(TaskId.random(), AgentPermissionPolicy.CI_AUTOFIX)
                 .fail("workflow finished", NOW, NOW.plus(Duration.ofDays(7)));
         stores.insert(workflowTask);
-        RecordingCompletion completion = new RecordingCompletion();
 
-        maintenance(stores, new RecordingApprovals(), completion, NOW.plus(Duration.ofDays(8))).cleanupDue(10);
+        maintenance(NOW.plus(Duration.ofDays(8))).cleanupDue(10);
 
-        assertThat(completion.cleaned).isEmpty();
+        verifyNoInteractions(completion);
     }
 
     private static AgentTurnSettings turnSettings()
@@ -506,12 +490,12 @@ class TestAgentMaintenance
         return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.empty());
     }
 
-    private static AgentMaintenance maintenance(InMemoryAgentStores stores, RecordingApprovals approvals, RecordingCompletion completion, Instant now)
+    private AgentMaintenance maintenance(Instant now)
     {
-        return maintenance(stores, approvals, completion, Clock.fixed(now, ZoneOffset.UTC));
+        return maintenance(Clock.fixed(now, ZoneOffset.UTC));
     }
 
-    private static AgentMaintenance maintenance(InMemoryAgentStores stores, RecordingApprovals approvals, RecordingCompletion completion, Clock clock)
+    private AgentMaintenance maintenance(Clock clock)
     {
         return new AgentMaintenance(
                 stores,
@@ -559,83 +543,5 @@ class TestAgentMaintenance
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");
         return AgentTask.created(taskId, false, "Recovery test", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(permissionPolicy), NOW);
-    }
-
-    private static final class RecordingApprovals
-            implements AgentApprovalService
-    {
-        @Override
-        public void withdraw(ApprovalId approvalId)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        private boolean recoveredAll;
-
-        @Override
-        public List<ApprovalRequest> listPending(TurnId turnId)
-        {
-            return ImmutableList.of();
-        }
-
-        @Override
-        public CompletionStage<ApprovalDecision> request(ApprovalRequest request, Duration timeout)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public ApprovalDecision resolve(ResolveApprovalCommand command)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void denyPending(TurnId turnId)
-        {
-            throw new AssertionError("Recovery should close all durable approvals before recovering turns");
-        }
-
-        @Override
-        public void denyAllPending()
-        {
-            recoveredAll = true;
-        }
-    }
-
-    private static final class RecordingCompletion
-            implements AgentCompletionService
-    {
-        private final List<TaskId> cleaned = new ArrayList<>();
-
-        @Override
-        public TaskCompletion complete(CompleteAgentTaskCommand command)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public AgentTask abandon(TaskId taskId, String reason)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void cleanupWorktree(TaskId taskId)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void cleanup(TaskId taskId)
-        {
-            cleaned.add(taskId);
-        }
-
-        @Override
-        public void delete(TaskId taskId)
-        {
-            throw new UnsupportedOperationException();
-        }
     }
 }

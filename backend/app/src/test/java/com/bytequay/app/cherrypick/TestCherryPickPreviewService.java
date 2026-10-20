@@ -42,7 +42,9 @@ import java.util.OptionalLong;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import static com.bytequay.app.git.GitTestSupport.cloneFork;
 import static com.bytequay.app.git.GitTestSupport.commit;
+import static com.bytequay.app.git.GitTestSupport.commitFile;
 import static com.bytequay.app.git.GitTestSupport.git;
 import static com.bytequay.app.git.GitTestSupport.head;
 import static com.bytequay.app.git.GitTestSupport.initRepository;
@@ -82,7 +84,7 @@ class TestCherryPickPreviewService
         upstream = init("upstream");
         write(upstream, "seed.txt", "seed\n");
         commit(upstream, "Seed");
-        fork = cloneOf(upstream, "fork");
+        fork = cloneFork(upstream, temporaryDirectory.resolve("fork"));
 
         clone = init("clone");
         git(clone, "remote", "add", "origin", upstream.toString());
@@ -113,9 +115,7 @@ class TestCherryPickPreviewService
     void readsStoredPullRequestAssociationsWithoutProviderAccess()
     {
         String base = head(upstream);
-        write(upstream, "associated.txt", "associated\n");
-        commit(upstream, "Associated change");
-        String sha = head(upstream);
+        String sha = commitFile(upstream, "associated.txt", "associated\n", "Associated change");
         when(enrichment.findEnrichment(202, ImmutableList.of(sha))).thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(
                 new CommitEnrichment(
                         202,
@@ -203,21 +203,11 @@ class TestCherryPickPreviewService
     void marksDirectAncestorsAndExactOriginLinesOnly()
     {
         String base = head(upstream);
-        write(upstream, "shared.txt", "shared\n");
-        commit(upstream, "Shared change");
-        String shared = head(upstream);
-        write(upstream, "picked.txt", "picked\n");
-        commit(upstream, "Picked change");
-        String picked = head(upstream);
-        write(upstream, "abbreviated.txt", "abbreviated\n");
-        commit(upstream, "Abbreviated marker");
-        String abbreviated = head(upstream);
-        write(upstream, "prose.txt", "prose\n");
-        commit(upstream, "Prose marker");
-        String prose = head(upstream);
-        write(upstream, "duplicate.txt", "duplicate\n");
-        commit(upstream, "Shared change");
-        String duplicateTitle = head(upstream);
+        String shared = commitFile(upstream, "shared.txt", "shared\n", "Shared change");
+        String picked = commitFile(upstream, "picked.txt", "picked\n", "Picked change");
+        String abbreviated = commitFile(upstream, "abbreviated.txt", "abbreviated\n", "Abbreviated marker");
+        String prose = commitFile(upstream, "prose.txt", "prose\n", "Prose marker");
+        String duplicateTitle = commitFile(upstream, "duplicate.txt", "duplicate\n", "Shared change");
 
         // The fork merges one upstream commit outright, and cherry-picks another.
         git(fork, "fetch", "--quiet", "upstream");
@@ -270,9 +260,7 @@ class TestCherryPickPreviewService
     void reportsPatchEquivalenceAsAdvisoryOnly()
     {
         String base = head(upstream);
-        write(upstream, "same.txt", "same content\n");
-        commit(upstream, "Same content upstream");
-        String equivalent = head(upstream);
+        String equivalent = commitFile(upstream, "same.txt", "same content\n", "Same content upstream");
 
         // The fork applies the identical patch under a different commit, so no
         // ancestry and no origin line exist.
@@ -335,9 +323,7 @@ class TestCherryPickPreviewService
                 .hasMessageContaining("Cannot resolve ref");
 
         git(upstream, "checkout", "--quiet", "-b", "unrelated", base);
-        write(upstream, "unrelated.txt", "unrelated\n");
-        commit(upstream, "Unrelated change");
-        String unrelated = head(upstream);
+        String unrelated = commitFile(upstream, "unrelated.txt", "unrelated\n", "Unrelated change");
         git(upstream, "checkout", "--quiet", "main");
 
         assertThatThrownBy(() -> service.preview(command(unrelated, "main")))
@@ -429,25 +415,6 @@ class TestCherryPickPreviewService
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("commit not in preview: " + sourceSha))
                 .targetMatch();
-    }
-
-    /**
-     * Clones a seeded repository as the fork. One clone leaves the same remote,
-     * branch and committer identity that separate init, remote, fetch and
-     * checkout commands did, for a fifth of the Git processes.
-     */
-    private Path cloneOf(Path source, String name)
-            throws IOException
-    {
-        Path root = temporaryDirectory.resolve(name);
-        git(temporaryDirectory,
-                "clone", "--quiet",
-                "--origin", "upstream",
-                "--config", "user.name=ByteQuay Test",
-                "--config", "user.email=bytequay@example.com",
-                source.toString(),
-                root.toString());
-        return root.toRealPath();
     }
 
     private static GitCommandRunner gitWithBoundedTargetHistory()

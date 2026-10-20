@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.github;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -22,8 +21,6 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
@@ -41,20 +38,12 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubPaginator
+        extends AbstractGitHubClientTest
 {
     private static final String PATH = "/repos/owner/repo/pulls/7/files";
     private static final ParameterizedTypeReference<List<Integer>> TYPE = new ParameterizedTypeReference<>() {};
 
-    private MockRestServiceServer server;
-    private GitHubPaginator paginator;
-
-    @BeforeEach
-    void setUp()
-    {
-        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
-        server = MockRestServiceServer.bindTo(builder).build();
-        paginator = new GitHubPaginator(builder.build());
-    }
+    private final GitHubPaginator paginator = new GitHubPaginator(restClient);
 
     @ParameterizedTest
     @ValueSource(ints = {-1, 0, 1, 100})
@@ -77,8 +66,6 @@ class TestGitHubPaginator
         server.expect(requestTo(pageUrl(1))).andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
 
         assertThat(read(conditional)).isEmpty();
-
-        server.verify();
     }
 
     @ParameterizedTest
@@ -90,8 +77,6 @@ class TestGitHubPaginator
         assertThatThrownBy(() -> read(conditional))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY))
                 .hasMessageContaining("Empty response");
-
-        server.verify();
     }
 
     @ParameterizedTest
@@ -104,8 +89,6 @@ class TestGitHubPaginator
         assertThatThrownBy(() -> read(conditional))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY))
                 .hasMessageContaining("Empty response");
-
-        server.verify();
     }
 
     @Test
@@ -120,7 +103,6 @@ class TestGitHubPaginator
         assertThat(result.unchanged()).isTrue();
         assertThat(result.orElse(ImmutableList.of(7))).containsExactly(7);
         assertThat(result.etag()).contains("\"files-2\"");
-        server.verify();
     }
 
     @Test
@@ -133,8 +115,6 @@ class TestGitHubPaginator
         assertThatThrownBy(() -> read(true))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY))
                 .hasMessageContaining("Unexpected not-modified");
-
-        server.verify();
     }
 
     @Test
@@ -148,8 +128,6 @@ class TestGitHubPaginator
         assertThatThrownBy(() -> read(true))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY))
                 .hasMessageContaining("Unexpected not-modified");
-
-        server.verify();
     }
 
     @Test
@@ -160,8 +138,6 @@ class TestGitHubPaginator
         assertThatThrownBy(() -> paginator.fetchPage("pat", PATH, TYPE, 2))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY))
                 .hasMessageContaining("Empty response");
-
-        server.verify();
     }
 
     private List<Integer> read(boolean conditional)

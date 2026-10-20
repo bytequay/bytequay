@@ -26,8 +26,6 @@ import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
-import com.bytequay.agent.core.StoreAgentAttachmentCommand;
-import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskNames;
@@ -61,6 +59,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 
@@ -75,7 +76,10 @@ class TestDefaultAgentTaskService
 
     private InMemoryAgentStores stores;
     private RecordingWorktreeService managedWorktrees;
-    private RecordingResourceService resources;
+    private AgentResourceService resources;
+    private final List<TaskId> allocatedResources = new ArrayList<>();
+    private final List<TaskId> deletedResources = new ArrayList<>();
+    private boolean failAllocation;
     private DeterministicAgentDriver driver;
     private DefaultAgentTaskService service;
 
@@ -84,7 +88,7 @@ class TestDefaultAgentTaskService
     {
         stores = new InMemoryAgentStores();
         managedWorktrees = new RecordingWorktreeService(temporaryDirectory.resolve("managed").toAbsolutePath());
-        resources = new RecordingResourceService(temporaryDirectory.resolve("runtime").toAbsolutePath());
+        resources = resourceService();
         driver = new DeterministicAgentDriver();
         service = new DefaultAgentTaskService(stores, managedWorktrees, resources, new StaticAgentDriverRegistry(ImmutableList.of(driver)), Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -100,7 +104,7 @@ class TestDefaultAgentTaskService
         assertThat(reviewer.ownsWorktree()).isFalse();
         assertThat(reviewer.interactive()).isFalse();
         assertThat(managedWorktrees.provisioned).hasSize(1);
-        resources.failAllocation = true;
+        failAllocation = true;
         assertThatThrownBy(() -> service.createShared(command(), source.id())).isInstanceOf(AgentStorageException.class);
         assertThat(managedWorktrees.cleaned).isEmpty();
         assertThat(stores.find(source.id())).contains(source);
@@ -146,21 +150,8 @@ class TestDefaultAgentTaskService
         assertThat(task.interactive()).isTrue();
         assertThat(task.creationFingerprint()).contains("creation-fingerprint");
         assertThat(task.taskWorktree()).contains(managedWorktrees.provisioned.getFirst());
-        assertThat(resources.allocated).containsExactly(taskId);
+        assertThat(allocatedResources).containsExactly(taskId);
         assertThat(managedWorktrees.cleaned).isEmpty();
-    }
-
-    @Test
-    void checksReadinessBeforeProvisioningManagedWorktree()
-    {
-        driver.unavailable();
-
-        assertThatThrownBy(() -> service.createInteractive(interactiveCommand(TaskId.random())))
-                .isInstanceOf(AgentUnavailableException.class);
-
-        assertThat(managedWorktrees.provisioned).isEmpty();
-        assertThat(resources.allocated).isEmpty();
-        assertThat(stores.tasks()).isEmpty();
     }
 
     @Test
@@ -193,20 +184,7 @@ class TestDefaultAgentTaskService
                 .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("cannot enforce " + policy);
         assertThat(driver.probeCount()).isZero();
         assertThat(managedWorktrees.provisioned).isEmpty();
-        assertThat(resources.allocated).isEmpty();
-        assertThat(stores.tasks()).isEmpty();
-    }
-
-    @Test
-    void removesFreshManagedWorktreeAfterResourceFailure()
-    {
-        resources.failAllocation = true;
-
-        assertThatThrownBy(() -> service.createInteractive(interactiveCommand(TaskId.random())))
-                .isInstanceOf(AgentStorageException.class);
-
-        assertThat(managedWorktrees.provisioned).hasSize(1);
-        assertThat(managedWorktrees.cleaned).containsExactly(managedWorktrees.provisioned.getFirst());
+        assertThat(allocatedResources).isEmpty();
         assertThat(stores.tasks()).isEmpty();
     }
 
@@ -219,7 +197,7 @@ class TestDefaultAgentTaskService
                 .isSameAs(managedWorktrees.provisionFailure);
 
         assertThat(managedWorktrees.cleaned).isEmpty();
-        assertThat(resources.allocated).isEmpty();
+        assertThat(allocatedResources).isEmpty();
     }
 
     @Test
@@ -232,7 +210,7 @@ class TestDefaultAgentTaskService
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("insert failed");
 
-        assertThat(resources.deleted).containsExactly(taskId);
+        assertThat(deletedResources).containsExactly(taskId);
         assertThat(managedWorktrees.cleaned).containsExactly(managedWorktrees.provisioned.getFirst());
     }
 
@@ -242,11 +220,11 @@ class TestDefaultAgentTaskService
         TaskId taskId = TaskId.random();
         assertThatThrownBy(() -> service.createInteractive(interactiveCommand(taskId), prepared -> {
             assertThat(prepared.taskWorktree()).contains(managedWorktrees.provisioned.getFirst());
-            assertThat(resources.allocated).containsExactly(taskId);
+            assertThat(allocatedResources).containsExactly(taskId);
             throw new AgentStorageException("source association failed");
         })).isInstanceOf(AgentStorageException.class).hasMessageContaining("source association failed");
         assertThat(stores.tasks()).isEmpty();
-        assertThat(resources.deleted).containsExactly(taskId);
+        assertThat(deletedResources).containsExactly(taskId);
         assertThat(managedWorktrees.cleaned).containsExactly(managedWorktrees.provisioned.getFirst());
     }
 
@@ -260,7 +238,7 @@ class TestDefaultAgentTaskService
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("unknown");
 
-        assertThat(resources.deleted).isEmpty();
+        assertThat(deletedResources).isEmpty();
         assertThat(managedWorktrees.cleaned).isEmpty();
         assertThat(stores.tasks()).hasSize(1);
     }
@@ -278,7 +256,7 @@ class TestDefaultAgentTaskService
                         .extracting(Throwable::getMessage)
                         .containsExactly("read failed"));
 
-        assertThat(resources.deleted).isEmpty();
+        assertThat(deletedResources).isEmpty();
         assertThat(managedWorktrees.cleaned).isEmpty();
     }
 
@@ -306,25 +284,16 @@ class TestDefaultAgentTaskService
         assertThat(task.workspaceId()).contains(WORKSPACE_ID);
         assertThat(task.interactive()).isFalse();
         assertThat(task.taskWorktree()).contains(managedWorktrees.provisioned.getFirst());
-        assertThat(resources.allocated).contains(task.id());
+        assertThat(allocatedResources).contains(task.id());
         assertThat(service.get(task.id())).isEqualTo(task);
         assertThat(service.list(WORKSPACE_ID, 1)).isEmpty();
+        assertThat(service.list(WORKSPACE_ID, 10)).isEmpty();
         assertThatThrownBy(() -> service.getInteractive(WORKSPACE_ID, task.id()))
                 .isInstanceOf(AgentTaskNotFoundException.class);
         assertThatThrownBy(() -> service.getInteractive("workspace-b", task.id()))
                 .isInstanceOf(AgentTaskNotFoundException.class);
         assertThatThrownBy(() -> service.list(" ", 1))
                 .isInstanceOf(InvalidAgentRequestException.class);
-    }
-
-    @Test
-    void keepsInternalTasksOutOfWorkspaceReads()
-    {
-        AgentTask task = service.create(command());
-
-        assertThat(service.list(WORKSPACE_ID, 10)).isEmpty();
-        assertThatThrownBy(() -> service.getInteractive(WORKSPACE_ID, task.id()))
-                .isInstanceOf(AgentTaskNotFoundException.class);
     }
 
     @Test
@@ -394,16 +363,17 @@ class TestDefaultAgentTaskService
                 .hasMessageContaining("version changed");
     }
 
-    @Test
-    void rejectsUnavailableProviderBeforeAllocatingTaskResources()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rejectsUnavailableProviderBeforeAllocatingTaskResources(boolean interactive)
     {
         driver.unavailable();
 
-        assertThatThrownBy(() -> service.create(command()))
+        assertThatThrownBy(() -> createTask(interactive))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("unavailable");
-        assertThat(resources.allocated).isEmpty();
-        assertThat(resources.deleted).isEmpty();
+        assertThat(allocatedResources).isEmpty();
+        assertThat(deletedResources).isEmpty();
         assertThat(managedWorktrees.provisioned).isEmpty();
         assertThat(stores.tasks()).isEmpty();
     }
@@ -418,21 +388,24 @@ class TestDefaultAgentTaskService
 
         assertThatThrownBy(() -> service.create(command()))
                 .isInstanceOf(AgentUnavailableException.class);
-        assertThat(resources.allocated).isEmpty();
-        assertThat(resources.deleted).isEmpty();
+        assertThat(allocatedResources).isEmpty();
+        assertThat(deletedResources).isEmpty();
         assertThat(managedWorktrees.provisioned).isEmpty();
         assertThat(stores.tasks()).isEmpty();
     }
 
-    @Test
-    void deletesPartiallyAllocatedResourcesAfterAllocationFailure()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void deletesPartiallyAllocatedResourcesAfterAllocationFailure(boolean interactive)
     {
-        resources.failAllocation = true;
+        failAllocation = true;
 
-        assertThatThrownBy(() -> service.create(command()))
+        assertThatThrownBy(() -> createTask(interactive))
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("partial allocation");
-        assertThat(resources.deleted).containsExactlyElementsOf(resources.allocated);
+        assertThat(managedWorktrees.provisioned).hasSize(1);
+        assertThat(stores.tasks()).isEmpty();
+        assertThat(deletedResources).containsExactlyElementsOf(allocatedResources);
         assertThat(managedWorktrees.cleaned).containsExactly(managedWorktrees.provisioned.getFirst());
     }
 
@@ -444,9 +417,14 @@ class TestDefaultAgentTaskService
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("cannot enforce " + permissionPolicy);
 
-        assertThat(resources.allocated).isEmpty();
+        assertThat(allocatedResources).isEmpty();
         assertThat(managedWorktrees.provisioned).isEmpty();
         assertThat(stores.tasks()).isEmpty();
+    }
+
+    private AgentTask createTask(boolean interactive)
+    {
+        return interactive ? service.createInteractive(interactiveCommand(TaskId.random())) : service.create(command());
     }
 
     private CreateAgentTaskCommand command()
@@ -542,84 +520,33 @@ class TestDefaultAgentTaskService
         }
     }
 
-    private static final class RecordingResourceService
-            implements AgentResourceService
+    private AgentResourceService resourceService()
     {
-        @Override
-        public void deleteWorktreeCache(TaskId taskId)
-        {
-        }
-
-        @Override
-        public void deleteExceptTranscript(TaskId taskId)
-        {
-        }
-
-        @Override
-        public void validateAttachment(StoreAgentAttachmentCommand command)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public StoredAgentAttachment storeAttachment(StoreAgentAttachmentCommand command)
-        {
+        AgentResourceService resources = mock(AgentResourceService.class, invocation -> {
             throw new UnsupportedOperationException("attachments are not part of this test");
-        }
-
-        @Override
-        public StoredAgentAttachment readAttachment(TaskId taskId, String attachmentId)
-        {
-            throw new UnsupportedOperationException("attachments are not part of this test");
-        }
-
-        @Override
-        public void deleteAttachment(TaskId taskId, String attachmentId)
-        {
-            throw new UnsupportedOperationException("attachments are not part of this test");
-        }
-        private final Path root;
-        private final List<TaskId> allocated = new ArrayList<>();
-        private final List<TaskId> deleted = new ArrayList<>();
-        private boolean failAllocation;
-
-        private RecordingResourceService(Path root)
-        {
-            this.root = root;
-        }
-
-        @Override
-        public TaskResources allocate(TaskId taskId)
-        {
-            allocated.add(taskId);
+        });
+        doNothing().when(resources).deleteWorktreeCache(any());
+        doNothing().when(resources).deleteExceptTranscript(any());
+        doAnswer(invocation -> {
+            TaskId taskId = invocation.getArgument(0);
+            allocatedResources.add(taskId);
             if (failAllocation) {
                 throw new AgentStorageException("partial allocation failed");
             }
             return resources(taskId);
-        }
+        }).when(resources).allocate(any());
+        doAnswer(invocation -> resources(invocation.getArgument(0))).when(resources).require(any());
+        doAnswer(invocation -> resources(invocation.getArgument(0))).when(resources).pathsForDeletion(any());
+        doAnswer(invocation -> {
+            deletedResources.add(invocation.getArgument(0));
+            return null;
+        }).when(resources).delete(any());
+        return resources;
+    }
 
-        @Override
-        public TaskResources require(TaskId taskId)
-        {
-            return resources(taskId);
-        }
-
-        @Override
-        public TaskResources pathsForDeletion(TaskId taskId)
-        {
-            return resources(taskId);
-        }
-
-        @Override
-        public void delete(TaskId taskId)
-        {
-            deleted.add(taskId);
-        }
-
-        private TaskResources resources(TaskId taskId)
-        {
-            Path taskRoot = root.resolve(taskId.toString());
-            return new TaskResources(taskRoot, taskRoot.resolve("events.jsonl"), taskRoot.resolve("blobs"), taskRoot.resolve("provider/scratch"));
-        }
+    private TaskResources resources(TaskId taskId)
+    {
+        Path taskRoot = temporaryDirectory.resolve("runtime").toAbsolutePath().resolve(taskId.toString());
+        return new TaskResources(taskRoot, taskRoot.resolve("events.jsonl"), taskRoot.resolve("blobs"), taskRoot.resolve("provider/scratch"));
     }
 }

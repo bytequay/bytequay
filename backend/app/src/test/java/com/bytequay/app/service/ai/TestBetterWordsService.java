@@ -68,6 +68,13 @@ class TestBetterWordsService
 
     private final AgentSkillService skills = mock(AgentSkillService.class);
 
+    private final AgentDriver driver = mock(AgentDriver.class);
+    private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
+    private final AgentResourceService resources = mock(AgentResourceService.class);
+    private final AgentSession session = mock(AgentSession.class);
+    private final ModelSettingsService settings = mock(ModelSettingsService.class);
+    private final RunningTurn turn = mock(RunningTurn.class);
+
     @BeforeEach
     void setUp()
     {
@@ -78,19 +85,13 @@ class TestBetterWordsService
     void usesTextOnlyCliSessionAndDeletesScratchResources()
             throws Exception
     {
-        ModelSettingsService settings = mock(ModelSettingsService.class);
         when(settings.agentModel(eq(AgentModelType.DEVELOPMENT), eq(Optional.of("ws-1")))).thenReturn(
                 new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "claude", "Claude", "sonnet", "Sonnet", Optional.of("Low")));
-        AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
-        AgentResourceService resources = mock(AgentResourceService.class);
         Path runtime = temporaryDirectory.resolve("runtime");
         Path provider = runtime.resolve("provider/scratch");
         Files.createDirectories(provider);
         when(resources.allocate(any())).thenReturn(new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), provider));
 
-        AgentDriver driver = mock(AgentDriver.class);
-        AgentSession session = mock(AgentSession.class);
-        RunningTurn turn = mock(RunningTurn.class);
         when(drivers.require(new AgentLaneId("claude"))).thenReturn(driver);
         when(driver.open(any(), any())).thenReturn(session);
         when(session.reference()).thenReturn(new AgentSessionRef(new AgentLaneId("codex"), 1, "session"));
@@ -138,7 +139,6 @@ class TestBetterWordsService
     @Test
     void rewritesJiraCommentsWithoutARepositoryUsingTheDevelopmentModel()
     {
-        ModelSettingsService settings = mock(ModelSettingsService.class);
         AgentModelSetting global = developmentModel("claude", "sonnet");
         AgentModelSetting workspace = developmentModel("codex", "gpt-6.1-sol");
         when(settings.agentModel(AgentModelType.DEVELOPMENT, Optional.empty())).thenReturn(global);
@@ -161,19 +161,13 @@ class TestBetterWordsService
     void draftsAReplyWithTheDraftPromptOnTheSameTextOnlyModel()
             throws Exception
     {
-        ModelSettingsService settings = mock(ModelSettingsService.class);
         when(settings.agentModel(eq(AgentModelType.DEVELOPMENT), eq(Optional.of("ws-1")))).thenReturn(developmentModel("claude", "sonnet"));
-        AgentResourceService resources = mock(AgentResourceService.class);
         // Every draft gets fresh scratch, as the real allocator gives each its own task id.
         when(resources.allocate(any())).thenAnswer(call -> {
             Path runtime = temporaryDirectory.resolve("draft-runtime-" + call.getArgument(0));
             Files.createDirectories(runtime.resolve("provider"));
             return new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider"));
         });
-        AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
-        AgentDriver driver = mock(AgentDriver.class);
-        AgentSession session = mock(AgentSession.class);
-        RunningTurn turn = mock(RunningTurn.class);
         when(drivers.require(new AgentLaneId("claude"))).thenReturn(driver);
         when(driver.open(any(), any())).thenReturn(session);
         when(session.reference()).thenReturn(new AgentSessionRef(new AgentLaneId("codex"), 1, "session"));
@@ -215,16 +209,10 @@ class TestBetterWordsService
     void rewritesOnTheWorkspaceDevelopmentDefaultEvenWhenItIsADeepSeekKeyLane()
             throws Exception
     {
-        ModelSettingsService settings = mock(ModelSettingsService.class);
         when(settings.agentModel(eq(AgentModelType.DEVELOPMENT), eq(Optional.of("ws-1")))).thenReturn(developmentModel("deepseek-key-7", "deepseek-v4-pro"));
-        AgentResourceService resources = mock(AgentResourceService.class);
         Path runtime = temporaryDirectory.resolve("deepseek-runtime");
         Files.createDirectories(runtime.resolve("provider"));
         when(resources.allocate(any())).thenReturn(new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider")));
-        AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
-        AgentDriver driver = mock(AgentDriver.class);
-        AgentSession session = mock(AgentSession.class);
-        RunningTurn turn = mock(RunningTurn.class);
         when(drivers.require(new AgentLaneId("deepseek-key-7"))).thenReturn(driver);
         when(driver.open(any(), any())).thenReturn(session);
         when(session.reference()).thenReturn(new AgentSessionRef(new AgentLaneId("codex"), 1, "session"));
@@ -246,18 +234,12 @@ class TestBetterWordsService
     void retainsScratchResourcesWhenCliShutdownCannotBeVerified()
             throws Exception
     {
-        ModelSettingsService settings = mock(ModelSettingsService.class);
         when(settings.agentModel(eq(AgentModelType.DEVELOPMENT), any())).thenReturn(developmentModel("claude", "sonnet"));
-        AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
-        AgentResourceService resources = mock(AgentResourceService.class);
         Path runtime = temporaryDirectory.resolve("retained-runtime");
         Path provider = runtime.resolve("provider/scratch");
         Files.createDirectories(provider);
         when(resources.allocate(any())).thenReturn(new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), provider));
 
-        AgentDriver driver = mock(AgentDriver.class);
-        AgentSession session = mock(AgentSession.class);
-        RunningTurn turn = mock(RunningTurn.class);
         when(drivers.require(new AgentLaneId("claude"))).thenReturn(driver);
         when(driver.open(any(), any())).thenReturn(session);
         when(session.reference()).thenReturn(new AgentSessionRef(new AgentLaneId("codex"), 1, "session"));
@@ -281,8 +263,6 @@ class TestBetterWordsService
     @Test
     void rejectsInvalidInput()
     {
-        ModelSettingsService settings = mock(ModelSettingsService.class);
-        AgentResourceService resources = mock(AgentResourceService.class);
         BetterWordsService service = service(settings, mock(WorkspaceStore.class), mock(AgentDriverRegistry.class), resources);
 
         assertThatThrownBy(() -> service.improve(null, REPOSITORY, Optional.empty()))
@@ -303,7 +283,6 @@ class TestBetterWordsService
     @Test
     void rejectsMissingOrMismatchedWorkspaceContext()
     {
-        ModelSettingsService settings = mock(ModelSettingsService.class);
         WorkspaceStore workspaces = workspaceStore("wrong-repo", RepoRef.of("other", "repo"));
         BetterWordsService service = service(settings, workspaces, mock(AgentDriverRegistry.class), mock(AgentResourceService.class));
 
@@ -319,9 +298,7 @@ class TestBetterWordsService
     @Test
     void validatesForkWorkspaceAgainstItsMonitoredRepository()
     {
-        ModelSettingsService settings = mock(ModelSettingsService.class);
         when(settings.agentModel(eq(AgentModelType.DEVELOPMENT), any())).thenReturn(developmentModel("codex", "gpt-5.6-sol"));
-        AgentResourceService resources = mock(AgentResourceService.class);
         // The monitored repository matched, so the rewrite runs; stop it at its first provider step.
         when(resources.allocate(any())).thenThrow(new IllegalStateException("reached the provider"));
         BetterWordsService service = service(

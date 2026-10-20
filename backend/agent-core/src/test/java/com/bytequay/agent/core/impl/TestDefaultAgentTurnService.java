@@ -1103,8 +1103,6 @@ class TestDefaultAgentTurnService
     @Test
     void handlesProviderCompletionThatPrecedesStartReturn()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
-        service = service(driver, runtimeRegistry);
         approvals.beforeDeny(() -> awaitTaskLock(runtimeRegistry));
         driver.completeNextStart();
 
@@ -2454,8 +2452,6 @@ class TestDefaultAgentTurnService
     @ValueSource(booleans = {false, true})
     void retainsCompletedProviderHandleUntilTerminalTransactionCanRetry(boolean failOutbox)
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
-        service = service(driver, runtimeRegistry);
         AgentTurn running = service.start(command("first", "key-1"));
         AgentTask taskBefore = stores.find(task.id()).orElseThrow();
         AgentTurn turnBefore = stores.find(running.id()).orElseThrow();
@@ -2493,7 +2489,6 @@ class TestDefaultAgentTurnService
     @Test
     void retainsCompletedProviderHandleUntilTerminalEventCanDrain()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
         FailOnceDrainEventService configuredEvents = new FailOnceDrainEventService(events, false);
         service = service(driver, runtimeRegistry, configuredEvents);
         AgentTurn running = service.start(command("first", "key-1"));
@@ -2513,8 +2508,6 @@ class TestDefaultAgentTurnService
     @Test
     void retriesTerminalApprovalCleanupBeforeStartingAnotherTurn()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
-        service = service(driver, runtimeRegistry);
         AgentTurn first = service.start(command("first", "key-1"));
         approvals.failNextDeny(new AgentStorageException("blocked approval store"));
 
@@ -2533,7 +2526,6 @@ class TestDefaultAgentTurnService
     void terminalizesWithAnAdvancingClock()
     {
         Clock clock = new AdvancingClock(NOW.plusMillis(1));
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
         metrics = new DefaultAgentMetricsService(stores, stores, logs, clock);
         service = service(driver, runtimeRegistry, events, approvals, clock);
         AgentTurn running = service.start(command("first", "key-1"));
@@ -2548,8 +2540,6 @@ class TestDefaultAgentTurnService
     @Test
     void retainsTheClaimForAnExceptionalProviderCompletionUntilExplicitStop()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
-        service = service(driver, runtimeRegistry);
         AgentTurn running = service.start(command("first", "key-1"));
 
         driver.failCompletion(new AgentStorageException("provider future failed"));
@@ -2788,8 +2778,6 @@ class TestDefaultAgentTurnService
     @Test
     void releasesTaskLockBeforeDenyingApprovalsAfterCompletion()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
-        service = service(driver, runtimeRegistry);
         approvals.beforeDeny(() -> awaitTaskLock(runtimeRegistry));
         AgentTurn running = service.start(command("first", "key-1"));
 
@@ -2802,8 +2790,6 @@ class TestDefaultAgentTurnService
     @Test
     void releasesTaskLockBeforeDenyingApprovalsAfterStartFailure()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
-        service = service(driver, runtimeRegistry);
         approvals.beforeDeny(() -> awaitTaskLock(runtimeRegistry));
         driver.failNextStart();
 
@@ -2881,7 +2867,6 @@ class TestDefaultAgentTurnService
     @Test
     void nextReadClosesApprovalWhenCompletionDenialCouldNotPersist()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
         DefaultAgentApprovalService durableApprovals = durableApprovals(runtimeRegistry);
         service = service(driver, runtimeRegistry, events, durableApprovals);
         AgentTurn running = service.start(command("first", "key-1"));
@@ -2904,7 +2889,6 @@ class TestDefaultAgentTurnService
     @Test
     void restartClosesApprovalWhenFailedStartDenialCouldNotPersist()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
         DefaultAgentApprovalService durableApprovals = durableApprovals(runtimeRegistry);
         service = service(driver, runtimeRegistry, events, durableApprovals);
         ApprovalId approvalId = ApprovalId.random();
@@ -3379,8 +3363,6 @@ class TestDefaultAgentTurnService
     @Test
     void retriesAnAcceptedSteerThatFailedBeforeTheProviderSend()
     {
-        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
-        service = service(driver, runtimeRegistry);
         AgentTurn first = service.start(command("first", "key-1"));
         FailOnceDrainEventService failingEvents = new FailOnceDrainEventService(events, false);
         failingEvents.failNextDrain();

@@ -31,8 +31,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -53,32 +51,34 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubPullRequestOverviewClient
+        extends AbstractGitHubClientTest
 {
     private static final Map<String, String> DISCUSSION_SOURCES = ImmutableMap.of(
             "reviews", "pulls/7/reviews", "timeline", "issues/7/timeline", "comments", "issues/7/comments", "reviewComments", "pulls/7/comments", "issue", "issues/7");
 
     private static final PullRequestRef PULL_REQUEST = PullRequestRef.of("owner", "repo", 42);
 
+    private final GitHubPullRequestReadClient client = new GitHubPullRequestReadClient(restClient, graphQlClient);
+
     @Test
     void discoversPullRequestsByForkHeadWithBranchRefsAndAllPages()
     {
-        Fixture fixture = fixture();
         String firstPage = IntStream.range(1, 101)
                 .mapToObj(number -> """
                         {"id":%d,"number":%d,"title":"Draft","state":"open","draft":true,
                          "head":{"ref":"feature/change"},"user":{"login":"contributor"}}
                         """.formatted(number, number))
                 .collect(joining(",", "[", "]"));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls?state=all&head=contributor%3Afeature%2Fchange&per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls?state=all&head=contributor%3Afeature%2Fchange&per_page=100&page=1"))
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
                 .andRespond(withSuccess(firstPage, MediaType.APPLICATION_JSON));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls?state=all&head=contributor%3Afeature%2Fchange&per_page=100&page=2"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls?state=all&head=contributor%3Afeature%2Fchange&per_page=100&page=2"))
                 .andRespond(withSuccess("""
                         [{"id":101,"number":101,"title":"Earlier attempt","state":"closed",
                           "merged_at":"2026-09-07T00:00:00Z","head":{"ref":"feature/change"}}]
                         """, MediaType.APPLICATION_JSON));
 
-        List<FetchedPullRequest> found = fixture.client().fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "contributor:feature/change");
+        List<FetchedPullRequest> found = client.fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "contributor:feature/change");
 
         assertThat(found).hasSize(101);
         assertThat(found.getFirst().headRef()).isEqualTo("feature/change");
@@ -86,13 +86,11 @@ class TestGitHubPullRequestOverviewClient
         assertThat(found.getFirst().repo()).isEqualTo("owner/repo");
         assertThat(found.getLast().state()).isEqualTo("closed");
         assertThat(found.getLast().mergedAt()).isEqualTo(Instant.parse("2026-09-07T00:00:00Z"));
-        fixture.verify();
     }
 
     @Test
     void listAndDetailReadsKeepTheSamePullRequestFacts()
     {
-        Fixture fixture = fixture();
         String response = """
                 {"id":12,"number":42,"title":"Fix parser","state":"closed","draft":false,
                  "html_url":"https://github.com/owner/repo/pull/42","user":{"login":"alice"},
@@ -102,48 +100,44 @@ class TestGitHubPullRequestOverviewClient
                  "requested_reviewers":[{"login":"bob"}],"head":{"ref":"feature"},
                  "mergeable":true,"mergeable_state":"clean"}
                 """;
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls?state=all&head=alice%3Afeature&per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls?state=all&head=alice%3Afeature&per_page=100&page=1"))
                 .andRespond(withSuccess("[" + response + "]", MediaType.APPLICATION_JSON));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
                 .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
 
-        FetchedPullRequest listed = fixture.client().fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "alice:feature").getFirst();
+        FetchedPullRequest listed = client.fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "alice:feature").getFirst();
 
-        assertThat(fixture.client().getPullRequest("pat", PULL_REQUEST)).isEqualTo(listed);
+        assertThat(client.getPullRequest("pat", PULL_REQUEST)).isEqualTo(listed);
         assertThat(listed.labels()).containsExactly("bug", "bug", "parser");
         assertThat(listed.labelColors()).hasSize(1).containsEntry("bug", "ff0000");
         assertThat(listed.requestedReviewers()).containsExactly("bob");
         assertThat(listed.author()).isEqualTo("alice");
         assertThat(listed.headRef()).isEqualTo("feature");
         assertThat(listed.mergedAt()).isEqualTo(Instant.parse("2026-08-20T10:00:00Z"));
-        fixture.verify();
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void preservesEachEndpointsHandlingOfMissingReviewerLogins(boolean list)
     {
-        Fixture fixture = fixture();
         String response = """
                 {"id":12,"number":42,"title":"Fix parser","state":"open","requested_reviewers":[{}, {"login":"bob"}]}
                 """;
         String path = list ? "/repos/owner/repo/pulls?state=all&head=alice%3Afeature&per_page=100&page=1" : "/repos/owner/repo/pulls/42";
-        fixture.api().expect(requestTo("https://api.github.test" + path)).andRespond(withSuccess(list ? "[" + response + "]" : response, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.test" + path)).andRespond(withSuccess(list ? "[" + response + "]" : response, MediaType.APPLICATION_JSON));
 
         if (list) {
-            assertThatThrownBy(() -> fixture.client().fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "alice:feature")).isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(() -> client.fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "alice:feature")).isInstanceOf(NullPointerException.class);
         }
         else {
-            assertThat(fixture.client().getPullRequest("pat", PULL_REQUEST).requestedReviewers()).containsExactly("bob");
+            assertThat(client.getPullRequest("pat", PULL_REQUEST).requestedReviewers()).containsExactly("bob");
         }
-        fixture.verify();
     }
 
     @Test
     void mapsTheSelfContainedOverviewHeader()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
                 .andRespond(withSuccess("""
                         {
                           "title":"Improve overview","html_url":"https://github.com/owner/repo/pull/42",
@@ -159,7 +153,7 @@ class TestGitHubPullRequestOverviewClient
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        PrRawDetail detail = fixture.client().fetchPrDetail("pat", PULL_REQUEST);
+        PrRawDetail detail = client.fetchPrDetail("pat", PULL_REQUEST);
 
         assertThat(detail.title()).isEqualTo("Improve overview");
         assertThat(detail.state()).isEqualTo("merged");
@@ -169,137 +163,123 @@ class TestGitHubPullRequestOverviewClient
         assertThat(detail.assignees()).containsExactly("bob");
         assertThat(detail.milestone()).isEqualTo("v1");
         assertThat(detail.requestedReviewers()).containsExactly("carol", "owner/core");
-        fixture.verify();
     }
 
     @Test
     void readsDiffContentsAtTheSpecifiedBaseAndHead()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/contents/src/App.java?ref=base-sha"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/contents/src/App.java?ref=base-sha"))
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
                 .andRespond(withSuccess("old content", MediaType.TEXT_PLAIN));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/contents/src/App.java?ref=head-sha"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/contents/src/App.java?ref=head-sha"))
                 .andRespond(withSuccess("new content", MediaType.TEXT_PLAIN));
 
-        assertThat(fixture.client().fetchPrDiffFileContent("pat", PULL_REQUEST, "src/App.java", "base-sha", "head-sha"))
+        assertThat(client.fetchPrDiffFileContent("pat", PULL_REQUEST, "src/App.java", "base-sha", "head-sha"))
                 .isEqualTo(new DiffFileContent("old content", "new content"));
-        fixture.verify();
     }
 
     @Test
     void conditionallyFetchesPullRequestWithTheStoredEtag()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
                 .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"etag-1\""))
                 .andRespond(withStatus(HttpStatus.NOT_MODIFIED));
 
-        var fetched = fixture.client().getPullRequest("pat", PULL_REQUEST, Optional.of("\"etag-1\""));
+        var fetched = client.getPullRequest("pat", PULL_REQUEST, Optional.of("\"etag-1\""));
 
         assertThat(fetched.pullRequest()).isEmpty();
         assertThat(fetched.etag()).contains("\"etag-1\"");
-        fixture.verify();
     }
 
     @Test
     void conditionalFetchPreservesGitHubNotFound()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
                 .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"etag-1\""))
                 .andRespond(withStatus(HttpStatus.NOT_FOUND)
                         .body("{\"message\":\"Not Found\"}")
                         .contentType(MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client().getPullRequest("pat", PULL_REQUEST, Optional.of("\"etag-1\"")))
+        assertThatThrownBy(() -> client.getPullRequest("pat", PULL_REQUEST, Optional.of("\"etag-1\"")))
                 .isInstanceOf(ResponseStatusException.class)
                 .extracting(failure -> ((ResponseStatusException) failure).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
-        fixture.verify();
     }
 
     @Test
     void storesTheEtagReturnedWithModifiedPullRequestData()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
                 .andRespond(withSuccess("""
                         {"id":12,"number":42,"title":"Title","state":"open","labels":[],
                          "requested_reviewers":[],"draft":false,
                          "mergeable":false,"mergeable_state":"dirty"}
                         """, MediaType.APPLICATION_JSON).header(HttpHeaders.ETAG, "\"etag-2\""));
 
-        var fetched = fixture.client().getPullRequest("pat", PULL_REQUEST, Optional.empty());
+        var fetched = client.getPullRequest("pat", PULL_REQUEST, Optional.empty());
 
         assertThat(fetched.pullRequest()).isPresent();
         assertThat(fetched.pullRequest().orElseThrow().origin()).isEqualTo(OTHER);
         assertThat(fetched.pullRequest().orElseThrow().mergeable()).isFalse();
         assertThat(fetched.pullRequest().orElseThrow().mergeableState()).isEqualTo("dirty");
         assertThat(fetched.etag()).contains("\"etag-2\"");
-        fixture.verify();
     }
 
     @Test
     void fetchesEveryAssignableRepositoryUserWithStableIdentity()
     {
-        Fixture fixture = fixture();
         String firstPage = IntStream.range(0, 100)
                 .mapToObj(index -> """
                         {"id":%d,"login":"user%d","avatar_url":"https://avatars/user%d","type":"User"}
                         """.formatted(index + 1, index, index))
                 .collect(joining(",", "[", "]"));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/assignees?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/assignees?per_page=100&page=1"))
                 .andRespond(withSuccess(firstPage, MediaType.APPLICATION_JSON));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/assignees?per_page=100&page=2"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/assignees?per_page=100&page=2"))
                 .andRespond(withSuccess("""
                         [{"id":101,"login":"copilot[bot]","avatar_url":"https://avatars/copilot","type":"Bot"}]
                         """, MediaType.APPLICATION_JSON));
 
-        List<GitHubRepositoryUser> users = fixture.client().fetchAssignableRepositoryUsers("pat", RepoRef.of("owner", "repo"));
+        List<GitHubRepositoryUser> users = client.fetchAssignableRepositoryUsers("pat", RepoRef.of("owner", "repo"));
 
         assertThat(users).hasSize(101);
         assertThat(users.getFirst()).isEqualTo(new GitHubRepositoryUser(1, "user0", "https://avatars/user0", false));
         assertThat(users.getLast()).isEqualTo(new GitHubRepositoryUser(101, "copilot[bot]", "https://avatars/copilot", true));
-        fixture.verify();
     }
 
     @Test
     void namesOrganizationTeamsByOwnerAndSlug()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/orgs/owner/teams?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/orgs/owner/teams?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":1,"slug":"core","name":"Core"},{"id":2,"slug":"","name":"Blank"}]
                         """, MediaType.APPLICATION_JSON));
-        fixture.api().expect(requestTo("https://api.github.test/orgs/alice/teams?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/orgs/alice/teams?per_page=100&page=1"))
                 .andRespond(withStatus(HttpStatus.NOT_FOUND));
 
-        assertThat(fixture.client().fetchOrganizationTeams("pat", "owner")).containsExactly("owner/core");
-        assertThat(fixture.client().fetchOrganizationTeams("pat", "alice")).isEmpty();
-        fixture.verify();
+        assertThat(client.fetchOrganizationTeams("pat", "owner")).containsExactly("owner/core");
+        assertThat(client.fetchOrganizationTeams("pat", "alice")).isEmpty();
     }
 
     @Test
     void enrichesFullAndShortIssueReferencesAndFetchesDescriptionReactions()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
                 .andRespond(withSuccess("""
                         {"title":"Overview","state":"open","body":"Includes\\n\\n- https://github.com/owner/repo/issues/7\\n- #8",
                          "labels":[],"assignees":[],"requested_reviewers":[],"head":{},"base":{},
                          "draft":false,"additions":0,"deletions":0,"changed_files":0}
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"ref0":{"__typename":"Issue","title":"Linked issue","number":7},
                                  "ref1":{"__typename":"PullRequest","title":"Linked pull","number":8}}}
                         """, MediaType.APPLICATION_JSON));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42"))
                 .andRespond(withSuccess("""
                         {"node_id":"PR_42","reactions":{"+1":2,"eyes":1}}
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"nodes":[{"id":"PR_42","reactionGroups":[
                           {"content":"THUMBS_UP","viewerHasReacted":true},
@@ -307,128 +287,114 @@ class TestGitHubPullRequestOverviewClient
                         ]}]}}
                         """, MediaType.APPLICATION_JSON));
 
-        PrRawDetail detail = fixture.client().fetchPrDetail("pat", PULL_REQUEST);
+        PrRawDetail detail = client.fetchPrDetail("pat", PULL_REQUEST);
 
         assertThat(detail.body()).isEqualTo("""
                 Includes
 
                 - [Linked issue #7](https://github.com/owner/repo/issues/7)
                 - [Linked pull #8](https://github.com/owner/repo/pull/8)""");
-        assertThat(fixture.client().fetchPrDescriptionReactions("pat", PULL_REQUEST))
+        assertThat(client.fetchPrDescriptionReactions("pat", PULL_REQUEST))
                 .extracting(reaction -> reaction.content() + ":" + reaction.count() + ":" + reaction.viewerHasReacted())
                 .containsExactly("+1:2:true", "eyes:1:false");
-        fixture.verify();
     }
 
     @Test
     void preservesUnknownViewerStateWhenGraphQlReactionGroupsArePartial()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42"))
                 .andRespond(withSuccess("""
                         {"node_id":"PR_42","reactions":{"+1":2}}
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"nodes":[{"id":"PR_42","reactionGroups":null}]},
                          "errors":[{"message":"Reaction groups unavailable"}]}
                         """, MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().fetchPrDescriptionReactions("pat", PULL_REQUEST))
+        assertThat(client.fetchPrDescriptionReactions("pat", PULL_REQUEST))
                 .singleElement()
                 .satisfies(reaction -> assertThat(reaction.viewerHasReacted()).isNull());
-        fixture.verify();
     }
 
     @Test
     void fetchesEveryReviewPage()
     {
-        Fixture fixture = fixture();
         String firstPage = IntStream.range(0, 100)
                 .mapToObj(index -> """
                         {"id":%d,"state":"COMMENTED","submitted_at":"2026-08-20T10:00:00Z",
                          "user":{"login":"reviewer%d","type":"User"}}
                         """.formatted(index + 1, index))
                 .collect(joining(",", "[", "]"));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=1"))
                 .andRespond(withSuccess(firstPage, MediaType.APPLICATION_JSON));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=2"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=2"))
                 .andRespond(withSuccess("""
                         [{"id":101,"state":"APPROVED","submitted_at":"2026-08-20T11:00:00Z",
                           "user":{"login":"last","type":"User"}}]
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrReviewState> reviews = fixture.client().fetchPrReviews("pat", PULL_REQUEST);
+        List<PrReviewState> reviews = client.fetchPrReviews("pat", PULL_REQUEST);
 
         assertThat(reviews).hasSize(101);
         assertThat(reviews.getLast().login()).isEqualTo("last");
-        fixture.verify();
     }
 
     @Test
     void failedReviewFetchThrowsInsteadOfReportingNoReviews()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=1"))
                 .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
 
         // An empty list would read as "no reviews" and sweep the cached rows.
-        assertThatThrownBy(() -> fixture.client().fetchPrReviews("pat", PULL_REQUEST))
+        assertThatThrownBy(() -> client.fetchPrReviews("pat", PULL_REQUEST))
                 .isInstanceOfSatisfying(ResponseStatusException.class, e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
-        fixture.verify();
     }
 
     @Test
     void searchesPullRequestsMostRecentlyUpdatedFirst()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(request -> assertThat(request.getURI().getQuery()).isEqualTo("q=is:pr author:me&per_page=20&page=1&sort=updated&order=desc"))
+        server.expect(request -> assertThat(request.getURI().getQuery()).isEqualTo("q=is:pr author:me&per_page=20&page=1&sort=updated&order=desc"))
                 .andRespond(withSuccess("{\"total_count\":0,\"items\":[]}", MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().searchPullRequestsPaged("pat", "is:pr author:me", 1, 20).items()).isEmpty();
-        fixture.verify();
+        assertThat(client.searchPullRequestsPaged("pat", "is:pr author:me", 1, 20).items()).isEmpty();
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"", "null", "{}", "{\"total_count\":1,\"items\":null}", "{\"total_count\":0,\"items\":[],\"incomplete_results\":true}"})
     void incompleteSearchResponsesCannotReportACompleteEmptyDiscovery(String body)
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(request -> assertThat(request.getURI().getPath()).isEqualTo("/search/issues"))
+        server.expect(request -> assertThat(request.getURI().getPath()).isEqualTo("/search/issues"))
                 .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client().searchPullRequestsPaged("pat", "is:pr author:me", 1, 100))
+        assertThatThrownBy(() -> client.searchPullRequestsPaged("pat", "is:pr author:me", 1, 100))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
-        fixture.verify();
     }
 
     @Test
     void searchResultCeilingRemainsIncompleteWhenMoreRowsExist()
     {
-        Fixture fixture = fixture();
         String items = IntStream.rangeClosed(901, 1000).mapToObj(number -> """
                 {"id":%d,"number":%d,"title":"Pull request","html_url":"https://github.com/owner/repo/pull/%d",
                  "repository_url":"https://api.github.com/repos/owner/repo","state":"open","user":{"login":"author"},
                  "created_at":"2026-09-20T00:00:00Z","updated_at":"2026-09-21T00:00:00Z"}
                 """.formatted(number, number, number)).collect(joining(",", "[", "]"));
-        fixture.api().expect(request -> assertThat(request.getURI().getQuery()).contains("page=10"))
+        server.expect(request -> assertThat(request.getURI().getQuery()).contains("page=10"))
                 .andRespond(withSuccess("{\"total_count\":1001,\"items\":" + items + "}", MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().searchPullRequestsPaged("pat", "is:pr author:me", 10, 100).hasMore()).isTrue();
-        fixture.verify();
+        assertThat(client.searchPullRequestsPaged("pat", "is:pr author:me", 10, 100).hasMore()).isTrue();
     }
 
     @Test
     void enrichesQueueRemovalsByNodeIdWithReasonsAndPaginatedFailedChecks()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":1,"node_id":"removed-1","event":"removed_from_merge_queue","actor":{"login":"github-merge-queue"}},
                          {"id":2,"node_id":"added-2","event":"added_to_merge_queue"},
                          {"id":3,"node_id":"removed-3","event":"removed_from_merge_queue"}]
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(content().json("""
                         {"variables":{"ids":["removed-1","removed-3"]}}
                         """))
@@ -443,7 +409,7 @@ class TestGitHubPullRequestOverviewClient
                                 {"context":"external-ci","state":"ERROR","targetUrl":"https://ci.example.com/build/4"}],
                               "pageInfo":{"hasNextPage":true,"endCursor":"next"}}}}}]}}
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(content().json("""
                         {"variables":{"ids":["removed-1"],"after":"next"}}
                         """))
@@ -454,7 +420,7 @@ class TestGitHubPullRequestOverviewClient
                             "pageInfo":{"hasNextPage":false}}}}}]}}
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST);
+        List<PrTimelineEvent> timeline = client.fetchPrTimeline("pat", PULL_REQUEST);
 
         assertThat(timeline).extracting(PrTimelineEvent::githubId).containsExactly(1L, 2L, 3L);
         var failed = timeline.getFirst().payload().mergeQueueRemoval();
@@ -468,84 +434,76 @@ class TestGitHubPullRequestOverviewClient
         assertThat(conflict.reason()).contains("merge_conflict");
         assertThat(conflict.commitUrl()).isEmpty();
         assertThat(conflict.failedChecks()).isEmpty();
-        fixture.verify();
     }
 
     @Test
     void retainsQueueRemovalWhenGraphQlIsUnavailable()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":1,"node_id":"removed-1","event":"removed_from_merge_queue","actor":{"login":"github-merge-queue"}}]
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql")).andRespond(withStatus(HttpStatus.FORBIDDEN));
+        graphServer.expect(requestTo("https://api.github.test/graphql")).andRespond(withStatus(HttpStatus.FORBIDDEN));
 
-        assertThat(fixture.client().fetchPrTimeline("pat", PULL_REQUEST)).singleElement().satisfies(event -> {
+        assertThat(client.fetchPrTimeline("pat", PULL_REQUEST)).singleElement().satisfies(event -> {
             assertThat(event.githubId()).isEqualTo(1L);
             assertThat(event.actor()).isEqualTo("github-merge-queue");
             assertThat(event.payload().mergeQueueRemoval()).isNull();
         });
-        fixture.verify();
     }
 
     @Test
     void retainsQueueReasonAndCommitLinkWhenCheckPaginationFails()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":1,"node_id":"removed-1","event":"removed_from_merge_queue"}]
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"nodes":[{"id":"removed-1","reason":"failed_checks","beforeCommit":{
                           "url":"https://github.com/owner/repo/commit/queue-sha","statusCheckRollup":{"contexts":{
                             "nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":"next"}}}}}]}}
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"nodes":[null]},"errors":[{"message":"unavailable"}]}
                         """, MediaType.APPLICATION_JSON));
 
-        var removal = fixture.client().fetchPrTimeline("pat", PULL_REQUEST).getFirst().payload().mergeQueueRemoval();
+        var removal = client.fetchPrTimeline("pat", PULL_REQUEST).getFirst().payload().mergeQueueRemoval();
         assertThat(removal.reason()).contains("failed_checks");
         assertThat(removal.commitUrl()).contains("https://github.com/owner/repo/commit/queue-sha");
-        fixture.verify();
     }
 
     @Test
     void datesCommitEventsByCommitterTime()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"event":"committed","sha":"abc","message":"Fix it",
                           "author":{"name":"Alice","date":"2026-08-20T09:00:00Z"},
                           "committer":{"name":"Alice","date":"2026-08-20T10:00:00Z"}}]
                         """, MediaType.APPLICATION_JSON));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/commits?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/commits?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"sha":"abc","commit":{"message":"Fix it",
                           "author":{"name":"Alice","date":"2026-08-20T09:00:00Z"},
                           "committer":{"name":"Alice","date":"2026-08-20T10:00:00Z"}}}]
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST);
-        List<PrTimelineEvent> commits = fixture.client().fetchPrCommits("pat", PULL_REQUEST);
+        List<PrTimelineEvent> timeline = client.fetchPrTimeline("pat", PULL_REQUEST);
+        List<PrTimelineEvent> commits = client.fetchPrCommits("pat", PULL_REQUEST);
 
         assertThat(timeline).singleElement().extracting(PrTimelineEvent::timestamp)
                 .isEqualTo(Instant.parse("2026-08-20T10:00:00Z"));
         assertThat(commits).singleElement().extracting(PrTimelineEvent::timestamp)
                 .isEqualTo(Instant.parse("2026-08-20T10:00:00Z"));
-        fixture.verify();
     }
 
     @Test
     void mapsRequestedPeopleAndTeamsFromTimelineEvents()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":1,"event":"review_requested","created_at":"2026-08-20T10:00:00Z",
                           "actor":{"login":"alice"},"requested_reviewer":{"login":"bob"}},
@@ -559,19 +517,17 @@ class TestGitHubPullRequestOverviewClient
                           "actor":{"login":"alice"},"requested_team":{"slug":""}}]
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST);
+        List<PrTimelineEvent> timeline = client.fetchPrTimeline("pat", PULL_REQUEST);
 
         assertThat(timeline)
                 .extracting(event -> event.githubId() + ":" + event.actor() + ":" + event.payload().requestedReviewer())
                 .containsExactly("1:alice:bob", "2:alice:carol", "3:alice:owner/connectors", "4:alice:null", "5:alice:null");
-        fixture.verify();
     }
 
     @Test
     void mapsAssigneesFromTimelineEvents()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":1,"event":"assigned","created_at":"2026-08-20T10:00:00Z",
                           "actor":{"login":"alice"},"assignee":{"login":"bob"}},
@@ -579,17 +535,15 @@ class TestGitHubPullRequestOverviewClient
                           "actor":{"login":"alice"},"assignee":{"login":"carol"}}]
                         """, MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().fetchPrTimeline("pat", PULL_REQUEST))
+        assertThat(client.fetchPrTimeline("pat", PULL_REQUEST))
                 .extracting(event -> event.event() + ":" + event.payload().assignee())
                 .containsExactly("assigned:bob", "unassigned:carol");
-        fixture.verify();
     }
 
     @Test
     void addsGraphQlReactionsToReviewTimelineEvents()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":5,"event":"reviewed","state":"commented","body":"LGTM",
                           "submitted_at":"2026-08-20T10:00:00Z",
@@ -597,7 +551,7 @@ class TestGitHubPullRequestOverviewClient
                          {"event":"committed","sha":"abc","message":"Fix it",
                           "author":{"name":"alice","date":"2026-08-20T09:00:00Z"}}]
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"repository":{"pullRequest":{"reviews":{
                           "nodes":[{"databaseId":5,"reactionGroups":[
@@ -608,28 +562,26 @@ class TestGitHubPullRequestOverviewClient
                         }}}}}
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST);
+        List<PrTimelineEvent> timeline = client.fetchPrTimeline("pat", PULL_REQUEST);
 
         assertThat(timeline).hasSize(2);
         assertThat(timeline.getFirst().payload().reactions())
                 .extracting(reaction -> reaction.content() + ":" + reaction.count() + ":" + reaction.viewerHasReacted())
                 .containsExactly("+1:1:true", "heart:2:false");
         assertThat(timeline.getLast().payload().reactions()).isEmpty();
-        fixture.verify();
     }
 
     @Test
     void enrichesIssueCommentsWithViewerReactionState()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/comments?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/comments?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":21,"node_id":"IC_21","body":"Looks good",
                           "created_at":"2026-08-20T10:00:00Z",
                           "user":{"login":"alice","type":"User"},
                           "reactions":{"+1":2,"heart":1}}]
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"nodes":[{"id":"IC_21","reactionGroups":[
                           {"content":"THUMBS_UP","viewerHasReacted":false},
@@ -637,39 +589,35 @@ class TestGitHubPullRequestOverviewClient
                         ]}]}}
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrTimelineEvent> comments = fixture.client().fetchPrIssueComments("pat", PULL_REQUEST);
+        List<PrTimelineEvent> comments = client.fetchPrIssueComments("pat", PULL_REQUEST);
 
         assertThat(comments).singleElement().satisfies(comment ->
                 assertThat(comment.payload().reactions())
                         .extracting(reaction -> reaction.content() + ":" + reaction.count() + ":" + reaction.viewerHasReacted())
                         .containsExactly("+1:2:false", "heart:1:true"));
-        fixture.verify();
     }
 
     @Test
     void skipsViewerReactionQueriesWhenDescriptionAndCommentsHaveNoReactions()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42"))
                 .andRespond(withSuccess("""
                         {"node_id":"PR_42","reactions":{"total_count":0}}
                         """, MediaType.APPLICATION_JSON));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/comments?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/comments?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":21,"node_id":"IC_21","body":"No reactions","reactions":{"total_count":0}}]
                         """, MediaType.APPLICATION_JSON));
 
-        assertThat(fixture.client().fetchPrDescriptionReactions("pat", PULL_REQUEST)).isEmpty();
-        assertThat(fixture.client().fetchPrIssueComments("pat", PULL_REQUEST)).singleElement()
+        assertThat(client.fetchPrDescriptionReactions("pat", PULL_REQUEST)).isEmpty();
+        assertThat(client.fetchPrIssueComments("pat", PULL_REQUEST)).singleElement()
                 .satisfies(comment -> assertThat(comment.payload().reactions()).isEmpty());
-        fixture.verify();
     }
 
     @Test
     void groupsReviewCommentsAndEnrichesEveryTimelineBody()
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/comments?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/comments?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [
                           {"id":11,"node_id":"RC_11","pull_request_review_id":5,"path":"src/App.java","line":12,
@@ -682,7 +630,7 @@ class TestGitHubPullRequestOverviewClient
                            "user":{"login":"bob","type":"User"}}
                         ]
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(content().json("""
                         {"variables":{"ids":["RC_11"]}}
                         """))
@@ -693,7 +641,7 @@ class TestGitHubPullRequestOverviewClient
                           {"id":"RC_12","reactionGroups":[]}
                         ]}}
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"repository":{"pullRequest":{"reviewThreads":{
                           "nodes":[{"id":"PRRT_1","isResolved":true,"isOutdated":false,
@@ -702,14 +650,14 @@ class TestGitHubPullRequestOverviewClient
                           "pageInfo":{"hasNextPage":false,"endCursor":"cursor"}
                         }}}}}
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
                         {"data":{"ref0":{"__typename":"PullRequest","title":"Linked pull","number":8}}}
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrTimelineEvent> threads = fixture.client().fetchPrReviewThreads("pat", PULL_REQUEST);
+        List<PrTimelineEvent> threads = client.fetchPrReviewThreads("pat", PULL_REQUEST);
         PrTimelineEvent issueComment = new PrTimelineEvent(99L, "commented", "eve", Instant.parse("2026-08-20T10:10:00Z"), "See #8", Optional.empty());
-        List<PrTimelineEvent> enriched = fixture.client().enrichTimelineReferences("pat", PULL_REQUEST, ImmutableList.of(issueComment, threads.getFirst()));
+        List<PrTimelineEvent> enriched = client.enrichTimelineReferences("pat", PULL_REQUEST, ImmutableList.of(issueComment, threads.getFirst()));
 
         assertThat(threads).singleElement().satisfies(thread -> {
             assertThat(thread.event()).isEqualTo("review_thread");
@@ -727,13 +675,11 @@ class TestGitHubPullRequestOverviewClient
         assertThat(enriched.getLast().payload().comments())
                 .extracting(comment -> comment.body())
                 .containsExactly("Please verify [Linked pull #8](https://github.com/owner/repo/pull/8)", "Done [Linked pull #8](https://github.com/owner/repo/pull/8)");
-        fixture.verify();
     }
 
     @Test
     void loadsReviewCommentsAndThreadLocationsAcrossPages()
     {
-        Fixture fixture = fixture();
         String comments = IntStream.rangeClosed(1, 100)
                 .mapToObj(id -> """
                         {"id":%d,"path":"a.txt","line":%d,"original_line":200,"start_line":1,"original_start_line":198,
@@ -741,14 +687,14 @@ class TestGitHubPullRequestOverviewClient
                          "created_at":"2026-08-20T10:00:00Z","user":{"login":"alice","avatar_url":"https://avatars/alice"}}
                         """.formatted(id, id, id))
                 .collect(joining(",", "[", "]"));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/comments?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/comments?per_page=100&page=1"))
                 .andRespond(withSuccess(comments, MediaType.APPLICATION_JSON));
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/comments?per_page=100&page=2"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/comments?per_page=100&page=2"))
                 .andRespond(withSuccess("""
                         [{"id":101,"in_reply_to_id":1,"body":"Reply on the next page",
                           "created_at":"2026-08-20T10:01:00Z","user":{"login":"bob","avatar_url":"https://avatars/bob"}}]
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(content().json("""
                         {"variables":{"owner":"owner","repo":"repo","number":42,"after":null}}
                         """))
@@ -760,7 +706,7 @@ class TestGitHubPullRequestOverviewClient
                           "pageInfo":{"hasNextPage":true,"endCursor":"next-thread-page"}
                         }}}}}
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(content().json("""
                         {"variables":{"owner":"owner","repo":"repo","number":42,"after":"next-thread-page"}}
                         """))
@@ -773,7 +719,7 @@ class TestGitHubPullRequestOverviewClient
                         }}}}}
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrTimelineEvent> threads = fixture.client().fetchPrReviewThreads("pat", PULL_REQUEST);
+        List<PrTimelineEvent> threads = client.fetchPrReviewThreads("pat", PULL_REQUEST);
 
         assertThat(threads).hasSize(100);
         assertThat(threads.getFirst().payload()).satisfies(payload -> {
@@ -805,22 +751,20 @@ class TestGitHubPullRequestOverviewClient
             assertThat(payload.originalStartLine()).isEqualTo(98);
             assertThat(payload.side()).isEqualTo("LEFT");
         });
-        fixture.verify();
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void readsSubmittedReviewCommentLocationsFromThreads(boolean outdated)
     {
-        Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/reviews/5/comments?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/reviews/5/comments?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":11,"pull_request_review_id":5,"path":"src/App.java","position":4,"original_position":4,
                           "diff_hunk":"@@ -16,3 +16,3 @@\\n-old\\n+new","body":"Please verify this",
                           "created_at":"2026-08-20T10:00:00Z","html_url":"https://github/comment/11",
                           "user":{"login":"alice","avatar_url":"https://avatars/alice","type":"User"}}]
                         """, MediaType.APPLICATION_JSON));
-        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(content().json("""
                         {"variables":{"owner":"owner","repo":"repo","number":42,"after":null}}
                         """))
@@ -833,7 +777,7 @@ class TestGitHubPullRequestOverviewClient
                         }}}}}
                         """.formatted(outdated, outdated ? "null" : "18", outdated ? "null" : "16"), MediaType.APPLICATION_JSON));
 
-        List<PrTimelineEvent> threads = fixture.client().fetchReviewComments("pat", PULL_REQUEST, 5);
+        List<PrTimelineEvent> threads = client.fetchReviewComments("pat", PULL_REQUEST, 5);
 
         assertThat(threads).singleElement().satisfies(thread -> {
             assertThat(thread.githubId()).isEqualTo(11);
@@ -852,74 +796,65 @@ class TestGitHubPullRequestOverviewClient
                 assertThat(comment.body()).isEqualTo("Please verify this");
             });
         });
-        fixture.verify();
     }
 
     @Test
     void discussionProbeIsUnchangedOnlyWhenEverySourceAnswersNotModified()
     {
-        Fixture fixture = fixture();
-        DISCUSSION_SOURCES.forEach((source, path) -> fixture.api.expect(requestTo("https://api.github.test/repos/owner/repo/" + path + "?per_page=100"))
+        DISCUSSION_SOURCES.forEach((source, path) -> server.expect(requestTo("https://api.github.test/repos/owner/repo/" + path + "?per_page=100"))
                 .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"" + source + "\""))
                 .andRespond(withStatus(HttpStatus.NOT_MODIFIED)));
         Map<String, String> stored = ImmutableMap.copyOf(Maps.transformEntries(DISCUSSION_SOURCES, (source, path) -> "\"" + source + "\""));
 
-        DiscussionProbe probe = fixture.client.probeDiscussion("pat", PullRequestRef.of("owner", "repo", 7), stored);
+        DiscussionProbe probe = client.probeDiscussion("pat", PullRequestRef.of("owner", "repo", 7), stored);
 
         assertThat(probe.unchanged()).isTrue();
         assertThat(probe.etags()).isEqualTo(stored);
-        fixture.verify();
     }
 
     @Test
     void discussionProbeDropsTheEtagOfAFullFirstPage()
     {
-        Fixture fixture = fixture();
         String fullPage = IntStream.range(0, 100).mapToObj(index -> "{}").collect(joining(",", "[", "]"));
-        DISCUSSION_SOURCES.forEach((source, path) -> fixture.api.expect(requestTo("https://api.github.test/repos/owner/repo/" + path + "?per_page=100"))
+        DISCUSSION_SOURCES.forEach((source, path) -> server.expect(requestTo("https://api.github.test/repos/owner/repo/" + path + "?per_page=100"))
                 .andExpect(headerDoesNotExist(HttpHeaders.IF_NONE_MATCH))
                 .andRespond(withSuccess(source.equals("timeline") ? fullPage : source.equals("issue") ? "{}" : "[{}]", MediaType.APPLICATION_JSON)
                         .header(HttpHeaders.ETAG, "\"" + source + "\"")));
 
-        DiscussionProbe probe = fixture.client.probeDiscussion("pat", PullRequestRef.of("owner", "repo", 7), ImmutableMap.of());
+        DiscussionProbe probe = client.probeDiscussion("pat", PullRequestRef.of("owner", "repo", 7), ImmutableMap.of());
 
         // A row added to a full page lands on page two and leaves page one's ETag as it was.
         assertThat(probe.unchanged()).isFalse();
         assertThat(probe.etags()).containsOnlyKeys("reviews", "comments", "reviewComments", "issue");
-        fixture.verify();
     }
 
     @Test
     void conditionalDiffFilesReuseTheStoredCopyOnNotModified()
     {
-        Fixture fixture = fixture();
-        fixture.api.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/files?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/files?per_page=100&page=1"))
                 .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"files-1\""))
                 .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header(HttpHeaders.ETAG, "\"files-1\""));
 
-        ConditionalList<DiffFile> result = fixture.client.fetchPrDiffFiles("pat", PullRequestRef.of("owner", "repo", 7), storedFiles(1), Optional.of("\"files-1\""));
+        ConditionalList<DiffFile> result = client.fetchPrDiffFiles("pat", PullRequestRef.of("owner", "repo", 7), storedFiles(1), Optional.of("\"files-1\""));
 
         assertThat(result.unchanged()).isTrue();
         assertThat(result.etag()).contains("\"files-1\"");
-        fixture.verify();
     }
 
     @Test
     void conditionalDiffFilesIgnoreTheStoredEtagBeyondOnePage()
     {
-        Fixture fixture = fixture();
-        fixture.api.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/files?per_page=100&page=1"))
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/files?per_page=100&page=1"))
                 .andExpect(headerDoesNotExist(HttpHeaders.IF_NONE_MATCH))
                 .andRespond(withSuccess(
                         """
                         [{"filename":"a.txt","status":"modified","additions":1,"deletions":0,"patch":"+line"}]
                         """, MediaType.APPLICATION_JSON));
 
-        ConditionalList<DiffFile> result = fixture.client.fetchPrDiffFiles("pat", PullRequestRef.of("owner", "repo", 7), storedFiles(101), Optional.of("\"files-1\""));
+        ConditionalList<DiffFile> result = client.fetchPrDiffFiles("pat", PullRequestRef.of("owner", "repo", 7), storedFiles(101), Optional.of("\"files-1\""));
 
         assertThat(result.unchanged()).isFalse();
         assertThat(result.orElse(ImmutableList.of())).extracting(DiffFile::filename).containsExactly("a.txt");
-        fixture.verify();
     }
 
     private static List<DiffFile> storedFiles(int count)
@@ -927,23 +862,5 @@ class TestGitHubPullRequestOverviewClient
         return IntStream.rangeClosed(1, count)
                 .mapToObj(index -> new DiffFile("file-" + index + ".txt", "modified", 1, 0, "+line"))
                 .toList();
-    }
-
-    private static Fixture fixture()
-    {
-        RestClient.Builder apiBuilder = RestClient.builder().baseUrl("https://api.github.test");
-        MockRestServiceServer api = MockRestServiceServer.bindTo(apiBuilder).build();
-        RestClient.Builder graphQlBuilder = RestClient.builder().baseUrl("https://api.github.test/graphql");
-        MockRestServiceServer graphQl = MockRestServiceServer.bindTo(graphQlBuilder).build();
-        return new Fixture(new GitHubPullRequestReadClient(apiBuilder.build(), graphQlBuilder.build()), api, graphQl);
-    }
-
-    private record Fixture(GitHubPullRequestReadClient client, MockRestServiceServer api, MockRestServiceServer graphQl)
-    {
-        void verify()
-        {
-            api.verify();
-            graphQl.verify();
-        }
     }
 }

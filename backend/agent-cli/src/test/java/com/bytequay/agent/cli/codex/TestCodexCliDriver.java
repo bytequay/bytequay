@@ -111,6 +111,8 @@ class TestCodexCliDriver
     private static final String MCP_ENDPOINT = "http://127.0.0.1:9000/internal/agent/claude/mcp";
     private static final String TASK_CONTEXT = "This task continues the existing pull request owner/repo#7.";
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+    private final List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
 
     @TempDir
     private Path worktree;
@@ -126,8 +128,8 @@ class TestCodexCliDriver
                 plain.permissionPolicy(), plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), SessionAccess.READ_ONLY,
                 Optional.empty(), TASK_CONTEXT, Optional.of(new DiscussionContextBridge(query -> "saved context")));
         try (AgentSession session = driver.open(discussion, event -> {})) {
-            assertThat(supervisor.serverArgv().getLast()).anyMatch(argument -> argument.contains("read_discussion_context"));
-            JsonNode thread = supervisor.server().threadRequests().getFirst();
+            assertThat(supervisor.serverArgv.getLast()).anyMatch(argument -> argument.contains("read_discussion_context"));
+            JsonNode thread = supervisor.server().threadRequests.getFirst();
             String instructions = thread.path("developerInstructions").asText();
             assertThat(instructions).contains(DiscussionContextBridge.INSTRUCTION).startsWith(TASK_CONTEXT + "\n\n");
             RunningTurn turn = session.start(command("explain this"));
@@ -135,7 +137,7 @@ class TestCodexCliDriver
             // read-only session starts with.
             String own = Hashing.sha256().hashString(instructions.substring(TASK_CONTEXT.length() + 2), StandardCharsets.UTF_8).toString();
             assertThat(turn.setup().orElseThrow()).matches("[0-9a-f]{8}-[0-9a-f]{8}").startsWith(own.substring(0, 8) + "-");
-            JsonNode request = supervisor.server().turnRequests().getFirst();
+            JsonNode request = supervisor.server().turnRequests.getFirst();
             assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
             assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
             supervisor.server().completeTurnWithSummary("[{\"type\":\"agentMessage\",\"id\":\"answer\",\"text\":\"Explained.\",\"phase\":\"final_answer\"}]");
@@ -155,11 +157,11 @@ class TestCodexCliDriver
                 Optional.empty(), "Read the independent assignment.", Optional.empty(),
                 ImmutableList.of(new ReviewTool("review_get_context", "Read captured context", ImmutableMap.of("type", "object"), query -> "saved context", true)));
         try (AgentSession session = driver.open(discussion, event -> {})) {
-            assertThat(supervisor.serverArgv().getLast()).anyMatch(argument -> argument.contains("review_get_context"));
-            JsonNode thread = supervisor.server().threadRequests().getFirst();
+            assertThat(supervisor.serverArgv.getLast()).anyMatch(argument -> argument.contains("review_get_context"));
+            JsonNode thread = supervisor.server().threadRequests.getFirst();
             assertThat(thread.path("developerInstructions").asText()).contains("Read the independent assignment.");
             RunningTurn turn = session.start(command("explain this"));
-            JsonNode request = supervisor.server().turnRequests().getFirst();
+            JsonNode request = supervisor.server().turnRequests.getFirst();
             assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
             assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
             supervisor.server().completeTurnWithSummary("[{\"type\":\"agentMessage\",\"id\":\"answer\",\"text\":\"Explained.\",\"phase\":\"final_answer\"}]");
@@ -171,7 +173,6 @@ class TestCodexCliDriver
     void readOnlySessionInAScratchFolderLaunchesAsControlWork()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
         Path runtime = worktree.resolve("task-runtime");
@@ -181,7 +182,7 @@ class TestCodexCliDriver
         }
 
         // Only a session on a real worktree is held for its task at startup recovery; a scratch folder reaches no task worktree.
-        assertThat(supervisor.serverOwners()).containsExactly(
+        assertThat(supervisor.serverOwners).containsExactly(
                 new ProcessOwner(ProcessOwner.Kind.DISCUSSION, "task-1"),
                 new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
     }
@@ -203,8 +204,8 @@ class TestCodexCliDriver
                 plain.approvals(), plain.model(), plain.effort(), SessionAccess.TOOLS_ONLY, Optional.empty(), "", Optional.empty(), tools);
         AgentSessionRef reference;
         try (AgentSession session = driver.open(toolsOnly, event -> {})) {
-            assertThat(supervisor.serverOwners()).containsExactly(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
-            List<String> argv = supervisor.serverArgv().getFirst();
+            assertThat(supervisor.serverOwners).containsExactly(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
+            List<String> argv = supervisor.serverArgv.getFirst();
             for (String feature : ImmutableList.of("shell_tool", "unified_exec", "code_mode", "js_repl", "shell_snapshot", "multi_agent", "multi_agent_v2")) {
                 assertThat(argv).containsSequence("--disable", feature);
             }
@@ -213,12 +214,12 @@ class TestCodexCliDriver
                     .containsExactly("mcp_servers.bytequay.tools={\"assistant_context\"={approval_mode=\"approve\"},\"assistant_act\"={approval_mode=\"approve\"},"
                             + "\"assistant_show\"={approval_mode=\"approve\"}}");
             assertThat(argv).noneMatch(argument -> argument.contains("bytequay_list_tools"));
-            JsonNode thread = supervisor.server().threadRequests().getFirst();
+            JsonNode thread = supervisor.server().threadRequests.getFirst();
             assertThat(thread.path("ephemeral").asBoolean()).isFalse();
             assertThat(thread.path("sandbox").asText()).isEqualTo("read-only");
             assertThat(thread.path("approvalPolicy").asText()).isEqualTo("never");
             RunningTurn turn = session.start(command("what is waiting on me?"));
-            JsonNode request = supervisor.server().turnRequests().getFirst();
+            JsonNode request = supervisor.server().turnRequests.getFirst();
             assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
             assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
             supervisor.server().completeTurnWithSummary("[{\"type\":\"agentMessage\",\"id\":\"answer\",\"text\":\"Two cards wait.\",\"phase\":\"final_answer\"}]");
@@ -231,7 +232,7 @@ class TestCodexCliDriver
         AgentSessionContext resumed = new AgentSessionContext(plain.taskId(), day, runtime, runtime.resolve("provider"), plain.permissionPolicy(), Optional.of(reference),
                 plain.approvals(), plain.model(), plain.effort(), SessionAccess.TOOLS_ONLY, Optional.empty(), "", Optional.empty(), tools);
         driver.open(resumed, event -> {}).close();
-        JsonNode resume = supervisor.servers().getLast().threadRequests().getFirst();
+        JsonNode resume = supervisor.servers.getLast().threadRequests.getFirst();
         assertThat(resume.path("threadId").asText()).isEqualTo(reference.providerValue());
         assertThat(resume.path("excludeTurns").asBoolean()).isTrue();
         assertThat(resume.path("cwd").asText()).isEqualTo(day.toRealPath().toString());
@@ -254,12 +255,11 @@ class TestCodexCliDriver
     @ValueSource(booleans = {false, true})
     void threadStartupUsesTheSelectedEffortBeforeTheFirstTurn(boolean resume)
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        supervisor.reportModelCatalog("""
+        supervisor.models = """
                 {"data":[{"id":"gpt-5","displayName":"GPT-5","description":"d",
                 "supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"max"}],
                 "defaultReasoningEffort":"low","isDefault":true,"hidden":false}]}
-                """);
+                """;
         CodexCliDriver driver = driver(supervisor);
         Optional<AgentSessionRef> reference = resume ? Optional.of(new AgentSessionRef(driver.id(), 1, "thread-1")) : Optional.empty();
         AgentSessionContext context = context(reference, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty())),
@@ -268,9 +268,9 @@ class TestCodexCliDriver
         try (AgentSession session = driver.open(context, event -> {})) {
             AppServerProcess server = supervisor.server();
             assertThat(server.resumeCount()).isEqualTo(resume ? 1 : 0);
-            assertThat(server.threadRequests().getFirst().at("/config/model_reasoning_effort").asText()).isEqualTo("max");
+            assertThat(server.threadRequests.getFirst().at("/config/model_reasoning_effort").asText()).isEqualTo("max");
             session.start(command("Continue"));
-            assertThat(server.turnRequests().getFirst().path("effort").asText()).isEqualTo("max");
+            assertThat(server.turnRequests.getFirst().path("effort").asText()).isEqualTo("max");
         }
     }
 
@@ -278,15 +278,14 @@ class TestCodexCliDriver
     @ValueSource(booleans = {false, true})
     void threadStartupLeavesUnselectedEffortToTheProvider(boolean resume)
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         Optional<AgentSessionRef> reference = resume ? Optional.of(new AgentSessionRef(driver.id(), 1, "thread-1")) : Optional.empty();
         try (AgentSession session = driver.open(context(reference, new AtomicReference<>()), event -> {})) {
             AppServerProcess server = supervisor.server();
             assertThat(server.resumeCount()).isEqualTo(resume ? 1 : 0);
-            assertThat(server.threadRequests().getFirst().path("config").has("model_reasoning_effort")).isFalse();
+            assertThat(server.threadRequests.getFirst().path("config").has("model_reasoning_effort")).isFalse();
             session.start(command("Continue"));
-            assertThat(server.turnRequests().getFirst().has("effort")).isFalse();
+            assertThat(server.turnRequests.getFirst().has("effort")).isFalse();
         }
     }
 
@@ -294,28 +293,26 @@ class TestCodexCliDriver
     void probesResumesAndMapsAnAuthoritativeRedactedResult()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         List<String> writableRoots = Stream.concat(Stream.of(worktree.toRealPath()), BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", worktree.toString())).stream())
                 .map(Path::toString).toList();
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
 
         assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
-        assertThat(supervisor.environments()).allSatisfy(environment -> assertThat(environment).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR"));
+        assertThat(supervisor.environments).allSatisfy(environment -> assertThat(environment).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR"));
         AgentSession initial = driver.open(context(Optional.empty(), approval), events::add);
-        assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR", "OPENAI_API_KEY");
+        assertThat(supervisor.environments.getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR", "OPENAI_API_KEY");
         AgentSessionRef reference = initial.reference();
         initial.close();
         AgentSession resumed = driver.open(context(Optional.of(reference), approval), events::add);
-        assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR", "OPENAI_API_KEY");
+        assertThat(supervisor.environments.getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR", "OPENAI_API_KEY");
         // Each session owns its own process, so the resume is served by a second one.
-        assertThat(supervisor.servers()).hasSize(2);
-        AppServerProcess resumedServer = supervisor.servers().getLast();
+        assertThat(supervisor.servers).hasSize(2);
+        AppServerProcess resumedServer = supervisor.servers.getLast();
         assertThat(resumedServer.resumeCount()).isOne();
 
         RunningTurn turn = resumed.start(command("complete"));
-        JsonNode startedThread = supervisor.servers().getFirst().threadRequests().getFirst();
+        JsonNode startedThread = supervisor.servers.getFirst().threadRequests.getFirst();
         assertThat(startedThread.path("developerInstructions").asText()).doesNotContain(CodexReviewGate.INSTRUCTION);
         assertThat(startedThread.path("model").asText()).isEqualTo("gpt-5");
         assertThat(startedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
@@ -329,7 +326,7 @@ class TestCodexCliDriver
         assertThat(startedThread.path("config").path("features").path("multi_agent").asBoolean()).isTrue();
         assertThat(startedThread.path("config").path("sandbox_workspace_write").path("network_access").asBoolean()).isTrue();
 
-        JsonNode resumedThread = resumedServer.threadRequests().getFirst();
+        JsonNode resumedThread = resumedServer.threadRequests.getFirst();
         assertThat(resumedThread.path("developerInstructions").asText()).doesNotContain(CodexReviewGate.INSTRUCTION);
         assertThat(resumedThread.path("excludeTurns").asBoolean()).isTrue();
         assertThat(resumedThread.path("model").asText()).isEqualTo("gpt-5");
@@ -339,7 +336,7 @@ class TestCodexCliDriver
         assertThat(resumedThread.path("config").path("sandbox_workspace_write").path("network_access").asBoolean()).isTrue();
         assertThat(resumedThread.path("config").path("mcp_servers")).isEmpty();
 
-        JsonNode startedTurn = resumedServer.turnRequests().getFirst();
+        JsonNode startedTurn = resumedServer.turnRequests.getFirst();
         assertThat(startedTurn.path("approvalPolicy").asText()).isEqualTo("on-request");
         assertThat(startedTurn.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(Path.of(startedTurn.path("cwd").asText())).isEqualTo(worktree.toRealPath());
@@ -350,7 +347,7 @@ class TestCodexCliDriver
         assertThat(startedTurn.path("sandboxPolicy").path("excludeTmpdirEnvVar").booleanValue()).isFalse();
         assertThat(startedTurn.path("sandboxPolicy").path("excludeSlashTmp").booleanValue()).isFalse();
         // A turn can report before its first response, repeating the total the resume replayed.
-        resumedServer.emitUsage("thread-1", resumedServer.activeTurn(), AppServerProcess.EARLIER_USAGE, AppServerProcess.EARLIER_USAGE);
+        resumedServer.emitUsage("thread-1", resumedServer.activeTurn, AppServerProcess.EARLIER_USAGE, AppServerProcess.EARLIER_USAGE);
         resumedServer.completeTurn();
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
@@ -379,14 +376,14 @@ class TestCodexCliDriver
         assertThat(driver.capabilities().attachmentMediaTypes())
                 .containsExactlyInAnyOrder("image/png", "image/jpeg", "image/gif", "text/plain", "text/plain; charset=utf-8");
         assertThat(driver.capabilities().nestedAgentActivity()).isTrue();
-        assertThat(supervisor.servers())
-                .allSatisfy(server -> assertThat(server.approvalPolicies()).containsExactly("on-request"));
+        assertThat(supervisor.servers)
+                .allSatisfy(server -> assertThat(server.approvalPolicies).containsExactly("on-request"));
         // Ordinary development keeps its attended policy on both fresh and resumed threads.
-        assertThat(supervisor.servers())
-                .allSatisfy(server -> assertThat(server.sandboxes()).containsExactly("workspace-write"));
+        assertThat(supervisor.servers)
+                .allSatisfy(server -> assertThat(server.sandboxes).containsExactly("workspace-write"));
         // Declared for thread/backgroundTerminals/list, which is experimental and is the only
         // inventory that can prove a thread owns no live process.
-        assertThat(supervisor.servers()).allSatisfy(server -> assertThat(server.experimentalApi()).containsExactly(true));
+        assertThat(supervisor.servers).allSatisfy(server -> assertThat(server.experimentalApi).containsExactly(true));
     }
 
     @Test
@@ -406,10 +403,10 @@ class TestCodexCliDriver
         for (int attempt = 0; attempt < 2; attempt++) {
             AgentSessionContext context = ciContext(reference, handler);
             try (AgentSession session = driver.open(context, event -> {})) {
-                assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR");
+                assertThat(supervisor.environments.getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR");
                 RunningTurn turn = session.start(command("repair CI"));
-                AppServerProcess server = supervisor.servers().getLast();
-                JsonNode thread = server.threadRequests().getFirst();
+                AppServerProcess server = supervisor.servers.getLast();
+                JsonNode thread = server.threadRequests.getFirst();
                 assertThat(thread.path("approvalPolicy").asText()).isEqualTo("on-request");
                 assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 assertThat(thread.path("config").path("web_search").asText()).isEqualTo("disabled");
@@ -419,7 +416,7 @@ class TestCodexCliDriver
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
                 assertThat(thread.path("config").path("features").path("hooks").asBoolean()).isFalse();
                 assertThat(thread.path("config").has("mcp_servers")).isFalse();
-                JsonNode request = server.turnRequests().getFirst();
+                JsonNode request = server.turnRequests.getFirst();
                 assertThat(request.path("approvalPolicy").asText()).isEqualTo("on-request");
                 assertThat(request.path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 JsonNode sandbox = request.path("sandboxPolicy");
@@ -432,12 +429,12 @@ class TestCodexCliDriver
                         "threadId":"thread-1","turnId":"%s","itemId":"exec-network",
                         "command":"mvn test",
                         "startedAtMs":1786884871461}}
-                        """.formatted(server.activeTurn()));
+                        """.formatted(server.activeTurn));
                 server.emit("""
                         {"id":93,"method":"item/fileChange/requestApproval","params":{
                         "threadId":"thread-1","turnId":"%s","itemId":"patch-scoped",
                         "reason":"Write generated test result","startedAtMs":1786884871462}}
-                        """.formatted(server.activeTurn()));
+                        """.formatted(server.activeTurn));
                 awaitCondition(() -> server.results.containsKey(92L) && server.results.containsKey(93L));
                 assertThat(server.results.get(92L).path("decision").asText()).isEqualTo("decline");
                 assertThat(server.results.get(93L).path("decision").asText()).isEqualTo("decline");
@@ -453,7 +450,7 @@ class TestCodexCliDriver
                 reference = Optional.of(session.reference());
             }
         }
-        assertThat(supervisor.servers().getLast().resumes.get()).isEqualTo(1);
+        assertThat(supervisor.servers.getLast().resumes.get()).isEqualTo(1);
     }
 
     @Test
@@ -464,10 +461,9 @@ class TestCodexCliDriver
         AgentSessionContext attended = new AgentSessionContext(
                 "development-task", linked.worktree(), linked.runtimeDirectory(), linked.providerDirectory(),
                 AgentPermissionPolicy.AUTO, Optional.empty(), linked.approvals(), Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         try (AgentSession session = driver(supervisor).open(attended, event -> {})) {
             RunningTurn turn = session.start(command("commit local changes"));
-            JsonNode roots = supervisor.server().turnRequests().getFirst().path("sandboxPolicy").path("writableRoots");
+            JsonNode roots = supervisor.server().turnRequests.getFirst().path("sandboxPolicy").path("writableRoots");
             assertThat(roots).isEqualTo(objectMapper.valueToTree(Stream.concat(
                     GitWorktreeWriteRoots.writableRoots(attended.worktree()).stream(),
                     BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", worktree.toString())).stream().map(Path::toString))
@@ -504,8 +500,8 @@ class TestCodexCliDriver
             }
             try (AgentSession session = driver.open(context, event -> {})) {
                 RunningTurn turn = session.start(command("repair CI"));
-                AppServerProcess server = supervisor.servers().getLast();
-                JsonNode sandbox = server.turnRequests().getFirst().path("sandboxPolicy");
+                AppServerProcess server = supervisor.servers.getLast();
+                JsonNode sandbox = server.turnRequests.getFirst().path("sandboxPolicy");
                 assertThat(sandbox.path("writableRoots")).hasSize(attempt == 1 ? 6 : 10);
                 assertThat(sandbox.path("networkAccess").asBoolean()).isTrue();
                 server.completeTurn();
@@ -513,8 +509,8 @@ class TestCodexCliDriver
                 reference = Optional.of(session.reference());
             }
         }
-        assertThat(supervisor.servers()).hasSize(3);
-        assertThat(supervisor.servers().getLast().resumes.get()).isEqualTo(1);
+        assertThat(supervisor.servers).hasSize(3);
+        assertThat(supervisor.servers.getLast().resumes.get()).isEqualTo(1);
     }
 
     @Test
@@ -529,7 +525,7 @@ class TestCodexCliDriver
             assertThatThrownBy(() -> session.start(command("repair CI")))
                     .isInstanceOf(AgentUnavailableException.class)
                     .hasMessageContaining("Git metadata or branch changed");
-            assertThat(supervisor.server().turnRequests()).isEmpty();
+            assertThat(supervisor.server().turnRequests).isEmpty();
         }
     }
 
@@ -561,7 +557,7 @@ class TestCodexCliDriver
             assertThatThrownBy(() -> session.start(command("repair CI")))
                     .isInstanceOf(AgentUnavailableException.class)
                     .hasMessageContaining(diagnostic);
-            assertThat(supervisor.server().turnRequests()).isEmpty();
+            assertThat(supervisor.server().turnRequests).isEmpty();
         }
     }
 
@@ -592,7 +588,6 @@ class TestCodexCliDriver
     @Test
     void probeKeepsRecoveryEvidenceWhenItsProcessTreeIsUnverifiable()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.leaveProbeTreeUnverifiable();
 
         AgentProviderStatus status = driver(supervisor).probe();
@@ -606,7 +601,6 @@ class TestCodexCliDriver
     void completesAnEphemeralTextOnlySessionWithoutWriteOrApprovalAuthority()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         Files.createDirectories(worktree.resolve(".m2/repository"));
         AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
@@ -626,13 +620,13 @@ class TestCodexCliDriver
 
         AgentSession session = driver.open(textOnly, event -> {});
 
-        assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR");
+        assertThat(supervisor.environments.getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR");
 
-        assertThat(supervisor.serverOwners()).extracting(ProcessOwner::kind)
+        assertThat(supervisor.serverOwners).extracting(ProcessOwner::kind)
                 .containsExactly(ProcessOwner.Kind.CLI_PROBE);
-        assertThat(supervisor.server().approvalPolicies()).containsExactly("never");
-        assertThat(supervisor.server().sandboxes()).containsExactly("read-only");
-        JsonNode thread = supervisor.server().threadRequests().getFirst();
+        assertThat(supervisor.server().approvalPolicies).containsExactly("never");
+        assertThat(supervisor.server().sandboxes).containsExactly("read-only");
+        JsonNode thread = supervisor.server().threadRequests.getFirst();
         assertThat(thread.path("developerInstructions").asText()).doesNotContain("update_plan");
         assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(thread.path("config").path("web_search").asText()).isEqualTo("disabled");
@@ -640,14 +634,14 @@ class TestCodexCliDriver
         assertThat(thread.path("ephemeral").asBoolean()).isTrue();
         assertThat(thread.path("config").path("features").path("multi_agent").asBoolean()).isFalse();
         assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
-        assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "shell_tool");
-        assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "code_mode");
-        assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "js_repl");
-        assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "shell_snapshot");
-        assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "unified_exec");
-        assertThat(supervisor.serverArgv().getFirst()).noneMatch(argument -> argument.startsWith("forced_login_method="));
+        assertThat(supervisor.serverArgv.getFirst()).containsSequence("--disable", "shell_tool");
+        assertThat(supervisor.serverArgv.getFirst()).containsSequence("--disable", "code_mode");
+        assertThat(supervisor.serverArgv.getFirst()).containsSequence("--disable", "js_repl");
+        assertThat(supervisor.serverArgv.getFirst()).containsSequence("--disable", "shell_snapshot");
+        assertThat(supervisor.serverArgv.getFirst()).containsSequence("--disable", "unified_exec");
+        assertThat(supervisor.serverArgv.getFirst()).noneMatch(argument -> argument.startsWith("forced_login_method="));
         RunningTurn turn = session.start(command("read only"));
-        JsonNode request = supervisor.server().turnRequests().getFirst();
+        JsonNode request = supervisor.server().turnRequests.getFirst();
         assertThat(request.path("approvalPolicy").asText()).isEqualTo("never");
         assertThat(request.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
@@ -707,8 +701,6 @@ class TestCodexCliDriver
     void recordsNativeAutomaticReviewWithoutRequestingAHumanDecision()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
         AgentSession session = driver(supervisor).open(context(Optional.empty(), approval), events::add);
         RunningTurn turn = session.start(command("Read public documentation"));
@@ -735,7 +727,6 @@ class TestCodexCliDriver
     void steersOnlyTheActiveTurnAndTellsARefusalFromSilence()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         assertThat(driver.capabilities().steering()).isTrue();
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
@@ -744,7 +735,7 @@ class TestCodexCliDriver
         turn.steer(new AgentTurnInput("also this", ImmutableList.of()));
 
         // The request names the turn it was meant for; App Server refuses it for any other.
-        assertThat(supervisor.server().steerRequests()).singleElement().satisfies(request -> {
+        assertThat(supervisor.server().steerRequests).singleElement().satisfies(request -> {
             assertThat(request).contains("\"threadId\":\"thread-1\"");
             assertThat(request).contains("\"expectedTurnId\":\"" + turn.reference().value() + "\"");
             assertThat(request).contains("\"type\":\"text\",\"text\":\"also this\"");
@@ -752,18 +743,18 @@ class TestCodexCliDriver
 
         // The bytes were accepted and App Server answered, but the answer cannot prove whether it
         // applied the input. That is still uncertain, not a safe retry.
-        supervisor.server().malformNextSteerResponse();
+        supervisor.server().malformNextSteerResponse = true;
         assertThatThrownBy(() -> turn.steer(new AgentTurnInput("malformed", ImmutableList.of())))
                 .isInstanceOf(AgentDeliveryUncertainException.class);
 
-        supervisor.server().refuseSteer();
+        supervisor.server().refuseSteer = true;
         assertThatThrownBy(() -> turn.steer(new AgentTurnInput("refused", ImmutableList.of())))
                 .isInstanceOf(AgentUnavailableException.class)
                 .isNotInstanceOf(AgentDeliveryUncertainException.class)
                 .hasMessageContaining("turn is not active");
 
         // No answer and then the process gone: nothing says whether the input landed.
-        supervisor.server().ignoreSteer();
+        supervisor.server().ignoreSteer = true;
         Thread.ofVirtual().start(() -> {
             try {
                 Thread.sleep(200);
@@ -786,12 +777,11 @@ class TestCodexCliDriver
     @Test
     void identifiesARequestRejectedBeforeAnyBytesAreSent()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexAppServerClient client = appServerClient(supervisor);
 
         assertThatThrownBy(() -> client.request("turn/steer", new CodexProtocol.EmptyParams(), CodexProtocol.EmptyResponse.class, Duration.ofSeconds(1)))
                 .isInstanceOf(CodexAppServerClient.RequestNotSent.class);
-        assertThat(supervisor.servers()).isEmpty();
+        assertThat(supervisor.servers).isEmpty();
         client.close();
         assertThatThrownBy(() -> client.request("turn/steer", new CodexProtocol.EmptyParams(), CodexProtocol.EmptyResponse.class, Duration.ofSeconds(1)))
                 .isInstanceOf(CodexAppServerClient.RequestNotSent.class);
@@ -800,23 +790,21 @@ class TestCodexCliDriver
     @Test
     void identifiesEncodingFailureBeforeARequestWrite()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexAppServerClient client = appServerClient(supervisor);
         client.start();
 
         assertThatThrownBy(() -> client.request("turn/steer", new UnencodableParams(), CodexProtocol.EmptyResponse.class, Duration.ofSeconds(1)))
                 .isInstanceOf(CodexAppServerClient.RequestNotSent.class);
-        assertThat(supervisor.server().steerRequests()).isEmpty();
+        assertThat(supervisor.server().steerRequests).isEmpty();
         client.close();
     }
 
     @Test
     void forgetsATimedOutRequestAndIgnoresItsLateResponse()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexAppServerClient client = appServerClient(supervisor);
         client.start();
-        supervisor.server().ignoreSteer();
+        supervisor.server().ignoreSteer = true;
         CodexProtocol.TurnSteerParams timedOut = new CodexProtocol.TurnSteerParams("thread-1", "turn-timeout", ImmutableList.of(new CodexProtocol.TextInput("text", "late")));
 
         assertThatThrownBy(() -> client.request("turn/steer", timedOut, CodexProtocol.TurnSteerResponse.class, Duration.ofMillis(20)))
@@ -837,11 +825,10 @@ class TestCodexCliDriver
     @Test
     void treatsAWriteStageFailureAsUncertainDelivery()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("write-failure"));
-        supervisor.server().failNextSteerWrite();
+        supervisor.server().failNextSteerWrite = true;
 
         assertThatThrownBy(() -> turn.steer(new AgentTurnInput("maybe written", ImmutableList.of())))
                 .isInstanceOf(AgentDeliveryUncertainException.class);
@@ -851,7 +838,6 @@ class TestCodexCliDriver
     void reportsCancellationFailureAndAppServerDisconnect()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
@@ -866,7 +852,7 @@ class TestCodexCliDriver
         AgentSessionRef reference = session.reference();
         session = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {});
         RunningTurn failed = session.start(command("fail"));
-        supervisor.servers().getLast().failTurn();
+        supervisor.servers.getLast().failTurn();
         AgentTurnResult failedResult = failed.completion()
                 .toCompletableFuture()
                 .get(5, TimeUnit.SECONDS);
@@ -874,11 +860,11 @@ class TestCodexCliDriver
         assertThat(failedResult.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("Codex CLI 0.153.4").contains("provider failed"));
 
         session = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {});
-        supervisor.versionOutput("future-build");
+        supervisor.versionOutput = "future-build";
         assertThat(driver.probe().version()).contains("future-build");
 
         RunningTurn disconnected = session.start(command("disconnect"));
-        supervisor.servers().getLast().disconnect();
+        supervisor.servers.getLast().disconnect();
         AgentTurnResult disconnectedResult = disconnected.completion()
                 .toCompletableFuture()
                 .get(5, TimeUnit.SECONDS);
@@ -915,7 +901,7 @@ class TestCodexCliDriver
             assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                     .isInstanceOf(AgentUnavailableException.class)
                     .hasMessageContaining("requires 0.153.4 or newer");
-            assertThat(supervisor.servers()).isEmpty();
+            assertThat(supervisor.servers).isEmpty();
         }
     }
 
@@ -930,10 +916,10 @@ class TestCodexCliDriver
         assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.UNSUPPORTED);
         assertThat(status.version()).contains("0.156.1");
         assertThat(status.diagnostic()).contains("npm install --global @openai/codex@0.159.3");
-        supervisor.versionOutput("codex-cli 0.159.3");
+        supervisor.versionOutput = "codex-cli 0.159.3";
         assertThat(driver.models()).isNotEmpty();
 
-        supervisor.versionOutput("codex-cli 0.159.2");
+        supervisor.versionOutput = "codex-cli 0.159.2";
         assertThatThrownBy(driver::models).hasMessageContaining("minimum version 0.159.3");
         assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .hasMessageContaining("minimum version 0.159.3");
@@ -942,7 +928,6 @@ class TestCodexCliDriver
     @Test
     void rejectsNonReleaseMinimumConfiguration()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         for (String minimum : ImmutableList.of("latest", "0.153", "0.153.4-alpha.1", "0.153.4;echo unsafe")) {
             assertThatThrownBy(() -> driver(supervisor, minimum, Duration.ofSeconds(30)))
                     .isInstanceOf(IllegalArgumentException.class)
@@ -954,14 +939,14 @@ class TestCodexCliDriver
     void distinguishesAuthenticationAndExecutableFailures()
     {
         ScriptedProcessSupervisor loggedOut = new ScriptedProcessSupervisor(objectMapper);
-        loggedOut.loggedOut();
+        loggedOut.loggedIn = false;
         CodexCliDriver loggedOutDriver = driver(loggedOut);
         AgentProviderStatus authentication = loggedOutDriver.probe();
         assertThat(authentication.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
         assertThat(authentication.available()).isFalse();
 
         ScriptedProcessSupervisor missing = new ScriptedProcessSupervisor(objectMapper);
-        missing.executableMissing();
+        missing.executableMissing = true;
         CodexCliDriver missingDriver = driver(missing);
         AgentProviderStatus executable = missingDriver.probe();
         assertThat(executable.readiness()).isEqualTo(AgentProviderStatus.Readiness.CLI_MISSING);
@@ -971,7 +956,6 @@ class TestCodexCliDriver
     @Test
     void runsEveryCodexProcessInByteQuaysOwnHome()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
 
         driver.probe();
@@ -979,15 +963,14 @@ class TestCodexCliDriver
 
         // Probe commands and the task's App Server alike: nothing from ~/.codex may reach a task,
         // and a shell that exports CODEX_HOME must not redirect them either.
-        assertThat(supervisor.environments()).isNotEmpty();
-        assertThat(supervisor.environments())
+        assertThat(supervisor.environments).isNotEmpty();
+        assertThat(supervisor.environments)
                 .allSatisfy(environment -> assertThat(environment).containsEntry("CODEX_HOME", codexHome().toString()));
     }
 
     @Test
     void reusesRecentReadinessWhenOpeningAndResumingATask()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         assertThat(driver.probe().available()).isTrue();
         AgentSessionRef reference;
@@ -999,19 +982,18 @@ class TestCodexCliDriver
         }
 
         assertThat(supervisor.probeCommands).hasValue(2);
-        assertThat(supervisor.servers()).hasSize(2);
-        supervisor.loggedOut();
+        assertThat(supervisor.servers).hasSize(2);
+        supervisor.loggedIn = false;
         assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
         assertThatThrownBy(() -> driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("not signed in");
-        assertThat(supervisor.servers()).hasSize(2);
+        assertThat(supervisor.servers).hasSize(2);
     }
 
     @Test
     void checksNewExecPolicyRulesEvenWhenReadinessIsRecent()
             throws IOException
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         assertThat(driver.probe().available()).isTrue();
         Path rules = codexHome().resolve("rules");
@@ -1021,16 +1003,15 @@ class TestCodexCliDriver
         assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("exec-policy rules");
         assertThat(supervisor.probeCommands).hasValue(2);
-        assertThat(supervisor.servers()).isEmpty();
+        assertThat(supervisor.servers).isEmpty();
     }
 
     @Test
     void verifiesTheAccountAgainWhenReadinessIsRecent()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         assertThat(driver.probe().available()).isTrue();
-        supervisor.reportAccount("{\"requiresOpenaiAuth\":true,\"account\":null}");
+        supervisor.account = "{\"requiresOpenaiAuth\":true,\"account\":null}";
 
         assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("isolated ChatGPT account");
@@ -1041,7 +1022,7 @@ class TestCodexCliDriver
     void namesTheCommandThatSignsByteQuaysHomeIn()
     {
         ScriptedProcessSupervisor loggedOut = new ScriptedProcessSupervisor(objectMapper);
-        loggedOut.loggedOut();
+        loggedOut.loggedIn = false;
         CodexCliDriver driver = driver(loggedOut);
 
         AgentProviderStatus status = driver.probe();
@@ -1108,7 +1089,6 @@ class TestCodexCliDriver
     void concurrentTaskStartsShareTheInitialModelCatalog()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         assertThat(driver.probe().available()).isTrue();
         CountDownLatch catalogStarted = new CountDownLatch(1);
@@ -1153,18 +1133,18 @@ class TestCodexCliDriver
         assertThatThrownBy(() -> unknownDriver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("unknown multi-agent version");
-        assertThat(unknown.servers()).isEmpty();
+        assertThat(unknown.servers).isEmpty();
 
         ScriptedProcessSupervisor noDefault = new ScriptedProcessSupervisor(objectMapper);
-        noDefault.reportModelCatalog("{\"data\":[{\"id\":\"gpt-5\",\"displayName\":\"GPT-5\","
+        noDefault.models = "{\"data\":[{\"id\":\"gpt-5\",\"displayName\":\"GPT-5\","
                 + "\"description\":\"d\",\"supportedReasoningEfforts\":[],"
                 + "\"defaultReasoningEffort\":\"low\",\"isDefault\":false,\"hidden\":false,"
-                + "\"multiAgentVersion\":\"v1\"}]}");
+                + "\"multiAgentVersion\":\"v1\"}]}";
         CodexCliDriver noDefaultDriver = driver(noDefault);
         assertThatThrownBy(() -> noDefaultDriver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("no visible default model");
-        assertThat(noDefault.servers()).isEmpty();
+        assertThat(noDefault.servers).isEmpty();
 
         ScriptedProcessSupervisor missing = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver missingDriver = driver(missing);
@@ -1175,13 +1155,12 @@ class TestCodexCliDriver
                 Optional.<String>empty()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("not in the current model catalog");
-        assertThat(missing.servers()).isEmpty();
+        assertThat(missing.servers).isEmpty();
     }
 
     @Test
     void routesStructuredPermissionsAndRejectsLateOrLegacyRequests()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         List<ProviderApprovalRequest> approvals = new CopyOnWriteArrayList<>();
         AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> {
@@ -1203,7 +1182,7 @@ class TestCodexCliDriver
                 {"id":93,"method":"item/permissions/requestApproval","params":{
                 "cwd":"/worktree","itemId":"permission-1","permissions":{},
                 "startedAtMs":1786884871462,"threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         server.emit("""
                 {"id":94,"method":"execCommandApproval","params":{
                 "callId":"call-1","command":["echo","legacy"],"conversationId":"thread-1",
@@ -1219,38 +1198,38 @@ class TestCodexCliDriver
                 "reason":"Need known-secret to download Maven dependencies",
                 "itemId":"exec-permission","startedAtMs":1786884871463,
                 "threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         server.emit("""
                 {"id":97,"method":"item/commandExecution/requestApproval","params":{
                 "command":"input","itemId":"exec-input","kind":"writeStdin",
                 "startedAtMs":1786884871464,"threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         server.emit("""
                 {"id":99,"method":"item/commandExecution/requestApproval","params":{
                 "command":"curl example.com","itemId":"exec-network",
                 "networkApprovalContext":{"host":"example.com","protocol":"https"},
                 "startedAtMs":1786884871465,"threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         server.emit("""
                 {"id":100,"method":"item/fileChange/requestApproval","params":{
                 "grantRoot":"/worktree/generated","itemId":"patch-scoped",
                 "startedAtMs":1786884871466,"threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         server.emit("""
                 {"id":102,"method":"item/fileChange/requestApproval","params":{
                 "grantRoot":"","itemId":"patch-empty-root","startedAtMs":1786884871467,
                 "threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         server.emit("""
                 {"id":103,"method":"item/tool/requestUserInput","params":{
                 "threadId":"thread-1","turnId":"%s","itemId":"unregistered-input","isBlocking":true,"questions":[]}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         server.emit("""
                 {"id":104,"method":"item/permissions/requestApproval","params":{
                 "cwd":"/worktree","itemId":"permission-denied",
                 "permissions":{"network":{"enabled":true}},
                 "startedAtMs":1786884871468,"threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
 
         // Every response is written on the dispatch thread, so wait for all before asserting.
         List<Long> rejected = ImmutableList.of(92L, 94L, 95L, 97L, 102L);
@@ -1287,7 +1266,6 @@ class TestCodexCliDriver
     void asksCodexQuestionsWithTheSharedQuestionCardAndAnswersByQuestionId()
             throws IOException
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         List<ProviderApprovalRequest> approvals = new CopyOnWriteArrayList<>();
         AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> {
@@ -1299,7 +1277,7 @@ class TestCodexCliDriver
         session.start(command("questions"));
         AppServerProcess server = supervisor.server();
         // A task's turn may ask, so the launch turns on Codex's question tool, and config/read must report it.
-        assertThat(supervisor.serverArgv().getLast()).containsSequence("--enable", CodexLaunchProfile.ASK_USER_FEATURE);
+        assertThat(supervisor.serverArgv.getLast()).containsSequence("--enable", CodexLaunchProfile.ASK_USER_FEATURE);
 
         String path = """
                 {"id":"q-path","header":"Path","question":"Which path?","isOther":true,
@@ -1307,15 +1285,15 @@ class TestCodexCliDriver
         server.emit("""
                 {"id":120,"method":"item/tool/requestUserInput","params":{"threadId":"thread-1","turnId":"%s","itemId":"ask-1","isBlocking":true,
                 "questions":[%s,{"id":"q-key","header":"Key","question":"Your API key?","isSecret":true,"options":[{"label":"Paste it","description":""}]}]}}
-                """.formatted(server.activeTurn(), path));
+                """.formatted(server.activeTurn, path));
         server.emit("""
                 {"id":121,"method":"item/tool/requestUserInput","params":{"threadId":"thread-1","turnId":"%s","itemId":"ask-declined","isBlocking":true,
                 "questions":[%s]}}
-                """.formatted(server.activeTurn(), path));
+                """.formatted(server.activeTurn, path));
         server.emit("""
                 {"id":122,"method":"item/tool/requestUserInput","params":{"threadId":"thread-1","turnId":"%s","itemId":"ask-typed","isBlocking":true,
                 "questions":[{"id":"q-name","header":"Name","question":"What name?","options":null}]}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         awaitCondition(() -> server.result(120) != null && server.result(121) != null && server.result(122) != null);
 
         // Answers go back keyed by Codex's question ids; a declined question, and one only typed, get none.
@@ -1335,7 +1313,6 @@ class TestCodexCliDriver
     void checksFileWriteRootBeforeRequestingUserApproval()
             throws IOException
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         List<ProviderApprovalRequest> approvals = new CopyOnWriteArrayList<>();
         AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> {
@@ -1351,7 +1328,7 @@ class TestCodexCliDriver
                 {"id":110,"method":"item/fileChange/requestApproval","params":{
                 "grantRoot":"%s","itemId":"patch-inside","startedAtMs":1786884871466,
                 "threadId":"thread-1","turnId":"%s"}}
-                """.formatted(inside, server.activeTurn()));
+                """.formatted(inside, server.activeTurn));
         awaitCondition(() -> server.result(110) != null);
         assertThat(server.result(110).path("decision").asText()).isEqualTo("accept");
         assertThat(approvals).isEmpty();
@@ -1360,7 +1337,7 @@ class TestCodexCliDriver
                 {"id":111,"method":"item/fileChange/requestApproval","params":{
                 "grantRoot":"%s","itemId":"patch-outside","startedAtMs":1786884871467,
                 "threadId":"thread-1","turnId":"%s"}}
-                """.formatted(outside, server.activeTurn()));
+                """.formatted(outside, server.activeTurn));
         awaitCondition(() -> server.result(111) != null);
         assertThat(server.result(111).path("decision").asText()).isEqualTo("accept");
         assertThat(approvals).hasSize(1);
@@ -1371,7 +1348,6 @@ class TestCodexCliDriver
     @Test
     void rejectsAnApprovalFromAChildThreadOutsideTheCurrentAgentGraph()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), approval), event -> {});
@@ -1395,7 +1371,6 @@ class TestCodexCliDriver
     void approvalTimeoutInterruptsTheNativeTurnAndPermitsAResumedSession()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.expired())), event -> {});
         RunningTurn turn = session.start(command("approval-timeout"));
@@ -1405,7 +1380,7 @@ class TestCodexCliDriver
                 "availableDecisions":["accept","decline"],"command":"echo expired",
                 "itemId":"exec-expired","startedAtMs":1786884871465,
                 "threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
 
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
@@ -1425,7 +1400,6 @@ class TestCodexCliDriver
     void approvalTimeoutRetainsItsCauseWhenReconciliationFails(boolean processUnverifiable)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         if (processUnverifiable) {
             supervisor.leaveProcessTreeUnverifiable();
         }
@@ -1440,7 +1414,7 @@ class TestCodexCliDriver
                 "availableDecisions":["accept","decline"],"command":"echo expired",
                 "itemId":"exec-expired","startedAtMs":1786884871465,
                 "threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
 
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
@@ -1454,7 +1428,6 @@ class TestCodexCliDriver
     void runtimeTimeoutInterruptsTheNativeTurnWithAPreciseReason()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
             RunningTurn turn = session.start(new AgentTurnCommand("timeout", "wait", ImmutableList.of(), Duration.ofMillis(50)));
@@ -1470,7 +1443,6 @@ class TestCodexCliDriver
     void unlimitedTurnsStillSupportCancellation()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
             RunningTurn turn = session.start(new AgentTurnCommand("unlimited", "wait", ImmutableList.of(), Duration.ZERO));
@@ -1487,7 +1459,6 @@ class TestCodexCliDriver
     @ValueSource(booleans = {false, true})
     void rejectsAnApprovalDecisionAfterItsTurnFinishes(boolean timedOut)
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
         CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
@@ -1503,7 +1474,7 @@ class TestCodexCliDriver
                 "availableDecisions":["accept","decline"],"command":"echo late",
                 "itemId":"exec-late","startedAtMs":1786884871465,
                 "threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         awaitCondition(() -> approval.get() != null);
         assertThat(approval.get().detail()).isEqualTo("echo late");
 
@@ -1523,7 +1494,6 @@ class TestCodexCliDriver
     void rejectsAnApprovalDecisionAfterCancellationIsRequested()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
         CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
@@ -1539,7 +1509,7 @@ class TestCodexCliDriver
                 "availableDecisions":["accept","decline"],"command":"echo cancelled",
                 "itemId":"exec-cancelled","startedAtMs":1786884871466,
                 "threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         awaitCondition(() -> approval.get() != null);
         assertThat(approval.get().detail()).isEqualTo("echo cancelled");
 
@@ -1551,7 +1521,7 @@ class TestCodexCliDriver
                 "availableDecisions":["accept","decline"],"command":"echo after-cancel",
                 "itemId":"exec-after-cancel","startedAtMs":1786884871467,
                 "threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         awaitCondition(() -> server.error(103) != null);
         assertThat(server.error(103).path("message").asText()).contains("active turn");
         assertThat(approval).hasValue(null);
@@ -1567,7 +1537,6 @@ class TestCodexCliDriver
     @ValueSource(strings = {"gh pr view 42", "git status && gh pr view 42 && git push origin HEAD", "sh -lc 'git -C /task/worktree status && gh api repos/owner/repo'"})
     void preservesNativeApprovalRequestsForGitHubCommands(String shellCommand)
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
         AtomicReference<ProviderApprovalDecision> decision = new AtomicReference<>(ProviderApprovalDecision.deny());
@@ -1576,7 +1545,7 @@ class TestCodexCliDriver
             AppServerProcess server = supervisor.server();
             ObjectNode params = objectMapper.createObjectNode()
                     .put("threadId", "thread-1")
-                    .put("turnId", server.activeTurn())
+                    .put("turnId", server.activeTurn)
                     .put("itemId", "github-command")
                     .put("command", shellCommand)
                     .put("startedAtMs", 1786884871461L);
@@ -1595,7 +1564,6 @@ class TestCodexCliDriver
     @Test
     void mapsOnlyOfferedUnscopedBinaryApprovalDecisions()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
         AtomicReference<ProviderApprovalDecision> decision = new AtomicReference<>(ProviderApprovalDecision.deny());
@@ -1607,7 +1575,7 @@ class TestCodexCliDriver
                 {"id":95,"method":"item/fileChange/requestApproval","params":{
                 "itemId":"patch-1","reason":"write file","startedAtMs":1786884871461,
                 "threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         awaitCondition(() -> server.result(95) != null);
         assertThat(server.result(95).path("decision").asText()).isEqualTo("decline");
 
@@ -1616,7 +1584,7 @@ class TestCodexCliDriver
                 {"id":96,"method":"item/commandExecution/requestApproval","params":{
                 "availableDecisions":["decline"],"command":"echo unavailable","itemId":"exec-1",
                 "startedAtMs":1786884871462,"threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         awaitCondition(() -> server.error(96) != null);
         assertThat(server.error(96).path("message").asText()).contains("did not offer decision accept");
 
@@ -1625,7 +1593,7 @@ class TestCodexCliDriver
                 {"id":97,"method":"item/commandExecution/requestApproval","params":{
                 "availableDecisions":["accept","decline"],"command":"echo scoped","itemId":"exec-2",
                 "startedAtMs":1786884871463,"threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         awaitCondition(() -> server.error(97) != null);
         assertThat(server.error(97).path("message").asText()).contains("scoped permission");
         assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND);
@@ -1639,7 +1607,7 @@ class TestCodexCliDriver
                 "availableDecisions":["accept",{"acceptWithExecpolicyAmendment":{"execpolicy_amendment":["/bin/zsh","-lc","printf hello > /Users/me/probe.txt"]}},"cancel"],
                 "command":"/bin/zsh -lc 'printf hello > /Users/me/probe.txt'","itemId":"exec-3",
                 "startedAtMs":1786884871464,"threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         awaitCondition(() -> server.result(98) != null);
         assertThat(server.result(98).path("decision").asText()).isEqualTo("decline");
         assertThat(approval.get().availableDecisions())
@@ -1653,7 +1621,7 @@ class TestCodexCliDriver
                 "availableDecisions":["accept","decline"],
                 "command":"/bin/zsh -lc \\"gh issue list --repo trinodb/trino --state open --limit 100\\"","itemId":"exec-4",
                 "startedAtMs":1786884871465,"threadId":"thread-1","turnId":"%s"}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         awaitCondition(() -> server.result(99) != null);
         assertThat(server.result(99).path("decision").asText()).isEqualTo("decline");
         assertThat(approval.get()).isNotSameAs(before);
@@ -1664,7 +1632,6 @@ class TestCodexCliDriver
     void bindsEachTaskToItsOwnAppServerProcess()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         Path second = Files.createDirectories(worktree.resolve("second-task"));
 
@@ -1675,13 +1642,13 @@ class TestCodexCliDriver
         // One App Server process per task, each rooted in its own worktree. That working directory
         // is the sandbox root, which is what confines a turn without a separate execution
         // environment.
-        assertThat(supervisor.servers()).hasSize(2);
-        assertThat(supervisor.serverCwds()).containsExactly(worktree, second);
-        assertThat(supervisor.serverOwners())
+        assertThat(supervisor.servers).hasSize(2);
+        assertThat(supervisor.serverCwds).containsExactly(worktree, second);
+        assertThat(supervisor.serverOwners)
                 .extracting(ProcessOwner::kind)
                 .containsOnly(ProcessOwner.Kind.APP_SERVER);
         // The owner is the task, so a recovered orphan is attributable to the task that leaked it.
-        assertThat(supervisor.serverOwners())
+        assertThat(supervisor.serverOwners)
                 .extracting(ProcessOwner::id)
                 .containsExactly("task-1", "task-2")
                 .doesNotHaveDuplicates();
@@ -1694,29 +1661,29 @@ class TestCodexCliDriver
     void refusesATurnWhenAnInheritedCapabilityCannotBeProvenAbsent()
     {
         // Managed policy applies, so an exec rule could be inherited without ByteQuay seeing it.
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements("{\"requirements\":{\"allowLoginShell\":true}}")))
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.managedRequirements = "{\"requirements\":{\"allowLoginShell\":true}}"))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("managed requirements apply");
 
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements("{\"requirements\":{\"allowedLoginMethods\":[\"chatgpt\"]}}")))
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.managedRequirements = "{\"requirements\":{\"allowedLoginMethods\":[\"chatgpt\"]}}"))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("managed requirements apply");
 
         // An unknown sibling field means a policy dimension exists that this release cannot read.
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements("{\"requirements\":null,\"futurePolicy\":{}}")))
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.managedRequirements = "{\"requirements\":null,\"futurePolicy\":{}}"))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("unknown managed-policy field");
 
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportAccount("{\"requiresOpenaiAuth\":true,\"account\":{\"type\":\"apiKey\"}}")))
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.account = "{\"requiresOpenaiAuth\":true,\"account\":{\"type\":\"apiKey\"}}"))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("isolated ChatGPT account");
 
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportAccount("{\"requiresOpenaiAuth\":false,\"account\":{\"type\":\"chatgpt\"}}")))
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.account = "{\"requiresOpenaiAuth\":false,\"account\":{\"type\":\"chatgpt\"}}"))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("isolated ChatGPT account");
 
         // A lifecycle hook sits in the approval path that ByteQuay assumes it owns.
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportHooks("[{\"name\":\"stop\"}]")))
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.hooks = "[{\"name\":\"stop\"}]"))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("lifecycle hooks apply");
     }
@@ -1724,7 +1691,6 @@ class TestCodexCliDriver
     @Test
     void readsTheAccountOncePerProcess()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {})
                 .start(command("probe"));
 
@@ -1740,7 +1706,7 @@ class TestCodexCliDriver
         assertThatThrownBy(() -> driver(noLayers).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("exactly one isolated user layer");
-        assertThat(noLayers.server().threadRequests()).isEmpty();
+        assertThat(noLayers.server().threadRequests).isEmpty();
 
         for (String mode : ImmutableList.of("disabled", "cached", "enabled")) {
             ScriptedProcessSupervisor wrongEffectiveProfile = new ScriptedProcessSupervisor(objectMapper);
@@ -1748,7 +1714,7 @@ class TestCodexCliDriver
             assertThatThrownBy(() -> driver(wrongEffectiveProfile).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                     .isInstanceOf(AgentUnavailableException.class)
                     .hasMessageContaining("web_search");
-            assertThat(wrongEffectiveProfile.server().threadRequests()).isEmpty();
+            assertThat(wrongEffectiveProfile.server().threadRequests).isEmpty();
         }
 
         ScriptedProcessSupervisor disabledNativeReviewer = new ScriptedProcessSupervisor(objectMapper);
@@ -1758,7 +1724,7 @@ class TestCodexCliDriver
         assertThatThrownBy(() -> driver(disabledNativeReviewer).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("guardian_approval");
-        assertThat(disabledNativeReviewer.server().threadRequests()).isEmpty();
+        assertThat(disabledNativeReviewer.server().threadRequests).isEmpty();
 
         ScriptedProcessSupervisor wrongSessionFlags = new ScriptedProcessSupervisor(objectMapper);
         ArrayNode layers = objectMapper.createArrayNode();
@@ -1774,14 +1740,14 @@ class TestCodexCliDriver
         assertThatThrownBy(() -> driver(wrongSessionFlags).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("web_search");
-        assertThat(wrongSessionFlags.server().threadRequests()).isEmpty();
+        assertThat(wrongSessionFlags.server().threadRequests).isEmpty();
 
         ScriptedProcessSupervisor inheritedThreadServer = new ScriptedProcessSupervisor(objectMapper);
         inheritedThreadServer.mcpStatuses = "{\"data\":[{\"name\":\"ambient\",\"pluginId\":null}]," + "\"nextCursor\":null}";
         assertThatThrownBy(() -> driver(inheritedThreadServer).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("thread inherited an MCP server");
-        assertThat(inheritedThreadServer.server().threadRequests()).hasSize(1);
+        assertThat(inheritedThreadServer.server().threadRequests).hasSize(1);
     }
 
     @Test
@@ -1796,7 +1762,7 @@ class TestCodexCliDriver
                 assertThatThrownBy(() -> driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                         .isInstanceOf(AgentUnavailableException.class)
                         .hasMessageContaining("enabled");
-                assertThat(supervisor.server().threadRequests()).isEmpty();
+                assertThat(supervisor.server().threadRequests).isEmpty();
             }
         }
     }
@@ -1805,12 +1771,11 @@ class TestCodexCliDriver
     void appliesEachTurnsOwnSettingsSnapshotToTurnStart()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(),
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty())),
                 Optional.of("gpt-5"), Optional.of("low")), event -> {});
-        assertThat(supervisor.server().threadRequests().getFirst().at("/config/model_reasoning_effort").asText()).isEqualTo("low");
+        assertThat(supervisor.server().threadRequests.getFirst().at("/config/model_reasoning_effort").asText()).isEqualTo("low");
 
         RunningTurn first = session.start(new AgentTurnCommand(
                 "turn-a",
@@ -1831,16 +1796,16 @@ class TestCodexCliDriver
                 Duration.ofMinutes(5),
                 Optional.of("gpt-5"),
                 Optional.of("low")));
-        supervisor.servers().getLast().completeTurn();
+        supervisor.servers.getLast().completeTurn();
         second.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
         // Each turn carries the snapshot taken when it was accepted; a later default cannot
         // rewrite an earlier turn.
-        assertThat(supervisor.servers())
-                .extracting(AppServerProcess::turnSettings)
+        assertThat(supervisor.servers)
+                .extracting(process -> process.turnSettings)
                 .containsExactly(ImmutableList.of("gpt-5/high"), ImmutableList.of("gpt-5/low"));
-        assertThat(supervisor.servers())
-                .extracting(server -> server.turnRequests().getFirst().path("serviceTierForTurn").asText())
+        assertThat(supervisor.servers)
+                .extracting(server -> server.turnRequests.getFirst().path("serviceTierForTurn").asText())
                 .containsExactly("priority", "default");
     }
 
@@ -1848,7 +1813,6 @@ class TestCodexCliDriver
     void closingASessionInterruptsItsTurnOnceItsProcessTreeIsVerifiedStopped()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("stop"));
@@ -1870,7 +1834,6 @@ class TestCodexCliDriver
     void closingASessionFailsAndKeepsItsTurnUnsettledWhenTheProcessTreeCannotBeVerified()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.leaveProcessTreeUnverifiable();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
@@ -1892,7 +1855,6 @@ class TestCodexCliDriver
     void preservesACompletedTurnWhenProcessCleanupFailsAndRetainsProofForRetry()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.leaveProcessTreeUnverifiable();
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("finish before cleanup"));
@@ -1915,7 +1877,6 @@ class TestCodexCliDriver
     void stopsFailedTurnsWithoutWaitingForIdleHistory(String condition)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("rate limited"));
         AppServerProcess server = supervisor.server();
@@ -1945,7 +1906,6 @@ class TestCodexCliDriver
     void disconnectCannotReplaceTheAuthoritativeFailureBeforeItsStopVerificationBegins(boolean verifiedStop)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         if (!verifiedStop) {
             supervisor.leaveProcessTreeUnverifiable();
         }
@@ -1953,7 +1913,7 @@ class TestCodexCliDriver
         RunningTurn turn = session.start(command("failure races disconnect"));
         AppServerProcess server = supervisor.server();
         CodexMessageDispatcher.Listener listener = (CodexMessageDispatcher.Listener) session;
-        CodexProtocol.Turn reported = new CodexProtocol.Turn(server.activeTurn(), CodexProtocol.TurnStatus.FAILED,
+        CodexProtocol.Turn reported = new CodexProtocol.Turn(server.activeTurn, CodexProtocol.TurnStatus.FAILED,
                 Optional.of(new CodexProtocol.TurnError("429 Too Many Requests known-secret")), Optional.of(2L), ImmutableList.of());
         // Hold the session monitor so the asynchronous settler cannot win this race by chance.
         synchronized (session) {
@@ -1980,7 +1940,6 @@ class TestCodexCliDriver
     void failedTurnWaitsForProcessTreeStopEvenWhenChildrenAndTerminalsStillRun()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("failure with descendants"));
         AppServerProcess server = supervisor.server();
@@ -2006,7 +1965,6 @@ class TestCodexCliDriver
     void preservesProviderFailureAndPartialAnswerWhenProcessStopCannotBeVerified()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.leaveProcessTreeUnverifiable();
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("failure before cleanup"));
@@ -2014,7 +1972,7 @@ class TestCodexCliDriver
         server.emit("""
                 {"method":"item/completed","params":{"threadId":"thread-1","turnId":"%s",
                 "item":{"type":"agentMessage","id":"partial","text":"partial known-secret","phase":"commentary"}}}
-                """.formatted(server.activeTurn()));
+                """.formatted(server.activeTurn));
         server.failTurn("429 Too Many Requests known-secret");
 
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
@@ -2035,15 +1993,13 @@ class TestCodexCliDriver
     void errorNotificationsDoNotStopATurnBeforeItsTerminalCompletion(boolean willRetry)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("retry transient failure"));
         AppServerProcess server = supervisor.server();
         server.emit("""
                 {"method":"error","params":{"threadId":"thread-1","turnId":"%s",
                 "error":{"message":"temporarily unavailable"},"willRetry":%s}}
-                """.formatted(server.activeTurn(), willRetry));
+                """.formatted(server.activeTurn, willRetry));
         awaitCondition(() -> events.stream().anyMatch(ProviderAgentEvent.Error.class::isInstance));
 
         assertThat(turn.completion().toCompletableFuture()).isNotDone();
@@ -2058,7 +2014,6 @@ class TestCodexCliDriver
     void waitsForAChildTurnWithNoItemsEvenAfterTheRootFinishes()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("wait for empty child turn"));
         AppServerProcess server = supervisor.server();
@@ -2081,7 +2036,6 @@ class TestCodexCliDriver
     void acceptsAFailedChildTurnAsFinishedWork()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("terminal failed child"));
         AppServerProcess server = supervisor.server();
@@ -2099,7 +2053,6 @@ class TestCodexCliDriver
     void waitsForAnActiveGrandchildAfterItsParentTurnFinishes()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("recursive completion"));
         AppServerProcess server = supervisor.server();
@@ -2116,14 +2069,13 @@ class TestCodexCliDriver
         server.threadStatuses.put("active-grandchild", "idle");
         assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         assertThat(server.finishedWorkStops).hasValue(1);
-        assertThat(server.backgroundTerminalThreads()).doesNotContain("finished-child");
+        assertThat(server.backgroundTerminalThreads).doesNotContain("finished-child");
     }
 
     @Test
     void waitsPastTheSettleBoundForASubagentStillWorking()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         AgentSession session = driver(supervisor, Duration.ofMillis(300)).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("long child"));
         AppServerProcess server = supervisor.server();
@@ -2145,7 +2097,6 @@ class TestCodexCliDriver
     void stopInterruptsASubagentTheFinishedRootLeftWorking()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("stop the child"));
         AppServerProcess server = supervisor.server();
@@ -2187,7 +2138,6 @@ class TestCodexCliDriver
     void neverRecordsFinishedWorkWhenAChildHasNoTurnHistory()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         AgentSession session = driver(supervisor, Duration.ofMillis(300)).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("missing child history"));
         AppServerProcess server = supervisor.server();
@@ -2224,7 +2174,6 @@ class TestCodexCliDriver
     void rejectsACycleInTheProviderChildInventory()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         AgentSession session = driver(supervisor, Duration.ofMillis(300)).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("cyclic child inventory"));
         AppServerProcess server = supervisor.server();
@@ -2241,7 +2190,6 @@ class TestCodexCliDriver
     void waitsForAYieldedCommandBeforeCompletingATurn()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("yield"));
@@ -2258,7 +2206,7 @@ class TestCodexCliDriver
         assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
                 .isEqualTo(AgentTurnResult.State.COMPLETED);
         // A command that ends within the bound finishes its own work instead of being stopped.
-        assertThat(supervisor.server().terminated()).isEmpty();
+        assertThat(supervisor.server().terminated).isEmpty();
         session.close();
     }
 
@@ -2266,7 +2214,6 @@ class TestCodexCliDriver
     void waitsForActiveRootStatusEvenWhenTheCompletionNotificationArrived()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("closure"));
@@ -2290,8 +2237,6 @@ class TestCodexCliDriver
     void acceptsIdleChildStatusWhenTheCommandCompletionNotificationWasMissed()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("reconcile child"));
@@ -2316,8 +2261,6 @@ class TestCodexCliDriver
     void answersWithTheLastMessageOfAModelThatLabelsNoPhases()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("no phases"));
         AppServerProcess server = supervisor.server();
@@ -2325,7 +2268,7 @@ class TestCodexCliDriver
             server.emit("""
                     {"method":"item/completed","params":{"item":{"type":"agentMessage","id":"%s","text":"%s"},
                     "threadId":"thread-1","turnId":"%s"}}
-                    """.formatted("message-" + message.length(), message, server.activeTurn()));
+                    """.formatted("message-" + message.length(), message, server.activeTurn));
         }
         server.completeTurnWithoutOutput();
 
@@ -2341,9 +2284,7 @@ class TestCodexCliDriver
     void recoversTheRootAnswerFromCompletionWithoutLoadingHistory()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportRecoveredRootAnswer();
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("recover root answer"));
@@ -2363,7 +2304,6 @@ class TestCodexCliDriver
     void checksASubagentThreadThatOnlyTheProviderInventoryMentions()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("delegate"));
@@ -2375,7 +2315,7 @@ class TestCodexCliDriver
 
         // A subagent that never reached the notification stream still has to be checked, so its
         // thread is taken from provider inventory rather than from what happened to arrive.
-        assertThat(supervisor.server().backgroundTerminalThreads()).contains("child-unannounced");
+        assertThat(supervisor.server().backgroundTerminalThreads).contains("child-unannounced");
         session.close();
     }
 
@@ -2383,7 +2323,6 @@ class TestCodexCliDriver
     void terminatesAYieldedCommandWhenTheTurnIsCancelled()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("yield"));
@@ -2394,7 +2333,7 @@ class TestCodexCliDriver
         // A cancelled turn is not waiting for its work, it is stopping it, so the command it left
         // running is terminated rather than watched until the bound expires.
         AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertThat(supervisor.server().terminated()).containsExactly("proc-1");
+        assertThat(supervisor.server().terminated).containsExactly("proc-1");
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.CANCELLED);
         session.close();
     }
@@ -2403,7 +2342,6 @@ class TestCodexCliDriver
     void sendsATaskOwnedImageAsLocalImageInputAndRefusesUnsupportedAttachments()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         Path image = worktree.resolve("blobs/attachments/shot.png");
@@ -2435,7 +2373,7 @@ class TestCodexCliDriver
         supervisor.server().completeTurn();
         turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
-        assertThat(supervisor.server().turnInputs().getLast())
+        assertThat(supervisor.server().turnInputs.getLast())
                 .contains("\"type\":\"text\"")
                 .contains("\"type\":\"localImage\"")
                 .contains(image.toString());
@@ -2446,7 +2384,6 @@ class TestCodexCliDriver
     void sendsTextLogsAsTaskOwnedFileReferencesWithoutInliningTheirContents()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         Path runtime = Files.createDirectories(worktree.resolve("runtime"));
         Path log = Files.writeString(runtime.resolve("failure.log"), "CI_LOG_CONTENT_ONLY_ON_DEMAND\n".repeat(1000));
         Path external = Files.writeString(worktree.resolve("other-task.log"), "Other task data");
@@ -2462,13 +2399,13 @@ class TestCodexCliDriver
                         .isInstanceOf(AgentUnavailableException.class)
                         .hasMessageContaining("task-owned");
             }
-            assertThat(supervisor.server().turnRequests()).isEmpty();
+            assertThat(supervisor.server().turnRequests).isEmpty();
             RunningTurn turn = session.start(new AgentTurnCommand(
                     "ci-log", "Inspect CI",
                     ImmutableList.of(new AgentAttachment("failure\n\".log", "text/plain; charset=utf-8", log)), Duration.ofMinutes(1)));
             supervisor.server().completeTurn();
             turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
-            JsonNode inputs = supervisor.server().turnRequests().getLast().path("input");
+            JsonNode inputs = supervisor.server().turnRequests.getLast().path("input");
             assertThat(inputs).hasSize(2);
             assertThat(inputs.get(1).path("type").asText()).isEqualTo("text");
             assertThat(inputs.get(1).path("text").asText())
@@ -2481,7 +2418,6 @@ class TestCodexCliDriver
     void cancelsATurnWhoseStreamingMessageAndReasoningWereLeftOpen()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor, Duration.ofMillis(500));
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("stop me"));
@@ -2501,7 +2437,6 @@ class TestCodexCliDriver
     void terminatesAYieldedCommandThatOutlivesTheBound()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor, Duration.ofMillis(500));
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("yield"));
@@ -2512,7 +2447,7 @@ class TestCodexCliDriver
         // Nothing reads the command once the root has answered, as with a REPL that hangs on exit,
         // so it is stopped and the finished answer stands.
         AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertThat(supervisor.server().terminated()).containsExactly("proc-1");
+        assertThat(supervisor.server().terminated).containsExactly("proc-1");
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         assertThat(result.providerQuiescent()).isTrue();
         session.close();
@@ -2522,19 +2457,18 @@ class TestCodexCliDriver
     void failsATurnWhoseProcessCannotBeShownStopped()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor, Duration.ofMillis(500));
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("yield"));
         supervisor.reportBackgroundTerminal();
-        supervisor.ignoreBackgroundTerminalTermination();
+        supervisor.terminationIgnored = true;
 
         supervisor.server().completeTurn();
 
         // The root result is not accepted as complete, but closing the per-turn process makes the
         // worktree safe even when the inventories never became quiet.
         AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertThat(supervisor.server().terminated()).contains("proc-1");
+        assertThat(supervisor.server().terminated).contains("proc-1");
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
         assertThat(result.terminalReason().orElseThrow()).contains("background terminal proc-1");
         assertThat(result.providerQuiescent()).isTrue();
@@ -2545,7 +2479,6 @@ class TestCodexCliDriver
     void doesNotHoldATurnForAnEarlierTurnsUnfinishedItem()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor, Duration.ofMillis(500));
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
 
@@ -2558,7 +2491,7 @@ class TestCodexCliDriver
 
         AgentSession resumed = driver.open(context(Optional.of(session.reference()), new AtomicReference<>()), event -> {});
         RunningTurn second = resumed.start(command("two"));
-        supervisor.servers().getLast().completeTurn();
+        supervisor.servers.getLast().completeTurn();
 
         // The earlier turn's outcome is already decided. Carrying its unresolved item forward
         // would fail every turn after it for a reason that is no longer about them.
@@ -2571,8 +2504,6 @@ class TestCodexCliDriver
     void surfacesSubagentActivityWithoutEndingTheTasksTurn()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("delegate"));
@@ -2605,8 +2536,6 @@ class TestCodexCliDriver
     void discoversASubagentWithItsLineageBeforeAnythingItDidIsPublished()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("delegate"));
@@ -2649,8 +2578,6 @@ class TestCodexCliDriver
     void buffersOutOfOrderGrandchildActivityUntilBothExplicitParentsAreKnown()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("out of order lineage"));
@@ -2684,7 +2611,6 @@ class TestCodexCliDriver
     void failsWhenAnObservedChildIsAbsentFromTheProviderInventory()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor, Duration.ofMillis(300));
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("orphan activity"));
@@ -2705,8 +2631,6 @@ class TestCodexCliDriver
     void recordsTheSubagentsPromptAndItsTerminalOutcome()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("delegate"));
@@ -2737,8 +2661,6 @@ class TestCodexCliDriver
     void checkingAnInventoryOnlyChildDoesNotInventDisplayActivity()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("inventory child"));
         supervisor.reportUnannouncedSubagent();
@@ -2746,7 +2668,7 @@ class TestCodexCliDriver
         supervisor.server().completeTurn();
 
         assertThat(turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-        assertThat(supervisor.server().backgroundTerminalThreads()).contains("child-unannounced");
+        assertThat(supervisor.server().backgroundTerminalThreads).contains("child-unannounced");
         assertThat(events).noneMatch(event -> event.source().providerThreadId().filter("child-unannounced"::equals).isPresent());
     }
 
@@ -2754,9 +2676,7 @@ class TestCodexCliDriver
     void preservesV1ChildAndGrandchildLineageFromLiveActivity()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.scriptRecursiveV1Activity();
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("nested live activity"));
@@ -2768,7 +2688,7 @@ class TestCodexCliDriver
         AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-        assertThat(supervisor.server().backgroundTerminalThreads())
+        assertThat(supervisor.server().backgroundTerminalThreads)
                 .contains("thread-1", "child-history", "grandchild-history");
         ProviderAgentEvent child = events.stream()
                 .filter(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
@@ -2791,23 +2711,21 @@ class TestCodexCliDriver
     void routesV2ChildMessagesToTheRootOnFreshAndResumedSessions(boolean resume)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportModelVersion(Optional.of("v2"));
         supervisor.scriptV2Activity();
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         if (resume) {
             AgentSessionRef reference = session.reference();
             session.close();
             session = driver.open(context(Optional.of(reference), new AtomicReference<>()), events::add);
-            assertThat(supervisor.servers().getLast().resumeCount()).isOne();
+            assertThat(supervisor.servers.getLast().resumeCount()).isOne();
         }
         RunningTurn turn = session.start(command("v2 live activity"));
         supervisor.emitScriptedActivity("thread-1");
         supervisor.emitScriptedActivity("v2-child");
 
-        supervisor.servers().getLast().completeTurn();
+        supervisor.servers.getLast().completeTurn();
         assertThat(turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state())
                 .isEqualTo(AgentTurnResult.State.COMPLETED);
 
@@ -2827,7 +2745,7 @@ class TestCodexCliDriver
                     assertThat(event.source().parentProviderThreadId()).isEmpty();
                     assertThat(event.source().logicalAgentPath()).contains("/");
                 });
-        assertThat(supervisor.servers().getLast().backgroundTerminalThreads()).doesNotContain("not-a-child");
+        assertThat(supervisor.servers.getLast().backgroundTerminalThreads).doesNotContain("not-a-child");
         assertThat(events)
                 .filteredOn(event -> event instanceof ProviderAgentEvent.Message message
                         && message.messageKind() == ProviderAgentEvent.MessageKind.PROMPT)
@@ -2839,9 +2757,7 @@ class TestCodexCliDriver
     void finishesAnIdleInventoryConfirmedV2ChildWithoutInventingItsMissingDisplayPath()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportModelVersion(Optional.of("v2"));
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("missing display path"));
         AppServerProcess server = supervisor.server();
@@ -2861,10 +2777,8 @@ class TestCodexCliDriver
     void preservesNestedV2PathsForAChildAndItsDirectGrandchild()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportModelVersion(Optional.of("v2"));
         supervisor.scriptNestedV2Activity();
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("nested v2"));
@@ -2929,9 +2843,7 @@ class TestCodexCliDriver
     void preservesLiveMessagesWithTheSameItemIdFromDistinctChildTurns()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportDuplicateChildItemIdsAcrossTurns();
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("duplicate item ids"));
@@ -2954,9 +2866,7 @@ class TestCodexCliDriver
     void syntheticHistoryMessageIdsDoNotDuplicateOrReplaceTheLiveAnswer()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportRecoveredRootAnswer();
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("synthetic message identity"));
         supervisor.server().completeTurn();
@@ -2977,7 +2887,6 @@ class TestCodexCliDriver
     void rechecksInheritedCapabilitiesBeforeEveryTurn()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn first = session.start(command("first"));
@@ -2986,7 +2895,7 @@ class TestCodexCliDriver
 
         // A workspace-write turn can leave a hook behind, so a clean first turn proves nothing
         // about the second.
-        supervisor.reportHooks("[{\"name\":\"stop\"}]");
+        supervisor.hooks = "[{\"name\":\"stop\"}]";
 
         assertThatThrownBy(() -> driver.open(context(Optional.of(session.reference()), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
@@ -2997,7 +2906,6 @@ class TestCodexCliDriver
     void relaunchesTheAppServerInTheSameWorktreeOnResume()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession initial = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         AgentSessionRef reference = initial.reference();
@@ -3007,12 +2915,12 @@ class TestCodexCliDriver
 
         // The process that served the first session died with it, so a stored thread is only
         // resumable inside a replacement rooted at the same worktree.
-        assertThat(supervisor.servers()).hasSize(2);
-        assertThat(supervisor.serverCwds()).containsExactly(worktree, worktree);
-        assertThat(supervisor.serverOwners())
+        assertThat(supervisor.servers).hasSize(2);
+        assertThat(supervisor.serverCwds).containsExactly(worktree, worktree);
+        assertThat(supervisor.serverOwners)
                 .extracting(ProcessOwner::id)
                 .containsExactly("task-1", "task-1");
-        assertThat(supervisor.servers().getLast().resumeCount()).isOne();
+        assertThat(supervisor.servers.getLast().resumeCount()).isOne();
         resumed.close();
     }
 
@@ -3020,7 +2928,6 @@ class TestCodexCliDriver
     void ignoresPriorRootTurnChildrenUnknownItemsAndUnfinishedWorkAfterResume()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession firstSession = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn first = firstSession.start(command("first process"));
@@ -3028,21 +2935,19 @@ class TestCodexCliDriver
         first.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         supervisor.reportOnlyPriorRootHistory();
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AgentSession resumed = driver.open(context(Optional.of(firstSession.reference()), new AtomicReference<>()), events::add);
         RunningTurn current = resumed.start(command("current process"));
-        supervisor.servers().getLast().completeTurn();
+        supervisor.servers.getLast().completeTurn();
         AgentTurnResult result = current.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         assertThat(events).noneMatch(event -> event.source().providerThreadId().filter("old-child"::equals).isPresent());
-        assertThat(supervisor.servers().getLast().backgroundTerminalThreads()).doesNotContain("old-child");
+        assertThat(supervisor.servers.getLast().backgroundTerminalThreads).doesNotContain("old-child");
     }
 
     @Test
     void rechecksInheritedCapabilitiesOnTheFirstTurnAfterResume()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession initial = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         AgentSessionRef reference = initial.reference();
@@ -3050,7 +2955,7 @@ class TestCodexCliDriver
 
         // A hook can appear while a task is unloaded, so a resumed thread proves nothing about the
         // process now serving it.
-        supervisor.reportHooks("[{\"name\":\"stop\"}]");
+        supervisor.hooks = "[{\"name\":\"stop\"}]";
         assertThatThrownBy(() -> driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("lifecycle hooks apply");
@@ -3153,7 +3058,7 @@ class TestCodexCliDriver
         supervisor.reportModelVersion(version);
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
-        List<String> arguments = supervisor.serverArgv().getFirst();
+        List<String> arguments = supervisor.serverArgv.getFirst();
         session.close();
         return arguments;
     }
@@ -3177,9 +3082,7 @@ class TestCodexCliDriver
     void keepsCanonicalV2PathRegardlessOfThreadMetadataOrder(boolean threadMetadataFirst)
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportModelVersion(Optional.of("v2"));
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("live v2 path"));
@@ -3285,38 +3188,38 @@ class TestCodexCliDriver
         for (int index = 0; index < 2; index++) {
             AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
             try (AgentSession session = driver.open(context(reference, approval), event -> {})) {
-                AppServerProcess server = supervisor.servers().getLast();
-                JsonNode thread = server.threadRequests().getFirst();
+                AppServerProcess server = supervisor.servers.getLast();
+                JsonNode thread = server.threadRequests.getFirst();
                 assertThat(thread.path("developerInstructions").asText())
                         .startsWith(AgentCommandPolicy.reviewInstructions()).contains("native update_plan").endsWith(review.instruction())
                         .doesNotContain(CodexReviewGate.INSTRUCTION);
                 assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 assertThat(thread.path("config").has("auto_review")).isFalse();
-                assertThat(supervisor.serverArgv().getLast())
+                assertThat(supervisor.serverArgv.getLast())
                         .noneMatch(argument -> argument.startsWith("auto_review.policy="));
-                assertThat(supervisor.serverArgv().getLast()).containsSequence("--enable", "guardian_approval");
+                assertThat(supervisor.serverArgv.getLast()).containsSequence("--enable", "guardian_approval");
                 assertThat(thread.path("config").path("features").path("guardian_approval").asBoolean()).isTrue();
-                assertThat(supervisor.serverArgv().getLast()).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
+                assertThat(supervisor.serverArgv.getLast()).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
                 assertThat(thread.path("config").path("features").path("hooks").asBoolean()).isFalse();
-                assertThat(supervisor.environments().getLast())
+                assertThat(supervisor.environments.getLast())
                         .doesNotContainKeys("GH_CONFIG_DIR", "SSH_AUTH_SOCK", "GH_TOKEN", "GITHUB_TOKEN");
                 assertThat(thread.path("config").path("shell_environment_policy").path("include_only"))
                         .isEqualTo(objectMapper.valueToTree(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly()));
-                String token = supervisor.environments().getLast().get("BYTEQUAY_TOOL_TOKEN");
+                String token = supervisor.environments.getLast().get("BYTEQUAY_TOOL_TOKEN");
                 assertThat(token).isNotBlank();
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
                 assertThat(listed.at("/result/tools")).isEmpty();
-                assertThat(supervisor.serverArgv().getLast()).contains("mcp_servers.bytequay.tools={}");
+                assertThat(supervisor.serverArgv.getLast()).contains("mcp_servers.bytequay.tools={}");
 
                 String admittedConfig = supervisor.configBody;
                 supervisor.configBody = admittedConfig.replace("approve", "prompt");
                 assertThatThrownBy(() -> session.start(command("private review")))
                         .isInstanceOf(AgentUnavailableException.class)
                         .hasMessageContaining("default_tools_approval_mode");
-                assertThat(server.turnRequests()).isEmpty();
+                assertThat(server.turnRequests).isEmpty();
                 ObjectNode wrongScope = (ObjectNode) objectMapper.readTree(admittedConfig);
                 ObjectNode wrongFeatures = objectMapper.valueToTree(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true, false));
                 wrongFeatures.put("guardian_approval", false);
@@ -3325,19 +3228,19 @@ class TestCodexCliDriver
                 assertThatThrownBy(() -> session.start(command("private review")))
                         .isInstanceOf(AgentUnavailableException.class)
                         .hasMessageContaining("guardian_approval");
-                assertThat(server.turnRequests()).isEmpty();
+                assertThat(server.turnRequests).isEmpty();
                 supervisor.configBody = admittedConfig;
                 session.start(command("private review"));
-                assertThat(server.turnRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("auto_review");
-                assertThat(server.turnRequests().getFirst().path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
-                assertThat(server.turnRequests().getFirst().path("sandboxPolicy").path("writableRoots"))
+                assertThat(server.turnRequests.getFirst().path("approvalsReviewer").asText()).isEqualTo("auto_review");
+                assertThat(server.turnRequests.getFirst().path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
+                assertThat(server.turnRequests.getFirst().path("sandboxPolicy").path("writableRoots"))
                         .isEqualTo(objectMapper.valueToTree(writableRoots));
                 List<String> deniedCommands = ImmutableList.of("git commit -am experiment", "git update-ref refs/heads/topic HEAD", "git push origin HEAD");
                 for (String shellCommand : deniedCommands) {
                     approval.set(null);
                     ObjectNode params = objectMapper.createObjectNode()
                             .put("threadId", "thread-1")
-                            .put("turnId", server.activeTurn())
+                            .put("turnId", server.activeTurn)
                             .put("itemId", "private-review-command")
                             .put("command", shellCommand)
                             .put("startedAtMs", 1786884871461L);
@@ -3355,7 +3258,7 @@ class TestCodexCliDriver
                         "threadId":"thread-1","turnId":"%s","itemId":"stage-experiment",
                         "command":"git add TestExperiment.java","availableDecisions":["accept","decline"],
                         "startedAtMs":1786884871461}}
-                        """.formatted(server.activeTurn()));
+                        """.formatted(server.activeTurn));
                 awaitCondition(() -> server.result(98) != null);
                 assertThat(server.result(98).path("decision").asText()).isEqualTo("accept");
                 assertThat(approval.get().detail()).contains("git add TestExperiment.java");
@@ -3367,12 +3270,11 @@ class TestCodexCliDriver
     @Test
     void rejectsOutdatedRootToolDefinitionsBeforeStartingTheProvider()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSessionRef outdated = new AgentSessionRef(new AgentLaneId("codex"), 2, "thread-1");
         assertThatThrownBy(() -> driver.open(context(Optional.of(outdated), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("outdated tool list", "Start a new task");
-        assertThat(supervisor.servers()).isEmpty();
+        assertThat(supervisor.servers).isEmpty();
     }
 
     @ParameterizedTest
@@ -3406,11 +3308,11 @@ class TestCodexCliDriver
                 ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
         try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
             RunningTurn turn = session.start(command("Review privately"));
-            AppServerProcess server = supervisor.servers().getLast();
+            AppServerProcess server = supervisor.servers.getLast();
             server.emit("""
                     {"id":201,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
                     "callId":"root-write","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"review_finish","arguments":{}}}}
-                    """.formatted(server.activeTurn()));
+                    """.formatted(server.activeTurn));
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
 
             if (cancel) {
@@ -3450,7 +3352,7 @@ class TestCodexCliDriver
                 assertThat(driver.reviewChildAgents(Optional.of(new AgentSessionRef(
                         session.reference().laneId(), 1, session.reference().providerValue())), Optional.empty())).isFalse();
                 assertThat(driver.reviewChildAgents(Optional.of(session.reference()), Optional.of("unknown-model"))).isFalse();
-                JsonNode thread = supervisor.servers().getLast().threadRequests().getFirst();
+                JsonNode thread = supervisor.servers.getLast().threadRequests.getFirst();
                 assertThat(thread.path("developerInstructions").asText())
                         .contains(review.instruction(), "repository_memory SEARCH/READ", "read-only source searches", "send_message",
                                 "in each child's self-contained assignment", "in your final answer", "must not edit files", "request broader permissions")
@@ -3463,18 +3365,18 @@ class TestCodexCliDriver
                 else {
                     assertThat(thread.path("dynamicTools").isMissingNode()).isTrue();
                 }
-                List<String> arguments = supervisor.serverArgv().getLast();
+                List<String> arguments = supervisor.serverArgv.getLast();
                 assertThat(arguments).contains("mcp_servers.bytequay.tools={\"review_get_context\"={approval_mode=\"approve\"},"
                         + "\"bytequay_list_tools\"={approval_mode=\"approve\"},\"bytequay_get_tool\"={approval_mode=\"approve\"}}");
-                String token = supervisor.environments().getLast().get("BYTEQUAY_TOOL_TOKEN");
+                String token = supervisor.environments.getLast().get("BYTEQUAY_TOOL_TOKEN");
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
                 assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsExactly("review_get_context", "bytequay_list_tools", "bytequay_get_tool");
-                AppServerProcess server = supervisor.servers().getLast();
+                AppServerProcess server = supervisor.servers.getLast();
                 session.start(command("Review privately"));
                 server.emit("{\"id\":201,\"method\":\"item/tool/call\",\"params\":{"
-                        + "\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn() + "\","
+                        + "\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn + "\","
                         + "\"callId\":\"root-write\",\"tool\":\"bytequay_call_tool\",\"namespace\":null,\"arguments\":{\"name\":\"review_finish\",\"arguments\":{}}}}");
                 awaitCondition(() -> server.result(201) != null);
                 assertThat(server.result(201).path("success").asBoolean()).isTrue();
@@ -3519,8 +3421,8 @@ class TestCodexCliDriver
         for (int index = 0; index < 2; index++) {
             try (AgentSession session = driver.open(context(reference, new AtomicReference<>()), event -> {})) {
                 assertThat(session.reference().contractVersion()).isEqualTo(3);
-                AppServerProcess server = supervisor.servers().getLast();
-                JsonNode thread = server.threadRequests().getFirst();
+                AppServerProcess server = supervisor.servers.getLast();
+                JsonNode thread = server.threadRequests.getFirst();
                 if (index == 0) {
                     assertThat(thread.path("dynamicTools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsExactly(PermissionBroker.CALL_TOOL);
                 }
@@ -3531,7 +3433,7 @@ class TestCodexCliDriver
                 server.emit("""
                         {"id":301,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
                         "callId":"root","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"related_workspace_work","arguments":{}}}}
-                        """.formatted(server.activeTurn()));
+                        """.formatted(server.activeTurn));
                 awaitCondition(() -> server.result(301) != null);
                 assertThat(server.result(301).path("success").asBoolean()).isTrue();
                 server.emit("""
@@ -3575,7 +3477,7 @@ class TestCodexCliDriver
         try (AgentSession session = driver.open(reusableContext(Optional.empty()), firstEvents::add)) {
             session.allowReuse();
             AppServerProcess server = supervisor.server();
-            String token = supervisor.environments().getLast().get("BYTEQUAY_TOOL_TOKEN");
+            String token = supervisor.environments.getLast().get("BYTEQUAY_TOOL_TOKEN");
             for (int index = 0; index < 3; index++) {
                 generation.set(index);
                 List<ProviderAgentEvent> currentEvents = index == 0 ? firstEvents : new CopyOnWriteArrayList<>();
@@ -3591,7 +3493,7 @@ class TestCodexCliDriver
                 server.emit("""
                         {"id":%d,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
                         "callId":"root","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"review_finish","arguments":{}}}}
-                        """.formatted(requestId, server.activeTurn()));
+                        """.formatted(requestId, server.activeTurn));
                 awaitCondition(() -> server.result(requestId) != null);
                 assertThat(server.result(requestId).path("success").asBoolean()).isTrue();
                 assertThat(broker.handle(token, objectMapper.readTree("""
@@ -3612,12 +3514,12 @@ class TestCodexCliDriver
                     awaitCondition(() -> server.error(staleId) != null);
                     server.emitUsage("thread-1", "turn-" + index, AppServerProcess.tokens(1, 1, 0, 0), AppServerProcess.tokens(1, 1, 0, 0));
                 }
-                server.emitUsage("thread-1", server.activeTurn(),
+                server.emitUsage("thread-1", server.activeTurn,
                         AppServerProcess.tokens(1100 + 100L * index, 880 + 80L * index, 330 + 30L * index, 220 + 20L * index), AppServerProcess.tokens(100, 80, 30, 20));
                 server.emit("""
                         {"method":"item/completed","params":{"threadId":"thread-1","turnId":"%s",
                         "item":{"type":"agentMessage","id":"message","text":"answer-%d","phase":"final_answer"}}}
-                        """.formatted(server.activeTurn(), index));
+                        """.formatted(server.activeTurn, index));
                 server.completeTurnWithoutOutput();
                 assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
                 assertThat(currentEvents).anyMatch(event -> event instanceof ProviderAgentEvent.Message);
@@ -3632,9 +3534,9 @@ class TestCodexCliDriver
                 assertThat(server.finishedWorkStops).hasValue(0);
             }
             assertThat(writes).containsExactly(0, 1, 2);
-            assertThat(supervisor.servers()).hasSize(1);
-            assertThat(server.threadRequests()).hasSize(1);
-            assertThat(server.turnRequests()).hasSize(3);
+            assertThat(supervisor.servers).hasSize(1);
+            assertThat(server.threadRequests).hasSize(1);
+            assertThat(server.turnRequests).hasSize(3);
         }
         assertThat(supervisor.server().exit).isDone();
     }
@@ -3666,7 +3568,7 @@ class TestCodexCliDriver
                     change.equals("instructions") ? "new instructions" : original.managedInstructions(),
                     original.discussionContext(), original.sessionTools(), change.equals("questions"));
             assertThat(session.prepareTurn(next, event -> {})).isFalse();
-            assertThat(supervisor.server().turnRequests()).hasSize(1);
+            assertThat(supervisor.server().turnRequests).hasSize(1);
         }
         assertThat(supervisor.server().exit).isDone();
     }
@@ -3703,7 +3605,7 @@ class TestCodexCliDriver
             server.emit("""
                     {"id":900,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
                     "callId":"slow","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"related_workspace_work","arguments":{}}}}
-                    """.formatted(server.activeTurn()));
+                    """.formatted(server.activeTurn));
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             server.completeTurnWithoutOutput();
             assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).providerQuiescent()).isFalse();
@@ -3759,7 +3661,6 @@ class TestCodexCliDriver
     void withdrawsAnApprovalAppServerSettledItself()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
         AtomicBoolean asked = new AtomicBoolean();
@@ -3770,7 +3671,7 @@ class TestCodexCliDriver
             RunningTurn turn = session.start(command("Run the check"));
             AppServerProcess server = supervisor.server();
             server.emit("{\"id\":501,\"method\":\"item/commandExecution/requestApproval\",\"params\":{"
-                    + "\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn() + "\","
+                    + "\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn + "\","
                     + "\"itemId\":\"exec-9\",\"command\":\"echo check\","
                     + "\"availableDecisions\":[\"accept\",\"decline\"],\"reason\":null,\"startedAtMs\":1}}");
             awaitCondition(asked::get);
@@ -3786,7 +3687,6 @@ class TestCodexCliDriver
     void keepsTheTurnRunningWhenAnEventCannotBeRecorded()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         List<ProviderAgentEvent> recorded = new CopyOnWriteArrayList<>();
         AtomicBoolean refused = new AtomicBoolean();
@@ -3811,19 +3711,17 @@ class TestCodexCliDriver
     void addressesAV1SubagentFromAnEarlierTurn()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.persistedChildren.put("thread-1", ImmutableList.of("earlier-child"));
         CodexCliDriver driver = driver(supervisor);
         AgentSessionRef reference;
         try (AgentSession initial = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
             reference = initial.reference();
         }
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         try (AgentSession resumed = driver.open(context(Optional.of(reference), new AtomicReference<>()), events::add)) {
             RunningTurn turn = resumed.start(command("Ask the earlier agent again"));
-            AppServerProcess server = supervisor.servers().getLast();
+            AppServerProcess server = supervisor.servers.getLast();
             // The child ran in an earlier process; App Server sends no edge for it before the root addresses it.
-            server.emit("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn() + "\","
+            server.emit("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn + "\","
                     + "\"item\":{\"type\":\"collabAgentToolCall\",\"id\":\"send-input\",\"tool\":\"sendInput\",\"status\":\"completed\","
                     + "\"senderThreadId\":\"thread-1\",\"receiverThreadIds\":[\"earlier-child\"],"
                     + "\"agentsStates\":{\"earlier-child\":{\"status\":\"completed\",\"message\":null}},\"prompt\":\"look again\"}}}");
@@ -3841,7 +3739,6 @@ class TestCodexCliDriver
     void addressesAV2SubagentFromAnEarlierTurnByItsSavedPath()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportModelVersion(Optional.of("v2"));
         supervisor.persistedChildren.put("thread-1", ImmutableList.of("earlier-child"));
         supervisor.persistedAgentPaths.put("earlier-child", "/root/explorer");
@@ -3850,11 +3747,10 @@ class TestCodexCliDriver
         try (AgentSession initial = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
             reference = initial.reference();
         }
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         try (AgentSession resumed = driver.open(context(Optional.of(reference), new AtomicReference<>()), events::add)) {
             RunningTurn turn = resumed.start(command("Follow up with the explorer"));
-            AppServerProcess server = supervisor.servers().getLast();
-            server.emit("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn() + "\","
+            AppServerProcess server = supervisor.servers.getLast();
+            server.emit("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn + "\","
                     + "\"item\":{\"type\":\"subAgentActivity\",\"id\":\"follow-up\",\"agentThreadId\":\"earlier-child\","
                     + "\"agentPath\":\"/root/explorer\",\"kind\":\"interacted\"}}}");
             server.completeTurn();
@@ -3868,7 +3764,6 @@ class TestCodexCliDriver
     void deliversChangedInstructionsOnceToAResumedThread()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         Files.createDirectories(worktree.resolve("provider"));
         Optional<AgentSessionRef> reference = Optional.empty();
@@ -3879,7 +3774,7 @@ class TestCodexCliDriver
                     Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), skill);
             try (AgentSession session = driver.open(context, event -> {})) {
                 session.start(command("Continue"));
-                turnContexts.add(supervisor.servers().getLast().turnRequests().getFirst().path("additionalContext"));
+                turnContexts.add(supervisor.servers.getLast().turnRequests.getFirst().path("additionalContext"));
                 reference = Optional.of(session.reference());
             }
         }
@@ -3921,9 +3816,9 @@ class TestCodexCliDriver
         try (AgentSession session = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {})) {
             // The task keeps the reference it saved, so the turn service accepts the resumed session.
             assertThat(session.reference()).isEqualTo(reference);
-            AppServerProcess server = supervisor.servers().getLast();
-            assertThat(server.threadRequests().getFirst().path("excludeTurns").asBoolean()).isTrue();
-            String token = supervisor.environments().getLast().get("BYTEQUAY_TOOL_TOKEN");
+            AppServerProcess server = supervisor.servers.getLast();
+            assertThat(server.threadRequests.getFirst().path("excludeTurns").asBoolean()).isTrue();
+            String token = supervisor.environments.getLast().get("BYTEQUAY_TOOL_TOKEN");
             JsonNode listed = broker.handle(token, objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
@@ -3933,13 +3828,13 @@ class TestCodexCliDriver
             server.emit("""
                     {"id":301,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
                     "callId":"root","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"related_workspace_work","arguments":{}}}}
-                    """.formatted(server.activeTurn()));
+                    """.formatted(server.activeTurn));
             awaitCondition(() -> server.result(301) != null);
             assertThat(server.result(301).path("success").asBoolean()).isFalse();
             server.emit("""
                     {"id":302,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
                     "callId":"root","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"list_local_review_comments","arguments":{}}}}
-                    """.formatted(server.activeTurn()));
+                    """.formatted(server.activeTurn));
             awaitCondition(() -> server.result(302) != null);
             assertThat(server.result(302).path("success").asBoolean()).isTrue();
         }
@@ -3948,16 +3843,16 @@ class TestCodexCliDriver
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
         try (AgentSession session = driver.open(context(Optional.of(reference), approval), event -> {})) {
             assertThat(session.reference()).isEqualTo(reference);
-            AppServerProcess server = supervisor.servers().getLast();
-            assertThat(server.threadRequests().getFirst().path("developerInstructions").asText())
+            AppServerProcess server = supervisor.servers.getLast();
+            assertThat(server.threadRequests.getFirst().path("developerInstructions").asText())
                     .startsWith(DEVELOPMENT_POLICY).doesNotContain(AgentCommandPolicy.reviewInstructions());
             session.start(command("Push the changes and update the PR description"));
-            assertThat(server.turnRequests().getFirst().at("/additionalContext/bytequay_instructions/value").asText())
+            assertThat(server.turnRequests.getFirst().at("/additionalContext/bytequay_instructions/value").asText())
                     .contains(DEVELOPMENT_POLICY, "replaces earlier ByteQuay private-review restrictions").doesNotContain(privateReview.instruction());
             for (String shellCommand : ImmutableList.of("git push origin HEAD", "gh pr edit 7 --body-file description.md")) {
                 approval.set(null);
                 ObjectNode params = objectMapper.createObjectNode()
-                        .put("threadId", reference.providerValue()).put("turnId", server.activeTurn())
+                        .put("threadId", reference.providerValue()).put("turnId", server.activeTurn)
                         .put("itemId", "authorized-publication").put("command", shellCommand).put("startedAtMs", 1786884871461L);
                 params.set("availableDecisions", objectMapper.valueToTree(ImmutableList.of("accept", "decline")));
                 int requestId = shellCommand.startsWith("git") ? 303 : 304;
@@ -3988,7 +3883,7 @@ class TestCodexCliDriver
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int index = 0; index < 2; index++) {
             try (AgentSession session = driver.open(context(reference, new AtomicReference<>()), event -> {})) {
-                List<String> arguments = supervisor.serverArgv().getLast();
+                List<String> arguments = supervisor.serverArgv.getLast();
                 assertThat(arguments).filteredOn(argument -> argument.startsWith("mcp_servers.bytequay.tools="))
                         .containsExactly("mcp_servers.bytequay.tools={"
                                 + "\"repository_context_read\"={approval_mode=\"approve\"},\"repository_context_spec_search\"={approval_mode=\"approve\"},"
@@ -3996,13 +3891,13 @@ class TestCodexCliDriver
                                 + "\"bytequay_call_tool\"={approval_mode=\"approve\"}}");
                 assertThat(arguments).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
                 assertThat(arguments).contains("approval_policy=\"on-request\"");
-                String token = supervisor.environments().getLast().get("BYTEQUAY_TOOL_TOKEN");
+                String token = supervisor.environments.getLast().get("BYTEQUAY_TOOL_TOKEN");
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
                 assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsExactlyElementsOf(ImmutableList.<String>builder().addAll(names)
                         .add("bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL).build());
-                assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("auto_review");
+                assertThat(supervisor.servers.getLast().threadRequests.getFirst().path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 reference = Optional.of(session.reference());
             }
         }
@@ -4058,11 +3953,11 @@ class TestCodexCliDriver
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int index = 0; index < 2; index++) {
             AgentSession session = driver.open(context(reference, new AtomicReference<>()), event -> {});
-            List<String> arguments = supervisor.serverArgv().getLast();
+            List<String> arguments = supervisor.serverArgv.getLast();
             assertThat(arguments).containsSequence("--enable", "multi_agent_v2");
             assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.url=\"" + MCP_ENDPOINT + "\"");
-            assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("developerInstructions").asText()).contains(bridged.instruction());
-            String token = supervisor.environments().stream().filter(environment -> environment.containsKey("BYTEQUAY_TOOL_TOKEN"))
+            assertThat(supervisor.servers.getLast().threadRequests.getFirst().path("developerInstructions").asText()).contains(bridged.instruction());
+            String token = supervisor.environments.stream().filter(environment -> environment.containsKey("BYTEQUAY_TOOL_TOKEN"))
                     .reduce((previous, current) -> current).orElseThrow().get("BYTEQUAY_TOOL_TOKEN");
             assertThat(arguments).noneMatch(argument -> argument.contains(token));
             JsonNode listed = broker.handle(token, objectMapper.readTree("""
@@ -4097,12 +3992,12 @@ class TestCodexCliDriver
                 "Keep explanations concise");
 
         AgentSession session = driver.open(bridged, event -> {});
-        List<String> arguments = supervisor.serverArgv().getFirst();
+        List<String> arguments = supervisor.serverArgv.getFirst();
         assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.url=\"" + MCP_ENDPOINT + "\"");
         assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.bearer_token_env_var=\"BYTEQUAY_TOOL_TOKEN\"");
         assertThat(arguments).anySatisfy(argument -> assertThat(argument).startsWith("developer_instructions=")
                 .contains("use the graph", "bytequay_list_tools", "bytequay_get_tool"));
-        Map<String, String> environment = supervisor.environments().stream()
+        Map<String, String> environment = supervisor.environments.stream()
                 .filter(candidate -> candidate.containsKey("BYTEQUAY_TOOL_TOKEN"))
                 .findFirst()
                 .orElseThrow();
@@ -4110,8 +4005,8 @@ class TestCodexCliDriver
         assertThat(token).isNotBlank();
         assertThat(arguments).noneMatch(argument -> argument.contains(token));
         // The thread leaves the MCP map to the launch flags instead of emptying it.
-        assertThat(supervisor.server().threadRequests().getFirst().path("config").has("mcp_servers")).isFalse();
-        assertThat(supervisor.server().threadRequests().getFirst().path("developerInstructions").asText())
+        assertThat(supervisor.server().threadRequests.getFirst().path("config").has("mcp_servers")).isFalse();
+        assertThat(supervisor.server().threadRequests.getFirst().path("developerInstructions").asText())
                 .startsWith(DEVELOPMENT_POLICY).contains("native update_plan", "Keep explanations concise", "bytequay_list_tools").endsWith("use the graph");
         // Opening ran the isolation guard against the effective config, which exposes exactly this server.
         session.close();
@@ -4121,7 +4016,6 @@ class TestCodexCliDriver
     void transportsLargeReviewReferenceInputOnInitialAndResumedTurns()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         String instructions = "p".repeat(100_000);
         String reference = "reference-body-marker\n" + "知".repeat(10_000);
@@ -4136,13 +4030,13 @@ class TestCodexCliDriver
                     plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.access(), plain.codeQueries(), instructions);
             try (AgentSession session = driver.open(configured, event -> {})) {
                 RunningTurn turn = session.start(new AgentTurnCommand("context-turn-" + index, input, ImmutableList.of(), Duration.ofMinutes(1)));
-                AppServerProcess server = supervisor.servers().getLast();
-                JsonNode submitted = server.turnRequests().getFirst().path("input");
+                AppServerProcess server = supervisor.servers.getLast();
+                JsonNode submitted = server.turnRequests.getFirst().path("input");
                 assertThat(submitted).hasSize(1);
                 assertThat(submitted.get(0).path("text").asText()).isEqualTo(input);
-                assertThat(server.threadRequests().getFirst().path("developerInstructions").asText())
+                assertThat(server.threadRequests.getFirst().path("developerInstructions").asText())
                         .contains(instructions).doesNotContain("reference-body-marker");
-                assertThat(supervisor.serverArgv().getLast()).noneMatch(argument -> argument.contains("reference-body-marker"));
+                assertThat(supervisor.serverArgv.getLast()).noneMatch(argument -> argument.contains("reference-body-marker"));
                 assertThat(server.resumeCount()).isEqualTo(index);
                 server.completeTurn();
                 assertThat(turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
@@ -4154,7 +4048,6 @@ class TestCodexCliDriver
     @Test
     void replacesManagedInstructionsOnResumeWithoutAddingTools()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         Optional<AgentSessionRef> reference = Optional.empty();
         for (String instruction : ImmutableList.of("Keep explanations concise", "Lead with the next action", "")) {
@@ -4163,8 +4056,8 @@ class TestCodexCliDriver
                     plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
                     plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.access(), plain.codeQueries(), instruction);
             AgentSession session = driver.open(configured, event -> {});
-            AppServerProcess server = supervisor.servers().getLast();
-            JsonNode request = server.threadRequests().getFirst();
+            AppServerProcess server = supervisor.servers.getLast();
+            JsonNode request = server.threadRequests.getFirst();
             assertThat(request.has("developerInstructions")).isTrue();
             assertThat(request.path("developerInstructions").asText())
                     .startsWith(DEVELOPMENT_POLICY).contains("native update_plan", "Do not repeat the checklist");
@@ -4177,22 +4070,21 @@ class TestCodexCliDriver
                 }
             }
             assertThat(request.path("config").path("mcp_servers")).isEmpty();
-            assertThat(supervisor.serverArgv().getLast()).noneMatch(argument -> argument.startsWith("mcp_servers"));
+            assertThat(supervisor.serverArgv.getLast()).noneMatch(argument -> argument.startsWith("mcp_servers"));
             assertThat(server.resumeCount()).isEqualTo(reference.isPresent() ? 1 : 0);
             reference = Optional.of(session.reference());
             session.close();
         }
-        assertThat(supervisor.environments()).noneMatch(environment -> environment.containsKey("BYTEQUAY_TOOL_TOKEN"));
+        assertThat(supervisor.environments).noneMatch(environment -> environment.containsKey("BYTEQUAY_TOOL_TOKEN"));
     }
 
     @Test
     void unbridgedLaunchExposesNoMcpServerAndRejectsAnAmbientOne()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
-        assertThat(supervisor.serverArgv().getFirst()).noneMatch(argument -> argument.startsWith("mcp_servers") || argument.startsWith("developer_instructions"));
-        assertThat(supervisor.environments()).noneMatch(candidate -> candidate.containsKey("BYTEQUAY_TOOL_TOKEN"));
+        assertThat(supervisor.serverArgv.getFirst()).noneMatch(argument -> argument.startsWith("mcp_servers") || argument.startsWith("developer_instructions"));
+        assertThat(supervisor.environments).noneMatch(candidate -> candidate.containsKey("BYTEQUAY_TOOL_TOKEN"));
         session.close();
 
         ScriptedProcessSupervisor ambient = new ScriptedProcessSupervisor(objectMapper);
@@ -4297,6 +4189,7 @@ class TestCodexCliDriver
         private volatile String mcpStatuses;
         private volatile String skills = "[]";
         private volatile String backgroundTerminals = "{\"data\":[],\"nextCursor\":null}";
+        // Keeps a terminated command listed, as one that survives its stop request would be.
         private volatile boolean terminationIgnored;
         private final ConcurrentMap<String, String> scriptedItems = new ConcurrentHashMap<>();
         private volatile String models = modelCatalog(Optional.of("v1"));
@@ -4322,7 +4215,7 @@ class TestCodexCliDriver
         {
             try {
                 for (JsonNode entry : objectMapper.readTree(scriptedItems.get(threadId)).path("data")) {
-                    servers().getLast().emit("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"" + threadId
+                    servers.getLast().emit("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"" + threadId
                             + "\",\"turnId\":\"" + entry.path("turnId").asText() + "\",\"item\":" + entry.path("item") + "}}");
                 }
             }
@@ -4355,11 +4248,6 @@ class TestCodexCliDriver
         private void reportModelVersion(Optional<String> multiAgentVersion)
         {
             models = modelCatalog(multiAgentVersion);
-        }
-
-        private void reportModelCatalog(String catalog)
-        {
-            models = catalog;
         }
 
         private void scriptRecursiveV1Activity()
@@ -4501,32 +4389,11 @@ class TestCodexCliDriver
             backgroundTerminals = "{\"data\":[],\"nextCursor\":null}";
         }
 
-        /** Keeps a terminated command listed, as one that survives its stop request would be. */
-        private void ignoreBackgroundTerminalTermination()
-        {
-            terminationIgnored = true;
-        }
-
         private void terminateBackgroundTerminals()
         {
             if (!terminationIgnored) {
                 reportNoBackgroundTerminals();
             }
-        }
-
-        private void reportManagedRequirements(String response)
-        {
-            managedRequirements = response;
-        }
-
-        private void reportAccount(String response)
-        {
-            account = response;
-        }
-
-        private void reportHooks(String discovered)
-        {
-            hooks = discovered;
         }
 
         private ScriptedProcessSupervisor(ObjectMapper objectMapper)
@@ -4653,45 +4520,6 @@ class TestCodexCliDriver
             return servers.getFirst();
         }
 
-        private List<AppServerProcess> servers()
-        {
-            return servers;
-        }
-
-        private List<Map<String, String>> environments()
-        {
-            return environments;
-        }
-
-        private List<Path> serverCwds()
-        {
-            return serverCwds;
-        }
-
-        private List<ProcessOwner> serverOwners()
-        {
-            return serverOwners;
-        }
-
-        private List<List<String>> serverArgv()
-        {
-            return serverArgv;
-        }
-
-        private void versionOutput(String versionOutput)
-        {
-            this.versionOutput = versionOutput;
-        }
-
-        private void loggedOut()
-        {
-            loggedIn = false;
-        }
-
-        private void executableMissing()
-        {
-            executableMissing = true;
-        }
     }
 
     private static final class UnencodableParams
@@ -4754,10 +4582,6 @@ class TestCodexCliDriver
         private volatile long ignoredSteerRequestId;
         private final List<String> sandboxes = new CopyOnWriteArrayList<>();
 
-        private List<String> sandboxes()
-        {
-            return sandboxes;
-        }
         private final List<Boolean> experimentalApi = new CopyOnWriteArrayList<>();
         private final List<String> terminated = new CopyOnWriteArrayList<>();
         private final List<String> interruptedThreads = new CopyOnWriteArrayList<>();
@@ -4774,19 +4598,11 @@ class TestCodexCliDriver
         private final AtomicInteger stopRequests = new AtomicInteger();
         private volatile CompletableFuture<Void> stopVerificationGate = CompletableFuture.completedFuture(null);
 
-        private List<String> backgroundTerminalThreads()
-        {
-            return backgroundTerminalThreads;
-        }
         private final Runnable clearBackgroundTerminals;
         private final Function<String, String> scriptedItems;
         private final Supplier<String> models;
         private final Supplier<ProcessExit.TreeTermination> termination;
 
-        private List<String> terminated()
-        {
-            return terminated;
-        }
         private final ConcurrentMap<Long, JsonNode> results = new ConcurrentHashMap<>();
         private final ConcurrentMap<Long, JsonNode> errors = new ConcurrentHashMap<>();
         private volatile CompletableFuture<Void> interruptCompletionGate = CompletableFuture.completedFuture(null);
@@ -4836,31 +4652,6 @@ class TestCodexCliDriver
         {
             int index = threads.incrementAndGet();
             return index == 1 ? "thread-1" : "thread-" + index;
-        }
-
-        private List<String> turnInputs()
-        {
-            return turnInputs;
-        }
-
-        private List<String> turnSettings()
-        {
-            return turnSettings;
-        }
-
-        private List<JsonNode> threadRequests()
-        {
-            return threadRequests;
-        }
-
-        private List<JsonNode> turnRequests()
-        {
-            return turnRequests;
-        }
-
-        private List<Boolean> experimentalApi()
-        {
-            return experimentalApi;
         }
 
         private JsonNode configReadResponse()
@@ -5378,21 +5169,6 @@ class TestCodexCliDriver
                     + "\",\"status\":\"completed\",\"error\":null,\"durationMs\":2,\"items\":[]}}}");
         }
 
-        private List<String> steerRequests()
-        {
-            return steerRequests;
-        }
-
-        private void refuseSteer()
-        {
-            refuseSteer = true;
-        }
-
-        private void ignoreSteer()
-        {
-            ignoreSteer = true;
-        }
-
         private void respondToIgnoredSteer()
         {
             long requestId = ignoredSteerRequestId;
@@ -5402,16 +5178,6 @@ class TestCodexCliDriver
             ignoredSteerRequestId = 0;
             ignoreSteer = false;
             respond(requestId, "{\"turnId\":\"turn-timeout\"}");
-        }
-
-        private void malformNextSteerResponse()
-        {
-            malformNextSteerResponse = true;
-        }
-
-        private void failNextSteerWrite()
-        {
-            failNextSteerWrite = true;
         }
 
         private void failTurn()
@@ -5436,19 +5202,9 @@ class TestCodexCliDriver
             return resumes.get();
         }
 
-        private List<String> approvalPolicies()
-        {
-            return approvalPolicies;
-        }
-
         private String approvalDecision()
         {
             return result(91).path("decision").asText();
-        }
-
-        private String activeTurn()
-        {
-            return activeTurn;
         }
 
         private void holdInterruptCompletion()

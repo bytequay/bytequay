@@ -36,9 +36,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.OptionalLong;
 import java.util.stream.IntStream;
 
+import static com.bytequay.app.review.ReviewTestData.openReview;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -335,24 +335,7 @@ class TestLocalReviewBridgeResolverImpl
 
     private static AgentReview review(String id, Optional<String> sourceTaskId)
     {
-        return new AgentReview(
-                id,
-                "workspace-1",
-                "owner/repo",
-                OptionalInt.of(7),
-                OptionalLong.empty(),
-                "task-of-" + id,
-                sourceTaskId,
-                AgentReview.State.OPEN,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                Instant.EPOCH,
-                Instant.EPOCH,
-                Optional.empty(),
-                Optional.empty());
+        return openReview(id, "workspace-1", "owner/repo", OptionalInt.of(7), "task-of-" + id, sourceTaskId, Instant.EPOCH);
     }
 
     private static ReviewFinding finding(String id, String reviewId, int ordinal, ReviewFinding.State state, List<ReviewEvidence> evidence)

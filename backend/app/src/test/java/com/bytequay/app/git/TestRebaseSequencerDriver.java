@@ -22,7 +22,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static com.bytequay.app.git.GitTestSupport.commit;
+import static com.bytequay.app.git.GitTestSupport.commitFile;
 import static com.bytequay.app.git.GitTestSupport.git;
+import static com.bytequay.app.git.GitTestSupport.head;
+import static com.bytequay.app.git.GitTestSupport.initRepository;
+import static com.bytequay.app.git.GitTestSupport.write;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestRebaseSequencerDriver
@@ -40,10 +45,7 @@ class TestRebaseSequencerDriver
             throws IOException
     {
         Path created = Files.createDirectories(temporaryDirectory.resolve("repo"));
-        git(temporaryDirectory, "init", "--quiet", "-b", "main", created.toString());
-        git(created, "config", "user.name", "ByteQuay Test");
-        git(created, "config", "user.email", "bytequay@example.com");
-        repository = created.toRealPath();
+        repository = initRepository(created);
         driver = new RebaseSequencerDriver(GIT);
     }
 
@@ -68,24 +70,24 @@ class TestRebaseSequencerDriver
     void refusesToOverwriteAnIgnoredFileAndKeepsUnrelatedBuildOutput()
             throws IOException
     {
-        write(".gitignore", "target/\ngen/\n");
-        commit("Base");
+        write(repository, ".gitignore", "target/\ngen/\n");
+        commit(repository, "Base");
         git(repository, "checkout", "--quiet", "-b", "feature");
         String original = change("feature.txt", "feature\n", "Feature change");
         git(repository, "checkout", "--quiet", "main");
-        write("gen/out.txt", "generated upstream\n");
+        write(repository, "gen/out.txt", "generated upstream\n");
         git(repository, "add", "--force", "gen/out.txt");
-        commit("Track generated output");
-        String base = head();
+        commit(repository, "Track generated output");
+        String base = head(repository);
         git(repository, "checkout", "--quiet", "feature");
-        write("target/classes/Main.class", "compiled\n");
-        write("gen/out.txt", "generated locally\n");
+        write(repository, "target/classes/Main.class", "compiled\n");
+        write(repository, "gen/out.txt", "generated locally\n");
 
         SequenceState refused = driver.begin(repository, original, base);
 
         assertThat(refused.kind()).isEqualTo(Kind.UNSAFE);
         assertThat(refused.diagnostics()).contains("gen/out.txt");
-        assertThat(head()).isEqualTo(original);
+        assertThat(head(repository)).isEqualTo(original);
         assertThat(repository.resolve("gen/out.txt")).hasContent("generated locally\n");
 
         Files.delete(repository.resolve("gen/out.txt"));
@@ -107,7 +109,7 @@ class TestRebaseSequencerDriver
         assertThat(stopped.conflicts()).extracting(SequenceState.ConflictedPath::path)
                 .containsExactly("file.txt");
 
-        write("file.txt", "resolved\n");
+        write(repository, "file.txt", "resolved\n");
         git(repository, "add", "file.txt");
         SequenceState staged = driver.observe(repository);
         assertThat(staged.kind()).isEqualTo(Kind.STOPPED_RESOLVED);
@@ -123,7 +125,7 @@ class TestRebaseSequencerDriver
     {
         Conflict conflict = conflict("file.txt");
         SequenceState stopped = driver.begin(repository, conflict.originalTip(), conflict.baseTip());
-        write("file.txt", "main\n");
+        write(repository, "file.txt", "main\n");
         git(repository, "add", "file.txt");
 
         SequenceState empty = driver.observe(repository);
@@ -139,24 +141,18 @@ class TestRebaseSequencerDriver
     {
         seed();
         git(repository, "checkout", "--quiet", "-b", "feature");
-        write("one.txt", "feature one\n");
-        commit("Feature one");
-        String first = head();
-        write("two.txt", "feature two\n");
-        commit("Feature two");
-        String second = head();
+        String first = commitFile(repository, "one.txt", "feature one\n", "Feature one");
+        String second = commitFile(repository, "two.txt", "feature two\n", "Feature two");
         String original = second;
 
         git(repository, "checkout", "--quiet", "main");
-        write("one.txt", "main one\n");
-        write("two.txt", "main two\n");
-        commit("Main changes");
-        String base = head();
+        write(repository, "one.txt", "main one\n");
+        String base = commitFile(repository, "two.txt", "main two\n", "Main changes");
         git(repository, "checkout", "--quiet", "feature");
 
         SequenceState stopped = driver.begin(repository, original, base);
         assertThat(stopped.stoppedCommit()).contains(first);
-        write("one.txt", "resolved one\n");
+        write(repository, "one.txt", "resolved one\n");
         git(repository, "add", "one.txt");
 
         SequenceState next = driver.continueRebase(repository, stopped.head(), first);
@@ -170,10 +166,10 @@ class TestRebaseSequencerDriver
         seed();
         git(repository, "checkout", "--quiet", "-b", "feature");
         String first = change("feature.txt", "one\n", "Feature");
-        write("feature.txt", "one\ntwo\n");
+        write(repository, "feature.txt", "one\ntwo\n");
         git(repository, "add", "feature.txt");
         git(repository, "commit", "--quiet", "--fixup=" + first);
-        String original = head();
+        String original = head(repository);
         git(repository, "config", "rebase.autoSquash", "true");
 
         git(repository, "checkout", "--quiet", "main");
@@ -190,14 +186,14 @@ class TestRebaseSequencerDriver
     {
         Conflict conflict = conflict("file.txt");
         driver.begin(repository, conflict.originalTip(), conflict.baseTip());
-        write("file.txt", "resolved\n");
+        write(repository, "file.txt", "resolved\n");
         git(repository, "add", "file.txt");
-        write("file.txt", "resolved but changed again\n");
+        write(repository, "file.txt", "resolved but changed again\n");
 
         assertThat(driver.observe(repository).kind()).isEqualTo(Kind.UNSAFE);
 
         git(repository, "add", "file.txt");
-        write("untracked.txt", "outside the resolution\n");
+        write(repository, "untracked.txt", "outside the resolution\n");
         assertThat(driver.observe(repository).kind()).isEqualTo(Kind.UNSAFE);
     }
 
@@ -216,47 +212,26 @@ class TestRebaseSequencerDriver
 
     private Conflict conflict(String path)
     {
-        write(path, "seed\n");
-        commit("Base");
+        write(repository, path, "seed\n");
+        commit(repository, "Base");
         git(repository, "checkout", "--quiet", "-b", "feature");
-        write(path, "feature\n");
-        commit("Feature conflict");
-        String source = head();
+        String source = commitFile(repository, path, "feature\n", "Feature conflict");
         String original = source;
         git(repository, "checkout", "--quiet", "main");
-        write(path, "main\n");
-        commit("Main conflict");
-        String base = head();
+        String base = commitFile(repository, path, "main\n", "Main conflict");
         git(repository, "checkout", "--quiet", "feature");
         return new Conflict(original, base, source);
     }
 
     private void seed()
     {
-        write("seed.txt", "seed\n");
-        commit("Base");
+        write(repository, "seed.txt", "seed\n");
+        commit(repository, "Base");
     }
 
     private String change(String path, String content, String message)
     {
-        write(path, content);
-        commit(message);
-        return head();
-    }
-
-    private void write(String path, String content)
-    {
-        GitTestSupport.write(repository, path, content);
-    }
-
-    private void commit(String message)
-    {
-        GitTestSupport.commit(repository, message);
-    }
-
-    private String head()
-    {
-        return GitTestSupport.head(repository);
+        return commitFile(repository, path, content, message);
     }
 
     private record Conflict(String originalTip, String baseTip, String sourceCommit) {}

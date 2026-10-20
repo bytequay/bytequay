@@ -219,7 +219,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
           <span className="assistant-mic" role="img" aria-label="Voice comes later" title="Voice comes later. macOS Dictation already types here.">
             <Mic size={15} aria-hidden="true" />
           </span>
-        </Composer> : <div className="assistant-sheet">
+        </Composer> : <div className="assistant-sheet assistant-off">
           <p>Task notices and your conversation are still available.</p>
           <button type="button" className="assistant-link" onClick={() => openSettings('workflow')}>Set up Assistant in Settings</button>
           {running && <button type="button" className="assistant-link" onClick={stop}>Stop the reply</button>}

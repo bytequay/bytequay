@@ -115,7 +115,7 @@ type Calls = {
 type Mounted = { host: HTMLElement; calls: Calls; render: (open: boolean, openCard?: { id: string }) => void; dispose: () => void };
 
 function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, running: RunningTask[] = [], replied: () => AssistantViewDto = () => view,
-  completed: () => AssistantViewDto = () => view, scripted: Partial<Bridge> = {}): Mounted {
+  completed: () => AssistantViewDto = () => view, scripted: Partial<Bridge> = {}, chatEnabled = true): Mounted {
   const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [], completed: [] };
   let failures = failSends;
   let today = view;
@@ -152,7 +152,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     flushSync(() => root.render(
       <div className="browser-workspace">
         <div className="app-surfaces"><main style={{ height: '100vh', padding: 24, color: 'var(--fg-muted)' }}>The page under the Assistant</main></div>
-        <AssistantPanel open={open} notices={notices} openCard={openCard ?? null} onScreen="pr:trinodb/trino#31377"
+        <AssistantPanel open={open} chatEnabled={chatEnabled} notices={notices} openCard={openCard ?? null} onScreen="pr:trinodb/trino#31377"
           onClose={() => { calls.closed++; if (shown) render(false); }} />
       </div>,
     ));
@@ -767,6 +767,24 @@ async function stopsARunningReply(): Promise<void> {
   finally { view.dispose(); }
 }
 
+async function keepsTheSetUpBoxWholeWithChatOff(): Promise<void> {
+  // Newer than the panel's last close, so the conversation unfolds at once and fills the window.
+  const soon = new Date(Date.now() + 60_000).toISOString();
+  const long = { ...VIEW, items: Array.from({ length: 24 }, (_, index) => ({ ...VIEW.items[0], id: `u${index}`, at: soon })) };
+  const view = mount(long, 0, [], [], undefined, undefined, {}, false);
+  try {
+    await settle();
+    const box = view.host.querySelector<HTMLElement>('.assistant-off');
+    const link = box?.querySelector<HTMLElement>('.assistant-link');
+    assert(box !== null && link?.textContent === 'Set up Assistant in Settings' && view.host.querySelector('.assistant-talk') !== null,
+      'With chat off, the set-up box takes the composer’s place above the conversation');
+    const outer = box.getBoundingClientRect();
+    assert(box.scrollHeight <= box.clientHeight && link.getBoundingClientRect().bottom <= outer.bottom - 12,
+      `A long conversation leaves the set-up box whole: ${JSON.stringify({ box: outer.height, content: box.scrollHeight, link: link.getBoundingClientRect().bottom })}`);
+  }
+  finally { view.dispose(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of [['floats over the page', floatsOverThePage], ['shows the day once the user talks', showsTheDayOnceTheUserTalks],
@@ -775,7 +793,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline],
     ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard],
     ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade],
-    ['acts on a pull request from its card', actsOnAPullRequestFromItsCard], ['asks to sign in when the model is not ready', asksToSignInWhenTheModelIsNotReady]] as const) {
+    ['acts on a pull request from its card', actsOnAPullRequestFromItsCard], ['asks to sign in when the model is not ready', asksToSignInWhenTheModelIsNotReady],
+    ['keeps the set-up box whole with chat off', keepsTheSetUpBoxWholeWithChatOff]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }

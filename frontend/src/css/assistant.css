@@ -219,6 +219,24 @@
   cursor: pointer;
 }
 
+/* With chat off, the composer's place says what still works and links to Settings; a long conversation never squeezes it. */
+.assistant-off {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 13px 16px;
+  font-size: 13.5px;
+  line-height: 20px;
+}
+
+.assistant-off > p {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--fg-muted);
+}
+
 /* A receipt: what an action did, or why it did not, then the user's own words and a detail, and where to go from it. */
 .assistant-receipt {
   display: flex;

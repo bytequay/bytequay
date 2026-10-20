@@ -238,7 +238,7 @@ class TestDefaultAgentMetricsService
         TurnId otherTurn = TurnId.random();
         for (int sequence = 1; sequence <= 24; sequence++) {
             logStore.append(event(sequence, sequence % 2 == 0 ? turn.id() : otherTurn,
-                    new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read", Optional.empty())));
+                    new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read", Optional.empty(), Optional.empty())));
         }
 
         AgentMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED, service.countTools(task.id(), turn.id(), OptionalLong.empty()));
@@ -254,7 +254,7 @@ class TestDefaultAgentMetricsService
             // The turn's own events from sequence 21 on; an earlier stray event of the same id must be ignored once the
             // caller names where the turn began.
             logStore.append(event(sequence, sequence >= 21 || sequence == 3 ? turn : TurnId.random(),
-                    new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read", Optional.empty())));
+                    new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read", Optional.empty(), Optional.empty())));
         }
 
         assertThat(service.countTools(task.id(), turn, OptionalLong.of(21))).isEqualTo(new ToolCounters(10, 10, 0));
@@ -263,7 +263,7 @@ class TestDefaultAgentMetricsService
 
     private static AgentTurnSettings turnSettings()
     {
-        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.empty());
     }
 
     private static ProviderUsageSample cumulative(String eventId, long inputTokens, long cachedInputTokens, long outputTokens, String cost)
@@ -328,10 +328,10 @@ class TestDefaultAgentMetricsService
         TurnId turn = TurnId.random();
         TurnId other = TurnId.random();
         List<AgentEventEnvelope> events = ImmutableList.of(
-                event(1, turn, new AgentEventPayload.ToolActivity("Read", ActivityState.STARTED, "reading", Optional.empty())),
-                event(2, turn, new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read", Optional.empty())),
-                event(3, turn, new AgentEventPayload.ToolActivity("mcp__bytequay__code_query", ActivityState.COMPLETED, "query", Optional.of(1200L))),
-                event(4, turn, new AgentEventPayload.ToolActivity("bytequay/code_query", ActivityState.FAILED, "query", Optional.of(300L))),
+                event(1, turn, new AgentEventPayload.ToolActivity("Read", ActivityState.STARTED, "reading", Optional.empty(), Optional.empty())),
+                event(2, turn, new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read", Optional.empty(), Optional.empty())),
+                event(3, turn, new AgentEventPayload.ToolActivity("mcp__bytequay__code_query", ActivityState.COMPLETED, "query", Optional.of(1200L), Optional.empty())),
+                event(4, turn, new AgentEventPayload.ToolActivity("bytequay/code_query", ActivityState.FAILED, "query", Optional.of(300L), Optional.empty())),
                 event(5, turn, new AgentEventPayload.CommandActivity(
                         ActivityState.COMPLETED,
                         ImmutableList.of("rg", "cleanup"),
@@ -345,7 +345,7 @@ class TestDefaultAgentMetricsService
                                 new CommandAction(CommandActionKind.OTHER, Optional.empty(), Optional.empty(), Optional.empty())),
                         false,
                         Optional.empty())),
-                event(6, other, new AgentEventPayload.ToolActivity("Grep", ActivityState.COMPLETED, "elsewhere", Optional.empty())));
+                event(6, other, new AgentEventPayload.ToolActivity("Grep", ActivityState.COMPLETED, "elsewhere", Optional.empty(), Optional.empty())));
 
         ToolCounters counters = DefaultAgentMetricsService.foldCounters(events, turn);
 
@@ -358,10 +358,10 @@ class TestDefaultAgentMetricsService
         TurnId turn = TurnId.random();
         AgentEventSource child = new AgentEventSource(Optional.of("child"), Optional.of("root"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
         List<AgentEventEnvelope> events = ImmutableList.of(
-                event(1, turn, new AgentEventPayload.ToolActivity("Context compaction", ActivityState.STARTED, "", Optional.empty())),
-                event(2, turn, new AgentEventPayload.ToolActivity("Context compaction", ActivityState.COMPLETED, "", Optional.empty())),
+                event(1, turn, new AgentEventPayload.ToolActivity("Context compaction", ActivityState.STARTED, "", Optional.empty(), Optional.empty())),
+                event(2, turn, new AgentEventPayload.ToolActivity("Context compaction", ActivityState.COMPLETED, "", Optional.empty(), Optional.empty())),
                 new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 3, task.id(), Optional.of(turn), child, NOW,
-                        new AgentEventPayload.ToolActivity("Context compaction", ActivityState.COMPLETED, "", Optional.empty())));
+                        new AgentEventPayload.ToolActivity("Context compaction", ActivityState.COMPLETED, "", Optional.empty(), Optional.empty())));
 
         assertThat(DefaultAgentMetricsService.foldCounters(events, turn).compactions()).isEqualTo(1);
     }

@@ -182,8 +182,7 @@ class TestAgentReviewService
             Optional.of("gpt-5-codex"),
             Optional.of("medium"),
             AgentPermissionPolicy.AUTO,
-            Duration.ofMinutes(30),
-            ImmutableList.of());
+            Duration.ofMinutes(30), ImmutableList.of(), Optional.empty(), Optional.empty());
 
     @Test
     void composerSelectionUpdatesOnlyTheReviewTaskAndChecksWorkspaceAccess()
@@ -1348,7 +1347,7 @@ class TestAgentReviewService
         settleCurrentTurn(fixture, second);
         fixture.service.reconcile(reviewId);
         ReviewRun validating = fixture.store.findRun(second.id()).orElseThrow();
-        assertThat(validating.validationStarted()).isTrue();
+        assertThat(validating.currentStep().map(ReviewStep::kind)).contains(ReviewStep.Kind.VALIDATE);
         assertThat(validating.summary()).isEmpty();
         assertThat(validating.investigation()).contains(investigation);
 
@@ -1608,13 +1607,13 @@ class TestAgentReviewService
 
         ReviewRun paused = fixture.store.findRun(run.id()).orElseThrow();
         assertThat(paused.state()).isEqualTo(ReviewRun.State.RUNNING);
-        assertThat(paused.validationStarted()).isFalse();
+        assertThat(paused.currentStep().map(ReviewStep::kind)).isNotEqualTo(Optional.of(ReviewStep.Kind.VALIDATE));
         verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
 
         fixture.service.resume(reviewId);
 
         ReviewRun validating = fixture.store.findRun(run.id()).orElseThrow();
-        assertThat(validating.validationStarted()).isTrue();
+        assertThat(validating.currentStep().map(ReviewStep::kind)).contains(ReviewStep.Kind.VALIDATE);
         assertThat(validating.turnIds()).containsExactly(TURN_ONE.toString(), TURN_TWO.toString());
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
         verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
@@ -1637,7 +1636,7 @@ class TestAgentReviewService
 
         ReviewRun waiting = fixture.store.findRun(run.id()).orElseThrow();
         assertThat(waiting.state()).isEqualTo(ReviewRun.State.RUNNING);
-        assertThat(waiting.validationStarted()).isFalse();
+        assertThat(waiting.currentStep().map(ReviewStep::kind)).isNotEqualTo(Optional.of(ReviewStep.Kind.VALIDATE));
         verify(fixture.sweeps, never()).take(anyString(), anyString());
         verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
 
@@ -1650,7 +1649,7 @@ class TestAgentReviewService
         fixture.service.reconcile(reviewId);
 
         ReviewRun validating = fixture.store.findRun(run.id()).orElseThrow();
-        assertThat(validating.validationStarted()).isTrue();
+        assertThat(validating.currentStep().map(ReviewStep::kind)).contains(ReviewStep.Kind.VALIDATE);
         ReviewStep sealed = validating.latestSealedInvestigation().orElseThrow();
         assertThat(sealed.number()).isEqualTo(1);
         ReviewInvestigation report = sealed.investigation().orElseThrow();
@@ -1688,7 +1687,7 @@ class TestAgentReviewService
         fixture.service.reconcile(reviewId);
 
         ReviewRun validating = fixture.store.findRun(run.id()).orElseThrow();
-        assertThat(validating.validationStarted()).isTrue();
+        assertThat(validating.currentStep().map(ReviewStep::kind)).contains(ReviewStep.Kind.VALIDATE);
         assertThat(validating.latestSealedInvestigation().orElseThrow().investigation().orElseThrow().candidates()).hasSize(capacity);
     }
 
@@ -1704,14 +1703,14 @@ class TestAgentReviewService
 
         fixture.service.reconcile(reviewId);
         verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
-        assertThat(fixture.store.findRun(run.id()).orElseThrow().validationStarted()).isFalse();
+        assertThat(fixture.store.findRun(run.id()).orElseThrow().currentStep().map(ReviewStep::kind)).isNotEqualTo(Optional.of(ReviewStep.Kind.VALIDATE));
 
         when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask());
         fixture.service.reconcile(reviewId);
         fixture.service.reconcile(reviewId);
 
         ReviewRun validating = fixture.store.findRun(run.id()).orElseThrow();
-        assertThat(validating.validationStarted()).isTrue();
+        assertThat(validating.currentStep().map(ReviewStep::kind)).contains(ReviewStep.Kind.VALIDATE);
         assertThat(validating.investigation()).contains(investigation());
         assertThat(validating.turnIds()).containsExactly(TURN_ONE.toString(), TURN_TWO.toString());
         assertThat(validating.state()).isEqualTo(ReviewRun.State.RUNNING);
@@ -1737,7 +1736,7 @@ class TestAgentReviewService
 
         ReviewRun repairing = fixture.store.findRun(run.id()).orElseThrow();
         assertThat(repairing.completionRepairUsed()).isTrue();
-        assertThat(repairing.validationStarted()).isFalse();
+        assertThat(repairing.currentStep().map(ReviewStep::kind)).isNotEqualTo(Optional.of(ReviewStep.Kind.VALIDATE));
         ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(fixture.turns, times(2)).start(started.capture());
         assertThat(started.getValue().message()).isEqualTo(ReviewPrompts.stepRequest(repairing));
@@ -1747,7 +1746,7 @@ class TestAgentReviewService
         fixture.service.reconcile(reviewId);
 
         ReviewRun validating = fixture.store.findRun(run.id()).orElseThrow();
-        assertThat(validating.validationStarted()).isTrue();
+        assertThat(validating.currentStep().map(ReviewStep::kind)).contains(ReviewStep.Kind.VALIDATE);
         assertThat(validating.completionRepairUsed()).isTrue();
         assertThat(validating.turnIds()).hasSize(3);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).isEmpty();
@@ -1783,7 +1782,7 @@ class TestAgentReviewService
                 .when(fixture.store).updateRun(argThat(candidate -> candidate.turnIds().size() == 2));
 
         assertThatThrownBy(() -> fixture.service.reconcile(reviewId)).hasMessageContaining("Validation association failed");
-        assertThat(fixture.store.findRun(run.id()).orElseThrow().validationStarted()).isTrue();
+        assertThat(fixture.store.findRun(run.id()).orElseThrow().currentStep().map(ReviewStep::kind)).contains(ReviewStep.Kind.VALIDATE);
         assertThat(fixture.store.findRun(run.id()).orElseThrow().turnIds()).containsExactly(TURN_ONE.toString());
 
         fixture.service.reconcile(reviewId);
@@ -2162,7 +2161,7 @@ class TestAgentReviewService
 
         ReviewRun incomplete = fixture.store.findRun(run.id()).orElseThrow();
         assertThat(incomplete.state()).isEqualTo(ReviewRun.State.INCOMPLETE);
-        assertThat(incomplete.validationStarted()).isFalse();
+        assertThat(incomplete.currentStep().map(ReviewStep::kind)).isNotEqualTo(Optional.of(ReviewStep.Kind.VALIDATE));
         assertThat(incomplete.completionRepairUsed()).isFalse();
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).isEmpty();
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isTrue();

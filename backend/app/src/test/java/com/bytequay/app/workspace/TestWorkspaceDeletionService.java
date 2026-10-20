@@ -153,7 +153,8 @@ class TestWorkspaceDeletionService
         AgentTask active = task();
         ownedTasks.add(idle);
         ownedTasks.add(active);
-        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5),
+                ImmutableList.of(), Optional.empty(), Optional.empty());
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), active.id(), "active-request", settings, NOW);
         when(turns.findActive(active.id())).thenReturn(Optional.of(turn));
 

@@ -89,7 +89,7 @@ class TestDevelopmentBranchService
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final AtomicReference<AgentTask> currentTask = new AtomicReference<>(task);
     private final AtomicReference<AgentTurn> currentTurn = new AtomicReference<>(turn);
-    private final AgentRuntimeRegistry runtime = new AgentRuntimeRegistry(tasks, ignored -> {});
+    private final AgentRuntimeRegistry runtime = new AgentRuntimeRegistry(tasks, ignored -> {}, ignored -> false, true);
     private final DevelopmentBranchService service = new DevelopmentBranchService(tasks, turns, runtime, git, reviews, assignments,
             beans.getBeanProvider(DevelopmentFollowupCoordinator.class), journal, Clock.fixed(NOW, ZoneOffset.UTC));
 

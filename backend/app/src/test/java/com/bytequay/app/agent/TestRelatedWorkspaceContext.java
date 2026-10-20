@@ -83,7 +83,7 @@ class TestRelatedWorkspaceContext
                 new RepositoryIdentity("trinodb", "trino"), repository,
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty()), Instant.EPOCH);
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "user", new AgentTurnSettings(Optional.empty(), Optional.empty(),
-                AgentPermissionPolicy.AUTO, Duration.ofHours(1), ImmutableList.of()), Instant.EPOCH);
+                AgentPermissionPolicy.AUTO, Duration.ofHours(1), ImmutableList.of(), Optional.empty(), Optional.empty()), Instant.EPOCH);
         String input = context.append(task, turn, "Investigate the upgrade");
         assertThat(input).startsWith("Investigate the upgrade").contains(repository.toString(), next, "Version in pom.xml", "apache/iceberg", "DEPENDENCY")
                 .doesNotContain("SEARCH/READ");

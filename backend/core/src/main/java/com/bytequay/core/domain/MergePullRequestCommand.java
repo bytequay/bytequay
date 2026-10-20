@@ -35,19 +35,4 @@ public record MergePullRequestCommand(String mergeMethod, Optional<String> commi
         requireNonNull(commitMessage, "commitMessage is null");
         requireNonNull(sha, "sha is null");
     }
-
-    public static MergePullRequestCommand mergeCommit()
-    {
-        return new MergePullRequestCommand("merge", Optional.empty(), Optional.empty(), Optional.empty());
-    }
-
-    public static MergePullRequestCommand squash()
-    {
-        return new MergePullRequestCommand("squash", Optional.empty(), Optional.empty(), Optional.empty());
-    }
-
-    public static MergePullRequestCommand rebase()
-    {
-        return new MergePullRequestCommand("rebase", Optional.empty(), Optional.empty(), Optional.empty());
-    }
 }

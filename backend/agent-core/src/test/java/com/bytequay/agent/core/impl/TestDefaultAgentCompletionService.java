@@ -100,7 +100,7 @@ class TestDefaultAgentCompletionService
         stores = new InMemoryAgentStores();
         resources = new RecordingResources();
         worktrees = new RecordingWorktreeService();
-        runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {});
+        runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true);
         taskId = TaskId.random();
         stores.insert(managedTask(taskId, "Completion test"));
     }
@@ -620,7 +620,7 @@ class TestDefaultAgentCompletionService
 
     private static AgentTurnSettings turnSettings()
     {
-        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.empty());
     }
 
     @Test

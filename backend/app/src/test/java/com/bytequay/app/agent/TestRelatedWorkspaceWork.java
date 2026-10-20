@@ -70,6 +70,7 @@ import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -169,7 +170,7 @@ class TestRelatedWorkspaceWork
         when(driver.probe()).thenReturn(ready);
         when(driver.probe(any())).thenReturn(ready);
         var provisioning = mock(WorkspaceProvisioningService.class);
-        when(provisioning.synchronizeCode("iceberg")).thenReturn(new WorkspaceCodeSyncResult("iceberg", true, Optional.of(Instant.EPOCH)));
+        when(provisioning.synchronizeCode("iceberg")).thenReturn(new WorkspaceCodeSyncResult("iceberg", true, Optional.of(Instant.EPOCH), ImmutableSet.of()));
         var localRepository = repositories.requireLocalRepository("iceberg");
         when(repositories.requireReadyRepository("iceberg")).thenReturn(localRepository);
         var credentials = mock(CredentialService.class);
@@ -450,7 +451,7 @@ class TestRelatedWorkspaceWork
     private static AgentTurn accepted(TaskId taskId, String key)
     {
         return AgentTurn.accepted(TurnId.random(), taskId, key, new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
-                Duration.ofMinutes(5), ImmutableList.of()), Instant.EPOCH);
+                Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.empty()), Instant.EPOCH);
     }
 
     private static AgentEventEnvelope event(AgentTurn turn, AgentEventSource source, MessagePhase phase, String text)

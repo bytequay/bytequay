@@ -15,7 +15,7 @@
 import type { LabBridge } from '@bytequay/lab/contracts';
 import type { ArtifactBridge } from './artifacts/contracts';
 import type { WorkItemBridge, CreateWorkItem, EpicDraftMessage, EpicDraftReply, EpicJoinDto, EpicRecordDto, WorkItemDto, WorkItemDecision, GoalItemDto, GoalItemKind } from './workitems/contracts';
-import type { AppNoticeBounds, NoticeSnapshot } from './notices/contracts';
+import type { NoticeSnapshot } from './notices/contracts';
 import type { RunningTask } from './agents/runningTaskModel';
 import type { GoogleBridge } from '@bytequay/google/contracts';
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
@@ -1611,7 +1611,6 @@ export type RecentDraftRequest = {
 };
 
 export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & ArtifactBridge & {
-  onAppNoticeBounds: (callback: (bounds: AppNoticeBounds) => void) => () => void;
   onAppNoticeOpen: (callback: (target: { taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null }) => void) => () => void;
   setNoticeSource: (key: string, taskId: string | null) => Promise<void>;
   /** The notices the Assistant panel lists; each new one also shows once as the bottom-right alert. */

@@ -23,7 +23,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -41,24 +40,6 @@ final class ProcessGroups
     private static final long SNAPSHOT_TIMEOUT_MILLIS = 5_000;
 
     private ProcessGroups() {}
-
-    /**
-     * Returns the process-group identifier of a live process.
-     *
-     * @param pid process to inspect
-     * @return the group identifier, or empty when the process is gone or cannot be read
-     */
-    static OptionalLong groupOf(long pid)
-    {
-        Optional<List<long[]>> snapshot = snapshot();
-        if (snapshot.isEmpty()) {
-            return OptionalLong.empty();
-        }
-        return snapshot.orElseThrow().stream()
-                .filter(row -> row[0] == pid)
-                .mapToLong(row -> row[1])
-                .findFirst();
-    }
 
     /**
      * Returns every live member of one process group.

@@ -496,7 +496,7 @@ class TestDefaultProcessSupervisor
         assertThat(reported.await(5, TimeUnit.SECONDS)).isTrue();
         long descendantPid = Long.parseLong(stdout.toString().trim());
         try {
-            assertThat(ProcessGroups.groupOf(descendantPid)).hasValue(descendantPid);
+            assertThat(ProcessGroups.members(descendantPid).orElseThrow()).contains(descendantPid);
             assertThat(ProcessSessions.sessionOf(descendantPid)).hasValue(process.pid());
             assertThat(process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS).treeTermination())
                     .isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);

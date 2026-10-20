@@ -33,7 +33,7 @@ class TestAgentTurnLifecycle
             Optional.empty(),
             AgentPermissionPolicy.AUTO,
             Duration.ofMinutes(5),
-            ImmutableList.of());
+            ImmutableList.of(), Optional.empty(), Optional.empty());
 
     @Test
     void turnRunsAndCompletesOnce()

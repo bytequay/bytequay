@@ -256,25 +256,6 @@ final class InteractiveAgentHttpContract
             Optional<JiraSourceInput> jiraSource,
             Optional<String> workItemId)
     {
-        CreateTaskRequest(String taskId, String workspaceId, String message, String laneId, TaskDefaults defaults, String idempotencyKey)
-        {
-            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
-        }
-
-        CreateTaskRequest(
-                String taskId, String workspaceId, String message, String laneId, TaskDefaults defaults, String idempotencyKey,
-                Optional<DevelopmentAutomationDto> developmentAutomation, Optional<IssueSourceInput> issueSource)
-        {
-            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, developmentAutomation, issueSource, Optional.empty(), Optional.empty());
-        }
-
-        CreateTaskRequest(
-                String taskId, String workspaceId, String message, String laneId, TaskDefaults defaults, String idempotencyKey,
-                Optional<DevelopmentAutomationDto> developmentAutomation, Optional<IssueSourceInput> issueSource, Optional<JiraSourceInput> jiraSource)
-        {
-            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, developmentAutomation, issueSource, jiraSource, Optional.empty());
-        }
-
         CreateTaskRequest
         {
             requireNonNull(issueSource, "issueSource is null");
@@ -325,11 +306,6 @@ final class InteractiveAgentHttpContract
             Optional<String> serviceTier,
             Optional<DevelopmentAutomationDto> developmentAutomation)
     {
-        TaskDefaults(Optional<String> model, Optional<String> effort, String permissionPolicy)
-        {
-            this(model, effort, permissionPolicy, Optional.empty(), Optional.empty());
-        }
-
         TaskDefaults
         {
             requireNonNull(developmentAutomation, "developmentAutomation is null");

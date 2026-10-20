@@ -151,11 +151,6 @@ public record ReviewRun(
         return steps.isEmpty() ? Optional.empty() : Optional.of(steps.getLast());
     }
 
-    public boolean validationStarted()
-    {
-        return currentStep().map(step -> step.kind() == ReviewStep.Kind.VALIDATE).orElse(false);
-    }
-
     public ReviewRun withStep(ReviewStep step, Instant now)
     {
         checkArgument(step.number() == steps.size() + 1, "next step number must be consecutive");

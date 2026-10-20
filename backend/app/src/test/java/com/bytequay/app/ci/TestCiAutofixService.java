@@ -239,7 +239,7 @@ class TestCiAutofixService
         when(driver.capabilities()).thenReturn(capabilities);
         when(driver.probe()).thenReturn(providerStatus);
         when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspaceContext());
-        when(provisioning.synchronizeCode("workspace-1")).thenReturn(new WorkspaceCodeSyncResult("workspace-1", true, Optional.of(NOW)));
+        when(provisioning.synchronizeCode("workspace-1")).thenReturn(new WorkspaceCodeSyncResult("workspace-1", true, Optional.of(NOW), ImmutableSet.of()));
         when(gitHub.inspect(any())).thenReturn(snapshot);
         when(gitHub.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(new com.bytequay.agent.core.BlobRef(
                 runtime.relativize(log).toString(),
@@ -277,7 +277,7 @@ class TestCiAutofixService
         };
         taskStore = mock(AgentTaskStore.class);
         turnStore = mock(AgentTurnStore.class);
-        runtimes = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
+        runtimes = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true);
         ownership = new DevelopmentCiOwnership(store, taskStore, turnStore, mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
                 eventService, runtimes);
         service = new CiAutofixService(
@@ -2378,7 +2378,7 @@ class TestCiAutofixService
     private static AgentTurn parentTurn(TaskId parent, TurnId turn)
     {
         return AgentTurn.accepted(turn, parent, turn.toString(), new AgentTurnSettings(
-                Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of()), NOW);
+                Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of(), Optional.empty(), Optional.empty()), NOW);
     }
 
     private static AgentEventEnvelope parentMessage(TaskId parent, TurnId turn, long sequence, String text, AgentEventPayload.DeliveryKind deliveryKind)
@@ -2549,7 +2549,7 @@ class TestCiAutofixService
 
     private static AgentTurnSettings turnSettings()
     {
-        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.empty());
     }
 
     private AgentTurn terminalTurn(TurnState state, Optional<String> reason)

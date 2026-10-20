@@ -102,11 +102,6 @@ public record Memory(
         return Long.parseLong(id.substring(1));
     }
 
-    public boolean flagged()
-    {
-        return !reports.isEmpty();
-    }
-
     public boolean repositoryWide()
     {
         return scope.isEmpty();

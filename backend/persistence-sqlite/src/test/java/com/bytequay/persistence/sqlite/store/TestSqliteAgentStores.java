@@ -532,7 +532,8 @@ class TestSqliteAgentStores
         taskStore.insert(task);
         DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(kind, TurnId.random());
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "generated-turn",
-                        new AgentTurnSettings(Optional.of("model"), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of()), now)
+                        new AgentTurnSettings(
+                                Optional.of("model"), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.empty()), now)
                 .withDevelopmentOrigin(origin);
         turnStore.insert(turn);
         entityManager.clear();
@@ -590,7 +591,8 @@ class TestSqliteAgentStores
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
         AgentTask task = newTask(now);
         taskStore.insert(task);
-        AgentTurnSettings settings = new AgentTurnSettings(Optional.of("model"), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+        AgentTurnSettings settings = new AgentTurnSettings(
+                Optional.of("model"), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.empty());
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "plan", settings, now);
         turnStore.insert(turn);
         entityManager.clear();
@@ -970,7 +972,7 @@ class TestSqliteAgentStores
         RecordingDriver firstProcess = new RecordingDriver();
         DefaultAgentTurnService beforeRestart = turnService(
                 firstProcess,
-                new AgentRuntimeRegistry(taskStore, ignored -> {}),
+                new AgentRuntimeRegistry(taskStore, ignored -> {}, ignored -> false, true),
                 new DefaultAgentEventService(logs, outboxStore, taskStore, clock),
                 logs,
                 resources,
@@ -979,13 +981,13 @@ class TestSqliteAgentStores
                 clock);
         beforeRestart.start(new StartAgentTurnCommand(task.id(), "current", ImmutableList.of(), "turn-1"));
         QueuedAgentInput first = beforeRestart.enqueue(new QueueAgentInputCommand(
-                task.id(), taskStore.find(task.id()).orElseThrow().version(), "queued one", ImmutableList.of(), "queue-1"));
+                task.id(), taskStore.find(task.id()).orElseThrow().version(), "queued one", ImmutableList.of(), "queue-1", Optional.empty()));
         QueuedAgentInput second = beforeRestart.enqueue(new QueueAgentInputCommand(
-                task.id(), taskStore.find(task.id()).orElseThrow().version(), "queued two", ImmutableList.of(), "queue-2"));
+                task.id(), taskStore.find(task.id()).orElseThrow().version(), "queued two", ImmutableList.of(), "queue-2", Optional.empty()));
         entityManager.flush();
         entityManager.clear();
 
-        AgentRuntimeRegistry restartedRuntime = new AgentRuntimeRegistry(taskStore, ignored -> {});
+        AgentRuntimeRegistry restartedRuntime = new AgentRuntimeRegistry(taskStore, ignored -> {}, ignored -> false, true);
         AgentMaintenance maintenance = new AgentMaintenance(
                 taskStore,
                 turnStore,

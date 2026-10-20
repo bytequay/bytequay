@@ -80,6 +80,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -301,7 +302,7 @@ class TestAgentHttpApi
                 0,
                 now,
                 now));
-        when(provisioning.synchronizeCode(workspaceId)).thenReturn(new WorkspaceCodeSyncResult(workspaceId, true, Optional.of(now)));
+        when(provisioning.synchronizeCode(workspaceId)).thenReturn(new WorkspaceCodeSyncResult(workspaceId, true, Optional.of(now), ImmutableSet.of()));
     }
 
     @Test
@@ -651,7 +652,7 @@ class TestAgentHttpApi
     void rejectsTaskCreationWhenRepositorySynchronizationFails()
             throws Exception
     {
-        when(provisioning.synchronizeCode(workspaceId)).thenReturn(new WorkspaceCodeSyncResult(workspaceId, false, Optional.of(Instant.now())));
+        when(provisioning.synchronizeCode(workspaceId)).thenReturn(new WorkspaceCodeSyncResult(workspaceId, false, Optional.of(Instant.now()), ImmutableSet.of()));
 
         ResponseEntity<JsonNode> response = post("/agent/tasks", createTaskBody("codex"), null);
 
@@ -1325,7 +1326,7 @@ class TestAgentHttpApi
 
         ResponseEntity<JsonNode> first = post("/agent/tasks", request, null);
         verify(provisioning).synchronizeCode(workspaceId);
-        when(provisioning.synchronizeCode(workspaceId)).thenReturn(new WorkspaceCodeSyncResult(workspaceId, false, Optional.empty()));
+        when(provisioning.synchronizeCode(workspaceId)).thenReturn(new WorkspaceCodeSyncResult(workspaceId, false, Optional.empty(), ImmutableSet.of()));
         ResponseEntity<JsonNode> replay = post("/agent/tasks", request, null);
 
         assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);

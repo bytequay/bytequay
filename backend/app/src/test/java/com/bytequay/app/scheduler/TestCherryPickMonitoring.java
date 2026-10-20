@@ -165,7 +165,7 @@ class TestCherryPickMonitoring
                                 "origin-main",
                                 "bytequay/task/monitor",
                                 Path.of("/tmp/bytequay-cherry-pick-monitor"),
-                                "codex", Optional.empty()),
+                                "codex", Optional.empty(), Optional.empty(), Optional.empty()),
                         Optional.empty(),
                         new Range("1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222", "3333333333333333333333333333333333333333"),
                         ImmutableList.of(CherryPickItem.planned(

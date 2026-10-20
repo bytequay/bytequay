@@ -68,10 +68,12 @@ class TestInteractiveAgentHttpContract
         TaskId task = TaskId.random();
         String rebaseKey = "11111111-1111-1111-1111-111111111111:agent_turn:" + "a".repeat(40) + ":1";
         AgentTurn ordinary = AgentTurn.accepted(TurnId.random(), task, "user-key",
-                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of()), Instant.EPOCH);
+                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5),
+                        ImmutableList.of(), Optional.empty(), Optional.empty()), Instant.EPOCH);
         assertThat(InteractiveAgentHttpContract.turn(ordinary).workflowRequest()).isEmpty();
         for (AgentPermissionPolicy policy : AgentPermissionPolicy.values()) {
-            AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), policy, Duration.ofMinutes(5), ImmutableList.of());
+            AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), policy, Duration.ofMinutes(5),
+                    ImmutableList.of(), Optional.empty(), Optional.empty());
             AgentTurn rebase = AgentTurn.accepted(TurnId.random(), task, rebaseKey, settings, Instant.EPOCH);
             assertThat(InteractiveAgentHttpContract.turn(rebase).workflowRequest()).isEqualTo(switch (policy) {
                 case AUTO -> Optional.empty();
@@ -91,7 +93,8 @@ class TestInteractiveAgentHttpContract
     void projectsPlanAbsenceAndExplicitClearSeparately()
     {
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), TaskId.random(), "plan",
-                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of()), Instant.EPOCH);
+                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5),
+                        ImmutableList.of(), Optional.empty(), Optional.empty()), Instant.EPOCH);
         assertThat(objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn)).get("plan").isNull()).isTrue();
         AgentTurn planned = turn.withPlan(ImmutableList.of(new ProviderAgentEvent.PlanItem("Verify", ProviderAgentEvent.PlanItemState.IN_PROGRESS)));
         JsonNode plan = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(planned)).path("plan");
@@ -109,8 +112,8 @@ class TestInteractiveAgentHttpContract
                 "workspace-1",
                 "Review the pull request",
                 "codex",
-                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("gpt-5.6-codex"), Optional.of("high"), "AUTO"),
-                "create-key"));
+                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("gpt-5.6-codex"), Optional.of("high"), "AUTO", Optional.empty(), Optional.empty()),
+                "create-key", Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
 
         assertThat(request.fieldNames()).toIterable()
                 .containsExactlyInAnyOrder("taskId", "workspaceId", "message", "laneId", "defaults", "idempotencyKey", "developmentAutomation", "issueSource", "jiraSource",
@@ -148,13 +151,13 @@ class TestInteractiveAgentHttpContract
         assertThat(json.has("repo")).isFalse();
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
                 TaskId.random().toString(), "workspace", "Implement", "codex",
-                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("model"), Optional.empty(), "AUTO"), "key", Optional.empty(),
+                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("model"), Optional.empty(), "AUTO", Optional.empty(), Optional.empty()), "key", Optional.empty(),
                 Optional.of(new IssueSourceInput(7, 7, Instant.EPOCH, Optional.empty())),
-                Optional.of(new JiraSourceInput("connection", "cloud", "10001", "APP-7", source.title(), source.body(), Instant.EPOCH, Optional.empty()))))
+                Optional.of(new JiraSourceInput("connection", "cloud", "10001", "APP-7", source.title(), source.body(), Instant.EPOCH, Optional.empty())), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("only one issue source");
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
                 TaskId.random().toString(), "workspace", "Implement", "codex",
-                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("model"), Optional.empty(), "AUTO"), "key", Optional.empty(),
+                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("model"), Optional.empty(), "AUTO", Optional.empty(), Optional.empty()), "key", Optional.empty(),
                 Optional.of(new IssueSourceInput(7, 7, Instant.EPOCH, Optional.empty())), Optional.empty(), Optional.of("work-item")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("from its source");
     }
@@ -167,8 +170,8 @@ class TestInteractiveAgentHttpContract
                 "workspace-1",
                 "Task",
                 "codex",
-                new InteractiveAgentHttpContract.TaskDefaults(Optional.empty(), Optional.empty(), "AUTO"),
-                "create-key"))
+                new InteractiveAgentHttpContract.TaskDefaults(Optional.empty(), Optional.empty(), "AUTO", Optional.empty(), Optional.empty()),
+                "create-key", Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("model");
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
@@ -176,8 +179,8 @@ class TestInteractiveAgentHttpContract
                 "workspace-1",
                 "Task",
                 "codex",
-                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("gpt-5.6-codex"), Optional.empty(), "CI_AUTOFIX"),
-                "create-key"))
+                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("gpt-5.6-codex"), Optional.empty(), "CI_AUTOFIX", Optional.empty(), Optional.empty()),
+                "create-key", Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("AUTO");
     }
@@ -185,7 +188,8 @@ class TestInteractiveAgentHttpContract
     @Test
     void guardsDefaultsUpdatesWithAVersionAndTheSamePermissionRule()
     {
-        InteractiveAgentHttpContract.TaskDefaults defaults = new InteractiveAgentHttpContract.TaskDefaults(Optional.of("gpt-5.6-codex"), Optional.of("high"), "AUTO");
+        InteractiveAgentHttpContract.TaskDefaults defaults = new InteractiveAgentHttpContract.TaskDefaults(
+                Optional.of("gpt-5.6-codex"), Optional.of("high"), "AUTO", Optional.empty(), Optional.empty());
 
         // Without a version a stale screen could overwrite a change it never saw.
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.UpdateDefaultsRequest(-1, defaults))
@@ -195,7 +199,7 @@ class TestInteractiveAgentHttpContract
         // An update must not be a way around the rule creation enforces.
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.UpdateDefaultsRequest(
                 0,
-                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("gpt-5.6-codex"), Optional.empty(), "CI_AUTOFIX")))
+                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("gpt-5.6-codex"), Optional.empty(), "CI_AUTOFIX", Optional.empty(), Optional.empty())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("AUTO");
     }
@@ -253,12 +257,14 @@ class TestInteractiveAgentHttpContract
                         TurnId.random(),
                         TaskId.random(),
                         "private-key",
-                        new com.bytequay.agent.core.AgentTurnSettings(
+                        new AgentTurnSettings(
                                 Optional.of("opus"),
                                 Optional.of("High"),
                                 AgentPermissionPolicy.AUTO,
-                                java.time.Duration.ofMinutes(5),
-                                java.util.List.of()),
+                                Duration.ofMinutes(5),
+                                ImmutableList.of(),
+                                Optional.empty(),
+                                Optional.empty()),
                         now)
                 .markDeliveryStarted(now.plusSeconds(1))
                 .running(new ProviderTurnRef("private-provider-turn"), Optional.of("opus"))

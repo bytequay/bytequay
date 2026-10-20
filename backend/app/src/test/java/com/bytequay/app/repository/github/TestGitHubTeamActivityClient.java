@@ -179,7 +179,7 @@ class TestGitHubTeamActivityClient
                 ImmutableList.of(
                         new PrTimelineEvent(9L, "review_requested", "alice", time, null, PrTimelinePayload.builder().requestedReviewer("viewer").build(), Optional.empty()),
                         new PrTimelineEvent(10L, "merged", "viewer", time, null, PrTimelinePayload.empty(), Optional.empty())),
-                ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), false);
 
         GitHubTeamActivityClient.Observation result = new GitHubTeamActivityClient(builder.build()).repository("pat", "owner/repo", IDENTITY, 0, (number, updatedAt) -> {
             assertThat(number).isEqualTo(7);

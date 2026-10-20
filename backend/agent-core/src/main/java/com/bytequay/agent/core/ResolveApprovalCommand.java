@@ -40,9 +40,4 @@ public record ResolveApprovalCommand(
         checkArgument(decision != ApprovalDecision.Decision.DENY || answers.isEmpty(), "a denied decision cannot answer a question");
         checkArgument(!forTask || decision == ApprovalDecision.Decision.ALLOW, "only an allow can cover the task");
     }
-
-    public ResolveApprovalCommand(ApprovalId approvalId, ApprovalDecision.Decision decision, Optional<String> scopedPermission, boolean forTask)
-    {
-        this(approvalId, decision, scopedPermission, forTask, ImmutableMap.of());
-    }
 }

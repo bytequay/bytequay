@@ -82,7 +82,7 @@ class TestReviewCommentReader
     {
         when(pullRequests.findIdByRepoAndNumber(REPO, 12)).thenReturn(Optional.of(12L));
         when(details.find(12L)).thenReturn(Optional.of(new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(reviewed(3L, "alice", NOW, "Please split this.")),
-                ImmutableList.of(), ImmutableList.of(StoredPrDetail.REVIEWS))));
+                ImmutableList.of(), ImmutableList.of(StoredPrDetail.REVIEWS), false)));
 
         assertThat(reader.find(REPO, 12, "review:3")).hasValueSatisfying(anchor -> assertThat(anchor.snapshot()).doesNotContain("commit"));
     }
@@ -163,7 +163,7 @@ class TestReviewCommentReader
     private void cache(List<PrReviewState> reviews, List<PrTimelineEvent> timeline)
     {
         when(pullRequests.findIdByRepoAndNumber(REPO, 12)).thenReturn(Optional.of(12L));
-        when(details.find(12L)).thenReturn(Optional.of(new StoredPrDetail(raw(), reviews, timeline, ImmutableList.of(), ImmutableList.of())));
+        when(details.find(12L)).thenReturn(Optional.of(new StoredPrDetail(raw(), reviews, timeline, ImmutableList.of(), ImmutableList.of(), false)));
     }
 
     private static JsonNode snapshot(ReviewCommentItem item)

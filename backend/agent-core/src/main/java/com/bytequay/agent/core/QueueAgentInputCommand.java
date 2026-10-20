@@ -39,11 +39,6 @@ public record QueueAgentInputCommand(
         this(taskId, expectedVersion, message, attachments, idempotencyKey, developmentAutomation, Optional.empty());
     }
 
-    public QueueAgentInputCommand(TaskId taskId, long expectedVersion, String message, List<AgentAttachment> attachments, String idempotencyKey)
-    {
-        this(taskId, expectedVersion, message, attachments, idempotencyKey, Optional.empty(), Optional.empty());
-    }
-
     public QueueAgentInputCommand
     {
         requireNonNull(developmentAutomation, "developmentAutomation is null");

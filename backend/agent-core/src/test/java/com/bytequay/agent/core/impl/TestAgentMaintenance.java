@@ -504,7 +504,7 @@ class TestAgentMaintenance
 
     private static AgentTurnSettings turnSettings()
     {
-        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.empty());
     }
 
     private static AgentMaintenance maintenance(InMemoryAgentStores stores, RecordingApprovals approvals, RecordingCompletion completion, Instant now)
@@ -524,7 +524,7 @@ class TestAgentMaintenance
                 approvals,
                 new DefaultAgentMetricsService(stores, stores, new InMemoryTaskLogStore(), clock),
                 completion,
-                new AgentRuntimeRegistry(stores, ignored -> {}),
+                new AgentRuntimeRegistry(stores, ignored -> {}, ignored -> false, true),
                 clock);
     }
 

@@ -14,10 +14,6 @@
 import type { AgentTaskState } from './model';
 import type { DevelopmentAutomationDto } from '../types';
 
-export const DEFAULT_DEVELOPMENT_AUTOMATION: DevelopmentAutomationDto = {
-  autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false, reviewReply: false,
-};
-
 /** Keep development commits while leaving optional publication and follow-up off. */
 export const LOCAL_COMMITS_ONLY: DevelopmentAutomationDto = {
   autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false, reviewReply: false,

@@ -66,7 +66,7 @@ class TestPullRequestSnapshotService
     @ValueSource(strings = " ")
     void unavailableHeadDoesNotValidateEmptyChecks(String head)
     {
-        when(details.find(1L)).thenReturn(Optional.of(new StoredPrDetail(raw(head), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
+        when(details.find(1L)).thenReturn(Optional.of(new StoredPrDetail(raw(head), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false)));
 
         assertThatThrownBy(() -> snapshots.refreshChecks("pat", REF, 1L))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(502));
@@ -78,7 +78,7 @@ class TestPullRequestSnapshotService
     @Test
     void discussionSaveReturnsRetainedPartialSourcesWithoutSavingChecks()
     {
-        StoredPrDetail fetched = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(StoredPrDetail.COMMENTS));
+        StoredPrDetail fetched = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(StoredPrDetail.COMMENTS), false);
         StoredPrDetail retained = stored();
         when(details.find(1L)).thenReturn(Optional.of(retained));
         Instant sourceAt = UPDATED.plusSeconds(10);
@@ -168,7 +168,7 @@ class TestPullRequestSnapshotService
 
     private static StoredPrDetail stored()
     {
-        return new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        return new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false);
     }
 
     private static StoredPrDiff diff()

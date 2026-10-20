@@ -293,7 +293,8 @@ final class ScriptedCherryPickAgent
                 Optional.empty(),
                 false,
                 Optional.empty(),
-                Optional.of(new AgentTurnSettings(task.defaults().model(), task.defaults().effort(), task.permissionPolicy(), java.time.Duration.ofMinutes(5), ImmutableList.of())),
+                Optional.of(new AgentTurnSettings(task.defaults().model(), task.defaults().effort(), task.permissionPolicy(), java.time.Duration.ofMinutes(5),
+                        ImmutableList.of(), Optional.empty(), Optional.empty())),
                 state == TurnState.COMPLETED
                         ? Optional.empty()
                         : Optional.of("Everything is fine and validation passed."),

@@ -90,7 +90,8 @@ class TestAgentStartupRecovery
         AgentTask task = openTask(TaskId.random());
         when(tasks.find(task.id())).thenReturn(Optional.of(task));
         Instant now = Instant.parse("2026-09-01T00:00:00Z");
-        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO, ImmutableList.of());
+        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO,
+                ImmutableList.of(), Optional.empty(), Optional.empty());
         AgentTurn completed = AgentTurn.accepted(TurnId.random(), task.id(), "finished-message", settings, now)
                 .markDeliveryStarted(now)
                 .running(new ProviderTurnRef("finished-turn"), Optional.empty())
@@ -631,7 +632,8 @@ class TestAgentStartupRecovery
                 turnId,
                 taskId,
                 "recovery-turn",
-                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of()),
+                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5),
+                        ImmutableList.of(), Optional.empty(), Optional.empty()),
                 Instant.parse("2026-09-01T00:00:00Z"));
         when(turnStore.find(turnId)).thenReturn(Optional.of(turn));
         when(taskStore.find(taskId)).thenReturn(Optional.of(openTask(taskId)));
@@ -950,7 +952,7 @@ class TestAgentStartupRecovery
                 mock(AgentApprovalService.class),
                 mock(AgentMetricsService.class),
                 mock(AgentCompletionService.class),
-                new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}),
+                new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true),
                 Clock.systemUTC());
     }
 

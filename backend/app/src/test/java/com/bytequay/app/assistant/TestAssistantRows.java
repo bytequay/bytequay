@@ -123,7 +123,7 @@ class TestAssistantRows
         PrRawDetail raw = mock(PrRawDetail.class, withSettings().mockMaker(MockMakers.INLINE));
         // A reviewer's later comment leaves their approval standing; GitHub counts verdicts only.
         when(details.find(7L)).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(review("alba-t", "APPROVED", 600), review("bo-t", "CHANGES_REQUESTED", 300),
-                review("alba-t", "COMMENTED", 120)), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
+                review("alba-t", "COMMENTED", 120)), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false)));
         when(details.findLatestActivities(ImmutableSet.of(7L))).thenReturn(ImmutableMap.of(7L, new PrActivitySummary("reviewed", Optional.of("bo-t"), NOW.minusSeconds(300),
                 Optional.of("CHANGES_REQUESTED"), Optional.empty(), Optional.empty(), Optional.of("Please split the retry into its own commit"), Optional.empty(),
                 OptionalInt.empty())));

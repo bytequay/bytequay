@@ -139,7 +139,7 @@ class TestBackportChainService
                 new TaskWorktree(id, "p4", new RepositoryIdentity("test", "p4"), Path.of("/tmp", id.toString()), "bytequay/task/" + id, BASE),
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO), NOW);
         turn = AgentTurn.accepted(TurnId.random(), id, "human", new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
-                Duration.ofMinutes(5), ImmutableList.of()), NOW);
+                Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.empty()), NOW);
         when(related.eligible(source.id().toString())).thenReturn(Optional.of(source));
         when(tasks.find(source.id())).thenReturn(Optional.of(source));
         when(turns.findActive(source.id())).thenReturn(Optional.of(turn));

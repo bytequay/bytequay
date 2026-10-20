@@ -17,7 +17,7 @@ import { createRoot } from 'react-dom/client';
 import { pr as pullRequest, prDetail } from '../../pulls/fixtures/pullRequest';
 import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, RepoLabelDto, RepoUserDto } from '../../types';
 import AgentTaskScreen from '../AgentTaskScreen';
-import { DEFAULT_DEVELOPMENT_AUTOMATION } from '../developmentAutomation';
+import { LOCAL_COMMITS_ONLY } from '../developmentAutomation';
 import type { AgentEventEnvelope } from '../events';
 import { CI_PROJECTION } from './ciAutofix';
 import { createPreviewBridge } from './previewBridge';
@@ -51,7 +51,7 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
   const bridge = createPreviewBridge('workspace-1');
   const event = bridge.events[0];
   assert(event.turnId !== null && event.type === 'user_message', 'Fixture must identify a source user turn');
-  const automation = { ...DEFAULT_DEVELOPMENT_AUTOMATION, autoCiFix: outcome !== 'draft', ciLaneId: 'claude' };
+  const automation = { ...LOCAL_COMMITS_ONLY, autoCiFix: outcome !== 'draft', ciLaneId: 'claude' };
   let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true,
     mutationClaim: null, developmentContinuationUnfinished: false };
   task = { ...task, defaults: { ...task.defaults, developmentAutomation: automation } };

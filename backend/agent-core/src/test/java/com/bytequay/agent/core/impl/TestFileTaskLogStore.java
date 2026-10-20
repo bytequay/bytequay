@@ -91,7 +91,7 @@ class TestFileTaskLogStore
                         AgentEventPayload.DeliveryKind.TURN),
                 new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "done"),
                 new AgentEventPayload.PlanUpdated(ImmutableList.of(new PlanItem("verify", PlanItemState.IN_PROGRESS))),
-                new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read a file", Optional.empty()),
+                new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read a file", Optional.empty(), Optional.empty()),
                 new AgentEventPayload.ToolActivity(
                         "bytequay/review_get_context",
                         ActivityState.COMPLETED,

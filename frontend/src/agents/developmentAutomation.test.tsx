@@ -15,7 +15,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AutomationControl, CiProviderSelect } from './AutomationControl';
-import { automationForSubmission, automationSummary, DEFAULT_DEVELOPMENT_AUTOMATION, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
+import { automationForSubmission, automationSummary, LOCAL_COMMITS_ONLY, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { parseAgentTask, parseAgentTurn, parseDevelopmentAutomation, parseDevelopmentResult } from './contracts';
 import { parseAgentEventSequence } from './events';
 import { canComplete, canQueue, canSend, canSteer, createTaskCreationTracker, initialAgentTaskState, runtimeStatus } from './model';
@@ -28,15 +28,11 @@ import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import { AgentTaskBody } from './AgentTaskScreen';
 
-const defaults = { ...DEFAULT_DEVELOPMENT_AUTOMATION, autoDraftPr: true, autoCiFix: true };
+const defaults = { ...LOCAL_COMMITS_ONLY, autoDraftPr: true, autoCiFix: true };
 const report = { readyForDelivery: false, message: 'Which implementation should I use?' };
 const task: AgentTaskDto = { ...parseAgentTask(contracts.task), interactive: true, mutationClaim: null, state: 'OPEN' };
 const turn = { ...parseAgentTurn(contracts.turn), state: 'COMPLETED', developmentResult: report };
 const state = { ...initialAgentTaskState(), task, turn, latestTurnId: turn.id, connection: 'open' as const };
-
-it('starts optional automation off for new installs', () => {
-  expect(DEFAULT_DEVELOPMENT_AUTOMATION).toEqual({ autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false, reviewReply: false });
-});
 
 it('keeps commits local for one submission without changing saved defaults', () => {
   const local = automationForSubmission(defaults, true);
@@ -60,7 +56,7 @@ it('keeps the review summary when commits stay local, because it is not delivery
 });
 
 it('keeps private reply drafts independent from summary-only and publication settings', () => {
-  const replies = { ...DEFAULT_DEVELOPMENT_AUTOMATION, reviewReply: true };
+  const replies = { ...LOCAL_COMMITS_ONLY, reviewReply: true };
   expect(automationForSubmission(replies, true)).toEqual(replies);
   expect(parseDevelopmentAutomation(replies).reviewReply).toBe(true);
   expect(() => parseDevelopmentAutomation({ ...replies, reviewReply: 'true' })).toThrow();

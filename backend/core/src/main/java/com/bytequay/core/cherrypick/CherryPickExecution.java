@@ -448,13 +448,6 @@ public record CherryPickExecution(
             Optional<String> model,
             Optional<String> effort)
     {
-        public Workspace(String workspaceId, RepoRef repository, RepoRef physicalRepository, String sourceRemote, String targetRemote, String targetBranch,
-                String localTargetBranch, String workBranch, Path worktree, String laneId, Optional<RepoRef> sourceRepository)
-        {
-            this(workspaceId, repository, physicalRepository, sourceRemote, targetRemote, targetBranch, localTargetBranch, workBranch, worktree, laneId,
-                    sourceRepository, Optional.empty(), Optional.empty());
-        }
-
         public Workspace
         {
             checkText(workspaceId, "workspaceId", 100);

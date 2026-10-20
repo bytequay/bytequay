@@ -693,7 +693,8 @@ class TestCodexCliDriver
                 .hasMessageContaining("text-only worktree escapes runtimeDirectory");
 
         ScriptedProcessSupervisor poisoned = new ScriptedProcessSupervisor(objectMapper);
-        ObjectNode config = objectMapper.valueToTree(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false));
+        ObjectNode config = objectMapper.valueToTree(CodexLaunchProfile.threadConfig(
+                CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false, Optional.empty(), false));
         ((ObjectNode) config.path("features")).put("shell_tool", true);
         poisoned.configBody = config.toString();
         assertThatThrownBy(() -> driver(poisoned).open(textOnly, event -> {}))
@@ -701,7 +702,8 @@ class TestCodexCliDriver
                 .hasMessageContaining("shell_tool");
 
         ScriptedProcessSupervisor proxyEnabled = new ScriptedProcessSupervisor(objectMapper);
-        ObjectNode proxyConfig = objectMapper.valueToTree(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false));
+        ObjectNode proxyConfig = objectMapper.valueToTree(CodexLaunchProfile.threadConfig(
+                CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false, Optional.empty(), false));
         ((ObjectNode) proxyConfig.path("features")).putObject("network_proxy").put("enabled", true);
         proxyEnabled.configBody = proxyConfig.toString();
         assertThatThrownBy(() -> driver(proxyEnabled).open(textOnly, event -> {}))
@@ -1764,7 +1766,7 @@ class TestCodexCliDriver
         }
 
         ScriptedProcessSupervisor disabledNativeReviewer = new ScriptedProcessSupervisor(objectMapper);
-        ObjectNode disabledFeatures = objectMapper.valueToTree(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.V1, false));
+        ObjectNode disabledFeatures = objectMapper.valueToTree(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.V1, false, false, false));
         disabledFeatures.put("guardian_approval", false);
         disabledNativeReviewer.configBody = objectMapper.createObjectNode().set("features", disabledFeatures).toString();
         assertThatThrownBy(() -> driver(disabledNativeReviewer).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
@@ -3344,7 +3346,7 @@ class TestCodexCliDriver
                         .hasMessageContaining("default_tools_approval_mode");
                 assertThat(server.turnRequests()).isEmpty();
                 ObjectNode wrongScope = (ObjectNode) objectMapper.readTree(admittedConfig);
-                ObjectNode wrongFeatures = objectMapper.valueToTree(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true));
+                ObjectNode wrongFeatures = objectMapper.valueToTree(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true, false));
                 wrongFeatures.put("guardian_approval", false);
                 wrongScope.set("features", wrongFeatures);
                 supervisor.configBody = wrongScope.toString();

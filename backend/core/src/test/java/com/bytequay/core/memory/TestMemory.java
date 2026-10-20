@@ -106,8 +106,8 @@ class TestMemory
         }
         assertThat(memory.reports()).hasSize(Memory.MAX_REPORTS);
         assertThat(memory.reports().getFirst().reason()).isEqualTo("Reason 2");
-        assertThat(memory.flagged()).isTrue();
-        assertThat(memory.kept(NOW).flagged()).isFalse();
+        assertThat(memory.reports()).isNotEmpty();
+        assertThat(memory.kept(NOW).reports()).isEmpty();
     }
 
     private static Memory memory(String text, List<String> scope)

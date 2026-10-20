@@ -107,7 +107,7 @@ class TestPullRequestDetailFetcher
     @Test
     void preservesUnavailableChecksWithoutHeadSha()
     {
-        StoredPrDetail existing = new StoredPrDetail(raw(null), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(StoredPrDetail.CHECKS));
+        StoredPrDetail existing = new StoredPrDetail(raw(null), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(StoredPrDetail.CHECKS), false);
 
         StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing));
 
@@ -231,7 +231,7 @@ class TestPullRequestDetailFetcher
     void discussionRefreshReusesMetadataAndChecksWithoutFetchingThemAgain()
     {
         PrRawDetail raw = raw("head");
-        StoredPrDetail existing = new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        StoredPrDetail existing = new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false);
 
         StoredPrDetail refreshed = PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing));
 
@@ -244,7 +244,7 @@ class TestPullRequestDetailFetcher
 
     private static StoredPrDetail existing()
     {
-        return new StoredPrDetail(raw("head"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(StoredPrDetail.COMMITS));
+        return new StoredPrDetail(raw("head"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(StoredPrDetail.COMMITS), false);
     }
 
     private static PrRawDetail raw(String headSha)

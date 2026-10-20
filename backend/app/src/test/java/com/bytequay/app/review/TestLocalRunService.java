@@ -416,7 +416,7 @@ class TestLocalRunService
 
     private static AgentTurnSettings settings()
     {
-        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.empty());
     }
 
     /** Keeps rows as given: the service always writes the version it last read, which this store never advances. */

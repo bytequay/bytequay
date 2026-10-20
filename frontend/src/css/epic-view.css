@@ -285,11 +285,6 @@
   color: var(--fg-dim);
 }
 
-.goal-search__field.is-board {
-  border: 1px solid var(--line-default);
-  border-radius: 8px;
-}
-
 .goal-search__field input {
   flex: 1;
   min-width: 0;

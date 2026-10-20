@@ -109,7 +109,7 @@ class TestCommitHistoryRefresh
 
         readyWorkspace();
         when(provisioning.synchronizeCode(WORKSPACE_ID))
-                .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW)));
+                .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW), ImmutableSet.of()));
         when(credentials.resolveGitHubToken()).thenReturn("test-token");
     }
 
@@ -232,7 +232,7 @@ class TestCommitHistoryRefresh
             else {
                 secondStarted.countDown();
             }
-            return new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW));
+            return new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW), ImmutableSet.of());
         });
         List<CommitHistoryRef> refs = ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main"));
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -289,13 +289,13 @@ class TestCommitHistoryRefresh
     void failedGitFetchAndPersistenceProduceRetryableFailedState()
     {
         when(provisioning.synchronizeCode(WORKSPACE_ID))
-                .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, false, Optional.empty()));
+                .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, false, Optional.empty(), ImmutableSet.of()));
         service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
         assertThat(service.getRefreshStatus(WORKSPACE_ID).state()).isEqualTo(FAILED);
 
         store.failUpsert = true;
         when(provisioning.synchronizeCode(WORKSPACE_ID))
-                .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW)));
+                .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW), ImmutableSet.of()));
         successfulEmptyBranch("main");
         service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
         assertThat(service.getRefreshStatus(WORKSPACE_ID).state()).isEqualTo(FAILED);

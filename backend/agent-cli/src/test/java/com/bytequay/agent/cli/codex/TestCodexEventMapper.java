@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestCodexEventMapper
 {
     private final CodexProtocolCodec codec = new CodexProtocolCodec(new ObjectMapper());
-    private final CodexEventMapper mapper = new CodexEventMapper();
+    private final CodexEventMapper mapper = new CodexEventMapper(Path.of("/"), SecretRedactor.fromEnvironment(ImmutableMap.of()), true);
 
     @TempDir
     private Path worktree;
@@ -137,27 +137,28 @@ class TestCodexEventMapper
         assertThat(usage(mapper, "turn-2", "6000,600,60", "3000,300,30")).containsExactly(5000L, 500L, 50L);
 
         // A resume in a new process: App Server replays the thread's total under its last turn, then counts on from it.
-        CodexEventMapper resumed = new CodexEventMapper();
+        CodexEventMapper resumed = new CodexEventMapper(Path.of("/"), SecretRedactor.fromEnvironment(ImmutableMap.of()), true);
         resumed.observeUsage(usageNotification("turn-2", "6000,600,60", "3000,300,30").params());
         assertThat(usage(resumed, "turn-3", "10000,1000,100", "4000,400,40")).containsExactly(4000L, 400L, 40L);
         assertThat(usage(resumed, "turn-3", "15000,1500,150", "5000,500,50")).containsExactly(9000L, 900L, 90L);
 
         // The same turn when the replay never arrived: the first response's own usage gives the starting point.
-        assertThat(usage(new CodexEventMapper(), "turn-3", "10000,1000,100", "4000,400,40")).containsExactly(4000L, 400L, 40L);
+        assertThat(usage(new CodexEventMapper(Path.of("/"), SecretRedactor.fromEnvironment(ImmutableMap.of()), true), "turn-3", "10000,1000,100", "4000,400,40"))
+                .containsExactly(4000L, 400L, 40L);
     }
 
     @Test
     void reportsATurnsOwnUsageWhenItsFirstReportRepeatsOrRestartsTheTotal()
     {
         // A turn can report before any response: the replayed total again, or the same total after a compaction.
-        CodexEventMapper repeated = new CodexEventMapper();
+        CodexEventMapper repeated = new CodexEventMapper(Path.of("/"), SecretRedactor.fromEnvironment(ImmutableMap.of()), true);
         repeated.observeUsage(usageNotification("turn-1", "576120,533248,4432", "65238,64768,224").params());
         assertThat(usage(repeated, "turn-2", "576120,533248,4432", "65238,64768,224")).containsExactly(0L, 0L, 0L);
         assertThat(usage(repeated, "turn-2", "642000,598000,4600", "65880,64752,168")).containsExactly(65880L, 64752L, 168L);
         assertThat(usage(repeated, "turn-2", "642000,598000,4600", "0,0,0")).containsExactly(65880L, 64752L, 168L);
 
         // A resume that begins the counter again, as Codex 0.153 did: the first response reports itself alone, below the earlier total.
-        CodexEventMapper restarted = new CodexEventMapper();
+        CodexEventMapper restarted = new CodexEventMapper(Path.of("/"), SecretRedactor.fromEnvironment(ImmutableMap.of()), true);
         restarted.observeUsage(usageNotification("turn-1", "59857,24960,234", "20634,18560,58").params());
         assertThat(usage(restarted, "turn-2", "20759,20224,73", "20759,20224,73")).containsExactly(20759L, 20224L, 73L);
         assertThat(usage(restarted, "turn-2", "42682,40832,179", "21923,20608,106")).containsExactly(42682L, 40832L, 179L);
@@ -183,7 +184,7 @@ class TestCodexEventMapper
     @Test
     void mapsAutomaticReviewOutcomesSeparatelyFromTheReviewedCommand()
     {
-        CodexEventMapper redacting = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of("API_TOKEN", "known-secret")));
+        CodexEventMapper redacting = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of("API_TOKEN", "known-secret")), true);
         for (String status : ImmutableList.of("inProgress", "approved", "denied", "timedOut", "aborted", "futureStatus")) {
             String method = status.equals("inProgress") ? "started" : "completed";
             CodexProtocol.Notification notification = codec.decode("""
@@ -438,7 +439,7 @@ class TestCodexEventMapper
     @Test
     void mapsCommandFactsAndBuiltInToolsIntoActivity()
     {
-        CodexEventMapper worktreeMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of()));
+        CodexEventMapper worktreeMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of()), true);
         String cwd = worktree.resolve("backend").toString();
         String file = worktree.resolve("backend/App.java").toString();
         List<ProviderAgentEvent> events = worktreeMapper.map(codec.decode("""
@@ -520,7 +521,7 @@ class TestCodexEventMapper
     @Test
     void mapsCompletedFileChangesInsideTheWorktree()
     {
-        CodexEventMapper worktreeMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of()));
+        CodexEventMapper worktreeMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of()), true);
         String file = worktree.resolve("src/App.java").toString();
         List<ProviderAgentEvent> events = worktreeMapper.map(codec.decode("""
                 {"method":"item/completed","params":{"item":{"type":"fileChange",
@@ -547,7 +548,7 @@ class TestCodexEventMapper
     @Test
     void redactsKnownEnvironmentCredentialsFromMappedEvents()
     {
-        CodexEventMapper redactingMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")));
+        CodexEventMapper redactingMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")), true);
         List<ProviderAgentEvent> events = redactingMapper.map(codec.decode("""
                 {"method":"item/completed","params":{"item":{"type":"commandExecution","cwd":"/tmp/wt","commandActions":[],
                 "id":"exec-1","command":"echo known-secret","status":"completed",
@@ -564,7 +565,7 @@ class TestCodexEventMapper
     @Test
     void redactsACredentialSplitAcrossStreamedDeltas()
     {
-        CodexEventMapper redactingMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of("GH_TOKEN", "ghp_secret-value")));
+        CodexEventMapper redactingMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of("GH_TOKEN", "ghp_secret-value")), true);
         StringBuilder shown = new StringBuilder();
         for (String delta : List.of("Using ghp_sec", "ret-va", "lue to push.", " Done")) {
             ProviderAgentEvent.Command output = (ProviderAgentEvent.Command) redactingMapper.map(codec.decode("""

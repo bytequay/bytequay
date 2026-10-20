@@ -16,7 +16,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import App from '../../App';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
-import { DEFAULT_DEVELOPMENT_AUTOMATION } from '../../agents/developmentAutomation';
+import { LOCAL_COMMITS_ONLY } from '../../agents/developmentAutomation';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
 import { assert, settle, until } from '../../fixtures/harness';
 import type { AgendaScheduleDto, AppPreferencesDto, Bridge, ModelSettingsDto, SetupPreferencesDto, SetupStep } from '../../types';
@@ -37,7 +37,7 @@ function harness(step: SetupStep = 'APPEARANCE', available = true, connected = f
   let setup: SetupPreferencesDto = { step, assistantEnabled: false };
   let preferences: AppPreferencesDto = { theme: 'SYSTEM', taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 };
   let models: ModelSettingsDto = { ...CATALOG, providers: CATALOG.providers.map(provider => ({ ...provider, readiness: available ? 'READY' : 'CLI_MISSING' })) };
-  let automation = { ...DEFAULT_DEVELOPMENT_AUTOMATION };
+  let automation = { ...LOCAL_COMMITS_ONLY };
   let agenda: AgendaScheduleDto = { enabled: false, minute: 540, days: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'], calendarAccountId: null };
   let permissions = { startTasks: false, answerTasks: false, changeWork: false, markAttention: false };
   let finished = false;
@@ -178,7 +178,7 @@ export async function run() {
   });
   await scenario('Resumed CI automation can disable an unavailable lane or select the ready default', async () => {
     const view = harness('AUTOMATION', true, true);
-    view.setAutomation({ ...DEFAULT_DEVELOPMENT_AUTOMATION, autoCiFix: true, ciLaneId: 'removed-lane' });
+    view.setAutomation({ ...LOCAL_COMMITS_ONLY, autoCiFix: true, ciLaneId: 'removed-lane' });
     try {
       view.render(); await title(view.host, 'How should your agent work?');
       await until(() => view.host.querySelector('.setup-body') !== null, 'Preferences did not load');

@@ -1150,7 +1150,7 @@ class TestTaskDiscussionAnswers
                 null, null, ImmutableList.of());
         PrTimelineEvent thread = new PrTimelineEvent(123L, "review_thread", "bob", NOW, null,
                 PrTimelinePayload.builder().path("src/Config.java").line(42).diffHunk("@@ -1 +1 @@\n-old\n+new").comments(ImmutableList.of(comment)).build(), Optional.empty());
-        return new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(thread), ImmutableList.of(), ImmutableList.of());
+        return new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(thread), ImmutableList.of(), ImmutableList.of(), false);
     }
 
     private static TaskDiscussion discussion(Optional<DiscussionSession> session, List<DiscussionMessage> messages)

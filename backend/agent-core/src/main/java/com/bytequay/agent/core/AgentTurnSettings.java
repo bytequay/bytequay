@@ -54,16 +54,6 @@ public record AgentTurnSettings(
         this(model, effort, permissionPolicy, maximumRuntime, attachments, serviceTier, developmentAutomation, true);
     }
 
-    public AgentTurnSettings(
-            Optional<String> model,
-            Optional<String> effort,
-            AgentPermissionPolicy permissionPolicy,
-            Duration maximumRuntime,
-            List<AgentAttachmentReference> attachments)
-    {
-        this(model, effort, permissionPolicy, maximumRuntime, attachments, Optional.empty(), Optional.empty(), true);
-    }
-
     public AgentTurnSettings withRepositoryContext(boolean enabled)
     {
         return new AgentTurnSettings(model, effort, permissionPolicy, maximumRuntime, attachments, serviceTier, developmentAutomation, enabled, laneId);

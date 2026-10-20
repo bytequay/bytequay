@@ -65,7 +65,7 @@ class TestRecipeChecks
     private final AgentTask task = AgentTask.created(taskId, Optional.of("workspace"), true, "Development", new AgentLaneId("codex"),
             new RepositoryIdentity("trinodb", "trino"), Path.of("/tmp/recipe-checks"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     private final AgentTurn turn = AgentTurn.accepted(turnId, taskId, "turn", new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
-            Duration.ofHours(1), ImmutableList.of()), NOW);
+            Duration.ofHours(1), ImmutableList.of(), Optional.empty(), Optional.empty()), NOW);
 
     @Test
     void aLaterFailedRunOfTheCommandFlagsTheRecipeOncePerTask()

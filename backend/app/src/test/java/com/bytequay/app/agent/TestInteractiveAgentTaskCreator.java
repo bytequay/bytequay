@@ -54,6 +54,7 @@ import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -116,7 +117,7 @@ class TestInteractiveAgentTaskCreator
         workspaces = mock(WorkspaceRepositoryService.class);
         provisioning = mock(WorkspaceProvisioningService.class);
         when(provisioning.synchronizeCode("workspace-1"))
-                .thenReturn(new WorkspaceCodeSyncResult("workspace-1", true, Optional.of(Instant.now())));
+                .thenReturn(new WorkspaceCodeSyncResult("workspace-1", true, Optional.of(Instant.now()), ImmutableSet.of()));
         git = mock(GitCommandRunner.class);
         when(drivers.require(AgentLaneId.CODEX_CLI)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(AgentCapabilities.none());
@@ -276,7 +277,7 @@ class TestInteractiveAgentTaskCreator
     void failedFetchDoesNotUsePreviouslySynchronizedRefOrCreateTask()
     {
         when(provisioning.synchronizeCode("workspace-1"))
-                .thenReturn(new WorkspaceCodeSyncResult("workspace-1", false, Optional.of(Instant.now().minusSeconds(300))));
+                .thenReturn(new WorkspaceCodeSyncResult("workspace-1", false, Optional.of(Instant.now().minusSeconds(300)), ImmutableSet.of()));
 
         assertThatThrownBy(() -> create(defaults()))
                 .isInstanceOf(AgentUnavailableException.class)

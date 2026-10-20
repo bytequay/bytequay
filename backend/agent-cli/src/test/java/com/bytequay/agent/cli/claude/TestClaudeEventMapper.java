@@ -41,7 +41,7 @@ import static org.assertj.core.groups.Tuple.tuple;
 class TestClaudeEventMapper
 {
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new Jdk8Module()).disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-    private final ClaudeEventMapper mapper = new ClaudeEventMapper(SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret")));
+    private final ClaudeEventMapper mapper = new ClaudeEventMapper(SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret")), Optional.empty(), true);
 
     @Test
     void mapsRealPartialFinalAndResultMessagesWithoutThinking()

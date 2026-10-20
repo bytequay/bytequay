@@ -49,10 +49,6 @@ export class NoticeHost {
       if (typeof suppressed !== 'boolean') return;
       this.suppressed = suppressed; this.publish();
     });
-    ipcMain.on('notices:measure', event => {
-      if (!owner(event)) throw new Error('Unknown notice owner');
-      this.layout();
-    });
     const child = (event: IpcMainInvokeEvent | IpcMainEvent): void => {
       if (!this.view || event.sender !== this.view.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error('Unknown notice surface');
     };
@@ -199,11 +195,7 @@ export class NoticeHost {
     // Bootstrap a one-pixel viewport so Chromium can measure before the first card resize.
     const viewportHeight = Math.max(1, h);
     this.view.setBounds({ x: width - w - 8, y: height - viewportHeight - 8, width: w, height: viewportHeight });
-    const shown = h > 0 && !this.obscured && !this.suppressed;
-    this.view.setVisible(shown);
-    const zoom = window.webContents.getZoomFactor();
-    window.webContents.send('notices:bounds', shown
-      ? { x: (width - w - 8) / zoom, y: (height - h - 8) / zoom, width: w / zoom, height: h / zoom } : null);
+    this.view.setVisible(h > 0 && !this.obscured && !this.suppressed);
     this.raise();
   }
 

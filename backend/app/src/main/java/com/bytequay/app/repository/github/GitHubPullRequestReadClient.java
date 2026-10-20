@@ -280,50 +280,6 @@ public class GitHubPullRequestReadClient
         return new GitHubDeliveryChecks(nodeId, identity, waiting, failures);
     }
 
-    /**
-     * An issue's state and the pull requests linked to close it.
-     *
-     * @param pulls up to ten linked pull requests, each OPEN, CLOSED or MERGED
-     */
-    public record IssueLinks(boolean open, List<LinkedPull> pulls)
-    {
-        public IssueLinks
-        {
-            pulls = ImmutableList.copyOf(pulls);
-        }
-    }
-
-    public record LinkedPull(int number, String state)
-    {
-        public LinkedPull
-        {
-            requireNonNull(state, "state is null");
-        }
-    }
-
-    public IssueLinks fetchIssueLinks(String pat, PullRequestRef issue)
-    {
-        requirePat(pat);
-        String query = """
-                query($owner:String!,$name:String!,$number:Int!){
-                  repository(owner:$owner,name:$name){issue(number:$number){
-                    state closedByPullRequestsReferences(first:10,includeClosedPrs:true){nodes{number state}}
-                  }}
-                }
-                """;
-        JsonNode response = requireBody(translating(() -> graphql(graphQlRestClient, pat, query,
-                ImmutableMap.of("owner", issue.owner(), "name", issue.repo(), "number", issue.number())).body(JsonNode.class)), "GitHub returned no issue");
-        JsonNode row = response.path("data").path("repository").path("issue");
-        if (!response.path("errors").isEmpty() || !row.path("state").isTextual()) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub could not read the pull requests linked to the issue");
-        }
-        ImmutableList.Builder<LinkedPull> pulls = ImmutableList.builder();
-        for (JsonNode pull : row.path("closedByPullRequestsReferences").path("nodes")) {
-            pulls.add(new LinkedPull(pull.path("number").intValue(), pull.path("state").asText()));
-        }
-        return new IssueLinks("OPEN".equals(row.path("state").asText()), pulls.build());
-    }
-
     private JsonNode fetchDeliveryCheckPage(String pat, PullRequestRef pullRequest, Optional<String> cursor)
     {
         String query = """

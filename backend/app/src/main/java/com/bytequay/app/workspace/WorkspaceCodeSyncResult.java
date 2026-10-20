@@ -32,11 +32,6 @@ public record WorkspaceCodeSyncResult(String workspaceId, boolean successful, Op
         failedRemoteSources = ImmutableSet.copyOf(requireNonNull(failedRemoteSources, "failedRemoteSources is null"));
     }
 
-    public WorkspaceCodeSyncResult(String workspaceId, boolean successful, Optional<Instant> lastCodeSyncAt)
-    {
-        this(workspaceId, successful, lastCodeSyncAt, ImmutableSet.of());
-    }
-
     public static WorkspaceCodeSyncResult success(Workspace workspace, Set<String> failedRemoteSources)
     {
         return new WorkspaceCodeSyncResult(workspace.id(), true, workspace.lastCodeSyncAt(), failedRemoteSources);

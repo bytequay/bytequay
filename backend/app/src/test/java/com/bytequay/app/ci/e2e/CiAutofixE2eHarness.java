@@ -379,7 +379,7 @@ final class CiAutofixE2eHarness
                 ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of(),
-                ImmutableList.of()));
+                ImmutableList.of(), false));
         return prId;
     }
 

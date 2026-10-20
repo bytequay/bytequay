@@ -247,7 +247,8 @@ final class TestRepositoryGuidelineReader
     private AgentTurn turn(String key)
     {
         return AgentTurn.accepted(TurnId.random(), taskId, key,
-                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of()), Instant.EPOCH);
+                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10),
+                        ImmutableList.of(), Optional.empty(), Optional.empty()), Instant.EPOCH);
     }
 
     private AgentTask task(String startCommit)

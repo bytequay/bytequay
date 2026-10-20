@@ -493,7 +493,7 @@ class TestRecentService
                 "abc123",
                 "head",
                 "main");
-        return new StoredPrDetail(raw, ImmutableList.of(), timeline, checkRuns, ImmutableList.of());
+        return new StoredPrDetail(raw, ImmutableList.of(), timeline, checkRuns, ImmutableList.of(), false);
     }
 
     private static RecentTouch touch(String itemKey, LocalDate day, Instant at, RecentReason reason, int count)

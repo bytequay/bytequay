@@ -153,11 +153,6 @@ public sealed interface AgentEventPayload
     record ToolActivity(String name, ActivityState state, String summary, Optional<Long> durationMs, Optional<String> description)
             implements AgentEventPayload
     {
-        public ToolActivity(String name, ActivityState state, String summary, Optional<Long> durationMs)
-        {
-            this(name, state, summary, durationMs, Optional.empty());
-        }
-
         public ToolActivity
         {
             checkText(name, "name");

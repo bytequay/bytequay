@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -86,7 +87,7 @@ class TestReviewDiffAnchors
         ReviewDiffAnchors anchors = ReviewDiffAnchors.of(ImmutableList.of(headers));
 
         assertThat(anchors.size()).isEqualTo(4);
-        assertThat(anchors.hunks().stream().map(ReviewDiffAnchors.Hunk::header).collect(toImmutableList()))
+        assertThat(anchors.hunks(headers.filename()).stream().map(ReviewDiffAnchors.Hunk::header).collect(toImmutableList()))
                 .containsExactly("@@ -1 +1 @@", "@@ -10,7 +12,9 @@ class Thing");
         assertThat(describe(anchors)).containsExactly(
                 "A1 src/Headers.java LEFT:1 hunk0 [-]old",
@@ -144,8 +145,8 @@ class TestReviewDiffAnchors
         ReviewDiffAnchors anchors = ReviewDiffAnchors.of(ImmutableList.of(BINARY, UNCHANGED));
 
         assertThat(anchors.size()).isEqualTo(0);
-        assertThat(anchors.hunks()).isEmpty();
         assertThat(anchors.hunks("assets/logo.png")).isEmpty();
+        assertThat(anchors.hunks("assets/empty.txt")).isEmpty();
         assertThat(anchors.line("A1")).isEmpty();
     }
 
@@ -193,8 +194,8 @@ class TestReviewDiffAnchors
 
     private static List<String> describe(ReviewDiffAnchors anchors)
     {
-        return anchors.hunks().stream()
-                .flatMap(hunk -> hunk.lines().stream())
+        return IntStream.rangeClosed(1, anchors.size())
+                .mapToObj(index -> anchors.line("A" + index).orElseThrow())
                 .map(line -> "%s %s %s:%d hunk%d [%c]%s".formatted(line.id(), line.path(), line.side(), line.line(), line.hunk(), line.kind(), line.text()))
                 .collect(toImmutableList());
     }

@@ -712,11 +712,6 @@ public class PullRequestService
                 .forEach(row -> warmDetail(row.repo(), row.number()));
     }
 
-    void warmDetails(List<FetchedPullRequest> rows)
-    {
-        rows.forEach(row -> warmDetail(row.repo(), row.number()));
-    }
-
     private void warmDetail(String repo, int number)
     {
         try {

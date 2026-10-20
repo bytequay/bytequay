@@ -113,9 +113,9 @@ class TestMemoryService
     {
         create("Rule");
         memories.report("workspace", "m1", "The code changed", "path(x)", "task");
-        assertThat(store.find("m1").orElseThrow().flagged()).isTrue();
+        assertThat(store.find("m1").orElseThrow().reports()).isNotEmpty();
         Memory kept = memories.keep("workspace", "m1");
-        assertThat(kept.flagged()).isFalse();
+        assertThat(kept.reports()).isEmpty();
         assertThat(kept.text()).isEqualTo("Rule");
         assertThat(kept.version()).isEqualTo(1);
     }

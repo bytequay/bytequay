@@ -969,8 +969,6 @@
   white-space: nowrap;
 }
 
-.cmt-strip-range-wrap { position: relative; display: flex; flex: none; }
-
 .cmt-strip-btn {
   display: flex;
   align-items: center;

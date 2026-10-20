@@ -149,7 +149,7 @@ class TestMemorySources
     private void turn(String key)
     {
         AgentTurn turn = AgentTurn.accepted(turnId, taskId, key, new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
-                Duration.ofHours(1), ImmutableList.of()), NOW);
+                Duration.ofHours(1), ImmutableList.of(), Optional.empty(), Optional.empty()), NOW);
         when(turns.findActive(taskId)).thenReturn(Optional.of(turn));
     }
 

@@ -22,7 +22,6 @@ export type AppNotice = {
 /** Latest review run counts; `update` marks a run that covers only changes since the prior review. */
 export type NoticeChanges = { update: boolean; commits: number; files: number; additions: number; deletions: number };
 export type NoticeSnapshot = { notices: AppNotice[]; popupIds: string[]; viewedIds: string[]; active: boolean; maxHeight: number };
-export type AppNoticeBounds = { x: number; y: number; width: number; height: number } | null;
 export type NoticeBridge = {
   read: () => Promise<NoticeSnapshot>;
   subscribe: (listener: (state: NoticeSnapshot) => void) => () => void;

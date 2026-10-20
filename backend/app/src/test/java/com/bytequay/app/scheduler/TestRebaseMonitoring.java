@@ -73,7 +73,7 @@ class TestRebaseMonitoring
                 Clock.fixed(Instant.parse("2026-08-20T00:00:00Z"), ZoneOffset.UTC),
                 new DevelopmentCiOwnership(mock(CiAutofixStore.class), mock(AgentTaskStore.class), mock(AgentTurnStore.class),
                         mock(PullRequestTaskStore.class), mock(PullRequestStore.class), mock(AgentEventService.class),
-                        new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {})));
+                        new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true)));
 
         monitor(store, service, readyAgentServingGate()).monitorRebases();
 

@@ -181,7 +181,8 @@ class TestSqliteAgentEventOutboxStore
                 turnId,
                 taskId,
                 "request-1",
-                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of()),
+                new AgentTurnSettings(
+                        Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.empty()),
                 NOW);
         AgentEventOutboxEntry event = new AgentEventOutboxEntry(
                 EventId.random(),

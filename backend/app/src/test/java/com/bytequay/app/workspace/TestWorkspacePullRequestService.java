@@ -403,7 +403,7 @@ class TestWorkspacePullRequestService
                                 "bytequay-base",
                                 WORK_BRANCH,
                                 temporaryDirectory,
-                                "lane", Optional.empty()),
+                                "lane", Optional.empty(), Optional.empty(), Optional.empty()),
                         Optional.of(new PullRequestDraft("PR title", "PR body")),
                         new Range(PARENT_SHA, SHA, PARENT_SHA),
                         ImmutableList.of(item),

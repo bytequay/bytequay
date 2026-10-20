@@ -39,11 +39,6 @@ public record GoalItem(GoalItemKind kind, String key, String label, String title
         checkArgument(!key.isBlank(), "key is blank");
     }
 
-    public boolean is(GoalItemKind otherKind, String otherKey)
-    {
-        return kind == otherKind && key.equals(otherKey);
-    }
-
     /** The key of a pull request or issue: the repository in lower case, then its number. */
     public static String numberedKey(String repo, int number)
     {

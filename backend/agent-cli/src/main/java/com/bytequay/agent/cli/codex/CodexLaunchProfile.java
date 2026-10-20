@@ -76,34 +76,6 @@ final class CodexLaunchProfile
      * Returns the full argument vector for one App Server launch, optionally pointing the process at
      * ByteQuay's task MCP endpoint. A direct broker registration keeps its bearer in
      * {@link ManagedToolsLaunch#TOKEN_VARIABLE}; a proxied registration keeps it outside Codex.
-     */
-    static List<String> arguments(
-            String executable,
-            ChildProfile childProfile,
-            Optional<ManagedToolsLaunch> codeQueries,
-            boolean textOnly,
-            List<String> ciWritableRoots,
-            boolean allowGitHubCommands,
-            boolean review)
-    {
-        return arguments(executable, childProfile, codeQueries, textOnly, ciWritableRoots, allowGitHubCommands, review, Optional.empty());
-    }
-
-    static List<String> arguments(
-            String executable,
-            ChildProfile childProfile,
-            Optional<ManagedToolsLaunch> codeQueries,
-            boolean textOnly,
-            List<String> ciWritableRoots,
-            boolean allowGitHubCommands,
-            boolean review,
-            Optional<DeepSeekProfile> deepSeek)
-    {
-        return arguments(executable, childProfile, codeQueries, textOnly, ciWritableRoots, allowGitHubCommands, review, deepSeek, false);
-    }
-
-    /**
-     * Returns the full argument vector for one App Server launch.
      *
      * @param asksUser whether the agent may ask the user a question with choices, which turns on Codex's {@code request_user_input}
      */
@@ -219,29 +191,6 @@ final class CodexLaunchProfile
             boolean textOnly,
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
-            boolean review)
-    {
-        return threadConfig(childProfile, codeQueries, textOnly, ciWritableRoots, allowGitHubCommands, review, Optional.empty());
-    }
-
-    static Map<String, Object> threadConfig(
-            ChildProfile childProfile,
-            boolean codeQueries,
-            boolean textOnly,
-            List<String> ciWritableRoots,
-            boolean allowGitHubCommands,
-            boolean review,
-            Optional<DeepSeekProfile> deepSeek)
-    {
-        return threadConfig(childProfile, codeQueries, textOnly, ciWritableRoots, allowGitHubCommands, review, deepSeek, false);
-    }
-
-    static Map<String, Object> threadConfig(
-            ChildProfile childProfile,
-            boolean codeQueries,
-            boolean textOnly,
-            List<String> ciWritableRoots,
-            boolean allowGitHubCommands,
             boolean review,
             Optional<DeepSeekProfile> deepSeek,
             boolean asksUser)
@@ -280,16 +229,6 @@ final class CodexLaunchProfile
                 ? ImmutableMap.of("enabled", true, "max_depth", MULTI_AGENT_MAX_DEPTH)
                 : ImmutableMap.of("enabled", childProfile != ChildProfile.NONE));
         return config.buildOrThrow();
-    }
-
-    static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly)
-    {
-        return expectedFeatures(childProfile, textOnly, false);
-    }
-
-    static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly, boolean review)
-    {
-        return expectedFeatures(childProfile, textOnly, review, false);
     }
 
     /** The features a launch sets, which config/read must report back; the question feature is named only when it is on. */
@@ -338,16 +277,6 @@ final class CodexLaunchProfile
     record ManagedToolsLaunch(URI endpoint, String instruction, List<String> toolNames, boolean bearerTokenInEnvironment, Optional<Path> reviewGate)
     {
         static final String TOKEN_VARIABLE = "BYTEQUAY_TOOL_TOKEN";
-
-        ManagedToolsLaunch(URI endpoint, String instruction, List<String> toolNames)
-        {
-            this(endpoint, instruction, toolNames, true, Optional.empty());
-        }
-
-        ManagedToolsLaunch(URI endpoint, String instruction, List<String> toolNames, boolean bearerTokenInEnvironment)
-        {
-            this(endpoint, instruction, toolNames, bearerTokenInEnvironment, Optional.empty());
-        }
 
         ManagedToolsLaunch
         {

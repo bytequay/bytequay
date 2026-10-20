@@ -48,7 +48,7 @@ class TestAgentRuntimeRegistry
             throws Exception
     {
         AgentTaskStore tasks = mock(AgentTaskStore.class);
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(tasks, ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(tasks, ignored -> {}, ignored -> false, true);
         List<String> closed = new CopyOnWriteArrayList<>();
         try {
             for (int index = 0; index < 5; index++) {
@@ -87,7 +87,7 @@ class TestAgentRuntimeRegistry
         when(task.id()).thenReturn(FIRST);
         when(tasks.find(FIRST)).thenReturn(Optional.of(task));
         when(tasks.require(FIRST)).thenReturn(task);
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(tasks, ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(tasks, ignored -> {}, ignored -> false, true);
         List<String> closed = new CopyOnWriteArrayList<>();
         AgentSession warm = new StubSession("warm", closed)
         {
@@ -124,7 +124,7 @@ class TestAgentRuntimeRegistry
     @Test
     void closesEverySessionItStillHolds()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true);
         List<String> closed = new CopyOnWriteArrayList<>();
         registry.registerSession(FIRST, session("task-1", closed));
         registry.registerSession(SECOND, session("task-2", closed));
@@ -140,7 +140,7 @@ class TestAgentRuntimeRegistry
     @Test
     void closesTheRemainingSessionsWhenOneRefuses()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true);
         List<String> closed = new CopyOnWriteArrayList<>();
         registry.registerSession(FIRST, new StubSession("task-1", closed)
         {
@@ -162,7 +162,7 @@ class TestAgentRuntimeRegistry
     @Test
     void closesSessionsRegisteredAfterShutdownAndKeepsFailedClosesTracked()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true);
         List<String> closed = new CopyOnWriteArrayList<>();
         registry.close();
 
@@ -187,7 +187,7 @@ class TestAgentRuntimeRegistry
     @Test
     void rejectsDevelopmentReservationsAndTurnsAfterShutdown()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true);
         TurnId source = TurnId.random();
         DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source);
         registry.reserveDevelopmentOwner(FIRST, source);
@@ -205,7 +205,7 @@ class TestAgentRuntimeRegistry
     @Test
     void stoppedDevelopmentKeepsExclusionButCannotAuthorizeAnotherTurn()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true);
         TurnId source = TurnId.random();
         DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source);
         registry.reserveDevelopmentOwner(FIRST, source);
@@ -238,7 +238,7 @@ class TestAgentRuntimeRegistry
     private static void assertDrainsDevelopmentAction(boolean shutdown)
             throws Exception
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true);
         TurnId source = TurnId.random();
         List<String> closed = new CopyOnWriteArrayList<>();
         registry.reserveDevelopmentOwner(FIRST, source);

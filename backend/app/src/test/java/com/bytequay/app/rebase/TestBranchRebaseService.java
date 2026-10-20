@@ -145,7 +145,7 @@ class TestBranchRebaseService
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new DevelopmentCiOwnership(ciRuns, mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
                         mock(AgentEventService.class),
-                        new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {})));
+                        new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true)));
     }
 
     @Test
@@ -707,7 +707,8 @@ class TestBranchRebaseService
 
         private static AgentTurnSettings turnSettings()
         {
-            return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+            return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5),
+                    ImmutableList.of(), Optional.empty(), Optional.empty());
         }
 
         public AgentTurn cancel(TurnId turnId)

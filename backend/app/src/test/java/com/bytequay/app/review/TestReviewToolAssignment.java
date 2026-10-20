@@ -56,7 +56,7 @@ class TestReviewToolAssignment
     private static final TaskId TASK_ID = TaskId.valueOf("e4469e62-6122-4c61-b279-459a6ad35f20");
     private static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
     private static final AgentTurnSettings SETTINGS = new AgentTurnSettings(
-            Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+            Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.empty());
 
     private final AgentTurnStore turns = mock(AgentTurnStore.class);
     private final QueuedInputStore queue = mock(QueuedInputStore.class);

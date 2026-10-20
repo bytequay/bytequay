@@ -266,7 +266,7 @@ class TestTeamActivityService
                 createdAt, updatedAt, null, "", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, true, "clean",
                 1, 0, 1, 0, ImmutableList.of(), "head", "feature", "main");
         StoredPrDetail cached = new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
-                freshness.equals("incomplete") ? ImmutableList.of(StoredPrDetail.REVIEWS) : ImmutableList.of());
+                freshness.equals("incomplete") ? ImmutableList.of(StoredPrDetail.REVIEWS) : ImmutableList.of(), false);
         when(fixture.details().find(7L)).thenReturn(Optional.of(cached));
         when(fixture.github().repository(eq("token"), eq("owner/repo"), any(), anyInt(), any())).thenAnswer(invocation -> {
             BiFunction<Integer, Instant, Optional<StoredPrDetail>> lookup = invocation.getArgument(4);

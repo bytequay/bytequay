@@ -77,20 +77,10 @@ public final class AgentRuntimeRegistry
     private final boolean processReuse;
     private volatile boolean closing;
 
-    public AgentRuntimeRegistry(AgentTaskStore taskStore, Consumer<AgentTask> branchAdmission)
-    {
-        this(taskStore, branchAdmission, ignored -> false);
-    }
-
     /**
      * @param heldBetweenTurns whether a task keeps its shared working copy between its own turns, as a review does while its
      *     run moves from one step to the next; another task sharing that copy must not start in the gap
      */
-    public AgentRuntimeRegistry(AgentTaskStore taskStore, Consumer<AgentTask> branchAdmission, Predicate<AgentTask> heldBetweenTurns)
-    {
-        this(taskStore, branchAdmission, heldBetweenTurns, true);
-    }
-
     public AgentRuntimeRegistry(AgentTaskStore taskStore, Consumer<AgentTask> branchAdmission, Predicate<AgentTask> heldBetweenTurns, boolean processReuse)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");

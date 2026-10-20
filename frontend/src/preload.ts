@@ -51,11 +51,6 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
 }
 
 const bridge: Bridge = {
-  onAppNoticeBounds: callback => {
-    const unsubscribe = subscribe('notices:bounds', callback);
-    ipcRenderer.send('notices:measure');
-    return unsubscribe;
-  },
   onAppNoticeOpen: callback => subscribe('notices:open-task', callback),
   setNoticeSource: (key, source) => ipcRenderer.invoke('notices:source', key, source),
   readAppNotices: () => ipcRenderer.invoke('notices:read'),

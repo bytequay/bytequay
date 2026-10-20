@@ -213,6 +213,6 @@ class TestAgendaReader
         PrRawDetail raw = new PrRawDetail("PR 31402", "https://github.com/trinodb/trino/pull/31402", "open", "me", "", NOW.minusSeconds(864000), NOW, null,
                 "SECRET-DESCRIPTION of the whole change", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 0,
                 ImmutableList.of(), "abc123", "head", "main");
-        return new StoredPrDetail(raw, ImmutableList.of(), timeline, ImmutableList.of(), ImmutableList.of());
+        return new StoredPrDetail(raw, ImmutableList.of(), timeline, ImmutableList.of(), ImmutableList.of(), false);
     }
 }

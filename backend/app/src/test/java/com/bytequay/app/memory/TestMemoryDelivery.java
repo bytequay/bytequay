@@ -246,7 +246,7 @@ class TestMemoryDelivery
     private AgentTurn turn(boolean memoryOn)
     {
         return AgentTurn.accepted(TurnId.random(), taskId, "turn-" + memoryOn, new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
-                Duration.ofHours(1), ImmutableList.of()).withRepositoryContext(memoryOn), NOW);
+                Duration.ofHours(1), ImmutableList.of(), Optional.empty(), Optional.empty()).withRepositoryContext(memoryOn), NOW);
     }
 
     private static ReviewRun run(String file)

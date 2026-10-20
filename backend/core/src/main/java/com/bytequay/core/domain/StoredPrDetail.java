@@ -46,11 +46,6 @@ public record StoredPrDetail(
         unavailableSections = ImmutableList.copyOf(requireNonNull(unavailableSections, "unavailableSections is null"));
     }
 
-    public StoredPrDetail(PrRawDetail raw, List<PrReviewState> reviews, List<PrTimelineEvent> timeline, List<PrCheckRunState> checkRuns, List<String> unavailableSections)
-    {
-        this(raw, reviews, timeline, checkRuns, unavailableSections, false);
-    }
-
     /**
      * Whether every source behind a section answered. A section that failed
      * arrives as an empty list, which is indistinguishable from "GitHub says

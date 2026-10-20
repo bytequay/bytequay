@@ -64,7 +64,7 @@ class TestInteractiveTaskNaming
     private final AgentEventOutboxStore outbox = mock(AgentEventOutboxStore.class);
     private final AgentEventService events = mock(AgentEventService.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
-    private final AgentRuntimeRegistry runtime = new AgentRuntimeRegistry(tasks, ignored -> {});
+    private final AgentRuntimeRegistry runtime = new AgentRuntimeRegistry(tasks, ignored -> {}, ignored -> false, true);
     private final Queue<Runnable> queued = new ArrayDeque<>();
     private final TaskId id = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(id, "workspace", new RepositoryIdentity("owner", "repo"),

@@ -63,11 +63,6 @@ final class ClaudeEventMapper
     private boolean rootTerminal;
     private boolean activityUncertain;
 
-    ClaudeEventMapper(SecretRedactor redactor)
-    {
-        this(redactor, Optional.empty(), true);
-    }
-
     /**
      * @param sessionCost whether this release's result carries the cost of the whole session, earlier invocations included, or of its own process alone
      */

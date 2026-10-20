@@ -72,7 +72,8 @@ import static org.mockito.Mockito.when;
 class TestAppNoticeService
 {
     private static final Instant NOW = Instant.parse("2026-09-27T10:00:00Z");
-    private static final AgentTurnSettings SETTINGS = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO, ImmutableList.of());
+    private static final AgentTurnSettings SETTINGS = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO,
+            ImmutableList.of(), Optional.empty(), Optional.empty());
 
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final AgentTurnStore turns = mock(AgentTurnStore.class);

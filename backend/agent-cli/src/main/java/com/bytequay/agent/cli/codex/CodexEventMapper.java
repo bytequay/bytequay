@@ -24,7 +24,6 @@ import com.bytequay.agent.spi.ProviderUsageSample;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -52,16 +51,6 @@ final class CodexEventMapper
     private final Map<String, CodexProtocol.TokenUsageBreakdown> threadUsage = new HashMap<>();
     /** What each turn's thread had counted before the turn used anything, by turn. */
     private final Map<String, CodexProtocol.TokenUsageBreakdown> turnBaselines = new HashMap<>();
-
-    CodexEventMapper()
-    {
-        this(Path.of("/").toAbsolutePath(), SecretRedactor.fromEnvironment(ImmutableMap.of()));
-    }
-
-    CodexEventMapper(Path worktree, SecretRedactor redactor)
-    {
-        this(worktree, redactor, true);
-    }
 
     CodexEventMapper(Path worktree, SecretRedactor redactor, boolean exposeReasoningSummaries)
     {

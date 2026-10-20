@@ -22,7 +22,7 @@ import AgentTaskScreen from '../AgentTaskScreen';
 import { runCiAutofixScenarios } from './ciAutofixBrowser';
 import { CI_PROJECTION, CI_RUN } from './ciAutofix';
 import { runDevelopmentDeliveryScenarios } from './developmentDeliveryBrowser';
-import { automationForSubmission, DEFAULT_DEVELOPMENT_AUTOMATION } from '../developmentAutomation';
+import { automationForSubmission, LOCAL_COMMITS_ONLY } from '../developmentAutomation';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/agents.css';
@@ -126,7 +126,7 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
   const userEvent = bridge.events.find(event => event.type === 'user_message');
   assert(userEvent?.turnId !== null && userEvent !== undefined, 'Fixture must identify a durable input');
-  const savedAutomation = { ...DEFAULT_DEVELOPMENT_AUTOMATION, autoDraftPr: true, autoCiFix: true };
+  const savedAutomation = { ...LOCAL_COMMITS_ONLY, autoDraftPr: true, autoCiFix: true };
   const localOnly = automationForSubmission(savedAutomation, true);
   const task = { ...await bridge.getAgentTask(userEvent.taskId, 'workspace-1'), interactive: true };
   task.defaults = { ...task.defaults, developmentAutomation: savedAutomation };

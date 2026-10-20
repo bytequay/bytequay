@@ -80,7 +80,7 @@ class TestDevelopmentCiOwnership
     private final PullRequestTaskStore assignments = mock(PullRequestTaskStore.class);
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final AgentEventService events = mock(AgentEventService.class);
-    private final AgentRuntimeRegistry runtimes = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {});
+    private final AgentRuntimeRegistry runtimes = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true);
     private final DevelopmentCiOwnership ownership = new DevelopmentCiOwnership(store, tasks, turns, assignments, pullRequests, events, runtimes);
 
     @Test
@@ -299,7 +299,7 @@ class TestDevelopmentCiOwnership
     {
         TurnId id = TurnId.random();
         AgentTurn turn = AgentTurn.accepted(id, parent.id(), id.toString(), new AgentTurnSettings(
-                Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of()), NOW);
+                Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of(), Optional.empty(), Optional.empty()), NOW);
         when(tasks.find(parent.id())).thenReturn(Optional.of(parent));
         when(turns.find(id)).thenReturn(Optional.of(turn));
         when(turns.list(parent.id())).thenReturn(ImmutableList.of(turn));

@@ -107,7 +107,7 @@ class TestContextBuildService
     private static final RepoRef FORK = RepoRef.of("contributor", "repository");
     private static final AgentLaneId LANE = new AgentLaneId("codex");
     private static final AgentTurnSettings TURN_SETTINGS = new AgentTurnSettings(Optional.of("model"), Optional.of("medium"),
-            AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of());
+            AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of(), Optional.empty(), Optional.empty());
 
     private final InMemoryAppSettingsStore settings = new InMemoryAppSettingsStore();
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());

@@ -2043,7 +2043,7 @@ class TestReviewTools
                 .path("next").asText()).contains("End this investigation turn");
         assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().candidates()).extracting(ReviewCandidate::hypothesis)
                 .containsExactly("Input bypasses a guard");
-        assertThat(store.findRun(RUN_ID).orElseThrow().validationStarted()).isFalse();
+        assertThat(store.findRun(RUN_ID).orElseThrow().currentStep().map(ReviewStep::kind)).isNotEqualTo(Optional.of(ReviewStep.Kind.VALIDATE));
     }
 
     @Test

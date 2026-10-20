@@ -25,8 +25,6 @@
 .ct-files__head { display: flex; align-items: center; gap: 5px; border-bottom: 1px solid light-dark(#f0f1f3, var(--dark-border-muted)); padding: 4px 4px 4px 8px; }
 .ct-scope { display: flex; min-width: 0; flex: 1; gap: 5px; }
 .ct-scope button { display: inline-flex; min-width: 0; align-items: center; gap: 4px; border: 1px solid transparent; border-radius: 12px; background: transparent; color: var(--fg-muted); cursor: pointer; padding: 3px 10px; font-size: 13px; white-space: nowrap; }
-/* A narrow column truncates the labels rather than pushing the icons out of the column. */
-.ct-scope__label { overflow: hidden; text-overflow: ellipsis; }
 .ct-scope button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .ct-scope button[aria-pressed='true'] { border-color: light-dark(#d6dce2, var(--dark-border)); background: light-dark(#eceff2, var(--dark-subtle)); color: var(--text-1); }
 .ct-scope__count { flex: none; color: var(--fg-dim); }

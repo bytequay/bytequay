@@ -340,7 +340,8 @@ class TestReviewRuntimeRecovery
     @Test
     void steersOnlyTheTurnTheUserSawRunning()
     {
-        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5),
+                ImmutableList.of(), Optional.empty(), Optional.empty());
         TurnId shown = TurnId.valueOf("22222222-2222-4222-8222-222222222222");
         TurnId foreign = TurnId.valueOf("33333333-3333-4333-8333-333333333333");
         when(reviews.task(REVIEW_ID)).thenReturn(task());
@@ -399,7 +400,7 @@ class TestReviewRuntimeRecovery
         return new AgentMaintenance(
                 taskStore, turnStore, mock(QueuedInputStore.class), mock(SteerDeliveryStore.class), mock(AgentUnitOfWork.class),
                 mock(AgentEventOutboxStore.class), mock(AgentApprovalService.class), mock(AgentMetricsService.class), mock(AgentCompletionService.class),
-                new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}), Clock.fixed(NOW, ZoneOffset.UTC));
+                new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static AgentTask task()

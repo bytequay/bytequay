@@ -155,7 +155,8 @@ class TestLocalReviewService
                 PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), true, null, null, null, ImmutableList.of(), null, 1, 1, 0,
                 "open", null, null, null, null, Instant.EPOCH, worktree.generatedBranch(), null, null, null, null);
         when(pullRequests.findByHeadRef("owner/repo", worktree.generatedBranch())).thenReturn(ImmutableList.of(pr));
-        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of());
+        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10),
+                ImmutableList.of(), Optional.empty(), Optional.empty());
         turn = AgentTurn.accepted(TurnId.random(), taskId, "turn", settings, Instant.EPOCH)
                 .markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider"), Optional.empty());
         ManagedWorktreeService worktrees = new ManagedWorktreeService(paths, workspaces, new GitCommandRunner(), mock(IdeRuntimeService.class));

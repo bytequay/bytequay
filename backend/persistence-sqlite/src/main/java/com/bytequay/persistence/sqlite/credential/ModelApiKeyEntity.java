@@ -63,11 +63,6 @@ class ModelApiKeyEntity
         this.createdAt = createdAt;
     }
 
-    void setKeyId(String keyId)
-    {
-        this.keyId = keyId;
-    }
-
     @Override
     public String getId()
     {

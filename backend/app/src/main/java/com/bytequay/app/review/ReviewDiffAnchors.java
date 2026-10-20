@@ -108,11 +108,6 @@ public final class ReviewDiffAnchors
         return Optional.ofNullable(byId.get(id));
     }
 
-    public List<Hunk> hunks()
-    {
-        return hunks;
-    }
-
     public List<Hunk> hunks(String path)
     {
         return hunks.stream().filter(hunk -> hunk.path().equals(path)).collect(toImmutableList());

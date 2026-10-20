@@ -383,7 +383,8 @@ class TestAssistantActions
 
         // A task at work takes the words after its current turn, as its own page's send does.
         when(tasks.find(task.id())).thenReturn(Optional.of(task.claimWorktreeMutation(WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW)));
-        AgentTurnSettings settled = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO, ImmutableList.of());
+        AgentTurnSettings settled = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO,
+                ImmutableList.of(), Optional.empty(), Optional.empty());
         when(turns.enqueue(any())).thenAnswer(call -> QueuedAgentInput.queued(QueuedInputId.random(), task.id(), 1, call.<QueueAgentInputCommand>getArgument(0).idempotencyKey(),
                 new BlobRef("reply.txt", "text/plain", 16), call.<QueueAgentInputCommand>getArgument(0).message(), settled, NOW));
         act(message("and also keep the old key", ImmutableList.of()), served, "{\"op\":\"reply_to_task\",\"task\":\"task:" + task.id() + "\",\"words\":\"keep the old key\"}");
@@ -743,7 +744,8 @@ class TestAssistantActions
 
     private static AgentTurn turn(TaskId taskId)
     {
-        AgentTurnSettings settled = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO, ImmutableList.of());
+        AgentTurnSettings settled = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO,
+                ImmutableList.of(), Optional.empty(), Optional.empty());
         return AgentTurn.accepted(TurnId.random(), taskId, "request", settled, NOW);
     }
 

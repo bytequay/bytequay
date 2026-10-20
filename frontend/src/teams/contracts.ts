@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type { RepositoryMetadataDto } from '../types';
-import { parseList } from '../goals/contracts';
+import { parseList } from '../workitems/contracts';
 import { object, oneOf, optionalText, text } from '../pulls/wireParse';
 import {
   CIRCLE_COLORS, CIRCLE_SHAPES, TEAM_ACTIVITY_FILTERS, TEAM_EVENT_KINDS, type TeamActivityQuery, type TeamActivitySnapshot, type TeamCircleInput, type TeamCreateInput, type TeamDirectory,

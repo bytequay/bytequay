@@ -17,7 +17,8 @@ import { flushSync } from 'react-dom';
 import { setCached } from '../../dataCache';
 import { assert, settle } from '../../fixtures/harness';
 import type { GoalDto } from '../contracts';
-import { GOALS_CHANGED, useGoals, usePinnedGoals, type GoalBridge } from '../useGoals';
+import { useGoals, usePinnedGoals, type GoalBridge } from '../useGoals';
+import { GOALS_CHANGED } from '../../workitems/changes';
 
 export async function run(): Promise<boolean> {
   assert(process.env.NODE_ENV === 'production', 'The fixture must use a production build');

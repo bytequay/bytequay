@@ -13,30 +13,10 @@
  */
 
 import type { AttentionItem, AttentionSource } from '../home/attention';
-import type {
-  GoalCardDto, GoalCourseDraftDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalProposalDto, WorkItemDto,
-  WorkItemPriority, WorkItemState,
-} from './contracts';
-
-export type GoalRef = { kind: GoalItemKind; key: string };
-
-export const GOAL_SOURCES: Record<GoalItemKind, AttentionSource> = { PULL_REQUEST: 'pr', ISSUE: 'issue', JIRA: 'jira', TASK: 'task' };
-
-export function refKey(ref: GoalRef): string {
-  return `${ref.kind} ${ref.key}`;
-}
-
-export function numberedKey(repo: string, number: number): string {
-  return `${repo.toLowerCase()}#${number}`;
-}
-
-/** What an attention card is, as a goal item; null for a card no goal can hold. */
-export function goalRef(item: AttentionItem): GoalRef | null {
-  if (item.task !== undefined) return { kind: 'TASK', key: item.task.dto.id };
-  if (item.jira !== undefined) return { kind: 'JIRA', key: `${item.jira.connectionId}:${item.jira.cloudId}:${item.jira.id}` };
-  if (item.repo === '' || item.number <= 0) return null;
-  return { kind: item.type === 'pr' ? 'PULL_REQUEST' : 'ISSUE', key: numberedKey(item.repo, item.number) };
-}
+import type { GoalCardDto, GoalCourseDraftDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalKnowledgeNoteDto, GoalProposalDto } from './contracts';
+import type { WorkItemDto, WorkItemPriority, WorkItemState, GoalItemDto, GoalItemKind } from '../workitems/contracts';
+import { isOpen, numberedKey, viewOf } from '../workitems/model';
+import type { GoalRef, GoalSummary, WorkView } from '../workitems/model';
 
 /** The workspace a Home card belongs to: its task's, its issue's, its ticket's, or the one watching its repository. */
 export function attentionWorkspace(item: AttentionItem, workspaces: { id: string; monitoredOwner: string; monitoredRepo: string }[]): string | null {
@@ -60,53 +40,12 @@ export function goalPicked(goal: GoalDto | null, repository: string, ref: GoalRe
     && (card.issue !== null ? ref.kind === 'ISSUE' && ref.key === numberedKey(repository, card.issue) : ref.kind === 'JIRA' && ref.key === card.ticket));
 }
 
-/** The items with activity the user has not acknowledged, snoozed or visited, whether or not Needs attention ranks them. */
-export function needsYouKeys(visibleAttention: AttentionItem[]): ReadonlySet<string> {
-  return new Set(visibleAttention.map(goalRef).filter((ref): ref is GoalRef => ref !== null).map(refKey));
-}
-
-export type GoalSummary = {
-  total: number;
-  finished: number;
-  working: number;
-  idle: number;
-  prsMerged: number;
-  prsOpen: number;
-  needs: number;
-  blocked: number;
-  dropped: number;
-};
-
-export function summarize(goal: Pick<GoalDto, 'items'>, needsYou: ReadonlySet<string>): GoalSummary {
-  const count = (state: WorkItemState) => goal.items.filter((item) => item.state === state).length;
-  const prs = [...new Map(goal.items.flatMap((item) => item.links).filter((link) => link.kind === 'PULL_REQUEST').map((link) => [refKey(link), link])).values()];
-  return {
-    total: goal.items.filter((item) => item.state !== 'DROPPED').length,
-    finished: count('DONE'),
-    working: count('WORKING'),
-    idle: count('PLANNED'),
-    prsMerged: prs.filter((item) => item.status === 'Merged').length,
-    prsOpen: prs.filter((item) => item.state === 'WORKING').length,
-    needs: goal.items.filter((item) => itemNeedsYou(item, needsYou)).length,
-    blocked: goal.items.filter((item) => viewOf(item, goal.items) === 'blocked').length,
-    dropped: count('DROPPED'),
-  };
-}
-
-/** Percentages of the bar for finished and working items, with idle filling the rest. */
-export function progressWidths(summary: GoalSummary): { finished: string; working: string } {
-  const total = Math.max(1, summary.total);
-  return { finished: `${(summary.finished / total) * 100}%`, working: `${(summary.working / total) * 100}%` };
-}
-
 export const RING_CIRCUMFERENCE = 43.98;
 
 /** The progress ring's dash: the finished share of its circumference. */
 export function ringDash(summary: GoalSummary): string {
   return `${(summary.finished / Math.max(1, summary.total)) * RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`;
 }
-
-export type WorkView = 'next' | 'working' | 'blocked' | 'done';
 
 export const WORK_VIEWS: { view: WorkView; label: string; hint: string }[] = [
   { view: 'next', label: 'Next', hint: 'Ready work: your priority first, then work others wait on, then the Goal\'s order' },
@@ -115,21 +54,9 @@ export const WORK_VIEWS: { view: WorkView; label: string; hint: string }[] = [
   { view: 'done', label: 'Done', hint: 'Done and dropped work, latest decision first' },
 ];
 
-/** What keeps open work from moving: the open work of its Goal it waits on, and its sources that report themselves blocked. */
-export function waitingOn(item: WorkItemDto, items: WorkItemDto[]): string[] {
-  return [...items.filter((other) => item.blockedBy.includes(other.id) && isOpen(other)).map((other) => other.title),
-    ...item.links.filter((link) => link.blocked).map((link) => `${link.label} is ${link.status}`)];
-}
-
 /** The open work of the Goal waiting on this item. */
 export function unblocks(item: WorkItemDto, items: WorkItemDto[]): WorkItemDto[] {
   return items.filter((other) => isOpen(other) && other.blockedBy.includes(item.id));
-}
-
-export function viewOf(item: WorkItemDto, items: WorkItemDto[]): WorkView {
-  if (!isOpen(item)) return 'done';
-  if (waitingOn(item, items).length > 0) return 'blocked';
-  return item.state === 'WORKING' ? 'working' : 'next';
 }
 
 const PRIORITY_FIRST: Record<WorkItemPriority, number> = { HIGH: 0, NORMAL: 1, LOW: 2 };
@@ -155,14 +82,6 @@ export function sourceOf(item: WorkItemDto): WorkSource {
 /** A goal's work in the order the user gave it; equal places keep creation order. */
 export function inOrder(items: WorkItemDto[]): WorkItemDto[] {
   return [...items].sort((left, right) => left.rank - right.rank || Date.parse(left.createdAt) - Date.parse(right.createdAt));
-}
-
-export function isOpen(item: WorkItemDto): boolean {
-  return item.state === 'PLANNED' || item.state === 'WORKING';
-}
-
-export function itemNeedsYou(item: WorkItemDto, needsYou: ReadonlySet<string>): boolean {
-  return item.links.some((link) => needsYou.has(refKey(link)));
 }
 
 /** Decisions remain visible even when the linked task or source is no longer stored. */
@@ -211,12 +130,6 @@ export function preparedRequest(goal: GoalDto | null, item: WorkItemDto | null, 
     goal === null ? '' : `My goal: ${goal.title}${objective === '' ? '' : ` — ${objective}`}`,
     constraints === '' ? '' : `Constraints: ${constraints}`,
   ].filter((part) => part !== '').join('\n\n');
-}
-
-/** Search results not already in the goal, at most a handful per query. */
-export function addable(candidates: GoalItemDto[], goal: Pick<GoalDto, 'items'>, limit = 6): GoalItemDto[] {
-  const present = new Set(goal.items.flatMap((item) => item.links).map(refKey));
-  return candidates.filter((candidate) => !present.has(refKey(candidate))).slice(0, limit);
 }
 
 /** A pill's place in its page: its distance from the page's right and bottom edges. */

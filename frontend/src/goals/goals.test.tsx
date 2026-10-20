@@ -17,20 +17,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import type { AgentTaskDto } from '../types';
-import type {
-  GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalPlanChangeDto, GoalRecommendationDto, LessonContentDto, WorkItemDecision, WorkItemDto,
-} from './contracts';
-import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseWorkItem } from './contracts';
-import { parseWorkItemContextLink } from '../workitems/contracts';
+import type { GoalDto, GoalExchangeDto, GoalGapDto, GoalKnowledgeNoteDto, GoalPlanChangeDto, GoalRecommendationDto, LessonContentDto } from './contracts';
+import type { WorkItemDecision, WorkItemDto, GoalItemDto } from '../workitems/contracts';
+import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation } from './contracts';
+import { parseWorkItem, parseWorkItemContextLink } from '../workitems/contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import { ChapterBody, componentLayout, componentPlaces, flowPlaces, LessonDiagram, treePlaces, wrap } from './LessonBook';
-import {
-  addable, attentionWorkspace, foldSide, goalDirections, goalHas, goalRef, goalRuns, needsYouKeys, openCourse, openPlan, openProposal, outcomeOf, placePill, goalHistory, refKey, situation,
-  sourceOf,
-  sourceUrl,
-  goalPicked, preparedRequest, summarize, waitingOn, workIn,
-} from './model';
-import { decideOnCurrent, toggleGoalItem, useGoals, type GoalBridge, type GoalConversation, type Goals } from './useGoals';
+import { attentionWorkspace, foldSide, goalDirections, goalHas, goalRuns, openCourse, openPlan, openProposal, outcomeOf, placePill, goalHistory, situation, sourceOf, sourceUrl, goalPicked, preparedRequest, workIn } from './model';
+import { addable, goalRef, needsYouKeys, refKey, summarize, waitingOn } from '../workitems/model';
+import { toggleGoalItem, useGoals, type GoalBridge, type GoalConversation, type Goals } from './useGoals';
+import { decideOnCurrent } from '../workitems/changes';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 

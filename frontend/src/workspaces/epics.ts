@@ -13,8 +13,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import type { CreateWorkItem, EpicJoinDto, EpicRecordDto, GoalItemDto, WorkItemDecision, WorkItemDto } from '../goals/contracts';
-import { decideOnCurrent, GOALS_CHANGED } from '../goals/useGoals';
+import type { CreateWorkItem, EpicJoinDto, EpicRecordDto, WorkItemDecision, WorkItemDto, GoalItemDto } from '../workitems/contracts';
+import { decideOnCurrent, GOALS_CHANGED } from '../workitems/changes';
 import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import { pollVisible } from '../ide/pollVisible';

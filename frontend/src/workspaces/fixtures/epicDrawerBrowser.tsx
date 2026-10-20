@@ -16,7 +16,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import EpicDrawer from '../EpicDrawer';
 import { LayerCovered } from '../../Zoom';
-import type { WorkItemDto } from '../../goals/contracts';
+import type { WorkItemDto } from '../../workitems/contracts';
 import { issueAttentionItem, type AttentionItem } from '../../home/attention';
 import { jiraAttentionItem } from '../../jira/attention';
 import type { JiraRelatedIssue } from '../../jira/contracts';

@@ -20,7 +20,8 @@ import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
 import AttentionList, { type GoalToggle } from './AttentionList';
-import { attentionWorkspace, goalHas, goalPicked, goalRef } from '../goals/model';
+import { attentionWorkspace, goalHas, goalPicked } from '../goals/model';
+import { goalRef } from '../workitems/model';
 import { toggleGoalItem, usePinnedGoals } from '../goals/useGoals';
 import {
   ATTENTION_SEED,

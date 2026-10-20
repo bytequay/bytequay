@@ -13,7 +13,7 @@
  */
 
 import type { JiraBridge as IntegrationJiraBridge, JiraLocation } from '@bytequay/jira/contracts';
-import type { WorkItemDto } from '../goals/contracts';
+import type { WorkItemDto } from '../workitems/contracts';
 import { workspaceRoute } from '../workspaces/model';
 
 export * from '@bytequay/jira/contracts';

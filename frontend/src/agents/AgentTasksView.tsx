@@ -26,7 +26,7 @@ import { settingsRoute } from '../settings/routes';
 import { getCached, setCached } from '../dataCache';
 import { pollVisible } from '../ide/pollVisible';
 import Toast from '../Toast';
-import { GOALS_CHANGED } from '../goals/useGoals';
+import { GOALS_CHANGED } from '../workitems/changes';
 import { recordAttentionAction } from '../home/useAttentionVisit';
 import { notifyIssueDevelopmentChanged, type DevelopmentIssue } from '../workspaces/issueDevelopment';
 import { workspaceAgentTaskRoute } from '../workspaces/model';

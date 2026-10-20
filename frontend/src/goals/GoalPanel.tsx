@@ -24,31 +24,14 @@ import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { AgentModelControls, type ModelChoice } from '../settings/ModelsPage';
 import { useNow } from '../useNow';
 import { startEpicWork } from '../workspaces/epics';
-import type {
-  CompletionRule,
-  CreateWorkItem,
-  GoalCourseDraftDto,GoalCoverageDto,GoalDto,GoalExchangeDto,GoalGapDto,GoalItemDto,GoalKnowledgeNoteDto,GoalLessonDto,GoalProposalDto,GoalRecommendationDto,GoalTopicDto,TopicLevel,
-  WorkItemDecision,
-  WorkItemDto,
-  WorkItemKind,WorkItemPriority,
-} from './contracts';
+import type { GoalCourseDraftDto, GoalCoverageDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, GoalRecommendationDto, GoalTopicDto, TopicLevel } from './contracts';
+import type { CompletionRule, CreateWorkItem, WorkItemDecision, WorkItemDto, WorkItemKind, WorkItemPriority, GoalItemDto } from '../workitems/contracts';
 import { TOPIC_LEVELS } from './contracts';
 import { BookContents, ChapterBody, CourseOverview, courseLessons } from './LessonBook';
-import {
-  GOAL_SOURCES,STARTED_LABELS,WORK_VIEWS,addable,goalDirections,
-  goalHistory,
-  inOrder,isOpen,
-  itemNeedsYou,
-  openCourse,openPlan,openProposal,
-  outcomeOf,
-  preparedRequest,
-  progressWidths,
-  refKey,ringDash,
-  situation,sourceOf,sourceUrl,summarize,
-  unblocks,waitingOn,workIn,
-  type WorkSource,type WorkView,
-} from './model';
+import { STARTED_LABELS, WORK_VIEWS, goalDirections, goalHistory, inOrder, openCourse, openPlan, openProposal, outcomeOf, preparedRequest, ringDash, situation, sourceOf, sourceUrl, unblocks, workIn, type WorkSource } from './model';
+import { GOAL_SOURCES, addable, isOpen, itemNeedsYou, progressWidths, refKey, summarize, waitingOn, type WorkView } from '../workitems/model';
 import type { GoalConversation, GoalModel } from './useGoals';
+import { Candidate, useCandidates } from '../workitems/Candidate';
 
 const GoalRepository = createContext<string | null>(null);
 
@@ -973,40 +956,6 @@ function NoGoal({ onCreate }: { onCreate: (title: string) => Promise<unknown> })
       <div className="goal-empty__title">No goal yet</div>
       <div className="goal-empty__text">A Goal guides an outcome through learning, research and accepted work. Each work item can link issues, tickets, tasks and pull requests. Epic markers organize delivery work independently.</div>
       <NameInput busy={busy} onCancel={() => {}} onSubmit={(title) => { setBusy(true); void onCreate(title).finally(() => setBusy(false)); }} />
-    </div>
-  );
-}
-
-/** Stored pull requests, issues, tickets and tasks to add, searched as the user types. */
-export function useCandidates(goal: Pick<GoalDto, 'items'>, search: GoalPanelProps['search'], open: boolean): { query: string; setQuery: (query: string) => void; results: GoalItemDto[] } {
-  const [query, setQuery] = useState('');
-  const [found, setFound] = useState<GoalItemDto[]>([]);
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    const timer = window.setTimeout(() => {
-      void search(query).then((results) => { if (active) setFound(results); }, () => { if (active) setFound([]); });
-    }, 150);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [open, query, search]);
-  return { query, setQuery, results: addable(found, goal) };
-}
-
-export function Candidate({ item, onAdd, board, sub = board ? item.status : undefined, action = 'Add' }: {
-  item: GoalItemDto;
-  onAdd: (item: GoalItemDto) => Promise<unknown>;
-  board?: boolean;
-  /** Where the item stands, beside its title; a board shows its status. */
-  sub?: string;
-  action?: string;
-}): React.JSX.Element {
-  return (
-    <div className="goal-result">
-      <SourceIcon source={GOAL_SOURCES[item.kind]} tinted />
-      <span className="card-key">{item.label}</span>
-      <span className="goal-result__title">{item.title}</span>
-      {sub !== undefined && <span className="goal-result__sub">{sub}</span>}
-      <button type="button" className="goal-link" onClick={() => { void onAdd(item).catch(() => {}); }}>{action}</button>
     </div>
   );
 }

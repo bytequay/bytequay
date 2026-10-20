@@ -14,10 +14,9 @@
 
 import { useEffect, useState } from 'react';
 import { Link2, X } from 'lucide-react';
-import type { WorkItemDto } from '../goals/contracts';
-import { GOALS_CHANGED } from '../goals/useGoals';
+import type { WorkItemDto, UnifiedWorkItem, WorkItemContextLink, WorkSource } from './contracts';
+import { GOALS_CHANGED } from './changes';
 import { zoomReference } from '../githubReference';
-import type { UnifiedWorkItem, WorkItemContextLink, WorkSource } from './contracts';
 
 const SOURCE: Record<WorkSource, string> = { LOCAL: 'Local', GITHUB: 'GitHub', JIRA: 'Jira' };
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);

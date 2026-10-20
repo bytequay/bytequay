@@ -15,7 +15,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import '../../index.css';
 import { changeInput } from '../../fixtures/harness';
-import type { WorkItemDto } from '../../goals/contracts';
+import type { WorkItemDto } from '../../workitems/contracts';
 import type { ReviewDraftDto } from '../../pulls/agent-review/contracts';
 import { pr, prDetail } from '../../pulls/fixtures/pullRequest';
 import AssistantPanel from '../AssistantPanel';

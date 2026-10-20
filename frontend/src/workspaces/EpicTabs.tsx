@@ -13,8 +13,8 @@
  */
 
 import React from 'react';
-import type { WorkItemDto } from '../goals/contracts';
-import { summarize } from '../goals/model';
+import type { WorkItemDto } from '../workitems/contracts';
+import { summarize } from '../workitems/model';
 import { EpicGlyph } from './EpicDrawer';
 import { epicWork } from './epics';
 import '../css/epic-view.css';

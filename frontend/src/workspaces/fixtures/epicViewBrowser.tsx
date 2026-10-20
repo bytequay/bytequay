@@ -16,7 +16,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import EpicView from '../EpicView';
 import { useUnmarkEpic } from '../useUnmarkEpic';
-import type { CreateWorkItem, EpicChildDto, EpicRecordDto, GoalItemDto, WorkItemDecision, WorkItemDto } from '../../goals/contracts';
+import type { CreateWorkItem, EpicChildDto, EpicRecordDto, WorkItemDecision, WorkItemDto, GoalItemDto } from '../../workitems/contracts';
 import { issueAttentionItem } from '../../home/attention';
 import type { Bridge } from '../../types';
 import { assert, changeInput, settle } from '../../fixtures/harness';

@@ -15,8 +15,8 @@
 import React, { useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ListTree, Plus, X } from 'lucide-react';
 import { Card, CardAge, IconButton, LinkKey, LocalBadge, Pill } from '../cards/Card';
-import type { WorkItemDto } from '../goals/contracts';
-import { progressWidths, summarize } from '../goals/model';
+import type { WorkItemDto } from '../workitems/contracts';
+import { progressWidths, summarize } from '../workitems/model';
 import { statusPill } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import { LayerCovered } from '../Zoom';

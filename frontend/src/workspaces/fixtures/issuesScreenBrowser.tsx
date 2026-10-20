@@ -15,7 +15,7 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, RepositoryIssueSnapshotDto, RepositoryMetadataDto, WorkspaceIssueDetailDto } from '../../types';
-import type { WorkItemDecision, WorkItemDto } from '../../goals/contracts';
+import type { WorkItemDecision, WorkItemDto } from '../../workitems/contracts';
 import { issueEpicId, lendEpicWorkspace, takeEpicStart } from '../epics';
 import { workspaceRoute } from '../model';
 import WorkspaceIssuesScreen from '../WorkspaceIssuesScreen';

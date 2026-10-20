@@ -18,10 +18,10 @@ import { ArrowDown, ArrowUp, ArrowUpRight, Check, ChevronRight, Circle, CircleCh
   RotateCcw, Search, Sparkles, SquareTerminal, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { CardActions, CardAge, IconButton, ItemRow, LinkKey, LocalBadge, Pill, SourceIcon } from '../cards/Card';
-import type { EpicChildDto, EpicProposalDto, EpicRecordDto, GoalItemDto, GoalItemKind, WorkItemDecision, WorkItemDto } from '../goals/contracts';
-import { openGoalItem, startTicket } from '../goals/GoalLayer';
-import { Candidate, useCandidates } from '../goals/GoalPanel';
-import { GOAL_SOURCES, goalRef, isOpen, itemNeedsYou, progressWidths, refKey, summarize, waitingOn } from '../goals/model';
+import type { EpicChildDto, EpicProposalDto, EpicRecordDto, WorkItemDecision, WorkItemDto, GoalItemDto, GoalItemKind } from '../workitems/contracts';
+import { openGoalItem, startTicket } from '../workitems/open';
+import { Candidate, useCandidates } from '../workitems/Candidate';
+import { GOAL_SOURCES, goalRef, isOpen, itemNeedsYou, progressWidths, refKey, summarize, waitingOn } from '../workitems/model';
 import MarkdownBody from '../pulls/MarkdownBody';
 import type { Goals } from '../goals/useGoals';
 import type { AttentionTone } from '../home/attention';

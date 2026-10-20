@@ -18,9 +18,9 @@ import { ChevronRight, CircleCheck, CircleDot, CircleDotDashed, CircleX, Externa
   RotateCcw, Upload, X } from 'lucide-react';
 import { LinkKey, LocalBadge, Pill, SourceIcon } from '../cards/Card';
 import type { WorkspaceDto } from '../types';
-import type { CompletionRule, GoalItemDto, WorkItemDto, WorkItemKind, WorkItemPriority } from '../goals/contracts';
-import { GOAL_SOURCES, isOpen, progressWidths, summarize, waitingOn } from '../goals/model';
-import { GOALS_CHANGED } from '../goals/useGoals';
+import type { CompletionRule, WorkItemDto, WorkItemKind, WorkItemPriority, GoalItemDto } from './contracts';
+import { GOAL_SOURCES, isOpen, progressWidths, summarize, waitingOn } from './model';
+import { GOALS_CHANGED } from './changes';
 import { zoomReference } from '../githubReference';
 import type { AttentionTone } from '../home/attention';
 import JiraScreen from '../jira/JiraScreen';

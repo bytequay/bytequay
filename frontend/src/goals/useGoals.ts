@@ -19,14 +19,12 @@ import type { ContextBuildViewDto } from '../repository-context/contracts';
 import { workItemRoute } from '../workitems/contracts';
 import type { ModelChoice } from '../settings/ModelsPage';
 import type { AgentModelSettingDto, Bridge, ModelSettingsDto } from '../types';
-import type {
-  GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalLessonDto, GoalRecommendationDto, TopicLevel, WorkItemDto, CreateWorkItem,
-  WorkItemDecision,
-} from './contracts';
-import type { GoalRef } from './model';
+import type { GoalDto, GoalExchangeDto, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalRecommendationDto, TopicLevel } from './contracts';
+import type { WorkItemDto, CreateWorkItem, WorkItemDecision, GoalItemDto, GoalItemKind } from '../workitems/contracts';
+import type { GoalRef } from '../workitems/model';
+import { GOALS_CHANGED, decideOnCurrent } from '../workitems/changes';
+import { summarize } from '../workitems/model';
 
-/** Fired after any goal change so every view of the workspace's goals reads them again. */
-export const GOALS_CHANGED = 'bytequay:goals-changed';
 /** Items change state as their pull requests, issues, tickets and tasks move; a local read. */
 const GOALS_POLL_MS = 15_000;
 /** How often an open conversation reads again while its agent is answering; a local read. */
@@ -144,27 +142,6 @@ export type GoalConversation = {
 };
 
 const windowBridge = (): GoalBridge => window.bridge;
-
-/**
- * Sends a decision on a work item. Receipts and summaries record facts and still move an item to its next revision, so a decision the user
- * makes while one lands is sent again once at the new revision when nothing it rests on changed: its state, scope, Goal, priority, order and
- * what it waits on. Any other change still fails, for the user to decide again on what they now see.
- */
-export async function decideOnCurrent(bridge: Pick<Bridge, 'decideWorkItem' | 'listWorkItems'>, workspaceId: string, item: WorkItemDto,
-  command: WorkItemDecision): Promise<WorkItemDto> {
-  try {
-    return await bridge.decideWorkItem(workspaceId, item.id, command);
-  }
-  catch (failure: unknown) {
-    if (!(failure instanceof Error) || !failure.message.includes('Work item changed')) throw failure;
-    const current = (await bridge.listWorkItems(workspaceId)).find((candidate) => candidate.id === item.id);
-    const unchanged = current !== undefined && current.state === item.state && current.title === item.title && current.acceptanceCriteria === item.acceptanceCriteria
-      && current.completionRule === item.completionRule && current.goalId === item.goalId && current.priority === item.priority && current.rank === item.rank
-      && current.blockedBy.join('\n') === item.blockedBy.join('\n');
-    if (!unchanged) throw failure;
-    return bridge.decideWorkItem(workspaceId, item.id, { ...command, expectedRevision: current.revision });
-  }
-}
 
 function announce(workspaceId: string): void {
   window.dispatchEvent(new CustomEvent(GOALS_CHANGED, { detail: workspaceId }));

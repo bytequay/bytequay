@@ -19,7 +19,7 @@ import { LayerCovered } from '../../Zoom';
 import { jiraDetail, jiraIssue } from './jira';
 import { jiraRoute, type JiraConnection, type JiraIssue, type JiraIssueDetail, type JiraQuery, type JiraUser } from '../contracts';
 import type { Bridge, CreateAgentTaskRequest, WorkspaceDto } from '../../types';
-import type { WorkItemDto } from '../../goals/contracts';
+import type { WorkItemDto } from '../../workitems/contracts';
 import { ticketEpicId } from '../../workspaces/epics';
 import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
 import { assert, changeInput, settle, until as untilSettled } from '../../fixtures/harness';

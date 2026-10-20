@@ -14,13 +14,13 @@
 
 import type { LabBridge } from '@bytequay/lab/contracts';
 import type { ArtifactBridge } from './artifacts/contracts';
-import type { WorkItemBridge } from './workitems/contracts';
+import type { WorkItemBridge, CreateWorkItem, EpicDraftMessage, EpicDraftReply, EpicJoinDto, EpicRecordDto, WorkItemDto, WorkItemDecision, GoalItemDto, GoalItemKind } from './workitems/contracts';
 import type { AppNoticeBounds, NoticeSnapshot } from './notices/contracts';
 import type { RunningTask } from './agents/runningTaskModel';
 import type { GoogleBridge } from '@bytequay/google/contracts';
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
-import type { CreateWorkItem, EpicDraftMessage, EpicDraftReply, EpicJoinDto, EpicRecordDto, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto, TopicLevel } from './goals/contracts';
+import type { GoalDto, GoalExchangeDto, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto, TopicLevel } from './goals/contracts';
 import { AgentEventEnvelope } from './agents/events';
 import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';

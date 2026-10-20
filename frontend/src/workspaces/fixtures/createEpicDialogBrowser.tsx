@@ -15,10 +15,9 @@
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import CreateEpicDialog, { type CreatedEpic } from '../CreateEpicDialog';
-import type { EpicDraftDto, EpicDraftMessage, EpicDraftReply } from '../../goals/contracts';
+import type { EpicDraftDto, EpicDraftMessage, EpicDraftReply, UnifiedWorkItem } from '../../workitems/contracts';
 import { jiraDetail, jiraIssue } from '../../jira/fixtures/jira';
 import type { Bridge } from '../../types';
-import type { UnifiedWorkItem } from '../../workitems/contracts';
 import { assert, changeInput, settle, until } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/agents.css';

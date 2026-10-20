@@ -15,7 +15,8 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { Check, Expand, Minus, Plus, X } from 'lucide-react';
 import MarkdownBody, { linkIssueNumbers } from '../pulls/MarkdownBody';
-import type { GoalDto, LessonContentDto, LessonDiagramDto, WorkItemDto } from './contracts';
+import type { GoalDto, LessonContentDto, LessonDiagramDto } from './contracts';
+import type { WorkItemDto } from '../workitems/contracts';
 
 /** The course's lessons in reading order. */
 export function courseLessons(goal: GoalDto): WorkItemDto[] {

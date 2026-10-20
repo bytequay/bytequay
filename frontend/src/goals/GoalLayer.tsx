@@ -20,12 +20,15 @@ import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
 import type { AppNoticeBounds } from '../notices/contracts';
 import { LayerCovered } from '../Zoom';
-import type { GoalItemDto, GoalRecommendationDto } from './contracts';
+import type { GoalRecommendationDto } from './contracts';
+import type { GoalItemDto } from '../workitems/contracts';
 import { GoalPanel, GoalRing, type GoalPanelView } from './GoalPanel';
 import { GoalWindow } from './GoalWindow';
-import { foldSide, goalRuns, placePill, preparedRequest, situation, summarize, type PillPosition } from './model';
+import { foldSide, goalRuns, placePill, preparedRequest, situation, type PillPosition } from './model';
+import { summarize } from '../workitems/model';
 import { useGoalConversation, type Goals } from './useGoals';
 import '../css/goals.css';
+import { openGoalItem, startTicket } from '../workitems/open';
 
 const DRAG_THRESHOLD = 4;
 const PILL_MARGIN = 8;
@@ -61,32 +64,6 @@ function saveLocal(key: string, value: string): void {
 
 function editable(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea, select'));
-}
-
-/**
- * Opens a Jira ticket's development composer over the page, with an instruction the user reviews and sends; `replaces` starts
- * another attempt after that ended task. With `send`, as from an Epic's Run, the composer sends the instruction itself.
- */
-export function startTicket(reference: string, instruction: string, replaces?: string, send = false): void {
-  const [connectionId, cloudId, issueId] = reference.split(':');
-  zoomReference({ kind: 'jira', connectionId, cloudId, issueId, start: true, draft: instruction, replaces, send });
-}
-
-/** Opens a goal item where the app shows it: a pull request, issue or ticket over the page, a task as its screen. */
-export function openGoalItem(item: GoalItemDto, workspaceId: string, onOpenTask: (taskId: string) => void): void {
-  if (item.kind === 'TASK') {
-    onOpenTask(item.key);
-    return;
-  }
-  if (item.kind === 'JIRA') {
-    const [connectionId, cloudId, issueId] = item.key.split(':');
-    zoomReference({ kind: 'jira', connectionId, cloudId, issueId });
-    return;
-  }
-  const hash = item.key.lastIndexOf('#');
-  const repo = item.key.slice(0, hash);
-  const number = Number(item.key.slice(hash + 1));
-  zoomReference(item.kind === 'PULL_REQUEST' ? { kind: 'pull', repo, number, workspaceId } : { kind: 'issue', repo, number, workspaceId });
 }
 
 type Drag = { pointerId: number; x: number; y: number; from: PillPosition; moved: boolean };

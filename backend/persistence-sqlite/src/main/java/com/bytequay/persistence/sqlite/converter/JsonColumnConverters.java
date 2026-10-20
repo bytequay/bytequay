@@ -25,13 +25,6 @@ import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.Epic;
-import com.bytequay.core.domain.GoalCourse;
-import com.bytequay.core.domain.GoalDefinition;
-import com.bytequay.core.domain.GoalExchange;
-import com.bytequay.core.domain.GoalKnowledgeNote;
-import com.bytequay.core.domain.GoalLesson;
-import com.bytequay.core.domain.GoalRecommendation;
-import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
@@ -44,6 +37,8 @@ import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemoryReport;
 import com.bytequay.core.memory.MemorySource;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.Converter;
@@ -163,76 +158,6 @@ public final class JsonColumnConverters
         DiffFileListConverter()
         {
             super(new TypeReference<>() {}, "pull request diff files", "[]", ImmutableList.of());
-        }
-    }
-
-    @Converter
-    public static class GoalCourseConverter
-            extends JsonColumnConverter<GoalCourse>
-    {
-        GoalCourseConverter()
-        {
-            super(new TypeReference<>() {}, "goal course", null, null);
-        }
-    }
-
-    @Converter
-    public static class GoalDefinitionConverter
-            extends JsonColumnConverter<GoalDefinition>
-    {
-        GoalDefinitionConverter()
-        {
-            super(new TypeReference<>() {}, "goal definition", null, null);
-        }
-    }
-
-    @Converter
-    public static class GoalExchangeConverter
-            extends JsonColumnConverter<GoalExchange>
-    {
-        GoalExchangeConverter()
-        {
-            super(new TypeReference<>() {}, "goal exchange", null, null);
-        }
-    }
-
-    @Converter
-    public static class GoalKnowledgeNoteConverter
-            extends JsonColumnConverter<GoalKnowledgeNote>
-    {
-        GoalKnowledgeNoteConverter()
-        {
-            super(new TypeReference<>() {}, "goal knowledge note", null, null);
-        }
-    }
-
-    @Converter
-    public static class GoalLessonConverter
-            extends JsonColumnConverter<GoalLesson>
-    {
-        GoalLessonConverter()
-        {
-            super(new TypeReference<>() {}, "goal lesson", null, null);
-        }
-    }
-
-    @Converter
-    public static class GoalRecommendationConverter
-            extends JsonColumnConverter<GoalRecommendation>
-    {
-        GoalRecommendationConverter()
-        {
-            super(new TypeReference<>() {}, "goal recommendation", null, null);
-        }
-    }
-
-    @Converter
-    public static class GoalTopicConverter
-            extends JsonColumnConverter<GoalTopic>
-    {
-        GoalTopicConverter()
-        {
-            super(new TypeReference<>() {}, "goal topic", null, null);
         }
     }
 
@@ -370,9 +295,12 @@ public final class JsonColumnConverters
     public static class WorkItemConverter
             extends JsonColumnConverter<WorkItem>
     {
+        // Rows written while work could belong to a Goal still carry its goalId and rank.
+        private static final ObjectMapper MAPPER = JsonColumns.mapper().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+
         WorkItemConverter()
         {
-            super(new TypeReference<>() {}, "work item", null, null);
+            super(new TypeReference<>() {}, "work item", null, null, MAPPER);
         }
     }
 

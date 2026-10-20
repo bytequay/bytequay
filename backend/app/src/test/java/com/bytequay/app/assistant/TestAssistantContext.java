@@ -168,8 +168,8 @@ class TestAssistantContext
         when(pullRequests.findById(7L)).thenReturn(Optional.of(new PullRequest(7, "trinodb/trino", 31402, "Retry Iceberg commit on conflict", "elric-t",
                 "https://github.com/trinodb/trino/pull/31402", NOW, NOW, PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null,
                 ImmutableList.of("marlo-t"), PullRequestDetail.CiStatus.FAILING, 10, 2, 3, "open", null, null, true, "clean", NOW, "retry", null, NOW, null, "CHANGES_REQUESTED")));
-        when(workItems.find("w22")).thenReturn(Optional.of(new WorkItem("w22", "ws1", Optional.empty(), "Expose snapshot id in metadata", WorkItem.Kind.DEVELOP, "",
-                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH, 0,
+        when(workItems.find("w22")).thenReturn(Optional.of(new WorkItem("w22", "ws1", "Expose snapshot id in metadata", WorkItem.Kind.DEVELOP, "",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH,
                 ImmutableList.of("w19"), Optional.empty(), 0, ImmutableList.of())));
         AgentTurnSettings settled = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO, ImmutableList.of());
         AgentTurn failed = AgentTurn.accepted(TurnId.random(), FINISHED.id(), "request", settled, NOW.minusSeconds(300)).markDeliveryStarted(NOW.minusSeconds(300))
@@ -471,8 +471,8 @@ class TestAssistantContext
 
     private static WorkItem work(String id, String title, Optional<String> epicId, Instant at)
     {
-        return new WorkItem(id, "ws1", Optional.empty(), title, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0,
-                ImmutableList.of(), ImmutableList.of(), at, at, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), epicId, 0, ImmutableList.of());
+        return new WorkItem(id, "ws1", title, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0,
+                ImmutableList.of(), ImmutableList.of(), at, at, WorkItem.Priority.NORMAL, ImmutableList.of(), epicId, 0, ImmutableList.of());
     }
 
     private static AppNotice notice(String id, AppNotice.Kind kind, AgentTask task, String message)

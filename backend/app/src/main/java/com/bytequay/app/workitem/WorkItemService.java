@@ -23,12 +23,10 @@ import com.bytequay.core.domain.WorkItemContextLink;
 import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.store.EpicStore;
-import com.bytequay.core.store.GoalStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -45,7 +43,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.bytequay.core.domain.Checks.checkText;
@@ -60,28 +57,24 @@ import static java.util.stream.Collectors.joining;
 public class WorkItemService
 {
     private final WorkItemStore items;
-    private final GoalStore goals;
     private final WorkspaceStore workspaces;
     private final GoalReferenceReader references;
     private final EpicSources epics;
     private final EpicStore epicRecords;
     private final AgentTaskStore tasks;
     private final AgentUnitOfWork unitOfWork;
-    private final ApplicationEventPublisher events;
     private final Clock clock;
 
-    public WorkItemService(WorkItemStore items, GoalStore goals, WorkspaceStore workspaces, GoalReferenceReader references, EpicSources epics,
-            EpicStore epicRecords, AgentTaskStore tasks, AgentUnitOfWork unitOfWork, ApplicationEventPublisher events, Clock clock)
+    public WorkItemService(WorkItemStore items, WorkspaceStore workspaces, GoalReferenceReader references, EpicSources epics, EpicStore epicRecords,
+            AgentTaskStore tasks, AgentUnitOfWork unitOfWork, Clock clock)
     {
         this.items = requireNonNull(items, "items is null");
-        this.goals = requireNonNull(goals, "goals is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.references = requireNonNull(references, "references is null");
         this.epics = requireNonNull(epics, "epics is null");
         this.epicRecords = requireNonNull(epicRecords, "epicRecords is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
-        this.events = requireNonNull(events, "events is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -91,26 +84,25 @@ public class WorkItemService
         return items.list(workspaceId).stream().map(this::view).collect(toImmutableList());
     }
 
-    public WorkItemView create(String workspaceId, String id, Optional<String> goalId, String title, WorkItem.Kind kind, String criteria, WorkItem.CompletionRule rule)
+    public WorkItemView create(String workspaceId, String id, String title, WorkItem.Kind kind, String criteria, WorkItem.CompletionRule rule)
     {
         requireWorkspace(workspaces, workspaceId);
         UUID.fromString(id);
-        requireGoal(workspaceId, goalId);
-        return insert(workspaceId, id, goalId, Optional.empty(), title, kind, criteria, rule, goalId + "|");
+        return insert(workspaceId, id, Optional.empty(), title, kind, criteria, rule, "");
     }
 
-    /** New work at the end of an Epic's order; it belongs to no Goal until the user moves it to one. */
+    /** New work at the end of an Epic's order. */
     public WorkItemView createInEpic(String workspaceId, String id, String epicId, String title, WorkItem.Kind kind, String criteria, WorkItem.CompletionRule rule)
     {
         requireWorkspace(workspaces, workspaceId);
         UUID.fromString(id);
         epics.require(workspaceId, epicId);
         checkArgument(!EpicSources.localEpicId(id).equals(epicId), "An Epic cannot be its own work");
-        return insert(workspaceId, id, Optional.empty(), Optional.of(epicId), title, kind, criteria, rule, "epic:" + epicId + "|");
+        return insert(workspaceId, id, Optional.of(epicId), title, kind, criteria, rule, "epic:" + epicId + "|");
     }
 
-    private WorkItemView insert(String workspaceId, String id, Optional<String> goalId, Optional<String> epicId, String title, WorkItem.Kind kind,
-            String criteria, WorkItem.CompletionRule rule, String scope)
+    private WorkItemView insert(String workspaceId, String id, Optional<String> epicId, String title, WorkItem.Kind kind, String criteria,
+            WorkItem.CompletionRule rule, String scope)
     {
         String name = checkText(title, "title", 500).trim();
         return unitOfWork.execute(() -> {
@@ -122,82 +114,12 @@ public class WorkItemService
                 return view(item);
             }
             Instant now = clock.instant();
-            WorkItem item = new WorkItem(id, workspaceId, goalId, name, kind, criteria, rule, WorkItem.State.PLANNED, 0, ImmutableList.of(),
+            WorkItem item = new WorkItem(id, workspaceId, name, kind, criteria, rule, WorkItem.State.PLANNED, 0, ImmutableList.of(),
                     ImmutableList.of(new WorkItemEvent(id, fingerprint, "CREATED",
                             "Work item accepted: " + name + "\nSuccess: " + criteria + "\nCompletion: " + completionText(rule), now)), now, now,
-                    WorkItem.Priority.NORMAL, nextRank(workspaceId, goalId), ImmutableList.of(), epicId, nextEpicRank(workspaceId, epicId), ImmutableList.of());
+                    WorkItem.Priority.NORMAL, ImmutableList.of(), epicId, nextEpicRank(workspaceId, epicId), ImmutableList.of());
             items.insert(item);
             return view(item);
-        });
-    }
-
-    public WorkItemView attach(String workspaceId, String goalId, GoalItemKind kind, String key)
-    {
-        requireGoal(workspaceId, Optional.of(goalId));
-        WorkItemLink requested = references.requireLink(workspaceId, kind, key);
-        List<WorkItemLink> links = references.related(workspaceId, requested);
-        return unitOfWork.execute(() -> {
-            WorkItem item = findOwner(workspaceId, links).orElseGet(() -> newLinked(workspaceId, requested));
-            requireItemWorkspace(item, workspaceId);
-            if (item.goalId().isPresent() && !item.goalId().orElseThrow().equals(goalId)) {
-                throw conflict("This work item belongs to another Goal. Move it explicitly from its work-item details.");
-            }
-            return view(saveLinks(item, Optional.of(goalId), item.epicId(), links, "Linked to Goal"));
-        });
-    }
-
-    /**
-     * Makes a recommended source the Goal's work: the work item that already owns the source joins the Goal, or a new one takes the card's
-     * title and criteria under merged delivery. The task the user then sends for the source becomes its attempt through the existing
-     * admission. Starting the same card again changes nothing.
-     */
-    public WorkItemView adopt(String workspaceId, String goalId, String id, String title, String criteria, GoalItemKind kind, String key)
-    {
-        requireGoal(workspaceId, Optional.of(goalId));
-        UUID.fromString(id);
-        String name = checkText(title, "title", 500).trim();
-        checkText(criteria, "acceptanceCriteria");
-        WorkItemLink requested = references.requireLink(workspaceId, kind, key);
-        List<WorkItemLink> links = references.related(workspaceId, requested);
-        return unitOfWork.execute(() -> {
-            Optional<WorkItem> owner = findOwner(workspaceId, links);
-            if (owner.isPresent()) {
-                WorkItem item = owner.orElseThrow();
-                requireStartable(item, workspaceId);
-                if (item.goalId().filter(other -> !other.equals(goalId)).isPresent()) {
-                    throw conflict("This work belongs to another Goal. Move it explicitly from its work-item details.");
-                }
-                return view(saveLinks(item, Optional.of(goalId), item.epicId(), links, "Recommended as practice for the Goal"));
-            }
-            Instant now = clock.instant();
-            WorkItem.CompletionRule rule = WorkItem.CompletionRule.MERGED_DELIVERY;
-            WorkItem.State state = links.stream().anyMatch(link -> link.reference().kind() == GoalItemKind.TASK) ? WorkItem.State.WORKING : WorkItem.State.PLANNED;
-            WorkItem item = new WorkItem(id, workspaceId, Optional.of(goalId), name, WorkItem.Kind.DEVELOP, criteria.trim(), rule, state, 0, links,
-                    ImmutableList.of(new WorkItemEvent(id, requested.identity(), "CREATED",
-                            "Practice accepted: " + name + "\nSuccess: " + criteria.trim() + "\nCompletion: " + completionText(rule), now)), now, now,
-                    WorkItem.Priority.NORMAL, nextRank(workspaceId, Optional.of(goalId)), ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
-            items.insert(item);
-            return view(item);
-        });
-    }
-
-    public WorkItemView link(String workspaceId, String id, long revision, GoalItemKind kind, String key)
-    {
-        WorkItemLink link = references.requireLink(workspaceId, kind, key);
-        List<WorkItemLink> links = references.related(workspaceId, link);
-        return unitOfWork.execute(() -> {
-            WorkItem item = requireItem(workspaceId, id);
-            if (links.stream().allMatch(added -> item.links().stream().anyMatch(old -> old.identity().equals(added.identity())))) {
-                return view(item);
-            }
-            requireRevision(item, revision);
-            checkArgument(item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED, "Reopen before changing accepted scope");
-            for (WorkItemLink added : links) {
-                items.findByIdentity(added.identity()).filter(owner -> !owner.id().equals(id)).ifPresent(owner -> {
-                    throw conflict("Source or task belongs to work item " + owner.id() + ". Open that item instead.");
-                });
-            }
-            return view(saveLinks(item, item.goalId(), item.epicId(), links, "Linked supporting work"));
         });
     }
 
@@ -212,10 +134,10 @@ public class WorkItemService
             }
             requireRevision(item, expectedRevision);
             Instant now = clock.instant();
-            WorkItem next = new WorkItem(item.id(), item.workspaceId(), item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
+            WorkItem next = new WorkItem(item.id(), item.workspaceId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
                     item.state(), item.revision() + 1, item.links(), ImmutableList.<WorkItemEvent>builder().addAll(item.history())
                             .add(new WorkItemEvent(UUID.randomUUID().toString(), "", "CONTEXT_UPDATED", summary, now)).build(), item.createdAt(), now,
-                    item.priority(), item.rank(), item.blockedBy(), item.epicId(), item.epicRank(), contextLinks);
+                    item.priority(), item.blockedBy(), item.epicId(), item.epicRank(), contextLinks);
             update(next, item.revision());
             return view(next);
         });
@@ -242,7 +164,7 @@ public class WorkItemService
             if (added.isEmpty() || concluded(item)) {
                 return view(item);
             }
-            return view(saveLinks(item, item.goalId(), item.epicId(), added, "Linked what its task published"));
+            return view(saveLinks(item, item.epicId(), added, "Linked what its task published"));
         });
     }
 
@@ -268,7 +190,7 @@ public class WorkItemService
             WorkItem item = requireItem(workspaceId, id);
             requireAttemptable(item, workspaceId);
             tasks.insert(task);
-            saveLinks(item, item.goalId(), item.epicId(), ImmutableList.of(GoalReferenceReader.taskLink(task)), "Execution attempt started");
+            saveLinks(item, item.epicId(), ImmutableList.of(GoalReferenceReader.taskLink(task)), "Execution attempt started");
             return null;
         });
     }
@@ -297,18 +219,7 @@ public class WorkItemService
         requireStartable(item, workspaceId);
         WorkItemLink taskLink = GoalReferenceReader.taskLink(task);
         WorkItemLink attempt = new WorkItemLink(taskLink.identity(), taskLink.reference(), source.issueSource(), source.jiraSource());
-        saveLinks(item, item.goalId(), item.epicId(), ImmutableList.of(source, attempt), "Execution attempt started");
-    }
-
-    public void detach(String workspaceId, String goalId, GoalItemKind kind, String key)
-    {
-        unitOfWork.execute(() -> {
-            items.list(workspaceId).stream().filter(item -> item.goalId().filter(goalId::equals).isPresent())
-                    .filter(item -> item.links().stream().anyMatch(link -> link.reference().is(kind,
-                            kind == GoalItemKind.PULL_REQUEST || kind == GoalItemKind.ISSUE ? key.toLowerCase(Locale.ROOT) : key)))
-                    .forEach(item -> saveLinks(item, Optional.empty(), item.epicId(), ImmutableList.of(), "Removed from Goal; work and history retained"));
-            return null;
-        });
+        saveLinks(item, item.epicId(), ImmutableList.of(source, attempt), "Execution attempt started");
     }
 
     /** Atomically binds the previewed revision before any remote request. A lost response cannot silently publish twice. */
@@ -338,9 +249,9 @@ public class WorkItemService
             items.findByIdentity(source.identity()).ifPresent(owner -> checkArgument(owner.id().equals(id), "Source belongs to another work item"));
             if (item.links().stream().noneMatch(link -> link.identity().equals(source.identity()))) {
                 Instant now = clock.instant();
-                WorkItem updated = new WorkItem(id, workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
+                WorkItem updated = new WorkItem(id, workspaceId, item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
                         item.revision() + 1, ImmutableList.<WorkItemLink>builder().addAll(item.links()).add(source).build(), item.history(), item.createdAt(), now,
-                        item.priority(), item.rank(), item.blockedBy(), item.epicId(), item.epicRank(), item.contextLinks());
+                        item.priority(), item.blockedBy(), item.epicId(), item.epicRank(), item.contextLinks());
                 update(updated, item.revision());
             }
             record(workspaceId, id, operationId + ":settled", "PUBLISHED", "Linked " + source.reference().label());
@@ -368,9 +279,9 @@ public class WorkItemService
                 return null;
             }
             Instant now = clock.instant();
-            WorkItem updated = new WorkItem(id, workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
+            WorkItem updated = new WorkItem(id, workspaceId, item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
                     item.revision() + 1, item.links(), ImmutableList.<WorkItemEvent>builder().addAll(item.history())
-                            .add(new WorkItemEvent(operationId, "", action, detail, now)).build(), item.createdAt(), now, item.priority(), item.rank(), item.blockedBy(),
+                            .add(new WorkItemEvent(operationId, "", action, detail, now)).build(), item.createdAt(), now, item.priority(), item.blockedBy(),
                     item.epicId(), item.epicRank(), item.contextLinks());
             update(updated, item.revision());
             return null;
@@ -379,8 +290,7 @@ public class WorkItemService
 
     public WorkItemView change(String workspaceId, String id, WorkItemCommand command)
     {
-        AtomicReference<WorkItemDecided> decided = new AtomicReference<>();
-        WorkItemView changed = unitOfWork.execute(() -> {
+        return unitOfWork.execute(() -> {
             WorkItem item = requireItem(workspaceId, id);
             Optional<WorkItemEvent> replay = item.history().stream().filter(event -> event.operationId().equals(command.operationId())).findFirst();
             if (replay.isPresent()) {
@@ -389,12 +299,10 @@ public class WorkItemService
             }
             requireRevision(item, command.expectedRevision());
             WorkItem.State state = item.state();
-            Optional<String> goalId = item.goalId();
             String title = item.title();
             String criteria = item.acceptanceCriteria();
             WorkItem.CompletionRule rule = item.completionRule();
             WorkItem.Priority priority = item.priority();
-            long rank = item.rank();
             List<String> blockedBy = item.blockedBy();
             List<WorkItem> released = ImmutableList.of();
             String detail = command.detail().trim();
@@ -450,15 +358,6 @@ public class WorkItemService
                     checkText(detail, "reason");
                     state = WorkItem.State.WORKING;
                 }
-                case MOVE -> {
-                    requireGoal(workspaceId, command.goalId());
-                    if (!command.goalId().equals(goalId)) {
-                        requireNoDependencies(workspaceId, item);
-                        rank = nextRank(workspaceId, command.goalId());
-                    }
-                    goalId = command.goalId();
-                    detail = goalId.map(value -> "Moved to Goal " + value).orElse("Removed from Goal; work and history retained");
-                }
                 case PRIORITIZE -> {
                     priority = command.priority().orElseThrow(() -> new IllegalArgumentException("priority is required"));
                     detail = "Priority set to " + words(priority);
@@ -468,8 +367,7 @@ public class WorkItemService
                     String blocker = command.blocker().orElseThrow(() -> new IllegalArgumentException("blocker is required"));
                     WorkItem other = requireItem(workspaceId, blocker);
                     checkArgument(!blocker.equals(id), "Work cannot wait on itself");
-                    checkArgument(goalId.isPresent() && other.goalId().equals(goalId) || item.epicId().isPresent() && other.epicId().equals(item.epicId()),
-                            "Work can wait only on work of its own Goal or Epic");
+                    checkArgument(item.epicId().isPresent() && other.epicId().equals(item.epicId()), "Work can wait only on work of its own Epic");
                     checkArgument(other.state() != WorkItem.State.DROPPED, "Dropped work cannot block anything");
                     checkArgument(!waitsOn(workspaceId, blocker, id), other.title() + " already waits on this work");
                     blockedBy = blockedBy.contains(blocker) ? blockedBy : ImmutableList.<String>builder().addAll(blockedBy).add(blocker).build();
@@ -483,58 +381,39 @@ public class WorkItemService
                 }
             }
             Instant now = clock.instant();
-            WorkItem updated = new WorkItem(id, workspaceId, goalId, title, item.kind(), criteria, rule, state, item.revision() + 1, item.links(),
+            WorkItem updated = new WorkItem(id, workspaceId, title, item.kind(), criteria, rule, state, item.revision() + 1, item.links(),
                     ImmutableList.<WorkItemEvent>builder().addAll(item.history())
                             .add(new WorkItemEvent(command.operationId(), command.toString(), command.action().name(), detail, now)).build(), item.createdAt(), now,
-                    priority, rank, blockedBy, item.epicId(), item.epicRank(), item.contextLinks());
+                    priority, blockedBy, item.epicId(), item.epicRank(), item.contextLinks());
             update(updated, item.revision());
             for (WorkItem dependent : released) {
-                update(new WorkItem(dependent.id(), workspaceId, dependent.goalId(), dependent.title(), dependent.kind(), dependent.acceptanceCriteria(),
+                update(new WorkItem(dependent.id(), workspaceId, dependent.title(), dependent.kind(), dependent.acceptanceCriteria(),
                         dependent.completionRule(), dependent.state(), dependent.revision() + 1, dependent.links(), ImmutableList.<WorkItemEvent>builder()
                                 .addAll(dependent.history()).add(new WorkItemEvent(command.operationId() + ":" + dependent.id(), "", "UNBLOCK",
                                         "No longer waits on " + title + ", which was dropped: " + detail, now)).build(),
-                        dependent.createdAt(), now, dependent.priority(), dependent.rank(), dependent.blockedBy().stream().filter(value -> !value.equals(id))
+                        dependent.createdAt(), now, dependent.priority(), dependent.blockedBy().stream().filter(value -> !value.equals(id))
                         .collect(toImmutableList()), dependent.epicId(), dependent.epicRank(), dependent.contextLinks()), dependent.revision());
-            }
-            boolean concluding = switch (command.action()) {
-                case ACCEPT, DROP, REOPEN -> true;
-                case EDIT, BEGIN, MOVE, PRIORITIZE, BLOCK, UNBLOCK -> false;
-            };
-            if (concluding && goalId.isPresent()) {
-                decided.set(new WorkItemDecided(workspaceId, goalId.orElseThrow(), id, title, item.kind(), command.action(), command.operationId(), detail));
             }
             return view(updated);
         });
-        // Published after the decision is saved, and only for a new one, never its replay.
-        if (decided.get() != null) {
-            events.publishEvent(decided.get());
-        }
-        return changed;
     }
 
-    /** Saves the order the user gave a Goal's work, which names each of its items once. */
-    public List<WorkItemView> order(String workspaceId, String goalId, List<String> ids)
-    {
-        requireGoal(workspaceId, Optional.of(goalId));
-        return order(workspaceId, goalId, ids, false);
-    }
-
-    private List<WorkItemView> order(String workspaceId, String scopeId, List<String> ids, boolean epic)
+    private List<WorkItemView> order(String workspaceId, String epicId, List<String> ids)
     {
         return unitOfWork.execute(() -> {
-            Map<String, WorkItem> work = items.list(workspaceId).stream().filter(item -> (epic ? item.epicId() : item.goalId()).filter(scopeId::equals).isPresent())
+            Map<String, WorkItem> work = items.list(workspaceId).stream().filter(item -> item.epicId().filter(epicId::equals).isPresent())
                     .collect(toImmutableMap(WorkItem::id, item -> item));
             if (ids.size() != work.size() || !ImmutableSet.copyOf(ids).equals(work.keySet())) {
-                throw conflict("The " + (epic ? "Epic" : "Goal") + "'s work changed. Order it again.");
+                throw conflict("The Epic's work changed. Order it again.");
             }
             Instant now = clock.instant();
             ImmutableList.Builder<WorkItemView> ordered = ImmutableList.builder();
             for (int rank = 0; rank < ids.size(); rank++) {
                 WorkItem item = work.get(ids.get(rank));
-                if ((epic ? item.epicRank() : item.rank()) != rank) {
-                    WorkItem moved = new WorkItem(item.id(), workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
-                            item.state(), item.revision() + 1, item.links(), item.history(), item.createdAt(), now, item.priority(), epic ? item.rank() : rank, item.blockedBy(),
-                            item.epicId(), epic ? rank : item.epicRank(), item.contextLinks());
+                if (item.epicRank() != rank) {
+                    WorkItem moved = new WorkItem(item.id(), workspaceId, item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
+                            item.state(), item.revision() + 1, item.links(), item.history(), item.createdAt(), now, item.priority(), item.blockedBy(),
+                            item.epicId(), rank, item.contextLinks());
                     update(moved, item.revision());
                     item = moved;
                 }
@@ -565,15 +444,15 @@ public class WorkItemService
     {
         Instant now = clock.instant();
         String id = UUID.randomUUID().toString();
-        WorkItem item = new WorkItem(id, workspaceId, Optional.empty(), source.reference().title(), WorkItem.Kind.DEVELOP, "",
+        WorkItem item = new WorkItem(id, workspaceId, source.reference().title(), WorkItem.Kind.DEVELOP, "",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(source),
                 ImmutableList.of(new WorkItemEvent(id, source.identity(), "CREATED", "Accepted work from " + source.reference().label(), now)), now, now,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
+                WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         items.insert(item);
         return item;
     }
 
-    private WorkItem saveLinks(WorkItem item, Optional<String> goalId, Optional<String> epicId, List<WorkItemLink> links, String reason)
+    private WorkItem saveLinks(WorkItem item, Optional<String> epicId, List<WorkItemLink> links, String reason)
     {
         if (epicId.isPresent()) {
             String parent = epicId.orElseThrow();
@@ -586,18 +465,13 @@ public class WorkItemService
         item.links().forEach(link -> all.put(link.identity(), link));
         links.forEach(link -> all.putIfAbsent(link.identity(), link));
         List<WorkItemLink> linked = ImmutableList.copyOf(all.values());
-        if (item.links().equals(linked) && item.goalId().equals(goalId) && item.epicId().equals(epicId)) {
+        if (item.links().equals(linked) && item.epicId().equals(epicId)) {
             return item;
         }
         WorkItem.State state = item.state();
         checkArgument(linked.equals(item.links()) || state != WorkItem.State.DONE && state != WorkItem.State.DROPPED, "Reopen before adding evidence to concluded work");
         if (state == WorkItem.State.PLANNED && linked.stream().anyMatch(link -> link.reference().kind() == GoalItemKind.TASK)) {
             state = WorkItem.State.WORKING;
-        }
-        long rank = item.rank();
-        if (!goalId.equals(item.goalId())) {
-            requireNoDependencies(item.workspaceId(), item);
-            rank = nextRank(item.workspaceId(), goalId);
         }
         long epicRank = item.epicRank();
         if (!epicId.equals(item.epicId())) {
@@ -607,10 +481,10 @@ public class WorkItemService
             epicRank = nextEpicRank(item.workspaceId(), epicId);
         }
         Instant now = clock.instant();
-        WorkItem next = new WorkItem(item.id(), item.workspaceId(), goalId, item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), state,
+        WorkItem next = new WorkItem(item.id(), item.workspaceId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), state,
                 item.revision() + 1, linked, ImmutableList.<WorkItemEvent>builder().addAll(item.history())
                         .add(new WorkItemEvent(UUID.randomUUID().toString(), "", "LINKED", reason, now)).build(), item.createdAt(), now,
-                item.priority(), rank, item.blockedBy(), epicId, epicRank, item.contextLinks());
+                item.priority(), item.blockedBy(), epicId, epicRank, item.contextLinks());
         update(next, item.revision());
         return next;
     }
@@ -629,7 +503,7 @@ public class WorkItemService
             WorkItem item = findOwner(workspaceId, links).orElseGet(() -> newLinked(workspaceId, requested));
             requireItemWorkspace(item, workspaceId);
             Optional<String> movedFrom = item.epicId().filter(other -> !other.equals(epicId));
-            return new EpicJoin(view(saveLinks(item, item.goalId(), Optional.of(epicId), links, movedFrom.isPresent() ? "Moved to another Epic" : "Added to Epic")), movedFrom);
+            return new EpicJoin(view(saveLinks(item, Optional.of(epicId), links, movedFrom.isPresent() ? "Moved to another Epic" : "Added to Epic")), movedFrom);
         });
     }
 
@@ -640,7 +514,7 @@ public class WorkItemService
         return unitOfWork.execute(() -> {
             WorkItem item = requireItem(workspaceId, itemId);
             Optional<String> movedFrom = item.epicId().filter(other -> !other.equals(epicId));
-            return new EpicJoin(view(saveLinks(item, item.goalId(), Optional.of(epicId), ImmutableList.of(),
+            return new EpicJoin(view(saveLinks(item, Optional.of(epicId), ImmutableList.of(),
                     movedFrom.isPresent() ? "Moved to another Epic" : "Added to Epic")), movedFrom);
         });
     }
@@ -652,7 +526,7 @@ public class WorkItemService
         return unitOfWork.execute(() -> {
             WorkItem item = findOwner(workspaceId, ImmutableList.of(child)).orElseGet(() -> newLinked(workspaceId, child));
             requireItemWorkspace(item, workspaceId);
-            return view(saveLinks(item, item.goalId(), Optional.of(epicId), ImmutableList.of(child), "Synced from the Epic's children"));
+            return view(saveLinks(item, Optional.of(epicId), ImmutableList.of(child), "Synced from the Epic's children"));
         });
     }
 
@@ -670,7 +544,7 @@ public class WorkItemService
     public List<WorkItemView> orderEpic(String workspaceId, String epicId, List<String> ids)
     {
         epics.require(workspaceId, epicId);
-        return order(workspaceId, epicId, ids, true);
+        return order(workspaceId, epicId, ids);
     }
 
     /** Takes work out of its Epic while retaining its local identity, context and history. */
@@ -721,10 +595,10 @@ public class WorkItemService
             List<String> stopped = item.blockedBy().stream().filter(blocker -> !blockedBy.contains(blocker))
                     .map(blocker -> Optional.ofNullable(all.get(blocker)).map(WorkItem::title).orElse("removed work")).collect(toImmutableList());
             String detail = (left ? reason : "") + (stopped.isEmpty() ? "" : (left ? "\n" : "") + "No longer waits on " + String.join(", ", stopped) + ", which left the Epic");
-            WorkItem next = new WorkItem(item.id(), workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
+            WorkItem next = new WorkItem(item.id(), workspaceId, item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
                     item.revision() + 1, item.links(), ImmutableList.<WorkItemEvent>builder().addAll(item.history())
                             .add(new WorkItemEvent(UUID.randomUUID().toString(), "", left ? "LEFT_EPIC" : "UNBLOCK", detail, now)).build(), item.createdAt(), now,
-                    item.priority(), item.rank(), blockedBy, epicId, left ? 0 : item.epicRank(), item.contextLinks());
+                    item.priority(), blockedBy, epicId, left ? 0 : item.epicRank(), item.contextLinks());
             update(next, item.revision());
             if (left) {
                 kept.add(next);
@@ -737,15 +611,15 @@ public class WorkItemService
     private static boolean sharesWork(WorkItem item, Optional<String> epicId, WorkItem blocker, Set<String> leavingIds)
     {
         Optional<String> blockerEpic = leavingIds.contains(blocker.id()) ? Optional.empty() : blocker.epicId();
-        return item.goalId().isPresent() && item.goalId().equals(blocker.goalId()) || epicId.isPresent() && epicId.equals(blockerEpic);
+        return epicId.isPresent() && epicId.equals(blockerEpic);
     }
 
     private WorkItemView view(WorkItem item)
     {
         List<GoalItemView> links = item.links().stream().map(link -> references.view(item.workspaceId(), link.reference())).collect(toImmutableList());
-        return new WorkItemView(item.id(), item.workspaceId(), item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
-                item.state(), item.revision(), links, item.history(), item.createdAt(), item.updatedAt(), item.priority(), item.rank(), item.blockedBy(),
-                item.epicId(), item.epicRank(), isLocalEpic(item), item.contextLinks());
+        return new WorkItemView(item.id(), item.workspaceId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
+                item.revision(), links, item.history(), item.createdAt(), item.updatedAt(), item.priority(), item.blockedBy(), item.epicId(), item.epicRank(),
+                isLocalEpic(item), item.contextLinks());
     }
 
     private boolean isLocalEpic(WorkItem item)
@@ -783,12 +657,6 @@ public class WorkItemService
         return pulls.stream().filter(pull -> pull.state() == state).map(pull -> pull.url().orElse(pull.key())).collect(joining(", "));
     }
 
-    private void requireGoal(String workspaceId, Optional<String> id)
-    {
-        id.ifPresent(value -> goals.find(value).filter(goal -> goal.workspaceId().equals(workspaceId) && !goal.archived())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Goal not found")));
-    }
-
     private static void requireRevision(WorkItem item, long revision)
     {
         if (item.revision() != revision) {
@@ -803,13 +671,6 @@ public class WorkItemService
         }
     }
 
-    /** New work joins the end of its Goal's order. */
-    private long nextRank(String workspaceId, Optional<String> goalId)
-    {
-        return goalId.map(goal -> items.list(workspaceId).stream().filter(item -> item.goalId().filter(goal::equals).isPresent())
-                .mapToLong(item -> item.rank() + 1).max().orElse(0)).orElse(0L);
-    }
-
     /** New work joins the end of its Epic's order. */
     private long nextEpicRank(String workspaceId, Optional<String> epicId)
     {
@@ -822,11 +683,11 @@ public class WorkItemService
         return items.list(workspaceId).stream().filter(item -> item.blockedBy().contains(id)).collect(toImmutableList());
     }
 
-    /** Blockers stay within one Goal or Epic, so work leaves one only once it waits on nothing and nothing waits on it. */
+    /** Blockers stay within one Epic, so work leaves one only once it waits on nothing and nothing waits on it. */
     private void requireNoDependencies(String workspaceId, WorkItem item)
     {
         if (!item.blockedBy().isEmpty() || !dependents(workspaceId, item.id()).isEmpty()) {
-            throw conflict("Remove what this work waits on and what waits on it before it leaves its Goal or Epic.");
+            throw conflict("Remove what this work waits on and what waits on it before it leaves its Epic.");
         }
     }
 

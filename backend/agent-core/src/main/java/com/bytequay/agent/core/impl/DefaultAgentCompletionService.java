@@ -46,7 +46,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
@@ -74,8 +73,6 @@ public final class DefaultAgentCompletionService
     private final AgentRuntimeRegistry runtimeRegistry;
     private final AgentMetricsService metricsService;
     private final Supplier<Duration> retentionPeriod;
-    // Runs before a task's event log or rows are removed, such as the Goal recording what it has not yet of the task; a failure keeps them.
-    private final Consumer<AgentTask> beforeRemoval;
     private final Clock clock;
     private final UnaryOperator<AgentTask> idleWorktreePreparation;
 
@@ -92,7 +89,6 @@ public final class DefaultAgentCompletionService
             AgentRuntimeRegistry runtimeRegistry,
             AgentMetricsService metricsService,
             Supplier<Duration> retentionPeriod,
-            Consumer<AgentTask> beforeRemoval,
             Clock clock,
             UnaryOperator<AgentTask> idleWorktreePreparation)
     {
@@ -109,7 +105,6 @@ public final class DefaultAgentCompletionService
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
         this.metricsService = requireNonNull(metricsService, "metricsService is null");
         this.retentionPeriod = requireNonNull(retentionPeriod, "retentionPeriod is null");
-        this.beforeRemoval = requireNonNull(beforeRemoval, "beforeRemoval is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.idleWorktreePreparation = requireNonNull(idleWorktreePreparation, "idleWorktreePreparation is null");
     }
@@ -346,7 +341,6 @@ public final class DefaultAgentCompletionService
             }
             try {
                 drainPending(outboxStore, eventService, taskId);
-                beforeRemoval.accept(task);
                 task = removeWorktree(task);
                 // The transcript stays, so the finished task's conversation still opens; deleting the task removes it.
                 resourceService.deleteExceptTranscript(taskId);
@@ -368,8 +362,6 @@ public final class DefaultAgentCompletionService
             if (!deletable(taskId)) {
                 return;
             }
-            // Refused before anything closes or goes, so the task stays whole.
-            beforeRemoval.accept(taskStore.require(taskId));
         }
         // As for abandon: the provider's own callbacks take the task lock while the close runs.
         runtimeRegistry.closeSession(taskId);

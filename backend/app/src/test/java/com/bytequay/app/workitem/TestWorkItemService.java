@@ -24,10 +24,8 @@ import com.bytequay.app.service.epic.EpicBreakdowns;
 import com.bytequay.app.service.epic.EpicService;
 import com.bytequay.app.service.epic.EpicSources;
 import com.bytequay.app.service.epic.InMemoryEpicStore;
-import com.bytequay.app.service.goal.InMemoryGoalStore;
 import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.GitHubIssueSource;
-import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
@@ -48,7 +46,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -71,7 +68,6 @@ class TestWorkItemService
     private static final String EPIC = "ISSUE:github.com:1";
     private static final String OTHER_EPIC = "JIRA:5:cloud:10";
     private final InMemoryWorkItemStore store = new InMemoryWorkItemStore();
-    private final InMemoryGoalStore goals = new InMemoryGoalStore();
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final GoalReferenceReader references = mock(GoalReferenceReader.class);
     private final AgentUnitOfWork transactions = new AgentUnitOfWork()
@@ -82,18 +78,15 @@ class TestWorkItemService
             return work.run();
         }
     };
-    private final List<Object> published = new ArrayList<>();
     private final EpicSources epics = mock(EpicSources.class);
     private final InMemoryEpicStore epicRecords = new InMemoryEpicStore();
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
-    private final WorkItemService service = new WorkItemService(store, goals, workspaces, references, epics, epicRecords, tasks, transactions, published::add,
-            Clock.fixed(NOW, ZoneOffset.UTC));
+    private final WorkItemService service = new WorkItemService(store, workspaces, references, epics, epicRecords, tasks, transactions, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()
     {
         when(workspaces.findById("workspace")).thenReturn(Optional.of(mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE))));
-        goals.save(new Goal("goal", "workspace", "Objective", "", true, false, Optional.empty(), Optional.empty(), 0, Optional.empty(), false, NOW, NOW));
         when(references.related(eq("workspace"), any())).thenAnswer(call -> ImmutableList.of(call.getArgument(1)));
         when(references.view(eq("workspace"), any())).thenAnswer(call -> {
             GoalItem link = call.getArgument(1);
@@ -107,7 +100,7 @@ class TestWorkItemService
     {
         String id = UUID.randomUUID().toString();
         String body = "Reproduction and acceptance criteria\n" + "evidence\n".repeat(4000);
-        WorkItemView created = service.create("workspace", id, Optional.empty(), "Private investigation", WorkItem.Kind.DEVELOP, body, WorkItem.CompletionRule.MERGED_DELIVERY);
+        WorkItemView created = service.create("workspace", id, "Private investigation", WorkItem.Kind.DEVELOP, body, WorkItem.CompletionRule.MERGED_DELIVERY);
         assertThat(created.acceptanceCriteria()).isEqualTo(body);
         assertThat(created.links()).isEmpty();
         assertThatThrownBy(() -> service.beginPublication("workspace", id, 9, "publish-1", "GITHUB:org/repo")).hasMessageContaining("changed");
@@ -132,7 +125,7 @@ class TestWorkItemService
     {
         WorkItemLink source = link(GoalItemKind.ISSUE, "org/repo#5", "ISSUE:github.com:5");
         when(references.requireLink("workspace", GoalItemKind.ISSUE, source.reference().key())).thenReturn(source);
-        WorkItemView item = service.attach("workspace", "goal", GoalItemKind.ISSUE, source.reference().key());
+        WorkItemView item = service.joinEpic("workspace", EPIC, GoalItemKind.ISSUE, source.reference().key()).item();
         WorkItemView assigned = service.joinLocalEpic("workspace", EPIC, item.id()).item();
         WorkItemView blocker = epicWork(EPIC, "Related preparation");
         service.change("workspace", item.id(), arrange(assigned, WorkItemCommand.Action.BLOCK, Optional.empty(), blocker.id()));
@@ -167,7 +160,7 @@ class TestWorkItemService
     @Test
     void contextualReferencesSurviveOrdinaryDecisionsMembershipChangesAndPublication()
     {
-        WorkItemView item = service.create("workspace", UUID.randomUUID().toString(), Optional.empty(), "Private work", WorkItem.Kind.DEVELOP,
+        WorkItemView item = service.create("workspace", UUID.randomUUID().toString(), "Private work", WorkItem.Kind.DEVELOP,
                 "Retain all context", WorkItem.CompletionRule.MERGED_DELIVERY);
         List<WorkItemContextLink> links = ImmutableList.of(new WorkItemContextLink("ISSUE:github.com:9", "Related report"));
         WorkItemView linked = service.changeContextLinks("workspace", item.id(), item.revision(), links, "Linked related report");
@@ -195,39 +188,14 @@ class TestWorkItemService
             when(references.requireLink("workspace", link.reference().kind(), link.reference().key())).thenReturn(link);
             when(references.related("workspace", link)).thenReturn(ImmutableList.of(issue, task, pull));
         }
-        WorkItemView first = service.attach("workspace", "goal", GoalItemKind.ISSUE, issue.reference().key());
-        WorkItemView retry = service.attach("workspace", "goal", GoalItemKind.TASK, task.reference().key());
-        service.attach("workspace", "goal", GoalItemKind.PULL_REQUEST, pull.reference().key());
+        WorkItemView first = service.joinEpic("workspace", EPIC, GoalItemKind.ISSUE, issue.reference().key()).item();
+        WorkItemView retry = service.joinEpic("workspace", EPIC, GoalItemKind.TASK, task.reference().key()).item();
+        service.joinEpic("workspace", EPIC, GoalItemKind.PULL_REQUEST, pull.reference().key());
         assertThat(retry.id()).isEqualTo(first.id());
         assertThat(service.list("workspace")).hasSize(1);
         assertThat(retry.links()).hasSize(3);
         assertThat(retry.state()).isEqualTo(WorkItem.State.WORKING);
         assertThat(retry.revision()).isEqualTo(first.revision());
-    }
-
-    @Test
-    void aRecommendedIssueBecomesTheGoalsWorkOnceAndConcludedOrOtherGoalsWorkIsNotTakenOver()
-    {
-        WorkItemLink issue = link(GoalItemKind.ISSUE, "org/repo#31252", "ISSUE:github.com:42");
-        when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#31252")).thenReturn(issue);
-        String id = UUID.randomUUID().toString();
-        WorkItemView adopted = service.adopt("workspace", "goal", id, "Fix #31252", "Key checkpoint actions by path and deletion vector", GoalItemKind.ISSUE, "org/repo#31252");
-        assertThat(adopted.id()).isEqualTo(id);
-        assertThat(adopted.goalId()).contains("goal");
-        assertThat(adopted.kind()).isEqualTo(WorkItem.Kind.DEVELOP);
-        assertThat(adopted.state()).as("the task starts only when the user sends the composer").isEqualTo(WorkItem.State.PLANNED);
-        assertThat(adopted.completionRule()).isEqualTo(WorkItem.CompletionRule.MERGED_DELIVERY);
-        assertThat(adopted.acceptanceCriteria()).isEqualTo("Key checkpoint actions by path and deletion vector");
-        assertThat(service.adopt("workspace", "goal", UUID.randomUUID().toString(), "Fix #31252", "Another wording", GoalItemKind.ISSUE, "org/repo#31252"))
-                .as("the source's work is found again, never duplicated").isEqualTo(adopted);
-        assertThat(service.list("workspace")).hasSize(1);
-
-        goals.save(new Goal("goal-2", "workspace", "Another objective", "", false, false, Optional.empty(), Optional.empty(), 0, Optional.empty(), false, NOW, NOW));
-        assertThatThrownBy(() -> service.adopt("workspace", "goal-2", UUID.randomUUID().toString(), "Fix #31252", "Fix it", GoalItemKind.ISSUE, "org/repo#31252"))
-                .hasMessageContaining("another Goal");
-        service.change("workspace", id, decision(adopted, WorkItemCommand.Action.DROP, "Not now"));
-        assertThatThrownBy(() -> service.adopt("workspace", "goal", UUID.randomUUID().toString(), "Fix #31252", "Fix it", GoalItemKind.ISSUE, "org/repo#31252"))
-                .hasMessageContaining("Reopen");
     }
 
     @Test
@@ -238,8 +206,8 @@ class TestWorkItemService
         WorkItemLink pull = link(GoalItemKind.PULL_REQUEST, "org/repo#31260", "PULL_REQUEST:github.com:org/repo#31260");
         when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#31252")).thenReturn(issue);
         when(references.related("workspace", issue)).thenReturn(ImmutableList.of(issue, task));
-        String id = UUID.randomUUID().toString();
-        WorkItemView working = service.adopt("workspace", "goal", id, "Fix #31252", "Rows survive a checkpoint", GoalItemKind.ISSUE, "org/repo#31252");
+        WorkItemView working = service.joinEpic("workspace", EPIC, GoalItemKind.ISSUE, "org/repo#31252").item();
+        String id = working.id();
         assertThat(working.links()).hasSize(2);
 
         when(references.related("workspace", task)).thenReturn(ImmutableList.of(task, issue));
@@ -256,32 +224,10 @@ class TestWorkItemService
     }
 
     @Test
-    void aDecisionOnGoalWorkIsPublishedOnceButNotItsReplayOrWorkOutsideAGoal()
-    {
-        String id = UUID.randomUUID().toString();
-        WorkItemView created = service.create("workspace", id, Optional.of("goal"), "Fix the checkpoint", WorkItem.Kind.DEVELOP, "Rows survive",
-                WorkItem.CompletionRule.ACCEPTED_RESULT);
-        WorkItemView edited = service.change("workspace", id, new WorkItemCommand(UUID.randomUUID().toString(), created.revision(), WorkItemCommand.Action.EDIT,
-                Optional.empty(), Optional.of("No rows lost"), Optional.empty(), Optional.empty(), "", Optional.empty(), Optional.empty(), false));
-        assertThat(published).as("editing the scope is no decision to report").isEmpty();
-        WorkItemCommand accept = decision(edited, WorkItemCommand.Action.ACCEPT, "The new test passes");
-        service.change("workspace", id, accept);
-        service.change("workspace", id, accept);
-        assertThat(published).singleElement().isEqualTo(new WorkItemDecided("workspace", "goal", id, "Fix the checkpoint", WorkItem.Kind.DEVELOP,
-                WorkItemCommand.Action.ACCEPT, accept.operationId(), "User accepted all criteria: No rows lost\nThe new test passes"));
-
-        String loose = UUID.randomUUID().toString();
-        WorkItemView outside = service.create("workspace", loose, Optional.empty(), "Tidy imports", WorkItem.Kind.DEVELOP, "Imports sorted",
-                WorkItem.CompletionRule.ACCEPTED_RESULT);
-        service.change("workspace", loose, decision(outside, WorkItemCommand.Action.DROP, "Not needed"));
-        assertThat(published).hasSize(1);
-    }
-
-    @Test
     void aTaskResultIsRecordedOncePerTurnAndLeavesTheStateToTheUser()
     {
         String id = UUID.randomUUID().toString();
-        service.create("workspace", id, Optional.of("goal"), "Fix the checkpoint", WorkItem.Kind.DEVELOP, "Rows survive", WorkItem.CompletionRule.MERGED_DELIVERY);
+        service.create("workspace", id, "Fix the checkpoint", WorkItem.Kind.DEVELOP, "Rows survive", WorkItem.CompletionRule.MERGED_DELIVERY);
         service.receipt("workspace", id, "turn:1", "Task turn finished: the new test passes");
         service.receipt("workspace", id, "turn:1", "Task turn finished: the new test passes");
         WorkItemView item = service.list("workspace").getFirst();
@@ -296,37 +242,41 @@ class TestWorkItemService
     }
 
     @Test
-    void acceptsLearningOnceRejectsStaleEditsAndRetainsHistoryOnReopenAndDetach()
+    void acceptsLearningOnceRejectsStaleEditsAndRetainsHistoryOnReopen()
     {
         String id = UUID.randomUUID().toString();
-        WorkItemView created = service.create("workspace", id, Optional.of("goal"), "Learn the code", WorkItem.Kind.LEARN, "Explain the call path",
-                WorkItem.CompletionRule.ACCEPTED_RESULT);
-        assertThat(service.create("workspace", id, Optional.of("goal"), "Learn the code", WorkItem.Kind.LEARN, "Explain the call path",
-                WorkItem.CompletionRule.ACCEPTED_RESULT)).isEqualTo(created);
+        WorkItemView created = service.create("workspace", id, "Learn the code", WorkItem.Kind.LEARN, "Explain the call path", WorkItem.CompletionRule.ACCEPTED_RESULT);
+        assertThat(service.create("workspace", id, "Learn the code", WorkItem.Kind.LEARN, "Explain the call path", WorkItem.CompletionRule.ACCEPTED_RESULT))
+                .isEqualTo(created);
         WorkItemCommand accept = decision(created, WorkItemCommand.Action.ACCEPT, "Reviewed the saved call-path notes");
         WorkItemView done = service.change("workspace", id, accept);
         assertThat(done.state()).isEqualTo(WorkItem.State.DONE);
         assertThat(service.change("workspace", id, accept)).isEqualTo(done);
         assertThatThrownBy(() -> service.change("workspace", id, decision(created, WorkItemCommand.Action.DROP, "stale"))).hasMessageContaining("changed");
         WorkItemView reopened = service.change("workspace", id, decision(done, WorkItemCommand.Action.REOPEN, "Investigate another path"));
-        WorkItemView detached = service.change("workspace", id, decision(reopened, WorkItemCommand.Action.MOVE, ""));
-        assertThat(detached.goalId()).isEmpty();
-        assertThat(detached.history()).hasSize(4);
-        assertThat(detached.history().get(1).detail()).contains("Reviewed the saved call-path notes");
-        assertThatThrownBy(() -> service.change("other", id, decision(detached, WorkItemCommand.Action.DROP, "wrong workspace")))
+        assertThat(reopened.history()).hasSize(3);
+        assertThat(reopened.history().get(1).detail()).contains("Reviewed the saved call-path notes");
+        assertThatThrownBy(() -> service.change("other", id, decision(reopened, WorkItemCommand.Action.DROP, "wrong workspace")))
                 .hasMessageContaining("belongs to workspace");
     }
 
     @Test
     void anAbandonedPullRequestNeitherDeliversNorBlocksTheOneThatReplacedIt()
     {
-        WorkItemView created = service.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"), "Fix bug", WorkItem.Kind.DEVELOP, "Fix the bug",
+        WorkItemView created = service.createInEpic("workspace", UUID.randomUUID().toString(), EPIC, "Fix bug", WorkItem.Kind.DEVELOP, "Fix the bug",
                 WorkItem.CompletionRule.MERGED_DELIVERY);
-        WorkItemView abandoned = service.link("workspace", created.id(), created.revision(), GoalItemKind.PULL_REQUEST, pull(2, GoalItemState.ENDED));
+        AgentTask attempt = task();
+        service.persistAttempt(attempt, created.id());
+        WorkItemLink taskLink = GoalReferenceReader.taskLink(attempt);
+        WorkItemLink closed = pull(2, GoalItemState.ENDED);
+        when(references.related("workspace", taskLink)).thenReturn(ImmutableList.of(taskLink, closed));
+        WorkItemView abandoned = service.linkRelated("workspace", created.id());
         assertThatThrownBy(() -> service.change("workspace", created.id(), decision(abandoned, WorkItemCommand.Action.ACCEPT, "Fixed")))
                 .hasMessageContaining("Link a merged PR");
-        WorkItemView merged = service.link("workspace", created.id(), abandoned.revision(), GoalItemKind.PULL_REQUEST, pull(3, GoalItemState.MERGED));
-        WorkItemView open = service.link("workspace", created.id(), merged.revision(), GoalItemKind.PULL_REQUEST, pull(4, GoalItemState.WORKING));
+        WorkItemLink merged = pull(3, GoalItemState.MERGED);
+        WorkItemLink stillOpen = pull(4, GoalItemState.WORKING);
+        when(references.related("workspace", taskLink)).thenReturn(ImmutableList.of(taskLink, closed, merged, stillOpen));
+        WorkItemView open = service.linkRelated("workspace", created.id());
         assertThatThrownBy(() -> service.change("workspace", created.id(), decision(open, WorkItemCommand.Action.ACCEPT, "Fixed")))
                 .hasMessageContaining("refresh the others");
         pull(4, GoalItemState.ENDED);
@@ -359,25 +309,20 @@ class TestWorkItemService
     @Test
     void rejectsChangedRetryContent()
     {
-        WorkItemView first = service.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"),
-                "First", WorkItem.Kind.LEARN, "Read", WorkItem.CompletionRule.ACCEPTED_RESULT);
+        WorkItemView first = service.create("workspace", UUID.randomUUID().toString(), "First", WorkItem.Kind.LEARN, "Read", WorkItem.CompletionRule.ACCEPTED_RESULT);
         WorkItemCommand accept = decision(first, WorkItemCommand.Action.ACCEPT, "Accepted notes");
         service.change("workspace", first.id(), accept);
         WorkItemCommand changed = new WorkItemCommand(accept.operationId(), accept.expectedRevision(), accept.action(), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), "Different evidence", Optional.empty(), Optional.empty(), false);
+                "Different evidence", Optional.empty(), Optional.empty(), false);
         assertThatThrownBy(() -> service.change("workspace", first.id(), changed)).hasMessageContaining("content changed");
     }
 
     @Test
-    void workWaitsOnlyOnItsGoalsWorkWithoutCyclesAndADroppedBlockerReleasesItsDependentsOnlyWhenAsked()
+    void workWaitsOnlyOnItsEpicsWorkWithoutCyclesAndADroppedBlockerReleasesItsDependentsOnlyWhenAsked()
     {
-        WorkItemView reading = service.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"), "Read the checkpoint code", WorkItem.Kind.LEARN,
-                "Explain it", WorkItem.CompletionRule.ACCEPTED_RESULT);
-        WorkItemView fixing = service.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"), "Fix the checkpoint", WorkItem.Kind.DEVELOP,
-                "Rows survive", WorkItem.CompletionRule.ACCEPTED_RESULT);
-        WorkItemView loose = service.create("workspace", UUID.randomUUID().toString(), Optional.empty(), "Unrelated", WorkItem.Kind.DEVELOP, "Other",
-                WorkItem.CompletionRule.ACCEPTED_RESULT);
-        assertThat(ImmutableList.of(reading.rank(), fixing.rank())).as("new work joins the end of the order").containsExactly(0L, 1L);
+        WorkItemView reading = epicWork(EPIC, "Read the checkpoint code");
+        WorkItemView fixing = epicWork(EPIC, "Fix the checkpoint");
+        WorkItemView loose = service.create("workspace", UUID.randomUUID().toString(), "Unrelated", WorkItem.Kind.DEVELOP, "Other", WorkItem.CompletionRule.ACCEPTED_RESULT);
         assertThat(reading.priority()).isEqualTo(WorkItem.Priority.NORMAL);
 
         WorkItemView high = service.change("workspace", fixing.id(), arrange(fixing, WorkItemCommand.Action.PRIORITIZE, Optional.of(WorkItem.Priority.HIGH), ""));
@@ -390,19 +335,13 @@ class TestWorkItemService
         assertThatThrownBy(() -> service.change("workspace", reading.id(), arrange(reading, WorkItemCommand.Action.BLOCK, Optional.empty(), reading.id())))
                 .hasMessageContaining("itself");
         assertThatThrownBy(() -> service.change("workspace", reading.id(), arrange(reading, WorkItemCommand.Action.BLOCK, Optional.empty(), loose.id())))
-                .hasMessageContaining("its own Goal");
-        assertThatThrownBy(() -> service.change("workspace", reading.id(), decision(reading, WorkItemCommand.Action.MOVE, "")))
-                .as("blockers stay within one Goal").hasMessageContaining("before it leaves its Goal");
-
-        assertThat(service.order("workspace", "goal", ImmutableList.of(fixing.id(), reading.id()))).extracting(WorkItemView::id, WorkItemView::rank)
-                .containsExactly(tuple(fixing.id(), 0L), tuple(reading.id(), 1L));
-        assertThatThrownBy(() -> service.order("workspace", "goal", ImmutableList.of(fixing.id()))).hasMessageContaining("Order it again");
+                .hasMessageContaining("its own Epic");
 
         WorkItemView blocker = find(reading.id());
         assertThatThrownBy(() -> service.change("workspace", reading.id(), decision(blocker, WorkItemCommand.Action.DROP, "Not needed")))
                 .as("dropped work is not done").hasMessageContaining("Waiting on this work: Fix the checkpoint");
         WorkItemCommand dropAndRelease = new WorkItemCommand(UUID.randomUUID().toString(), blocker.revision(), WorkItemCommand.Action.DROP, Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty(), "Not needed", Optional.empty(), Optional.empty(), true);
+                Optional.empty(), Optional.empty(), "Not needed", Optional.empty(), Optional.empty(), true);
         assertThat(service.change("workspace", reading.id(), dropAndRelease).state()).isEqualTo(WorkItem.State.DROPPED);
         WorkItemView released = find(fixing.id());
         assertThat(released.blockedBy()).isEmpty();
@@ -410,13 +349,12 @@ class TestWorkItemService
     }
 
     @Test
-    void epicWorkKeepsAnOrderOfItsOwnBesideItsGoalsAndOnlyAMarkedEpicTakesWork()
+    void epicWorkKeepsAnOrderOfItsOwnAndOnlyAMarkedEpicTakesWork()
     {
         WorkItemView cache = epicWork(EPIC, "Cache table metadata");
         WorkItemView invalidate = epicWork(EPIC, "Invalidate on DDL");
         assertThat(ImmutableList.of(cache.epicRank(), invalidate.epicRank())).as("new work joins the end of the Epic").containsExactly(0L, 1L);
         assertThat(cache.epicId()).contains(EPIC);
-        assertThat(cache.goalId()).isEmpty();
         assertThat(cache.kind()).isEqualTo(WorkItem.Kind.DEVELOP);
         assertThat(epicWork(EPIC, "Cache table metadata", cache.id())).as("a retried quick add creates nothing new").isEqualTo(cache);
 
@@ -459,11 +397,11 @@ class TestWorkItemService
         assertThat(service.change("workspace", fixing.id(), arrange(fixing, WorkItemCommand.Action.BLOCK, Optional.empty(), reading.id())).blockedBy())
                 .containsExactly(reading.id());
         assertThatThrownBy(() -> service.change("workspace", reading.id(), arrange(reading, WorkItemCommand.Action.BLOCK, Optional.empty(), elsewhere.id())))
-                .hasMessageContaining("its own Goal or Epic");
+                .hasMessageContaining("its own Epic");
     }
 
     @Test
-    void takingWorkOutOfItsEpicKeepsItsIdentityContextAndGoalMembership()
+    void takingWorkOutOfItsEpicKeepsItsIdentityAndContext()
     {
         WorkItemView planned = epicWork(EPIC, "Benchmark the cache");
         WorkItemView waiting = epicWork(EPIC, "Publish the numbers");
@@ -474,18 +412,14 @@ class TestWorkItemService
         assertThat(released.blockedBy()).as("nothing waits across unrelated work").isEmpty();
         assertThat(released.history().getLast().detail()).isEqualTo("No longer waits on Benchmark the cache, which left the Epic");
 
-        WorkItemView goalWork = service.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"), "Goal work", WorkItem.Kind.DEVELOP, "Done",
-                WorkItem.CompletionRule.MERGED_DELIVERY);
         WorkItemLink issue = link(GoalItemKind.ISSUE, "org/repo#9", "ISSUE:github.com:9");
         when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#9")).thenReturn(issue);
         when(references.related("workspace", issue)).thenReturn(ImmutableList.of(issue));
-        service.attach("workspace", "goal", GoalItemKind.ISSUE, "org/repo#9");
         WorkItemView shared = service.joinEpic("workspace", EPIC, GoalItemKind.ISSUE, "org/repo#9").item();
         WorkItemView kept = service.removeFromEpic("workspace", shared.id()).orElseThrow();
-        assertThat(kept.goalId()).as("the Goal keeps its work").contains("goal");
         assertThat(kept.epicId()).isEmpty();
         assertThat(kept.history().getLast().action()).isEqualTo("LEFT_EPIC");
-        assertThat(service.list("workspace")).extracting(WorkItemView::id).contains(goalWork.id(), shared.id());
+        assertThat(service.list("workspace")).extracting(WorkItemView::id).contains(shared.id());
     }
 
     @Test
@@ -520,11 +454,10 @@ class TestWorkItemService
         @SuppressWarnings("unchecked")
         ObjectProvider<JiraService> jira = mock(ObjectProvider.class);
         EpicSources sources = new EpicSources(markers, workspaces, jira, store, epicRecords);
-        WorkItemService localWork = new WorkItemService(store, goals, workspaces, references, sources, epicRecords, tasks, transactions, published::add,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+        WorkItemService localWork = new WorkItemService(store, workspaces, references, sources, epicRecords, tasks, transactions, Clock.fixed(NOW, ZoneOffset.UTC));
         EpicService localEpics = new EpicService(epicRecords, sources, localWork, markers, mock(GitHubRepoClient.class), mock(CredentialService.class), jira,
                 transactions, mock(RepositoryIssueStore.class), workspaces, mock(EpicBreakdowns.class), Clock.fixed(NOW, ZoneOffset.UTC));
-        WorkItemView parent = localWork.create("workspace", UUID.randomUUID().toString(), Optional.empty(), "Hive field names", WorkItem.Kind.DEVELOP,
+        WorkItemView parent = localWork.create("workspace", UUID.randomUUID().toString(), "Hive field names", WorkItem.Kind.DEVELOP,
                 "Support slash characters across connectors", WorkItem.CompletionRule.MERGED_DELIVERY);
         String epicId = EpicSources.localEpicId(parent.id());
         assertThat(parent.isEpic()).isFalse();
@@ -534,12 +467,11 @@ class TestWorkItemService
 
         WorkItemView child = localWork.createInEpic("workspace", UUID.randomUUID().toString(), epicId, "Fix Iceberg", WorkItem.Kind.DEVELOP,
                 "Read slash fields", WorkItem.CompletionRule.MERGED_DELIVERY);
-        WorkItemView existing = localWork.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"), "Fix Hive", WorkItem.Kind.DEVELOP,
+        WorkItemView existing = localWork.create("workspace", UUID.randomUUID().toString(), "Fix Hive", WorkItem.Kind.DEVELOP,
                 "Hive reads slash fields", WorkItem.CompletionRule.MERGED_DELIVERY);
         WorkItemService.EpicJoin joined = localWork.joinLocalEpic("workspace", epicId, existing.id());
         assertThat(joined.item().id()).isEqualTo(existing.id());
         assertThat(joined.item().epicId()).contains(epicId);
-        assertThat(joined.item().goalId()).contains("goal");
         assertThat(joined.item().acceptanceCriteria()).isEqualTo(existing.acceptanceCriteria());
         assertThat(localWork.joinLocalEpic("workspace", epicId, existing.id())).as("assigning again changes nothing").isEqualTo(joined);
         localWork.change("workspace", existing.id(), arrange(joined.item(), WorkItemCommand.Action.BLOCK, Optional.empty(), child.id()));
@@ -558,7 +490,6 @@ class TestWorkItemService
         assertThat(localWork.list("workspace")).extracting(WorkItemView::id).containsExactly(parent.id(), child.id(), existing.id());
         assertThat(localWork.list("workspace")).allMatch(item -> !item.isEpic() && item.epicId().isEmpty());
         WorkItem retained = localWork.requireItem("workspace", existing.id());
-        assertThat(retained.goalId()).contains("goal");
         assertThat(retained.acceptanceCriteria()).isEqualTo(existing.acceptanceCriteria());
         assertThat(retained.blockedBy()).isEmpty();
         assertThat(retained.history()).anyMatch(event -> event.action().equals("LEFT_EPIC"));
@@ -569,7 +500,7 @@ class TestWorkItemService
     @Test
     void publishingALocalEpicKeepsItsIdentityAndCannotBypassItsParentGuards()
     {
-        WorkItemView parent = service.create("workspace", UUID.randomUUID().toString(), Optional.empty(), "Hive field names", WorkItem.Kind.DEVELOP,
+        WorkItemView parent = service.create("workspace", UUID.randomUUID().toString(), "Hive field names", WorkItem.Kind.DEVELOP,
                 "Support slash characters", WorkItem.CompletionRule.MERGED_DELIVERY);
         String epicId = EpicSources.localEpicId(parent.id());
         epicRecords.save(Epic.of(epicId, "workspace"));
@@ -602,27 +533,18 @@ class TestWorkItemService
 
         WorkItemLink owned = link(GoalItemKind.ISSUE, "org/repo#9", "ISSUE:github.com:9");
         when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#9")).thenReturn(owned);
-        WorkItemView goalWork = service.attach("workspace", "goal", GoalItemKind.ISSUE, "org/repo#9");
+        WorkItemView owner = service.joinEpic("workspace", OTHER_EPIC, GoalItemKind.ISSUE, "org/repo#9").item();
         WorkItemView joined = service.joinEpic("workspace", EPIC, owned);
-        assertThat(joined.id()).isEqualTo(goalWork.id());
-        assertThat(joined.goalId()).as("it keeps its Goal").contains("goal");
+        assertThat(joined.id()).isEqualTo(owner.id());
         assertThat(joined.epicId()).contains(EPIC);
         assertThat(service.list("workspace")).hasSize(2);
 
-        WorkItemView goalOnly = service.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"), "Goal only", WorkItem.Kind.LEARN,
-                "Explain the parser", WorkItem.CompletionRule.ACCEPTED_RESULT);
-        List<String> goalOrder = ImmutableList.of(goalOnly.id(), joined.id());
-        List<WorkItemView> orderedGoal = service.order("workspace", "goal", goalOrder);
-        assertThat(find(joined.id()).epicRank()).as("Goal ordering preserves the Epic's order").isEqualTo(joined.epicRank());
-        assertThat(service.order("workspace", "goal", goalOrder)).as("unchanged order preserves revisions and timestamps").isEqualTo(orderedGoal);
         List<String> epicOrder = ImmutableList.of(joined.id(), created.id());
         List<WorkItemView> orderedEpic = service.orderEpic("workspace", EPIC, epicOrder);
-        assertThat(find(joined.id()).rank()).as("Epic ordering preserves the Goal's order").isEqualTo(1);
         assertThat(find(joined.id()).epicRank()).isZero();
-        assertThat(service.orderEpic("workspace", EPIC, epicOrder)).isEqualTo(orderedEpic);
+        assertThat(service.orderEpic("workspace", EPIC, epicOrder)).as("unchanged order preserves revisions and timestamps").isEqualTo(orderedEpic);
         List<WorkItemView> beforeRejectedOrder = service.list("workspace");
-        assertThatThrownBy(() -> service.order("workspace", "goal", ImmutableList.of(joined.id(), joined.id()))).hasMessageContaining("The Goal's work changed");
-        assertThatThrownBy(() -> service.orderEpic("workspace", EPIC, ImmutableList.of(joined.id(), goalOnly.id()))).hasMessageContaining("The Epic's work changed");
+        assertThatThrownBy(() -> service.orderEpic("workspace", EPIC, ImmutableList.of(joined.id(), joined.id()))).hasMessageContaining("The Epic's work changed");
         assertThat(service.list("workspace")).as("rejected orders update no items").isEqualTo(beforeRejectedOrder);
     }
 
@@ -656,7 +578,7 @@ class TestWorkItemService
     {
         WorkItemView quick = epicWork(EPIC, "Close the stale ticket");
         WorkItemCommand accept = new WorkItemCommand(UUID.randomUUID().toString(), quick.revision(), WorkItemCommand.Action.ACCEPT, Optional.empty(),
-                Optional.of("Close the stale ticket"), Optional.of(WorkItem.CompletionRule.ACCEPTED_RESULT), Optional.empty(), "Closed in Jira as Done",
+                Optional.of("Close the stale ticket"), Optional.of(WorkItem.CompletionRule.ACCEPTED_RESULT), "Closed in Jira as Done",
                 Optional.empty(), Optional.empty(), false);
         WorkItemView done = service.change("workspace", quick.id(), accept);
         assertThat(done.state()).isEqualTo(WorkItem.State.DONE);
@@ -675,7 +597,7 @@ class TestWorkItemService
         service.change("workspace", spike.id(), decision(spike, WorkItemCommand.Action.DROP, "Not needed"));
         assertThatThrownBy(() -> service.requireEpicDone("workspace", EPIC)).hasMessageContaining("all its work is done");
         service.change("workspace", cache.id(), new WorkItemCommand(UUID.randomUUID().toString(), cache.revision(), WorkItemCommand.Action.ACCEPT, Optional.empty(),
-                Optional.of("Cache metadata"), Optional.of(WorkItem.CompletionRule.ACCEPTED_RESULT), Optional.empty(), "Shipped", Optional.empty(), Optional.empty(), false));
+                Optional.of("Cache metadata"), Optional.of(WorkItem.CompletionRule.ACCEPTED_RESULT), "Shipped", Optional.empty(), Optional.empty(), false));
         service.requireEpicDone("workspace", EPIC);
     }
 
@@ -696,13 +618,13 @@ class TestWorkItemService
 
     private static WorkItemCommand arrange(WorkItemView item, WorkItemCommand.Action action, Optional<WorkItem.Priority> priority, String blocker)
     {
-        return new WorkItemCommand(UUID.randomUUID().toString(), item.revision(), action, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), "",
+        return new WorkItemCommand(UUID.randomUUID().toString(), item.revision(), action, Optional.empty(), Optional.empty(), Optional.empty(), "",
                 priority, Optional.of(blocker).filter(value -> !value.isEmpty()), false);
     }
 
     private static WorkItemCommand decision(WorkItemView item, WorkItemCommand.Action action, String detail)
     {
-        return new WorkItemCommand(UUID.randomUUID().toString(), item.revision(), action, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), detail,
+        return new WorkItemCommand(UUID.randomUUID().toString(), item.revision(), action, Optional.empty(), Optional.empty(), Optional.empty(), detail,
                 Optional.empty(), Optional.empty(), false);
     }
 
@@ -711,14 +633,14 @@ class TestWorkItemService
         return new WorkItemLink(identity, new GoalItem(kind, key, key, "Fix bug", NOW));
     }
 
-    /** Stores PR {@code number} in the given state and returns its key. */
-    private String pull(int number, GoalItemState state)
+    /** Stores PR {@code number} in the given state and returns its link. */
+    private WorkItemLink pull(int number, GoalItemState state)
     {
         WorkItemLink link = link(GoalItemKind.PULL_REQUEST, "org/repo#" + number, "PULL_REQUEST:github.com:org/repo#" + number);
         when(references.requireLink("workspace", GoalItemKind.PULL_REQUEST, link.reference().key())).thenReturn(link);
         when(references.view("workspace", link.reference())).thenReturn(new GoalItemView(GoalItemKind.PULL_REQUEST, link.reference().key(), "#" + number, "Fix",
                 state, state.name(), false, Optional.of("https://github.com/org/repo/pull/" + number), Optional.empty(), Optional.of(NOW), Optional.empty()));
-        return link.reference().key();
+        return link;
     }
 
     private static AgentTask task()

@@ -22,8 +22,8 @@ import java.util.List;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
 /**
- * Which planned work can start, in the order the Goal panel's Next view shows it: the user's priority first, then the open
- * work waiting on it, then its place in the Epic. Keep the two in step; goals/model.ts holds the panel's copy.
+ * Which planned work can start, in order: the user's priority first, then the open work waiting on it, then its place in the
+ * Epic.
  */
 final class ReadyWork
 {

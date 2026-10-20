@@ -115,8 +115,6 @@ class TestModelSettingsService
                 .isInstanceOf(AgentUnavailableException.class);
         assertThatThrownBy(() -> service.setAgentModel(AgentModelType.DEVELOPMENT, account.laneId().value(), "opus", Optional.empty()))
                 .isInstanceOf(AgentUnavailableException.class);
-        assertThatThrownBy(() -> service.setGoalModel("goal", "other", account.laneId().value(), "opus", Optional.empty()))
-                .isInstanceOf(AgentUnavailableException.class);
     }
 
     @Test
@@ -362,23 +360,6 @@ class TestModelSettingsService
                 .isInstanceOf(IllegalArgumentException.class);
 
         assertThat(service.clearWorkspaceOverride("ws-1", AgentModelType.DEVELOPMENT).explicit()).isFalse();
-    }
-
-    @Test
-    void aGoalUsesItsOwnModelElseItsWorkspacesDevelopmentModel()
-    {
-        service.setWorkspaceOverride("ws-1", AgentModelType.DEVELOPMENT, "codex", "gpt-5.6-sol", Optional.of("xhigh"));
-        assertThat(service.goalModel("goal-1", "ws-1")).extracting(AgentModelSetting::model, AgentModelSetting::explicit).containsExactly("gpt-5.6-sol", false);
-        assertThat(service.goalModel("goal-1", "ws-1").effort()).contains("xhigh");
-
-        AgentModelSetting chosen = service.setGoalModel("goal-1", "ws-1", "codex", "gpt-5.6-sol", Optional.of("low"));
-        assertThat(chosen.explicit()).isTrue();
-        assertThat(chosen.effort()).as("a Goal can chat at a lower effort than its workspace develops at").contains("low");
-        assertThat(service.goalModel("goal-2", "ws-1").effort()).contains("xhigh");
-        assertThatThrownBy(() -> service.setGoalModel("goal-1", "ws-1", "codex", "opus", Optional.empty())).isInstanceOf(IllegalArgumentException.class);
-
-        assertThat(service.clearGoalModel("goal-1", "ws-1")).extracting(setting -> setting.effort().orElseThrow(), AgentModelSetting::explicit)
-                .containsExactly("xhigh", false);
     }
 
     @Test

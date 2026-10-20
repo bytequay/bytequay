@@ -239,12 +239,12 @@ class TestEpicService
         when(work.requireItem("workspace", item.id())).thenReturn(item);
         String epicId = EpicSources.localEpicId(item.id());
         service.createLocalEpic("workspace", item.id(), "Cache metadata", " Cache per catalog. ", " Hive keeps its own cache. ");
-        verify(work).create("workspace", item.id(), Optional.empty(), "Cache metadata", WorkItem.Kind.DEVELOP, "Cache per catalog.\n\n### Context\n\nHive keeps its own cache.",
+        verify(work).create("workspace", item.id(), "Cache metadata", WorkItem.Kind.DEVELOP, "Cache per catalog.\n\n### Context\n\nHive keeps its own cache.",
                 WorkItem.CompletionRule.MERGED_DELIVERY);
         assertThat(records.find(epicId)).contains(Epic.of(epicId, "workspace"));
 
         service.createLocalEpic("workspace", item.id(), "Cache metadata", "", "Only context");
-        verify(work).create("workspace", item.id(), Optional.empty(), "Cache metadata", WorkItem.Kind.DEVELOP, "### Context\n\nOnly context", WorkItem.CompletionRule.MERGED_DELIVERY);
+        verify(work).create("workspace", item.id(), "Cache metadata", WorkItem.Kind.DEVELOP, "### Context\n\nOnly context", WorkItem.CompletionRule.MERGED_DELIVERY);
         assertThatThrownBy(() -> service.createLocalEpic("workspace", "work-2", "Too long", "x".repeat(65_537), ""))
                 .hasMessageContaining("exceed 65536 characters");
         verifyNoInteractions(github, jira, credentials, tickets, markers, issues);
@@ -268,8 +268,8 @@ class TestEpicService
 
     private static WorkItem localItem(Optional<String> epicId)
     {
-        return new WorkItem("work-1", "workspace", Optional.empty(), "Hive field names", WorkItem.Kind.DEVELOP, "Read fields containing slash characters",
+        return new WorkItem("work-1", "workspace", "Hive field names", WorkItem.Kind.DEVELOP, "Read fields containing slash characters",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), epicId, 0, ImmutableList.of());
+                WorkItem.Priority.NORMAL, ImmutableList.of(), epicId, 0, ImmutableList.of());
     }
 }

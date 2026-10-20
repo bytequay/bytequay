@@ -137,7 +137,7 @@ class AssistantWork
                 .orElseThrow(() -> new IllegalArgumentException(epicId.isPresent() ? "That Epic is gone" : "That repository is not watched any more"));
         WorkItemView created = epicId.isPresent()
                 ? work.createInEpic(workspace.id(), id, epicId.orElseThrow(), title, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY)
-                : work.create(workspace.id(), id, Optional.empty(), title, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY);
+                : work.create(workspace.id(), id, title, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY);
         ImmutableList.Builder<String> where = ImmutableList.<String>builder().add(workspace.monitoredRepository().fullName());
         epic.flatMap(this::row).ifPresent(found -> where.add(clip(found.title(), TITLE)));
         return new Done("Created “" + clip(created.title(), TITLE) + "”", Optional.of(String.join(" · ", where.build())),

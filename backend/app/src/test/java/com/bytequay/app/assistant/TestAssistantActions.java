@@ -427,8 +427,8 @@ class TestAssistantActions
     @Test
     void startsAnItemWithItsOwnFirstMessageThenTheUsersNote()
     {
-        when(workItems.find("w22")).thenReturn(Optional.of(new WorkItem("w22", "ws1", Optional.empty(), "Expose snapshot id in metadata", WorkItem.Kind.DEVELOP, "",
-                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH, 0,
+        when(workItems.find("w22")).thenReturn(Optional.of(new WorkItem("w22", "ws1", "Expose snapshot id in metadata", WorkItem.Kind.DEVELOP, "",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH,
                 ImmutableList.of(), Optional.empty(), 0, ImmutableList.of())));
         act(message("start the snapshot id one with codex", ImmutableList.of()), ImmutableMap.of("work:w22", SERVED),
                 "{\"op\":\"start_task\",\"from\":\"work:w22\",\"agent\":\"codex\",\"words\":\"start the snapshot id one\"}");
@@ -601,7 +601,7 @@ class TestAssistantActions
         assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("trinodb/trino · Iceberg write path");
         assertThat(receipts.getLast().receipt().orElseThrow().target()).contains(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", ids.getValue()));
 
-        when(workItemService.create(eq("ws1"), anyString(), eq(Optional.empty()), eq("flaky snapshot test"), eq(WorkItem.Kind.DEVELOP), eq(""),
+        when(workItemService.create(eq("ws1"), anyString(), eq("flaky snapshot test"), eq(WorkItem.Kind.DEVELOP), eq(""),
                 eq(WorkItem.CompletionRule.MERGED_DELIVERY))).thenAnswer(call -> view(call.getArgument(1), "flaky snapshot test"));
         act(message("new work item in trino: flaky snapshot test", ImmutableList.of()), served,
                 "{\"op\":\"create_work_item\",\"workspace\":\"ws:ws1\",\"words\":\"flaky snapshot test\"}");
@@ -668,10 +668,10 @@ class TestAssistantActions
         AssistantDraft draft = new AssistantDraft("ws1", "trinodb/trino", "Track the snapshot work.", "w9");
         assertThatThrownBy(() -> work.drafted(draft, DAY, NOW)).isInstanceOf(IllegalArgumentException.class).hasMessage("That draft was not created yet");
 
-        WorkItem published = new WorkItem("w9", "ws1", Optional.empty(), "Iceberg snapshot ids", WorkItem.Kind.DEVELOP, "Track the snapshot work.",
+        WorkItem published = new WorkItem("w9", "ws1", "Iceberg snapshot ids", WorkItem.Kind.DEVELOP, "Track the snapshot work.",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 2, ImmutableList.of(new WorkItemLink("ISSUE:github.com:901",
                         new GoalItem(GoalItemKind.ISSUE, "trinodb/trino#123", "#123", "Iceberg snapshot ids", NOW), Optional.empty(), Optional.empty())),
-                ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
+                ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         when(workItems.find("w9")).thenReturn(Optional.of(published));
         AssistantItem receipt = work.drafted(draft, DAY, NOW);
 
@@ -770,15 +770,15 @@ class TestAssistantActions
 
     private static WorkItem workItem(String id)
     {
-        return new WorkItem(id, "ws1", Optional.empty(), "Expose snapshot id in metadata", WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
-                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH, 0, ImmutableList.of(), Optional.empty(), 0,
+        return new WorkItem(id, "ws1", "Expose snapshot id in metadata", WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
+                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH, ImmutableList.of(), Optional.empty(), 0,
                 ImmutableList.of());
     }
 
     private static WorkItemView view(String id, String title)
     {
-        return new WorkItemView(id, "ws1", Optional.empty(), title, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 1,
-                ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.of("LOCAL:w1"), 0, false, ImmutableList.of());
+        return new WorkItemView(id, "ws1", title, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 1,
+                ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.of("LOCAL:w1"), 0, false, ImmutableList.of());
     }
 
     private static ModelSettingsService.Provider provider(String id, String label, AgentProviderStatus.Readiness readiness, String model, String effort)

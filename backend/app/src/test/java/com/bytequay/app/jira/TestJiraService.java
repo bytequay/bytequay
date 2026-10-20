@@ -181,8 +181,8 @@ class TestJiraService
         cache.write("connection.cloud.issue.1001", issue);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "ByteQuay")));
         when(workspaces.findById("other-workspace")).thenReturn(Optional.of(workspace("other-workspace", "Other")));
-        WorkItem owner = new WorkItem("work", "workspace", Optional.of("goal"), issue.title(), WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
-                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), UPDATED, UPDATED, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0,
+        WorkItem owner = new WorkItem("work", "workspace", issue.title(), WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
+                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), UPDATED, UPDATED, WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0,
                 ImmutableList.of());
         when(workItems.findByIdentity(WorkItemLink.jiraIdentity("cloud", "1001"))).thenReturn(Optional.of(owner));
         assertThat(jira.assignedWorkspace("cloud", "1001")).contains("workspace");

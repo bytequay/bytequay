@@ -66,11 +66,11 @@ class TestWorkItemCatalog
         when(jira.cachedIssues()).thenReturn(ImmutableList.of(ticket("workspace"), ticket("other")));
         WorkItemStore store = mock(WorkItemStore.class);
         WorkItemService work = mock(WorkItemService.class);
-        WorkItem local = new WorkItem("local", "workspace", Optional.empty(), "Private request", WorkItem.Kind.DEVELOP, "Private context",
+        WorkItem local = new WorkItem("local", "workspace", "Private request", WorkItem.Kind.DEVELOP, "Private context",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), now, now,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
-        WorkItemView view = new WorkItemView(local.id(), local.workspaceId(), local.goalId(), local.title(), local.kind(), local.acceptanceCriteria(),
-                local.completionRule(), local.state(), local.revision(), ImmutableList.of(), local.history(), now, now, local.priority(), 0, ImmutableList.of(),
+                WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
+        WorkItemView view = new WorkItemView(local.id(), local.workspaceId(), local.title(), local.kind(), local.acceptanceCriteria(),
+                local.completionRule(), local.state(), local.revision(), ImmutableList.of(), local.history(), now, now, local.priority(), ImmutableList.of(),
                 Optional.empty(), 0, false, ImmutableList.of());
         when(store.list("workspace")).thenReturn(ImmutableList.of(local));
         when(work.list("workspace")).thenReturn(ImmutableList.of(view));
@@ -82,8 +82,8 @@ class TestWorkItemCatalog
         verify(store, never()).insert(any());
 
         WorkItemLink link = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", 10, "org/repo", 1, issue.htmlUrl(), issue.title(), issue.body(), now), now);
-        WorkItem published = new WorkItem(local.id(), local.workspaceId(), local.goalId(), local.title(), local.kind(), local.acceptanceCriteria(),
-                local.completionRule(), local.state(), 1, ImmutableList.of(link), local.history(), now, now, local.priority(), 0,
+        WorkItem published = new WorkItem(local.id(), local.workspaceId(), local.title(), local.kind(), local.acceptanceCriteria(),
+                local.completionRule(), local.state(), 1, ImmutableList.of(link), local.history(), now, now, local.priority(),
                 ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         when(store.list("workspace")).thenReturn(ImmutableList.of(published));
         assertThat(catalog.list("workspace")).hasSize(2);
@@ -168,9 +168,9 @@ class TestWorkItemCatalog
     void foreignOwnershipDoesNotExposePrivateContextOrHideAnIndependentlyVisibleIssue()
     {
         ContextFixture fixture = new ContextFixture();
-        WorkItem foreign = new WorkItem("private", "other-workspace", Optional.empty(), "Private title", WorkItem.Kind.DEVELOP, "Private body",
+        WorkItem foreign = new WorkItem("private", "other-workspace", "Private title", WorkItem.Kind.DEVELOP, "Private body",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
+                WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         when(fixture.store.findByIdentity("ISSUE:github.com:10")).thenReturn(Optional.of(foreign));
         fixture.owner(ImmutableList.of(new WorkItemContextLink("ISSUE:github.com:10", "Saved title")));
         UnifiedWorkItem target = fixture.catalog.read("workspace", "ISSUE:github.com:10");
@@ -183,8 +183,8 @@ class TestWorkItemCatalog
 
     private static WorkItem local(String id, List<WorkItemContextLink> links)
     {
-        return new WorkItem(id, "workspace", Optional.empty(), id, WorkItem.Kind.DEVELOP, "Context", WorkItem.CompletionRule.MERGED_DELIVERY,
-                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0,
+        return new WorkItem(id, "workspace", id, WorkItem.Kind.DEVELOP, "Context", WorkItem.CompletionRule.MERGED_DELIVERY,
+                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL,
                 ImmutableList.of(), Optional.empty(), 0, links);
     }
 

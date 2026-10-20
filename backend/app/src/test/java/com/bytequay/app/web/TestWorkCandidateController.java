@@ -13,10 +13,10 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.workitem.GoalActivity;
 import com.bytequay.app.workitem.GoalItemState;
 import com.bytequay.app.workitem.GoalItemView;
+import com.bytequay.app.workitem.GoalReferenceReader;
 import com.bytequay.core.domain.GoalItemKind;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -38,13 +38,13 @@ class TestWorkCandidateController
     void searchesStoredItemsForTheAddBox()
             throws Exception
     {
-        GoalService goals = mock(GoalService.class);
+        GoalReferenceReader references = mock(GoalReferenceReader.class);
         Instant now = Instant.parse("2026-09-28T10:00:00Z");
-        when(goals.candidates("workspace", "retry")).thenReturn(ImmutableList.of(new GoalItemView(GoalItemKind.PULL_REQUEST, "trinodb/trino#30702", "#30702",
+        when(references.candidates("workspace", "retry")).thenReturn(ImmutableList.of(new GoalItemView(GoalItemKind.PULL_REQUEST, "trinodb/trino#30702", "#30702",
                 "Retry Iceberg commits", GoalItemState.MERGED, "Merged", false, Optional.of("https://github.com/trinodb/trino/pull/30702"),
                 Optional.of(new GoalActivity("#30702 merged", now)), Optional.empty(), Optional.empty())));
 
-        standaloneSetup(new WorkCandidateController(goals)).build()
+        standaloneSetup(new WorkCandidateController(references)).build()
                 .perform(get("/api/workspaces/workspace/goals/candidates").param("q", "retry"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].key").value("trinodb/trino#30702"))

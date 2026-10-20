@@ -247,8 +247,6 @@ class TestSqliteWorkspaceStore
             jdbc.update("INSERT INTO commit_refresh_metadata (workspace_id, error) VALUES (?, 'retained')", workspace.id());
             jdbc.update("INSERT INTO workspace_remote_sources (id, workspace_id, name, url) VALUES (?, ?, 'extra', 'https://github.com/extra/project.git')",
                     workspace.id() + ":extra", workspace.id());
-            jdbc.update("INSERT INTO goal (id, workspace_id, title, description, pinned, archived, created_at, updated_at) VALUES (?, ?, 'Goal', '', 1, 0, ?, ?)",
-                    workspace.id() + ":goal", workspace.id(), NOW.toString(), NOW.toString());
             jdbc.update("INSERT INTO work_item (id, workspace_id, revision, value) VALUES (?, ?, 0, '{}')", workspace.id() + ":work", workspace.id());
             jdbc.update("INSERT INTO epic (id, workspace_id, value) VALUES (?, ?, '{}')", workspace.id() + ":epic", workspace.id());
             jdbc.update("INSERT INTO work_item_identity (id, work_item_id) VALUES (?, ?)", workspace.id() + ":source", workspace.id() + ":work");
@@ -276,7 +274,7 @@ class TestSqliteWorkspaceStore
         assertThat(store.findById(removed.id())).isEmpty();
         assertThat(store.findAllRetained()).containsExactly(retained);
         assertThat(store.isWatched(retained.id())).isFalse();
-        for (String table : ImmutableList.of("workspace_credentials", "commit_refresh_metadata", "workspace_remote_sources", "goal", "work_item", "epic", "repository_memory")) {
+        for (String table : ImmutableList.of("workspace_credentials", "commit_refresh_metadata", "workspace_remote_sources", "work_item", "epic", "repository_memory")) {
             assertThat(jdbc.queryForList("SELECT workspace_id FROM " + table, String.class)).containsExactly(retained.id());
         }
         assertThat(jdbc.queryForList("SELECT work_item_id FROM work_item_identity", String.class)).containsExactly(retained.id() + ":work");

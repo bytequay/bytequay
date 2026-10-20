@@ -187,7 +187,7 @@ backend_runtime_dir="$(mktemp -d "${TMPDIR:-/tmp}/bytequay-backend.XXXXXX")" || 
     && cp app/target/bytequay-backend.jar "$backend_runtime_dir/bytequay-backend.jar" \
     && BYTEQUAY_BACKEND_PORT_FILE="$backend_runtime_dir/port" exec /usr/bin/perl -MPOSIX -e \
         '$SIG{$_} = "DEFAULT" for qw(INT QUIT); setsid; exec @ARGV or die "$ARGV[0]: $!\n"' \
-        java "${JVM_ARGS[@]}" -jar "$backend_runtime_dir/bytequay-backend.jar" --bytequay.experiments.goals=true ) &
+        java "${JVM_ARGS[@]}" -jar "$backend_runtime_dir/bytequay-backend.jar" ) &
 backend_pid=$!
 pids+=("$backend_pid")
 

@@ -72,7 +72,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
@@ -93,7 +92,6 @@ class TestDefaultAgentCompletionService
     private RecordingWorktreeService worktrees;
     private AgentRuntimeRegistry runtimeRegistry;
     private TaskId taskId;
-    private Consumer<AgentTask> beforeRemoval = task -> {};
     private UnaryOperator<AgentTask> idleWorktreePreparation = task -> task;
 
     @BeforeEach
@@ -717,32 +715,6 @@ class TestDefaultAgentCompletionService
         assertThat(stores.listPending(taskId, 10)).isEmpty();
     }
 
-    @Test
-    void keepsWhatATaskLeftUntilItsResultsAreRecorded()
-    {
-        service(Clock.fixed(NOW, ZoneOffset.UTC)).complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
-        DefaultAgentCompletionService due = service(Clock.fixed(NOW.plus(Duration.ofDays(8)), ZoneOffset.UTC));
-        beforeRemoval = task -> {
-            throw new AgentConflictException("The Goal has not recorded this task's results yet");
-        };
-
-        assertThat(cleanup(due)).isEqualTo(CleanupState.RETRY_PENDING);
-        assertThat(worktrees.cleaned).isEmpty();
-        assertThat(resources.transcriptKept).isZero();
-        assertThatThrownBy(() -> due.delete(taskId))
-                .isInstanceOf(AgentConflictException.class)
-                .hasMessageContaining("not recorded");
-        assertThat(stores.find(taskId)).isPresent();
-        assertThat(worktrees.deleted).isEmpty();
-
-        List<TaskId> recorded = new ArrayList<>();
-        beforeRemoval = task -> recorded.add(task.id());
-        assertThat(cleanup(due)).isEqualTo(CleanupState.DELETED);
-        due.delete(taskId);
-        assertThat(recorded).containsExactly(taskId, taskId);
-        assertThat(stores.find(taskId)).isEmpty();
-    }
-
     private CleanupState cleanup(DefaultAgentCompletionService service)
     {
         service.cleanup(taskId);
@@ -769,7 +741,6 @@ class TestDefaultAgentCompletionService
                 runtimeRegistry,
                 new FixedMetrics(),
                 () -> Duration.ofDays(7),
-                task -> beforeRemoval.accept(task),
                 clock,
                 task -> idleWorktreePreparation.apply(task));
     }

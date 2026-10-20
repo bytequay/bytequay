@@ -102,8 +102,8 @@ class TestAgendaDone
         AgendaItem stale = pull(4, AgendaItem.Action.REVIEW);
         assertThat(status(day(stale, ImmutableMap.of()), stale).state()).isEqualTo(AgendaDone.Status.State.OPEN);
 
-        WorkItem started = new WorkItem("w22", "ws1", Optional.empty(), "Expose snapshot id", WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
-                WorkItem.State.WORKING, 2, ImmutableList.of(), ImmutableList.of(), MADE, later, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.of("epic"), 0,
+        WorkItem started = new WorkItem("w22", "ws1", "Expose snapshot id", WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
+                WorkItem.State.WORKING, 2, ImmutableList.of(), ImmutableList.of(), MADE, later, WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.of("epic"), 0,
                 ImmutableList.of());
         when(workItems.find("w22")).thenReturn(Optional.of(started));
         AgendaItem start = new AgendaItem("work:w22", AgendaItem.Action.START, "Start “Expose snapshot id”", "Expose snapshot id", "", Optional.empty(), Optional.of("ws1"),

@@ -309,8 +309,8 @@ class TestAssistantRows
 
     private static WorkItem work(String id, Optional<String> epicId, WorkItem.State state, Instant at)
     {
-        return new WorkItem(id, "ws1", Optional.empty(), "Add a snapshot id column " + id, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, state, 0,
-                ImmutableList.of(), ImmutableList.of(), at, at, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), epicId, 0, ImmutableList.of());
+        return new WorkItem(id, "ws1", "Add a snapshot id column " + id, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, state, 0,
+                ImmutableList.of(), ImmutableList.of(), at, at, WorkItem.Priority.NORMAL, ImmutableList.of(), epicId, 0, ImmutableList.of());
     }
 
     private static AgentTask task(String title, String lane, Instant at)

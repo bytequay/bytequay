@@ -40,7 +40,6 @@ import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.goal.GoalSpecChecks;
 import com.bytequay.app.workitem.SpecWorkItems;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -111,8 +110,7 @@ class TestContextSpecCheckService
     private final MemoryService memories = new MemoryService(memoryStore, new InMemoryAppSettingsStore(), mapper, Clock.fixed(NOW, ZoneOffset.UTC));
     private final SpecWorkItems localWork = mock(SpecWorkItems.class);
     private final ContextSpecCheckService service = new ContextSpecCheckService(workspaces, git, store, builds, buildStore, mock(GitHubRepoClient.class),
-            mock(CredentialService.class), tasks, logs, worktrees, memories, new DefaultListableBeanFactory().getBeanProvider(GoalSpecChecks.class),
-            Clock.fixed(NOW, ZoneOffset.UTC), specWorkItems());
+            mock(CredentialService.class), tasks, logs, worktrees, memories, Clock.fixed(NOW, ZoneOffset.UTC), specWorkItems());
 
     private ObjectProvider<SpecWorkItems> specWorkItems()
     {

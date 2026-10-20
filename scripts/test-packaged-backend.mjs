@@ -35,7 +35,7 @@ const started = Date.now();
 const child = spawn(join(resources, 'jre', 'bin', 'java'), [
   '--enable-native-access=ALL-UNNAMED', `-Duser.home=${temporary}`,
   '-jar', join(resources, 'bytequay-backend.jar'), '--server.port=0',
-  `--bytequay.backend.port-file=${portFile}`, '--bytequay.experiments.goals=false',
+  `--bytequay.backend.port-file=${portFile}`,
   '--bytequay.agent.codex-enabled=false', '--bytequay.agent.claude-enabled=false',
   '--bytequay.scheduling.enabled=false',
 ], { cwd: temporary, env, stdio: ['ignore', 'pipe', 'pipe'] });

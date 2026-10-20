@@ -4032,7 +4032,6 @@ class TestDefaultAgentTurnService
                 runtimeRegistry,
                 metrics,
                 () -> Duration.ofDays(7),
-                task -> {},
                 CLOCK,
                 task -> task);
     }

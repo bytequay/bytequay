@@ -19,7 +19,6 @@ import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.store.WorkItemStore;
 import org.springframework.stereotype.Service;
 
-import java.util.Optional;
 import java.util.UUID;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -54,7 +53,7 @@ public class SpecWorkItems
             return work.list(workspaceId).stream().filter(item -> item.id().equals(id)).findFirst().orElseThrow();
         }
         ContextSpecCheck.Draft draft = candidate.draft().orElseThrow();
-        return work.create(workspaceId, id, Optional.empty(), draft.title(), WorkItem.Kind.DEVELOP, draft.body(), WorkItem.CompletionRule.MERGED_DELIVERY);
+        return work.create(workspaceId, id, draft.title(), WorkItem.Kind.DEVELOP, draft.body(), WorkItem.CompletionRule.MERGED_DELIVERY);
     }
 
     public static String identity(String workspaceId, String directory, ContextSpecCheck.Candidate candidate)

@@ -25,17 +25,15 @@ import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
 /**
- * One accepted outcome, independent of its source, execution attempts and Goal or Epic membership.
+ * One accepted outcome, independent of its source, execution attempts and Epic membership.
  *
- * @param rank its place in its Goal's order, lowest first; equal places keep creation order
- * @param blockedBy the work of the same Goal or Epic it waits on
+ * @param blockedBy the work of the same Epic it waits on
  * @param epicId the canonical identity of the issue or ticket marked as the Epic the work belongs to
  * @param epicRank its place in its Epic's order, lowest first; equal places keep creation order
  */
 public record WorkItem(
         String id,
         String workspaceId,
-        Optional<String> goalId,
         String title,
         Kind kind,
         String acceptanceCriteria,
@@ -47,7 +45,6 @@ public record WorkItem(
         Instant createdAt,
         Instant updatedAt,
         Priority priority,
-        long rank,
         List<String> blockedBy,
         Optional<String> epicId,
         long epicRank,
@@ -57,8 +54,6 @@ public record WorkItem(
     {
         checkText(id, "id");
         checkText(workspaceId, "workspaceId");
-        requireNonNull(goalId, "goalId is null");
-        goalId.ifPresent(value -> checkText(value, "goalId"));
         checkText(title, "title", 500);
         requireNonNull(kind, "kind is null");
         requireNonNull(acceptanceCriteria, "acceptanceCriteria is null");

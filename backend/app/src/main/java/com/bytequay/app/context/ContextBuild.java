@@ -33,8 +33,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The workspace's latest restricted run, a spec check turn, a memory harvest or a Goal's research, and what its tools recorded; execution
- * state belongs to its agent task. One run at a time per workspace.
+ * The workspace's latest restricted run, a spec check turn or a memory harvest, and what its tools recorded; execution state belongs to its
+ * agent task. One run at a time per workspace.
  */
 public record ContextBuild(
         long sequence, String requestKey, String requestDigest, String workspaceId, String taskId,
@@ -59,13 +59,12 @@ public record ContextBuild(
         requireNonNull(work, "work is null");
     }
 
-    /** The spec check, harvest or research this run works for. */
+    /** The spec check or harvest this run works for. */
     public String workId()
     {
         return switch (work) {
             case Check check -> check.checkId();
             case Harvest harvest -> harvest.harvestId();
-            case Research research -> research.researchId();
         };
     }
 
@@ -98,40 +97,8 @@ public record ContextBuild(
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "kind")
     @JsonSubTypes({
             @JsonSubTypes.Type(value = Check.class, name = "CHECK"),
-            @JsonSubTypes.Type(value = Harvest.class, name = "HARVEST"),
-            @JsonSubTypes.Type(value = Research.class, name = "RESEARCH")})
-    public sealed interface Work permits Check, Harvest, Research {}
-
-    /**
-     * A research run for a goal: the card's scope and pages, and the checkouts of the workspaces the goal's workspace depends on, each at
-     * the commit the run reads.
-     *
-     * @param researchId the recommendation card that started it
-     */
-    public record Research(String researchId, String goalId, String goalTitle, String objective, String scope, List<String> pages, List<Related> related)
-            implements Work
-    {
-        public Research
-        {
-            ContextLimits.text(researchId, "research id", 100);
-            ContextLimits.text(goalId, "goal id", 100);
-            ContextLimits.text(goalTitle, "goal title", 500);
-            requireNonNull(objective, "objective is null");
-            ContextLimits.text(scope, "research scope", 4_000);
-            pages = ImmutableList.copyOf(pages);
-            related = ImmutableList.copyOf(related);
-        }
-    }
-
-    public record Related(String repository, String path, String commit)
-    {
-        public Related
-        {
-            ContextLimits.text(repository, "related repository", 200);
-            ContextLimits.text(path, "related checkout", 1_000);
-            checkArgument(commit.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid related commit");
-        }
-    }
+            @JsonSubTypes.Type(value = Harvest.class, name = "HARVEST")})
+    public sealed interface Work permits Check, Harvest {}
 
     /**
      * The spec check a turn works for: its planning turn when nothing is being reproduced, otherwise the turn that reproduces one

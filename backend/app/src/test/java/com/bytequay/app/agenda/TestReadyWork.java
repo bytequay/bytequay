@@ -29,7 +29,6 @@ class TestReadyWork
 {
     private static final Instant CREATED = Instant.parse("2026-10-01T00:00:00Z");
 
-    // The same work as the Goal panel's Next test in goals.test.tsx, so the two orders cannot drift apart unnoticed.
     @Test
     void putsReadyWorkFirstByPriorityThenByTheWorkWaitingOnItThenByPlace()
     {
@@ -58,8 +57,8 @@ class TestReadyWork
 
     private static WorkItemView work(String id, long place, WorkItem.State state, WorkItem.Priority priority, String... blockedBy)
     {
-        return new WorkItemView(id, "ws1", Optional.empty(), id, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, state, 1, ImmutableList.of(),
-                ImmutableList.of(), CREATED.plusSeconds(place), CREATED.plusSeconds(place), priority, place, ImmutableList.copyOf(blockedBy), Optional.of("epic"), place, false,
+        return new WorkItemView(id, "ws1", id, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, state, 1, ImmutableList.of(),
+                ImmutableList.of(), CREATED.plusSeconds(place), CREATED.plusSeconds(place), priority, ImmutableList.copyOf(blockedBy), Optional.of("epic"), place, false,
                 ImmutableList.of());
     }
 }

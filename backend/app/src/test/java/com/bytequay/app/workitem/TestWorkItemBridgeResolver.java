@@ -74,7 +74,7 @@ class TestWorkItemBridgeResolver
         bridge.call().apply(request);
         bridge.call().apply(request);
         ArgumentCaptor<String> ids = ArgumentCaptor.forClass(String.class);
-        verify(work, times(2)).create(eq("workspace"), ids.capture(), eq(Optional.empty()), eq("Retain context"), eq(WorkItem.Kind.DEVELOP),
+        verify(work, times(2)).create(eq("workspace"), ids.capture(), eq("Retain context"), eq(WorkItem.Kind.DEVELOP),
                 eq("Reproduction and acceptance criteria"), eq(WorkItem.CompletionRule.MERGED_DELIVERY));
         assertThat(ids.getAllValues().getFirst()).isEqualTo(ids.getAllValues().getLast());
         when(catalog.read("workspace", "private")).thenReturn(new UnifiedWorkItem("private", UnifiedWorkItem.Source.LOCAL, "Private", "Context", "PLANNED", false,

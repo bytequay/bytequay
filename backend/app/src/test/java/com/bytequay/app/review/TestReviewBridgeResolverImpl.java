@@ -22,7 +22,6 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.app.context.ContextSpecCheckTools;
 import com.bytequay.app.memory.MemoryHarvestTools;
-import com.bytequay.app.service.goal.GoalResearchTools;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,7 +42,6 @@ class TestReviewBridgeResolverImpl
     private final ReviewTools tools = mock(ReviewTools.class);
     private final ContextSpecCheckTools checks = mock(ContextSpecCheckTools.class);
     private final MemoryHarvestTools harvests = mock(MemoryHarvestTools.class);
-    private final GoalResearchTools research = mock(GoalResearchTools.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
 
     @BeforeEach
@@ -51,20 +49,6 @@ class TestReviewBridgeResolverImpl
     {
         beans.registerSingleton("contextSpecCheckTools", checks);
         beans.registerSingleton("memoryHarvestTools", harvests);
-        beans.registerSingleton("goalResearchTools", research);
-    }
-
-    @Test
-    void aResearchRunGetsItsNoteToolWithoutCreatingAReview()
-    {
-        AgentTask task = task();
-        ReviewBridge notes = new ReviewBridge(ImmutableList.of(), "This research run reads and saves knowledge notes only");
-        when(research.bridge(task.id().toString())).thenReturn(Optional.of(notes));
-        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
-                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class));
-
-        assertThat(resolver.resolve(task.id().toString())).contains(notes);
-        verifyNoInteractions(tools);
     }
 
     @Test
@@ -74,7 +58,7 @@ class TestReviewBridgeResolverImpl
         ReviewBridge check = new ReviewBridge(ImmutableList.of(), "Check the directory's code against its specifications");
         when(checks.bridge(task.id().toString())).thenReturn(Optional.of(check));
         ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
-                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class));
+                beans.getBeanProvider(MemoryHarvestTools.class));
 
         assertThat(resolver.resolve(task.id().toString())).contains(check);
         verifyNoInteractions(tools);
@@ -88,7 +72,7 @@ class TestReviewBridgeResolverImpl
         when(tools.bridge(task.id().toString())).thenReturn(Optional.of(review));
         beans.registerSingleton("reviewTools", tools);
         ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
-                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class));
+                beans.getBeanProvider(MemoryHarvestTools.class));
 
         assertThat(resolver.resolve(task.id().toString())).contains(review);
     }
@@ -98,7 +82,7 @@ class TestReviewBridgeResolverImpl
     {
         beans.registerSingleton("reviewTools", tools);
         ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
-                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class));
+                beans.getBeanProvider(MemoryHarvestTools.class));
 
         assertThat(resolver.resolve(task().id().toString())).isEmpty();
     }

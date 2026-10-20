@@ -124,7 +124,7 @@ public class EpicService
                 .collect(joining("\n\n"));
         checkArgument(body.length() <= MAX_CONTEXT, "The description and context exceed %s characters", MAX_CONTEXT);
         unitOfWork.execute(() -> {
-            work.create(workspaceId, itemId, Optional.empty(), title, WorkItem.Kind.DEVELOP, body, WorkItem.CompletionRule.MERGED_DELIVERY);
+            work.create(workspaceId, itemId, title, WorkItem.Kind.DEVELOP, body, WorkItem.CompletionRule.MERGED_DELIVERY);
             setLocalEpic(workspaceId, itemId, true);
             return null;
         });

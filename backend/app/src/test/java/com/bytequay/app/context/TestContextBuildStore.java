@@ -87,12 +87,11 @@ class TestContextBuildStore
             throws Exception
     {
         ContextBuild.Work check = build().work();
-        ContextBuild.Work research = new ContextBuild.Research("research", "goal", "Goal", "Objective", "Scope", ImmutableList.of(), ImmutableList.of());
         ContextBuild.Work harvest = new ContextBuild.Harvest("harvest", "Pull request", false,
                 ImmutableList.of(new ContextBuild.HarvestPull(1, "Title", "https://example.com/pull/1", true, Instant.EPOCH)),
                 ImmutableList.of(new ContextBuild.HarvestThread("thread", 1, com.bytequay.core.memory.MemorySource.Part.REVIEW_COMMENT,
                         Optional.empty(), false, false, ImmutableList.of(new ContextBuild.HarvestNote("n1", "note", "author", true, "Body", "https://example.com/note", Instant.EPOCH)))));
-        for (ContextBuild.Work work : ImmutableList.of(check, research, harvest)) {
+        for (ContextBuild.Work work : ImmutableList.of(check, harvest)) {
             assertThat(mapper.readValue(mapper.writeValueAsString(work), ContextBuild.Work.class)).isEqualTo(work);
         }
     }

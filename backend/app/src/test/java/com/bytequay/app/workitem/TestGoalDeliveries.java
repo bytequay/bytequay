@@ -15,7 +15,6 @@ package com.bytequay.app.workitem;
 
 import com.bytequay.app.review.PullRequestDetailRefreshed;
 import com.bytequay.app.review.PullRequestsRefreshed;
-import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.PrCheckRunState;
@@ -38,7 +37,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -52,21 +50,20 @@ import static org.mockito.Mockito.withSettings;
 class TestGoalDeliveries
 {
     private static final Instant NOW = Instant.parse("2026-10-04T10:00:00Z");
+    private static final Optional<String> EPIC = Optional.of("ISSUE:github.com:1");
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final WorkItemService work = mock(WorkItemService.class);
-    private final GoalConversationService conversation = mock(GoalConversationService.class);
     private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final GoalDeliveries deliveries = new GoalDeliveries(workspaces, beans.getBeanProvider(WorkItemService.class),
-            beans.getBeanProvider(GoalConversationService.class), beans.getBeanProvider(PullRequestRefreshService.class), pullRequests, details, Runnable::run);
+            beans.getBeanProvider(PullRequestRefreshService.class), pullRequests, details, Runnable::run);
 
     @BeforeEach
     void setUp()
     {
         beans.registerSingleton("workItemService", work);
-        beans.registerSingleton("goalConversationService", conversation);
         beans.registerSingleton("pullRequestRefreshService", refresh);
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.id()).thenReturn("workspace");
@@ -74,27 +71,26 @@ class TestGoalDeliveries
     }
 
     @Test
-    void aMergeIsRecordedOnceOnTheGoalWorkItDeliversAndToldToTheAgent()
+    void aMergeIsRecordedOnceOnTheEpicWorkItDelivers()
     {
-        when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.MERGED))));
+        when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.MERGED))));
         deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31261, Optional.empty()));
         verify(work, never()).receipt(anyString(), anyString(), anyString(), anyString());
 
         deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
         verify(work).receipt("workspace", "work-1", "merged:trinodb/trino#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
-        verify(conversation).tell("workspace", "goal-1", "merged:trinodb/trino#31260:work-1", "Pull request #31260 for \"Fix #31252\" merged. The user can now accept the result.");
 
         WorkItemEvent recorded = new WorkItemEvent("merged:trinodb/trino#31260", "", "RECEIPT", "Pull request #31260 merged", NOW);
-        when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.WORKING, ImmutableList.of(recorded),
+        when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING, ImmutableList.of(recorded),
                 pull(31260, GoalItemState.MERGED))));
         deliveries.restore();
         verify(work, times(1)).receipt(anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
-    void anOpenPullRequestWaitsForReviewAndEachReviewersVerdictIsRecordedOnceAndToldToTheAgent()
+    void anOpenPullRequestWaitsForReviewAndEachReviewersVerdictIsRecordedOnce()
     {
-        when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.WORKING))));
+        when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.WORKING))));
         when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31260)).thenReturn(Optional.of(7L));
         StoredPrDetail detail = mock(StoredPrDetail.class, withSettings().mockMaker(MockMakers.INLINE));
         when(detail.reviewsComplete()).thenReturn(true);
@@ -104,17 +100,14 @@ class TestGoalDeliveries
 
         deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
         verify(work).receipt("workspace", "work-1", "opened:trinodb/trino#31260", "Pull request #31260 opened: Key actions by path and deletion vector");
-        verify(conversation).report("workspace", "goal-1", "opened:trinodb/trino#31260:work-1", "work-1", "Pull request #31260 for \"Fix #31252\" is open and waits for review.");
         verify(work).receipt("workspace", "work-1", "changes:3", "@bob requested changes on #31260: Add a test for deletion vectors");
-        verify(conversation).tell("workspace", "goal-1", "changes:3:work-1", "@bob requested changes on pull request #31260 for \"Fix #31252\": Add a test for deletion vectors");
         verify(work, never()).receipt(anyString(), anyString(), eq("changes:1"), anyString());
         verify(work).receipt("workspace", "work-1", "approved:2", "@alice approved #31260");
-        verify(conversation).tell("workspace", "goal-1", "approved:2:work-1", "@alice approved pull request #31260 for \"Fix #31252\".");
 
         ImmutableList<WorkItemEvent> recorded = ImmutableList.of(new WorkItemEvent("changes:3", "", "RECEIPT", "@bob requested changes on #31260", NOW),
                 new WorkItemEvent("approved:2", "", "RECEIPT", "@alice approved #31260", NOW),
                 new WorkItemEvent("opened:trinodb/trino#31260", "", "RECEIPT", "Pull request #31260 opened", NOW));
-        when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.WORKING, recorded, pull(31260, GoalItemState.WORKING))));
+        when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING, recorded, pull(31260, GoalItemState.WORKING))));
         deliveries.restore();
         verify(work, times(3)).receipt(anyString(), anyString(), anyString(), anyString());
     }
@@ -122,7 +115,7 @@ class TestGoalDeliveries
     @Test
     void checksFailingOnAHeadCommitAreRecordedOnceForThatCommit()
     {
-        when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.WORKING,
+        when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING,
                 ImmutableList.of(new WorkItemEvent("opened:trinodb/trino#31260", "", "RECEIPT", "Pull request #31260 opened", NOW)), pull(31260, GoalItemState.WORKING))));
         when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31260)).thenReturn(Optional.of(7L));
         StoredPrDetail detail = mock(StoredPrDetail.class, withSettings().mockMaker(MockMakers.INLINE));
@@ -135,7 +128,6 @@ class TestGoalDeliveries
 
         deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
         verify(work).receipt("workspace", "work-1", "checks:trinodb/trino#31260@abc123", "Checks failed on #31260: build");
-        verify(conversation).tell("workspace", "goal-1", "checks:trinodb/trino#31260@abc123:work-1", "Checks failed on pull request #31260 for \"Fix #31252\": build.");
         verify(work, times(1)).receipt(anyString(), anyString(), anyString(), anyString());
     }
 
@@ -147,9 +139,9 @@ class TestGoalDeliveries
     @Test
     void aListRefreshPicksUpTheTasksPullRequestAndRefreshesOnlyTheOpenOnes()
     {
-        WorkItemView item = item(Optional.of("goal-1"), WorkItem.State.WORKING, ImmutableList.of());
+        WorkItemView item = item(EPIC, WorkItem.State.WORKING, ImmutableList.of());
         when(work.list("workspace")).thenReturn(ImmutableList.of(item));
-        when(work.linkRelated("workspace", "work-1")).thenReturn(item(Optional.of("goal-1"), WorkItem.State.WORKING, ImmutableList.of(),
+        when(work.linkRelated("workspace", "work-1")).thenReturn(item(EPIC, WorkItem.State.WORKING, ImmutableList.of(),
                 pull(31260, GoalItemState.WORKING), pull(31100, GoalItemState.ENDED)));
         deliveries.listsRefreshed(new PullRequestsRefreshed());
         verify(refresh).refreshDetail("trinodb/trino", 31260);
@@ -157,38 +149,31 @@ class TestGoalDeliveries
     }
 
     @Test
-    void concludedWorkAndWorkOutsideAGoalAreNotFollowed()
+    void concludedWorkAndWorkOutsideAnEpicAreNotFollowed()
     {
-        when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.DONE, ImmutableList.of(), pull(31260, GoalItemState.MERGED)),
+        when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.DONE, ImmutableList.of(), pull(31260, GoalItemState.MERGED)),
                 item(Optional.empty(), WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.WORKING))));
         deliveries.listsRefreshed(new PullRequestsRefreshed());
         verify(work, never()).linkRelated(anyString(), anyString());
         verify(refresh, never()).refreshDetail(anyString(), anyInt());
         verify(work, never()).receipt(anyString(), anyString(), anyString(), anyString());
-        verify(conversation, never()).tell(any(), any(), any(), any());
     }
 
     @Test
-    void epicWorkOutsideAGoalFollowsItsPullRequestsAndRecordsAMergeWithNoGoalToTell()
+    void aListRefreshRecordsAMergeOnEpicWork()
     {
-        WorkItemView epicWork = item(Optional.empty(), Optional.of("ISSUE:github.com:1"), WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.MERGED));
+        WorkItemView epicWork = item(EPIC, WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.MERGED));
         when(work.list("workspace")).thenReturn(ImmutableList.of(epicWork));
         when(work.linkRelated("workspace", "work-1")).thenReturn(epicWork);
         deliveries.listsRefreshed(new PullRequestsRefreshed());
         verify(work).linkRelated("workspace", "work-1");
         verify(work).receipt("workspace", "work-1", "merged:trinodb/trino#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
-        verify(conversation, never()).tell(any(), any(), any(), any());
     }
 
-    private static WorkItemView item(Optional<String> goalId, WorkItem.State state, List<WorkItemEvent> history, GoalItemView... links)
+    private static WorkItemView item(Optional<String> epicId, WorkItem.State state, List<WorkItemEvent> history, GoalItemView... links)
     {
-        return item(goalId, Optional.empty(), state, history, links);
-    }
-
-    private static WorkItemView item(Optional<String> goalId, Optional<String> epicId, WorkItem.State state, List<WorkItemEvent> history, GoalItemView... links)
-    {
-        return new WorkItemView("work-1", "workspace", goalId, "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint", WorkItem.CompletionRule.MERGED_DELIVERY,
-                state, 3, ImmutableList.copyOf(links), history, NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), epicId, 0, false, ImmutableList.of());
+        return new WorkItemView("work-1", "workspace", "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint", WorkItem.CompletionRule.MERGED_DELIVERY,
+                state, 3, ImmutableList.copyOf(links), history, NOW, NOW, WorkItem.Priority.NORMAL, ImmutableList.of(), epicId, 0, false, ImmutableList.of());
     }
 
     private static PrReviewState review(long id, String login, String state, int minutesAgo, String body)

@@ -16,7 +16,6 @@ package com.bytequay.app.workitem;
 import com.bytequay.app.context.ContextText;
 import com.bytequay.app.review.PullRequestDetailRefreshed;
 import com.bytequay.app.review.PullRequestsRefreshed;
-import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
@@ -51,10 +50,10 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Follows the pull requests of the Goals' and Epics' open work: the work picks up a pull request its task published, a linked one still open is
- * refreshed whenever the lists are, and each change in its real status is recorded once on the work it concerns and, when it has a goal,
- * told to the goal's agent: a pull request open and waiting for review, a review approving it or still requesting changes, checks failing on
- * its head commit, and its merge. Whether the work is done stays the user's decision.
+ * Follows the pull requests of the Epics' open work: the work picks up a pull request its task published, a linked one still open is
+ * refreshed whenever the lists are, and each change in its real status is recorded once on the work it concerns: a pull request open and
+ * waiting for review, a review approving it or still requesting changes, checks failing on its head commit, and its merge. Whether the work is
+ * done stays the user's decision.
  */
 @Component
 public class GoalDeliveries
@@ -67,25 +66,23 @@ public class GoalDeliveries
 
     private final WorkspaceStore workspaces;
     private final ObjectProvider<WorkItemService> work;
-    private final ObjectProvider<GoalConversationService> conversations;
     private final ObjectProvider<PullRequestRefreshService> refresh;
     private final PullRequestStore pullRequests;
     private final PrDetailStore details;
     private final Executor executor;
 
     @Autowired
-    public GoalDeliveries(WorkspaceStore workspaces, ObjectProvider<WorkItemService> work, ObjectProvider<GoalConversationService> conversations,
-            ObjectProvider<PullRequestRefreshService> refresh, PullRequestStore pullRequests, PrDetailStore details)
+    public GoalDeliveries(WorkspaceStore workspaces, ObjectProvider<WorkItemService> work, ObjectProvider<PullRequestRefreshService> refresh, PullRequestStore pullRequests,
+            PrDetailStore details)
     {
-        this(workspaces, work, conversations, refresh, pullRequests, details, Executors.newSingleThreadExecutor(Thread.ofVirtual().name("goal-deliveries-", 0).factory()));
+        this(workspaces, work, refresh, pullRequests, details, Executors.newSingleThreadExecutor(Thread.ofVirtual().name("goal-deliveries-", 0).factory()));
     }
 
-    GoalDeliveries(WorkspaceStore workspaces, ObjectProvider<WorkItemService> work, ObjectProvider<GoalConversationService> conversations,
-            ObjectProvider<PullRequestRefreshService> refresh, PullRequestStore pullRequests, PrDetailStore details, Executor executor)
+    GoalDeliveries(WorkspaceStore workspaces, ObjectProvider<WorkItemService> work, ObjectProvider<PullRequestRefreshService> refresh, PullRequestStore pullRequests,
+            PrDetailStore details, Executor executor)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.work = requireNonNull(work, "work is null");
-        this.conversations = requireNonNull(conversations, "conversations is null");
         this.refresh = requireNonNull(refresh, "refresh is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.details = requireNonNull(details, "details is null");
@@ -99,7 +96,7 @@ public class GoalDeliveries
         executor.execute(() -> record(Optional.empty()));
     }
 
-    /** A detail refresh may show the merge of a pull request that Goal work links. */
+    /** A detail refresh may show the merge of a pull request that Epic work links. */
     @EventListener
     public void detailRefreshed(PullRequestDetailRefreshed event)
     {
@@ -107,7 +104,7 @@ public class GoalDeliveries
         executor.execute(() -> record(Optional.of(key)));
     }
 
-    /** A list refresh says nothing about a linked pull request, so the Goals' open work asks for each one it should follow. */
+    /** A list refresh says nothing about a linked pull request, so the Epics' open work asks for each one it should follow. */
     @EventListener
     public void listsRefreshed(PullRequestsRefreshed event)
     {
@@ -127,16 +124,15 @@ public class GoalDeliveries
                 }
             }
             catch (RuntimeException failure) {
-                log.debug("Goal work {} could not follow its pull requests: {}", item.id(), failure.toString());
+                log.debug("Work {} could not follow its pull requests: {}", item.id(), failure.toString());
             }
         }
         record(Optional.empty());
     }
 
     /**
-     * Records each change in the real status of the work's pull requests once per work item, as a receipt and a word to the goal's agent: its
-     * merge; while it is open, that it waits for review, which goes with the agent's next event rather than asking it, each reviewer's latest
-     * verdict approving it or still requesting changes, and checks failing on its head commit.
+     * Records each change in the real status of the work's pull requests once per work item, as a receipt: its merge; while it is open, that
+     * it waits for review, each reviewer's latest verdict approving it or still requesting changes, and checks failing on its head commit.
      *
      * @param pullRequest the one pull request a detail refresh read, or every linked one
      */
@@ -147,23 +143,18 @@ public class GoalDeliveries
                 if (link.kind() != GoalItemKind.PULL_REQUEST || !pullRequest.map(link.key()::equals).orElse(true)) {
                     continue;
                 }
-                String about = "pull request " + link.label() + " for \"" + item.title() + "\"";
                 if (link.state() == GoalItemState.MERGED) {
-                    recordOnce(item, "merged:" + link.key(), "Pull request " + link.label() + " merged: " + link.title(),
-                            "Pull request " + link.label() + " for \"" + item.title() + "\" merged. The user can now accept the result.", false);
+                    recordOnce(item, "merged:" + link.key(), "Pull request " + link.label() + " merged: " + link.title());
                 }
                 else if (link.state() == GoalItemState.WORKING) {
-                    recordOnce(item, "opened:" + link.key(), "Pull request " + link.label() + " opened: " + link.title(),
-                            "Pull request " + link.label() + " for \"" + item.title() + "\" is open and waits for review.", true);
+                    recordOnce(item, "opened:" + link.key(), "Pull request " + link.label() + " opened: " + link.title());
                     Optional<StoredPrDetail> detail = stored(link.key());
                     for (PrReviewState review : verdicts(detail, "CHANGES_REQUESTED")) {
                         String said = review.body() == null || review.body().isBlank() ? "" : ": " + ContextText.excerpt(review.body(), MAX_REVIEW);
-                        recordOnce(item, "changes:" + review.githubId(), "@" + review.login() + " requested changes on " + link.label() + said,
-                                "@" + review.login() + " requested changes on " + about + said, false);
+                        recordOnce(item, "changes:" + review.githubId(), "@" + review.login() + " requested changes on " + link.label() + said);
                     }
                     for (PrReviewState review : verdicts(detail, "APPROVED")) {
-                        recordOnce(item, "approved:" + review.githubId(), "@" + review.login() + " approved " + link.label(),
-                                "@" + review.login() + " approved " + about + ".", false);
+                        recordOnce(item, "approved:" + review.githubId(), "@" + review.login() + " approved " + link.label());
                     }
                     detail.filter(StoredPrDetail::checkRunsComplete).ifPresent(found -> {
                         List<String> failed = found.checkRuns().stream()
@@ -172,8 +163,7 @@ public class GoalDeliveries
                         String head = found.raw() == null || found.raw().headSha() == null ? "" : found.raw().headSha();
                         if (!failed.isEmpty()) {
                             // Once per head commit: a new push may fail again, and that is news.
-                            recordOnce(item, "checks:" + link.key() + "@" + head, "Checks failed on " + link.label() + ": " + String.join(", ", failed),
-                                    "Checks failed on " + about + ": " + String.join(", ", failed) + ".", false);
+                            recordOnce(item, "checks:" + link.key() + "@" + head, "Checks failed on " + link.label() + ": " + String.join(", ", failed));
                         }
                     });
                 }
@@ -181,24 +171,16 @@ public class GoalDeliveries
         }
     }
 
-    private void recordOnce(WorkItemView item, String operation, String receipt, String event, boolean routine)
+    private void recordOnce(WorkItemView item, String operation, String receipt)
     {
         if (item.history().stream().anyMatch(recorded -> recorded.operationId().equals(operation))) {
             return;
         }
         try {
             work.getObject().receipt(item.workspaceId(), item.id(), operation, receipt);
-            item.goalId().ifPresent(goalId -> conversations.ifAvailable(conversation -> {
-                if (routine) {
-                    conversation.report(item.workspaceId(), goalId, operation + ":" + item.id(), item.id(), event);
-                }
-                else {
-                    conversation.tell(item.workspaceId(), goalId, operation + ":" + item.id(), event);
-                }
-            }));
         }
         catch (RuntimeException failure) {
-            log.warn("{} was not recorded on Goal work {}", operation, item.id(), failure);
+            log.warn("{} was not recorded on work {}", operation, item.id(), failure);
         }
     }
 
@@ -222,7 +204,7 @@ public class GoalDeliveries
     private List<WorkItemView> open()
     {
         return workspaces.findAll().stream().map(Workspace::id).flatMap(workspaceId -> work.getObject().list(workspaceId).stream())
-                .filter(item -> (item.goalId().isPresent() || item.epicId().isPresent()) && item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)
+                .filter(item -> item.epicId().isPresent() && item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)
                 .collect(toImmutableList());
     }
 

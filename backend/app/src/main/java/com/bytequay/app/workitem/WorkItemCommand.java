@@ -24,7 +24,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * A user's decision on one work item.
  *
- * @param blocker the same Goal's work that BLOCK makes this item wait on, or UNBLOCK stops it waiting on
+ * @param blocker the same Epic's work that BLOCK makes this item wait on, or UNBLOCK stops it waiting on
  * @param releaseDependents whether DROP also stops the work waiting on this item from waiting on it
  */
 public record WorkItemCommand(
@@ -34,7 +34,6 @@ public record WorkItemCommand(
         Optional<String> title,
         Optional<String> acceptanceCriteria,
         Optional<WorkItem.CompletionRule> completionRule,
-        Optional<String> goalId,
         String detail,
         Optional<WorkItem.Priority> priority,
         Optional<String> blocker,
@@ -48,12 +47,11 @@ public record WorkItemCommand(
         requireNonNull(title, "title is null");
         requireNonNull(acceptanceCriteria, "acceptanceCriteria is null");
         requireNonNull(completionRule, "completionRule is null");
-        requireNonNull(goalId, "goalId is null");
         requireNonNull(detail, "detail is null");
         checkArgument(detail.length() <= 10000, "result is too long");
         requireNonNull(priority, "priority is null");
         requireNonNull(blocker, "blocker is null");
     }
 
-    public enum Action { EDIT, BEGIN, ACCEPT, DROP, REOPEN, MOVE, PRIORITIZE, BLOCK, UNBLOCK }
+    public enum Action { EDIT, BEGIN, ACCEPT, DROP, REOPEN, PRIORITIZE, BLOCK, UNBLOCK }
 }

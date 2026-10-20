@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.workitem.GoalItemView;
+import com.bytequay.app.workitem.GoalReferenceReader;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -24,20 +24,20 @@ import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
-/** The add-existing-work search. Epics use it in every build, so it stays outside the Goals experiment's controller. */
+/** The add-existing-work search: stored pull requests, issues, Jira tickets and tasks matching the query, for adding to an Epic. */
 @RestController
 public class WorkCandidateController
 {
-    private final GoalService goals;
+    private final GoalReferenceReader references;
 
-    public WorkCandidateController(GoalService goals)
+    public WorkCandidateController(GoalReferenceReader references)
     {
-        this.goals = requireNonNull(goals, "goals is null");
+        this.references = requireNonNull(references, "references is null");
     }
 
     @GetMapping("/api/workspaces/{workspaceId}/goals/candidates")
     public List<GoalItemView> candidates(@PathVariable String workspaceId, @RequestParam(defaultValue = "") String q)
     {
-        return goals.candidates(workspaceId, q);
+        return references.candidates(workspaceId, q);
     }
 }

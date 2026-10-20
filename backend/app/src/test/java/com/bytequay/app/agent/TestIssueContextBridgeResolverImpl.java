@@ -269,9 +269,9 @@ class TestIssueContextBridgeResolverImpl
             throws Exception
     {
         when(sources.findByTaskId(taskId.toString())).thenReturn(Optional.empty());
-        WorkItem item = new WorkItem("local", "workspace", Optional.empty(), "Private repair", WorkItem.Kind.DEVELOP, "Reproduction and full acceptance criteria",
+        WorkItem item = new WorkItem("local", "workspace", "Private repair", WorkItem.Kind.DEVELOP, "Reproduction and full acceptance criteria",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
+                WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         when(workItems.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item));
         IssueContextBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
         assertThat(bridge.instruction()).isEqualTo(IssueContextBridge.WORK_INSTRUCTION);
@@ -288,9 +288,9 @@ class TestIssueContextBridgeResolverImpl
     {
         when(sources.findByTaskId(taskId.toString())).thenReturn(Optional.empty());
         String epicId = "LOCAL:parent";
-        WorkItem parent = new WorkItem("parent", "workspace", Optional.empty(), "Private Epic", WorkItem.Kind.DEVELOP, "Full parent context and acceptance criteria",
+        WorkItem parent = new WorkItem("parent", "workspace", "Private Epic", WorkItem.Kind.DEVELOP, "Full parent context and acceptance criteria",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
+                WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         WorkItem sibling = work("sibling", "First connector", WorkItem.State.DONE, 0, epicId, "First connector verified", ImmutableList.of(), ImmutableList.of());
         WorkItem current = work("current", "Second connector", WorkItem.State.WORKING, 1, epicId, "Second connector verified", ImmutableList.of("sibling"), ImmutableList.of());
         when(workItems.find("parent")).thenReturn(Optional.of(parent));
@@ -313,8 +313,8 @@ class TestIssueContextBridgeResolverImpl
         assertThat(context.at("/epic/currentWork/doneWhen").asText()).isEqualTo(current.acceptanceCriteria());
         assertThat(context.at("/epic/currentWork/waitsOn/0").asText()).isEqualTo(sibling.title());
 
-        WorkItem otherWorkspace = new WorkItem("parent", "other", Optional.empty(), "Private elsewhere", parent.kind(), "Other workspace context", parent.completionRule(),
-                parent.state(), 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, parent.priority(), 0, ImmutableList.of(), Optional.empty(), 0, parent.contextLinks());
+        WorkItem otherWorkspace = new WorkItem("parent", "other", "Private elsewhere", parent.kind(), "Other workspace context", parent.completionRule(),
+                parent.state(), 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, parent.priority(), ImmutableList.of(), Optional.empty(), 0, parent.contextLinks());
         when(workItems.find("parent")).thenReturn(Optional.of(otherWorkspace));
         JsonNode excluded = mapper.readTree(bridge.read().get());
         assertThat(excluded.at("/epic/status").asText()).isEqualTo("missing");
@@ -326,8 +326,8 @@ class TestIssueContextBridgeResolverImpl
 
     private static WorkItem work(String id, String title, WorkItem.State state, long epicRank, String epicId, String criteria, List<String> blockedBy, List<WorkItemLink> links)
     {
-        return new WorkItem(id, "workspace", Optional.empty(), title, WorkItem.Kind.DEVELOP, criteria, WorkItem.CompletionRule.MERGED_DELIVERY, state, 0, links,
-                ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, blockedBy, Optional.of(epicId), epicRank, ImmutableList.of());
+        return new WorkItem(id, "workspace", title, WorkItem.Kind.DEVELOP, criteria, WorkItem.CompletionRule.MERGED_DELIVERY, state, 0, links,
+                ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, blockedBy, Optional.of(epicId), epicRank, ImmutableList.of());
     }
 
     @Test
@@ -335,9 +335,9 @@ class TestIssueContextBridgeResolverImpl
             throws Exception
     {
         String targetId = "ISSUE:github.com:900";
-        WorkItem item = new WorkItem("local", "workspace", Optional.empty(), "Private repair", WorkItem.Kind.DEVELOP, "Retained task criteria",
+        WorkItem item = new WorkItem("local", "workspace", "Private repair", WorkItem.Kind.DEVELOP, "Retained task criteria",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of(new WorkItemContextLink(targetId, "Linked background")));
+                WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of(new WorkItemContextLink(targetId, "Linked background")));
         when(workItems.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item));
         when(catalog.contextLinks("workspace", "local")).thenReturn(ImmutableList.of(
                 new WorkItemContextView(targetId, "resolved-local", UnifiedWorkItem.Source.GITHUB, "Linked background", "Open", true, Optional.empty())));

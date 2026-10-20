@@ -119,9 +119,9 @@ class TestWorkItemPublicationService
 
     private static WorkItem item(WorkItemEvent... history)
     {
-        return new WorkItem("local", "workspace", Optional.empty(), "Private repair", WorkItem.Kind.DEVELOP, "Full accepted context",
+        return new WorkItem("local", "workspace", "Private repair", WorkItem.Kind.DEVELOP, "Full accepted context",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.copyOf(history), Instant.EPOCH, Instant.EPOCH,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
+                WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
     }
 
     private static GitHubIssueSource source()

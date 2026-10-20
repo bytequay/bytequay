@@ -68,7 +68,7 @@ import static java.util.Objects.requireNonNullElse;
 public class EpicBreakdowns
 {
     private static final Logger log = LoggerFactory.getLogger(EpicBreakdowns.class);
-    // A reasoning model at high effort takes minutes to answer, as it does for a Goal.
+    // A reasoning model at high effort takes minutes to answer.
     private static final Duration RUNTIME = Duration.ofMinutes(10);
     static final int MAX_PROPOSALS = 8;
     private static final int MAX_TITLE = 120;

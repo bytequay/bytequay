@@ -43,7 +43,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
-/** Reads snapshots only. Browsing never imports requests into Goals or writes to a remote service. */
+/** Reads snapshots only. Browsing never adds work or writes to a remote service. */
 @Service
 public class WorkItemCatalog
 {

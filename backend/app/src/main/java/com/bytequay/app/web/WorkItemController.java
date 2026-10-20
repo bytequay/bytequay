@@ -112,25 +112,17 @@ public class WorkItemController
     {
         checkArgument(request.id() != null && request.title() != null && request.kind() != null && request.acceptanceCriteria() != null && request.completionRule() != null,
                 "id, title, kind, acceptance criteria and completion rule are required");
-        checkArgument(request.goalId().isEmpty() || request.epicId().isEmpty(), "New work starts in a Goal or an Epic, not both");
         if (request.epicId().isPresent()) {
             return items.createInEpic(workspaceId, request.id(), request.epicId().orElseThrow(), request.title(), request.kind(), request.acceptanceCriteria(),
                     request.completionRule());
         }
-        return items.create(workspaceId, request.id(), request.goalId(), request.title(), request.kind(), request.acceptanceCriteria(), request.completionRule());
+        return items.create(workspaceId, request.id(), request.title(), request.kind(), request.acceptanceCriteria(), request.completionRule());
     }
 
     @PostMapping("/{itemId}/decisions")
     public WorkItemView change(@PathVariable String workspaceId, @PathVariable String itemId, @RequestBody WorkItemCommand command)
     {
         return items.change(workspaceId, itemId, command);
-    }
-
-    @PutMapping("/order")
-    public List<WorkItemView> order(@PathVariable String workspaceId, @RequestBody OrderWork request)
-    {
-        checkArgument(request.goalId() != null && request.ids() != null, "goal and order are required");
-        return items.order(workspaceId, request.goalId(), request.ids());
     }
 
     @PutMapping("/epic-order")
@@ -182,20 +174,7 @@ public class WorkItemController
 
     public record ContextLink(long expectedRevision, String targetId) {}
 
-    @PostMapping("/{itemId}/links")
-    public WorkItemView link(@PathVariable String workspaceId, @PathVariable String itemId, @RequestBody LinkWorkItem request)
-    {
-        checkArgument(request.kind() != null && request.key() != null && request.expectedRevision() >= 0, "reference and revision are required");
-        return items.link(workspaceId, itemId, request.expectedRevision(), request.kind(), request.key());
-    }
-
-    public record CreateWorkItem(String id, Optional<String> goalId, String title, WorkItem.Kind kind, String acceptanceCriteria, WorkItem.CompletionRule completionRule,
-            Optional<String> epicId) {}
-
-    public record LinkWorkItem(long expectedRevision, GoalItemKind kind, String key) {}
-
-    /** Every work item of the Goal, in the order the user wants them. */
-    public record OrderWork(String goalId, List<String> ids) {}
+    public record CreateWorkItem(String id, String title, WorkItem.Kind kind, String acceptanceCriteria, WorkItem.CompletionRule completionRule, Optional<String> epicId) {}
 
     /** Every work item of the Epic, in the order the user wants them. */
     public record OrderEpicWork(String epicId, List<String> ids) {}

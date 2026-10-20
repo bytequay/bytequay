@@ -68,11 +68,9 @@ public interface AgentCompletionService
     /**
      * Removes the terminal worktree and retained runtime resources after their deadline.
      *
-     * <p>What the task left is first recorded where it is still needed, such as
-     * the Goal work it attempted. Worktree removal is retried before runtime
-     * deletion. The operation is idempotent. Any cleanup failure, including that
-     * record, records {@link CleanupState#RETRY_PENDING} without changing
-     * terminal task state or summary.
+     * <p>Worktree removal is retried before runtime deletion. The operation is
+     * idempotent. Any cleanup failure records {@link CleanupState#RETRY_PENDING}
+     * without changing terminal task state or summary.
      *
      * @param taskId terminal task whose retention deadline has passed
      * @throws AgentConflictException when the task is live or cleanup is early
@@ -85,11 +83,10 @@ public interface AgentCompletionService
      *
      * <p>The checkout and branch go first, so a refused Git operation leaves the task whole and
      * visible; the rows go last, so a failure in between can be retried. A task with an active turn
-     * or a held worktree claim is refused, as is one whose results are not yet recorded where they are
-     * still needed, such as the Goal work it attempted. Deleting an absent task is a no-op.
+     * or a held worktree claim is refused. Deleting an absent task is a no-op.
      *
      * @param taskId task to remove
-     * @throws AgentConflictException when the task is still running, its worktree is claimed or its results are not yet recorded
+     * @throws AgentConflictException when the task is still running or its worktree is claimed
      */
     void delete(TaskId taskId);
 }

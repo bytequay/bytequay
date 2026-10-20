@@ -49,7 +49,6 @@ public record ReviewTool(String name, String description, Map<String, Object> in
             "repository_context_spec_result",
             "repository_context_harvest_threads",
             "repository_context_harvest_save",
-            "goal_knowledge_save",
             "artifact_offer",
             "artifact_save",
             "agenda_context",

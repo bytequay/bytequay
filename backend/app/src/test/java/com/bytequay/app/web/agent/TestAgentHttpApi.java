@@ -1464,8 +1464,8 @@ class TestAgentHttpApi
     {
         Instant now = Instant.now();
         String id = UUID.randomUUID().toString();
-        workItems.insert(new WorkItem(id, workspaceId, Optional.empty(), "Profile the reader", WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, state, 0,
-                ImmutableList.of(), ImmutableList.of(new WorkItemEvent("planned", "", "CREATED", "Planned", now)), now, now, WorkItem.Priority.NORMAL, 0, ImmutableList.of(),
+        workItems.insert(new WorkItem(id, workspaceId, "Profile the reader", WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, state, 0,
+                ImmutableList.of(), ImmutableList.of(new WorkItemEvent("planned", "", "CREATED", "Planned", now)), now, now, WorkItem.Priority.NORMAL, ImmutableList.of(),
                 Optional.empty(), 0, ImmutableList.of()));
         return id;
     }
@@ -1474,8 +1474,8 @@ class TestAgentHttpApi
     {
         Instant now = Instant.now();
         WorkItemEvent planned = new WorkItemEvent("planned", "", "CREATED", "Planned", now);
-        workItems.insert(new WorkItem(UUID.randomUUID().toString(), ownerWorkspaceId, Optional.empty(), source.reference().title(), WorkItem.Kind.DEVELOP, "",
-                WorkItem.CompletionRule.MERGED_DELIVERY, state, 0, ImmutableList.of(source), ImmutableList.of(planned), now, now, WorkItem.Priority.NORMAL, 0,
+        workItems.insert(new WorkItem(UUID.randomUUID().toString(), ownerWorkspaceId, source.reference().title(), WorkItem.Kind.DEVELOP, "",
+                WorkItem.CompletionRule.MERGED_DELIVERY, state, 0, ImmutableList.of(source), ImmutableList.of(planned), now, now, WorkItem.Priority.NORMAL,
                 ImmutableList.of(), Optional.empty(), 0, ImmutableList.of()));
     }
 

@@ -121,7 +121,7 @@ public class WorkItemBridgeResolver
                         yield work.getObject().createInEpic(workspaceId, id, text(args, "epicId", 200), title, WorkItem.Kind.DEVELOP, description,
                                 WorkItem.CompletionRule.MERGED_DELIVERY);
                     }
-                    yield work.getObject().create(workspaceId, id, Optional.empty(), title, WorkItem.Kind.DEVELOP, description, WorkItem.CompletionRule.MERGED_DELIVERY);
+                    yield work.getObject().create(workspaceId, id, title, WorkItem.Kind.DEVELOP, description, WorkItem.CompletionRule.MERGED_DELIVERY);
                 }
                 case "MARK_EPIC" -> {
                     String id = text(args, "id", 200);

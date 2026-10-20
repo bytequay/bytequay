@@ -32,7 +32,6 @@ import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.repository.github.GitHubSearchResponse;
 import com.bytequay.app.review.MavenCommands;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.goal.GoalSpecChecks;
 import com.bytequay.app.workitem.SpecWorkItems;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -92,13 +91,12 @@ public class ContextSpecCheckService
     private final TaskLogStore logs;
     private final WorktreeService worktrees;
     private final MemoryService memories;
-    private final ObjectProvider<GoalSpecChecks> goals;
     private final Clock clock;
     private final ObjectProvider<SpecWorkItems> workItems;
 
     public ContextSpecCheckService(WorkspaceRepositoryService workspaces, GitCommandRunner git, ContextSpecCheckStore checks, ContextBuildService builds,
             ContextBuildStore buildStore, GitHubRepoClient github, CredentialService credentials, AgentTaskStore tasks, TaskLogStore logs,
-            WorktreeService worktrees, MemoryService memories, ObjectProvider<GoalSpecChecks> goals, Clock clock, ObjectProvider<SpecWorkItems> workItems)
+            WorktreeService worktrees, MemoryService memories, Clock clock, ObjectProvider<SpecWorkItems> workItems)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
@@ -111,7 +109,6 @@ public class ContextSpecCheckService
         this.logs = requireNonNull(logs, "logs is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.memories = requireNonNull(memories, "memories is null");
-        this.goals = requireNonNull(goals, "goals is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
     }
@@ -259,8 +256,6 @@ public class ContextSpecCheckService
     {
         ContextSpecCheck ended = check.ended(state, why, Instant.now(clock));
         checks.save(workspaceId, Optional.of(check), ended);
-        // A check a goal recommended settles its card and tells the goal's agent what it found.
-        goals.ifAvailable(goal -> goal.ended(workspaceId, ended));
     }
 
     /** Idempotent local deletion after the caller's verified workspace cleanup; shares the mutation lock so no check is recreated. */

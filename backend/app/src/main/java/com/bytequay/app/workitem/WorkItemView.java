@@ -26,7 +26,6 @@ import java.util.Optional;
 public record WorkItemView(
         String id,
         String workspaceId,
-        Optional<String> goalId,
         String title,
         WorkItem.Kind kind,
         String acceptanceCriteria,
@@ -38,7 +37,6 @@ public record WorkItemView(
         Instant createdAt,
         Instant updatedAt,
         WorkItem.Priority priority,
-        long rank,
         List<String> blockedBy,
         Optional<String> epicId,
         long epicRank,

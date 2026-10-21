@@ -1478,11 +1478,11 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history
           resolve: async () => {}, retry: async () => {}, draftReply: async () => '' }} />
       : <PullsScreen initialPr={{ repo: 'owner/repo', number: 8 }}
         repositoryScope={{ workspaceId: 'workspace-1', repository: 'owner/repo' }} onClose={() => {}} />));
-    for (let attempt = 0; attempt < 30 && !(host.querySelector('.pr-meta > .pr-private-toggle')
+    for (let attempt = 0; attempt < 30 && !(host.querySelector('.pr-overview__branches > .pr-private-toggle')
       && host.textContent?.includes('Should this cache be keyed by id?') && host.querySelectorAll('.pr-ask-agent').length === 1); attempt++) await settle();
     assert(taskPanel || document.activeElement === host.querySelector('.pr-composer textarea'), 'A pull request opened to comment on has its comment box focused');
-    assert(host.querySelector('.pr-meta > .pr-private-toggle') !== null && host.textContent?.includes('Should this cache be keyed by id?') === true,
-      `A pull request with a ${answeredBy} to answer must show the private threads toggle beside its labels`);
+    assert(host.querySelector('.pr-overview__branches > .pr-private-toggle') !== null && host.textContent?.includes('Should this cache be keyed by id?') === true,
+      `A pull request with a ${answeredBy} to answer must show the private threads toggle beside its branches`);
     const asks = [...host.querySelectorAll<HTMLButtonElement>('.pr-ask-agent')];
     assert(asks.length === 1, `Only carol's comment may offer Ask agent, not the viewer's own; found ${asks.length}`);
     if (retained) {

@@ -29,7 +29,7 @@ import { remotePullRequest } from '../PullsScreen';
 const AT = '2026-09-27T00:00:00Z';
 const ROOT = 61;
 const detail = prDetail({
-  id: 7, repo: 'owner/repo', number: 7, title: 'Resolve owners', htmlUrl: null,
+  id: 7, repo: 'owner/repo', number: 7, title: 'Resolve owners', htmlUrl: null, headRef: 'alice/resolve-owners-through-the-shared-helper-and-its-callers',
   mergeable: null, mergeableState: null, author: 'alice', createdAt: AT, updatedAt: AT,
   body: 'Resolves owners.', deletions: 1,
   recentActivity: [
@@ -167,12 +167,17 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(chip()?.textContent === 'Local · 1 reply ↑', `The chip reads "${chip()?.textContent ?? ''}"`);
     });
 
-    await step('The metadata icon hides and shows private threads, closing the forward card', async () => {
-      const toggle = host.querySelector<HTMLButtonElement>('.pr-meta > .pr-private-toggle');
-      const labels = host.querySelector<HTMLButtonElement>('.pr-meta__picker:last-of-type button');
-      assert(toggle !== null && labels !== null, 'The private threads toggle must sit beside the metadata');
-      assert(toggle.getBoundingClientRect().left > labels.getBoundingClientRect().right,
-        'The toggle must sit to the right of the labels');
+    await step('The branch-row icon hides and shows private threads, closing the forward card', async () => {
+      const toggle = host.querySelector<HTMLButtonElement>('.pr-overview__branches > .pr-private-toggle');
+      assert(toggle !== null, 'The private threads toggle must sit in the branch row');
+      // Beside the metadata chips it took a line of its own once the labels filled the row.
+      assert(toggle.previousElementSibling?.getAttribute('aria-label') === 'Open on GitHub', 'The toggle must follow Open on GitHub');
+      host.style.width = '640px';
+      const state = fixtureElement<HTMLElement>('.pr-overview__branches > .pr-state', host, 'The state pill is missing');
+      const branch = fixtureElement<HTMLElement>('.pr-overview__head-branch code', host, 'The head branch is missing');
+      assert(toggle.getBoundingClientRect().top < state.getBoundingClientRect().bottom && branch.scrollWidth > branch.clientWidth,
+        'A long head branch must shrink so the toggle stays on the state pill\'s line');
+      host.style.width = '';
       assert(host.querySelector('.pr-private-strip') === null && toggle.textContent === '', 'The old text toolbar must be absent');
       assert(toggle.getAttribute('aria-label') === 'Private threads' && toggle.getAttribute('aria-pressed') === 'true' && toggle.getAttribute('title') === 'Hide private threads', 'The toggle must start on');
       chip()?.click();

@@ -735,8 +735,9 @@
 .pr-overview__branches code { max-width: 440px; overflow: hidden; border-radius: 8px; background: var(--bg-info); color: var(--accent); padding: 3px 9px; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .pull-request-overview .pr-overview__branches code { padding: 4px 10px; font-size: 13.5px; }
 .pr-overview__base-branch { display: inline-flex; min-width: 0; align-items: center; gap: 9px; }
-.pr-overview__head-branch { display: inline-flex; min-width: 0; align-items: stretch; border-radius: 8px; background: var(--bg-info); }
-.pr-overview__head-branch code { border-radius: 8px 0 0 8px; }
+/* The head branch narrows before the row wraps; right-to-left clips its start, keeping the distinctive end in view. */
+.pr-overview__head-branch { display: inline-flex; flex: 1 1 120px; min-width: 0; max-width: max-content; align-items: stretch; border-radius: 8px; background: var(--bg-info); }
+.pr-overview__head-branch code { min-width: 0; border-radius: 8px 0 0 8px; direction: rtl; }
 .pr-overview__head-branch button { width: 30px; height: auto; border-left: 1px solid light-dark(#b6e3ff, var(--dark-blue-soft)); border-radius: 0 8px 8px 0; }
 .pr-state { display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; background: light-dark(#1f883d, #287a43); color: var(--on-solid); padding: 3px 9px; font-size: 12.5px; font-weight: 500; }
 .pull-request-overview .pr-state { padding: 4px 10px; font-size: 13.5px; }
@@ -1042,10 +1043,8 @@
 .pr-local-review__retry button { border: 1px solid var(--line-default); border-radius: 6px; padding: 4px 9px; color: var(--fg-strong); background: var(--surface-canvas); }
 
 /* Private threads: a task's own notes with the agent on a GitHub comment, never posted. */
-.pr-private-toggle { display: grid; flex: none; width: 32px; height: 32px; place-items: center; margin-left: auto; padding: 0; border: 1px solid light-dark(#e1e7eb, var(--dark-border-muted)); border-radius: 8px; background: light-dark(#f6f8fa, var(--dark-subtle)); color: var(--fg-subtle); cursor: pointer; }
-.pr-private-toggle:hover { background: light-dark(#eaeef2, var(--dark-subtle)); }
-.pr-private-toggle[aria-pressed="true"] { border-color: light-dark(#b8dcc5, var(--dark-green-border)); background: light-dark(#edf8f0, var(--dark-subtle)); color: var(--fg-success); }
-.pr-private-toggle[aria-pressed="true"]:hover { background: light-dark(#daf0e1, var(--dark-green-soft)); }
+.pr-overview__branches .pr-private-toggle[aria-pressed="true"] { background: light-dark(#edf8f0, var(--dark-subtle)); color: var(--fg-success); }
+.pr-overview__branches .pr-private-toggle[aria-pressed="true"]:hover { background: light-dark(#daf0e1, var(--dark-green-soft)); }
 .pr-private-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pr-ask-agent { flex: none; height: 24px; border: 1px solid var(--line-default); border-radius: 6px; background: light-dark(#f6f8fa, var(--dark-subtle)); color: var(--fg-default); padding: 0 9px; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .pr-ask-agent:disabled { opacity: 0.5; cursor: default; }

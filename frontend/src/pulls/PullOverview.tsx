@@ -150,13 +150,14 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
           </span>
           <span aria-hidden="true">←</span>
           <span className="pr-overview__head-branch">
-            <code>{detail.headRef ?? pr.headRef ?? 'branch unavailable'}</code>
+            <code title={detail.headRef ?? pr.headRef ?? undefined}><bdi>{detail.headRef ?? pr.headRef ?? 'branch unavailable'}</bdi></code>
             <CopyLinkButton value={detail.headRef ?? pr.headRef ?? ''} label="head branch" />
           </span>
           <button type="button" aria-label="Open on GitHub" title="Open on GitHub"
             onClick={() => { void window.bridge.openInAppBrowser(detail.htmlUrl ?? pr.htmlUrl); }}>
             <Avatar login="github" size={18} />
           </button>
+          {privateThreads !== undefined && <PrivateThreadsToggle threads={privateThreads} />}
           {contributorsWorkspaceId !== undefined && (displayState === 'Merged' || displayState === 'Closed')
             && <LearnFromPullButton workspaceId={contributorsWorkspaceId} repo={detail.repo} number={detail.number} />}
           {contributorsWorkspaceId !== undefined && displayState === 'Merged'
@@ -166,7 +167,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
       </section>
 
       <div className="pr-overview__rule" />
-      <Metadata detail={detail} contributorsWorkspaceId={contributorsWorkspaceId} onDetailUpdate={onDetailUpdate} privateThreads={privateThreads} />
+      <Metadata detail={detail} contributorsWorkspaceId={contributorsWorkspaceId} onDetailUpdate={onDetailUpdate} />
       {detail.unavailableSections.length > 0 && (
         <div className="pr-unavailable" role="status">
           Some GitHub sections are temporarily unavailable: {detail.unavailableSections.join(', ')}.
@@ -285,11 +286,10 @@ type PeoplePickerKind = 'reviewers' | 'assignees';
 type MetadataPickerKind = PeoplePickerKind | 'labels';
 type PeoplePickerCandidate = RepoUserDto & { selected: boolean; locked: boolean };
 
-function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate, privateThreads }: {
+function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
   detail: PullRequestDetailDto;
   contributorsWorkspaceId?: string;
   onDetailUpdate: PullDetailUpdater;
-  privateThreads?: PrivateThreads;
 }) {
   const [open, setOpen] = useState<MetadataPickerKind | null>(null);
   const [repoUsers, setRepoUsers] = useState<RepoUserDto[]>([]);
@@ -472,7 +472,6 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate, privateThre
           }} />}
       </div>
       {visibleDetail.milestone && <span><small>Milestone</small> {visibleDetail.milestone}</span>}
-      {privateThreads !== undefined && <PrivateThreadsToggle threads={privateThreads} />}
       {error && <div className="pr-meta__error" role="alert">Could not update pull request. {error}</div>}
     </div>
   );

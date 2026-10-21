@@ -34,6 +34,7 @@ import ChangesView from './ChangesView';
 import FlowView from './FlowView';
 import HistoryView from './HistoryView';
 import ProgressView from './ProgressView';
+import PullRequestsView from './PullRequestsView';
 import SelectRangeDialog from './SelectRangeDialog';
 import TasksView from './TasksView';
 import { lineRepos, remoteBranchCorrection, selectedSpan, shortSha, type LineRepo } from './model';
@@ -175,6 +176,8 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
   const [logVersion, setLogVersion] = useState(0);
   const [rangeOpen, setRangeOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [listMode, setListMode] = useState<'commits' | 'pulls'>('commits');
+  const [selectedPr, setSelectedPr] = useState<number | null>(null);
   /** The one ref an unreadable remote log already auto-synced for. */
   const autoSyncAttempt = useRef<string | null>(null);
   const rangeButtonRef = useRef<HTMLButtonElement>(null);
@@ -227,6 +230,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
     setUpBranches([]);
     setUpBranchPicked(false);
     setCheckedUp(new Set());
+    setSelectedPr(null);
   }, [source, sourceDefaultBranch, workspace.defaultBranch, workspace.upstreamDefaultBranch]);
 
   // A remembered source the repo line no longer names falls back to this workspace.
@@ -370,6 +374,26 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
     }
   };
 
+  /** Pull requests live in the browsed repository's own workspace; another branch of this one is this workspace. */
+  const showPulls = isRemote && listMode === 'pulls';
+
+  const openPullRequestFlow = async (number: number) => {
+    if (activeRemote === null || sourceSlug === null) return;
+    const [owner, repo] = sourceSlug.split('/');
+    setPreviewBusy(true);
+    setError(null);
+    try {
+      setPreview(await window.bridge.previewCherryPickPullRequest({
+        workspaceId: workspace.id, sourceRemote: activeRemote, owner, repo, number, targetBranch: branch,
+      }));
+      setScreen('flow');
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setPreviewBusy(false);
+    }
+  };
+
   const browse = (remote: string | null) => {
     setScreen('commits');
     setCommitsView('history');
@@ -390,7 +414,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
     (remote === 'upstream' ? 'another branch' : repos.find(repo => repo.remote === remote)?.name ?? remote);
 
   const showTabBar = screen !== 'progress';
-  const historyVisible = screen === 'commits' && (commitsView === 'history' || isRemote);
+  const historyVisible = screen === 'commits' && (commitsView === 'history' || isRemote) && !showPulls;
   const filteredUpBranches = upBranches.filter(name =>
     name.toLowerCase().includes(upBranchQuery.trim().toLowerCase()));
   const filteredTargetBranches = targetBranches.filter(name =>
@@ -439,12 +463,22 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
     <>
       {/* The mock keeps search and selection inside the commit column. */}
       <div className="cmt-search-row">
+        {isRemote && (
+          <div className="cmt-seg" role="group" aria-label="List">
+            {([['commits', 'Commits'], ['pulls', 'Pull requests']] as const).map(([key, label]) => (
+              <button type="button" key={key} className={listMode === key ? 'is-active' : ''} aria-pressed={listMode === key}
+                onClick={() => setListMode(key)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="cmt-search">
           <Search size={13} strokeWidth={2} aria-hidden="true" />
           <input
             value={searchQuery}
-            placeholder="Search title, SHA, PR title or #number"
-            aria-label="Search commits by pull request title, number, or SHA"
+            placeholder={showPulls ? 'Search merged pull requests, #number or a link' : 'Search title, SHA, PR title or #number'}
+            aria-label={showPulls ? 'Search merged pull requests by title, number, or link' : 'Search commits by pull request title, number, or SHA'}
             onChange={event => setSearchQuery(event.target.value)}
           />
         </div>
@@ -464,7 +498,20 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
         </div>
       )}
 
-      {isRemote && (
+      {showPulls && (
+        <div className={`cmt-strip${selectedPr === null ? '' : ' has-selection'}`}>
+          <span className="cmt-strip-count">{selectedPr === null ? 'No pull request selected' : `#${selectedPr} selected`}</span>
+          <div className="cmt-strip-gap" />
+          {selectedPr !== null && availability.any && (
+            <button type="button" className="cmt-strip-btn is-cherry" disabled={previewBusy} onClick={() => { void openPullRequestFlow(selectedPr); }}>
+              {previewBusy ? 'Preparing preview…' : 'Cherry-pick'}
+              <ArrowRight size={12} strokeWidth={2} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {isRemote && !showPulls && (
         <div className={`cmt-strip${span === null ? '' : ' has-selection'}`}>
           <span className="cmt-strip-count">
             {selectedCount === 0
@@ -738,7 +785,18 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
           onCommitted={() => setLogVersion(version => version + 1)}
         />
       )}
-      {screen === 'commits' && (commitsView === 'history' || isRemote) && (
+      {screen === 'commits' && showPulls && (
+        <PullRequestsView
+          workspaceId={browsed?.workspaceId ?? workspace.id}
+          slug={sourceSlug}
+          query={searchQuery}
+          selected={selectedPr}
+          listHeader={listHeader}
+          onSelect={setSelectedPr}
+          onOpenPullRequest={openPullRequest}
+        />
+      )}
+      {screen === 'commits' && (commitsView === 'history' || isRemote) && !showPulls && (
         <HistoryView
           listHeader={listHeader}
           pullRequestRepo={pullRequestRepo}

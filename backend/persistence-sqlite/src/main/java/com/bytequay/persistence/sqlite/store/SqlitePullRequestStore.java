@@ -150,6 +150,18 @@ public class SqlitePullRequestStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<PullRequest> findMergedRepositoryPullRequests(String repository, String search, int limit)
+    {
+        requireNonNull(repository, "repository is null");
+        checkArgument(limit > 0 && limit <= 100, "limit must be between 1 and 100");
+        String term = normalizeSearch(search);
+        return jpaRepository.findMergedWorkspace(repository, term, pullRequestNumber(term), PageRequest.of(0, limit)).stream()
+                .map(entity -> entity.toDomain(null))
+                .collect(toImmutableList());
+    }
+
+    @Override
     @Transactional
     public List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests, String syncMarker)
     {

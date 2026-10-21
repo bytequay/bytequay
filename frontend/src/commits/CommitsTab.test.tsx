@@ -26,6 +26,7 @@ import CommitsTab, {
   firstCommitSource,
 } from './CommitsTab';
 import { lineRepos } from './model';
+import { typedPullRequestNumber } from './PullRequestsView';
 
 function renderCommits(props: Partial<Parameters<typeof CommitsBrowser>[0]> = {}): string {
   return renderToStaticMarkup(<CommitsBrowser workspace={workspace()} settings={directSettings} repos={lineRepos(workspace(), noRelations, [])}
@@ -50,6 +51,7 @@ describe('workspace commits tab', () => {
     expect(html).toContain('No upstream repository to pick commits from');
     expect(html).toContain('Link one in Related workspaces');
     expect(html).not.toContain('cmt-pill__caption');
+    expect(html).not.toContain('aria-label="List"');
   });
 
   it('browses an upstream repository of the line while keeping a separate destination', () => {
@@ -63,6 +65,16 @@ describe('workspace commits tab', () => {
     expect(html).toContain('No commits selected');
     expect(html).toContain('Select range');
     expect(html).not.toContain('Ranges are picked on the source repo');
+    expect(html).toContain('aria-label="List"');
+    expect(html).toContain('>Pull requests</button>');
+  });
+
+  it('reads a typed pull request number or a link to the browsed repository', () => {
+    expect(typedPullRequestNumber('#28411', 'trino/oss')).toBe(28411);
+    expect(typedPullRequestNumber(' 12 ', 'trino/oss')).toBe(12);
+    expect(typedPullRequestNumber('https://github.com/Trino/OSS/pull/7/files', 'trino/oss')).toBe(7);
+    expect(typedPullRequestNumber('https://github.com/other/repo/pull/7', 'trino/oss')).toBeNull();
+    expect(typedPullRequestNumber('fix #12', 'trino/oss')).toBeNull();
   });
 
   it('opens the repository just upstream when asked to pick commits', () => {

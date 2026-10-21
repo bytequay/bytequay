@@ -319,6 +319,12 @@ public class PullRequestService
         return store.findRepositoryPage(requireNonNull(repository, "repository is null").fullName(), page, pageSize, search);
     }
 
+    /** Merged pull requests already stored for one repository; repository sync keeps roughly the last month of them. */
+    public List<PullRequest> listMergedPullRequests(RepoRef repository, String search, int limit)
+    {
+        return store.findMergedRepositoryPullRequests(requireNonNull(repository, "repository is null").fullName(), search, limit);
+    }
+
     /** Exact-fetches a newly created pull request so its workspace projection does not wait for GitHub search. */
     public void observeWorkspacePullRequest(RepoRef repository, int number)
     {

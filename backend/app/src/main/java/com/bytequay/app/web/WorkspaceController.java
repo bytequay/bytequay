@@ -33,6 +33,7 @@ import com.bytequay.app.workspace.WorkspaceRelationships.Relationship;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
@@ -145,6 +146,13 @@ public class WorkspaceController
     {
         WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId);
         return pullRequests.listPullRequests(RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo()), page, size, "");
+    }
+
+    @GetMapping("/{workspaceId}/pull-requests/merged")
+    public List<PullRequest> mergedPullRequests(@PathVariable String workspaceId, @RequestParam(defaultValue = "") String search, @RequestParam(defaultValue = "50") int limit)
+    {
+        WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId);
+        return pullRequests.listMergedPullRequests(RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo()), search, limit);
     }
 
     @PostMapping("/{workspaceId}/pull-requests/sync")

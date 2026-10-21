@@ -25,6 +25,18 @@ testBrowserScenarios([
     },
   },
   {
+    name: 'browses the repo line and cherry-picks a merged pull request in Chromium',
+    expected: 3, timeout: 30_000,
+    fixture: {
+      prefix: 'bytequay-commits-repo-line-',
+      entry: 'src/commits/fixtures/repoLineBrowser.tsx',
+      global: 'RepoLineTests',
+      styles: true,
+      width: 1200,
+      height: 800,
+    },
+  },
+  {
     name: 'shares safe keyboard submission across message composers',
     expected: 3, timeout: 120_000,
     fixture: {

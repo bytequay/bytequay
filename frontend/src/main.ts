@@ -94,6 +94,7 @@ import type {
   AgentDraftAttachmentDto,
   CherryPickExecutionRequest,
   CherryPickPreviewRequest,
+  CherryPickPullRequestPreviewRequest,
   CommitHistoryRefDto,
   CommitHistorySourceDto,
   CreateAgentTaskRequest,
@@ -609,6 +610,13 @@ function registerIpc(): void {
       ...jsonInit('POST', body),
       // A preview fetches the source remote in full; on a repository the size
       // of Trino that outlasts the default request timeout.
+      signal: AbortSignal.timeout(15 * 60_000),
+    });
+  });
+  ipcMain.handle('cherrypick:preview-pull-request', (_event, request: CherryPickPullRequestPreviewRequest) => {
+    const { workspaceId, ...body } = request;
+    return backendJson(workspaceUrl(workspaceId, `/cherry-pick/preview-pull-request`), {
+      ...jsonInit('POST', body),
       signal: AbortSignal.timeout(15 * 60_000),
     });
   });
@@ -1547,6 +1555,11 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/recent/draft`, jsonInit('POST', draft)));
   ipcMain.handle('recent:clear', () => backendJson(`${backendBase()}/recent`, { method: 'DELETE' }));
 
+  ipcMain.handle('prs:merged', (_event, workspaceId: string, search: string) => {
+    const url = new URL(`/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests/merged`, backendBase());
+    url.searchParams.set('search', search);
+    return backendJson(url);
+  });
   ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number) => {
     const url = new URL(workspaceId
       ? `/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests`

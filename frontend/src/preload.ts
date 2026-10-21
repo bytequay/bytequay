@@ -257,6 +257,8 @@ const bridge: Bridge = {
   onFindResult: callback => subscribe('find:result', callback),
 
   previewCherryPickRange: request => ipcRenderer.invoke('cherrypick:preview', request),
+  previewCherryPickPullRequest: request => ipcRenderer.invoke('cherrypick:preview-pull-request', request),
+  listMergedPullRequests: (workspaceId, search) => ipcRenderer.invoke('prs:merged', workspaceId, search),
   refreshAgentProviderReadiness: () => ipcRenderer.invoke('agent:providers:refresh'),
   startCherryPickExecution: request => ipcRenderer.invoke('cherrypick:execution:start', request),
   getCherryPickExecution: executionId => ipcRenderer.invoke('cherrypick:execution:get', executionId),

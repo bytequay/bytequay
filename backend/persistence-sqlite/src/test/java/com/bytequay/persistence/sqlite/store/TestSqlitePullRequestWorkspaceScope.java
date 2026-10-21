@@ -221,6 +221,31 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
+    void mergedRepositoryPullRequestsAreNewestMergeFirstAndSearchable()
+    {
+        workspaceStore.createOrGet(workspace("current", 100, RepoRef.of("owner", "project")));
+        Instant older = Instant.parse("2026-08-10T00:00:00Z");
+        Instant newer = Instant.parse("2026-08-12T00:00:00Z");
+        store.saveRepositorySyncPage("owner/project", ImmutableList.of(
+                merged(11L, 11, "Fix the parquet reader", older),
+                merged(12L, 12, "Retry S3 reads", newer),
+                pullRequest(13L, "owner/project", 13)), "workspace-1");
+
+        assertThat(store.findMergedRepositoryPullRequests("OWNER/project", "", 50)).extracting(PullRequest::number).containsExactly(12, 11);
+        assertThat(store.findMergedRepositoryPullRequests("owner/project", "parquet", 50)).extracting(PullRequest::number).containsExactly(11);
+        assertThat(store.findMergedRepositoryPullRequests("owner/project", "#12", 50)).extracting(PullRequest::number).containsExactly(12);
+        assertThat(store.findMergedRepositoryPullRequests("owner/project", "13", 50)).isEmpty();
+        assertThat(store.findMergedRepositoryPullRequests("owner/project", "", 1)).extracting(PullRequest::number).containsExactly(12);
+    }
+
+    private static FetchedPullRequest merged(long githubId, int number, String title, Instant mergedAt)
+    {
+        return new FetchedPullRequest(
+                githubId, "owner/project", number, title, "alice", "https://github.com/owner/project/pull/" + number, mergedAt, mergedAt, PullRequest.Origin.OTHER,
+                ImmutableList.of(), ImmutableMap.of(), false, "closed", mergedAt, mergedAt, ImmutableList.of(), null, null, "feature-" + number);
+    }
+
+    @Test
     void labelOrderingAndEquivalentMergedStatesDoNotCreateActivity()
     {
         Instant timestamp = Instant.parse("2026-08-20T00:00:00Z");

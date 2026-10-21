@@ -70,6 +70,7 @@ export type PullRequestDto = {
   mergeableState: string | null;
   headPushedAt: string | null;
   headRef: string | null;
+  mergedAt?: string | null;
   /** Local monitoring baseline and latest observed GitHub activity. */
   monitoredAt?: string | null;
   activityAt?: string | null;
@@ -564,6 +565,16 @@ export type CherryPickPreviewRequest = {
   sourceRemote?: string;
   sourceBaseRef: string;
   sourceTipRef: string;
+  targetBranch: string;
+};
+
+/** A merged pull request of `owner/repo`, read through one of the workspace's source remotes. */
+export type CherryPickPullRequestPreviewRequest = {
+  workspaceId: string;
+  sourceRemote: string;
+  owner: string;
+  repo: string;
+  number: number;
   targetBranch: string;
 };
 
@@ -1859,6 +1870,9 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   onFindResult: (callback: (result: FindResult) => void) => () => void;
 
   previewCherryPickRange: (request: CherryPickPreviewRequest) => Promise<CherryPickPreview>;
+  previewCherryPickPullRequest: (request: CherryPickPullRequestPreviewRequest) => Promise<CherryPickPreview>;
+  /** Merged pull requests stored for a workspace's repository, newest merge first. */
+  listMergedPullRequests: (workspaceId: string, search: string) => Promise<PullRequestDto[]>;
   /**
    * Probes every configured provider and returns its readiness.
    *

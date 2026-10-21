@@ -16,6 +16,7 @@ package com.bytequay.app.web.cherrypick;
 import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.cherrypick.CherryPickPreviewService;
+import com.bytequay.app.cherrypick.MergedPullRequestResolver;
 import com.bytequay.app.cherrypick.PreviewCherryPickRangeCommand;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentController;
@@ -23,6 +24,8 @@ import com.bytequay.app.web.agent.AgentRequestFilter;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
+import com.bytequay.core.cherrypick.MergedPullRequestRange;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
@@ -36,11 +39,13 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.OptionalLong;
 
 import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -73,6 +78,7 @@ class TestCherryPickPreviewHttpApi
 
     private WorkspaceRepositoryService workspaces;
     private CherryPickPreviewService previewService;
+    private MergedPullRequestResolver mergedPullRequests;
     private MockMvc mvc;
 
     @BeforeEach
@@ -81,6 +87,7 @@ class TestCherryPickPreviewHttpApi
         workspaces = mock(WorkspaceRepositoryService.class);
         when(workspaces.requireReadyRepository("workspace-id")).thenReturn(context("workspace-id", Path.of("/managed/workspace-id/repository"), Topology.FORK, "upstream"));
         previewService = mock(CherryPickPreviewService.class);
+        mergedPullRequests = mock(MergedPullRequestResolver.class);
         AgentProperties properties = new AgentProperties(
                 Path.of("/tmp/agent-runtime"),
                 Duration.ofMinutes(30),
@@ -91,7 +98,7 @@ class TestCherryPickPreviewHttpApi
                 "claude",
                 Path.of("/tmp/agent-claude-home"));
         AgentServingGate servingGate = readyAgentServingGate();
-        mvc = standaloneSetup(new CherryPickPreviewController(workspaces, previewService))
+        mvc = standaloneSetup(new CherryPickPreviewController(workspaces, previewService, mergedPullRequests))
                 .addFilters(new AgentRequestFilter(properties, new ObjectMapper().findAndRegisterModules(), servingGate))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -232,6 +239,60 @@ class TestCherryPickPreviewHttpApi
             assertThat(command.targetBranch()).isEqualTo("release/478");
             assertThat(command.remoteTrackingRef()).isEqualTo("upstream/release/478");
         });
+    }
+
+    @Test
+    void previewsExactlyTheLandedCommitsOfAMergedPullRequestFromARepoLineSource()
+            throws Exception
+    {
+        when(workspaces.requireReadyRepository("direct-id")).thenReturn(context(
+                "direct-id",
+                Path.of("/managed/direct-id/repository"),
+                Topology.DIRECT,
+                "origin",
+                new RemoteSource("direct-id", "backport-303", "https://github.com/trinodb/trino.git")
+                        .withRepositoryIdentity(303, RepoRef.of("trinodb", "trino"))));
+        String base = "a".repeat(40);
+        String merge = "b".repeat(40);
+        PullRequestRef pullRequest = PullRequestRef.of("trinodb", "trino", 28411);
+        var range = new MergedPullRequestRange(pullRequest, 303, "master", Instant.EPOCH, merge, ImmutableList.of(merge), base, ImmutableList.of(merge));
+        when(mergedPullRequests.resolve("direct-id", "backport-303", pullRequest)).thenReturn(range);
+        doThrow(new IllegalArgumentException("stop after capture"))
+                .when(previewService).preview(any(), eq(range));
+
+        mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview-pull-request")
+                        .header(AgentController.SESSION_HEADER, SESSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sourceRemote":"backport-303","owner":"trinodb","repo":"trino","number":28411,"targetBranch":"release/1"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("stop after capture"));
+
+        ArgumentCaptor<PreviewCherryPickRangeCommand> commands = ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
+        verify(previewService).preview(commands.capture(), eq(range));
+        assertThat(commands.getValue()).satisfies(command -> {
+            assertThat(command.sourceRemote()).isEqualTo("backport-303");
+            assertThat(command.sourceRepositoryId()).hasValue(303);
+            assertThat(command.sourceBaseRef()).isEqualTo(base);
+            assertThat(command.sourceTipRef()).isEqualTo(merge);
+            assertThat(command.targetBranch()).isEqualTo("release/1");
+        });
+
+        mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview-pull-request")
+                        .header(AgentController.SESSION_HEADER, SESSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sourceRemote":"origin","owner":"trinodb","repo":"trino","number":28411,"targetBranch":"release/1"}
+                                """))
+                .andExpect(status().isUnprocessableEntity());
+        mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview-pull-request")
+                        .header(AgentController.SESSION_HEADER, SESSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sourceRemote":"backport-303","owner":"trinodb","repo":"trino","number":0,"targetBranch":"release/1"}
+                                """))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

@@ -46,6 +46,9 @@ public interface PullRequestStore
 
     PullRequestPage findRepositoryPage(String repository, int page, int pageSize, String search);
 
+    /** One repository's merged rows, newest merge first; a non-blank search matches the title or a #number. */
+    List<PullRequest> findMergedRepositoryPullRequests(String repository, String search, int limit);
+
     /** Stores a page of fetched pull requests and returns them as stored rows. */
     List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests, String syncMarker);
 

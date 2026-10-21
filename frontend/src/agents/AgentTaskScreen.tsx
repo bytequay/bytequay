@@ -1610,6 +1610,8 @@ export default function AgentTaskScreen({
   const [reviewFocus, setReviewFocus] = useState<ReviewCardFocus | null>(null);
   const [logChoice, setLogChoice] = useState<string | null>(null);
   const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
+  const pullRequestsShown = useRef(false);
+  pullRequestsShown.current = pullRequests.length > 0;
   const [pullRequestError, setPullRequestError] = useState<string | null>(null);
   const [pullRequestLoading, setPullRequestLoading] = useState(false);
   const [pullRequestRefresh, setPullRequestRefresh] = useState(0);
@@ -1950,7 +1952,8 @@ export default function AgentTaskScreen({
     let retry: ReturnType<typeof setTimeout> | undefined;
     const asked = pullRequestRefresh !== pullRequestRefreshSeen.current;
     pullRequestRefreshSeen.current = pullRequestRefresh;
-    let shown = false;
+    // Counts the pull request a previous lookup put on screen, so an unreachable backend stays quiet too.
+    let shown = pullRequestsShown.current;
     setPullRequestLoading(true);
     const lookup = async (): Promise<void> => {
       const cached = await live().listAgentTaskPullRequests(taskId, workspaceId);
@@ -2719,7 +2722,6 @@ export default function AgentTaskScreen({
         }}
       />
     )}
-    {localReview.error !== null && <div className="agt-notice" role="alert">Local review comments: {localReview.error}</div>}
     <AgentTaskBody
       state={state}
       attentionStatus={attentionStatus}

@@ -29,7 +29,6 @@ export type LocalReviewBridgePort = Pick<Bridge,
 export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
   active?: boolean; bridge?: LocalReviewBridgePort; disabledReason?: string | null; learningDisabledReason?: string | null; onDispatch?: () => Promise<void>;
 } = {}): LocalReviewThreads & {
-  error: string | null;
   refresh: () => Promise<void>;
   create: (comment: DiffAgentComment, target: { taskId: string; workspaceId: string; repo: string; number: number; expectedTaskVersion: number }) => Promise<void>;
   createLearning: (request: Omit<CreateDevelopmentLearningCommentRequest, 'id' | 'messageId' | 'idempotencyKey'>) => Promise<void>;
@@ -38,7 +37,8 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
   optionsRef.current = options;
   const operations = useRef(new Map<string, { key: string; messageId: string; threadId: string }>());
   const live = useCallback((): LocalReviewBridgePort => optionsRef.current.bridge ?? window.bridge, []);
-  const { items, latest, error, refresh, accept } = useThreadSnapshot(query, options.active, target => live().listLocalReviewComments(target));
+  // A failed poll keeps the last threads and tries again; replies and saves report their own failures.
+  const { items, latest, refresh, accept } = useThreadSnapshot(query, options.active, target => live().listLocalReviewComments(target));
   const viewer = useViewer(query !== null && items.length > 0);
   const operation = useCallback((signature: string) => {
     const existing = operations.current.get(signature);
@@ -125,5 +125,5 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
     void dispatched();
   }, [accept, dispatched, find, latest, live, refresh]);
   return { threads: items, viewer, onReply, onResolve, onRetry,
-    disabledReason: options.disabledReason, learningDisabledReason: options.learningDisabledReason, error, refresh, create, createLearning };
+    disabledReason: options.disabledReason, learningDisabledReason: options.learningDisabledReason, refresh, create, createLearning };
 }

@@ -1239,7 +1239,6 @@ export default function PullsScreen({
             </div>
           ) : (
             <>
-            {localReview.error !== null && <div className="agr-error" role="alert">Local review comments: {localReview.error}</div>}
             {codeTabKey !== null && codeTabKey === reviewKey && (
               <div className="pull-detail__code" hidden={detailTab !== 'code'}>
                 <CodeTestsTab

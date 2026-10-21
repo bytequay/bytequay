@@ -62,8 +62,9 @@ export async function buildBrowserFixture(fixture: BrowserFixture) {
     await build({
       configFile: false, logLevel: 'silent', define: { 'process.env.NODE_ENV': '"production"' },
       esbuild: { jsx: 'automatic', jsxDev: false },
+      // Fixtures run on the pinned Electron, so skip legacy-browser transpilation.
       // Minified dependency names can collide with generated class-field helpers in these single-file bundles.
-      build: { minify: false, outDir: bundle, emptyOutDir: false, lib: {
+      build: { target: 'esnext', minify: false, outDir: bundle, emptyOutDir: false, lib: {
         entry: resolve(fixture.entry), name: fixture.global, formats: ['iife'], fileName: () => 'renderer.js',
       } },
     });

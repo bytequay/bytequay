@@ -237,10 +237,8 @@ function HomePage({
     }
     let cancelled = false;
     let request = 0;
-    let readAt = 0;
     const reload = () => {
       const current = ++request;
-      readAt = Date.now();
       void Promise.allSettled(workspaceKey.split(',').map(workspaceId =>
         window.bridge.fetchWorkspaceIssueAttention(workspaceId)
           .then(snapshot => issueAttentionItems(snapshot, workspaceId, login))))
@@ -254,15 +252,14 @@ function HomePage({
         });
     };
     const changed = () => { setIssueItems([]); reload(); };
-    // Ride the desktop's attention updates, at the slower pace the issues themselves change.
-    const refreshed = () => { if (Date.now() - readAt >= ISSUE_ATTENTION_REFRESH_MS) reload(); };
     reload();
+    // Its own clock: pull request updates are sent only when a row changes, and say nothing about issues.
+    const timer = window.setInterval(() => { if (!document.hidden) reload(); }, ISSUE_ATTENTION_REFRESH_MS);
     window.addEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
-    window.addEventListener('bytequay:pr-attention-updated', refreshed);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
       window.removeEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
-      window.removeEventListener('bytequay:pr-attention-updated', refreshed);
     };
   }, [login, workspaceKey]);
 

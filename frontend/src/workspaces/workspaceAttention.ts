@@ -94,10 +94,8 @@ export function useWorkspaceAttention(workspaceId: string, repository: string, t
     if (!login) return;
     let active = true;
     let request = 0;
-    let readAt = 0;
     const reload = () => {
       const current = ++request;
-      readAt = Date.now();
       void window.bridge.fetchWorkspaceIssueAttention(workspaceId).then(snapshot => {
         if (!active || current !== request) return;
         const assigned = issueAttentionItems(snapshot, workspaceId, login);
@@ -110,14 +108,14 @@ export function useWorkspaceAttention(workspaceId: string, repository: string, t
       });
     };
     const changed = () => { setIssues([]); reload(); };
-    const refreshed = () => { if (Date.now() - readAt >= ISSUE_ATTENTION_REFRESH_MS) reload(); };
     reload();
+    // Its own clock: pull request updates are sent only when a row changes, and say nothing about issues.
+    const timer = window.setInterval(() => { if (!document.hidden) reload(); }, ISSUE_ATTENTION_REFRESH_MS);
     window.addEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
-    window.addEventListener('bytequay:pr-attention-updated', refreshed);
     return () => {
       active = false;
+      window.clearInterval(timer);
       window.removeEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
-      window.removeEventListener('bytequay:pr-attention-updated', refreshed);
     };
   }, [login, workspaceId]);
   const candidates = useMemo(() => linkTasks(attentionCandidates(

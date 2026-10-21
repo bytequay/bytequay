@@ -1259,6 +1259,12 @@ public class PullRequestService
                 thread.localEventKey());
     }
 
+    /** The latest comment of each review thread whose author can push to the repository, read from GitHub now. */
+    public Set<Long> reviewCommentsByPushers(String repo, int number)
+    {
+        return gitHub.latestReviewCommentsByPushers(credentialService.resolveGitHubToken(), parseRef(repo, number));
+    }
+
     public void setReviewThreadResolved(String repo, int number, long rootCommentId, boolean resolved)
     {
         String pat = credentialService.resolveGitHubToken();

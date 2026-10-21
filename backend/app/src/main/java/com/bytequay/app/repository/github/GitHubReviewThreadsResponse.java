@@ -39,7 +39,9 @@ public record GitHubReviewThreadsResponse(Data data)
 
     public record Comments(List<Comment> nodes) {}
 
-    public record Comment(Long databaseId) {}
+    public record Comment(Long databaseId, Review pullRequestReview) {}
+
+    public record Review(boolean authorCanPushToRepository) {}
 
     public record PageInfo(boolean hasNextPage, String endCursor) {}
 }

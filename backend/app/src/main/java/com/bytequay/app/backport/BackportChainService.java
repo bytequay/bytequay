@@ -26,6 +26,7 @@ import com.bytequay.app.cherrypick.MergedPullRequestResolver;
 import com.bytequay.app.cherrypick.PreviewCherryPickRangeCommand;
 import com.bytequay.app.cherrypick.StartCherryPickExecutionCommand;
 import com.bytequay.app.ci.CiAutofixService;
+import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
@@ -659,7 +660,8 @@ public class BackportChainService
         var task = related.eligible(taskId).orElseThrow(() -> new IllegalArgumentException("Requesting conversation is unavailable"));
         var turn = turns.findActive(task.id()).filter(value -> value.id().equals(turnId) && value.cancellationRequestedAt().isEmpty())
                 .orElseThrow(() -> new IllegalArgumentException("The requesting turn is no longer active"));
-        checkArgument(turn.developmentOrigin().isEmpty() && !turn.idempotencyKey().equals("related-work:" + taskId), "An automated turn cannot authorize a chain");
+        checkArgument(turn.developmentOrigin().isEmpty() && !turn.idempotencyKey().equals("related-work:" + taskId) && !ReviewFixService.fixTurn(turn),
+                "An automated turn cannot authorize a chain");
         return task;
     }
 

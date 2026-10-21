@@ -1469,6 +1469,44 @@ public class GitHubPullRequestReadClient
         });
     }
 
+    /** The latest comment of each review thread whose author can push to the repository. */
+    public Set<Long> latestReviewCommentsByPushers(String pat, PullRequestRef pr)
+    {
+        String query = """
+                query($owner:String!,$repo:String!,$number:Int!,$after:String) {
+                  rateLimit { cost }
+                  repository(owner:$owner,name:$repo) {
+                    pullRequest(number:$number) {
+                      reviewThreads(first:100,after:$after) {
+                        nodes { comments(last:1) { nodes { databaseId pullRequestReview { authorCanPushToRepository } } } }
+                        pageInfo { hasNextPage endCursor }
+                      }
+                    }
+                  }
+                }
+                """;
+        return translating(() -> {
+            ImmutableSet.Builder<Long> latest = ImmutableSet.builder();
+            forEachGraphQlPage(pat, pr, query, GitHubReviewThreadsResponse.class, response -> {
+                GitHubReviewThreadsResponse.ReviewThreads threads = Optional.ofNullable(response)
+                        .map(GitHubReviewThreadsResponse::data)
+                        .map(GitHubReviewThreadsResponse.Data::repository)
+                        .map(GitHubReviewThreadsResponse.Repository::pullRequest)
+                        .map(GitHubReviewThreadsResponse.PullRequest::reviewThreads)
+                        .orElse(null);
+                if (threads == null) {
+                    return null;
+                }
+                Optional.ofNullable(threads.nodes()).orElse(ImmutableList.of()).stream()
+                        .flatMap(thread -> Optional.ofNullable(thread.comments()).map(GitHubReviewThreadsResponse.Comments::nodes).orElse(ImmutableList.of()).stream())
+                        .filter(comment -> comment.databaseId() != null && comment.pullRequestReview() != null && comment.pullRequestReview().authorCanPushToRepository())
+                        .forEach(comment -> latest.add(comment.databaseId()));
+                return threads.pageInfo();
+            });
+            return latest.build();
+        });
+    }
+
     public String findReviewThreadId(String pat, PullRequestRef pr, long rootCommentId)
     {
         GitHubReviewThreadsResponse.Thread thread = fetchReviewThreadsByRoot(pat, pr).get(rootCommentId);

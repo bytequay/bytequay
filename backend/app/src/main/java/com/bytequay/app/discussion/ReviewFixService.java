@@ -66,6 +66,7 @@ public class ReviewFixService
 {
     static final int MAXIMUM_THREADS = 10;
     static final int MAXIMUM_ROUNDS = 3;
+    private static final String TURN_KEY = "review-fix:";
     private static final Duration POST_OUTCOME_WAIT = Duration.ofMinutes(5);
     private static final Duration DETAIL_FRESHNESS = Duration.ofMinutes(5);
     private static final Logger log = LoggerFactory.getLogger(ReviewFixService.class);
@@ -143,18 +144,27 @@ public class ReviewFixService
         }
         Set<Long> seen = handled.stream().map(ReviewFixReply::commentId).collect(toImmutableSet());
         Map<Long, Long> rounds = handled.stream().collect(groupingBy(ReviewFixReply::rootCommentId, counting()));
-        List<ReviewThreadItem> threads = comments.openThreads(pr.repo(), pr.number()).stream()
+        List<ReviewThreadItem> candidates = comments.openThreads(pr.repo(), pr.number()).stream()
                 // ByteQuay's own replies come from the author's account, so they never start another round.
                 .filter(thread -> !thread.latest().author().equalsIgnoreCase(pr.author()))
                 .filter(thread -> thread.latest().createdAt().filter(at -> !at.isBefore(task.createdAt())).isPresent())
                 .filter(thread -> !seen.contains(thread.latestCommentId()))
                 .filter(thread -> rounds.getOrDefault(thread.rootCommentId(), 0L) < MAXIMUM_ROUNDS)
+                .collect(toImmutableList());
+        if (candidates.isEmpty()) {
+            return;
+        }
+        // Anyone may comment on a public repository. Fixes are asked for by people who can push and by apps the repository installed;
+        // the other threads wait for the user.
+        Set<Long> pushers = pullRequests.reviewCommentsByPushers(pr.repo(), pr.number());
+        List<ReviewThreadItem> threads = candidates.stream()
+                .filter(thread -> thread.latest().bot() || pushers.contains(thread.latestCommentId()))
                 .limit(MAXIMUM_THREADS)
                 .collect(toImmutableList());
         if (threads.isEmpty()) {
             return;
         }
-        String key = "review-fix:" + taskId + ":" + threads.getFirst().latestCommentId();
+        String key = TURN_KEY + taskId + ":" + threads.getFirst().latestCommentId();
         Instant now = clock.instant();
         // Saved before sending: a send that fails or is lost is sent again under the same key by the next pass.
         threads.forEach(thread -> store.insertIfAbsent(ReviewFixReply.requested(taskId, pr.repo(), pr.number(), thread.rootCommentId(), thread.latestCommentId(), key, now)));
@@ -205,6 +215,12 @@ public class ReviewFixService
                 }
             }
         }
+    }
+
+    /** Whether this service started the turn. Its message carries reviewers' words, not the user's: it authorizes no work and scopes no CI repair. */
+    public static boolean fixTurn(AgentTurn turn)
+    {
+        return turn.idempotencyKey().startsWith(TURN_KEY);
     }
 
     /** Whether an answer is saved but not posted, which only a delivery that pushes its fix can release. */

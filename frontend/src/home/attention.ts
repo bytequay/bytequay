@@ -92,7 +92,8 @@ export function attentionKind(pr: PullRequestDto, viewerLogin?: string | null): 
   const followsAllActivity = mine || monitoredChange;
 
   if (pr.state !== 'open' || pr.draft) return 'updated';
-  if (!mine && requested && (pr.reviewedAt === null || pr.handledAction === null
+  // The backend clears approval for an actual re-request; the list timestamp can come from an older inbox notification.
+  if (!mine && requested && pr.handledAction !== 'APPROVED' && (pr.reviewedAt === null || pr.handledAction === null
     || pr.reviewRequestedAt != null && Date.parse(pr.reviewRequestedAt) > Date.parse(pr.reviewedAt))) return 'review';
   if (followsAllActivity && pr.reviewDecision === 'CHANGES_REQUESTED') return 'changes';
   if (followsAllActivity && pr.ciStatus === 'FAILING') return 'ci';
@@ -420,7 +421,7 @@ export function attentionSummary(item: AttentionItem, viewerLogin: string | null
 }
 
 /** Both Homes show at most this many cards; acknowledging or snoozing one brings in the next. */
-export const ATTENTION_CARD_LIMIT = 4;
+export const ATTENTION_CARD_LIMIT = 5;
 
 export type AttentionFilter = 'all' | AttentionSource;
 
@@ -436,6 +437,8 @@ export function attentionRank(item: AttentionItem, circles: TeamCircle[], viewer
   if (item.jira) return 2;
   const pr = item.pr;
   if (pr !== null ? pullRequestIsMine(pr, viewerLogin) : viewerLogin !== null && item.author?.toLowerCase() === viewerLogin.toLowerCase()) return 0;
+  // Approval keeps routine updates in Approved by me; an explicit re-request clears the approval in the backend.
+  if (pr?.state === 'open' && pr.handledAction === 'APPROVED') return null;
   const circle = teamAttentionMatch(item, circles, viewerLogin);
   if (item.kind === 'review' || item.kind === 'assigned' || pr?.mentioned === true) return circle === null ? 2 : 1;
   if (pr !== null && (pr.reviewedAt !== null || pr.handledAction !== null || pr.monitoredAt != null)) return 3;
@@ -608,6 +611,15 @@ export function myPullRequestCards(candidates: AttentionItem[], handled: Handled
     const read = (item: AttentionItem) => handled[item.key] !== undefined && stillHandled(handled[item.key], item, now);
     return Number(read(left)) - Number(read(right)) || compareAttention(left, right);
   }).slice(0, 2);
+}
+
+/** Approved work stays within reach after reading; newer activity moves it up without asking for attention. */
+export function approvedPullRequestCards(candidates: AttentionItem[], handled: Handled, viewerLogin: string | null, now: number): AttentionItem[] {
+  return candidates.filter(item => {
+    const entry = handled[item.key];
+    return item.pr?.state === 'open' && item.pr.handledAction === 'APPROVED' && !pullRequestIsMine(item.pr, viewerLogin)
+      && !(entry?.kind === 'snooze' && stillHandled(entry, item, now));
+  }).sort(compareAttention);
 }
 
 /* ── Snooze menu ────────────────────────────────────────────────── */

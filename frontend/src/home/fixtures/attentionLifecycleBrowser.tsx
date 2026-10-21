@@ -23,7 +23,7 @@ import { jiraIssue } from '../../jira/fixtures/jira';
 import type { Bridge, ModelSettingsDto, PullRequestDto, WorkspaceDto, WorkspaceRelationshipsDto } from '../../types';
 import AttentionList from '../AttentionList';
 import HomePage from '../HomePage';
-import { ATTENTION_SEED, attentionActivityVersion, handledEntry, loadHandled, pullRequestItem, saveHandled, type AttentionItem } from '../attention';
+import { ATTENTION_SEED, attentionActivityVersion, attentionKind, handledEntry, loadHandled, pullRequestItem, saveHandled, type AttentionItem } from '../attention';
 import { getCached, setCached } from '../../dataCache';
 import { useWorkspaceAttention } from '../../workspaces/workspaceAttention';
 import { loadPinned } from '../pinned';
@@ -189,6 +189,43 @@ async function myPullRequests(): Promise<void> {
       assert(f.host.querySelector('[aria-label="My PRs"] .item-row') !== null, 'A reopened PR must return to My PRs');
       await f.open(); await f.close();
     }
+  }
+  finally { await f.dispose(); }
+}
+
+function approvedItem(number: number): AttentionItem {
+  const original = item(number).pr;
+  assert(original !== null, 'Approved fixture must be a PR');
+  const approved = { ...original, handledAction: 'APPROVED' as const, reviewedAt: '2026-09-01T00:00:00Z' };
+  return pullRequestItem(approved, attentionKind(approved, 'viewer'));
+}
+
+async function approvedPullRequests(): Promise<void> {
+  const original = approvedItem(61);
+  assert(original.pr !== null, 'Approved fixture required');
+  const f = mount([original]);
+  const rows = (label: string) => f.host.querySelectorAll(`[aria-label="${label}"] .item-row`);
+  try {
+    await settle();
+    assert(rows('Needs attention').length === 0 && rows('Approved by me').length === 1, 'Approval moves the PR into its quiet section');
+    await f.open(); await f.close(); await f.remount();
+    assert(f.opens === 1 && rows('Approved by me').length === 1, 'Approved PR opens normally and remains accessible after reading and returning');
+    const changed: PullRequestDto = { ...original.pr, updatedAt: '2026-09-02T00:00:00Z', headPushedAt: '2026-09-02T00:00:00Z', commentCount: 4,
+      ciStatus: 'FAILING' as const, latestActivity: { event: 'commented', actor: 'alice', timestamp: '2026-09-02T00:00:00Z', state: null,
+        label: null, requestedReviewer: null, excerpt: 'Updated after approval' } };
+    await f.items([pullRequestItem(changed, attentionKind(changed, 'viewer'))]);
+    assert(rows('Needs attention').length === 0 && rows('Approved by me').length === 1
+      && rows('Approved by me')[0].textContent?.includes('Updated after approval') === true, 'Pushes, checks and comments update the approved row quietly');
+    const requested: PullRequestDto = { ...changed, handledAction: null, reviewRequestedAt: '2026-09-03T00:00:00Z' };
+    await f.items([pullRequestItem(requested, attentionKind(requested, 'viewer'))]);
+    assert(rows('Needs attention').length === 1 && rows('Approved by me').length === 0, 'An explicit re-review request returns to Needs attention');
+    const many = Array.from({ length: 6 }, (_, index) => item(index + 70)).concat(Array.from({ length: 6 }, (_, index) => approvedItem(index + 80)));
+    await f.items(many);
+    assert(rows('Needs attention').length === 5 && rows('Approved by me').length === 3, 'Needs attention keeps five rows while Approved by me starts with three');
+    button(f.host, 'Show all (6)').click(); await settle();
+    assert(rows('Approved by me').length === 6 && rows('Needs attention').length === 5, 'Show all reveals the remaining approved PRs without expanding Needs attention');
+    button(f.host, 'Show less').click(); await settle();
+    assert(rows('Approved by me').length === 3, 'Show less returns Approved by me to three rows');
   }
   finally { await f.dispose(); }
 }
@@ -436,7 +473,7 @@ async function latestSummary(): Promise<void> {
 export async function run(): Promise<{ name: string; error?: string }[]> {
   return runScenarios([['viewed until close', viewing], ['successful action status', actions], ['canonical post-write snapshot', canonicalSnapshot],
     ['global pins', pinning], ['timed snoozes', snoozing], ['retained reminders', retainedReminder], ['hover cards', hoverCards],
-    ['latest summary wins', latestSummary], ['persistent own PRs', myPullRequests]]);
+    ['latest summary wins', latestSummary], ['persistent own PRs', myPullRequests], ['quiet approved PRs', approvedPullRequests]]);
 }
 
 let preview: ReturnType<typeof mount> | null = null;
@@ -444,10 +481,11 @@ let preview: ReturnType<typeof mount> | null = null;
 export async function showPreview(): Promise<void> {
   await preview?.dispose();
   const pinned = { ...item(47), title: 'Fix checkpoint deletion-vector identity' };
-  preview = mount([pinned, { ...item(48), title: 'Support the updated connector behavior' }, item(49)]);
-  preview.host.style.cssText = 'display:flex;height:100vh;';
-  const attention = element<HTMLElement>('.atn-section', preview.host, 'Attention preview must render');
-  attention.style.cssText = 'flex:1;min-width:0;padding:24px;';
+  preview = mount([pinned, { ...item(48), title: 'Support the updated connector behavior' }, item(49), approvedItem(61), approvedItem(62)]);
+  preview.host.style.cssText = 'display:grid;grid-template-columns:220px minmax(0,1fr);align-content:start;min-height:100vh;';
+  const sidebar = element<HTMLElement>('aside', preview.host, 'Sidebar preview must render');
+  sidebar.style.gridRow = '1 / span 2';
+  preview.host.querySelectorAll<HTMLElement>('.atn-section').forEach(section => { section.style.cssText = 'grid-column:2;min-width:0;padding:24px;'; });
   await settle();
   button(preview.host, `Pin ${pinned.title}`).click(); await settle();
   await preview.open();

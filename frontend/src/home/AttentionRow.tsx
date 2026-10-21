@@ -67,7 +67,7 @@ type Props = {
   age?: { at: string; title: string };
   onOpen: () => void;
   onAcknowledge?: () => void;
-  onSnooze: (anchor: DOMRect) => void;
+  onSnooze?: (anchor: DOMRect) => void;
   /** Present for an issue or ticket that can start development. */
   onStart?: () => void;
   /** Whether the item is on today's agenda, shown as a sun beside the title. */
@@ -129,7 +129,7 @@ export default function AttentionRow({
   const open = closing(onOpen);
   const acknowledge = onAcknowledge === undefined ? undefined : closing(onAcknowledge);
   const start = onStart === undefined || !availability.any ? undefined : closing(onStart);
-  const snooze = (button: HTMLElement): void => { hover.close(); onSnooze(button.getBoundingClientRect()); };
+  const snooze = onSnooze === undefined ? undefined : (button: HTMLElement): void => { hover.close(); onSnooze(button.getBoundingClientRect()); };
 
   const name = person === null ? null : <>
     <Avatar login={person.login} avatarUrl={person.avatarUrl} size={18} allowGitHubFallback={github} /><span>{person.login}</span>
@@ -178,9 +178,9 @@ export default function AttentionRow({
             {acknowledge !== undefined && <IconButton label={`Acknowledge ${reference}`} title="Acknowledge — clears it until something new happens" tone="ack" onClick={acknowledge}>
               <Check size={15} strokeWidth={2} aria-hidden="true" />
             </IconButton>}
-            <IconButton label={`Snooze ${reference}`} title="Snooze" onClick={event => snooze(event.currentTarget)}>
+            {snooze !== undefined && <IconButton label={`Snooze ${reference}`} title="Snooze" onClick={event => snooze(event.currentTarget)}>
               <Clock3 size={15} strokeWidth={1.8} aria-hidden="true" />
-            </IconButton>
+            </IconButton>}
             <IconButton label={`Open ${reference}`} title="Open" onClick={open}>
               <ArrowUpRight size={14} aria-hidden="true" />
             </IconButton>
@@ -366,7 +366,7 @@ function Preview({ item, summary, hover, onOpen, onAcknowledge, onSnooze, onStar
   hover: HoverCard;
   onOpen: () => void;
   onAcknowledge?: () => void;
-  onSnooze: (button: HTMLElement) => void;
+  onSnooze?: (button: HTMLElement) => void;
   onStart?: () => void;
 }) {
   const description = useStoredDescription(item);
@@ -376,7 +376,7 @@ function Preview({ item, summary, hover, onOpen, onAcknowledge, onSnooze, onStar
         <button className="bq-button bq-button--primary" type="button" onClick={onStart}><Play aria-hidden="true" /> Start development</button>
       )}
       {onAcknowledge !== undefined && <button className="bq-button bq-button--ghost" type="button" onClick={onAcknowledge}><Check aria-hidden="true" /> Ack</button>}
-      <button className="bq-button bq-button--ghost" type="button" onClick={event => onSnooze(event.currentTarget)}><Clock3 aria-hidden="true" /> Snooze</button>
+      {onSnooze !== undefined && <button className="bq-button bq-button--ghost" type="button" onClick={event => onSnooze(event.currentTarget)}><Clock3 aria-hidden="true" /> Snooze</button>}
       <button className="bq-button bq-button--ghost" type="button" onClick={onOpen}>Open <ArrowUpRight aria-hidden="true" /></button>
     </>} />
   );

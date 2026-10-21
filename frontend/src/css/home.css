@@ -123,6 +123,17 @@
   white-space: nowrap;
 }
 
+.atn-approved__toggle {
+  margin-left: auto;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--fg-link);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
 .atn-filters {
   display: inline-flex;
   margin-left: 4px;

@@ -645,8 +645,9 @@ class TestPullRequestService
         verify(detailStore).saveDiscussion(eq(12L), any(), eq(pullRequest().updatedAt()));
     }
 
-    @Test
-    void backgroundSummaryUpdatesCiAndReviewCardsWithoutDownloadingDetail()
+    @ParameterizedTest
+    @CsvSource({"APPROVED,false", "COMMENTED,true", "CHANGES_REQUESTED,true"})
+    void backgroundSummaryKeepsApprovalWhenTheHeadChanges(HandledAction action, boolean needsReview)
     {
         service = spy(service);
         FetchedPullRequest fetched = pullRequest("open", REVIEWED_AT.plusSeconds(60), null);
@@ -657,7 +658,7 @@ class TestPullRequestService
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(fetched), false));
         when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary));
         when(store.saveObserved(fetched)).thenReturn(row);
-        PrViewState reviewed = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, HandledAction.APPROVED, "previous-head");
+        PrViewState reviewed = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, action, "previous-head");
         when(viewStateStore.findByPrIds(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of(row.id(), reviewed));
 
         service.syncFromGitHub();
@@ -665,7 +666,7 @@ class TestPullRequestService
         verify(store).updateEnrichment(eq(row.id()), eq(fetched.updatedAt()), eq(PullRequestDetail.CiStatus.FAILING), eq(4), eq(2), eq(1),
                 isNull(), isNull(), any(Instant.class), eq("feature"), eq(ImmutableList.of()), eq(row.origin()), eq(Optional.empty()), eq(Optional.of("APPROVED")),
                 eq(ImmutableMap.of("summary", "checks-v2")));
-        verify(viewStateStore).markNeedsReview(row.id());
+        verify(viewStateStore, times(needsReview ? 1 : 0)).markNeedsReview(row.id());
         verify(summaries).fetchSummaries("pat", ImmutableList.of(ref), "me");
         verifyNoMoreInteractions(summaries);
         verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
@@ -696,8 +697,8 @@ class TestPullRequestService
     }
 
     @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void backgroundSummaryReopensHandledReviewOnlyWhenTheAuthorReplied(boolean authorReplied)
+    @CsvSource({"APPROVED,true", "APPROVED,false", "COMMENTED,true", "COMMENTED,false", "CHANGES_REQUESTED,true", "CHANGES_REQUESTED,false"})
+    void backgroundSummaryKeepsApprovalWhenTheAuthorReplies(HandledAction action, boolean authorReplied)
     {
         service = spy(service);
         FetchedPullRequest fetched = pullRequest("open", REVIEWED_AT.plusSeconds(60), null).withViewerOrigin("me");
@@ -708,18 +709,43 @@ class TestPullRequestService
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(fetched), false));
         when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary));
         when(store.saveObserved(any())).thenReturn(row);
-        PrViewState reviewed = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, HandledAction.COMMENTED, "head");
+        PrViewState reviewed = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, action, "head");
         when(viewStateStore.findByPrIds(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of(row.id(), reviewed));
-        when(summaries.hasAuthorReplyAfter("pat", ref, "me", "alice", REVIEWED_AT, "reply-v2")).thenReturn(authorReplied);
+        if (action != HandledAction.APPROVED) {
+            when(summaries.hasAuthorReplyAfter("pat", ref, "me", "alice", REVIEWED_AT, "reply-v2")).thenReturn(authorReplied);
+        }
 
         service.syncFromGitHub();
 
-        verify(summaries).hasAuthorReplyAfter("pat", ref, "me", "alice", REVIEWED_AT, "reply-v2");
-        verify(viewStateStore, times(authorReplied ? 1 : 0)).markNeedsReview(row.id());
+        verify(summaries, times(action == HandledAction.APPROVED ? 0 : 1)).hasAuthorReplyAfter("pat", ref, "me", "alice", REVIEWED_AT, "reply-v2");
+        verify(viewStateStore, times(action != HandledAction.APPROVED && authorReplied ? 1 : 0)).markNeedsReview(row.id());
         verify(store).updateEnrichment(row.id(), fetched.updatedAt(), PullRequestDetail.CiStatus.PASSING, 4, 2, 1,
                 null, null, REVIEWED_AT, "feature", ImmutableList.of(), row.origin(), Optional.empty(), Optional.of("APPROVED"),
                 ImmutableMap.of("summary", "reply-v2"));
         verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void backgroundSummaryReopensApprovalWhenRequestedAgainOrDismissed(boolean requestedAgain)
+    {
+        PullRequest row = storedPullRequest();
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        Instant changedAt = REVIEWED_AT.plusSeconds(60);
+        GitHubPullRequestSummary summary = new GitHubPullRequestSummary(pullRequest(), PullRequestDetail.CiStatus.PASSING, 4, 2, 1, "head",
+                Optional.of(REVIEWED_AT), Optional.empty(),
+                requestedAgain ? Optional.empty() : Optional.of(new PrReviewState(1L, "me", null, false, "DISMISSED", changedAt, null, null, "head")),
+                requestedAgain ? Optional.of(changedAt) : Optional.empty(), "review-v2", changedAt, Optional.empty());
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false));
+        when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary));
+        when(store.saveObserved(pullRequest())).thenReturn(row);
+        PrViewState reviewed = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, HandledAction.APPROVED, "head");
+        when(viewStateStore.findByPrIds(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of(row.id(), reviewed));
+
+        service.syncFromGitHub();
+
+        verify(viewStateStore).markNeedsReview(row.id());
     }
 
     @Test
@@ -2258,12 +2284,47 @@ class TestPullRequestService
                 .isEqualTo(PullRequest.Origin.OTHER);
     }
 
-    @Test
-    void requiresAnotherReviewWhenTheHeadChanges()
+    @ParameterizedTest
+    @CsvSource({"APPROVED,false", "COMMENTED,true", "CHANGES_REQUESTED,true"})
+    void preservesApprovalWhenTheHeadChanges(HandledAction action, boolean needsReview)
     {
-        PrViewState reviewed = new PrViewState(12L, Instant.parse("2026-08-20T09:00:00Z"), Instant.parse("2026-08-20T10:00:00Z"), HandledAction.APPROVED, "previous-head");
+        PrViewState reviewed = new PrViewState(12L, REVIEWED_AT, REVIEWED_AT, action, "previous-head");
 
-        assertThat(PullRequestService.needsReviewAgain(storedPullRequest(), stored(), "me", reviewed)).isTrue();
+        assertThat(PullRequestService.needsReviewAgain(storedPullRequest(), stored(), "me", reviewed)).isEqualTo(needsReview);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"APPROVED,false", "COMMENTED,true", "CHANGES_REQUESTED,true"})
+    void preservesApprovalWhenTheAuthorReplies(HandledAction action, boolean needsReview)
+    {
+        PrViewState reviewed = new PrViewState(12L, REVIEWED_AT, REVIEWED_AT, action, "head");
+        PrTimelinePayload thread = PrTimelinePayload.builder()
+                .comments(ImmutableList.of(
+                        new PrTimelineComment(40L, "me", null, false, REVIEWED_AT, "Question", null, 41L, null, ImmutableList.of()),
+                        new PrTimelineComment(41L, "alice", null, false, REVIEWED_AT.plusSeconds(60), "Answer", null, 41L, 40L, ImmutableList.of())))
+                .build();
+        StoredPrDetail detail = new StoredPrDetail(raw(), ImmutableList.of(),
+                ImmutableList.of(new PrTimelineEvent(40L, "review_thread", "me", REVIEWED_AT, null, thread, Optional.empty())),
+                ImmutableList.of(), ImmutableList.of(), true);
+
+        assertThat(PullRequestService.needsReviewAgain(storedPullRequest(), detail, "me", reviewed)).isEqualTo(needsReview);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"ME,true", "another-reviewer,false", ",true"})
+    void reopensApprovalOnlyWhenTheViewerIsRequestedAgainOrDismissed(String requestedReviewer, boolean needsReview)
+    {
+        Instant changedAt = REVIEWED_AT.plusSeconds(60);
+        PrViewState reviewed = new PrViewState(12L, REVIEWED_AT, REVIEWED_AT, HandledAction.APPROVED, "head");
+        PrRawDetail raw = new PrRawDetail(null, null, "open", "alice", null, null, changedAt, null, "body", ImmutableList.of(), null, ImmutableList.of(), null,
+                false, true, "clean", 4, 2, 1, 1, ImmutableList.of("me"), "head", "feature", "main", "base");
+        StoredPrDetail detail = new StoredPrDetail(raw,
+                requestedReviewer != null ? ImmutableList.of() : ImmutableList.of(new PrReviewState(1L, "me", null, false, "DISMISSED", changedAt, null, null, "head")),
+                requestedReviewer == null ? ImmutableList.of() : ImmutableList.of(new PrTimelineEvent(1L, "review_requested", "alice", changedAt, null,
+                        PrTimelinePayload.builder().requestedReviewer(requestedReviewer).build(), Optional.empty())),
+                ImmutableList.of(), ImmutableList.of(), true);
+
+        assertThat(PullRequestService.needsReviewAgain(storedPullRequest(), detail, "me", reviewed)).isEqualTo(needsReview);
     }
 
     @ParameterizedTest

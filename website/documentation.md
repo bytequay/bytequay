@@ -79,7 +79,13 @@ tasks, PRs, work items, commits, and memory.
   fork** to publish through your fork. Review the source, push, and PR
   destinations before confirming.
 - **My PRs** shows your open work. **Snooze** hides a card temporarily; **Needs
-  attention** collects updates needing a response.
+  attention** shows up to five updates needing a response.
+- **Approved by me** initially shows up to three open PRs you approved on Home
+  and workspace Home, newest activity first, even after reading them. Choose
+  **Show all** to see the rest or **Show less** to return to three. Pushes,
+  comments, and check updates stay there without returning to **Needs attention**.
+  A new review request or dismissed approval brings the PR back for review.
+  Merged and closed PRs leave this section.
 - **Unwatch** retires a workspace while keeping local history. **Watch again**
   restores it. **Delete local data** is a separate, confirmed removal.
 

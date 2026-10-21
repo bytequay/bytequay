@@ -23,6 +23,7 @@ import {
   attentionSummary,
   attentionActivityVersion,
   attentionTime,
+  approvedPullRequestCards,
   completeHandled,
   handledEntry,
   handledSummary,
@@ -79,9 +80,16 @@ describe('attentionKind', () => {
     expect(attentionKind(pr({ origin: 'REVIEW_REQUESTED' }))).toBe('review');
     expect(attentionKind(pr({ origin: 'OTHER', author: 'alice', requestedReviewers: ['JACK'] }), 'jack')).toBe('review');
     expect(attentionKind(pr({
-      origin: 'REVIEW_REQUESTED', handledAction: 'APPROVED',
+      origin: 'REVIEW_REQUESTED', handledAction: null,
       reviewedAt: '2026-08-14T00:00:00Z', reviewRequestedAt: '2026-08-15T00:00:00Z',
     }))).toBe('review');
+  });
+
+  it('trusts retained approval over a newer timestamp synthesized from an old review-request notification', () => {
+    const approved = pr({ origin: 'REVIEW_REQUESTED', author: 'alice', handledAction: 'APPROVED', requestedReviewers: [],
+      reviewedAt: '2026-08-14T00:00:00Z', reviewRequestedAt: '2026-08-15T00:00:00Z' });
+    expect(attentionKind(approved, 'jack')).not.toBe('review');
+    expect(attentionKind({ ...approved, handledAction: null, requestedReviewers: ['jack'] }, 'jack')).toBe('review');
   });
 
   it('follows commits and merge readiness for requested or previously reviewed PRs', () => {
@@ -196,6 +204,42 @@ describe('attentionKind', () => {
   });
 });
 
+describe('approvedPullRequestCards', () => {
+  const now = Date.parse('2026-08-16T00:00:00Z');
+  const approved = (overrides: Partial<PullRequestDto> = {}) => {
+    const pull = pr({ origin: 'OTHER', author: 'alice', handledAction: 'APPROVED', reviewedAt: '2026-08-14T00:00:00Z', ...overrides });
+    return pullRequestItem(pull, attentionKind(pull, 'jack'));
+  };
+
+  it('keeps read approvals accessible and sorts their latest updates first', () => {
+    const first = approved({ number: 1 });
+    const second = approved({ number: 2, updatedAt: '2026-08-16T00:00:00Z', headPushedAt: '2026-08-16T00:00:00Z', commentCount: 4 });
+    const handled = { [first.key]: handledEntry(first, 'ack', null, 'Viewed'), [second.key]: handledEntry(second, 'ack', null, 'acknowledged') };
+    expect(approvedPullRequestCards([first, second], handled, 'jack', now)).toEqual([second, first]);
+    expect(attentionCards([first, second], 'all', undefined, { circles: [], viewerLogin: 'jack' }, now)).toEqual([]);
+  });
+
+  it('uses my approval rather than the overall verdict or another reviewer’s approval', () => {
+    const mine = approved({ number: 1, reviewDecision: 'CHANGES_REQUESTED' });
+    const someoneElse = approved({ number: 2, handledAction: null, reviewedAt: null, reviewDecision: 'APPROVED', origin: 'REVIEW_REQUESTED',
+      latestActivity: { event: 'reviewed', actor: 'bob', timestamp: '2026-08-15T00:00:00Z', state: 'APPROVED', label: null, requestedReviewer: null } });
+    const onlyCommented = approved({ number: 3, handledAction: 'COMMENTED', reviewDecision: 'APPROVED' });
+    expect(approvedPullRequestCards([mine, someoneElse, onlyCommented], {}, 'jack', now)).toEqual([mine]);
+    expect(attentionCards([mine, someoneElse, onlyCommented], 'all', undefined, { circles: [], viewerLogin: 'jack' }, now))
+      .toEqual([someoneElse, onlyCommented]);
+  });
+
+  it('honors snoozes and removes ended, invalidated, other-reviewed and own PRs', () => {
+    const first = approved({ number: 1 });
+    const candidates = [first, approved({ number: 2, state: 'merged' }), approved({ number: 3, state: 'closed' }),
+      approved({ number: 4, handledAction: null, origin: 'REVIEW_REQUESTED' }), approved({ number: 5, handledAction: 'CHANGES_REQUESTED' }),
+      approved({ number: 6, author: 'JACK' })];
+    const handled = { [first.key]: handledEntry(first, 'snooze', now + 1, 'soon') };
+    expect(approvedPullRequestCards(candidates, handled, 'jack', now)).toEqual([]);
+    expect(approvedPullRequestCards(candidates, handled, 'jack', now + 1)).toEqual([first]);
+  });
+});
+
 describe('attentionRank', () => {
   const circles: TeamCircle[] = [{ id: 'engine', name: 'Engine', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [],
     members: [{ githubId: 1, login: 'Alice', name: 'Alice', avatarUrl: '' }] }];
@@ -222,10 +266,23 @@ describe('attentionRank', () => {
   });
 
   it("then pull requests you reviewed or monitor, then circle members' own", () => {
-    expect(rank({ handledAction: 'APPROVED', reviewedAt: '2026-08-14T00:00:00Z', headPushedAt: '2026-08-14T06:00:00Z' })).toBe(3);
+    expect(rank({ handledAction: 'CHANGES_REQUESTED', reviewedAt: '2026-08-14T00:00:00Z', headPushedAt: '2026-08-14T06:00:00Z' })).toBe(3);
     expect(rank({ handledAction: 'COMMENTED', reviewedAt: '2026-08-14T00:00:00Z', state: 'merged' })).toBe(3);
     expect(rank({ monitoredAt: '2026-08-14T00:00:00Z' })).toBe(3);
     expect(rank({ author: 'alice', latestActivity: activity('commented', 'bob') })).toBe(4);
+  });
+
+  it('keeps routine approved PR activity quiet even with a circle, monitoring or an older mention', () => {
+    const approved: Partial<PullRequestDto> = { handledAction: 'APPROVED', reviewedAt: '2026-08-14T00:00:00Z' };
+    for (const update of [
+      { headPushedAt: '2026-08-15T00:00:00Z' }, { commentCount: 5 }, { ciStatus: 'FAILING' as const },
+      { author: 'alice' }, { mentioned: true }, { monitoredAt: '2026-08-14T00:00:00Z' },
+    ]) expect(rank({ ...approved, ...update })).toBeNull();
+    expect(rank({ ...approved, origin: 'REVIEW_REQUESTED', reviewRequestedAt: '2026-08-15T00:00:00Z' })).toBeNull();
+    expect(rank({ ...approved, handledAction: null, origin: 'REVIEW_REQUESTED' })).toBe(2);
+    expect(rank({ ...approved, state: 'merged' })).toBe(3);
+    expect(rank({ ...approved, state: 'closed' })).toBe(3);
+    expect(rank({ ...approved, author: 'jack' })).toBe(0);
   });
 
   it("leaves out updates with no tie to you or your circles, a circle member acting on another person's included", () => {

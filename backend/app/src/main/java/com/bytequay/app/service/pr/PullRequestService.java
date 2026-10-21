@@ -750,7 +750,8 @@ public class PullRequestService
             boolean newHead = state.reviewedHeadSha() == null ? pushedAt != null && pushedAt.isAfter(state.reviewedAt()) : !state.reviewedHeadSha().equals(summary.headSha());
             boolean requestedAgain = summary.reviewRequestedAt().isPresent() && summary.reviewRequestedAt().orElseThrow().isAfter(state.reviewedAt());
             boolean dismissed = summary.viewerReview().filter(review -> "DISMISSED".equals(review.state())).isPresent();
-            if (newHead || requestedAgain || dismissed || hasUnseenAuthorReply(pat, row, summary, login, state.reviewedAt())) {
+            if (requestedAgain || dismissed || state.handledAction() != HandledAction.APPROVED
+                    && (newHead || hasUnseenAuthorReply(pat, row, summary, login, state.reviewedAt()))) {
                 viewStateStore.markNeedsReview(row.id());
             }
             if (newHead && (pushedAt == null || !pushedAt.isAfter(state.reviewedAt()))) {
@@ -1710,6 +1711,20 @@ public class PullRequestService
         if (viewState == null || viewState.handledAction() == null || viewState.reviewedAt() == null) {
             return false;
         }
+        if (currentLogin != null && detail.raw().requestedReviewers().stream()
+                .anyMatch(currentLogin::equalsIgnoreCase)
+                && detail.timeline().stream().anyMatch(event -> "review_requested".equals(event.event())
+                        && currentLogin.equalsIgnoreCase(event.payload().requestedReviewer())
+                        && event.timestamp() != null && event.timestamp().isAfter(viewState.reviewedAt()))) {
+            return true;
+        }
+        if (latestReviewState(detail.reviews(), currentLogin).map("DISMISSED"::equalsIgnoreCase).orElse(false)) {
+            return true;
+        }
+        // Approval keeps routine updates quiet until someone explicitly asks for review again or dismisses it.
+        if (viewState.handledAction() == HandledAction.APPROVED) {
+            return false;
+        }
         String currentHeadSha = detail.raw().headSha();
         if (viewState.reviewedHeadSha() != null && currentHeadSha != null
                 && !viewState.reviewedHeadSha().equals(currentHeadSha)) {
@@ -1721,25 +1736,8 @@ public class PullRequestService
                 return true;
             }
         }
-        if (currentLogin != null && detail.raw().requestedReviewers().stream()
-                .anyMatch(currentLogin::equalsIgnoreCase)
-                && hasEventAfter(detail.timeline(), "review_requested", viewState.reviewedAt())) {
-            return true;
-        }
-        if (currentLogin != null && pullRequest.author() != null
-                && hasAuthorReplyAfter(detail.timeline(), currentLogin, pullRequest.author(), viewState.reviewedAt())) {
-            return true;
-        }
-        return latestReviewState(detail.reviews(), currentLogin)
-                .map("DISMISSED"::equalsIgnoreCase)
-                .orElse(false);
-    }
-
-    private static boolean hasEventAfter(List<PrTimelineEvent> timeline, String event, Instant reviewedAt)
-    {
-        return timeline.stream().anyMatch(item -> event.equals(item.event())
-                && item.timestamp() != null
-                && item.timestamp().isAfter(reviewedAt));
+        return currentLogin != null && pullRequest.author() != null
+                && hasAuthorReplyAfter(detail.timeline(), currentLogin, pullRequest.author(), viewState.reviewedAt());
     }
 
     private static boolean hasAuthorReplyAfter(List<PrTimelineEvent> timeline, String currentLogin, String author, Instant reviewedAt)

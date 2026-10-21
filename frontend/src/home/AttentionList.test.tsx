@@ -224,11 +224,11 @@ describe('AttentionList', () => {
     expect(html).toContain('<div class="markdown-body"><p>Staging is mid-upgrade.</p></div>');
   });
 
-  it('shows at most four rows, counts nothing, and filters by source', () => {
+  it('shows at most five rows, counts nothing, and filters by source', () => {
     const items = [30920, 30921, 30922, 30923, 30924].map(number => prItem(number)).concat(issueItem(7));
     const html = list(items, {}, 'workspace');
 
-    expect(html.match(/class="card-row item-row"/g)).toHaveLength(4);
+    expect(html.match(/class="card-row item-row"/g)).toHaveLength(5);
     // Every watched update is eligible, so a total would count the repositories, not what needs the user.
     expect(html).toMatch(/Needs attention<\/span><button[^>]*aria-pressed="false"[^>]*>Open only<\/button><div class="atn-filters"/);
     expect(html).toMatch(/>PRs<\/button><button[^>]*>Issues<\/button><button[^>]*>Jira<\/button>/);
@@ -263,7 +263,7 @@ describe('AttentionList', () => {
     items.push({ ...prItem(5), updatedAt: '2026-08-24T00:00:00Z' }, { ...by(prItem(6, 'updated'), 'outsider'), updatedAt: '2026-08-29T13:00:00Z' });
     for (const variant of ['home', 'workspace'] as const) {
       const html = list(items, {}, variant);
-      expect([...html.matchAll(/class="card-key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);
+      expect([...html.matchAll(/class="card-key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3, 4]);
     }
   });
 
@@ -274,21 +274,61 @@ describe('AttentionList', () => {
     const reminder = { ...prItem(5), updatedAt: '2026-09-28T13:00:00Z' };
     const handled = { [reminder.key]: handledEntry(reminder, 'snooze', now, '1 hour') };
     const html = list(items, handled);
-    expect([...html.matchAll(/class="card-key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);
+    expect([...html.matchAll(/class="card-key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3, 4]);
   });
 
-  it('brings in the next item when a card is acknowledged or snoozed, still capped at four', () => {
+  it('brings in the next item when a card is acknowledged or snoozed, still capped at five', () => {
     const now = Date.parse('2026-08-30T00:00:00Z');
     vi.spyOn(Date, 'now').mockReturnValue(now);
-    const items = [30920, 30921, 30922, 30923, 30924, 30925].map(number => prItem(number));
+    const items = [30920, 30921, 30922, 30923, 30924, 30925, 30926].map(number => prItem(number));
     const shown = (handled: Handled) => attentionCards(visibleAttention(items, handled, now), 'all').map(item => item.number);
-    expect(shown({})).toEqual([30920, 30921, 30922, 30923]);
+    expect(shown({})).toEqual([30920, 30921, 30922, 30923, 30924]);
 
     const acknowledged = { [items[1].key]: handledEntry(items[1], 'ack', null, 'acknowledged') };
-    expect(shown(acknowledged)).toEqual([30920, 30922, 30923, 30924]);
+    expect(shown(acknowledged)).toEqual([30920, 30922, 30923, 30924, 30925]);
     const snoozed = { ...acknowledged, [items[0].key]: handledEntry(items[0], 'snooze', now + 3_600_000, '1 hour') };
-    expect(shown(snoozed)).toEqual([30922, 30923, 30924, 30925]);
-    expect(list(items, snoozed).match(/class="card-row item-row"/g)).toHaveLength(4);
+    expect(shown(snoozed)).toEqual([30922, 30923, 30924, 30925, 30926]);
+    expect(list(items, snoozed).match(/class="card-row item-row"/g)).toHaveLength(5);
+  });
+
+  it('keeps approved PRs available after reading or acknowledging them without triage actions', () => {
+    const item: AttentionItem = { ...prItem(42, 'updated'), pr: { ...pullRequest(42, {
+      event: 'commented', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null,
+    }), origin: 'OTHER', requestedReviewers: [], handledAction: 'APPROVED', reviewedAt: '2026-08-27T00:00:00Z', viewedAt: '2026-08-28T01:00:00Z' } };
+    for (const variant of ['home', 'workspace'] as const) {
+      for (const handled of [{}, { [item.key]: handledEntry(item, 'ack', null, 'acknowledged') }]) {
+        const html = list([item], handled, variant);
+        const [attention, approved] = html.split('aria-label="Approved by me"');
+        expect(attention).not.toContain('Change 42');
+        expect(approved).toContain('Change 42');
+        expect(approved).toContain('Latest: bob commented');
+        expect(approved).toContain('aria-label="Open #42"');
+        expect(approved).toContain('aria-label="Pin');
+        expect(approved).not.toContain('aria-label="Acknowledge');
+        expect(approved).not.toContain('aria-label="Snooze');
+      }
+    }
+    const myPrs = renderToStaticMarkup(<AttentionList section="my-prs" candidates={[item]} handled={{}} viewerLogin="viewer"
+      onHandledChange={() => {}} onOpen={() => {}} />);
+    expect(myPrs).not.toContain('Approved by me');
+    expect(list([])).not.toContain('Approved by me');
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    expect(list([], { [item.key]: handledEntry(item, 'snooze', now + 1, 'soon') })).not.toContain('Approved by me');
+    const returned = list([], { [item.key]: handledEntry(item, 'snooze', now, 'soon') });
+    expect(returned.split('aria-label="Approved by me"')[1]).toContain('Change 42');
+  });
+
+  it('shows three approved PRs by default and offers the rest in either Home', () => {
+    const items = [1, 2, 3, 4, 5, 6].map<AttentionItem>(number => ({ ...prItem(number, 'updated'), pr: {
+      ...pullRequest(number), origin: 'OTHER', requestedReviewers: [], handledAction: 'APPROVED', reviewedAt: '2026-08-27T00:00:00Z',
+    } }));
+    for (const variant of ['home', 'workspace'] as const) {
+      const html = list(items, {}, variant);
+      expect(html.match(/class="card-row item-row"/g)).toHaveLength(3);
+      expect(html).toContain('aria-expanded="false">Show all (6)</button>');
+      expect(list(items.slice(0, 3), {}, variant)).not.toContain('Show all');
+    }
   });
 
   it('offers development for an issue, leaves its labels to the hover card, and says so when nothing needs you', () => {

@@ -23,6 +23,7 @@ import { useTeams } from '../teams/useTeams';
 import { teamAttentionMatch } from '../teams/priority';
 import {
   ATTENTION_SOURCES,
+  approvedPullRequestCards,
   attentionCards,
   attentionEnded,
   attentionSource,
@@ -79,6 +80,7 @@ export default function AttentionList({
   const [filter, setFilter] = useState<AttentionFilter>('all');
   const [onlyTeam, setOnlyTeam] = useState(false);
   const [openOnly, setOpenOnly] = useState(loadOpenOnly);
+  const [showAllApproved, setShowAllApproved] = useState(false);
   const circles = useTeams(viewerLogin).directory?.circles ?? [];
   const [snooze, setSnooze] = useState<Anchored | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -102,6 +104,7 @@ export default function AttentionList({
   const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
   const cards = myPrs ? myPullRequestCards(reminders, handled, viewerLogin, Math.max(now, Date.now()))
     : attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam }, Math.max(now, Date.now()));
+  const approved = myPrs ? [] : approvedPullRequestCards(reminders, handled, viewerLogin, Math.max(now, Date.now()));
   const sessionEntries = session
     .map(key => handled[key])
     .filter((entry): entry is HandledEntry => entry !== undefined);
@@ -143,7 +146,7 @@ export default function AttentionList({
   const startable = (item: AttentionItem) => item.type === 'issue' && item.canStartDevelopment !== false && onStartIssue !== undefined && item.issueState !== 'closed'
     && (item.jira === undefined || item.jira.status.category !== 'done' && item.jira.task === null);
 
-  return (
+  return <>
     <section className={`atn-section is-${variant}`} aria-label={title}>
       <div className="atn-head">
         <span className="atn-head__label">{title}</span>
@@ -213,7 +216,29 @@ export default function AttentionList({
         />
       )}
     </section>
-  );
+    {approved.length > 0 && (
+      <section className={`atn-section is-${variant}`} aria-label="Approved by me">
+        <div className="atn-head">
+          <span className="atn-head__label">Approved by me</span>
+          {approved.length > 3 && (
+            <button type="button" className="atn-approved__toggle" aria-expanded={showAllApproved} onClick={() => setShowAllApproved(value => !value)}>
+              {showAllApproved ? 'Show less' : `Show all (${approved.length})`}
+            </button>
+          )}
+        </div>
+        <div className="item-list" role="list">
+          {(showAllApproved ? approved : approved.slice(0, 3)).map(item => {
+            const match = teamAttentionMatch(item, circles, viewerLogin);
+            return (
+              <AttentionRow key={item.key} item={item} viewerLogin={viewerLogin} showRepo={variant === 'home'}
+                circle={match === null ? null : { match, circles: [match.circle] }}
+                onToday={todayKeys?.has(item.key.toLowerCase()) ?? false} onOpen={() => onOpen(item)} />
+            );
+          })}
+        </div>
+      </section>
+    )}
+  </>;
 }
 
 /** The snooze choices, under the button that asked for them; a click anywhere else closes them. */

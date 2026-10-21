@@ -324,6 +324,7 @@ const bridge: Bridge = {
   deleteGitHubToken: () => ipcRenderer.invoke('pat:delete'),
 
   getBackportChains: (workspaceId: string) => ipcRenderer.invoke('backport-chains:list', workspaceId),
+  startBackportChain: (workspaceId, request) => ipcRenderer.invoke('backport-chains:start', workspaceId, request),
   selectBackportSource: (workspaceId: string, id: string, selection: { version: number; hopIndex: number; oldest: string; newest: string }) => ipcRenderer.invoke('backport-chains:source', workspaceId, id, selection),
   stopBackportChain: (workspaceId: string, id: string) => ipcRenderer.invoke('backport-chains:stop', workspaceId, id),
   resumeBackportChain: (workspaceId: string, id: string) => ipcRenderer.invoke('backport-chains:resume', workspaceId, id),

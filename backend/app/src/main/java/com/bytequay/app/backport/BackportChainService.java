@@ -156,6 +156,21 @@ public class BackportChainService
         }
     }
 
+    /** A backport chosen in Commits: one pull request of the source workspace and each destination's source hop. */
+    public record StartRequest(String sourceWorkspaceId, int number, List<String> destinations, List<Integer> sourceHops)
+    {
+        public StartRequest
+        {
+            checkText(sourceWorkspaceId, "sourceWorkspaceId", 100);
+            checkArgument(number > 0, "Choose a positive PR number");
+            destinations = ImmutableList.copyOf(destinations);
+            sourceHops = ImmutableList.copyOf(sourceHops);
+            checkArgument(!destinations.isEmpty() && destinations.size() <= 20 && destinations.size() == sourceHops.size(),
+                    "Choose 1 to 20 destinations, each with its source hop");
+            destinations.forEach(value -> checkText(value, "destination", 100));
+        }
+    }
+
     public record BackportDiscovery(String currentWorkspaceId, List<WorkspaceRelationships.BackportWorkspace> workspaces)
     {
         public BackportDiscovery
@@ -182,7 +197,7 @@ public class BackportChainService
     {
         AgentTask owner = requireTurn(taskId, turnId);
         String id = request.chainId().orElseGet(() -> UUID.nameUUIDFromBytes((taskId + ":" + request.operationKey()).getBytes(StandardCharsets.UTF_8)).toString());
-        checkArgument(chains.list().stream().filter(chain -> chain.requestingTaskId().equals(taskId))
+        checkArgument(chains.list().stream().filter(chain -> chain.requestingTaskId().equals(Optional.of(taskId)))
                         .filter(chain -> chain.acceptances().stream().anyMatch(acceptance -> acceptance.operationKey().equals(request.operationKey())))
                         .allMatch(chain -> chain.id().equals(id)),
                 "This operationKey already belongs to another chain");
@@ -195,7 +210,7 @@ public class BackportChainService
                     .mapToObj(index -> offset + index - 1).collect(toImmutableList()));
             if (previous.isPresent()) {
                 var chain = previous.orElseThrow();
-                checkArgument(chain.requestingTaskId().equals(taskId) && chain.sourceTaskId().equals(request.sourceTaskId()), "Another conversation owns this chain");
+                checkArgument(chain.requestingTaskId().equals(Optional.of(taskId)) && chain.sourceTaskId().equals(request.sourceTaskId()), "Another conversation owns this chain");
                 request.sourcePullRequest().ifPresent(value -> checkArgument(chain.source().workspaceId().equals(resolveDestination(value.workspaceId()))
                         && chain.sourcePullRequest().map(PullRequestRef::number).equals(Optional.of(value.number())), "The source PR changed"));
                 var accepted = chain.acceptances().stream().filter(value -> value.operationKey().equals(request.operationKey())).findFirst();
@@ -236,35 +251,68 @@ public class BackportChainService
                         && pr.baseBranch().equals(sourceRoute.branch()), "Source PR does not match the selected workspace and branch");
                 checkArgument(pr.state() != GitHubPullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
             });
-            var routes = new ArrayList<Route>();
-            previous.ifPresent(chain -> chain.hops().forEach(hop -> routes.add(hop.route())));
-            var next = ImmutableList.<Hop>builder();
-            for (int index = 0; index < request.destinations().size(); index++) {
-                int parent = parentIndices.get(index);
-                checkArgument(parent >= -1 && parent < routes.size(), "Each hop must use the source PR or an earlier hop");
-                Route from = parent < 0 ? sourceRoute : routes.get(parent);
-                Route to = route(resolveDestination(request.destinations().get(index)));
-                requireHop(from, to);
-                var model = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(to.workspaceId()));
-                next.add(new Hop(parent, to, model.configId(), Optional.of(model.model()), model.effort(),
-                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, Optional.empty(), false, false));
-                routes.add(to);
-            }
-            Acceptance authority = new Acceptance(request.operationKey(), turnId.toString(), request.destinations(), parentIndices);
+            List<Route> earlier = previous.map(chain -> chain.hops().stream().map(Hop::route).collect(toImmutableList())).orElse(ImmutableList.of());
+            List<Hop> next = newHops(sourceRoute, earlier, request.destinations(), parentIndices);
+            Acceptance authority = new Acceptance(request.operationKey(), Optional.of(turnId.toString()), request.destinations(), parentIndices);
             if (previous.isPresent()) {
-                return chains.save(previous.orElseThrow().append(authority, next.build(), clock.instant()));
+                return chains.save(previous.orElseThrow().append(authority, next, clock.instant()));
             }
             String branch = identity.map(GitHubPullRequestIdentity::headBranch).orElseGet(() -> source.orElseThrow().taskWorktree()
                     .orElseThrow(() -> new IllegalArgumentException("Source has no managed branch")).generatedBranch());
-            return chains.createOrGet(new BackportChain(id, owner.workspaceId().orElseThrow(), taskId, request.sourceTaskId(), branch,
-                    sourceRoute, sourcePr, false, ImmutableList.of(authority), next.build(), State.ACTIVE, Optional.empty(), 0, clock.instant(), clock.instant()));
+            return chains.createOrGet(new BackportChain(id, owner.workspaceId().orElseThrow(), Optional.of(taskId), request.sourceTaskId(), branch,
+                    sourceRoute, sourcePr, false, ImmutableList.of(authority), next, State.ACTIVE, Optional.empty(), 0, clock.instant(), clock.instant()));
         });
+    }
+
+    /**
+     * A click in Commits grants what an accepted @backport turn grants, for exactly this pull request and route: each local
+     * cherry-pick, PR publication and the existing CI repair. Repeating the same click returns the same chain.
+     */
+    public BackportChain start(String workspaceId, StartRequest request)
+    {
+        checkArgument(workspaces.findById(workspaceId).isPresent(), "Workspace is unavailable");
+        String id = UUID.nameUUIDFromBytes(("commits:" + workspaceId + ":" + request).getBytes(StandardCharsets.UTF_8)).toString();
+        Lock lock = locks.get(id);
+        return withLock(lock, () -> {
+            Optional<BackportChain> existing = chains.find(id);
+            if (existing.isPresent()) {
+                return existing.orElseThrow();
+            }
+            Route sourceRoute = route(request.sourceWorkspaceId());
+            PullRequestRef sourcePr = PullRequestRef.of(sourceRoute.repository().owner(), sourceRoute.repository().repo(), request.number());
+            GitHubPullRequestIdentity pr = pullRequests.fetchPullRequestIdentity(credentials.resolveGitHubToken(sourceRoute.workspaceId()), sourcePr);
+            checkArgument(pr.pullRequest().equals(sourcePr) && pr.baseRepository().equals(sourceRoute.repository()) && pr.baseBranch().equals(sourceRoute.branch()),
+                    "Backports start from a pull request into %s %s", sourceRoute.repository().fullName(), sourceRoute.branch());
+            checkArgument(pr.state() != GitHubPullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
+            List<Hop> hops = newHops(sourceRoute, ImmutableList.of(), request.destinations(), request.sourceHops());
+            Acceptance authority = new Acceptance("commits", Optional.empty(), request.destinations(), request.sourceHops());
+            return chains.createOrGet(new BackportChain(id, workspaceId, Optional.empty(), Optional.empty(), pr.headBranch(), sourceRoute, Optional.of(sourcePr), false,
+                    ImmutableList.of(authority), hops, State.ACTIVE, Optional.empty(), 0, clock.instant(), clock.instant()));
+        });
+    }
+
+    private List<Hop> newHops(Route source, List<Route> earlier, List<String> destinations, List<Integer> parents)
+    {
+        var routes = new ArrayList<>(earlier);
+        var next = ImmutableList.<Hop>builder();
+        for (int index = 0; index < destinations.size(); index++) {
+            int parent = parents.get(index);
+            checkArgument(parent >= -1 && parent < routes.size(), "Each hop must use the source PR or an earlier hop");
+            Route from = parent < 0 ? source : routes.get(parent);
+            Route to = route(resolveDestination(destinations.get(index)));
+            requireHop(from, to);
+            var model = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(to.workspaceId()));
+            next.add(new Hop(parent, to, model.configId(), Optional.of(model.model()), model.effort(),
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, Optional.empty(), false, false));
+            routes.add(to);
+        }
+        return next.build();
     }
 
     public List<BackportChain> list(String workspaceId)
     {
         checkArgument(workspaces.findById(workspaceId).isPresent(), "Workspace is unavailable");
-        return chains.list().stream().filter(chain -> chain.workspaceId().equals(workspaceId)).collect(toImmutableList());
+        return chains.list().stream().filter(chain -> chain.involves(workspaceId)).collect(toImmutableList());
     }
 
     public record View(BackportChain chain, String title, String requestingRepository, boolean archived, List<HopStatus> progress) {}
@@ -273,7 +321,7 @@ public class BackportChainService
 
     public View view(BackportChain chain)
     {
-        var owner = tasks.find(TaskId.valueOf(chain.requestingTaskId()));
+        var owner = chain.requestingTaskId().flatMap(id -> tasks.find(TaskId.valueOf(id)));
         var progress = ImmutableList.<HopStatus>builder();
         for (int index = 0; index < chain.hops().size(); index++) {
             var hop = chain.hops().get(index);
@@ -285,7 +333,10 @@ public class BackportChainService
             progress.add(new HopStatus(execution.flatMap(CherryPickExecution::agentTaskId), run.map(value -> value.id().toString()),
                     status, run.flatMap(CiAutofixRun::summary).or(() -> execution.flatMap(CherryPickExecution::summary))));
         }
-        return new View(chain, owner.map(AgentTask::title).orElse("Unavailable conversation"),
+        String title = chain.requestingTaskId().isEmpty()
+                ? "Backport " + chain.sourcePullRequest().map(PullRequestRef::fullName).orElse(chain.source().repository().fullName())
+                : owner.map(AgentTask::title).orElse("Unavailable conversation");
+        return new View(chain, title,
                 workspaces.findById(chain.workspaceId()).map(workspace -> workspace.monitoredRepository().fullName()).orElse(chain.workspaceId()),
                 owner.flatMap(AgentTask::archivedAt).isPresent(), progress.build());
     }
@@ -294,7 +345,7 @@ public class BackportChainService
     {
         requireTurn(taskId, turnId);
         var chain = require(id);
-        checkArgument(chain.requestingTaskId().equals(taskId), "Another conversation owns this chain");
+        checkArgument(chain.requestingTaskId().equals(Optional.of(taskId)), "Another conversation owns this chain");
         return chain;
     }
 

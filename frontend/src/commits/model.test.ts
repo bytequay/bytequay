@@ -13,8 +13,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { CherryPickExecution, GitCommitDto, WorkspaceDeliveryStatus } from '../types';
+import { workspaceFixture } from '../workspaces/fixtures/workspace';
 import {
+  backportRoute,
+  chosenRoute,
   filterTasks,
+  lineRepos,
   foldNav,
   groupByDay,
   limitDayGroups,
@@ -291,5 +295,40 @@ describe('foldNav', () => {
     const rows = foldNav(items, -1, false);
     expect(rows.at(-1)).toEqual({ kind: 'item', value: 19 });
     expect(rows[0]).toEqual({ kind: 'fold', label: '18 earlier items — settled', expand: true });
+  });
+});
+
+describe('backport routes', () => {
+  // oss → internal → here → product, and oss → sibling; `extra` is another Fork source outside the line.
+  const here = workspaceFixture({ id: 'here' });
+  const repos = lineRepos(here, {
+    links: [],
+    related: [
+      { workspaceId: 'internal', position: 'UPSTREAM', remote: 'backport-2', unavailableReason: null },
+      { workspaceId: 'oss', position: 'UPSTREAM', remote: 'backport-1', unavailableReason: null },
+      { workspaceId: 'extra', position: 'UPSTREAM', remote: 'backport-9', unavailableReason: null },
+    ],
+    line: [
+      { workspaceId: 'oss', parentWorkspaceId: null },
+      { workspaceId: 'internal', parentWorkspaceId: 'oss' },
+      { workspaceId: 'here', parentWorkspaceId: 'internal' },
+      { workspaceId: 'product', parentWorkspaceId: 'here' },
+      { workspaceId: 'tools', parentWorkspaceId: 'here' },
+    ],
+  }, []);
+  const ids = (route: ReturnType<typeof backportRoute>) => route.map(hop => `${hop.repo.workspaceId}<${hop.sourceHop}`);
+
+  it('runs from the source down the line, each hop copying from the one it forks', () => {
+    expect(ids(backportRoute(repos, 'oss'))).toEqual(['internal<-1', 'here<0', 'product<1', 'tools<1']);
+    expect(ids(backportRoute(repos, 'here'))).toEqual(['product<-1', 'tools<-1']);
+    expect(backportRoute(repos, 'product')).toEqual([]);
+    expect(backportRoute(repos, 'extra')).toEqual([]);
+  });
+
+  it('drops a hop whose source is left out and renumbers the rest', () => {
+    const route = backportRoute(repos, 'oss');
+    expect(ids(chosenRoute(route, new Set(['internal', 'here'])))).toEqual(['internal<-1', 'here<0']);
+    expect(ids(chosenRoute(route, new Set(['internal', 'product', 'tools'])))).toEqual(['internal<-1']);
+    expect(ids(chosenRoute(route, new Set(['internal', 'here', 'tools'])))).toEqual(['internal<-1', 'here<0', 'tools<1']);
   });
 });

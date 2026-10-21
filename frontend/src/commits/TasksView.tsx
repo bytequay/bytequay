@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useAgentAvailability } from '../agents/availability';
+import { BackportChainList, useBackportChains } from '../agents/BackportChains';
 import { useEffect, useMemo, useState } from 'react';
 import type { CherryPickExecution } from '../types';
 import {
@@ -68,6 +69,7 @@ export default function TasksView({ workspaceId, onOpenTask, onNewCherryPick }: 
   onNewCherryPick: () => void;
 }) {
   const availability = useAgentAvailability(workspaceId);
+  const backports = useBackportChains(workspaceId);
   const [tasks, setTasks] = useState<CherryPickExecution[]>([]);
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [shown, setShown] = useState(PAGE_SIZE);
@@ -121,6 +123,10 @@ export default function TasksView({ workspaceId, onOpenTask, onNewCherryPick }: 
 
       {error && <div className="cmt-error" role="alert">{error}</div>}
 
+      {(backports.chains.length > 0 || backports.error !== null) && (
+        <div className="cmt-chains"><BackportChainList chains={backports.chains} error={backports.error} /></div>
+      )}
+
       <div className="cmt-task-list">
         {loading && <div className="cmt-loading">Loading tasks…</div>}
         {!loading && rows.length === 0 && (
@@ -161,7 +167,8 @@ export default function TasksView({ workspaceId, onOpenTask, onNewCherryPick }: 
       )}
       <div className="cmt-tasks-footnote">
         To start a new cherry-pick, open <strong>History</strong>, choose a repository upstream in
-        the repo line, select a range of commits, and confirm.
+        the repo line, and select commits or a merged pull request. Choose <strong>Backport</strong> to
+        carry a pull request down the line.
       </div>
     </div>
   );

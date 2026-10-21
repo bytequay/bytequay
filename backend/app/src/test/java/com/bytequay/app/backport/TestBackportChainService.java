@@ -262,6 +262,51 @@ class TestBackportChainService
     }
 
     @Test
+    void startedInCommitsWithoutAConversationWaitsForEachMergeAndShowsInEveryRepository()
+    {
+        var service = service();
+        var request = new BackportChainService.StartRequest("p4", 4, ImmutableList.of("p3", "p2"), ImmutableList.of(-1, 0));
+        var chain = service.start("p2", request);
+        assertThat(chain.requestingTaskId()).isEmpty();
+        assertThat(chain.sourceTaskId()).isEmpty();
+        assertThat(chain.workspaceId()).isEqualTo("p2");
+        assertThat(chain.sourcePullRequest()).contains(PullRequestRef.of("test", "p4", 4));
+        assertThat(chain.acceptances()).singleElement().satisfies(acceptance -> assertThat(acceptance.turnId()).isEmpty());
+        assertThat(service.start("p2", request)).isEqualTo(chain);
+        assertThat(saved).hasSize(1);
+        for (String workspace : ImmutableList.of("p2", "p3", "p4")) {
+            assertThat(service.list(workspace)).extracting(BackportChain::id).containsExactly(chain.id());
+        }
+        assertThat(service.view(chain).title()).isEqualTo("Backport test/p4#4");
+
+        service.advance(chain.id());
+        assertThat(children).isEmpty();
+        merge(4);
+        for (int tick = 0; tick < 4; tick++) {
+            service.advance(chain.id());
+        }
+        assertThat(children).hasSize(1);
+        assertThat(current(chain).hops().getFirst().pullRequest()).isPresent();
+        assertThat(current(chain).hops().get(1).executionId()).isEmpty();
+    }
+
+    @Test
+    void startInCommitsChecksTheSourcePullRequestAndEveryForkHop()
+    {
+        var service = service();
+        remote.put(4, identity(4, GitHubPullRequestIdentity.State.CLOSED, "closed-fix"));
+        assertThatThrownBy(() -> service.start("p3", new BackportChainService.StartRequest("p4", 4, ImmutableList.of("p3"), ImmutableList.of(-1))))
+                .hasMessageContaining("closed without merging");
+        remote.put(4, identity(4, GitHubPullRequestIdentity.State.OPEN, "open-fix"));
+        when(relationships.list("p3")).thenReturn(ImmutableList.of());
+        assertThatThrownBy(() -> service.start("p3", new BackportChainService.StartRequest("p4", 4, ImmutableList.of("p3"), ImmutableList.of(-1))))
+                .hasMessageContaining("list its source as a Fork");
+        assertThatThrownBy(() -> new BackportChainService.StartRequest("p4", 4, ImmutableList.of("p3", "p2"), ImmutableList.of(-1)))
+                .hasMessageContaining("each with its source hop");
+        assertThat(saved).isEmpty();
+    }
+
+    @Test
     void rejectsForwardDependenciesAndChangedSourcePrBeforeDispatch()
     {
         var service = service();
@@ -377,7 +422,8 @@ class TestBackportChainService
         assertThat(chain.sourceBranch()).isEqualTo(source.taskWorktree().orElseThrow().generatedBranch());
         service.advance(chain.id());
         assertThat(current(chain).sourcePullRequest()).contains(remote.get(4).pullRequest());
-        assertThat(service.list("p4")).isEmpty();
+        // Every repository on the route lists the chain, not only the one that asked for it.
+        assertThat(service.list("p4")).extracting(BackportChain::id).containsExactly(chain.id());
         verify(relationships).requireRelated("p2", "p4");
         verify(relationships, never()).requireRelated("p4", "p2");
         merge(4);

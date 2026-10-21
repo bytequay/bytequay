@@ -41,6 +41,12 @@ public class BackportChainController
         return service.list(workspaceId).stream().map(service::view).collect(com.google.common.collect.ImmutableList.toImmutableList());
     }
 
+    @PostMapping
+    public View start(@PathVariable String workspaceId, @RequestBody BackportChainService.StartRequest request)
+    {
+        return service.view(service.start(workspaceId, request));
+    }
+
     @PostMapping("/{id}/source")
     public View selectSource(@PathVariable String workspaceId, @PathVariable String id, @RequestBody BackportChainService.SelectSource selection)
     {

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState, type MouseEventHandler } from 'react';
+import { useEffect, useState } from 'react';
 import type { BackportChainPrDto, BackportChainViewDto, BackportChainRouteDto, GitCommitDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceCherryPickRoute, workspacePullRequestRoute } from '../workspaces/model';
 import RepoAvatar from '../RepoAvatar';
@@ -89,7 +89,9 @@ export function BackportChainCard({ view, source = false }: { view: BackportChai
       pullRequestRepo={`${picker.source.repository.owner}/${picker.source.repository.repo}`}
       onOpenPullRequest={number => { window.location.hash = workspacePullRequestRoute(picker.source.workspaceId, number); }}
       onCancel={() => setPicker(null)} onApply={anchors => void saveSelection(anchors)} />}
-    {source && <div className="linked-work-source">Requested in <a href={workspaceAgentTaskRoute(chain.workspaceId, chain.requestingTaskId)}>“{current.title}”</a> in {current.requestingRepository}</div>}
+    {source && (chain.requestingTaskId === null
+      ? <div className="linked-work-source">Started from Commits in {current.requestingRepository}</div>
+      : <div className="linked-work-source">Requested in <a href={workspaceAgentTaskRoute(chain.workspaceId, chain.requestingTaskId)}>“{current.title}”</a> in {current.requestingRepository}</div>)}
     <article className="linked-work-card backport-chain">
       <div className="linked-work-head"><strong>Backport chain</strong><span className="backport-route">· {route}</span>
         <span className={`linked-work-state is-${chain.state.toLowerCase()}`}>{labels[chain.state]}</span>
@@ -143,7 +145,7 @@ export function BackportChainCard({ view, source = false }: { view: BackportChai
   </div>;
 }
 
-export function BackportChainList({ chains, error, onStart }: { chains: BackportChainViewDto[]; error: string | null; onStart?: MouseEventHandler<HTMLButtonElement> }) {
+export function BackportChainList({ chains, error }: { chains: BackportChainViewDto[]; error: string | null }) {
   const groups = [
     ['Needs you', chains.filter(view => view.chain.state === 'BLOCKED')],
     ['Active', chains.filter(view => view.chain.state === 'ACTIVE' || view.chain.state === 'STOPPING')],
@@ -151,10 +153,8 @@ export function BackportChainList({ chains, error, onStart }: { chains: Backport
     ['Completed', chains.filter(view => view.chain.state === 'COMPLETED')],
   ] as const;
   return <div className="linked-work-list">
-    <div className="backport-intro"><strong>Start a backport with @backport</strong>
-      <p>Name a source PR, or describe the fix. Default backport sources in Related workspaces define the route. Add destinations to choose a different route.</p>
-      <q>@backport owner/repo #1234</q>
-      {onStart && <button type="button" className="setw-btn" onClick={onStart}>Start backport conversation</button>}
+    <div className="backport-intro"><strong>Backport chains</strong>
+      <p>Pick a merged pull request in History and choose Backport to carry it down the repo line, or ask an agent with @backport. Each step waits for the one before it to merge.</p>
     </div>
     {error && <p role="alert" className="cmt-error">{error}</p>}
     {groups.map(([label, rows]) => rows.length > 0 && <section key={label}><h3>{label} <span>{rows.length}</span></h3>

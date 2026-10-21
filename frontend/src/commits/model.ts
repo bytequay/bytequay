@@ -76,6 +76,29 @@ export function pullRequestPanelRef(
   };
 }
 
+export type BackportHop = { repo: LineRepo; sourceHop: number };
+
+/** Everything downstream of `sourceId` in the line, each copying from the source (-1) or an earlier hop. */
+export function backportRoute(repos: LineRepo[], sourceId: string): BackportHop[] {
+  const route: BackportHop[] = [];
+  for (const repo of repos) {
+    const parent = repo.parentWorkspaceId === sourceId ? -1 : route.findIndex(hop => hop.repo.workspaceId === repo.parentWorkspaceId);
+    if (repo.parentWorkspaceId !== null && (repo.parentWorkspaceId === sourceId || parent >= 0)) route.push({ repo, sourceHop: parent });
+  }
+  return route;
+}
+
+/** The chosen hops, each kept only with the hop it copies from, renumbered for the shorter route. */
+export function chosenRoute(route: BackportHop[], chosen: ReadonlySet<string>): BackportHop[] {
+  const kept: BackportHop[] = [];
+  for (const hop of route) {
+    const from = hop.sourceHop < 0 ? null : route[hop.sourceHop].repo.workspaceId;
+    const sourceHop = from === null ? -1 : kept.findIndex(item => item.repo.workspaceId === from);
+    if (chosen.has(hop.repo.workspaceId) && (from === null || sourceHop >= 0)) kept.push({ repo: hop.repo, sourceHop });
+  }
+  return kept;
+}
+
 /**
  * Selection is always one contiguous span: the checked SHAs only anchor it,
  * and everything between the outermost anchors is effectively selected.

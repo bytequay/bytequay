@@ -1374,6 +1374,8 @@ function registerIpc(): void {
 
   ipcMain.handle('backport-chains:list', (_event, workspaceId: string) =>
     backendJson(workspaceUrl(workspaceId, `/backport-chains`)));
+  ipcMain.handle('backport-chains:start', (_event, workspaceId: string, request: { sourceWorkspaceId: string; number: number; destinations: string[]; sourceHops: number[] }) =>
+    backendJson(workspaceUrl(workspaceId, `/backport-chains`), jsonInit('POST', request)));
   ipcMain.handle('backport-chains:source', (_event, workspaceId: string, id: string, selection: { version: number; hopIndex: number; oldest: string; newest: string }) =>
     backendJson(workspaceUrl(workspaceId, `/backport-chains/${encodeURIComponent(id)}/source`), jsonInit('POST', selection)));
   for (const action of ['stop', 'resume'] as const) {

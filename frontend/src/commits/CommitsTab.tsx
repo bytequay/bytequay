@@ -28,6 +28,7 @@ import type {
   WorkspaceSettingsDto,
 } from '../types';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
+import { ConfirmDialog } from '../ConfirmDialog';
 import { workspaceRoute } from '../workspaces/model';
 import { useRelationships } from '../workspaces/RelatedWorkspaces';
 import ChangesView from './ChangesView';
@@ -37,7 +38,7 @@ import ProgressView from './ProgressView';
 import PullRequestsView from './PullRequestsView';
 import SelectRangeDialog from './SelectRangeDialog';
 import TasksView from './TasksView';
-import { lineRepos, remoteBranchCorrection, selectedSpan, shortSha, type LineRepo } from './model';
+import { backportRoute, chosenRoute, lineRepos, remoteBranchCorrection, selectedSpan, shortSha, type BackportHop, type LineRepo } from './model';
 
 type Screen = 'commits' | 'flow' | 'tasks' | 'progress';
 type CommitsView = 'history' | 'changes';
@@ -178,6 +179,9 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
   const [searchQuery, setSearchQuery] = useState('');
   const [listMode, setListMode] = useState<'commits' | 'pulls'>('commits');
   const [selectedPr, setSelectedPr] = useState<number | null>(null);
+  const [backport, setBackport] = useState<{ number: number; source: LineRepo; route: BackportHop[]; chosen: Set<string> } | null>(null);
+  const [backportBusy, setBackportBusy] = useState(false);
+  const [backportError, setBackportError] = useState<string | null>(null);
   /** The one ref an unreadable remote log already auto-synced for. */
   const autoSyncAttempt = useRef<string | null>(null);
   const rangeButtonRef = useRef<HTMLButtonElement>(null);
@@ -374,8 +378,51 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
     }
   };
 
+  const hereRepo = repos.find(repo => repo.place === 'here') ?? null;
+  /** A backport starts from the browsed upstream repository, or from this one while viewing it. */
+  const backportSource = isUpstream ? null : isRemote ? browsed : hereRepo;
+  const route = backportSource === null ? [] : backportRoute(repos, backportSource.workspaceId);
   /** Pull requests live in the browsed repository's own workspace; another branch of this one is this workspace. */
-  const showPulls = isRemote && listMode === 'pulls';
+  const showPulls = listMode === 'pulls' && (isRemote || route.length > 0);
+  const spanPullRequests = new Set(span === null ? [] : commits.slice(span.lo, span.hi + 1).map(commit => commit.pullRequestNumber ?? null));
+  const spanPullRequest = spanPullRequests.size === 1 ? [...spanPullRequests][0] : null;
+  const backportNumber = showPulls ? selectedPr : spanPullRequest;
+  const canBackport = availability.any && route.length > 0 && backportNumber !== null && backportSource !== null;
+
+  const openBackport = () => {
+    if (!canBackport || backportSource === null || backportNumber === null) return;
+    setBackportError(null);
+    setBackport({ number: backportNumber, source: backportSource, route, chosen: new Set(route.map(hop => hop.repo.workspaceId)) });
+  };
+
+  const startBackport = async () => {
+    if (backport === null) return;
+    const hops = chosenRoute(backport.route, backport.chosen);
+    setBackportBusy(true);
+    setBackportError(null);
+    try {
+      await window.bridge.startBackportChain(workspace.id, {
+        sourceWorkspaceId: backport.source.workspaceId,
+        number: backport.number,
+        destinations: hops.map(hop => hop.repo.workspaceId),
+        sourceHops: hops.map(hop => hop.sourceHop),
+      });
+      setBackport(null);
+      setScreen('tasks');
+    } catch (failure) {
+      setBackportError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBackportBusy(false);
+    }
+  };
+
+  const backportButton = canBackport && (
+    <button type="button" className="cmt-strip-btn" title={`Backport #${backportNumber} to ${route.map(hop => hop.repo.name).join(', ')}`}
+      onClick={openBackport}>
+      Backport
+      <ArrowRight size={12} strokeWidth={2} aria-hidden="true" />
+    </button>
+  );
 
   const openPullRequestFlow = async (number: number) => {
     if (activeRemote === null || sourceSlug === null) return;
@@ -463,7 +510,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
     <>
       {/* The mock keeps search and selection inside the commit column. */}
       <div className="cmt-search-row">
-        {isRemote && (
+        {(isRemote || route.length > 0) && (
           <div className="cmt-seg" role="group" aria-label="List">
             {([['commits', 'Commits'], ['pulls', 'Pull requests']] as const).map(([key, label]) => (
               <button type="button" key={key} className={listMode === key ? 'is-active' : ''} aria-pressed={listMode === key}
@@ -484,7 +531,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
         </div>
       </div>
 
-      {!isRemote && (
+      {!isRemote && !showPulls && (
         <div className="cmt-strip">
           <GitBranch className="cmt-strip-icon" size={13} strokeWidth={2} aria-hidden="true" />
           <span className="cmt-strip-note">
@@ -495,6 +542,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
             {firstSource === null ? 'Link one in Related workspaces' : `Pick commits from ${sourceName(firstSource)}`}
             <ArrowRight size={12} strokeWidth={2} aria-hidden="true" />
           </button>
+          {backportButton}
         </div>
       )}
 
@@ -502,12 +550,13 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
         <div className={`cmt-strip${selectedPr === null ? '' : ' has-selection'}`}>
           <span className="cmt-strip-count">{selectedPr === null ? 'No pull request selected' : `#${selectedPr} selected`}</span>
           <div className="cmt-strip-gap" />
-          {selectedPr !== null && availability.any && (
+          {selectedPr !== null && isRemote && availability.any && (
             <button type="button" className="cmt-strip-btn is-cherry" disabled={previewBusy} onClick={() => { void openPullRequestFlow(selectedPr); }}>
               {previewBusy ? 'Preparing preview…' : 'Cherry-pick'}
               <ArrowRight size={12} strokeWidth={2} aria-hidden="true" />
             </button>
           )}
+          {backportButton}
         </div>
       )}
 
@@ -554,6 +603,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
                 {previewBusy ? 'Preparing preview…' : 'Cherry-pick'}
                 <ArrowRight size={12} strokeWidth={2} aria-hidden="true" />
               </button>}
+              {backportButton}
             </>
           )}
         </div>
@@ -777,6 +827,49 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
         />
       )}
 
+      {backport !== null && (() => {
+        const kept = chosenRoute(backport.route, backport.chosen);
+        const toggle = (id: string) => setBackport(current => {
+          if (current === null) return current;
+          const chosen = new Set(current.chosen);
+          if (chosen.has(id)) chosen.delete(id);
+          else chosen.add(id);
+          return { ...current, chosen };
+        });
+        return (
+          <ConfirmDialog
+            title={`Backport ${backport.source.slug}#${backport.number}`}
+            confirmLabel="Start backport"
+            busy={backportBusy}
+            confirmDisabled={kept.length === 0}
+            onConfirm={() => { void startBackport(); }}
+            onCancel={() => setBackport(null)}
+          >
+            <p>
+              ByteQuay cherry-picks it into each repository you keep, opens a pull request there, and repairs CI as usual.
+              Each step starts after the pull request it copies from merges; nothing is merged for you.
+            </p>
+            <ul className="cmt-backport-route">
+              {backport.route.map(hop => {
+                const from = hop.sourceHop < 0 ? backport.source : backport.route[hop.sourceHop].repo;
+                const sourceKept = hop.sourceHop < 0 || kept.some(item => item.repo.workspaceId === from.workspaceId);
+                return (
+                  <li key={hop.repo.workspaceId}>
+                    <label>
+                      <input type="checkbox" checked={backport.chosen.has(hop.repo.workspaceId) && sourceKept} disabled={backportBusy || !sourceKept}
+                        onChange={() => toggle(hop.repo.workspaceId)} />
+                      {hop.repo.name}
+                      <span className="cmt-backport-from">from {from.name}</span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            {backportError && <div className="cmt-error" role="alert">{backportError}</div>}
+          </ConfirmDialog>
+        );
+      })()}
+
       {error && screen === 'commits' && <div className="cmt-error" role="alert">{error}</div>}
 
       {screen === 'commits' && commitsView === 'changes' && canEditTarget && (
@@ -787,8 +880,9 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
       )}
       {screen === 'commits' && showPulls && (
         <PullRequestsView
+          key={browsed?.workspaceId ?? workspace.id}
           workspaceId={browsed?.workspaceId ?? workspace.id}
-          slug={sourceSlug}
+          slug={isRemote ? sourceSlug : hereRepo?.slug ?? null}
           query={searchQuery}
           selected={selectedPr}
           listHeader={listHeader}

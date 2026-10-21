@@ -25,8 +25,8 @@ testBrowserScenarios([
     },
   },
   {
-    name: 'browses the repo line and cherry-picks a merged pull request in Chromium',
-    expected: 3, timeout: 30_000,
+    name: 'browses the repo line, cherry-picks and backports a merged pull request in Chromium',
+    expected: 4, timeout: 30_000,
     fixture: {
       prefix: 'bytequay-commits-repo-line-',
       entry: 'src/commits/fixtures/repoLineBrowser.tsx',

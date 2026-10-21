@@ -17,7 +17,7 @@ import { flushSync } from 'react-dom';
 import { AgentTaskList, TaskComposer, useAgentTaskCreation, type TaskLaunch } from '../AgentTasksView';
 import { createPreviewBridge } from './previewBridge';
 import { AgentHomeView } from '../AgentHome';
-import { BackportChainCard } from '../BackportChains';
+import { BackportChainCard, BackportChainList } from '../BackportChains';
 import type { BackportChainViewDto, BackportChainRouteDto, CreateAgentTaskRequest, LinkedWorkspaceWorkDto, ModelProviderDto } from '../../types';
 import { assert, changeInput, settle, element } from '../../fixtures/harness';
 import '../../css/base.css';
@@ -54,8 +54,9 @@ export function mount() {
   const stopped: BackportChainViewDto = { ...running, chain: { ...running.chain, id: 'stopped', state: 'STOPPED' } };
   const completed: BackportChainViewDto = { ...running, chain: { ...running.chain, id: 'complete', state: 'COMPLETED',
     hops: running.chain.hops.map(hop => ({ ...hop, completed: true })) } };
-  const empty: BackportChainViewDto = { ...base, chain: { ...base.chain, id: 'empty', state: 'COMPLETED', reason: null,
-    hops: [{ ...base.chain.hops[1], sourceHop: -1, completed: true, noOp: true }] } };
+  const empty: BackportChainViewDto = { ...base, chain: { ...base.chain, id: 'empty', state: 'COMPLETED', reason: null, requestingTaskId: null,
+    acceptances: [{ operationKey: 'commits', turnId: null, destinations: ['p2'] }],
+    hops: [{ ...base.chain.hops[1], sourceHop: -1, completed: true, noOp: true }] }, title: 'Backport trinodb/trino#24060' };
   const chains = [base, running, stopped, completed, empty];
   const change = async (workspace: string, id: string, state: 'STOPPING' | 'ACTIVE'): Promise<BackportChainViewDto> => {
     calls.push([workspace, id, state]);
@@ -82,9 +83,7 @@ export function mount() {
   host.style.cssText = 'max-width:1080px;margin:20px auto';
   document.body.append(host);
   const root = createRoot(host);
-  flushSync(() => root.render(<AgentTaskList workspaceId="p2" repository="acme/trino-private" tasks={[]} loading={false} error={null}
-    laneId="codex" providers={[]} models={[]} selection={null} draft="" blocker={null} initialType="backports"
-    onDraftChange={draft => calls.push(['draft', draft])} onSelectProvider={() => {}} onSelectModel={() => {}} onCreate={() => {}} onOpenTask={() => {}} />));
+  flushSync(() => root.render(<BackportChainList chains={chains} error={null} />));
   return { host, calls, parallel: () => flushSync(() => root.render(<BackportChainCard view={{ ...running, chain: { ...running.chain, sourceTaskId: null,
       hops: running.chain.hops.map(hop => ({ ...hop, sourceHop: -1 })) } }} />)),
     inline: () => flushSync(() => root.render(<BackportChainCard view={running} />)),
@@ -95,10 +94,9 @@ export async function run() {
   const view = mount();
   try {
     await settle();
-    view.host.querySelector<HTMLButtonElement>('.backport-intro button')?.click(); await settle();
-    assert(view.calls.some(call => call[0] === 'draft' && call[1] === '@backport '), 'Start backport prefills a request without sending');
-    assert(document.activeElement?.matches('.agt-compose__input'), 'Start backport focuses the composer');
+    assert(view.host.querySelector('.backport-intro')?.textContent?.includes('choose Backport') === true, 'The list says where backports start');
     assert(view.host.querySelectorAll('.backport-chain').length === 5, 'Every saved chain is shown');
+    assert(view.host.textContent?.includes('Started from Commits in acme/trino-private') === true, 'A chain started in Commits names no conversation');
     assert([...view.host.querySelectorAll('.linked-work-list h3')].map(node => node.textContent?.trim()).join(',') ===
       'Needs you 1,Active 1,Stopped 1,Completed 2', 'Approved groups and counts');
     assert(![...view.host.querySelectorAll('button')].some(button => button.textContent?.includes('New task')), 'No Create task button');

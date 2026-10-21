@@ -28,9 +28,9 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Saved route and child references; cherry-pick and CI services own execution. */
+/** Saved route and child references; cherry-pick and CI services own execution. A chain started in Commits has no requesting conversation. */
 public record BackportChain(
-        String id, String workspaceId, String requestingTaskId, Optional<String> sourceTaskId, String sourceBranch, Route source,
+        String id, String workspaceId, Optional<String> requestingTaskId, Optional<String> sourceTaskId, String sourceBranch, Route source,
         Optional<PullRequestRef> sourcePullRequest, boolean sourceMerged, List<Acceptance> acceptances, List<Hop> hops,
         State state, Optional<String> reason, long version, Instant createdAt, Instant updatedAt)
 {
@@ -38,7 +38,8 @@ public record BackportChain(
     {
         checkText(id, "id", 100);
         checkText(workspaceId, "workspaceId", 100);
-        checkText(requestingTaskId, "requestingTaskId", 100);
+        requireNonNull(requestingTaskId, "requestingTaskId is null");
+        requestingTaskId.ifPresent(value -> checkText(value, "requestingTaskId", 100));
         requireNonNull(sourceTaskId, "sourceTaskId is null");
         sourceTaskId.ifPresent(value -> checkText(value, "sourceTaskId", 100));
         checkText(sourceBranch, "sourceBranch");
@@ -86,13 +87,14 @@ public record BackportChain(
         }
     }
 
-    /** The original accepted root turn and exact requested extension, retained for idempotent replay. */
-    public record Acceptance(String operationKey, String turnId, List<String> destinations, List<Integer> sourceHops)
+    /** The accepted root turn, or none for a click in Commits, and the exact requested extension, retained for idempotent replay. */
+    public record Acceptance(String operationKey, Optional<String> turnId, List<String> destinations, List<Integer> sourceHops)
     {
         public Acceptance
         {
             checkText(operationKey, "operationKey", 100);
-            checkText(turnId, "turnId", 100);
+            requireNonNull(turnId, "turnId is null");
+            turnId.ifPresent(value -> checkText(value, "turnId", 100));
             destinations = ImmutableList.copyOf(destinations);
             sourceHops = ImmutableList.copyOf(sourceHops);
             checkArgument(!destinations.isEmpty() && destinations.size() == sourceHops.size(), "Choose destinations and their sources");

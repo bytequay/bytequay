@@ -1203,9 +1203,10 @@ export type BackportChainRouteDto = {
 export type BackportChainPrDto = { owner: string; repo: string; number: number };
 export type BackportChainViewDto = {
   chain: {
-    id: string; workspaceId: string; requestingTaskId: string; sourceTaskId: string | null; source: BackportChainRouteDto;
+    /** Null when the chain was started from Commits rather than an agent conversation. */
+    id: string; workspaceId: string; requestingTaskId: string | null; sourceTaskId: string | null; source: BackportChainRouteDto;
     sourcePullRequest: BackportChainPrDto | null; sourceMerged: boolean;
-    acceptances: { operationKey: string; turnId: string; destinations: string[] }[];
+    acceptances: { operationKey: string; turnId: string | null; destinations: string[] }[];
     hops: { sourceHop: number; route: BackportChainRouteDto; executionId: string | null; pullRequest: BackportChainPrDto | null;
       selection: { commits: string[]; tipSha: string } | null; landedSource: { commits: string[]; mergeSha: string } | null; completed: boolean; noOp: boolean }[];
     state: 'ACTIVE' | 'BLOCKED' | 'STOPPING' | 'STOPPED' | 'COMPLETED'; reason: string | null; createdAt: string; updatedAt: string; version: number;
@@ -1753,6 +1754,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;
   listWorkspaces: () => Promise<WorkspaceDto[]>;
   getBackportChains: (workspaceId: string) => Promise<BackportChainViewDto[]>;
+  /** Starts a backport of one pull request of `sourceWorkspaceId`; each destination copies from the source (-1) or an earlier one. */
+  startBackportChain: (workspaceId: string, request: { sourceWorkspaceId: string; number: number; destinations: string[]; sourceHops: number[] }) => Promise<BackportChainViewDto>;
   selectBackportSource: (workspaceId: string, id: string, selection: { version: number; hopIndex: number; oldest: string; newest: string }) => Promise<BackportChainViewDto>;
   stopBackportChain: (workspaceId: string, id: string) => Promise<BackportChainViewDto>;
   resumeBackportChain: (workspaceId: string, id: string) => Promise<BackportChainViewDto>;

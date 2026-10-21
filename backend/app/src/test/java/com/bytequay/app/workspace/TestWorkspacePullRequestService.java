@@ -312,8 +312,9 @@ class TestWorkspacePullRequestService
         when(fixture.workspaceStore().findById("source")).thenReturn(Optional.of(source));
         when(fixture.relationships().list("workspace")).thenReturn(ImmutableList.of(
                 new WorkspaceRelationships.Relationship("source", WorkspaceRelationships.Kind.FORK, "Fork", false)));
-        var chain = new BackportChain("fixture-chain", "workspace", "request", Optional.of("source-task"), "source-branch", BackportChain.Route.of(source), Optional.empty(), false,
-                ImmutableList.of(new BackportChain.Acceptance("key", "turn", ImmutableList.of("workspace"), ImmutableList.of(-1))),
+        var chain = new BackportChain("fixture-chain", "workspace", Optional.of("request"), Optional.of("source-task"), "source-branch", BackportChain.Route.of(source),
+                Optional.empty(), false,
+                ImmutableList.of(new BackportChain.Acceptance("key", Optional.of("turn"), ImmutableList.of("workspace"), ImmutableList.of(-1))),
                 ImmutableList.of(new BackportChain.Hop(-1, BackportChain.Route.of(fixture.workspace()), "lane", Optional.empty(), Optional.empty(),
                         Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(fixture.executionId().toString()), true, Optional.empty(), false, false)),
                 BackportChain.State.ACTIVE, Optional.empty(), 0, NOW, NOW);

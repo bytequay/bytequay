@@ -75,10 +75,27 @@ class TestSqliteBackportChainStore
         assertThat(purge.hasActiveWorkflows("p3")).isFalse();
     }
 
+    @Test
+    void chainStartedInCommitsKeepsNoRequestingConversationAcrossReads()
+    {
+        var template = chain();
+        var started = new BackportChain(template.id(), template.workspaceId(), Optional.empty(), Optional.empty(), "contributor-fix", template.source(),
+                Optional.of(PullRequestRef.of("test", "p4", 12)), false,
+                ImmutableList.of(new Acceptance("commits", Optional.empty(), ImmutableList.of("p3"), ImmutableList.of(-1))),
+                template.hops(), State.ACTIVE, Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
+        store.createOrGet(started);
+        entities.clear();
+        assertThat(store.find(started.id()).orElseThrow()).satisfies(value -> {
+            assertThat(value.requestingTaskId()).isEmpty();
+            assertThat(value.acceptances().getFirst().turnId()).isEmpty();
+            assertThat(value.sourcePullRequest()).contains(PullRequestRef.of("test", "p4", 12));
+        });
+    }
+
     private static BackportChain chain()
     {
-        return new BackportChain(UUID.randomUUID().toString(), "p4", "request", Optional.of("source"), "task-branch", route(4), Optional.empty(), false,
-                ImmutableList.of(new Acceptance("request-key", "turn", ImmutableList.of("p3"), ImmutableList.of(-1))),
+        return new BackportChain(UUID.randomUUID().toString(), "p4", Optional.of("request"), Optional.of("source"), "task-branch", route(4), Optional.empty(), false,
+                ImmutableList.of(new Acceptance("request-key", Optional.of("turn"), ImmutableList.of("p3"), ImmutableList.of(-1))),
                 ImmutableList.of(new Hop(-1, route(3), "codex", Optional.of("model"), Optional.of("high"),
                         Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, Optional.empty(), false, false)),
                 State.ACTIVE, Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);

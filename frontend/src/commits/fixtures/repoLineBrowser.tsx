@@ -50,7 +50,7 @@ const pull = (number: number, title: string): PullRequestDto => ({
 });
 
 function mount() {
-  const calls = { logs: [] as string[], merged: [] as string[], previews: [] as CherryPickPullRequestPreviewRequest[] };
+  const calls = { logs: [] as string[], merged: [] as string[], previews: [] as CherryPickPullRequestPreviewRequest[], backports: [] as unknown[][] };
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     gitOverview: async () => ({ currentBranch: 'main', branches: ['main'], remotes: [
       { name: 'backport-1', url: 'https://github.com/trino/oss.git', headBranch: 'master' },
@@ -72,6 +72,12 @@ function mount() {
       calls.previews.push(request);
       throw new Error('Preview stopped by the fixture');
     },
+    startBackportChain: async (workspaceId: string, request: unknown) => {
+      calls.backports.push([workspaceId, request]);
+      return {};
+    },
+    getBackportChains: async (): Promise<[]> => [],
+    listCherryPickExecutions: async (): Promise<[]> => [],
   } });
   const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<CommitsBrowser workspace={here} settings={{ commitsTarget: { remote: 'origin', branch: 'main', overridden: false } }}
@@ -85,7 +91,7 @@ async function cherryPickAPullRequestFromTheLine() {
   try {
     await until(() => view.calls.logs.includes('here:WORKSPACE::main'), 'This workspace history loads first');
     assert(view.chip('acme/product')?.getAttribute('aria-pressed') === 'true', 'This workspace starts selected');
-    assert(view.host.querySelector('[aria-label="List"]') === null, 'Only a source offers its pull requests');
+    assert(view.host.querySelector('[aria-label="List"]') !== null, 'A workspace something takes changes from offers its pull requests');
     view.chip('oss')?.click();
     await until(() => view.calls.logs.includes('here:REMOTE:backport-1:master'), 'oss history is read through its line remote on its default branch');
     textButton('Pull requests', view.host).click();
@@ -121,6 +127,49 @@ async function pickAnOlderPullRequestByNumber() {
   } finally { view.dispose(); }
 }
 
+async function backportAlongTheLine() {
+  const view = mount();
+  const routeText = () => [...view.host.querySelectorAll('.cmt-backport-route li')].map(item => item.textContent).join(' | ');
+  try {
+    view.chip('oss')?.click();
+    await settle();
+    textButton('Pull requests', view.host).click();
+    await until(() => view.host.querySelector('.cmt-merged-row') !== null, 'Merged pull requests are listed');
+    element<HTMLButtonElement>('.cmt-merged-row', view.host).click();
+    await settle();
+    textButton('Backport', view.host).click();
+    await settle();
+    const dialog = element<HTMLDialogElement>('dialog', view.host, 'Backport asks before starting');
+    assert(dialog.textContent?.includes('Backport trino/oss#28411') === true, 'The dialog names the pull request');
+    assert(routeText() === 'internalfrom oss | acme/productfrom internal | downstreamfrom acme/product', `The line below oss is the route: ${routeText()}`);
+    assert(view.calls.backports.length === 0, 'Opening the dialog starts nothing');
+    const boxes = [...dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+    boxes[1].click();
+    await settle();
+    assert(boxes[2].disabled && !boxes[2].checked, 'A repository whose source is left out is left out too');
+    textButton('Start backport', dialog).click();
+    await until(() => view.calls.backports.length === 1, 'Start backport sends the route');
+    assert(JSON.stringify(view.calls.backports[0]) === JSON.stringify(['here', { sourceWorkspaceId: 'oss', number: 28411, destinations: ['internal'], sourceHops: [-1] }]),
+      `Only the kept hops are sent: ${JSON.stringify(view.calls.backports[0])}`);
+    await until(() => view.host.textContent?.includes('Cherry-pick tasks') === true, 'The chain shows with cherry-picks once started');
+
+    view.chip('acme/product')?.click();
+    await settle();
+    textButton('Pull requests', view.host).click();
+    await until(() => view.calls.merged.includes('here:') && view.host.querySelector('.cmt-merged-row') !== null,
+      'This workspace lists its own merged pull requests because something takes changes from it');
+    element<HTMLButtonElement>('.cmt-merged-row', view.host).click();
+    await settle();
+    assert(!view.host.textContent?.includes('Cherry-pick'), 'A pull request of this workspace is only carried downstream');
+    textButton('Backport', view.host).click();
+    await settle();
+    textButton('Start backport', element('dialog', view.host)).click();
+    await until(() => view.calls.backports.length === 2, 'A backport from this workspace starts');
+    assert(JSON.stringify(view.calls.backports[1]) === JSON.stringify(['here', { sourceWorkspaceId: 'here', number: 28411, destinations: ['downstream'], sourceHops: [-1] }]),
+      `Downstream of this workspace is the route: ${JSON.stringify(view.calls.backports[1])}`);
+  } finally { view.dispose(); }
+}
+
 async function downstreamOpensItsOwnCommits() {
   const view = mount();
   try {
@@ -136,6 +185,7 @@ export function run() {
   return runScenarios([
     ['cherry-picks a merged pull request found in an upstream repository of the line', cherryPickAPullRequestFromTheLine],
     ['picks an older pull request by its number', pickAnOlderPullRequestByNumber],
+    ['backports a pull request down the repo line after confirming the route', backportAlongTheLine],
     ['opens a downstream repository in its own Commits', downstreamOpensItsOwnCommits],
   ]);
 }

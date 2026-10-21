@@ -36,6 +36,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestPage;
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
@@ -275,25 +276,42 @@ public class WorkspaceController
     }
 
     @GetMapping("/{workspaceId}/relationships")
-    public List<RelationshipResponse> relationships(@PathVariable String workspaceId)
+    public RelationshipsResponse relationships(@PathVariable String workspaceId)
     {
-        return relationships.list(workspaceId).stream().map(link -> {
-            String unavailable = null;
-            try {
-                relationships.requireRelated(workspaceId, link.workspaceId());
-                var local = workspaces.requireLocalRepository(link.workspaceId());
-                if (!Files.exists(local.repository().resolve(".git"))) {
-                    unavailable = "Managed checkout missing at " + local.repository();
-                }
-            }
-            catch (IllegalArgumentException | WorkspaceException failure) {
-                unavailable = failure.getMessage();
-            }
-            return new RelationshipResponse(link.workspaceId(), link.kind(), link.guidance(), link.backportByDefault(), unavailable);
-        }).collect(toImmutableList());
+        Map<String, RemoteSource> remotes = relationships.lineRemotes(workspaceId);
+        return new RelationshipsResponse(
+                relationships.list(workspaceId).stream()
+                        .map(link -> new RelationshipResponse(link.workspaceId(), link.kind(), link.guidance(), link.backportByDefault(),
+                                unavailable(workspaceId, link.workspaceId())))
+                        .collect(toImmutableList()),
+                relationships.related(workspaceId).stream()
+                        .map(related -> new RelatedResponse(related.workspaceId(), related.position(),
+                                Optional.ofNullable(remotes.get(related.workspaceId())).map(RemoteSource::name).orElse(null), unavailable(workspaceId, related.workspaceId())))
+                        .collect(toImmutableList()),
+                relationships.line(workspaceId).stream()
+                        .map(node -> new LineNodeResponse(node.workspaceId(), node.parentWorkspaceId().orElse(null)))
+                        .collect(toImmutableList()));
     }
 
+    private String unavailable(String workspaceId, String relatedId)
+    {
+        try {
+            relationships.requireRelated(workspaceId, relatedId);
+            var local = workspaces.requireLocalRepository(relatedId);
+            return Files.exists(local.repository().resolve(".git")) ? null : "Managed checkout missing at " + local.repository();
+        }
+        catch (IllegalArgumentException | WorkspaceException failure) {
+            return failure.getMessage();
+        }
+    }
+
+    public record RelationshipsResponse(List<RelationshipResponse> links, List<RelatedResponse> related, List<LineNodeResponse> line) {}
+
     public record RelationshipResponse(String workspaceId, WorkspaceRelationships.Kind kind, String guidance, boolean backportByDefault, String unavailableReason) {}
+
+    public record RelatedResponse(String workspaceId, WorkspaceRelationships.Position position, String remote, String unavailableReason) {}
+
+    public record LineNodeResponse(String workspaceId, String parentWorkspaceId) {}
 
     @PutMapping("/{workspaceId}/relationships")
     public List<Relationship> saveRelationship(@PathVariable String workspaceId, @RequestBody Relationship relationship)

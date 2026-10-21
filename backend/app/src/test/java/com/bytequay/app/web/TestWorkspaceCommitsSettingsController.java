@@ -29,8 +29,10 @@ import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.MediaType;
@@ -103,8 +105,17 @@ class TestWorkspaceCommitsSettingsController
         var relationships = mock(WorkspaceRelationships.class);
         when(relationships.list("trino")).thenReturn(ImmutableList.of(
                 new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Version in pom.xml", false)));
+        when(relationships.related("trino")).thenReturn(ImmutableList.of(
+                new WorkspaceRelationships.Related("iceberg", WorkspaceRelationships.Position.DEPENDENCY, "Version in pom.xml"),
+                new WorkspaceRelationships.Related("oss", WorkspaceRelationships.Position.UPSTREAM, "")));
+        when(relationships.line("trino")).thenReturn(ImmutableList.of(
+                new WorkspaceRelationships.LineNode("oss", Optional.empty()), new WorkspaceRelationships.LineNode("trino", Optional.of("oss"))));
+        when(relationships.lineRemotes("trino")).thenReturn(ImmutableMap.of("oss", new RemoteSource("trino", "backport-1", "https://github.com/oss/oss.git",
+                Optional.of(1L), Optional.of(RepoRef.of("oss", "oss")))));
         when(workspaces.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", directory, 2,
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
+        when(workspaces.requireLocalRepository("oss")).thenReturn(new WorkspaceRepositoryContext("oss", directory, 1,
+                RepoRef.of("oss", "oss"), OptionalLong.empty(), RepoRef.of("oss", "oss"), "origin", "origin", "main", ImmutableList.of()));
         var controller = new WorkspaceController(workspaces, mock(WorkspaceDeletionService.class), mock(PullRequestService.class),
                 mock(PullRequestRefreshService.class), mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class),
@@ -112,11 +123,16 @@ class TestWorkspaceCommitsSettingsController
         var mvc = standaloneSetup(controller).build();
         mvc.perform(get("/api/workspaces/trino/relationships"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].guidance").value("Version in pom.xml"))
-                .andExpect(jsonPath("$[0].unavailableReason").value("Managed checkout missing at " + directory));
+                .andExpect(jsonPath("$.links[0].guidance").value("Version in pom.xml"))
+                .andExpect(jsonPath("$.links[0].unavailableReason").value("Managed checkout missing at " + directory))
+                .andExpect(jsonPath("$.related[1].workspaceId").value("oss"))
+                .andExpect(jsonPath("$.related[1].position").value("UPSTREAM"))
+                .andExpect(jsonPath("$.related[1].remote").value("backport-1"))
+                .andExpect(jsonPath("$.related[0].remote").doesNotExist())
+                .andExpect(jsonPath("$.line[1].parentWorkspaceId").value("oss"));
         Files.createDirectory(directory.resolve(".git"));
         mvc.perform(get("/api/workspaces/trino/relationships"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].unavailableReason").doesNotExist());
+                .andExpect(jsonPath("$.links[0].unavailableReason").doesNotExist());
     }
 }

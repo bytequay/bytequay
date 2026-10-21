@@ -15,7 +15,7 @@ import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import AppSidebar from '../../AppSidebar';
-import type { WorkspaceDto, WorkspaceSettingsDto } from '../../types';
+import type { WorkspaceDto, WorkspaceRelationshipsDto, WorkspaceSettingsDto } from '../../types';
 import SettingsWindow from '../SettingsWindow';
 import '../../css/base.css';
 import '../../css/settings-window.css';
@@ -44,7 +44,7 @@ function stubBridge(reads: string[]) {
   const bridge = {
     getAppVersion: async () => ({ version: '0.4.0' }),
     listWorkspaces: async () => WORKSPACES,
-    getWorkspaceRelationships: async (): Promise<[]> => [],
+    getWorkspaceRelationships: async (): Promise<WorkspaceRelationshipsDto> => ({ links: [], related: [], line: [] }),
     getAppPreferences: async () => ({ taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 as const, autoMergeDelayMinutes: 60, theme: 'SYSTEM' }),
     getGitHubAccount: async () => ({ configured: false }),
     getWorkspaceSettings: async (id: string): Promise<WorkspaceSettingsDto> => {

@@ -73,8 +73,8 @@ class TestRelatedWorkspaceContext
         Workspace workspace = new Workspace("iceberg", "Iceberg", 2, RepoRef.of("apache", "iceberg"), Optional.empty(), Optional.empty(),
                 2, RepoRef.of("apache", "iceberg"), Workspace.Topology.DIRECT, "main", "https://github.com/apache/iceberg.git",
                 Optional.empty(), Optional.empty(), "/managed/iceberg", Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
-        when(relationships.list("trino")).thenReturn(ImmutableList.of(
-                new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Version in pom.xml", false)));
+        when(relationships.related("trino")).thenReturn(ImmutableList.of(
+                new WorkspaceRelationships.Related("iceberg", WorkspaceRelationships.Position.DEPENDENCY, "Version in pom.xml")));
         when(relationships.requireRelated("trino", "iceberg")).thenReturn(workspace);
         when(repositories.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", repository, 2,
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
@@ -100,7 +100,7 @@ class TestRelatedWorkspaceContext
         assertThat(command(git, "rev-parse", "HEAD")).isEqualTo(next);
         command(git, "update-ref", "-d", "refs/remotes/origin/main");
         assertThat(context.append(task, turn, "Investigate")).contains("unavailable", "synchronize").doesNotContain("\"commit\":");
-        when(relationships.list("trino")).thenReturn(ImmutableList.of());
+        when(relationships.related("trino")).thenReturn(ImmutableList.of());
         assertThat(context.append(task, turn, "No related workspaces")).isEqualTo("No related workspaces");
         assertThat(context.instructions(task)).isEmpty();
     }

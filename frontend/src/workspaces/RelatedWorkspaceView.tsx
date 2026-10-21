@@ -22,7 +22,7 @@ export function RelatedWorkspaceView({ workspaceId, relatedWorkspaceId, tab }: {
   workspaceId: string; relatedWorkspaceId: string; tab: 'commits' | 'context';
 }) {
   const { data, error } = useRelationships(workspaceId);
-  const link = data?.links.find(item => item.workspaceId === relatedWorkspaceId);
+  const link = data?.related.find(item => item.workspaceId === relatedWorkspaceId);
   const workspace = data?.workspaces.find(item => item.id === relatedWorkspaceId);
   const unavailable = error ?? (data === null ? null : link === undefined ? 'Related workspace unavailable' : unavailableReason(link, workspace));
   if (unavailable !== null) return <div className="ws-tab-page" role="status">{unavailable}</div>;

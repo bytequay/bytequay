@@ -13,7 +13,7 @@
  */
 import { useId, useState, useEffect } from 'react';
 import { ChevronRight, Pencil, Trash2 } from 'lucide-react';
-import type { WorkspaceDto, WorkspaceRelationshipDto } from '../types';
+import type { RelatedWorkspaceDto, RepoLineNodeDto, WorkspaceDto, WorkspaceRelationshipDto, WorkspaceRelationshipsDto } from '../types';
 import { Badge, Segmented, SelectPill, SettingsCard } from '../settings/primitives';
 import RepoAvatar from '../RepoAvatar';
 import { relatedWorkspaceRoute, workspaceHasReadableCode, type WorkspaceTab } from './model';
@@ -22,7 +22,7 @@ import '../css/related-workspaces.css';
 const changed = 'bytequay:relationships-changed';
 
 export function useRelationships(workspaceId: string) {
-  const [data, setData] = useState<{ links: WorkspaceRelationshipDto[]; workspaces: WorkspaceDto[] } | null>(null);
+  const [data, setData] = useState<WorkspaceRelationshipsDto & { workspaces: WorkspaceDto[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
@@ -32,7 +32,7 @@ export function useRelationships(workspaceId: string) {
     const refresh = () => {
       const current = ++request;
       Promise.resolve().then(() => Promise.all([window.bridge.getWorkspaceRelationships(workspaceId), window.bridge.listWorkspaces()]))
-        .then(([links, workspaces]) => { if (active && current === request) { setData({ links, workspaces }); setError(null); } })
+        .then(([relationships, workspaces]) => { if (active && current === request) { setData({ ...relationships, workspaces }); setError(null); } })
         .catch(failure => { if (active && current === request) setError(String(failure)); });
     };
     refresh();
@@ -42,8 +42,32 @@ export function useRelationships(workspaceId: string) {
   return { data, error };
 }
 
-export function unavailableReason(link: WorkspaceRelationshipDto, workspace?: WorkspaceDto) {
+export function unavailableReason(link: { unavailableReason?: string | null }, workspace?: WorkspaceDto) {
   return link.unavailableReason ?? (!workspace ? 'Workspace unavailable' : !workspaceHasReadableCode(workspace) ? 'Workspace code is not ready' : null);
+}
+
+export const positionLabel: Record<RelatedWorkspaceDto['position'], string> = {
+  UPSTREAM: 'Upstream', DOWNSTREAM: 'Downstream', DEPENDENCY: 'Dependency', DEPENDENT: 'Dependent',
+};
+
+export function workspaceName(workspaces: WorkspaceDto[], id: string) {
+  return workspaces.find(item => item.id === id)?.name ?? id;
+}
+
+/** True when the node continues from the one before it; a downstream branch instead names its parent. */
+export function continuesLine(line: RepoLineNodeDto[], index: number) {
+  return index > 0 && line[index].parentWorkspaceId === line[index - 1].workspaceId;
+}
+
+/** The repo line oldest upstream first, with the current workspace marked. */
+export function RepoLine({ line, workspaces, current }: { line: RepoLineNodeDto[]; workspaces: WorkspaceDto[]; current: string }) {
+  return <ol className="related-line" aria-label="Repo line">
+    {line.map((node, index) => <li key={node.workspaceId} className={continuesLine(line, index) ? 'is-joined' : undefined}>
+      {index > 0 && !continuesLine(line, index) && node.parentWorkspaceId !== null
+        && <span className="related-line-branch">{workspaceName(workspaces, node.parentWorkspaceId)} →</span>}
+      <span className="related-line-repo" aria-current={node.workspaceId === current ? 'true' : undefined}>{workspaceName(workspaces, node.workspaceId)}</span>
+    </li>)}
+  </ol>;
 }
 
 function ViewLinks({ workspaceId, relatedWorkspaceId, unavailable, activeTab }: {
@@ -60,18 +84,19 @@ export function RelatedWorkspaceNavigation({ workspaceId, activeWorkspaceId, act
 }) {
   const { data, error } = useRelationships(workspaceId);
   if (error !== null) return <div className="related-nav" role="status">Related workspaces unavailable</div>;
-  if (!data?.links.length) return null;
+  if (!data?.related.length) return null;
   return <nav className="related-nav" aria-label="Related workspaces">
     <div className="related-heading">Related</div>
-    {data.links.map(link => {
+    {data.related.map(link => {
       const workspace = data.workspaces.find(item => item.id === link.workspaceId);
       const unavailable = unavailableReason(link, workspace);
+      const guidance = data.links.find(item => item.workspaceId === link.workspaceId)?.guidance;
       return <details className={`related-nav-row${unavailable ? ' is-unavailable' : ''}`} key={link.workspaceId}>
-        <summary className="related-nav-title" title={unavailable ?? link.guidance}>
+        <summary className="related-nav-title" title={unavailable ?? guidance}>
           <ChevronRight className="related-chevron" size={12} aria-hidden="true" />
           {workspace && <RepoAvatar owner={workspace.monitoredOwner} repo={workspace.monitoredRepo} size={16} radius={4} />}
           <span className="related-name">{workspace?.name ?? link.workspaceId}</span>
-          <span className="related-kind">{unavailable ? 'Unavailable' : link.kind === 'FORK' ? 'Fork' : 'Dependency'}</span>
+          <span className="related-kind">{unavailable ? 'Unavailable' : positionLabel[link.position]}</span>
         </summary>
         <ViewLinks workspaceId={workspaceId} relatedWorkspaceId={link.workspaceId} unavailable={unavailable}
           activeTab={activeWorkspaceId === link.workspaceId ? activeTab : undefined} />
@@ -104,15 +129,19 @@ export function RelatedWorkspaceSettings({ workspace }: { workspace: WorkspaceDt
   };
   const addButton = <button type="button" className="setw-btn" disabled={data === null || busy}
     onClick={() => { setEditing({ workspaceId: '', kind: '', guidance: '', backportByDefault: false }); setExisting(false); setError(null); }}>+ Add related workspace</button>;
+  // Links other workspaces saved to this one; deeper downstream repos only show in the line.
+  const linkedHere = data?.related.filter(item => (item.position === 'DOWNSTREAM' || item.position === 'DEPENDENT')
+    && (data.line.find(node => node.workspaceId === item.workspaceId)?.parentWorkspaceId ?? workspace.id) === workspace.id) ?? [];
   return <div className="related-settings">
-    <SettingsCard footer={<div className="setw-foot-row"><span>One-way: {workspace.name} isn’t added to their settings. Doesn’t change Git remotes or PR routing.</span></div>}>
+    <SettingsCard footer={<div className="setw-foot-row"><span>Links are saved here and also show in the other workspace. A Fork lets Commits read and cherry-pick from it. PR routing doesn’t change.</span></div>}>
       <div className="related-card-heading"><strong>Related workspaces</strong>
         {!!data?.links.length && <Badge>{data.links.length}</Badge>}
-        {!!data?.links.length && editing === null && addButton}
+        {!!(data?.links.length || linkedHere.length) && editing === null && addButton}
       </div>
+      {data !== null && data.line.length > 1 && <RepoLine line={data.line} workspaces={data.workspaces} current={workspace.id} />}
       {(loadError ?? error) !== null && <div className="setw-error" role="alert">{loadError ?? error}</div>}
       {data === null && loadError === null && <div className="setw-row-empty">Loading related workspaces…</div>}
-      {data?.links.length === 0 && editing === null && <div className="related-empty">
+      {data?.links.length === 0 && linkedHere.length === 0 && editing === null && <div className="related-empty">
         <strong>No related workspaces</strong><p>Add a Fork or Dependency so agents in {workspace.name} know where else to look.</p>{addButton}
       </div>}
       {data?.links.filter(link => !existing || link.workspaceId !== editing?.workspaceId).map(link => {
@@ -124,7 +153,7 @@ export function RelatedWorkspaceSettings({ workspace }: { workspace: WorkspaceDt
           <div className="related-row-main">
             <div className="related-row-title"><strong>{name}</strong><span className={`related-badge is-${link.kind.toLowerCase()}`}>{link.kind === 'FORK' ? 'Fork' : 'Dependency'}</span>
               {unavailable && <span className="related-badge is-unavailable">Unavailable</span>}</div>
-            {link.backportByDefault && <div className="related-guidance">Default backport source → {workspace.name}</div>}
+            {link.backportByDefault && <div className="related-guidance">Upstream in {workspace.name}’s repo line</div>}
             {link.guidance && <div className="related-guidance">{link.guidance}</div>}
             {unavailable && <div className="related-unavailable">{unavailable}. New work there won’t start.</div>}
           </div>
@@ -136,6 +165,20 @@ export function RelatedWorkspaceSettings({ workspace }: { workspace: WorkspaceDt
                 onClick={() => void apply(() => window.bridge.removeWorkspaceRelationship(workspace.id, link.workspaceId))}><Trash2 size={13} /></button>
             </span>
           </div>
+        </div>;
+      })}
+      {linkedHere.map(link => {
+        const other = data?.workspaces.find(item => item.id === link.workspaceId);
+        const unavailable = unavailableReason(link, other);
+        const name = other?.name ?? link.workspaceId;
+        return <div className="related-row is-incoming" key={link.workspaceId}>
+          {other && <RepoAvatar owner={other.monitoredOwner} repo={other.monitoredRepo} size={28} />}
+          <div className="related-row-main">
+            <div className="related-row-title"><strong>{name}</strong><span className="related-badge">{positionLabel[link.position]}</span>
+              {unavailable && <span className="related-badge is-unavailable">Unavailable</span>}</div>
+            <div className="related-guidance">{link.position === 'DOWNSTREAM' ? `Takes changes from ${workspace.name}` : `Uses ${workspace.name}`}. Edit it in {name}.</div>
+          </div>
+          <div className="related-row-actions"><ViewLinks workspaceId={workspace.id} relatedWorkspaceId={link.workspaceId} unavailable={unavailable} /></div>
         </div>;
       })}
       {editing !== null && <form className="related-form" onSubmit={event => {
@@ -161,11 +204,11 @@ export function RelatedWorkspaceSettings({ workspace }: { workspace: WorkspaceDt
             : editing.kind === 'DEPENDENCY' ? 'We use this library. Read and investigate; no cherry-picks or backports between these projects.'
               : `Choose how ${workspace.name} relates to it.`}</p>
         </div>
-        {editing.kind === 'FORK' && <><span className="related-field-label">Backports</span><div>
+        {editing.kind === 'FORK' && <><span className="related-field-label">Repo line</span><div>
           <label><input type="checkbox" checked={editing.backportByDefault} disabled={busy}
-            onChange={event => setEditing({ ...editing, backportByDefault: event.target.checked })} /> Use as default backport source</label>
-          <p className="related-hint">When you request @backport, copy from this source into {workspace.name}. Downstream forks wait for this workspace’s PR to merge.
-            Forks sharing a source can run in parallel. Saving this setting does not start work.</p>
+            onChange={event => setEditing({ ...editing, backportByDefault: event.target.checked })} /> Use as {workspace.name}’s upstream</label>
+          <p className="related-hint">Commits and backports follow the repo line: changes flow from here into {workspace.name}, then to the repos that take
+            changes from {workspace.name}. With only one Fork, it’s the upstream automatically. Saving this setting does not start work.</p>
         </div></>}
         <label className="related-field-label" htmlFor={guidanceId}>Guidance</label><div>
           <textarea id={guidanceId} className="setw-input" aria-label="Relationship guidance" maxLength={500} rows={3}

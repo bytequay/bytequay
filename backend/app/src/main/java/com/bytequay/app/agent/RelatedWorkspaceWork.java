@@ -164,12 +164,12 @@ public class RelatedWorkspaceWork
                     return saved.orElseThrow();
                 }
                 var destination = relationships.requireRelated(workspaceId, request.workspaceId());
-                var relationship = relationships.list(workspaceId).stream().filter(value -> value.workspaceId().equals(destination.id())).findFirst().orElseThrow();
+                var kind = relationships.related(workspaceId).stream().filter(value -> value.workspaceId().equals(destination.id())).findFirst().orElseThrow().position().kind();
                 var model = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(destination.id()));
                 var automation = request.purpose() == Purpose.INVESTIGATE ? INVESTIGATION : appSettings.developmentAutomation();
                 var defaults = new AgentTaskDefaults(Optional.of(model.model()), model.effort(), AgentPermissionPolicy.AUTO).withDevelopmentAutomation(automation);
                 Link created = new Link(sourceTaskId, acceptedTurn.toString(), TaskId.random().toString(), request,
-                        destination.monitoredRepository().fullName(), relationship.kind(), new AgentLaneId(model.configId()), defaults, Instant.now(), Optional.empty());
+                        destination.monitoredRepository().fullName(), kind, new AgentLaneId(model.configId()), defaults, Instant.now(), Optional.empty());
                 save(workspaceId, created);
                 return created;
             });

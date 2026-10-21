@@ -283,9 +283,9 @@ class TestMemoryBridgeResolverImpl
                 .hasMessageContaining("Related workspace memory is disabled");
         assertThat(resolver.resolve(task.id().toString())).isPresent(); // Local REMEMBER remains available.
         memories.saveSwitches("iceberg", new MemorySwitches(true, true));
-        when(relationships.requireRelated("workspace", "iceberg")).thenThrow(new IllegalArgumentException("Workspace is not directly related"));
+        when(relationships.requireRelated("workspace", "iceberg")).thenThrow(new IllegalArgumentException("Workspace is not related"));
         assertThatThrownBy(() -> call(bridge, "{\"action\":\"SEARCH\",\"workspaceId\":\"iceberg\"}"))
-                .hasMessageContaining("not directly related");
+                .hasMessageContaining("not related");
         when(tasks.find(task.id())).thenReturn(Optional.of(task.fail("Failed", NOW, NOW.plus(Duration.ofDays(7)))));
         assertThatThrownBy(() -> call(bridge, "{\"action\":\"SEARCH\"}")).hasMessageContaining("Task is unavailable");
     }

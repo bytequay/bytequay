@@ -20,7 +20,7 @@ import { previewTask } from '../../agents/fixtures/previewBridge';
 import { assert, runScenarios, settle, until, element } from '../../fixtures/harness';
 import { jiraAttentionItem } from '../../jira/attention';
 import { jiraIssue } from '../../jira/fixtures/jira';
-import type { Bridge, ModelSettingsDto, PullRequestDto, WorkspaceDto } from '../../types';
+import type { Bridge, ModelSettingsDto, PullRequestDto, WorkspaceDto, WorkspaceRelationshipsDto } from '../../types';
 import AttentionList from '../AttentionList';
 import HomePage from '../HomePage';
 import { ATTENTION_SEED, attentionActivityVersion, handledEntry, loadHandled, pullRequestItem, saveHandled, type AttentionItem } from '../attention';
@@ -75,7 +75,7 @@ function mount(initial: AttentionItem[], myPrs = false) {
   window.bridge = { setPrAttentionHandled: async () => {}, setPrAttentionPinned: async () => {},
     findStoredPullRequest: async (repo: string, number: number) => initial.find(item => item.repo === repo && item.number === number)?.pr ?? null,
     onPullRequestsSynced: () => noOp,
-    getWorkspaceRelationships: async (): Promise<[]> => [], listWorkspaces: async (): Promise<[]> => [] } as unknown as Bridge;
+    getWorkspaceRelationships: async (): Promise<WorkspaceRelationshipsDto> => ({ links: [], related: [], line: [] }), listWorkspaces: async (): Promise<[]> => [] } as unknown as Bridge;
   const host = document.createElement('div');
   document.body.append(host);
   let root = createRoot(host);

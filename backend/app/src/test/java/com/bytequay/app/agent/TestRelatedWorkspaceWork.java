@@ -157,8 +157,8 @@ class TestRelatedWorkspaceWork
                 2, RepoRef.of("apache", "iceberg"), Workspace.Topology.DIRECT, "main", "https://github.com/apache/iceberg.git",
                 Optional.empty(), Optional.empty(), repository.toString(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
         when(relationships.requireRelated("trino", "iceberg")).thenReturn(destination);
-        when(relationships.list("trino")).thenReturn(ImmutableList.of(
-                new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Read core", false)));
+        when(relationships.related("trino")).thenReturn(ImmutableList.of(
+                new WorkspaceRelationships.Related("iceberg", WorkspaceRelationships.Position.DEPENDENCY, "Read core")));
         when(repositories.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", repository, 2,
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("iceberg"))).thenReturn(new AgentModelSetting(
@@ -273,9 +273,9 @@ class TestRelatedWorkspaceWork
         verify(turnService).start(any());
         assertThatThrownBy(() -> service.start(source.id().toString(), sourceTurn.id(), request("same", newCommit)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
-        when(relationships.requireRelated("trino", "iceberg")).thenThrow(new IllegalArgumentException("Not directly related"));
-        assertThatThrownBy(() -> service.start(source.id().toString(), sourceTurn.id(), request)).hasMessageContaining("Not directly related");
-        assertThatThrownBy(() -> service.read(source.id().toString(), sourceTurn.id(), "same")).hasMessageContaining("Not directly related");
+        when(relationships.requireRelated("trino", "iceberg")).thenThrow(new IllegalArgumentException("Not related"));
+        assertThatThrownBy(() -> service.start(source.id().toString(), sourceTurn.id(), request)).hasMessageContaining("Not related");
+        assertThatThrownBy(() -> service.read(source.id().toString(), sourceTurn.id(), "same")).hasMessageContaining("Not related");
     }
 
     @Test
@@ -309,9 +309,9 @@ class TestRelatedWorkspaceWork
                 .isInstanceOf(AgentConflictException.class);
         assertThatThrownBy(() -> service.read(TaskId.random().toString(), sourceTurn.id(), "missing"))
                 .isInstanceOf(AgentConflictException.class);
-        when(relationships.requireRelated("trino", "iceberg")).thenThrow(new IllegalArgumentException("Not directly related"));
+        when(relationships.requireRelated("trino", "iceberg")).thenThrow(new IllegalArgumentException("Not related"));
         assertThatThrownBy(() -> service.start(source.id().toString(), sourceTurn.id(), request("new", oldCommit)))
-                .hasMessageContaining("Not directly related");
+                .hasMessageContaining("Not related");
     }
 
     @Test

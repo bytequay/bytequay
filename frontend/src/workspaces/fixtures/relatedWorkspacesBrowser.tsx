@@ -18,7 +18,7 @@ import { RelatedWorkspaceNavigation, RelatedWorkspaceSettings } from '../Related
 import App from '../../App';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import { relatedWorkspaceRoute, workspaceRoute } from '../model';
-import type { Bridge, WorkspaceDto, WorkspaceRelationshipDto } from '../../types';
+import type { Bridge, RelatedWorkspaceDto, RepoLineNodeDto, WorkspaceDto, WorkspaceRelationshipDto, WorkspaceRelationshipsDto } from '../../types';
 import { assert, changeInput, settle, until, element } from '../../fixtures/harness';
 import '../../index.css';
 import '../../css/settings-window.css';
@@ -32,11 +32,18 @@ const trino = workspace('trino', 1, 'Trino');
 const iceberg = workspace('iceberg', 2, 'Apache Iceberg');
 const alias = workspace('alias', 1, 'Same monitored project');
 
+function relationships(links: WorkspaceRelationshipDto[], incoming: RelatedWorkspaceDto[] = [], line: RepoLineNodeDto[] = []): WorkspaceRelationshipsDto {
+  return { links, line, related: [...links.map(link => ({ workspaceId: link.workspaceId, position: link.kind === 'FORK' ? 'UPSTREAM' as const : 'DEPENDENCY' as const,
+    remote: null as string | null, unavailableReason: link.unavailableReason ?? null })), ...incoming] };
+}
+
 export function mount() {
   let links: WorkspaceRelationshipDto[] = [];
+  let incoming: RelatedWorkspaceDto[] = [];
+  let line: RepoLineNodeDto[] = [];
   let reject = false;
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
-    getWorkspaceRelationships: async () => links,
+    getWorkspaceRelationships: async () => relationships(links, incoming, line),
     listWorkspaces: async () => [trino, iceberg, alias],
     saveWorkspaceRelationship: async (_: string, link: WorkspaceRelationshipDto) => {
       if (reject) throw new Error('Workspace became unavailable');
@@ -54,6 +61,12 @@ export function mount() {
   return { host, reject: (value: boolean) => { reject = value; },
     missingCheckout: () => { links = [{ workspaceId: 'iceberg', kind: 'DEPENDENCY', backportByDefault: false, guidance: 'Keep this', unavailableReason: 'Managed checkout missing' }]; window.dispatchEvent(new Event('bytequay:relationships-changed')); },
     unavailable: () => { links = [{ workspaceId: 'missing', kind: 'FORK', backportByDefault: false, guidance: 'Saved guidance' }]; window.dispatchEvent(new Event('bytequay:relationships-changed')); },
+    downstream: () => {
+      links = [];
+      incoming = [{ workspaceId: 'iceberg', position: 'DOWNSTREAM', remote: null, unavailableReason: null }];
+      line = [{ workspaceId: 'trino', parentWorkspaceId: null }, { workspaceId: 'iceberg', parentWorkspaceId: 'trino' }];
+      window.dispatchEvent(new Event('bytequay:relationships-changed'));
+    },
     close: () => { flushSync(() => root.unmount()); host.remove(); } };
 }
 
@@ -99,8 +112,8 @@ async function settingsScenario() {
     const backport = element<HTMLInputElement>('input[type="checkbox"]', view.host, 'Fork exposes a default backport source');
     backport.click(); await settle();
     await click('Save');
-    assert(view.host.textContent?.includes('Default backport source → Trino'), 'Default backport direction is saved and shown');
-    assert(view.host.querySelector('.related-kind')?.textContent === 'Fork', 'Edit updates sidebar');
+    assert(view.host.textContent?.includes('Upstream in Trino’s repo line'), 'The chosen upstream is saved and shown');
+    assert(view.host.querySelector('.related-kind')?.textContent === 'Upstream', 'Edit updates sidebar');
     await click('Remove Apache Iceberg');
     assert(view.host.querySelector('[aria-label="Related workspaces"]') === null, 'Removed link disappears from sidebar');
     view.missingCheckout(); await settle();
@@ -109,7 +122,12 @@ async function settingsScenario() {
     view.unavailable(); await settle();
     assert(view.host.textContent?.includes('Workspace unavailable'), 'Unavailable destination keeps saved relationship visible');
     await click('Remove missing');
-    return [{ name: 'settings, server errors, navigation, edit and removal' }];
+    view.downstream(); await settle();
+    assert(view.host.textContent?.includes('Takes changes from Trino. Edit it in Apache Iceberg.'), 'A link saved by another workspace shows read-only');
+    assert(view.host.querySelector('[aria-label="Edit Apache Iceberg"]') === null, 'Another workspace’s link cannot be edited here');
+    assert([...view.host.querySelectorAll('.related-line-repo')].map(item => item.textContent).join(' → ') === 'Trino → Apache Iceberg', 'Repo line runs downstream');
+    assert(view.host.querySelector('.related-kind')?.textContent === 'Downstream', 'Sidebar shows the downstream repository');
+    return [{ name: 'settings, server errors, navigation, edit, removal and links saved elsewhere' }];
   } finally { view.close(); }
 }
 
@@ -141,7 +159,7 @@ async function navigationScenario() {
     listRetiredWorkspaces: async () => [],
     listCherryPickExecutions: async () => [],
     getWorkspace: async (id: string) => { reads.push(`workspace:${id}`); return id === trino.id ? trino : iceberg; },
-    getWorkspaceRelationships: async () => links,
+    getWorkspaceRelationships: async () => relationships(links),
     getMemoryPage: async (id: string) => {
       reads.push(`memory:${id}`);
       return { memories: [], guidelines: [], head: id, switches: { reviews: true, development: true }, harvest: { cursor: null, last: null } };

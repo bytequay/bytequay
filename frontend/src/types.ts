@@ -1225,6 +1225,24 @@ export type WorkspaceRelationshipDto = {
   backportByDefault: boolean;
 };
 
+/** Where a related workspace sits: own links, links saved to this workspace, and the rest of its repo line. */
+export type RelatedWorkspaceDto = {
+  workspaceId: string;
+  position: 'UPSTREAM' | 'DOWNSTREAM' | 'DEPENDENCY' | 'DEPENDENT';
+  /** The git remote this workspace reads that repository through; null when it isn't a source. */
+  remote: string | null;
+  unavailableReason: string | null;
+};
+
+export type RepoLineNodeDto = { workspaceId: string; parentWorkspaceId: string | null };
+
+export type WorkspaceRelationshipsDto = {
+  links: WorkspaceRelationshipDto[];
+  related: RelatedWorkspaceDto[];
+  /** Upstream ancestors oldest first, this workspace, then everything downstream of it. */
+  line: RepoLineNodeDto[];
+};
+
 export type WorkspaceSettingsDto = {
   remotes: WorkspaceRemoteDto[];
   commitsTarget: WorkspaceCommitsTargetDto;
@@ -1736,7 +1754,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   resumeBackportChain: (workspaceId: string, id: string) => Promise<BackportChainViewDto>;
   getLinkedWorkspaceWork: (workspaceId: string) => Promise<LinkedWorkspaceWorkDto[]>;
   getRelatedWorkspaceRequest: (workspaceId: string, taskId: string) => Promise<LinkedWorkspaceWorkDto | null>;
-  getWorkspaceRelationships: (workspaceId: string) => Promise<WorkspaceRelationshipDto[]>;
+  getWorkspaceRelationships: (workspaceId: string) => Promise<WorkspaceRelationshipsDto>;
   saveWorkspaceRelationship: (workspaceId: string, relationship: WorkspaceRelationshipDto) => Promise<WorkspaceRelationshipDto[]>;
   removeWorkspaceRelationship: (workspaceId: string, destinationId: string) => Promise<WorkspaceRelationshipDto[]>;
   listRetiredWorkspaces: () => Promise<WorkspaceDto[]>;

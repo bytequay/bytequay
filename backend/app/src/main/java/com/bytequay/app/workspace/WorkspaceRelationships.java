@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.AppSettingsStore;
@@ -21,18 +22,28 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
-/** Direct context links, independent of Git contribution routing. */
+/**
+ * Links saved on the workspace that names them, seen from both ends. Fork links also form repo lines: a workspace's
+ * parent is its default Fork source, or its only one.
+ */
 @Service
 public class WorkspaceRelationships
 {
@@ -61,6 +72,21 @@ public class WorkspaceRelationships
             checkArgument(!backportByDefault || kind == Kind.FORK, "Only a Fork can be a default backport source");
         }
     }
+
+    /** Where another workspace sits relative to this one. */
+    public enum Position
+    {
+        UPSTREAM, DOWNSTREAM, DEPENDENCY, DEPENDENT;
+
+        public Kind kind()
+        {
+            return this == UPSTREAM || this == DOWNSTREAM ? Kind.FORK : Kind.DEPENDENCY;
+        }
+    }
+
+    public record Related(String workspaceId, Position position, String guidance) {}
+
+    public record LineNode(String workspaceId, Optional<String> parentWorkspaceId) {}
 
     public List<Relationship> list(String workspaceId)
     {
@@ -136,10 +162,71 @@ public class WorkspaceRelationships
         });
     }
 
-    /** Rechecked on each tool call; never follows the destination's own links. */
+    /** This workspace's own links, links other workspaces saved to it, then the rest of its repo line. */
+    public List<Related> related(String workspaceId)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        Map<String, List<Relationship>> links = watchedLinks();
+        Map<String, Related> result = new LinkedHashMap<>();
+        for (Relationship link : list(workspaceId)) {
+            result.put(link.workspaceId(), new Related(link.workspaceId(), link.kind() == Kind.FORK ? Position.UPSTREAM : Position.DEPENDENCY, link.guidance()));
+        }
+        links.forEach((other, theirs) -> theirs.stream().filter(link -> link.workspaceId().equals(workspaceId)).findFirst()
+                .ifPresent(link -> result.putIfAbsent(other, new Related(other, link.kind() == Kind.FORK ? Position.DOWNSTREAM : Position.DEPENDENT, ""))));
+        boolean upstream = true;
+        for (LineNode node : line(workspaceId, links)) {
+            if (node.workspaceId().equals(workspaceId)) {
+                upstream = false;
+            }
+            else {
+                result.putIfAbsent(node.workspaceId(), new Related(node.workspaceId(), upstream ? Position.UPSTREAM : Position.DOWNSTREAM, ""));
+            }
+        }
+        return ImmutableList.copyOf(result.values());
+    }
+
+    /** Upstream ancestors oldest first, this workspace, then everything downstream of it; siblings stay out. */
+    public List<LineNode> line(String workspaceId)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        return line(workspaceId, watchedLinks());
+    }
+
+    /** By source workspace, the remotes a checkout fetches to read and cherry-pick from: every upstream in its line and every Fork it lists. */
+    public Map<String, RemoteSource> lineRemotes(String workspaceId)
+    {
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        Map<String, List<Relationship>> links = watchedLinks();
+        Set<String> sources = new LinkedHashSet<>();
+        for (LineNode node : line(workspaceId, links)) {
+            if (node.workspaceId().equals(workspaceId)) {
+                break;
+            }
+            sources.add(node.workspaceId());
+        }
+        list(workspaceId).stream().filter(link -> link.kind() == Kind.FORK && links.containsKey(link.workspaceId())).forEach(link -> sources.add(link.workspaceId()));
+        Map<String, RemoteSource> remotes = new LinkedHashMap<>();
+        Set<String> names = new HashSet<>();
+        for (String id : sources) {
+            Workspace source = requireWorkspace(workspaces, id);
+            String name = remoteName(source.monitoredRepositoryId());
+            if (source.monitoredRepositoryId() != workspace.monitoredRepositoryId() && names.add(name)) {
+                remotes.put(id, new RemoteSource(workspaceId, name, source.upstreamCloneUrl().orElse(source.originCloneUrl()),
+                        Optional.of(source.monitoredRepositoryId()), Optional.of(source.monitoredRepository())));
+            }
+        }
+        return ImmutableMap.copyOf(remotes);
+    }
+
+    public static String remoteName(long repositoryId)
+    {
+        return "backport-" + repositoryId;
+    }
+
+    /** Rechecked on each tool call. */
     public Workspace requireRelated(String workspaceId, String destinationId)
     {
-        checkArgument(list(workspaceId).stream().anyMatch(value -> value.workspaceId().equals(destinationId)), "Workspace is not directly related");
+        checkArgument(related(workspaceId).stream().anyMatch(value -> value.workspaceId().equals(destinationId)), "Workspace is not related");
         Workspace destination = requireWorkspace(workspaces, destinationId);
         checkArgument(workspaces.isWatched(destinationId), "Related workspace is unavailable");
         requireDifferent(requireWorkspace(workspaces, workspaceId), destination);
@@ -182,6 +269,50 @@ public class WorkspaceRelationships
                 }
             }
         }
+    }
+
+    private List<LineNode> line(String workspaceId, Map<String, List<Relationship>> links)
+    {
+        List<String> upstream = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        seen.add(workspaceId);
+        for (Optional<String> parent = parent(workspaceId, links); parent.isPresent() && seen.add(parent.orElseThrow()); parent = parent(parent.orElseThrow(), links)) {
+            upstream.addFirst(parent.orElseThrow());
+        }
+        ImmutableList.Builder<LineNode> nodes = ImmutableList.builder();
+        for (int index = 0; index < upstream.size(); index++) {
+            nodes.add(new LineNode(upstream.get(index), index == 0 ? Optional.empty() : Optional.of(upstream.get(index - 1))));
+        }
+        nodes.add(new LineNode(workspaceId, upstream.isEmpty() ? Optional.empty() : Optional.of(upstream.getLast())));
+        addDownstream(workspaceId, links, seen, nodes);
+        return nodes.build();
+    }
+
+    private static void addDownstream(String workspaceId, Map<String, List<Relationship>> links, Set<String> seen, ImmutableList.Builder<LineNode> nodes)
+    {
+        for (String child : links.keySet()) {
+            if (parent(child, links).filter(workspaceId::equals).isPresent() && seen.add(child)) {
+                nodes.add(new LineNode(child, Optional.of(workspaceId)));
+                addDownstream(child, links, seen, nodes);
+            }
+        }
+    }
+
+    private static Optional<String> parent(String workspaceId, Map<String, List<Relationship>> links)
+    {
+        List<Relationship> forks = links.getOrDefault(workspaceId, ImmutableList.of()).stream()
+                .filter(link -> link.kind() == Kind.FORK && links.containsKey(link.workspaceId()))
+                .collect(toImmutableList());
+        return forks.stream().filter(Relationship::backportByDefault).findFirst()
+                .or(() -> forks.size() == 1 ? Optional.of(forks.getFirst()) : Optional.empty())
+                .map(Relationship::workspaceId);
+    }
+
+    private Map<String, List<Relationship>> watchedLinks()
+    {
+        // ponytail: reads every watched workspace's links per call; cache them if workspace catalogs grow large.
+        return workspaces.findAllRetained().stream().filter(workspace -> workspaces.isWatched(workspace.id()))
+                .collect(toImmutableMap(Workspace::id, workspace -> list(workspace.id())));
     }
 
     private static boolean matches(Workspace workspace, RepoRef repository)

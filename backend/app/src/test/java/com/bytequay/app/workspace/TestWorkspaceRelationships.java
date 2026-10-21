@@ -35,16 +35,19 @@ class TestWorkspaceRelationships
     private final WorkspaceRelationships relationships = new WorkspaceRelationships(workspaces, settings, new ObjectMapper());
 
     @Test
-    void persistsOnlyDirectLinksAndRechecksAvailabilityAndRouting()
+    void persistsLinksOnTheNamingWorkspaceAndRechecksAvailabilityAndRouting()
     {
         Workspace p2 = add("p2", 2);
         Workspace p3 = add("p3", 3);
         add("p4", 4);
+        add("p5", 5);
         relationships.save("p2", new WorkspaceRelationships.Relationship("p3", FORK, "Our private additions", false));
         relationships.save("p3", new WorkspaceRelationships.Relationship("p4", FORK, "Upstream behavior", false));
+        assertThat(relationships.list("p3")).extracting(WorkspaceRelationships.Relationship::workspaceId).containsExactly("p4");
         assertThat(relationships.requireRelated("p2", "p3")).isEqualTo(p3);
-        assertThatThrownBy(() -> relationships.requireRelated("p2", "p4")).hasMessageContaining("not directly related");
-        assertThatThrownBy(() -> relationships.requireRelated("p3", "p2")).hasMessageContaining("not directly related");
+        assertThat(relationships.requireRelated("p2", "p4").id()).isEqualTo("p4");
+        assertThat(relationships.requireRelated("p3", "p2")).isEqualTo(p2);
+        assertThatThrownBy(() -> relationships.requireRelated("p2", "p5")).hasMessageContaining("not related");
         assertThatThrownBy(() -> relationships.save("p2", new WorkspaceRelationships.Relationship("p2", FORK, "", false)))
                 .hasMessageContaining("itself");
         Workspace alias = add("alias", 3);
@@ -106,6 +109,49 @@ class TestWorkspaceRelationships
                     assertThat(link.workspaceId()).isEqualTo("oss");
                     assertThat(link.backportByDefault()).isTrue();
                 });
+    }
+
+    @Test
+    void repoLineFollowsEachWorkspaceParentAndLeavesSiblingsOut()
+    {
+        add("oss", 1);
+        add("internal", 2);
+        add("product", 3);
+        add("sibling", 4);
+        add("lib", 5);
+        relationships.save("internal", new WorkspaceRelationships.Relationship("oss", FORK, "Internal fork", false));
+        relationships.save("product", new WorkspaceRelationships.Relationship("internal", FORK, "Product", false));
+        relationships.save("product", new WorkspaceRelationships.Relationship("lib", DEPENDENCY, "Library", false));
+        relationships.save("sibling", new WorkspaceRelationships.Relationship("oss", FORK, "", false));
+
+        assertThat(relationships.line("product")).containsExactly(
+                new WorkspaceRelationships.LineNode("oss", Optional.empty()),
+                new WorkspaceRelationships.LineNode("internal", Optional.of("oss")),
+                new WorkspaceRelationships.LineNode("product", Optional.of("internal")));
+        assertThat(relationships.line("oss")).extracting(WorkspaceRelationships.LineNode::workspaceId).containsExactly("oss", "internal", "product", "sibling");
+        assertThat(relationships.line("internal")).extracting(WorkspaceRelationships.LineNode::workspaceId).containsExactly("oss", "internal", "product");
+        assertThat(relationships.related("product")).containsExactly(
+                new WorkspaceRelationships.Related("internal", WorkspaceRelationships.Position.UPSTREAM, "Product"),
+                new WorkspaceRelationships.Related("lib", WorkspaceRelationships.Position.DEPENDENCY, "Library"),
+                new WorkspaceRelationships.Related("oss", WorkspaceRelationships.Position.UPSTREAM, ""));
+        assertThat(relationships.related("lib")).containsExactly(new WorkspaceRelationships.Related("product", WorkspaceRelationships.Position.DEPENDENT, ""));
+        assertThatThrownBy(() -> relationships.requireRelated("product", "sibling")).hasMessageContaining("not related");
+        assertThat(relationships.lineRemotes("product")).containsOnlyKeys("oss", "internal")
+                .hasEntrySatisfying("oss", remote -> {
+                    assertThat(remote.name()).isEqualTo("backport-1");
+                    assertThat(remote.url()).isEqualTo("https://github.com/owner/oss.git");
+                    assertThat(remote.repository()).contains(RepoRef.of("owner", "oss"));
+                });
+        assertThat(relationships.lineRemotes("oss")).isEmpty();
+
+        // Two Fork sources without a default leave the line ambiguous, so it stops there.
+        relationships.save("product", new WorkspaceRelationships.Relationship("sibling", FORK, "", false));
+        assertThat(relationships.line("product")).extracting(WorkspaceRelationships.LineNode::workspaceId).containsExactly("product");
+        assertThat(relationships.lineRemotes("product")).containsOnlyKeys("internal", "sibling");
+        relationships.save("product", new WorkspaceRelationships.Relationship("internal", FORK, "Product", true));
+        assertThat(relationships.line("product")).extracting(WorkspaceRelationships.LineNode::workspaceId).containsExactly("oss", "internal", "product");
+        workspaces.setWatched("internal", false);
+        assertThat(relationships.line("product")).extracting(WorkspaceRelationships.LineNode::workspaceId).containsExactly("oss", "sibling", "product");
     }
 
     @Test

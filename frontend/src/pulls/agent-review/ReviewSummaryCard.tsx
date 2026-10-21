@@ -12,19 +12,18 @@
  * limitations under the License.
  */
 import { useState, type ReactNode } from 'react';
-import { Diff, MessageSquare, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
+import { plural } from '@bytequay/ui/displayText';
 import MarkdownBody from '../MarkdownBody';
-import LocalCard, { LocalCardMessage, ReviewerAvatar, SummaryCardTitle } from '../local-review/LocalCard';
 import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
-import ReviewDetails from './ReviewDetails';
-import { SummaryOutlineItem } from './SummaryTimeline';
+import { ChangedItem, WhatChanged } from './SummaryTimeline';
 import type { ReviewCardFocus } from '../../agents/ReviewRequestCard';
 import type { AgentReviewDto, ReviewFindingDto, ReviewRunDto } from './contracts';
 import { askLabel, askQueues, isExplanationRun, latestExplanationRun, latestRun, shortSha } from './model';
 
-type SummaryCard = { id: string; title: string; body: ReactNode; pending?: boolean; kind?: 'purpose' | 'commit' | 'history'; commit?: ReviewRunDto['commits'][number] };
+type SummaryCard = { id: string; title: string; body: ReactNode; pending?: boolean; commit?: ReviewRunDto['commits'][number] };
 type AskAboutCard = (message: string, targetRevision: number, cardId: string) => Promise<void>;
 
 function bullets(items: string[]): string {
@@ -39,12 +38,7 @@ function cardMessages(review: AgentReviewDto, run: ReviewRunDto, cardId: string)
   ));
 }
 
-function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, busy, onAsk, ordinal, onSelectCommit, retainedFindings, refreshControl, refreshStatus }: {
-  refreshControl?: ReactNode;
-  refreshStatus?: ReactNode;
-  ordinal?: number;
-  retainedFindings?: ReactNode;
-  onSelectCommit?: (sha: string, snapshot?: { headSha: string; baseSha: string }) => void;
+function SummaryItem({ card, review, run, viewerLogin, viewerAvatarUrl, busy, onAsk, onSelectCommit }: {
   card: SummaryCard;
   review: AgentReviewDto;
   run: ReviewRunDto;
@@ -52,6 +46,7 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
   viewerAvatarUrl: string | null;
   busy: boolean;
   onAsk: AskAboutCard;
+  onSelectCommit?: (sha: string, snapshot?: { headSha: string; baseSha: string }) => void;
 }) {
   const [composing, setComposing] = useState(false);
   const [messageOpen, setMessageOpen] = useState(false);
@@ -59,7 +54,6 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
   const [error, setError] = useState<string | null>(null);
   const revision = run.summary?.revision ?? 1;
   const provisional = run.state !== 'ACCEPTED' || (!isExplanationRun(run) && (run.coverage?.complete !== true || run.coverage.omissions.length > 0));
-  const messages = cardMessages(review, run, card.id);
   const close = () => { setComposing(false); setText(''); setError(null); };
   const submit = async () => {
     if (text.trim() === '') return;
@@ -67,73 +61,34 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
     try { await onAsk(text.trim(), revision, card.id); close(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send your question.'); }
   };
-  const compact = card.kind === 'purpose' || card.kind === 'commit';
   const commit = card.commit;
   const [title, ...message] = commit?.message.split('\n') ?? [];
-  const ask = <button type="button" className={`lrc__ask${commit ? ' agr-explanation__ask' : ''}`}
-    aria-label={commit ? 'Ask reviewer about this commit' : undefined}
-    disabled={busy || review.state === 'CLOSED'} title={askQueues(review) ? 'Agent is busy — your question will queue' : 'Ask reviewer'}
-    onClick={event => {
-      event.preventDefault();
-      const details = event.currentTarget.closest('details');
-      if (details) details.open = true;
-      setComposing(true);
-    }}><MessageSquare size={13} aria-hidden="true" /><span>Ask reviewer</span></button>;
-  return <article className={`agr-summary-card${compact ? ` agr-explanation is-${card.kind}` : ''}`} data-review-card={card.id}>
-    <LocalCard tone={card.kind === 'purpose' ? 'purpose' : commit ? 'commit' : 'local'} chip="Private"
-      title={commit ? <>
-        <span className="agr-explanation__ordinal">{ordinal}</span>
-        <span className="lrc__title agr-commit__title">{title}</span>
-        <code className="agr-card__refs">{shortSha(commit.sha)}</code>
-        {message.join('').trim() !== '' && <button type="button" className="agr-commit__more" aria-expanded={messageOpen}
-          aria-label="Show commit message" onClick={event => {
-            event.preventDefault();
-            const details = event.currentTarget.closest('details');
-            if (details) details.open = true;
-            setMessageOpen(value => !value);
-          }}>···</button>}
-      </> : card.kind === 'purpose' ? <span className="agr-explanation__heading"><SummaryCardTitle />{refreshControl}</span> : <span className="lrc__title">{card.title}</span>}
-      badges={commit ? <>
-        {card.pending && <span className="agr-pill is-pending">not yet read</span>}
-        {!composing && ask}
-        {onSelectCommit && <button type="button" className="agr-explanation__diff" aria-label="View changes" title="View changes"
-          onClick={event => { event.preventDefault(); onSelectCommit(commit.sha, { headSha: run.headSha, baseSha: run.mergeBaseSha }); }}>
-          <Diff size={14} aria-hidden="true" />Diff
-        </button>}
-      </> : compact ? <>
-        <span className="agr-explanation__meta">{relativeTime(run.endedAt ?? run.createdAt)}</span>
-        {provisional && <span className="agr-pill is-provisional">Provisional · rev {revision}</span>}
-      </> : undefined}
-      controls={<>
-        {card.kind === 'purpose' && <footer className="agr-explanation__footer">
-          <ReviewDetails run={run} repository={review.repo} compact retainedFindings={retainedFindings} />{!composing && ask}
-        </footer>}
-        {(composing || !compact) && <footer className={`lrc__foot${composing ? ' is-composing' : ''}`}>
-          {composing ? <ReviewComposer repository={review.repo} value={text} autoFocus busy={busy}
-            placeholder={`Ask the reviewer about ${card.title.toLowerCase()}…`}
-            ariaLabel={`Ask the reviewer about ${card.title.toLowerCase()}`} primaryLabel={askLabel(review)}
-            onChange={setText} onSubmit={submit} onCancel={close} /> : ask}
-          {error && <span className="lrc__error" role="alert">{error}</span>}
-        </footer>}
-      </>}>
-      {card.kind === 'purpose' && refreshStatus}
-      {messageOpen && <pre className="agr-explanation__message">{message.join('\n').trim()}</pre>}
-      {card.body !== null && <LocalCardMessage timestamp={run.endedAt ?? run.createdAt} author="Agent review" avatar={<ReviewerAvatar />}
-        menu={<>{card.pending && <span className="agr-pill is-pending">not yet read</span>}
-          {provisional && <span className="agr-pill is-provisional">Provisional · rev {revision}</span>}
-          <span className="agr-card__refs">head {shortSha(run.headSha)}</span></>}>
-        {card.body}
-      </LocalCardMessage>}
-      <ReviewThread review={review} messages={messages} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} />
-    </LocalCard>
-  </article>;
+  return <div className="agr-summary-card" data-review-card={card.id}>
+    <ChangedItem sha={commit?.sha} byline={`Agent review · ${relativeTime(run.endedAt ?? run.createdAt)} · Private`}
+      title={commit ? <>{title}{message.join('').trim() !== '' && <button type="button" className="agr-commit__more" aria-expanded={messageOpen}
+        aria-label="Show commit message" onClick={() => setMessageOpen(value => !value)}>···</button>}</> : card.title}
+      note={messageOpen && <pre className="agr-explanation__message">{message.join('\n').trim()}</pre>}
+      onViewChanges={commit && onSelectCommit ? () => onSelectCommit(commit.sha, { headSha: run.headSha, baseSha: run.mergeBaseSha }) : undefined}
+      badges={<>{card.pending && <span className="agr-pill is-pending">not yet read</span>}
+        {provisional && <span className="agr-pill is-provisional">Provisional · rev {revision}</span>}</>}
+      ask={!composing && <button type="button" className="agr-link" disabled={busy || review.state === 'CLOSED'}
+        title={askQueues(review) ? 'Agent is busy — your question will queue' : undefined} onClick={() => setComposing(true)}>Ask reviewer</button>}>
+      {card.body}
+    </ChangedItem>
+    {composing && <ReviewComposer repository={review.repo} value={text} autoFocus busy={busy}
+      placeholder={`Ask the reviewer about ${card.title.toLowerCase()}…`}
+      ariaLabel={`Ask the reviewer about ${card.title.toLowerCase()}`} primaryLabel={askLabel(review)}
+      onChange={setText} onSubmit={submit} onCancel={close} />}
+    {error && <span className="lrc__error" role="alert">{error}</span>}
+    <ReviewThread review={review} messages={cardMessages(review, run, card.id)} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} />
+  </div>;
 }
 
-export default function ReviewSummaryCard({ review, run, findings, viewerLogin, viewerAvatarUrl, busy, onAsk, onSelectFinding, onSelectCommit, retainedFindings, onRefresh, refreshDisabledReason, focus }: {
+/** The reviewer's explanation of the change, as the Summary's What changed. */
+export default function ReviewSummaryCard({ review, run, findings, viewerLogin, viewerAvatarUrl, busy, onAsk, onSelectFinding, onSelectCommit, onRefresh, refreshDisabledReason, focus }: {
   review: AgentReviewDto;
   run: ReviewRunDto | null;
   findings: ReviewFindingDto[];
-  retainedFindings?: ReactNode;
   viewerLogin: string;
   viewerAvatarUrl: string | null;
   busy: boolean;
@@ -190,7 +145,7 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
   const evidence = [...new Map(findings.filter(finding => finding.runId === run.id)
     .flatMap(finding => finding.evidence).map(item => [item.ref, item])).values()];
   const warnings = run.coverage?.warnings ?? [];
-  const purpose: SummaryCard = { id: `${run.id}:purpose`, title: 'Change intention', kind: 'purpose', body: <>
+  const purpose: SummaryCard = { id: `${run.id}:purpose`, title: 'Change intention', body: <>
     {markdown(summary.purpose)}
     {warnings.length > 0 && <aside className="agr-banner is-warn agr-summary-card__warnings" aria-label="Verification warning">
       <strong className="agr-banner__chip">Verification warning</strong>
@@ -200,7 +155,7 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
   const commits: SummaryCard[] = run.commits.map(commit => {
     const explanation = summary.commits.find(item => item.sha === commit.sha);
     return { id: `${run.id}:commit:${commit.sha}`, title: `${shortSha(commit.sha)} · ${commit.message.split('\n')[0]}`,
-      body: markdown(explanation?.explanation ?? 'The agent has not saved an explanation of this commit yet.'), pending: explanation === undefined, kind: 'commit', commit };
+      body: markdown(explanation?.explanation ?? 'The agent has not saved an explanation of this commit yet.'), pending: explanation === undefined, commit };
   });
   const earlier: SummaryCard[] = [
     { id: `${run.id}:combined-result`, title: 'Combined result', body: markdown(summary.combinedResult) },
@@ -230,27 +185,25 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
         <span className="agr-critical__where">{finding.path === null ? 'Whole change' : `${finding.path.split('/').pop()} ${finding.range}`}</span>
       </li>)}</ul> },
   ].filter(card => review.messages.some(message => message.findingId === null && message.cardId === card.id));
-  const renderCard = (card: SummaryCard, ordinal?: number) => <SummarySectionCard key={card.id} card={card} review={review} run={run}
-    refreshControl={refreshControl} refreshStatus={refreshStatus}
-    ordinal={ordinal} onSelectCommit={onSelectCommit} retainedFindings={retainedFindings} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} busy={busy} onAsk={onAsk} />;
+  const renderCard = (card: SummaryCard) => <SummaryItem key={card.id} card={card} review={review} run={run}
+    onSelectCommit={onSelectCommit} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} busy={busy} onAsk={onAsk} />;
   const shown = commits.some(card => card.id === selected) ? selected : purpose.id;
-  const outlineItem = (card: SummaryCard, label: string, ordinal?: number) => <SummaryOutlineItem key={card.id} label={label} ordinal={ordinal}
-    messages={cardMessages(review, run, card.id).length} current={card.id === shown} onSelect={() => setSelected(card.id)} />;
-  return <div className="agr-review-timeline">
-    {run.id !== latestRun(review)?.id && <p className="agr-learning-cards__scope">{isExplanationRun(run) ? 'Change explanation' : 'Original change explanation'} · head {shortSha(run.headSha)}</p>}
-    <div className="agr-summary-outline">
-      <nav className="agr-summary-nav" aria-label="Summary outline">
-        {outlineItem(purpose, 'Intention')}
-        {commits.length > 0 && <span className="agr-summary-nav__heading">Commits</span>}
-        {commits.map((card, index) => outlineItem(card, card.commit?.message.split('\n')[0] ?? card.title, index + 1))}
-      </nav>
-      {/* Unselected cards stay mounted, so a question being written survives switching to another card. */}
-      <div className="agr-summary-reader">
-        {[purpose, ...commits].map((card, index) => <div key={card.id} hidden={card.id !== shown}>{renderCard(card, index === 0 ? undefined : index)}</div>)}
-        {earlier.length > 0 && <details className="agr-learning-history"><summary>Earlier discussions · {earlier.length}</summary>
-          {earlier.map(card => renderCard(card))}
-        </details>}
-      </div>
-    </div>
-  </div>;
+  const last = run.commits.at(-1);
+  return <WhatChanged selected={shown} onSelect={setSelected} actions={refreshControl}
+    items={[{ id: purpose.id, label: 'Intention' }, ...commits.map((card, index) => ({ id: card.id, label: card.commit?.message.split('\n')[0] ?? card.title, ordinal: index + 1 }))]}
+    meta={<>
+      {run.id !== latestRun(review)?.id && `${isExplanationRun(run) ? 'Change explanation' : 'Original change explanation'} · head ${shortSha(run.headSha)} · `}
+      updated {relativeTime(run.endedAt ?? run.createdAt)}
+      {last !== undefined && <> · {plural(run.commits.length, 'commit')} through {onSelectCommit
+        ? <button type="button" className="agr-link" title="Open this commit's diff in Changes"
+          onClick={event => { event.preventDefault(); onSelectCommit(last.sha, { headSha: run.headSha, baseSha: run.mergeBaseSha }); }}>{shortSha(last.sha)}</button>
+        : <code>{shortSha(last.sha)}</code>}</>}
+    </>}>
+    {refreshStatus}
+    {/* Unselected items stay mounted, so a question being written survives switching to another. */}
+    {[purpose, ...commits].map(card => <div key={card.id} hidden={card.id !== shown}>{renderCard(card)}</div>)}
+    {earlier.length > 0 && <details className="agr-learning-history"><summary>Earlier discussions · {earlier.length}</summary>
+      {earlier.map(card => renderCard(card))}
+    </details>}
+  </WhatChanged>;
 }

@@ -343,8 +343,8 @@ async function independentLearningCards(): Promise<void> {
   };
   render();
   try {
-    assert(section(purposeId).querySelector('.lrc.is-purpose') !== null,
-      'Learning cards must reuse the development private review card');
+    assert(section(purposeId).querySelector('.agr-changed__item') !== null,
+      'Learning cards must use the What changed item');
     await ask(purposeId, 'Explain the PR goal');
     await ask(commitId, 'Explain this implementation');
     assert(requests.length === 2 && requests[0] === purposeId && requests[1] === commitId,
@@ -360,8 +360,8 @@ async function independentLearningCards(): Promise<void> {
     assert(commit.textContent?.includes('Answer to Explain this implementation') === true
       && commit.textContent?.includes('Explain the PR goal') === false,
     'The commit must retain only its own user question and agent answer after reload');
-    assert(purpose.querySelectorAll('.lrc-message').length === 3 && commit.querySelectorAll('.lrc-message').length === 3,
-      'Each card must display its report, question and answer using shared comment rows');
+    assert([purpose, commit].every(card => card.querySelectorAll('.agr-changed__item').length === 1 && card.querySelectorAll('.lrc-message').length === 2),
+      'Each item must show its report, then its question and answer as shared comment rows');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
@@ -493,7 +493,7 @@ async function developmentLearningRefresh(): Promise<void> {
       'The report must contain only its intention and two implementation cards, without a separate review launcher');
     const visible = () => [...host.querySelectorAll<HTMLElement>('[data-learning-card]')].filter(item => item.closest('[hidden]') === null)
       .map(item => item.dataset.learningCard).join();
-    const outline = [...host.querySelectorAll<HTMLButtonElement>('.agr-summary-nav__item')];
+    const outline = [...host.querySelectorAll<HTMLButtonElement>('.agr-changed__items button')];
     assert(outline.map(item => item.title).join() === ['Intention', ...summary.commits.map(commit => commit.title)].join()
       && visible() === 'purpose' && host.querySelector('.agr-event') === null,
     'The outline must list the intention and each commit, open on the intention, and draw no timeline rows above the cards');
@@ -777,7 +777,9 @@ async function pendingFindingResponse(): Promise<void> {
       const unrelated = host.querySelector<HTMLElement>(`[data-finding-id="${other.id}"]`);
       assert(card !== null && unrelated !== null, `Both reviewer findings must render in ${projection}`);
       if (projection === 'changes') assert(card.closest('tr.is-review-finding') !== null, 'Exercise the actual inline Changes card');
-      const actionLabels = ['Ask reviewer', 'Resolve', 'Add to my review', 'Post comment now',
+      // The Summary's compact card says Post now; the Changes copy keeps its longer label.
+      const post = projection === 'review' ? 'Post now' : 'Post comment now';
+      const actionLabels = ['Ask reviewer', 'Resolve', 'Add to my review', post,
         ...(projection === 'review' ? ['View in Changes', 'Request fix'] : ['Open in Summary'])];
       for (const state of ['ACCEPTED', 'RUNNING', 'QUEUED']) {
         setResponse(state);
@@ -789,7 +791,7 @@ async function pendingFindingResponse(): Promise<void> {
         await settle();
         assert(card.querySelector('textarea') === null && writes === 0 && navigations === 0,
           'Blocked controls must not open an editor, perform a mutation or navigate');
-        assert(getComputedStyle(textButton('Post comment now', card)).color === getComputedStyle(textButton('Resolve', card)).color,
+        assert(getComputedStyle(textButton(post, card)).color === getComputedStyle(textButton('Resolve', card)).color,
           'The primary publish action must also look disabled');
         const progress = card.querySelector<HTMLElement>('.pr-local-review__progress');
         assert((progress !== null) === (state !== 'QUEUED') && unrelated.querySelector('.pr-local-review__progress') === null,
@@ -826,7 +828,7 @@ async function pendingFindingResponse(): Promise<void> {
         textButton('Cancel', card).click(); await settle();
       };
       for (const [openLabel, submitLabel] of [['Ask reviewer', 'Ask reviewer'], ['Resolve', 'Resolve locally'],
-        ['Post comment now', 'Post now'], ...(projection === 'review' ? [['Request fix', 'Send to developer']] : [])]) {
+        [post, 'Post now'], ...(projection === 'review' ? [['Request fix', 'Send to developer']] : [])]) {
         await checkPendingEditor(openLabel, submitLabel);
       }
       review = { ...review, draft: reviewDraftFixture({ repo: review.repo, number: review.number,

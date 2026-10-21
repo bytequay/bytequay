@@ -83,7 +83,7 @@ describe('starting a review', () => {
     expect(html).toContain('Ready to explore');
     expect(html).toContain('Start review');
     expect(html).toContain('Remove worktree');
-    expect(html).not.toContain('>Update review</button>');
+    expect(html).not.toContain('>Review again</button>');
     expect(html).not.toContain('>Reviewing</strong>');
   });
 
@@ -104,7 +104,7 @@ describe('starting a review', () => {
 });
 
 describe('the status strip', () => {
-  it('shows the saved review pass and scope facts beside the status', () => {
+  it('shows the running pass beside the status, and its saved facts in the status tooltip', () => {
     const running = runningReviewFixture();
     const investigation: ReviewInvestigationDto = { changeMap: 'Trace the changed path.', reviewedFiles: ['src/A.java'],
       contextEvidenceRefs: [], perspectives: [], candidates: [candidateFixture('Check the boundary')], validations: [], answers: [] };
@@ -113,7 +113,7 @@ describe('the status strip', () => {
       { number: 2, kind: 'VALIDATE', repair: false, investigation: null, validation: null },
     ] }] };
     const html = tab(review);
-    expect(html).toContain('aria-label="Review progress"');
+    expect(html).toContain('Running · Validation</span>');
     expect(html).toContain('Current pass: Validation');
     expect(html).toContain('2 of 5 commit explanations saved');
     expect(html).toContain('1 changed file reported assessed in this run');
@@ -124,7 +124,7 @@ describe('the status strip', () => {
   it('offers Stop while running, and never Update or End at the same time', () => {
     const html = tab(runningReviewFixture());
     expect(html).toContain('>Stop</button>');
-    expect(html).not.toContain('>Update review</button>');
+    expect(html).not.toContain('>Review again</button>');
     expect(html).not.toContain('>End review</button>');
     expect(html).not.toContain('>Recover runtime</button>');
   });
@@ -136,13 +136,13 @@ describe('the status strip', () => {
     expect(html).toContain('>Stop</button>');
     expect(html).not.toContain('>Resume</button>');
     expect(html).not.toContain('Retry review');
-    expect(html).not.toContain('>Update review</button>');
+    expect(html).not.toContain('>Review again</button>');
     expect(html).not.toContain('>End review</button>');
   });
 
-  it('offers Update review and End review once the run has settled', () => {
+  it('offers Review again and End review once the run has settled', () => {
     const html = tab(reviewFixture());
-    expect(html).toContain('>Update review</button>');
+    expect(html).toContain('>Review again</button>');
     expect(html).toContain('>End review</button>');
     expect(html).not.toContain('>Stop</button>');
     expect(html).not.toContain('>Recover runtime</button>');
@@ -169,7 +169,7 @@ describe('the status strip', () => {
     expect(html).not.toContain('Retry review');
     expect(html).toContain('>Resume review</button>');
     expect(html).not.toContain('>Run review again</button>');
-    expect(html).toContain('>Update review</button>');
+    expect(html).toContain('>Review again</button>');
     expect(html).toContain('Saved work from this attempt is provisional.');
     expect(html).toContain('Chat messages only continue the discussion.');
   });
@@ -182,7 +182,7 @@ describe('the status strip', () => {
     expect(html).not.toMatch(/disabled=""[^>]*>Recover runtime<\/button>/);
     expect(html).not.toContain('>Resume</button>');
     expect(html).not.toContain('>Resume review</button>');
-    expect(html).toMatch(/disabled=""[^>]*>Update review<\/button>/);
+    expect(html).toMatch(/disabled=""[^>]*>Review again<\/button>/);
     expect(html).toMatch(/disabled=""[^>]*>End review<\/button>/);
     expect(html).toContain('class="lrc__ask" disabled=""');
     expect(html).not.toContain('>Stop</button>');
@@ -192,7 +192,8 @@ describe('the status strip', () => {
   it('keeps cards in the PR pane and opens the conversation in the workspace', () => {
     const html = tab(reviewFixture());
     expect(html).not.toContain('Summary &amp; comments');
-    expect(html).not.toContain('>Activity');
+    expect(html).toContain('<button type="button" role="tab" aria-selected="true">Findings<span>3</span></button>');
+    expect(html).toContain('<button type="button" role="tab" aria-selected="false">Activity</button>');
     expect(html).not.toContain('aria-label="Agent review views"');
     expect(html).toContain('aria-label="View in workspace"');
     expect(html).toContain('data-review-card="run-1:purpose"');
@@ -207,7 +208,9 @@ describe('findings on a development task Summary', () => {
     const html = renderToStaticMarkup(<AgentReviewTab timeline workspaceId="workspace-1" viewer={null} review={review}
       onReviewChange={() => {}} onNavigateToChanges={() => {}} focusFindingId={null} />);
     expect(html).toContain('Round 2 · head 2222222');
-    expect(html).toMatch(/aria-pressed="false">All rounds<span>2<\/span>.*aria-pressed="true">Last round<span>1<\/span>.*aria-pressed="false">Round 1<span>1<\/span>/);
+    expect(html).toMatch(/aria-pressed="true">Last round<span>1<\/span>.*aria-pressed="false">All rounds<span>2<\/span>.*aria-pressed="false">Round 1<span>1<\/span>/);
+    // Round dividers belong to All rounds only.
+    expect(html).not.toContain('class="agr-round"');
     expect(html).toMatch(new RegExp(`<div hidden=""><[^>]*data-finding-id="${base.findings[0].id}"`));
     expect(html).toMatch(new RegExp(`<div><[^>]*data-finding-id="${base.findings[1].id}"`));
   });
@@ -264,12 +267,13 @@ describe('banners', () => {
     expect(html).not.toContain('finished ');
   });
 
-  it('offers Update review when new commits arrived', () => {
+  it('offers Review latest when new commits arrived', () => {
     const html = tab(reviewFixture({ observedHeadSha: '5e17b02a1b2c3d4e' }));
-    expect(html).toContain('New commits');
-    expect(html).toContain('d9a0c41 → 5e17b02');
-    expect(html).toContain('Finding comments stay attached to their reviewed commit');
-    expect(card(reviewFixture({ observedHeadSha: '5e17b02a1b2c3d4e' }), reviewFixture().findings[0])).toContain('Post comment now');
+    expect(html).toContain('New commits since this review — reviewed <strong>d9a0c41</strong>,');
+    expect(html).toContain('head is <strong>5e17b02</strong>.');
+    expect(html).toContain('>Review latest</button>');
+    expect(html).toContain('Finished');
+    expect(card(reviewFixture({ observedHeadSha: '5e17b02a1b2c3d4e' }), reviewFixture().findings[0])).toContain('Post now');
   });
 
   it.each([
@@ -287,7 +291,7 @@ describe('banners', () => {
     const html = tab(parsed);
     expect(html).toContain(label);
     expect(html).toContain(message);
-    expect(html).toContain('>Update review</button>');
+    expect(html).toContain('>Review again</button>');
     expect(parsed.runs[0].headSha).toBe(reviewFixture().runs[0].headSha);
   });
 
@@ -340,13 +344,13 @@ describe('review details', () => {
       { ref: 'E25', source: 'command output: ./mvnw test -Dtest=TestProviderCleanup', provenance: 'Command executed during validation',
         excerpt: 'Frozen head: PASS; release removed: FAIL (reference remains)', explanation: '' }] }] });
     const html = tab(review);
-    expect(html).toContain('<details class="agr-review-details is-compact"><summary>');
+    expect(html).toContain('<details class="agr-review-details"><summary>Review details');
     expect(html).toContain('1 changed file assessed');
     expect(html).not.toContain('of 0 changed files');
     expect(html).toContain('src/Factory.java');
     expect(html).toContain('src/UnchangedCaller.java:14–28');
     expect(html).toContain('finally { provider.release(); }');
-    expect(html).toContain('Context &amp; validation evidence · 2 references');
+    expect(html).toContain('2 references · frozen at head d9a0c41');
     expect(html).toContain('<span class="agr-card__refs">E25</span>');
     expect(html).toContain('command output: ./mvnw test -Dtest=TestProviderCleanup');
     expect(html).toContain('Frozen head: PASS; release removed: FAIL (reference remains)');
@@ -452,7 +456,7 @@ describe('review details', () => {
     } }] });
     expect(html).toContain('Could not finish');
     expect(html).toContain('Resource cleanup has not been reviewed');
-    expect(html).toContain('Complete coverage has not been recorded.');
+    expect(html).toContain('Coverage <strong class="is-open">Not recorded</strong>');
     expect(html).not.toContain('No inline findings');
   });
 });
@@ -492,10 +496,9 @@ describe('the summary card', () => {
     expect(html).toContain('data-review-card="explanation-1:purpose"');
     expect(html).toContain('data-review-card="run-1:details"');
     expect(html).toContain('Refreshed change intention.');
-    expect(html).toContain('Explanation refresh completed.');
     expect(html).toContain('3 findings');
     expect(summary(refreshed)).not.toContain('Provisional');
-    expect(summary(refreshed)).not.toContain('Complete coverage has not been recorded.');
+    expect(summary(refreshed)).not.toContain('Not recorded');
   });
 
   it.each(['RUNNING', 'ACCEPTED', 'FAILED'] as const)('retains the original explanation beside the %s current run without a new summary', state => {
@@ -531,7 +534,7 @@ describe('the summary card', () => {
     const purposeCard = summary(accepted).split('data-review-card="run-1:purpose"')[1].split('</article>')[0];
     expect(purposeCard).toContain('aria-label="Verification warning"');
     expect(purposeCard).toContain(warning);
-    expect(card(accepted, accepted.findings[0])).toContain('Post comment now');
+    expect(card(accepted, accepted.findings[0])).toContain('Post now');
   });
 
   it('keeps explanation warnings attached to their original report', () => {
@@ -555,16 +558,18 @@ describe('the summary card', () => {
     expect(summary(review)).not.toContain('Verification warning');
   });
 
-  it('leads with the intention and outlines compact commit cards without repeating author rows', () => {
+  it('leads with the intention and picks one commit at a time from the row above it', () => {
     const html = summary(review);
+    expect(html).toContain('aria-label="What changed"');
     expect(html).toContain('aria-label="Summary outline"');
     expect(html).not.toContain('described the change intention');
-    expect(html).toContain('<details class="lrc is-purpose" open=""');
-    expect(html).toContain('<span class="lrc__title">Change intention</span>');
-    expect(html.match(/class="lrc is-commit"/g)).toHaveLength(5);
-    expect(html.match(/lrc__title agr-commit__title/g)).toHaveLength(5);
+    expect(html).toContain('<button type="button" aria-current="true" title="Intention">Intention</button>');
+    expect(html).toContain('<strong>Change intention</strong>');
+    expect(html.match(/class="agr-changed__item"/g)).toHaveLength(6);
+    expect(html.match(/aria-current="false" title="[^"]+"><span>\d<\/span>/g)).toHaveLength(5);
+    expect(html.match(/<div hidden=""><div class="agr-summary-card"/g)).toHaveLength(5);
     expect(html).not.toContain('Design &amp; implementation');
-    expect(html.match(/class="agr-explanation__ordinal"/g)).toHaveLength(5);
+    expect(html).toContain('updated 1mo ago · 5 commits through <code>d9a0c41</code>');
     expect(html).not.toContain('Commit implementation');
     expect(html).not.toContain('Combined result');
     expect(html).not.toContain('Critical issues');
@@ -586,11 +591,11 @@ describe('the summary card', () => {
 
   it('keeps the summary discussion private and never publishable', () => {
     const html = summary(review);
-    expect(html.match(/Private<\/span><\/summary>/g)).toHaveLength(6);
+    expect(html.match(/Agent review · [^<]+ · Private<\/span>/g)).toHaveLength(6);
     expect(html).toContain('Why does the second commit change IcebergUtil');
     expect(html.match(/data-review-card=/g)).toHaveLength(6);
     expect(html).toContain('Ask reviewer');
-    expect(html).not.toContain('Post comment now');
+    expect(html).not.toContain('Post now');
   });
 
   it('keeps a removed card’s original target and discussion in collapsed history', () => {
@@ -622,10 +627,12 @@ describe('the finding card', () => {
     expect(html).toContain('>Resolve</button>');
     expect(html).toContain('View in Changes');
     expect(html).toContain('Add to my review');
-    expect(html).toContain('Post comment now');
+    expect(html).toContain('Post now');
     // Only the GitHub-bound action carries the primary treatment.
     expect(html.match(/lrc__action is-primary/g) ?? []).toHaveLength(1);
-    expect(html).toContain('<button type="button" class="lrc__action is-primary">Post comment now</button>');
+    expect(html).toContain('<button type="button" class="lrc__action is-primary">Post now</button>');
+    // The Changes copy of the card keeps its own wording.
+    expect(card(review, finding, 'changes')).toContain('>Post comment now</button>');
   });
 
   it('labels the way back differently in each projection but keeps one identity', () => {
@@ -642,7 +649,7 @@ describe('the finding card', () => {
     expect(html).toContain('Known limitation, tracked in #29981');
     expect(html).not.toContain('draft text kept');
     expect(html).toContain('>Reopen</button>');
-    expect(html).not.toContain('Post comment now');
+    expect(html).not.toContain('Post now');
     expect(html).not.toContain('Add to my review');
     expect(html).toContain('Excluded from publication');
   });
@@ -653,7 +660,7 @@ describe('the finding card', () => {
     expect(html).toContain('Its comment stays attached to that commit');
     expect(html).toContain('pr-commented-code-line');
     expect(html).toContain('resolveNestedFieldId');
-    expect(html).toContain('Post comment now');
+    expect(html).toContain('Post now');
   });
 
   it('keeps private questions available on a withdrawn finding without offering publication or resolution', () => {
@@ -663,7 +670,7 @@ describe('the finding card', () => {
     expect(html).toContain('can no longer be added to your review');
     expect(html).toContain('<button type="button" class="lrc__ask">Ask reviewer</button>');
     expect(html).not.toContain('Add to my review');
-    expect(html).not.toContain('Post comment now');
+    expect(html).not.toContain('Post now');
     expect(html).not.toContain('>Resolve</button>');
     expect(html).not.toContain('>Reopen</button>');
     expect(card(reviewFixture({ state: 'CLOSED', findings: [withdrawn] }), withdrawn))
@@ -679,12 +686,21 @@ describe('the finding card', () => {
       }]),
     });
     const html = card(withDraft, finding);
-    expect(html).toContain('Outgoing comment · in your pending review');
-    expect(html).toContain('Editing this never changes the finding');
+    // On the Summary the comment takes the finding's place; the Changes copy keeps the finding with the comment below.
+    expect(html).toContain('Your comment');
+    expect(html).not.toContain('Editing this never changes the finding');
+    expect(html).not.toContain('<h3 class="agr-finding__title">');
     expect(html).toContain('Could this match the full path instead?');
+    expect(html).toContain('· edited');
+    expect(html).toContain('Show original</button>');
     expect(html).toContain('Pending · in your review');
-    // Promoted once: the actions no longer offer to promote it again.
+    // Promoted once: the actions no longer offer to promote it again, only to take it back out.
     expect(html).not.toContain('Add to my review');
+    expect(html).toContain('>✓ In my review</button>');
+    const inChanges = card(withDraft, finding, 'changes');
+    expect(inChanges).toContain('Outgoing comment · in your pending review');
+    expect(inChanges).toContain('Editing this never changes the finding');
+    expect(inChanges).toContain('<h3 class="agr-finding__title">');
   });
 
   it.each(['OPEN', 'RESOLVED', 'WITHDRAWN'] as const)('keeps a published %s finding’s thread open and private', state => {
@@ -703,7 +719,7 @@ describe('the finding card', () => {
     expect(html).toContain('The thread below stays private');
     expect(html).toContain('discussion_r2201456');
     expect(html).toContain('<button type="button" class="lrc__ask">Ask reviewer</button>');
-    expect(html).not.toContain('Post comment now');
+    expect(html).not.toContain('Post now');
     expect(html).not.toContain('Add to my review');
   });
 
@@ -712,7 +728,7 @@ describe('the finding card', () => {
     const html = card(running, running.findings[0]);
     expect(html).toContain('Provisional');
     expect(html).toContain('Publishing unlocks when validation and complete coverage are accepted');
-    expect(html).not.toContain('Post comment now');
+    expect(html).not.toContain('Post now');
   });
 });
 
@@ -728,12 +744,12 @@ describe('styles', () => {
       .filter(declaration => declaration !== '');
   }
 
-  it('draws summaries and findings with the one private card, never the GitHub thread card', () => {
+  it('draws findings with the one private card and summaries without a card, never the GitHub thread card', () => {
     for (const html of [summary(reviewFixture()), card(reviewFixture(), reviewFixture().findings[0])]) {
-      expect(html).toContain('class="lrc is-');
       expect(html).not.toContain('pr-inline-thread');
       expect(html).not.toContain('pr-thread-comment');
     }
+    expect(summary(reviewFixture())).not.toContain('class="lrc is-');
     expect(card(reviewFixture(), reviewFixture().findings[0])).toContain('<details class="lrc is-local" open="">');
     expect(declarations(':is(.agr-summary-card, .agr-finding, .agr-local-comments) .lrc')).toContain('margin-left: 0');
   });
@@ -750,10 +766,10 @@ describe('styles', () => {
     expect(excerpt).toContain('word-break: break-word');
   });
 
-  it('wraps the strip, banners and action rows so a narrow pane never clips them', () => {
-    expect(declarations('.agr-strip')).toContain('flex-wrap: wrap');
-    expect(declarations('.agr-summary-strip')).toContain('flex-wrap: wrap');
-    expect(declarations('.agr-event')).toContain('flex-wrap: wrap');
+  it('wraps the review header, banners and action rows so a narrow pane never clips them', () => {
+    expect(declarations('.agr-review__head')).toContain('flex-wrap: wrap');
+    expect(declarations('.agr-review__behind')).toContain('flex-wrap: wrap');
+    expect(declarations('.agr-changed__foot')).toContain('flex-wrap: wrap');
     expect(declarations('.agr-banner')).toContain('flex-wrap: wrap');
   });
 

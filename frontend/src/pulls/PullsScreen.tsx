@@ -360,7 +360,6 @@ export default function PullsScreen({
   /** Where Changes should scroll, set when a finding asks to be shown at its diff location. */
   const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigationTarget | null>(null);
   const [changesToolbar, setChangesToolbar] = useState<HTMLElement | null>(null);
-  const [summaryToolbar, setSummaryToolbar] = useState<HTMLElement | null>(null);
   const selectCommit = (commitSha: string): void => {
     setReviewNavigation(null);
     changes.selectCommit(commitSha);
@@ -1200,7 +1199,6 @@ export default function PullsScreen({
             onReviewChange={updateReview}
             codeAvailable={codeTabShown || codeTaskLoading}
             onChangesToolbar={setChangesToolbar}
-            onSummaryToolbar={setSummaryToolbar}
             onTab={next => {
               if (next === 'files' && detailTab !== 'files') recordDiffOpened();
               if (next === 'code') setCodeTabKey(reviewKey);
@@ -1277,7 +1275,7 @@ export default function PullsScreen({
                 localReview={localReview} bridge={window.bridge} onSelectCommit={selectCommit}
                 review={{ workspaceId: codeTask.workspaceId, active: detailTab === 'review', onReviewChange: updateReview, onSelectCommit: selectCommit,
                   focusFindingId, focusReviewCard: reviewCardFocus, onNavigateToChanges: navigateToChanges }} />
-                : <AgentReviewTab key={`${detail.repo.toLowerCase()}#${detail.number}`} toolbarTarget={summaryToolbar} detail={detail} workspaceId={workspaceId} viewer={viewer} review={review} onReviewChange={updateReview}
+                : <AgentReviewTab key={`${detail.repo.toLowerCase()}#${detail.number}`} detail={detail} workspaceId={workspaceId} viewer={viewer} review={review} onReviewChange={updateReview}
                   onRepositoryWatched={() => setReviewReload(value => value + 1)}
                   ownStream={reviewWorkspace === undefined && detailTab === 'review'} localReview={localReview} onSelectCommit={selectCommit}
                   focusFindingId={focusFindingId} focusReviewCard={reviewCardFocus}
@@ -1392,7 +1390,6 @@ export function PullDetailHeader({
   agentTab,
   codeAvailable = true,
   onChangesToolbar,
-  onSummaryToolbar,
   onTab,
   onRefresh,
   onDetailUpdate,
@@ -1418,7 +1415,6 @@ export function PullDetailHeader({
   agentTab?: ReactNode;
   codeAvailable?: boolean;
   onChangesToolbar?: (target: HTMLDivElement | null) => void;
-  onSummaryToolbar?: (target: HTMLDivElement | null) => void;
   onTab: (tab: HeaderTab) => void;
   onRefresh: () => Promise<void>;
   onDetailUpdate?: PullDetailUpdater;
@@ -1591,7 +1587,6 @@ export function PullDetailHeader({
           <button type="button" className={tab === 'code' ? 'is-active' : ''} aria-pressed={tab === 'code'} onClick={() => onTab('code')} disabled={!codeAvailable}
             title={codeAvailable ? undefined : 'Watch this repository to explore its code'}><Code size={14} aria-hidden="true" /> Tears of time</button>
         </nav>
-        {tab === 'review' && <div className="pull-detail__summary-toolbar" ref={onSummaryToolbar} />}
         {changesSelected && <div className="pull-detail__changes-tools">
           <div className="pull-detail__changes-toolbar" ref={onChangesToolbar} />
         </div>}

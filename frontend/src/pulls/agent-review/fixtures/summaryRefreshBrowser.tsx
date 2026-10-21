@@ -66,13 +66,11 @@ export async function run() {
   try {
     flushSync(() => root.render(<Surface />));
     await settle();
-    const title = host.querySelector<HTMLElement>('.agr-explanation__heading > .lrc__title');
-    assert(title !== null && refresh().getBoundingClientRect().left - title.getBoundingClientRect().right < 12,
-      'The refresh icon must sit beside Change intention');
+    assert(host.querySelector('.agr-changed__head')?.contains(refresh()) === true, 'The refresh icon must sit in the What changed header');
     refresh().click(); await settle();
     assert(refresh().disabled && refresh().getAttribute('aria-busy') === 'true', 'Starting the request prevents duplicate refreshes');
     assert(host.querySelector('[data-review-card="run-1:purpose"]') !== null, 'The existing text stays visible while starting');
-    assert(host.querySelector('.agr-explanation.is-purpose > details')?.hasAttribute('open') === true, 'Refresh must not collapse the card');
+    assert((host.querySelector('[data-review-card="run-1:purpose"]')?.getBoundingClientRect().height ?? 0) > 0, 'Refresh must not fold the intention');
     rejectRequest(new Error('Provider is unavailable')); await settle();
     assert(host.querySelector('[role="alert"]')?.textContent?.includes('Provider is unavailable'), 'A request error stays beside the explanation');
     assert(!refresh().disabled && host.querySelector('[data-review-card="run-1:purpose"]') !== null, 'Failure keeps the prior text available for retry');
@@ -92,23 +90,24 @@ export async function run() {
     const accepted = { ...attempt, state: 'ACCEPTED' as const, endedAt: original.runs[0].endedAt };
     publish({ ...server, runs: [...original.runs, accepted] }); await settle();
     rejectRequest(new Error('Refresh response was lost')); await settle();
-    assert(!host.querySelector('.agr-explanation.is-purpose [role="alert"]'),
+    assert(!host.querySelector('.agr-changed [role="alert"]'),
       'A lost request response must not leave an old error on the explanation already accepted by the server');
     assert(host.querySelector('[data-review-card="explanation-1:purpose"]') !== null && host.querySelector('[data-review-card="run-1:purpose"]') === null,
       'Only the accepted complete explanation replaces the saved intention');
-    assert(host.querySelectorAll('.agr-explanation.is-commit').length === accepted.commits.length
-      && [...host.querySelectorAll('.agr-explanation.is-commit')].every(card => card.textContent?.includes('Refreshed explanation for')),
+    const commits = [...host.querySelectorAll('.agr-changed [data-review-card*=":commit:"]')];
+    assert(commits.length === accepted.commits.length && commits.every(card => card.textContent?.includes('Refreshed explanation for')),
     'All commit summaries switch with the intention');
     assert(host.querySelectorAll('.agr-finding').length === original.findings.length
       && host.querySelector('[data-review-card="run-1:details"]') !== null, 'Finding results and their details remain tied to the ordinary review');
-    assert(!host.querySelector('.agr-explanation.is-purpose')?.textContent?.includes('Provisional'), 'Accepted explanations do not require findings coverage');
+    assert(!host.querySelector('[data-review-card$=":purpose"]')?.textContent?.includes('Provisional'), 'Accepted explanations do not require findings coverage');
     assert(host.textContent?.includes('New commits'), 'Refreshing the explanation must not claim that the new head was reviewed for findings');
 
-    const commit = host.querySelector('.agr-explanation.is-commit');
-    commit?.querySelector<HTMLButtonElement>('[aria-label="View changes"]')?.click(); await settle();
+    const commit = commits[0];
+    const link = (label: string) => [...commit.querySelectorAll<HTMLButtonElement>('.agr-link')].find(button => button.textContent === label);
+    link('View changes')?.click(); await settle();
     assert(diffs[0] === `${accepted.commits[0].sha}:${accepted.headSha}`, 'The refreshed commit diff uses its new frozen head');
-    commit?.querySelector<HTMLButtonElement>('[aria-label="Ask reviewer about this commit"]')?.click(); await settle();
-    const question = commit?.querySelector('textarea');
+    link('Ask reviewer')?.click(); await settle();
+    const question = commit.querySelector('textarea');
     assert(question != null, 'The refreshed explanation retains discussion');
     changeInput(question, 'Explain this updated commit'); await settle();
     const submit = [...commit.querySelectorAll<HTMLButtonElement>('.agr-composer button')].find(button => button.textContent?.trim() === 'Ask reviewer');

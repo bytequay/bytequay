@@ -47,7 +47,7 @@ export default function ReviewComposer({
   ariaLabel: string;
   primaryLabel: string;
   sendingLabel?: string;
-  /** Where the text will be posted, when it leaves ByteQuay; private when absent. */
+  /** Where the text will be posted, when it leaves ByteQuay; private when absent, and empty when the page already says where. */
   outgoing?: string | null;
   suggestion?: SuggestionBase;
   busy?: boolean;
@@ -101,7 +101,7 @@ export default function ReviewComposer({
       repository={repository}
       suggestion={suggestion}
       isPrivate={outgoing === null}
-      note={outgoing !== null && <p className="pull-diff-review__nothing agr-composer__outgoing">{outgoing}</p>}
+      note={outgoing !== null && outgoing !== '' && <p className="pull-diff-review__nothing agr-composer__outgoing">{outgoing}</p>}
       statusMessage={disabledReason}
       busy={busy}
       autoFocus={autoFocus}

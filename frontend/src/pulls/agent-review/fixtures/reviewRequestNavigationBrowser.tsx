@@ -170,31 +170,28 @@ export async function run(): Promise<string[]> {
       'The default explanation must belong to the first complete report');
     request('turn-review').querySelector<HTMLButtonElement>('.agt-review-request__open')?.click(); await settle();
     const intention = pane.querySelector<HTMLElement>(`[data-review-card="${current.id}:purpose"]`);
-    const rows = [...pane.querySelectorAll<HTMLElement>('.agr-explanation.is-commit .lrc__head')];
     const commitCards = current.commits.map(commit => pane.querySelector<HTMLElement>(`[data-review-card="${current.id}:commit:${commit.sha}"]`));
-    assert(intention?.querySelector('.lrc.is-purpose') !== null && intention?.textContent?.includes('Change intention') === true,
-      'The report must begin with a distinct Change intention card');
-    assert(rows.length === current.commits.length && rows.every((row, index) => row.querySelector('.agr-explanation__ordinal')?.textContent === `${index + 1}`),
-      'Every commit must have its own numbered timeline event in source order');
-    assert(pane.querySelectorAll('[data-review-card]').length === current.commits.length + 1,
+    const rows = commitCards.map(card => card?.querySelector<HTMLElement>('.agr-changed__title') ?? null);
+    assert(intention?.querySelector('.agr-changed__item') !== null && intention?.textContent?.includes('Change intention') === true,
+      'The report must begin with a distinct Change intention item');
+    const outline = [...pane.querySelectorAll<HTMLButtonElement>('.agr-changed__items button')];
+    assert(outline.length === current.commits.length + 1
+      && outline.slice(1).every((item, index) => item.querySelector('span')?.textContent === `${index + 1}`),
+    'What changed must list the intention and every commit, numbered in source order');
+    assert(pane.querySelectorAll('.agr-changed [data-review-card]').length === current.commits.length + 1,
       'A report without earlier discussions must contain only the Change intention and per-commit entries');
     for (const section of ['combined-result', 'evidence', 'coverage', 'critical-issues', 'limitations']) {
       assert(pane.querySelector(`[data-review-card="${current.id}:${section}"]`) === null,
         `The normal report must not render a redundant ${section} card`);
     }
-    const outline = [...pane.querySelectorAll<HTMLButtonElement>('.agr-summary-nav__item')];
-    assert(outline.length === current.commits.length + 1, 'The outline must list the intention and every commit');
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index];
       const card = commitCards[index];
       outline[index + 1].click();
       await settle();
-      const title = row.querySelector<HTMLElement>('.agr-commit__title');
-      assert(card !== null && card.querySelector('.lrc.is-commit') !== null, 'Each commit must have its own review card');
-      assert(title !== null && title.textContent === current.commits[index].message.split('\n')[0],
-        'Each numbered event must show its Git commit title');
-      assert(card.contains(row),
-        'Each compact commit card must contain its title row');
+      assert(card !== null && row !== null && card.contains(row), 'Each commit must have its own item with its title row');
+      assert(row.querySelector('strong')?.firstChild?.textContent === current.commits[index].message.split('\n')[0],
+        'Each commit must show its Git commit title');
       const more = row.querySelector<HTMLButtonElement>('.agr-commit__more');
       if (index === 0) {
         assert(more !== null && pane.querySelector('.agr-explanation__message') === null, 'The Git commit message body must start folded behind its toggle');
@@ -204,31 +201,25 @@ export async function run(): Promise<string[]> {
         assert(body?.classList.contains('agr-explanation__message') === true
           && body.textContent?.includes('Represent a dotted column reference as ordered path segments.') === true
           && body.textContent.includes('Keep schema lookup in IcebergUtil'),
-        'The toggle must show the Git commit message below the compact title');
+        'The toggle must show the Git commit message below the title');
         assert(card.textContent?.includes('Design:') === true && card.textContent?.includes('Implementation:') === true,
-          'The agent design and implementation explanation must remain inside the separate review card');
-        assert(!card.querySelector('.lrc-message__body')?.textContent?.includes('Represent a dotted column reference as ordered path segments.'),
-          'The review card must not duplicate the Git commit message body');
+          'The agent design and implementation explanation must remain beside the commit');
+        assert(!card.querySelector('.agr-changed__text')?.textContent?.includes('Represent a dotted column reference as ordered path segments.'),
+          'The explanation must not duplicate the Git commit message body');
         more.click();
         await settle();
       }
       else assert(more === null, 'A commit without a Git body must not offer a message toggle');
-      const shell = card.querySelector('details');
-      assert(shell !== null && parseFloat(getComputedStyle(shell).borderTopWidth) > 0,
-        'The review discussion below each commit must retain its visible card boundary');
-      shell.open = false;
-      assert(title.getBoundingClientRect().height > 0, 'Collapsing review discussion must leave the Git commit title visible');
-      shell.open = true;
       const previous = commitCards[index - 1];
-      if (previous) assert(previous.getBoundingClientRect().height === 0, 'Picking the next commit in the outline must replace the previous one');
+      if (previous) assert(previous.getBoundingClientRect().height === 0, 'Picking the next commit must replace the previous one');
     }
-    const findingsHeading = [...pane.querySelectorAll('h2')].find(heading => heading.textContent === 'Findings');
+    const tabs = pane.querySelector('[role="tablist"]');
     const lastCommit = commitCards.at(-1);
-    assert(findingsHeading !== undefined && lastCommit != null && Boolean(lastCommit.compareDocumentPosition(findingsHeading)
-      & Node.DOCUMENT_POSITION_FOLLOWING), 'Findings must follow the commit list');
+    assert(tabs !== null && tabs.textContent?.includes('Findings') === true && lastCommit != null
+      && Boolean(lastCommit.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING), 'Findings must follow What changed');
     outline[0].click();
     await settle();
-    results.push('Change intention and numbered Git commits with separate review discussion cards lead directly to findings');
+    results.push('Change intention and numbered Git commits lead directly to findings');
 
     const target = (selector: string) => {
       const element = pane.querySelector<HTMLElement>(selector);
@@ -239,14 +230,15 @@ export async function run(): Promise<string[]> {
       await settle();
       const destination = target(selector);
       const disclosure = destination.matches('details') ? destination as HTMLDetailsElement : destination.querySelector<HTMLDetailsElement>('details');
-      assert(disclosure?.open === true, `Navigation must expand destination ${selector}`);
+      // What changed items have no disclosure of their own; they are shown by selecting them.
+      assert(disclosure === null ? destination.getBoundingClientRect().height > 0 : disclosure.open, `Navigation must expand destination ${selector}`);
       let ancestor = destination.parentElement;
       while (ancestor !== null && ancestor !== pane) {
         if (ancestor instanceof HTMLDetailsElement) assert(ancestor.open, 'Navigation must expand the earlier-discussions container');
         ancestor = ancestor.parentElement;
       }
       assert(document.activeElement === destination || destination.contains(document.activeElement), `Navigation must focus ${selector} in the right pane; active ${document.activeElement?.outerHTML.slice(0, 200)}`);
-      const summary = disclosure.querySelector('summary') ?? destination;
+      const summary = disclosure?.querySelector('summary') ?? destination;
       const viewport = pane.getBoundingClientRect();
       for (let attempt = 0; attempt < 60; attempt++) {
         const rect = summary.getBoundingClientRect();
@@ -269,8 +261,9 @@ export async function run(): Promise<string[]> {
     button(pane, `PR #${review.number}`).click(); await settle();
     await open('turn-commit', `[data-review-card="${commit.cardId}"]`);
     const commitDestination = target(`[data-review-card="${commit.cardId}"]`);
-    const commitDisclosure = fixtureElement<HTMLDetailsElement>('details', commitDestination, 'Commit destination must be expandable');
-    commitDisclosure.open = false;
+    const changed = commitDestination.closest('details');
+    assert(changed !== null, 'Commit destination must sit in the folding What changed section');
+    changed.open = false;
     pane.querySelector<HTMLElement>('.agr-summary > .review-comment-scroll')?.scrollTo(0, 0);
     await open('turn-commit', `[data-review-card="${commit.cardId}"]`);
     await open('turn-finding', '[data-finding-id="finding-1"]');

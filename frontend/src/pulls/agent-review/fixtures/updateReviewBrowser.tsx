@@ -61,9 +61,9 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   };
   const buttons = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].filter(button => button.textContent === label);
   const notice = () => host.querySelector('[role="status"]');
-  const click = async (index = 0) => {
-    const button = buttons('Update review')[index];
-    assert(button !== undefined && !button.disabled, 'Update review must be available');
+  const click = async (label = 'Review again') => {
+    const button = buttons(label)[0];
+    assert(button !== undefined && !button.disabled, `${label} must be available`);
     button.click(); await settle();
     assert(buttons('Checking…').every(item => item.disabled && item.getAttribute('aria-busy') === 'true')
       && buttons('Checking…').length > 0, 'Show checking and prevent duplicate updates until the response arrives');
@@ -106,8 +106,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await scenario('The new-commits control explains when the previous review is reused', async () => {
       const head = 'new-head';
       mount({ ...completed, observedHeadSha: head });
-      assert(buttons('Update review').length === 2, 'Exercise the banner control as well as the toolbar');
-      await click(1);
+      assert(buttons('Review again').length === 1 && buttons('Review latest').length === 1, 'Exercise the banner control as well as the header');
+      await click('Review latest');
       finish({ ...completed, observedHeadSha: head, runs: [...completed.runs, {
         ...completed.runs[0], id: 'carried-run', ordinal: 2, headSha: head, worktreeTreeSha: null, priorHeadSha: completed.runs[0].headSha, turnIds: [], summary: null,
       }] });

@@ -113,6 +113,8 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
   };
   try {
     flushSync(() => root.render(<Surface />));
+    // A running review opens on Activity; its findings are one tab away.
+    if (projection === 'review') { fixtureElement<HTMLButtonElement>('[role="tab"]', host, 'The review must offer its tabs').click(); await settle(); }
     button('Resolve').click(); await settle();
     assert(document.activeElement === input(), 'Opening resolution must focus its reason input');
     assert(requests.length === 0 && !button('Resolve locally').disabled, 'Opening the input must not resolve; its reason is optional');

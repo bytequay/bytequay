@@ -13,6 +13,7 @@
  */
 import { useReviewDraft } from '../ReviewDrafts';
 import { useState } from 'react';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import { Chevron } from '../../Chevron';
 import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import MarkdownBody, { type SuggestionBase } from '../MarkdownBody';
@@ -78,6 +79,7 @@ export default function ReviewFindingCard({
 }) {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
+  const [originalOpen, setOriginalOpen] = useState(false);
   const [composer, setComposer] = useReviewDraft<'ask' | 'resolve' | 'post' | 'draft' | 'fix' | null>(`finding:${finding.id}:composer`, null);
   const [fixSent, setFixSent] = useState(false);
   const [remember, setRemember] = useReviewDraft(`finding:${finding.id}:remember`, false);
@@ -111,6 +113,11 @@ export default function ReviewFindingCard({
   const evidenceLabel = finding.evidence.length === 1
     ? '1 reference'
     : `${finding.evidence.length} references`;
+  // On the Summary, an outgoing comment takes the finding's place; the finding stays one click away.
+  const replaced = !inDiff && (outgoingBody !== null || composer === 'draft');
+  const edited = outgoingBody !== null && reviewText === null && outgoingBody.trim() !== findingReviewText(finding);
+  const idLabel = <span className="agr-finding__id">{finding.label} · rev {finding.revision}</span>;
+  const provisionalPill = publication.kind === 'blocked' && publication.reason.startsWith('Publishing unlocks') && <span className="agr-pill is-provisional">Provisional</span>;
 
   const openComposer = (kind: Exclude<typeof composer, null>, initial: string) => {
     if (actionsDisabled) return;
@@ -169,22 +176,147 @@ export default function ReviewFindingCard({
         ? null
         : composer === 'post' && lines !== null
           ? `Posts to GitHub on ${shortPath(lines.path, 28)} ${lines.range} at reviewed commit ${shortSha(finding.validatedHeadSha)}`
-          : 'Your outgoing text; the agent never sees these edits'}
+          : ''}
       onChange={setText}
       onSubmit={composer === 'ask' ? submit : () => { void submit(); }}
       onCancel={close} />
   );
 
+  const indexTarget = commentIndexTarget('agent', `Agent review · ${finding.label} · ${finding.state.toLowerCase()} · ${finding.outdated ? 'Outdated · ' : ''}${finding.title}`, finding.body);
+  const title = <h3 className="agr-finding__title">{finding.title}</h3>;
+  const body = <MarkdownBody body={finding.body} repository={review.repo} suggestion={suggestion} />;
+  const details = (
+    <div className="agr-finding__details">
+    {finding.evidence.length > 0 && (
+      <div className="agr-evidence">
+        <button type="button" className="agr-evidence__toggle" aria-expanded={evidenceOpen}
+          onClick={() => setEvidenceOpen(value => !value)}>
+          <Chevron open={evidenceOpen} />Evidence · {evidenceLabel}
+        </button>
+        {evidenceOpen && finding.evidence.map(evidence => (
+          <div className="agr-evidence__item" key={evidence.ref}>
+            <div className="agr-evidence__head">
+              <span className="agr-evidence__source" title={evidence.source}>{evidence.source}</span>
+              <span className="agr-spacer" />
+              <span>{evidence.provenance}</span>
+            </div>
+            <pre className="agr-evidence__excerpt">{evidence.excerpt}</pre>
+            <div className="agr-evidence__why">{evidence.explanation}</div>
+          </div>
+        ))}
+      </div>
+    )}
+    {finding.memories.length > 0 && (
+      <div className="agr-evidence">
+        <button type="button" className="agr-evidence__toggle" aria-expanded={memoryOpen} onClick={() => setMemoryOpen(value => !value)}>
+          <Chevron open={memoryOpen} />Memory used · {finding.memories.length}
+        </button>
+        {memoryOpen && finding.memories.map(memory => (
+          <div className="agr-evidence__item" key={memory.id}>
+            <div className="agr-evidence__head"><span className="agr-evidence__source">{memory.id}</span></div>
+            <div className="agr-evidence__why">{memory.line}</div>
+          </div>
+        ))}
+      </div>
+    )}
+
+    {finding.state === 'RESOLVED' && (
+      <div className="agr-notice is-resolved">
+        <span aria-hidden="true">✓</span>
+        <span>
+          {/* A development agent resolves what it fixed; its reply below says what changed. */}
+          {finding.resolvedByTaskId != null ? 'Resolved by Developer' : 'Resolved locally by you'}
+          {finding.stateReason ? ` · “${finding.stateReason}”` : ''}
+          {outgoingBody !== null ? ' · your saved review is unchanged' : ''}
+        </span>
+        <button type="button" className="agr-action" disabled={actionsDisabled} title={waitingReason ?? undefined}
+          onClick={() => { void actions.onReopen(finding); }}>Reopen</button>
+      </div>
+    )}
+    {withdrawn && (
+      <div className="agr-notice is-withdrawn">
+        <span aria-hidden="true">⌫</span>
+        <span>The agent withdrew this finding{finding.stateReason ? ` · “${finding.stateReason}”` : ''}.
+          {outgoingBody !== null ? ' Your saved review is unchanged.' : ' It can no longer be added to your review.'}</span>
+      </div>
+    )}
+    {finding.outdated && (
+      <div className="agr-notice is-outdated">
+        <span aria-hidden="true">⚠</span>
+        <span>
+          This finding describes an earlier reviewed commit. Its comment stays attached to that commit and may
+          appear outdated on GitHub. Reassessment can check whether the finding still applies to the latest code.
+        </span>
+      </div>
+    )}
+    {composer === 'draft' ? <>
+      {editor}
+      {error && <span className="lrc__error" role="alert">{error}</span>}
+    </> : outgoingBody !== null && (
+      <div className="agr-draft">
+        <div className="agr-draft__head">
+          {inDiff ? <>
+            {reviewText !== null ? 'Outgoing review summary' : publication.kind === 'uncertain' ? 'Outgoing comment · delivery unconfirmed'
+              : publication.kind === 'sending' ? 'Outgoing comment · sending' : 'Outgoing comment · in your pending review'}
+            {item !== null && itemCommit !== null && <span className="agr-draft__note">
+              · {shortPath(item.path, 28)} · commit {shortSha(itemCommit)}
+            </span>}
+            <span className="agr-spacer" />
+            <span className="agr-draft__note">Editing this never changes the finding</span>
+          </> : <>
+            {reviewText !== null ? 'Your review summary' : publication.kind === 'uncertain' ? 'Your comment · delivery unconfirmed'
+              : publication.kind === 'sending' ? 'Your comment · sending' : 'Your comment'}
+            {edited && <><span className="agr-draft__note">· edited</span>
+              <button type="button" className="agr-link" aria-expanded={originalOpen} onClick={() => setOriginalOpen(value => !value)}>
+                {originalOpen ? 'Hide original' : 'Show original'}</button></>}
+            <span className="agr-spacer" />
+            <span className="agr-draft__note">Agent · {relativeTime(finding.updatedAt)}</span>
+          </>}
+          <button type="button" disabled={actionsDisabled || awaitingConfirmation} title={waitingReason ?? undefined}
+            onClick={() => { setEditVersion(review.draft?.version ?? 0); openComposer('draft', outgoingBody); }}>Edit</button>
+          <button type="button" disabled={actionsDisabled || awaitingConfirmation} title={waitingReason ?? (reviewText !== null ? "Remove this finding's text from your review summary" : undefined)}
+            onClick={() => { void remove(); }}>Remove</button>
+        </div>
+        <div className="agr-draft__body"><MarkdownBody body={outgoingBody} repository={review.repo} /></div>
+        {!inDiff && edited && originalOpen && <div className="agr-draft__original">
+          <span>Original finding</span>
+          <MarkdownBody body={findingReviewText(finding)} repository={review.repo} />
+        </div>}
+      </div>
+    )}
+    {publication.kind === 'uncertain' && (
+      <div className="agr-notice is-outdated" role="alert">
+        <span aria-hidden="true">⚠</span>
+        <span>GitHub did not confirm this comment. Check the <a href={`https://github.com/${review.repo}/pull/${review.number}`}>pull request on GitHub</a>.
+          {' '}Then open <strong>Submit review</strong> and choose <strong>Confirmed posted</strong> if it is there, or <strong>Confirmed not posted</strong> to prepare it again.
+          {' '}Your comment is saved here and will not be sent again automatically.</span>
+      </div>
+    )}
+    {item !== null && publication.kind === 'published' && (
+      <div className="agr-notice is-published">
+        <span aria-hidden="true">✓</span>
+        <span>
+          Posted to GitHub as a review comment
+          {item.publication?.url ? <> · <a href={item.publication.url}>{item.publication.url.split('#').pop()}</a></> : ''}
+          . The thread below stays private.
+        </span>
+      </div>
+    )}
+
+    </div>
+  );
+
   return (
-    <article className={`agr-finding${withdrawn || finding.state === 'RESOLVED' || finding.outdated ? ' is-muted' : ''}${outgoingBody !== null ? ' is-draft' : ''}`}
+    <article className={`agr-finding${inDiff ? '' : ' is-summary'}${withdrawn || finding.state === 'RESOLVED' || finding.outdated ? ' is-muted' : ''}${outgoingBody !== null ? ' is-draft' : ''}`}
       id={`agent-review-finding-${finding.id}`} data-finding-id={finding.id} data-review-closed={withdrawn || undefined}>
       <LocalCard resolved={finding.state === 'RESOLVED'} outdated={finding.outdated} open={defaultOpen}
         title={lines === null
           ? <span className="lrc__title">Whole change</span>
           : inDiff
             ? <span className="lrc__title">Comment on {lines.startLine === lines.endLine ? 'line' : 'lines'} <strong>{lines.range}</strong></span>
-            : <code className="lrc__title" title={lines.path}>{shortPath(lines.path)} {lines.range}</code>}
-        badges={<>{!accepted && pill.text !== 'Private' && finding.state !== 'RESOLVED' && <span className={`lrc__badge is-${pill.tone}`}>{pill.text}</span>}
+            : <code className="lrc__title" title={lines.path}>{shortPath(lines.path)} <span className="agr-finding__range">{lines.range}</span></code>}
+        badges={<>{!inDiff && idLabel}
+          {!accepted && pill.text !== 'Private' && finding.state !== 'RESOLVED' && <span className={`lrc__badge is-${pill.tone}`}>{pill.text}</span>}
           {finding.severity !== null && <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>}
           <CopyLinkButton label="conversation" value={findingConversation(review, finding)} />
           {accepted && <span className="lrc__badge is-ready" title="Posted to GitHub in your review">Accepted</span>}</>}
@@ -209,6 +341,7 @@ export default function ReviewFindingCard({
                 {projection === 'review' ? 'View in Changes' : 'Open in Summary'}
               </button>
             )}
+            {!inDiff && <span className="agr-spacer" />}
             {finding.state === 'OPEN' && (
               <button type="button" className="lrc__action" disabled={actionsDisabled} title={waitingReason ?? undefined}
                 onClick={() => openComposer('resolve', '')}>Resolve</button>
@@ -216,131 +349,36 @@ export default function ReviewFindingCard({
             {publication.kind === 'publishable' && (
               <>
                 <span className="agr-actions__divider" aria-hidden="true" />
-                <button type="button" className="lrc__action" disabled={actionsDisabled}
+                <button type="button" className="lrc__action is-add" disabled={actionsDisabled}
                   title={waitingReason ?? (lines === null ? 'Adds this text to your review summary, which you can edit before submitting'
                     : 'Copies this comment into your pending GitHub review. Nothing is sent until you submit.')}
                   onClick={() => { void actions.onAddToReview(finding); }}>Add to my review</button>
                 {lines !== null && <button type="button" className="lrc__action is-primary" disabled={actionsDisabled} title={waitingReason ?? undefined}
-                  onClick={() => openComposer('post', findingReviewText(finding))}>Post comment now</button>}
+                  onClick={() => openComposer('post', findingReviewText(finding))}>{inDiff ? 'Post comment now' : 'Post now'}</button>}
               </>
             )}
             {publication.kind === 'blocked' && <span className="agr-actions__blocked">{publication.reason}</span>}
-            {publication.kind === 'draft' && <span className="agr-actions__blocked">In your pending review</span>}
-            {publication.kind === 'inReviewText' && <span className="agr-actions__blocked">In your review summary</span>}
+            {!inDiff && (publication.kind === 'draft' || publication.kind === 'inReviewText') ? <>
+              <span className="agr-actions__divider" aria-hidden="true" />
+              <button type="button" className="lrc__action is-added" disabled={actionsDisabled}
+                title={waitingReason ?? (publication.kind === 'draft' ? 'In your pending review. Click to remove it.' : 'In your review summary. Click to remove it.')}
+                onClick={() => { void remove(); }}>✓ In my review</button>
+            </> : <>
+              {publication.kind === 'draft' && <span className="agr-actions__blocked">In your pending review</span>}
+              {publication.kind === 'inReviewText' && <span className="agr-actions__blocked">In your review summary</span>}
+            </>}
           </>}
           {error && <span className="lrc__error" role="alert">{error}</span>}
         </footer>}>
-        <LocalCardMessage timestamp={finding.updatedAt} author="Agent review" avatar={<ReviewerAvatar />}
-          attributes={commentIndexTarget('agent', `Agent review · ${finding.label} · ${finding.state.toLowerCase()} · ${finding.outdated ? 'Outdated · ' : ''}${finding.title}`, finding.body)}
-          menu={<>{publication.kind === 'blocked' && publication.reason.startsWith('Publishing unlocks') && <span className="agr-pill is-provisional">Provisional</span>}
-            <span className="agr-finding__id">{finding.label} · rev {finding.revision}</span></>}>
-          <h3 className="agr-finding__title">{finding.title}</h3>
-          <MarkdownBody body={finding.body} repository={review.repo} suggestion={suggestion} />
-          <div className="agr-finding__details">
-          {finding.evidence.length > 0 && (
-            <div className="agr-evidence">
-              <button type="button" className="agr-evidence__toggle" aria-expanded={evidenceOpen}
-                onClick={() => setEvidenceOpen(value => !value)}>
-                <Chevron open={evidenceOpen} />Evidence · {evidenceLabel}
-              </button>
-              {evidenceOpen && finding.evidence.map(evidence => (
-                <div className="agr-evidence__item" key={evidence.ref}>
-                  <div className="agr-evidence__head">
-                    <span className="agr-evidence__source" title={evidence.source}>{evidence.source}</span>
-                    <span className="agr-spacer" />
-                    <span>{evidence.provenance}</span>
-                  </div>
-                  <pre className="agr-evidence__excerpt">{evidence.excerpt}</pre>
-                  <div className="agr-evidence__why">{evidence.explanation}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          {finding.memories.length > 0 && (
-            <div className="agr-evidence">
-              <button type="button" className="agr-evidence__toggle" aria-expanded={memoryOpen} onClick={() => setMemoryOpen(value => !value)}>
-                <Chevron open={memoryOpen} />Memory used · {finding.memories.length}
-              </button>
-              {memoryOpen && finding.memories.map(memory => (
-                <div className="agr-evidence__item" key={memory.id}>
-                  <div className="agr-evidence__head"><span className="agr-evidence__source">{memory.id}</span></div>
-                  <div className="agr-evidence__why">{memory.line}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {finding.state === 'RESOLVED' && (
-            <div className="agr-notice is-resolved">
-              <span aria-hidden="true">✓</span>
-              <span>
-                {/* A development agent resolves what it fixed; its reply below says what changed. */}
-                {finding.resolvedByTaskId != null ? 'Resolved by Developer' : 'Resolved locally by you'}
-                {finding.stateReason ? ` · “${finding.stateReason}”` : ''}
-                {outgoingBody !== null ? ' · your saved review is unchanged' : ''}
-              </span>
-              <button type="button" className="agr-action" disabled={actionsDisabled} title={waitingReason ?? undefined}
-                onClick={() => { void actions.onReopen(finding); }}>Reopen</button>
-            </div>
-          )}
-          {withdrawn && (
-            <div className="agr-notice is-withdrawn">
-              <span aria-hidden="true">⌫</span>
-              <span>The agent withdrew this finding{finding.stateReason ? ` · “${finding.stateReason}”` : ''}.
-                {outgoingBody !== null ? ' Your saved review is unchanged.' : ' It can no longer be added to your review.'}</span>
-            </div>
-          )}
-          {finding.outdated && (
-            <div className="agr-notice is-outdated">
-              <span aria-hidden="true">⚠</span>
-              <span>
-                This finding describes an earlier reviewed commit. Its comment stays attached to that commit and may
-                appear outdated on GitHub. Reassessment can check whether the finding still applies to the latest code.
-              </span>
-            </div>
-          )}
-          {composer === 'draft' ? <>
-            {editor}
-            {error && <span className="lrc__error" role="alert">{error}</span>}
-          </> : outgoingBody !== null && (
-            <div className="agr-draft">
-              <div className="agr-draft__head">
-                {reviewText !== null ? 'Outgoing review summary' : publication.kind === 'uncertain' ? 'Outgoing comment · delivery unconfirmed'
-                  : publication.kind === 'sending' ? 'Outgoing comment · sending' : 'Outgoing comment · in your pending review'}
-                {item !== null && itemCommit !== null && <span className="agr-draft__note">
-                  · {shortPath(item.path, 28)} · commit {shortSha(itemCommit)}
-                </span>}
-                <span className="agr-spacer" />
-                <span className="agr-draft__note">Editing this never changes the finding</span>
-                <button type="button" disabled={actionsDisabled || awaitingConfirmation} title={waitingReason ?? undefined}
-                  onClick={() => { setEditVersion(review.draft?.version ?? 0); openComposer('draft', outgoingBody); }}>Edit</button>
-                <button type="button" disabled={actionsDisabled || awaitingConfirmation} title={waitingReason ?? (reviewText !== null ? "Remove this finding's text from your review summary" : undefined)}
-                  onClick={() => { void remove(); }}>Remove</button>
-              </div>
-              <div className="agr-draft__body"><MarkdownBody body={outgoingBody} repository={review.repo} /></div>
-            </div>
-          )}
-          {publication.kind === 'uncertain' && (
-            <div className="agr-notice is-outdated" role="alert">
-              <span aria-hidden="true">⚠</span>
-              <span>GitHub did not confirm this comment. Check the <a href={`https://github.com/${review.repo}/pull/${review.number}`}>pull request on GitHub</a>.
-                {' '}Then open <strong>Submit review</strong> and choose <strong>Confirmed posted</strong> if it is there, or <strong>Confirmed not posted</strong> to prepare it again.
-                {' '}Your comment is saved here and will not be sent again automatically.</span>
-            </div>
-          )}
-          {item !== null && publication.kind === 'published' && (
-            <div className="agr-notice is-published">
-              <span aria-hidden="true">✓</span>
-              <span>
-                Posted to GitHub as a review comment
-                {item.publication?.url ? <> · <a href={item.publication.url}>{item.publication.url.split('#').pop()}</a></> : ''}
-                . The thread below stays private.
-              </span>
-            </div>
-          )}
-
-          </div>
-        </LocalCardMessage>
+        {inDiff ? <LocalCardMessage timestamp={finding.updatedAt} author="Agent review" avatar={<ReviewerAvatar />}
+          attributes={indexTarget} menu={<>{provisionalPill}{idLabel}</>}>
+          {title}{body}{details}
+        </LocalCardMessage> : <div className="lrc-message agr-finding__message" {...indexTarget}>
+          {!replaced && <div className="agr-finding__head">{title}{provisionalPill}
+            <span className="agr-finding__by">Agent · <time>{relativeTime(finding.updatedAt)}</time></span></div>}
+          {!replaced && body}
+          {details}
+        </div>}
         <ReviewThread review={review} messages={messages} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} />
       </LocalCard>
     </article>

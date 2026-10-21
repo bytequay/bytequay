@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Activity, BookOpen, Check, CircleAlert } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Check } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIcon, memberLabel } from '../../agents/AgentConversation';
 import type { AgentEventEnvelope } from '../../agents/events';
 import { readRecentAgentHistory } from '../../agents/model';
@@ -21,61 +21,24 @@ import { Chevron } from '../../Chevron';
 import { plural } from '@bytequay/ui/displayText';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { AgentReviewDto, ReviewRunDto } from './contracts';
-import { completeCoverage, evidenceGroups, provenanceFacts, reviewElapsed, reviewPasses, reviewProgress, reviewRunning, reviewScope, reviewStatus, shortPath, shortSha } from './model';
+import { completeCoverage, evidenceGroups, provenanceFacts, reviewPasses, reviewProgress, reviewRunning, reviewScope, shortPath, shortSha } from './model';
 import { evidenceTarget } from './ReviewEvidenceLinks';
 
-const PASSES = [
+export const PASSES = [
   ['Investigation', 'Map the change, record candidates'],
   ['Evidence collection', 'Gather context for each claim'],
   ['Validation', 'Accept or reject candidates'],
 ] as const;
 
-const VISIBLE_ACTIONS = 5;
-
-
-
-function ProgressCard({ review, run, now }: { review: AgentReviewDto; run: ReviewRunDto; now: number }) {
-  const running = reviewRunning(review);
-  const status = reviewStatus(review);
-  const passes = reviewPasses(run);
-  const current = passes.indexOf('active');
-  const elapsed = reviewElapsed(review, now);
-  // The compact fact reads "2/5" while this run owns the explanation, and a plain commit count when an earlier run does.
-  const commits = reviewProgress(review, true)?.facts[0] ?? '';
-  const gaps = reviewProgress(review)?.gaps ?? [];
-  const complete = completeCoverage(run);
-  return <details className="agr-run" aria-label="Review progress" open>
-    <summary className="agr-run__head">
-      <Chevron />
-      <strong>Review progress</strong>
-      <span className={`pull-detail__review-chip is-${status.tone}`}>{status.label === 'Reviewing' && current >= 0 ? PASSES[current][0] : status.label}</span>
-      <span className="agr-spacer" />
-      {elapsed !== null && <span className="agr-run__elapsed">{elapsed}</span>}
-    </summary>
-    <ol className="agr-run__passes">
-      {PASSES.map(([label, hint], index) => <li key={label} className={`is-${passes[index]}`} aria-current={index === current ? 'step' : undefined}>
-        <span className="agr-run__dot">{passes[index] === 'done' ? <Check size={11} strokeWidth={3} aria-hidden="true" />
-          : index === current && running ? <span className="agr-spinner" aria-hidden="true" /> : index + 1}</span>
-        <strong>{label}</strong>
-        <span>{index === 0 && current === 0 ? `${plural(run.commits.length, 'commit')} · ${plural(run.changedFiles, 'file')}` : hint}</span>
-      </li>)}
-    </ol>
-    {gaps.length > 0 && <div className="agr-progress__gaps">{gaps.map(gap => <span key={gap}>{gap}</span>)}</div>}
-    <dl className="agr-run__facts">
-      <div><dt>Scope</dt><dd>{reviewScope(run)}</dd></div>
-      <div><dt>{commits.includes('/') ? 'Commits explained' : 'Commits'}</dt><dd>{commits.replace('/', ' of ')}</dd></div>
-      <div><dt>Evidence</dt><dd>{plural(run.evidence.length, 'reference')}</dd></div>
-      <div><dt>Coverage</dt><dd className={complete ? 'is-complete' : 'is-open'}>{complete ? 'Complete' : running ? 'Not recorded yet' : 'Not recorded'}</dd></div>
-    </dl>
-  </details>;
-}
+const VISIBLE_ACTIONS = 6;
 
 type ReviewHistory = { events: AgentEventEnvelope[]; complete: boolean };
 
 /** The newest pages of the review task's own history, read again while the review runs. */
-function useReviewHistory(reviewId: string, taskId: string, live: boolean): ReviewHistory {
+function useReviewHistory(reviewId: string | null, taskId: string | null, live: boolean): ReviewHistory {
   const [history, setHistory] = useState<ReviewHistory>({ events: [], complete: true });
   useEffect(() => {
+    if (reviewId === null || taskId === null) return;
     let current = true;
     let reading = false;
     const read = () => {
@@ -112,60 +75,86 @@ export function reviewActivity(events: AgentEventEnvelope[], turnIds: ReadonlySe
   return { turns, actions: members.reverse().map(member => ({ member, at: started.get(member.id) ?? null })) };
 }
 
+export type ReviewRunActivity = ReturnType<typeof reviewActivity> & { complete: boolean };
+
+/** The run's activity, which the Activity tab lists and counts; history is read only while the tab is shown. */
+export function useReviewActivity(review: AgentReviewDto | null, run: ReviewRunDto | null, shown: boolean, live: boolean): ReviewRunActivity {
+  const history = useReviewHistory(shown ? review?.id ?? null : null, review?.task.id ?? null, shown && live);
+  const turnIds = [...run?.turnIds ?? [], ...(review?.activeTurn == null ? [] : [review.activeTurn.id])].join(' ');
+  const activity = useMemo(() => reviewActivity(history.events, new Set(turnIds.split(' '))), [history.events, turnIds]);
+  return { ...activity, complete: history.complete };
+}
+
 function since(at: string | null, now: number): string {
   if (at === null) return '';
   const seconds = Math.floor((now - Date.parse(at)) / 1000);
   return seconds < 60 ? `${Math.max(0, seconds)}s ago` : relativeTime(at, { now });
 }
 
-function ActivityCard({ review, run, now, visible }: { review: AgentReviewDto; run: ReviewRunDto; now: number; visible: boolean }) {
+/** The Activity tab: where the run's passes stand, what it covered, and what the reviewer just did. */
+export function ReviewActivityPanel({ review, run, now, activity, warnings, children }: {
+  review: AgentReviewDto; run: ReviewRunDto; now: number; activity: ReviewRunActivity;
+  /** What the run could not verify, above everything else. */
+  warnings?: ReactNode;
+  /** The run's details, after its actions. */
+  children?: ReactNode;
+}) {
   const running = reviewRunning(review);
-  const history = useReviewHistory(review.id, review.task.id, running && visible);
+  const passes = reviewPasses(run);
+  const current = passes.indexOf('active');
+  // The compact fact reads "2/5" while this run owns the explanation, and a plain commit count when an earlier run does.
+  const commits = reviewProgress(review, true)?.facts[0] ?? '';
+  const gaps = reviewProgress(review)?.gaps ?? [];
+  const complete = completeCoverage(run);
   const [all, setAll] = useState(false);
-  const turnIds = [...run.turnIds, ...(review.activeTurn === null ? [] : [review.activeTurn.id])].join(' ');
-  const { turns, actions } = useMemo(() => reviewActivity(history.events, new Set(turnIds.split(' '))), [history.events, turnIds]);
-  if (actions.length === 0 && !running) return null;
+  const { turns, actions } = activity;
   const clock = running ? now : Date.now();
   const worked = turns.reduce((total, turn) => total + (turnElapsedMs(turn, clock) ?? 0), 0);
-  return <details className="agr-run" aria-label="Review activity" open>
-    <summary className="agr-run__head is-ruled">
-      <Chevron />
-      <Activity size={15} aria-hidden="true" />
-      <strong>Activity</strong>
-      {actions.length > 0 && <span className="agr-run__meta">{history.complete
-        ? `${plural(actions.length, 'action')} · ${plural(turns.length, 'turn')} · worked ${formatDuration(worked)}` : `latest ${plural(actions.length, 'action')}`}</span>}
-      <span className="agr-spacer" />
-      {running && <span className="agr-run__live">Live</span>}
-    </summary>
-    {actions.length === 0 ? <p className="agr-run__empty">No actions yet.</p> : <ol className="agr-run__actions">
+  return <div className="agr-activity" aria-label="Review activity">
+    {warnings}
+    <ol className="agr-run__passes">
+      {PASSES.map(([label, hint], index) => <li key={label} className={`is-${passes[index]}`} aria-current={index === current ? 'step' : undefined}>
+        <span className="agr-run__dot">{passes[index] === 'done' ? <Check size={11} strokeWidth={3} aria-hidden="true" />
+          : index === current && running ? <span className="agr-spinner" aria-hidden="true" /> : index + 1}</span>
+        <strong>{label}</strong>
+        <span>{index === 0 && current === 0 ? `${plural(run.commits.length, 'commit')} · ${plural(run.changedFiles, 'file')}` : hint}</span>
+      </li>)}
+    </ol>
+    {(!running || gaps.length > 0) && <p className="agr-run__facts">
+      {!running && <>
+        <span>Scope <strong>{reviewScope(run)}</strong></span>
+        <span>{commits.includes('/') ? 'Commits explained' : 'Commits'} <strong>{commits.replace('/', ' of ')}</strong></span>
+        <span>Coverage <strong className={complete ? 'is-complete' : 'is-open'}>{complete ? 'Complete' : 'Not recorded'}</strong></span>
+      </>}
+      {gaps.map(gap => <span key={gap} className="is-gap">{gap}</span>)}
+      {!running && actions.length > 0 && <span>{activity.complete
+        ? `${plural(actions.length, 'action')} · ${plural(turns.length, 'turn')} · ${formatDuration(worked)}` : `latest ${plural(actions.length, 'action')}`}</span>}
+    </p>}
+    {actions.length === 0 ? running && <p className="agr-run__empty">No actions yet.</p> : <ol className="agr-run__actions">
       {(all ? actions : actions.slice(0, VISIBLE_ACTIONS)).map(({ member, at }, index) => {
         const live = running && index === 0 && member.kind !== 'file' && (member.state === 'STARTED' || member.state === 'PROGRESS');
         const label = memberLabel(member);
         return <li key={member.id} className={live ? 'is-live' : undefined}>
-          <ActivityIcon member={member} />
+          {live ? <span className="agr-spinner" aria-hidden="true" /> : <ActivityIcon member={member} />}
           <span title={label}>{label}</span>
           <time>{live ? 'now' : since(at, clock)}</time>
         </li>;
       })}
     </ol>}
-    {actions.length > VISIBLE_ACTIONS && <button type="button" className="agr-run__more" aria-expanded={all} onClick={() => setAll(value => !value)}>
+    {actions.length > VISIBLE_ACTIONS && <button type="button" className="agr-link agr-run__more" aria-expanded={all} onClick={() => setAll(value => !value)}>
       {all ? 'Show less' : `Show all ${actions.length} actions`}
     </button>}
-  </details>;
+    {children}
+  </div>;
 }
 
-function EvidenceCard({ review, run }: { review: AgentReviewDto; run: ReviewRunDto }) {
-  const complete = completeCoverage(run);
+/** The Evidence tab: what the reviewer read, by where it came from. */
+export function ReviewEvidencePanel({ review, run }: { review: AgentReviewDto; run: ReviewRunDto }) {
   const groups = evidenceGroups(run.evidence, review.number === null ? null : `${review.repo}#${review.number}`);
-  return <details className="agr-run" aria-label="Context and evidence" open>
-    <summary className="agr-run__head is-ruled">
-      <Chevron />
-      <BookOpen size={15} aria-hidden="true" />
-      <strong>Context &amp; evidence</strong>
-      <span className="agr-run__meta">{plural(run.evidence.length, 'reference')} · frozen at head {shortSha(run.headSha)}</span>
-    </summary>
+  return <div className="agr-evidence-list" aria-label="Context and evidence">
+    <p className="agr-review__caption">{plural(run.evidence.length, 'reference')} · frozen at head {shortSha(run.headSha)}</p>
     {groups.length === 0 && <p className="agr-run__empty">No context or validation evidence was recorded.</p>}
-    {groups.map((group, index) => <details key={group.subject} className="agr-run__group" open={index === 0}>
+    {groups.map(group => <details key={group.subject} className="agr-run__group" open>
       <summary>
         <Chevron />
         <strong>{group.title}</strong>
@@ -193,23 +182,5 @@ function EvidenceCard({ review, run }: { review: AgentReviewDto; run: ReviewRunD
         })}
       </div>
     </details>)}
-    <footer className={`agr-run__foot${complete ? ' is-complete' : ''}`}>
-      {complete ? <Check size={13} aria-hidden="true" /> : <CircleAlert size={13} aria-hidden="true" />}
-      {complete ? 'Complete coverage was recorded for the review scope.'
-        : reviewRunning(review) ? 'Complete coverage has not been recorded yet.' : 'Complete coverage has not been recorded.'}
-    </footer>
-  </details>;
-}
-
-/** A review on a task's Summary timeline: where its passes stand, what the reviewer just did, and what it has read. */
-export default function ReviewRunCards({ review, run, now, visible = true }: {
-  review: AgentReviewDto; run: ReviewRunDto; now: number;
-  /** False while the page is hidden behind another tab; the activity list then stops re-reading history. */
-  visible?: boolean;
-}) {
-  return <>
-    <ProgressCard review={review} run={run} now={now} />
-    <ActivityCard review={review} run={run} now={now} visible={visible} />
-    <EvidenceCard review={review} run={run} />
-  </>;
+  </div>;
 }

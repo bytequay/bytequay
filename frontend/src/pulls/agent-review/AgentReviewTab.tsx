@@ -12,9 +12,9 @@
  * limitations under the License.
  */
 import { AgentSetupNotice, useAgentAvailability } from '../../agents/availability';
-import { CircleAlert, File, GitCommitHorizontal, PanelsTopLeft } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { PanelsTopLeft } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import AddRepoModal from '../../AddRepoModal';
 import { ConfirmDialog } from '../../ConfirmDialog';
 import type { ReviewCardFocus, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
@@ -51,12 +51,13 @@ import type { LocalReviewThreads } from '../local-review/types';
 import ReviewActivity, { type ReviewConversationPanel } from './ReviewActivity';
 import ReviewDetails from './ReviewDetails';
 import ReviewFindingCard from './ReviewFindingCard';
-import ReviewRunCards from './ReviewRunCards';
+import { PASSES, ReviewActivityPanel, ReviewEvidencePanel, useReviewActivity } from './ReviewRunPanels';
 import ReviewSummaryCard from './ReviewSummaryCard';
 import { FindingsHead, shownRound } from './SummaryTimeline';
-import type { AgentReviewDto, ReviewFindingDto } from './contracts';
+import type { AgentReviewDto, ReviewFindingDto, ReviewRunDto } from './contracts';
 import { findingLines } from './contracts';
-import { explanationRun, findingInResults, isExplanationRun, latestRun, newCommits, openFindings, provisional, reviewConversationEvents, reviewElapsed, reviewProgress, reviewRecoveryRequired, reviewRequests, reviewRunning, reviewStatus, reviewWorktreeNotice, shortSha } from './model';
+import { explanationRun, findingInResults, isExplanationRun, latestRun, newCommits, openFindings, provisional, reviewConversationEvents, reviewElapsed, reviewPasses, reviewProgress, reviewRecoveryRequired, reviewRequests, reviewRunning, reviewStatus, reviewWorktreeNotice, shortSha } from './model';
+import { plural } from '@bytequay/ui/displayText';
 import { recordReviewAttentionAction, useFindingActions } from './useFindingActions';
 
 export type ReviewNavigationTarget = {
@@ -70,6 +71,9 @@ export type ReviewNavigationTarget = {
 };
 
 type PendingAction = 'resume' | 'update' | 'refresh' | 'other';
+
+type ReviewTab = 'findings' | 'activity' | 'evidence';
+const REVIEW_TABS: Array<[ReviewTab, string]> = [['findings', 'Findings'], ['activity', 'Activity'], ['evidence', 'Evidence']];
 
 /** A placeholder for the hook's contract while no review exists; its actions are never reachable. */
 const EMPTY_REVIEW = {
@@ -89,12 +93,13 @@ export default function AgentReviewTab({
   focusFindingId, focusReviewCard, onOpenReview,
   mode = 'cards',
   timeline = false,
+  explain = false,
   ownStream = true,
   onOpenWorkspace,
   onRepositoryWatched,
   localReview,
   onSelectCommit,
-  toolbarTarget,
+  headSha,
   conversationPanel,
   composerContext,
 }: {
@@ -109,16 +114,18 @@ export default function AgentReviewTab({
   focusFindingId: string | null;
   focusReviewCard?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
-  toolbarTarget?: HTMLElement | null;
+  /** The working copy's head where the page tracks it, so a review behind it offers to review the latest. */
+  headSha?: string;
   conversationPanel?: ReviewConversationPanel;
   composerContext?: ReactNode;
   mode?: 'cards' | 'conversation';
   /**
-   * Cards on a development task's Summary timeline: the page's own strip and review event carry the status and actions,
-   * and findings follow directly. The reviewer's own summary and details stay in its workspace, because the developer's
-   * summary already explains the change.
+   * Cards on a development task's Summary, below the developer's own What changed. The reviewer's explanation stays in
+   * its workspace, because the developer's summary already explains the change.
    */
   timeline?: boolean;
+  /** On a development task's Summary, shows the reviewer's explanation as What changed while the task has none of its own. */
+  explain?: boolean;
   /**
    * False for cards beside this review's conversation. Main keeps one stream per renderer and review,
    * so a second subscription would silently stop the conversation's; its reloads keep the shared review current.
@@ -169,9 +176,12 @@ export default function AgentReviewTab({
   const [reportRunId, setReportRunId] = useState<string | null>(null);
   // Findings by review round: 'last' follows the newest round, 'all' shows every round, otherwise a run id.
   const [round, setRound] = useState('last');
+  // Null follows the review: Activity while it runs, Findings once it settles.
+  const [pickedTab, setPickedTab] = useState<ReviewTab | null>(null);
   useEffect(() => {
     if (mode === 'cards' && !timeline && focusReviewCard?.target.kind === 'card') setReportRunId(focusReviewCard.target.runId);
-    if (focusReviewCard?.target.kind === 'finding') setRound('all');
+    if (focusReviewCard?.target.kind === 'card' && focusReviewCard.target.cardId.endsWith(':details')) setPickedTab('activity');
+    if (focusReviewCard?.target.kind === 'finding') { setRound('all'); setPickedTab('findings'); }
   }, [focusReviewCard, mode, timeline]);
   useReviewCardFocus(cardsRef, focusReviewCard, mode === 'cards' && review !== null
     && (focusReviewCard?.target.kind !== 'finding' || round === 'all'));
@@ -188,8 +198,6 @@ export default function AgentReviewTab({
     : resuming && !running
       ? { status: 'running', label: 'Reviewing', tone: 'running', detail: 'starting the review', chip: null, busy: true }
       : reviewStatus(review);
-  const progress = review === null ? null : reviewProgress(review);
-  const compactProgress = review === null ? null : reviewProgress(review, true);
   const currentRun = review === null ? null : latestRun(review);
   const worktreeNotice = review === null ? null : reviewWorktreeNotice(review);
   const run = review?.runs.find(item => item.id === reportRunId) ?? currentRun;
@@ -202,6 +210,9 @@ export default function AgentReviewTab({
   const inRound = (finding: ReviewFindingDto) => roundRun === null || finding.runId === roundRun.id;
 
   const now = useNow(running);
+  // A development task's Summary says whether it is shown; other pages read while the review runs.
+  const tab = pickedTab ?? (running ? 'activity' : 'findings');
+  const activity = useReviewActivity(review, run, mode === 'cards' && tab === 'activity', running && (!timeline || ownStream));
 
   // The catalog names the model each turn ran with; the transcript shows a name, never a raw slug.
   const laneId = review?.task.laneId ?? null;
@@ -481,6 +492,7 @@ export default function AgentReviewTab({
   useEffect(() => {
     if (focusFindingId === null) return;
     setRound('all');
+    setPickedTab('findings');
     const frame = requestAnimationFrame(() => scrollToFinding(focusFindingId));
     return () => cancelAnimationFrame(frame);
   }, [focusFindingId]);
@@ -666,127 +678,63 @@ export default function AgentReviewTab({
       onClick={() => { void resume(); }}>Resume review</button>
     {onOpenWorkspace !== undefined && <button type="button" className="agr-action is-quiet" onClick={onOpenWorkspace}>See what happened</button>}
   </div> : null;
-  const progressIcons = [GitCommitHorizontal, File, CircleAlert];
-  const toolbar = mode === 'cards' && !timeline ? <div className="agr-strip" aria-label="Review progress">
-        <span className={`agr-strip__status is-${status?.tone ?? 'neutral'}`} title={`${status?.label} · ${status?.detail}`}>
-          {status?.busy && <span className="agr-spinner" aria-hidden="true" />}
-          <strong title={progress?.phase}>{status?.label === 'Reviewing' && compactProgress !== null ? compactProgress.phase : status?.label}</strong>
-        </span>
-        {compactProgress !== null && <div className="agr-strip__facts" title={progress?.facts.join(' · ')}>
-          {compactProgress.facts.slice(0, 3).map((fact, index) => {
-            const Icon = progressIcons[index];
-            return <span key={index} title={progress?.facts[index]}><Icon size={12} aria-hidden="true" />{fact}</span>;
-          })}
-        </div>}
-        <span className="agr-spacer" />
-        {onOpenWorkspace !== undefined && (
-          <button type="button" className="agr-action" aria-label="View in workspace" title="View in workspace" onClick={onOpenWorkspace}>
-            <PanelsTopLeft size={16} aria-hidden="true" />
-          </button>
-        )}
-        {!resuming && reviewElapsed(review, now) !== null && (
-          <span className="agr-strip__elapsed">{reviewElapsed(review, now)}</span>
-        )}
-        {running && (
-          <button type="button" className="agr-action is-danger" disabled={busy}
-            onClick={() => { void run_(async () => { onReviewChange(await window.bridge.stopAgentReview(review.id)); recordReviewAttentionAction(review, 'update'); }); }}>Stop</button>
-        )}
-        {!running && review.state === 'OPEN' && (status?.status === 'stopped' || status?.status === 'failed') && (
-          <button type="button" className="agr-action" disabled={busy || recovery || localRun} title={localRunReason}
-            onClick={() => { void resume(); }}>
-            {resuming ? 'Starting…' : status.status === 'failed' ? 'Resume review' : 'Resume'}
-          </button>
-        )}
-        {!running && review.state === 'OPEN' && (
-          <button type="button" className="agr-action" disabled={busy || recovery || localRun} title={localRunReason} aria-busy={pendingAction === 'update'}
-            onClick={() => { void update(); }}>
-            {pendingAction === 'update' ? 'Checking…' : review.runs.length === 0 ? 'Start review' : 'Update review'}</button>
-        )}
-        {!running && review.state === 'OPEN' && (
-          <button type="button" className="agr-action is-quiet" disabled={busy || recovery || localRun}
-            title={localRunReason ?? 'Completes the task and cleans the worktree; the summary, findings and discussion stay'}
-            onClick={() => { void run_(async () => { onReviewChange(await window.bridge.endAgentReview(review.id)); recordReviewAttentionAction(review, 'update'); }); }}>
-            {review.runs.length === 0 ? 'Remove worktree' : 'End review'}</button>
-        )}
-      </div> : null;
+  const notices = <>
+    {error !== null && <div className="agr-error" role="alert">{error}</div>}
+    {updateNotice?.reviewId === review.id && updateNotice.runId === currentRun?.id && (status?.status === 'ready' || status?.status === 'nofindings') && (
+      <div className="agr-banner is-neutral" role="status">
+        <span className="agr-banner__chip">{updateNotice.reused ? 'Previous review reused' : 'Nothing new to review'}</span>
+        <div className="agr-banner__text">{updateNotice.reused
+          ? 'The code and commit messages are unchanged. The previous review still applies.'
+          : 'The current changes are already covered by this review.'}</div>
+      </div>
+    )}
+    {findingActions.error !== null && <div className="agr-error" role="alert">{findingActions.error}</div>}
+    {recovery && (
+      <div className="agr-banner is-danger" role="status">
+        Provider shutdown could not be verified. New turns and worktree changes are blocked until recovery finishes.
+        <button type="button" className="agr-action" disabled={busy} onClick={requestRuntimeRecovery}>
+          {busy ? 'Checking runtime…' : 'Recover runtime'}
+        </button>
+      </div>
+    )}
+  </>;
+  const elapsed = reviewElapsed(review, now);
+  const progress = reviewProgress(review);
+  const finished = status !== null && elapsed !== null && (status.status === 'ready' || status.status === 'nofindings' || status.status === 'newcommits');
+  const pass = run === null ? -1 : reviewPasses(run).indexOf('active');
+  const behind = headSha !== undefined && currentRun !== null && headSha !== currentRun.headSha;
+  const counts: Record<ReviewTab, number> = {
+    findings: findings.filter(finding => finding.state === 'OPEN').length,
+    activity: activity.actions.length,
+    evidence: run?.evidence.length ?? 0,
+  };
+  const listed = [...findings, ...withdrawn];
+  // All rounds groups the findings under the round that found them, newest first.
+  const groups: Array<{ round: ReviewRunDto | null; items: ReviewFindingDto[] }> = roundRun === null && rounds.length > 1
+    ? [...[...rounds].reverse().map(item => ({ round: item, items: listed.filter(finding => finding.runId === item.id) })),
+      { round: null, items: listed.filter(finding => !rounds.some(item => item.id === finding.runId)) }]
+    : [{ round: null, items: listed }];
+  // An evidence link opens its reference, which may sit in a tab that is not shown.
+  const followLink = (event: MouseEvent) => {
+    const link = event.target instanceof Element ? event.target.closest('a.agr-context__link') : null;
+    const target = link === null ? null : document.getElementById(decodeURIComponent(link.getAttribute('href')?.slice(1) ?? ''));
+    const panel = target?.closest<HTMLElement>('[data-review-tab]');
+    if (panel != null && panel.hidden) flushSync(() => setPickedTab(panel.dataset.reviewTab as ReviewTab));
+  };
   return (
     <div className={`agr-pane${timeline ? ' is-timeline' : ''}`}>
-      {toolbarTarget && toolbar ? createPortal(toolbar, toolbarTarget) : toolbar}
-
-      {mode === 'cards' && !timeline && progress !== null && progress.gaps.length > 0 && <section className="agr-progress" aria-label="Review progress">
-        <div className="agr-progress__gaps">{progress.gaps.map(gap => <span key={gap}>{gap}</span>)}</div>
-      </section>}
-
-      {error !== null && <div className="agr-error" role="alert">{error}</div>}
-      {updateNotice?.reviewId === review.id && updateNotice.runId === currentRun?.id && (status?.status === 'ready' || status?.status === 'nofindings') && (
-        <div className="agr-banner is-neutral" role="status">
-          <span className="agr-banner__chip">{updateNotice.reused ? 'Previous review reused' : 'Nothing new to review'}</span>
-          <div className="agr-banner__text">{updateNotice.reused
-            ? 'The code and commit messages are unchanged. The previous review still applies.'
-            : 'The current changes are already covered by this review.'}</div>
-        </div>
-      )}
-      {findingActions.error !== null && <div className="agr-error" role="alert">{findingActions.error}</div>}
-      {recovery && (
-        <div className="agr-banner is-danger" role="status">
-          Provider shutdown could not be verified. New turns and worktree changes are blocked until recovery finishes.
-          <button type="button" className="agr-action" disabled={busy} onClick={requestRuntimeRecovery}>
-            {busy ? 'Checking runtime…' : 'Recover runtime'}
-          </button>
-        </div>
-      )}
-
-      {mode === 'conversation' && failedReviewNotice}
+      {mode === 'conversation' && <>{notices}{failedReviewNotice}</>}
       {mode === 'cards' ? (
         <ReviewCommentIndex className="agr-summary" ref={cardsRef} enabled={!timeline}>
           {run !== null && reportRunId !== null && (run.id !== currentRun?.id || summaryRun?.id !== currentExplanation?.id) && <div className="agr-banner is-neutral">
             <span>{run.id === currentRun?.id ? 'Earlier explanation' : isExplanationRun(run) ? 'Saved explanation' : 'Earlier review'} · head {shortSha(run.headSha)}</span>
             <button type="button" className="agr-action" onClick={() => setReportRunId(null)}>Show latest review</button>
           </div>}
-          {waiting && (
-            <div className="agr-banner is-warn">
-              <span className="agr-banner__chip">Approval needed</span>
-              <div className="agr-banner__text">
-                The agent is waiting for your answer before it can continue. Open its workspace conversation to respond.
-              </div>
-              {onOpenWorkspace !== undefined && <button type="button" className="agr-action" onClick={onOpenWorkspace}>View in workspace</button>}
-            </div>
-          )}
-          {failedReviewNotice}
-          {(newCommits(review) || worktreeNotice !== null) && (
-            <div className="agr-banner is-warn">
-              <span className="agr-banner__chip">{worktreeNotice?.label ?? 'New commits'}</span>
-              <div className="agr-banner__text">
-                {worktreeNotice?.message ?? <>The source has new commits since this review ({shortSha(currentRun?.headSha ?? '')} → {shortSha(review.observedHeadSha ?? '')}).
-                  {' '}Finding comments stay attached to their reviewed commit.</>}
-              </div>
-              <button type="button" className="agr-action is-primary" disabled={busy || running || recovery || localRun} title={localRunReason} aria-busy={pendingAction === 'update'}
-                onClick={() => { void update(); }}>{pendingAction === 'update' ? 'Checking…' : 'Update review'}</button>
-            </div>
-          )}
-          {status?.status === 'stopped' && (
-            <div className="agr-banner is-neutral">
-              <span className="agr-banner__chip">Stopped</span>
-              <div className="agr-banner__text">
-                You stopped the review. The discussion stays open; Resume continues from the saved state.
-              </div>
-            </div>
-          )}
-
-          {timeline && run !== null && <ReviewRunCards review={review} run={run} now={now} visible={ownStream} />}
-          {run !== null && (timeline || run.id !== summaryRun?.id || run.summary === null) && <>
-            {(run.coverage?.warnings.length ?? 0) > 0 && <aside className="agr-banner is-warn agr-summary-card__warnings" aria-label="Verification warning">
-              <strong className="agr-banner__chip">Verification warning</strong>
-              <div className="agr-banner__text"><MarkdownBody body={[...new Set(run.coverage?.warnings)].map(warning => `- ${warning}`).join('\n')} repository={review.repo} /></div>
-            </aside>}
-            <div data-review-card={timeline ? undefined : `${run.id}:details`}><ReviewDetails run={run} repository={review.repo} evidence={!timeline} retainedFindings={retainedFindings} /></div>
-          </>}
-          {!timeline && <ReviewSummaryCard
+          {(!timeline || explain) && <ReviewSummaryCard
             review={review}
             run={summaryRun}
             onSelectCommit={onSelectCommit}
             findings={findings}
-            retainedFindings={run?.id === summaryRun?.id ? retainedFindings : undefined}
             viewerLogin={viewer?.login ?? ''}
             viewerAvatarUrl={viewer?.avatarUrl ?? null}
             busy={busy || recovery}
@@ -809,62 +757,143 @@ export default function AgentReviewTab({
             focus={focusReviewCard}
             onSelectFinding={finding => {
               setRound('all');
+              setPickedTab('findings');
               requestAnimationFrame(() => scrollToFinding(finding.id));
             }} />}
 
-          {(!timeline || findings.length + withdrawn.length > 0) && <FindingsHead rounds={rounds} round={round} onRound={setRound}
-            count={item => [...findings, ...withdrawn].filter(finding => item === null || finding.runId === item.id).length}
-            overall={findings.length === 0 && provisional(review) ? 'none saved'
-              : `${findings.filter(finding => finding.state === 'OPEN').length} open · ${findings.filter(finding => finding.state === 'RESOLVED').length} resolved`}>
-            {!timeline && (['Critical', 'High', 'Medium', 'Low'] as const).map(severity => {
-              const count = findings.filter(finding => finding.severity === severity).length;
-              return count === 0 ? null : <span key={severity} className={`agr-severity is-${severity.toLowerCase()}`}>{count} {severity}</span>;
-            })}
-          </FindingsHead>}
-          {roundRun !== null && findings.length + withdrawn.length > 0 && ![...findings, ...withdrawn].some(inRound)
-            && <p className="agr-card__empty">No findings in this round.</p>}
+          <section className="agr-review" aria-label="Agent review" onClickCapture={followLink}>
+            <header className="agr-review__head">
+              <h2>Agent review</h2>
+              {status !== null && <span className={`pull-detail__review-chip is-${finished ? 'ready' : status.tone}`}
+                title={[`${status.label} · ${status.detail}`, ...progress === null ? [] : [progress.phase, ...progress.facts]].join('\n')}>
+                {status.busy && <span className="agr-spinner" aria-hidden="true" />}
+                {finished ? elapsed.charAt(0).toUpperCase() + elapsed.slice(1)
+                  : status.label === 'Reviewing' && pass >= 0 ? `Running · ${PASSES[pass][0]}` : status.chip ?? status.label}
+              </span>}
+              <span className="agr-review__note">Local · never posted to GitHub</span>
+              {run?.worktreeTreeSha != null && <span className="agr-review__note">Includes uncommitted changes</span>}
+              <span className="agr-spacer" />
+              {running && (
+                <button type="button" className="agr-action" disabled={busy}
+                  onClick={() => { void run_(async () => { onReviewChange(await window.bridge.stopAgentReview(review.id)); recordReviewAttentionAction(review, 'update'); }); }}>Stop</button>
+              )}
+              {!running && review.state === 'OPEN' && (status?.status === 'stopped' || status?.status === 'failed') && (
+                <button type="button" className="agr-action" disabled={busy || recovery || localRun} title={localRunReason}
+                  onClick={() => { void resume(); }}>
+                  {resuming ? 'Starting…' : status.status === 'failed' ? 'Resume review' : 'Resume'}
+                </button>
+              )}
+              {!running && review.state === 'OPEN' && (
+                <button type="button" className="agr-action" disabled={busy || recovery || localRun} aria-busy={pendingAction === 'update'}
+                  title={localRunReason ?? 'Review the latest changes'} onClick={() => { void update(); }}>
+                  {pendingAction === 'update' ? 'Checking…' : review.runs.length === 0 ? 'Start review' : 'Review again'}</button>
+              )}
+              {!running && review.state === 'OPEN' && (
+                <button type="button" className="agr-action is-quiet" disabled={busy || recovery || localRun}
+                  title={localRunReason ?? 'Completes the task and cleans the worktree; the summary, findings and discussion stay'}
+                  onClick={() => { void run_(async () => { onReviewChange(await window.bridge.endAgentReview(review.id)); recordReviewAttentionAction(review, 'update'); }); }}>
+                  {review.runs.length === 0 ? 'Remove worktree' : 'End review'}</button>
+              )}
+              {onOpenWorkspace !== undefined && (
+                <button type="button" className="agr-review__icon" aria-label="View in workspace" title="View in workspace" onClick={onOpenWorkspace}>
+                  <PanelsTopLeft size={16} aria-hidden="true" />
+                </button>
+              )}
+            </header>
+            {notices}
+            {(newCommits(review) || behind || worktreeNotice !== null) && (
+              <div className="agr-review__behind">
+                <span>{worktreeNotice !== null ? <><strong>{worktreeNotice.label}</strong> · {worktreeNotice.message}</> : <>New commits since this review — reviewed <strong>{shortSha(currentRun?.headSha ?? '')}</strong>,
+                  {' '}head is <strong>{shortSha(behind ? headSha : review.observedHeadSha ?? '')}</strong>.</>}</span>
+                <button type="button" className="agr-link" disabled={busy || running || recovery || localRun} title={localRunReason} aria-busy={pendingAction === 'update'}
+                  onClick={() => { void update(); }}>{pendingAction === 'update' ? 'Checking…' : 'Review latest'}</button>
+              </div>
+            )}
+            {waiting && (
+              <div className="agr-banner is-warn">
+                <span className="agr-banner__chip">Approval needed</span>
+                <div className="agr-banner__text">
+                  The agent is waiting for your answer before it can continue. Open its workspace conversation to respond.
+                </div>
+                {onOpenWorkspace !== undefined && <button type="button" className="agr-action" onClick={onOpenWorkspace}>View in workspace</button>}
+              </div>
+            )}
+            {failedReviewNotice}
+            {status?.status === 'stopped' && (
+              <div className="agr-banner is-neutral">
+                <span className="agr-banner__chip">Stopped</span>
+                <div className="agr-banner__text">
+                  You stopped the review. The discussion stays open; Resume continues from the saved state.
+                </div>
+              </div>
+            )}
 
-          {findings.length === 0 && status?.status === 'nofindings' && (
-            <div className="agr-none">
-              <div className="agr-none__title">{retained.length > 0 ? 'No selected findings' : 'No inline findings'}</div>
-              <p>
-                {retained.length > 0 ? 'No findings were selected for the main result. Other recorded findings remain in Review details. ' : ''}The agent recorded complete coverage of the review scope. Complete means the scope was
-                reviewed, not that the pull request is guaranteed correct.
-              </p>
-            </div>
-          )}
-          {findings.length === 0 && status?.status !== 'nofindings' && provisional(review) && running && (
-            <div className="agr-pending">
-              <span className="agr-spinner" aria-hidden="true" />
-              <span>{timeline && <strong>Findings · none yet</strong>}Findings appear after the agent checks its candidates. The report stays provisional until validation and complete coverage are accepted.</span>
-            </div>
-          )}
+            <nav className="agr-review__tabs" role="tablist" aria-label="Agent review">
+              {REVIEW_TABS.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setPickedTab(id)}>
+                {label}{counts[id] > 0 && <span>{counts[id]}</span>}
+              </button>)}
+            </nav>
 
-          {findings.map(finding => (
-            <div key={finding.id} hidden={!inRound(finding)}>
-            <ReviewFindingCard
-              review={review}
-              finding={finding}
-              viewerLogin={viewer?.login ?? ''}
-              viewerAvatarUrl={viewer?.avatarUrl ?? null}
-              projection="review"
-              actions={actions}
-              busy={busy || recovery || findingActions.busy}
-              defaultOpen={finding.state === 'OPEN'} />
+            <div role="tabpanel" aria-label="Findings" data-review-tab="findings" hidden={tab !== 'findings'}>
+              {(!timeline || listed.length > 0) && <FindingsHead rounds={rounds} round={round} onRound={setRound}
+                count={item => listed.filter(finding => item === null || finding.runId === item.id).length}
+                overall={`${findings.filter(finding => finding.state === 'OPEN').length} open · ${findings.filter(finding => finding.state === 'RESOLVED').length} resolved`}>
+                {(['Critical', 'High', 'Medium', 'Low'] as const).map(severity => {
+                  const count = findings.filter(finding => finding.severity === severity).length;
+                  return count === 0 ? null : <span key={severity} className={`agr-severity is-${severity.toLowerCase()}`}>{count} {severity}</span>;
+                })}
+              </FindingsHead>}
+              {roundRun !== null && listed.length > 0 && !listed.some(inRound) && <p className="agr-card__empty">No findings in this round.</p>}
+              {findings.length === 0 && status?.status === 'nofindings' && (
+                <div className="agr-none">
+                  <div className="agr-none__title">{retained.length > 0 ? 'No selected findings' : 'No inline findings'}</div>
+                  <p>
+                    {retained.length > 0 ? 'No findings were selected for the main result. Other recorded findings remain in Review details. ' : ''}The agent recorded complete coverage of the review scope. Complete means the scope was
+                    reviewed, not that the pull request is guaranteed correct.
+                  </p>
+                </div>
+              )}
+              {findings.length === 0 && status?.status !== 'nofindings' && provisional(review) && running && (
+                <div className="agr-pending">
+                  <span className="agr-spinner" aria-hidden="true" />
+                  <span>Findings appear after the agent checks its candidates. The report stays provisional until validation and complete coverage are accepted.</span>
+                </div>
+              )}
+              {groups.flatMap(group => [
+                ...group.round === null || group.items.length === 0 ? [] : [<div key={`round:${group.round.id}`} className="agr-round">
+                  <strong>Round {rounds.indexOf(group.round) + 1}</strong>
+                  <span>head {shortSha(group.round.headSha)} · {plural(group.items.length, 'finding')}</span>
+                </div>],
+                ...group.items.map(finding => <div key={finding.id} hidden={!inRound(finding)}>
+                  <ReviewFindingCard
+                    review={review}
+                    finding={finding}
+                    viewerLogin={viewer?.login ?? ''}
+                    viewerAvatarUrl={viewer?.avatarUrl ?? null}
+                    projection="review"
+                    actions={actions}
+                    busy={busy || recovery || findingActions.busy}
+                    defaultOpen={finding.state === 'OPEN'} />
+                </div>),
+              ])}
             </div>
-          ))}
-          {withdrawn.filter(inRound).map(finding => (
-            <ReviewFindingCard
-              key={finding.id}
-              review={review}
-              finding={finding}
-              viewerLogin={viewer?.login ?? ''}
-              viewerAvatarUrl={viewer?.avatarUrl ?? null}
-              projection="review"
-              actions={actions}
-              busy={busy || recovery || findingActions.busy}
-              defaultOpen={false} />
-          ))}
+
+            <div role="tabpanel" aria-label="Activity" data-review-tab="activity" hidden={tab !== 'activity'}>
+              {run === null ? <p className="agr-run__empty">The review has not started yet.</p>
+                : <ReviewActivityPanel review={review} run={run} now={now} activity={activity}
+                  warnings={(timeline || run.id !== summaryRun?.id || run.summary === null) && (run.coverage?.warnings.length ?? 0) > 0
+                    && <aside className="agr-banner is-warn agr-summary-card__warnings" aria-label="Verification warning">
+                      <strong className="agr-banner__chip">Verification warning</strong>
+                      <div className="agr-banner__text"><MarkdownBody body={[...new Set(run.coverage?.warnings)].map(warning => `- ${warning}`).join('\n')} repository={review.repo} /></div>
+                    </aside>}>
+                  <div data-review-card={timeline ? undefined : `${run.id}:details`}><ReviewDetails run={run} repository={review.repo} retainedFindings={retainedFindings} /></div>
+                </ReviewActivityPanel>}
+            </div>
+
+            <div role="tabpanel" aria-label="Evidence" data-review-tab="evidence" hidden={tab !== 'evidence'}>
+              {run === null ? <p className="agr-run__empty">The review has not started yet.</p> : <ReviewEvidencePanel review={review} run={run} />}
+            </div>
+          </section>
           <LocalComments localReview={localReview} />
         </ReviewCommentIndex>
       ) : (

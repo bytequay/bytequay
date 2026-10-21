@@ -504,7 +504,7 @@ function LocalFindings({ local }: { local: LocalReviewThreads }): React.JSX.Elem
   const inRound = (thread: LocalReviewThreadDto) => shown === null || thread.headSha === shown.id;
   const open = local.threads.filter(thread => !thread.resolved).length;
   return <section className="agr-local-comments" aria-label="Findings">
-    <FindingsHead rounds={rounds} round={round} onRound={setRound} overall={`${open} open · ${local.threads.length - open} resolved`}
+    <FindingsHead title="Findings" rounds={rounds} round={round} onRound={setRound} overall={`${open} open · ${local.threads.length - open} resolved`}
       count={item => local.threads.filter(thread => item === null || thread.headSha === item.id).length} />
     {shown !== null && !local.threads.some(inRound) && <p className="agr-card__empty">No findings in this round.</p>}
     {local.threads.map(thread => <div key={thread.id} hidden={!inRound(thread)}><LocalReviewThreadCard thread={thread} {...local} /></div>)}
@@ -635,7 +635,6 @@ function SidePanel({
   const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigationTarget | null>(null);
   const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
   const [changesToolbar, setChangesToolbar] = useState<HTMLElement | null>(null);
-  const [summaryToolbar, setSummaryToolbar] = useState<HTMLElement | null>(null);
   const [commitSelection, setCommitSelection] = useState<{ source: 'task' | 'review'; commitSha: string; headSha?: string; baseSha?: string; token: number } | null>(null);
   const selectCommit = (source: 'task' | 'review', commitSha: string, snapshot?: { headSha: string; baseSha: string }): void => {
     setReviewNavigation(null);
@@ -729,7 +728,6 @@ function SidePanel({
       tab={tab === 'pr' ? 'overview' : tab === 'agents' || tab === 'discussions' ? null : tab}
       codeAvailable={codeAvailable}
       onChangesToolbar={setChangesToolbar}
-      onSummaryToolbar={setSummaryToolbar}
       review={review}
       onReviewChange={updateReview}
       agentTab={agentTab}
@@ -797,7 +795,7 @@ function SidePanel({
       : reviewError !== null ? <div className="agt-panel__empty" role="alert">{reviewError}
         <button type="button" className="agt-action" onClick={() => setReviewReload(value => value + 1)}>Retry</button>
       </div>
-      : review !== null && <AgentReviewTab toolbarTarget={summaryToolbar} detail={detail ?? undefined} workspaceId={workspaceId} viewer={null}
+      : review !== null && <AgentReviewTab detail={detail ?? undefined} workspaceId={workspaceId} viewer={null}
         review={review} onReviewChange={updateReview} onSelectCommit={(sha, snapshot) => selectCommit('review', sha, snapshot)} focusFindingId={focusFindingId} ownStream={tab === 'review'}
         onOpenWorkspace={() => { window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id); }}
         onNavigateToChanges={navigateToChanges} />}

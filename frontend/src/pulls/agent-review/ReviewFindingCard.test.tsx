@@ -46,7 +46,7 @@ describe('finding suggestions', () => {
     expect(html).toContain('<button type="button" disabled="">Remove</button>');
     expect(html).not.toContain('Posted to GitHub');
     expect(html).not.toContain('is-published');
-    expect(html).not.toContain('Post comment now');
+    expect(html).not.toContain('Post now');
     expect(html).not.toContain('Add to my review');
     expect(html).not.toContain('>Accepted</span>');
     expect(html).not.toContain('lrc__resolved');
@@ -113,8 +113,10 @@ describe('finding suggestions', () => {
     expect(html).toContain('data-review-comment-label="Agent review" data-review-comment-preview="The value can be empty."');
     expect(html).toContain('data-review-comment-label="Developer" data-review-comment-preview="Fixed in abc1234."');
     expect(html).toContain('<strong>Developer</strong>');
-    // Only the reviewer's own messages carry the reviewer's mark: the finding and its answer, not the developer's reply.
-    expect(html.match(/class="lrc-bot"/g)).toHaveLength(2);
+    // Only the reviewer's own messages carry the reviewer's mark: its answer, not the developer's reply.
+    // On the Summary the finding itself names its author beside its title instead.
+    expect(html.match(/class="lrc-bot"/g)).toHaveLength(1);
+    expect(html).toContain('<span class="agr-finding__by">Agent · <time>');
   });
 
   it.each(['review', 'changes'] as const)('renders reviewer file citations in %s without exposing Markdown delimiters', projection => {
@@ -148,7 +150,7 @@ describe('finding suggestions', () => {
     expect(html).not.toContain('Recorded code');
     expect(html).toContain('This finding describes an earlier reviewed commit');
     expect(html).toContain('md-suggestion__row is-del');
-    expect(html).toContain('Post comment now');
+    expect(html).toContain('Post now');
   });
 
   it('keeps suggestions on deleted lines as ordinary code, like GitHub review comments', () => {
@@ -173,15 +175,15 @@ describe('finding suggestions', () => {
     expect(html).toContain('Whole change');
     expect(html).not.toContain('Reviewed code');
     expect(html).toContain('Add to my review');
-    expect(html).not.toContain('Post comment now');
+    expect(html).not.toContain('Post now');
     expect(html).not.toContain('View in Changes');
 
     const inSummary = renderToStaticMarkup(<ReviewFindingCard projection="review" viewerLogin="reviewer" viewerAvatarUrl={null} finding={whole}
       review={reviewFixture({ findings: [whole], draft: reviewDraftFixture({ body: `Thanks.\n\n${whole.body}`, version: 2, updatedAt: whole.updatedAt }) })}
       actions={{ onAsk: async () => {}, onResolve: async () => {}, onReopen: async () => {}, onAddToReview: async () => {},
         onPostNow: async () => {}, onEditDraft: async () => {}, onRemoveFromReview: async () => {}, onNavigate: () => {} }} />);
-    expect(inSummary).toContain('In your review summary');
-    expect(inSummary).toContain('Outgoing review summary');
+    expect(inSummary).toContain('In your review summary. Click to remove it.');
+    expect(inSummary).toContain('Your review summary');
     expect(inSummary).toContain('>Edit</button>');
     expect(inSummary).toContain('>Remove</button>');
     expect(inSummary).toContain('<p>Thanks.</p>');
@@ -197,7 +199,7 @@ describe('finding suggestions', () => {
         path: 'src/Other.java', startLine: 1, endLine: 1, range: 'R1', excerpt: ['Different code'] };
       const html = render(changed, draftItem);
       expect(html.match(/<div class="agr-draft__body">([\s\S]*?)<\/div>/)?.[1]).toBe(original);
-      expect(html).toContain('Outgoing comment · in your pending review');
+      expect(html).toContain('Your comment');
       expect(html).not.toContain('Excluded from publication');
       expect(html).not.toContain('can no longer be published');
       if (state !== 'OPEN') expect(html.toLowerCase()).toContain('your saved review is unchanged');

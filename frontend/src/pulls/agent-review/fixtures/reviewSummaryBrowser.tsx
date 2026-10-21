@@ -77,7 +77,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const write = async (text: string) => { changeInput(input(), text); await settle(); };
   try {
     flushSync(() => root.render(<Surface />));
-    assert(host.textContent?.includes('Outgoing review summary') === true, 'The finding must show its outgoing summary');
+    assert(host.textContent?.includes('Your review summary') === true, 'The finding must show its outgoing summary');
     button('Edit').click(); await settle();
     assert(input().value === originalBody && document.activeElement === input(), 'Edit must seed and focus the entire saved summary');
     assert(input().closest('.agr-finding__details') !== null && host.querySelector('.agr-draft, .lrc__foot') === null,

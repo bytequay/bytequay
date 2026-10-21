@@ -12,18 +12,17 @@
  * limitations under the License.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Diff } from 'lucide-react';
-import Avatar from '../Avatar';
+import { useEffect, useState } from 'react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { AgentTaskDto, AgentTurnDto, Bridge, DevelopmentLearningSummaryDto } from '../types';
 import MarkdownBody from '../pulls/MarkdownBody';
 import ReviewCommentIndex from '../pulls/ReviewCommentIndex';
 import ReviewComposer from '../pulls/agent-review/ReviewComposer';
-import { SummaryOutlineItem } from '../pulls/agent-review/SummaryTimeline';
-import { TaskReviewControls, TaskReviewSection, useTaskReview, type TaskReviewOptions } from '../pulls/agent-review/TaskReviewSummary';
-import LocalCard, { LocalCardMessage, SummaryCardTitle } from '../pulls/local-review/LocalCard';
+import { explanationRun, latestRun } from '../pulls/agent-review/model';
+import { ChangedItem, WhatChanged } from '../pulls/agent-review/SummaryTimeline';
+import { TaskReviewSection, useTaskReview, type TaskReviewOptions } from '../pulls/agent-review/TaskReviewSummary';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
+import type { LocalReviewThreadDto } from '../pulls/local-review/types';
 import type { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
 
 export function developmentLearningCards(summary: DevelopmentLearningSummaryDto): { id: string; title: string; body: string }[] {
@@ -36,9 +35,11 @@ export function developmentLearningCards(summary: DevelopmentLearningSummaryDto)
 type LearningBridge = Pick<Bridge, 'getAgentTask'> & Partial<Pick<Bridge, 'getDevelopmentLearning'>>;
 type LearningThreads = ReturnType<typeof useLocalReviewThreads>;
 
-function LearningCard({ card, sha, turn, repository, disabledReason, onAsk, badges }: {
-  card: ReturnType<typeof developmentLearningCards>[number]; sha?: string; turn: AgentTurnDto; repository: string;
-  disabledReason: string | null; onAsk: (body: string) => Promise<void>; badges?: ReactNode;
+function LearningItem({ card, title, sha, turn, repository, disabledReason, onAsk, onSelectCommit, discussions, threads }: {
+  card: ReturnType<typeof developmentLearningCards>[number]; title: string; sha?: string; turn: AgentTurnDto; repository: string;
+  disabledReason: string | null; onAsk: (body: string) => Promise<void>; onSelectCommit?: (sha: string) => void;
+  /** The questions asked about this item, each with its answers. */
+  discussions: LocalReviewThreadDto[]; threads: LearningThreads;
 }) {
   const [composing, setComposing] = useState(false);
   const [body, setBody] = useState('');
@@ -53,20 +54,19 @@ function LearningCard({ card, sha, turn, repository, disabledReason, onAsk, badg
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send your question.'); }
     finally { setBusy(false); }
   };
-  return <LocalCard tone={sha === undefined ? 'purpose' : 'commit'} title={<SummaryCardTitle sha={sha} />} badges={badges}
-    controls={<footer className={`lrc__foot${composing ? ' is-composing' : ''}`}>
-      {composing ? <ReviewComposer repository={repository} value={body} autoFocus busy={busy} disabledReason={disabledReason}
-        ariaLabel={`Ask the agent about ${card.title.toLowerCase()}`} placeholder="Ask for an explanation or confirmation…"
-        primaryLabel="Ask agent" onChange={setBody} onSubmit={send} onCancel={close} />
-        : <button type="button" className="lrc__ask" disabled={disabledReason !== null} title={disabledReason ?? undefined}
-          onClick={() => setComposing(true)}>Ask agent</button>}
-      {error !== null && <span className="lrc__error" role="alert">{error}</span>}
-    </footer>}>
-    <LocalCardMessage timestamp={turn.endedAt ?? turn.createdAt} author="Developer"
-      avatar={<Avatar login="Agent" size={22} allowGitHubFallback={false} />}>
+  return <div className="agr-summary-card" data-learning-card={card.id}>
+    <ChangedItem title={title} sha={sha} byline={`Developer · ${relativeTime(turn.endedAt ?? turn.createdAt)} · Private`}
+      onViewChanges={sha !== undefined && onSelectCommit !== undefined ? () => onSelectCommit(sha) : undefined}
+      ask={!composing && <button type="button" className="agr-link" disabled={disabledReason !== null} title={disabledReason ?? undefined}
+        onClick={() => setComposing(true)}>Ask agent</button>}>
       <MarkdownBody body={card.body} repository={repository} />
-    </LocalCardMessage>
-  </LocalCard>;
+    </ChangedItem>
+    {composing && <ReviewComposer repository={repository} value={body} autoFocus busy={busy} disabledReason={disabledReason}
+      ariaLabel={`Ask the agent about ${card.title.toLowerCase()}`} placeholder="Ask for an explanation or confirmation…"
+      primaryLabel="Ask agent" onChange={setBody} onSubmit={send} onCancel={close} />}
+    {error !== null && <span className="lrc__error" role="alert">{error}</span>}
+    {discussions.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...threads} />)}
+  </div>;
 }
 
 function commitCount(count: number): string {
@@ -74,7 +74,7 @@ function commitCount(count: number): string {
 }
 
 /**
- * A development task's Summary: an outline of the kept report's intention and commits beside the card picked from it,
+ * A development task's Summary: what changed, as the kept report's intention and commits with the one picked from them,
  * then the task's own reviewer when the page offers one. Reads the kept report,
  * independently of the conversation's bounded history window.
  */
@@ -90,7 +90,6 @@ export default function DevelopmentLearningPanel({ task, repository, refreshKey,
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   const reviewer = useTaskReview(task, review);
-  const reviewSection = useRef<HTMLDivElement>(null);
   const read = bridge.getDevelopmentLearning;
   useEffect(() => {
     let current = true;
@@ -121,67 +120,42 @@ export default function DevelopmentLearningPanel({ task, repository, refreshKey,
     setFollowed(focus);
     setSelected(linked.learningAnchor.cardId);
   }
-  const outlineItem = (card: ReturnType<typeof developmentLearningCards>[number], label: string, ordinal?: number) =>
-    <SummaryOutlineItem key={card.id} label={label} ordinal={ordinal} current={card.id === shown} onSelect={() => setSelected(card.id)}
-      messages={discussionsOf(card.id).reduce((count, thread) => count + thread.messages.length, 0)} />;
-  const renderCard = (card: ReturnType<typeof developmentLearningCards>[number], sha?: string) => {
-    if (turn === null) return null;
-    const discussions = discussionsOf(card.id);
-    // The card's header carries the commit's diff link, since the outline already names the commit.
-    const viewChanges = sha !== undefined && onSelectCommit !== undefined ? <button type="button" className="agr-explanation__diff"
-      title="Open this commit's diff in Changes" onClick={event => { event.preventDefault(); onSelectCommit(sha); }}>
-      <Diff size={14} aria-hidden="true" />View changes</button> : undefined;
-    return <article className="agr-summary-card" data-learning-card={card.id}>
-      {discussions.length > 0 ? discussions.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...actions} badges={viewChanges} />)
-        : <LearningCard key={`${turn.id}:${card.id}`} card={card} sha={sha} turn={turn} repository={repository} disabledReason={disabledReason} badges={viewChanges}
-          onAsk={async body => {
-            const current = await bridge.getAgentTask(task.id, task.workspaceId);
-            await localReview.createLearning({ taskId: task.id, workspaceId: task.workspaceId, summaryTurnId: turn.id, cardId: card.id,
-              body, expectedTaskVersion: current.version });
-          }} />}
-    </article>;
-  };
+  // What changed explains the change whoever wrote it: until the task writes its own summary, the reviewer's is shown.
+  const reviewed = reviewer.review === null ? null : explanationRun(reviewer.review) ?? latestRun(reviewer.review);
+  const borrowed = !loading && (summary == null || turn === null) && reviewed?.summary != null;
   return <ReviewCommentIndex className="agr-summary-page" aria-label="Development summary">
-    <div className="agr-summary-strip">
-      <div className="agr-summary-strip__facts">
-        {refining && <span className="agr-summary-strip__refining" role="status"><span className="agr-spinner" aria-hidden="true" />
+    {error !== null && <p className="agt-note" role="alert">{error} <button type="button" className="agt-action" onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
+    {!borrowed && <WhatChanged selected={shown} onSelect={setSelected}
+      items={summary == null || turn === null ? [] : [{ id: 'purpose', label: 'Intention' },
+        ...summary.commits.map((commit, index) => ({ id: cards[index + 1].id, label: commit.title, ordinal: index + 1 }))]}
+      meta={<>
+        {refining && <span className="agr-changed__refining" role="status"><span className="agr-spinner" aria-hidden="true" />
           Refining summary{reviewer.source === null ? '' : ` for ${reviewer.source.headSha.slice(0, 7)}`}…</span>}
-        {summary != null && written !== null && <span title={`Summary written ${new Date(written).toLocaleString()}`}>
-          Summary updated <strong>{relativeTime(written)}</strong></span>}
-        {last !== undefined && <span>covers <strong>{commitCount(summary?.commits.length ?? 0)}</strong> through {onSelectCommit
-          ? <button type="button" className="agr-summary-strip__sha" title="Open this commit's diff in Changes"
-            onClick={() => onSelectCommit(last.sha)}>{last.sha.slice(0, 7)}</button>
+        {summary != null && written !== null && <span title={`Summary written ${new Date(written).toLocaleString()}`}>updated {relativeTime(written)}</span>}
+        {last !== undefined && <span>{commitCount(summary?.commits.length ?? 0)} through {onSelectCommit
+          ? <button type="button" className="agr-link" title="Open this commit's diff in Changes"
+            onClick={event => { event.preventDefault(); onSelectCommit(last.sha); }}>{last.sha.slice(0, 7)}</button>
           : <code>{last.sha.slice(0, 7)}</code>}</span>}
         {(summary == null || turn === null) && <span role="status">
           {loading ? 'Loading learning summary…' : refining ? 'The learning cards will appear when this step finishes.'
             : 'After a turn changes code or commits, the agent will refine the summary here automatically.'}
         </span>}
-      </div>
-      {review !== undefined && <TaskReviewControls state={reviewer}
-        onShowReview={() => reviewSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />}
-    </div>
-    {error !== null && <p className="agt-note" role="alert">{error} <button type="button" className="agt-action" onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
-    {(summary != null && turn !== null || previous.length > 0) && <div className="agr-summary-outline">
-      {summary != null && turn !== null && <nav className="agr-summary-nav" aria-label="Summary outline">
-        {outlineItem(cards[0], 'Intention')}
-        {summary.commits.length > 0 && <span className="agr-summary-nav__heading">Commits</span>}
-        {summary.commits.map((commit, index) => outlineItem(cards[index + 1], commit.title, index + 1))}
-      </nav>}
-      {/* Unselected cards stay mounted, so a question being written survives switching to another card. */}
-      <div className="agr-summary-reader">
-        {summary != null && turn !== null && <>
-          <div hidden={shown !== 'purpose'}>{renderCard(cards[0])}</div>
-          {summary.commits.map((commit, index) => <div key={commit.sha} hidden={shown !== cards[index + 1].id}>
-            {renderCard(cards[index + 1], commit.sha)}
-          </div>)}
-        </>}
-        {previous.length > 0 && <details className="agr-learning-history"><summary>Earlier summary discussions · {previous.length}</summary>
-          {previous.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...actions} />)}
-        </details>}
-      </div>
-    </div>}
-    {review !== undefined && <div className="agr-timeline agr-summary-page__review" ref={reviewSection}>
-      <TaskReviewSection options={review} state={reviewer} />
-    </div>}
+      </>}>
+      {/* Unselected items stay mounted, so a question being written survives switching to another. */}
+      {summary != null && turn !== null && cards.map((card, index) => <div key={card.id} hidden={shown !== card.id}>
+        <LearningItem card={card} turn={turn} repository={repository} disabledReason={disabledReason} onSelectCommit={onSelectCommit}
+          title={index === 0 ? card.title : summary.commits[index - 1].title} sha={index === 0 ? undefined : summary.commits[index - 1].sha}
+          discussions={discussionsOf(card.id)} threads={actions}
+          onAsk={async body => {
+            const current = await bridge.getAgentTask(task.id, task.workspaceId);
+            await localReview.createLearning({ taskId: task.id, workspaceId: task.workspaceId, summaryTurnId: turn.id, cardId: card.id,
+              body, expectedTaskVersion: current.version });
+          }} />
+      </div>)}
+      {previous.length > 0 && <details className="agr-learning-history"><summary>Earlier summary discussions · {previous.length}</summary>
+        {previous.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...actions} />)}
+      </details>}
+    </WhatChanged>}
+    {review !== undefined && <TaskReviewSection options={review} state={reviewer} explain={borrowed} />}
   </ReviewCommentIndex>;
 }

@@ -554,7 +554,7 @@ describe('agent task side panel', () => {
       panelOpen: true, panelTab: 'review',
       pullRequests: [pull], localReview,
     });
-    expect(markup).toMatch(/All rounds<span>3<\/span>.*Last round<span>1<\/span>.*Round 1<span>2<\/span>/);
+    expect(markup).toMatch(/<h2>Findings<\/h2>.*Last round<span>1<\/span>.*All rounds<span>3<\/span>.*Round 1<span>2<\/span>/);
     expect(markup).toContain('Round 2 · head 2222222 · 1 new');
     expect(markup.match(/<div hidden="">/g)).toHaveLength(2);
   });

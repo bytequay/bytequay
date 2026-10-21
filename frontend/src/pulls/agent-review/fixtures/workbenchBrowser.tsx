@@ -71,17 +71,20 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       }
       flushSync(() => root.render(<Summary />));
       await settle();
-      const scope = host.querySelector('.agr-summary-strip__note');
+      const scope = host.querySelector('.agr-review__note');
       assert(starts.length === 0 && scope?.textContent === `main → ${head.slice(0, 7)}`
         && scope.getAttribute('title') === 'Includes committed, staged, unstaged, and new files in this working copy.' && scopes[0] === 'ALL',
         'Opening Summary must include local edits without starting a review until the user clicks');
-      assert(button('Review changes').closest('.agr-summary-strip') !== null, 'Review changes must sit in the Summary strip, not in a box below the report');
+      assert(button('Review changes').closest('.agr-review__head') !== null, 'Review changes must sit in the Agent review header below What changed');
       button('Review changes').click(); await settle();
       assert(Number(starts.length) === 1 && starts[0] === `${task.workspaceId}/${task.id}`, 'Review must target the source developer task');
-      assert(host.querySelector('.agr-event')?.textContent?.includes('Agent review') === true
-        && host.querySelectorAll('.agr-finding .lrc.is-local').length === review.findings.length && host.querySelector('[data-review-card]') === null,
-        'The review must join the timeline as local finding cards without repeating the reviewer\'s own summary');
-      assert(!host.textContent?.includes('Post comment now'), 'A local-only review must not offer GitHub publication');
+      assert(host.querySelector('.agr-review .agr-review__head')?.textContent?.includes('Agent review') === true
+        && host.querySelectorAll('.agr-finding .lrc.is-local').length === review.findings.length,
+        'The review must show its findings as local cards');
+      assert(host.querySelectorAll('.agr-changed').length === 1 && host.querySelector('.agr-changed [data-review-card="run-1:purpose"]') !== null
+        && !host.textContent?.includes('After a turn changes code or commits'),
+        'A task without its own summary must show the reviewer\'s explanation as its only What changed');
+      assert(!host.textContent?.includes('Post now'), 'A local-only review must not offer GitHub publication');
     });
     await scenario('Reviewer questions and explicit developer fixes stay in separate conversations', async () => {
       const discussionReview = { ...review, messages: reviewFixture().messages.map(message => ({ ...message, findingId: review.findings[0].id })) };
@@ -144,7 +147,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
           actions={actions} busy={busy} />;
       }
       flushSync(() => root.render(<Surface />)); await settle();
-      button('Post comment now').click(); await settle();
+      button('Post now').click(); await settle();
       button('Post now').click(); await settle();
       assert(host.textContent?.includes('Network connection lost') === true && host.textContent.includes('GitHub did not confirm this comment'),
         'The network error and saved uncertain delivery must both be visible immediately');
@@ -187,7 +190,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       }
       assert(questions.length === 2 && host.querySelectorAll('.agr-thread .lrc-message').length === published.messages.length,
         'Repeated questions must preserve the existing private conversation');
-      assert(!host.textContent?.includes('Post comment now') && !host.textContent?.includes('Add to my review'),
+      assert(!host.textContent?.includes('Post now') && !host.textContent?.includes('Add to my review'),
         'Continuing discussion must not offer to repost the finding');
     });
     await scenario('Local diff selection rejects stale responses and preserves commit inspection', async () => {
@@ -237,7 +240,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
           <WorktreeChanges host={{ kind: 'review', reviewId: review.id }} selection={selection} /></>;
       }
       flushSync(() => root.render(<Surface />)); await settle();
-      button('Diff').click(); await settle();
+      button('View changes').click(); await settle();
       const request = requests.at(-1);
       assert(request?.scope === 'COMMIT' && request.commit === head && request.head === head && request.base === base,
         'The commit card must open the saved review range even when the branch has moved');

@@ -16,10 +16,14 @@ import { describe, expect, it } from 'vitest';
 import type { AgentEventEnvelope } from '../../agents/events';
 import type { AgentReviewDto, ReviewRunDto } from './contracts';
 import { reviewFixture, runningReviewFixture } from './fixtures/review';
-import ReviewRunCards, { reviewActivity } from './ReviewRunCards';
+import { ReviewActivityPanel, ReviewEvidencePanel, reviewActivity, type ReviewRunActivity } from './ReviewRunPanels';
 import { evidenceTarget } from './ReviewEvidenceLinks';
 
-const cards = (review: AgentReviewDto) => renderToStaticMarkup(<ReviewRunCards review={review} run={review.runs[0]} now={Date.parse('2026-09-06T16:05:00Z')} />);
+const NONE: ReviewRunActivity = { turns: [], actions: [], complete: true };
+const panels = (review: AgentReviewDto, activity = NONE) => renderToStaticMarkup(<>
+  <ReviewActivityPanel review={review} run={review.runs[0]} now={Date.parse('2026-09-06T16:05:00Z')} activity={activity} />
+  <ReviewEvidencePanel review={review} run={review.runs[0]} />
+</>);
 
 function tool(sequence: number, turnId: string, state: string, itemId: string, description: string | null): AgentEventEnvelope {
   return {
@@ -30,29 +34,30 @@ function tool(sequence: number, turnId: string, state: string, itemId: string, d
   } as AgentEventEnvelope;
 }
 
-describe('a running review on the Summary timeline', () => {
-  it('shows the current pass, the scope facts and an activity card that waits for the first action', () => {
+describe('the Activity and Evidence tabs', () => {
+  it('shows the current pass while running, holds the scope facts back, and waits for the first action', () => {
     const running = runningReviewFixture();
     const run: ReviewRunDto = { ...running.runs[0], steps: [], evidence: reviewFixture().findings[0].evidence };
-    const html = cards({ ...running, runs: [run] });
-    expect(html).toContain('<span class="pull-detail__review-chip is-running">Investigation</span>');
+    const html = panels({ ...running, runs: [run] });
     expect(html).toMatch(/<li class="is-active" aria-current="step"><span class="agr-run__dot"><span class="agr-spinner"[^>]*><\/span><\/span><strong>Investigation<\/strong><span>5 commits · \d+ files?<\/span>/);
-    expect(html).toContain('<dt>Commits explained</dt><dd>2 of 5</dd>');
-    expect(html).toContain('<dt>Evidence</dt><dd>2 references</dd>');
-    expect(html).toContain('<dd class="is-open">Not recorded yet</dd>');
+    expect(html).not.toContain('Scope <strong>');
     expect(html).toContain('No actions yet.');
-    expect(html).toContain('>Live</span>');
     // Evidence links on finding cards open a reference by this id.
     expect(html).toContain(`id="${evidenceTarget(run.id, 'E1')}"`);
-    expect(html).toContain('Complete coverage has not been recorded yet.');
+    expect(html).toContain('2 references · frozen at head d9a0c41');
   });
 
-  it('marks every pass done for an accepted review and leaves out an activity card with nothing to show', () => {
-    const html = cards(reviewFixture());
-    expect(html).toContain('<span class="pull-detail__review-chip is-ready">Finished</span>');
+  it('marks every pass done for an accepted review and states its scope, coverage and work', () => {
+    const review = reviewFixture();
+    const actions = reviewActivity([tool(1, 'turn-1', 'COMPLETED', 'a', 'Read PR #31198')], new Set(['turn-1']));
+    const html = panels(review, { ...actions, complete: true });
     expect(html.match(/<li class="is-done"/g)).toHaveLength(3);
-    expect(html).toContain('<dd class="is-complete">Complete</dd>');
-    expect(html).not.toContain('aria-label="Review activity"');
+    expect(html).toContain('<span>Scope <strong>Full review · master → d9a0c41</strong></span>');
+    expect(html).toContain('<span>Commits explained <strong>5 of 5</strong></span>');
+    expect(html).toContain('<strong class="is-complete">Complete</strong>');
+    expect(html).toContain('1 action · 1 turn');
+    expect(html).toContain('Read PR #31198');
+    expect(html).not.toContain('No actions yet.');
     expect(html).toContain('No context or validation evidence was recorded.');
   });
 

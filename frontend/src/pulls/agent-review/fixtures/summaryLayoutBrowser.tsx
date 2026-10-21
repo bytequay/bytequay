@@ -48,15 +48,14 @@ export function preview(host: HTMLElement) {
   } satisfies Pick<Bridge, 'subscribeAgentReview' | 'getAgentReview' | 'askAgentReview' | 'stopAgentReview'>;
   Object.defineProperty(window, 'bridge', { configurable: true, writable: true, value: bridge });
   function Surface() {
-    const [target, setTarget] = useState<HTMLDivElement | null>(null);
     const [tab, setTab] = useState<'review' | 'files'>('review');
     return <>
       <PullDetailHeader pr={pr({ number: 30304, repo: value.repo })} detail={null} tab={tab} review={value}
-        onSummaryToolbar={setTarget} onTab={next => setTab(next === 'review' ? 'review' : 'files')}
+        onTab={next => setTab(next === 'review' ? 'review' : 'files')}
         onRefresh={async () => {}} onReviewSubmitted={() => {}} refreshing={false} pendingComments={[]} onPendingCommentsChange={() => {}} />
       <div className="pull-detail__body pull-detail__review" hidden={tab !== 'review'}>
         <AgentReviewTab review={value} workspaceId={value.workspaceId} viewer={null} ownStream={false}
-          toolbarTarget={target} onReviewChange={() => {}} focusFindingId={null} onNavigateToChanges={() => {}}
+          onReviewChange={() => {}} focusFindingId={null} onNavigateToChanges={() => {}}
           onSelectCommit={(sha, snapshot) => calls.push(`diff:${sha}:${snapshot?.headSha}`)} />
       </div>
     </>;
@@ -81,21 +80,26 @@ export async function run() {
   };
   try {
     await settle();
-    const toolbar = host.querySelector('.pull-detail__subtoolbar');
-    assert(toolbar?.querySelector('.agr-strip') !== null && !host.querySelector('.agr-pane > .agr-strip'), 'Review controls must share the WorkBench tab row');
-    const intention = host.querySelector<HTMLElement>('.agr-explanation.is-purpose');
-    const commits = [...host.querySelectorAll<HTMLElement>('.agr-explanation.is-commit')];
+    const head = host.querySelector('.agr-review__head');
+    assert(head?.textContent?.includes('Agent review') === true && host.querySelector('.pull-detail__subtoolbar .agr-action') === null,
+      'Review controls must sit in the page above the review tabs, not in the WorkBench tab row');
+    const intention = host.querySelector<HTMLElement>('.agr-changed [data-review-card$=":purpose"]');
+    const commits = [...host.querySelectorAll<HTMLElement>('.agr-changed [data-review-card*=":commit:"]')];
     assert(host.textContent?.includes('Original change explanation · head d9a0c41') === true && !intention?.textContent?.includes('Provisional'),
       'The retained explanation must identify its original head and keep its accepted status');
-    assert(host.querySelector('[data-review-card="run-9:details"]')?.textContent?.includes('Follow the sort field from parsing to storage.') === true,
-      'Current review details must remain visible beside the original explanation');
-    const outline = [...host.querySelectorAll<HTMLButtonElement>('.agr-summary-nav__item')];
+    const outline = [...host.querySelectorAll<HTMLButtonElement>('.agr-changed__items button')];
     assert(intention !== null && commits.length === 3 && outline.length === 4 && intention.getBoundingClientRect().height > 0
-      && commits.every(card => card.getBoundingClientRect().height === 0), 'The outline must list the intention and three commits and open on the intention');
-    assert(outline[1].getBoundingClientRect().left < intention.getBoundingClientRect().left, 'The outline must sit beside the selected card');
+      && commits.every(card => card.getBoundingClientRect().height === 0), 'What changed must list the intention and three commits and open on the intention');
+    assert(outline[1].getBoundingClientRect().bottom <= intention.getBoundingClientRect().top, 'The items must sit in one row above the selected one');
     outline[1].click(); await settle();
     assert(commits[0].getBoundingClientRect().height > 0 && intention.getBoundingClientRect().height === 0
       && outline[1].getAttribute('aria-current') === 'true', 'Picking a commit must show only that commit');
+    const tabs = [...host.querySelectorAll<HTMLButtonElement>('.agr-review__tabs button')];
+    assert(tabs.map(item => item.getAttribute('aria-selected')).join() === 'false,true,false',
+      'A running review must open on Activity');
+    assert(host.querySelector('[data-review-card="run-9:details"]')?.textContent?.includes('Follow the sort field from parsing to storage.') === true,
+      'Current review details must remain in Activity beside the original explanation');
+    tabs[0].click(); await settle();
     const finding = host.querySelector<HTMLElement>('.agr-finding');
     assert(finding !== null && finding.querySelector('.lrc.is-local') !== null, 'Findings must retain the existing local card');
     assert(finding.getBoundingClientRect().height === 0 && host.textContent?.includes('No findings in this round.') === true,
@@ -103,14 +107,14 @@ export async function run() {
     const filters = host.querySelector('.agr-findings__filters');
     const others = filters?.querySelector('select');
     assert(filters !== null && others !== null && others !== undefined, 'Older rounds must be available in Others');
-    assert([...filters.querySelectorAll('button')].map(item => item.textContent).join('|') === 'All rounds2|Last round0|Round 80',
-      'Only All rounds and the two latest rounds must be shown as buttons');
+    assert([...filters.querySelectorAll('button')].map(item => item.textContent).join('|') === 'Last round0|All rounds2|Round 80',
+      'Only the last round, All rounds and the round before must be shown as buttons');
     assert([...others.options].map(option => option.textContent).join('|') === 'Others|Round 7 · 0|Round 6 · 0|Round 5 · 0|Round 4 · 0|Round 3 · 0|Round 2 · 0|Round 1 · 2',
       'Others must list every older round newest first, including empty rounds and finding counts');
     others.value = fixture.review.runs[0].id;
     others.dispatchEvent(new Event('change', { bubbles: true })); await settle();
     assert(finding.getBoundingClientRect().height > 0 && others.classList.contains('is-selected')
-      && host.querySelector('.agr-findings__meta')?.textContent?.startsWith('Round 1 · head') === true,
+      && host.querySelector('.agr-findings__meta')?.textContent?.startsWith('Round 1 · head') === true && host.querySelector('.agr-round') === null,
       'Selecting an older round must show its findings and identify the active round');
     button('.agr-finding button', 'Ask reviewer').click(); await settle();
     const draft = fixtureElement<HTMLTextAreaElement>('textarea', finding, 'Finding discussion must remain available');
@@ -120,22 +124,23 @@ export async function run() {
       'Returning to a recent round must hide older findings and reset Others');
     button('.agr-findings__filters button', 'All rounds').click(); await settle();
     assert(finding.querySelector('textarea')?.value === 'Keep this private draft', 'Switching rounds must retain a finding draft and its card instance');
-    button('.agr-explanation.is-commit button', 'Ask reviewer').click(); await settle();
-    const question = fixtureElement<HTMLTextAreaElement>('textarea', commits[0], 'The compact question icon must open its own composer');
+    assert([...host.querySelectorAll('.agr-round')].map(item => item.textContent).join('|') === 'Round 1head d9a0c41 · 2 findings',
+      'All rounds must group findings under the round that found them');
+    button('.agr-changed [data-review-card*=":commit:"] button', 'Ask reviewer').click(); await settle();
+    const question = fixtureElement<HTMLTextAreaElement>('textarea', commits[0], 'Ask reviewer must open the commit\'s own composer');
     changeInput(question, 'Explain the boundary'); await settle();
-    button('.agr-explanation.is-commit .agr-composer button', 'Queue question').click(); await settle();
+    button('.agr-changed .agr-composer button', 'Queue question').click(); await settle();
     assert(fixture.calls[0] === `${fixture.review.runs[0].id}:commit:${fixture.review.runs[0].commits[0].sha}:rev1:Explain the boundary`,
       'Questions must retain their original run, commit and summary revision');
-    button('.agr-explanation.is-commit button', 'Diff').click(); await settle();
-    assert(fixture.calls[1] === `diff:${fixture.review.runs[0].commits[0].sha}:${fixture.review.runs[0].headSha}`, 'Diff must retain the frozen head');
+    button('.agr-changed [data-review-card*=":commit:"] button', 'View changes').click(); await settle();
+    assert(fixture.calls[1] === `diff:${fixture.review.runs[0].commits[0].sha}:${fixture.review.runs[0].headSha}`, 'View changes must retain the frozen head');
     for (const width of [600, 420]) {
       host.style.width = `${width}px`; await settle();
       assert(host.scrollWidth <= host.clientWidth + 1 && commits.every(card => card.scrollWidth <= card.clientWidth + 1), 'Narrow panes must wrap without horizontal overflow');
     }
     button('.pull-detail__subtabs button', 'Changes').click(); await settle();
-    assert(host.querySelector('.pull-detail__summary-toolbar') === null, 'Summary controls must leave the header on other tabs');
     button('.pull-detail__subtabs button', 'Summary').click(); await settle();
-    button('.agr-strip button', 'Stop').click(); await settle();
+    button('.agr-review__head button', 'Stop').click(); await settle();
     assert(fixture.calls.at(-1) === 'stop', 'Stop must remain wired after returning to Summary');
     return [{ name: 'Compact Summary retains controls, discussions and narrow layouts' }];
   }

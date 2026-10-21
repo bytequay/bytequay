@@ -224,15 +224,16 @@ Agents → Models**.
 
 1. Choose **WorkBench → Summary → Start review**. For unpublished development
    work, choose **Review changes** in the task instead.
-2. Read the explanation and findings. Use **View in Changes** for code, **Review
-   details** for evidence, or **Ask reviewer** for a private discussion.
+2. Read **What changed**, then the findings. Use **View in Changes** for code,
+   **Evidence** for what the reviewer read, **Activity** for its progress and
+   review details, or **Ask reviewer** for a private discussion.
 3. Choose **Add to my review** to edit a finding before **Submit review**
    publishes it. Once GitHub publication is confirmed, the private finding is
    marked **Resolved**, with **Accepted** beside it on the card.
    **Request fix → Send to developer** asks the development agent
    to address it privately.
-4. Choose **Update review** after the PR changes, or **Review again** for local
-   development changes.
+4. Choose **Review latest** when new commits arrive, or **Review again** to
+   review the current changes.
 
 For **Could not finish**, use **Resume review**; typing “continue” starts a
 discussion. If required, use **Recover runtime** first. Findings remain

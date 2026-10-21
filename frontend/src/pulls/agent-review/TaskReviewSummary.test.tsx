@@ -16,57 +16,68 @@ import { describe, expect, it } from 'vitest';
 import type { WorktreeChangesDto } from '../code-tests/contracts';
 import type { AgentReviewDto } from './contracts';
 import { reviewFixture, runningReviewFixture } from './fixtures/review';
-import { TaskReviewControls, TaskReviewSection, type TaskReview } from './TaskReviewSummary';
+import { TaskReviewSection, type TaskReview } from './TaskReviewSummary';
 
 const source: WorktreeChangesDto = { branch: 'feature', baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), baseLabel: 'main', scope: 'COMMITTED',
   selectedCommit: null, sourceFingerprint: null, truncated: false, staged: [], unstaged: [], untracked: [],
   commits: [{ sha: 'b'.repeat(40), parentSha: 'a'.repeat(40), message: 'Fix configuration', author: null, authoredAt: null }], files: [] };
 
 function state(review: AgentReviewDto | null, overrides: Partial<TaskReview> = {}): TaskReview {
-  const noop = async () => {};
-  return { review, loading: false, error: null, source, pending: null, unavailable: null, changeReview: () => {}, retry: () => {},
-    start: noop, stop: noop, update: noop, resume: noop, end: noop, ...overrides };
+  return { review, loading: false, error: null, source, starting: false, unavailable: null, changeReview: () => {}, retry: () => {},
+    start: async () => {}, ...overrides };
 }
 
-const controls = (value: TaskReview) => renderToStaticMarkup(<TaskReviewControls state={value} onShowReview={() => {}} />);
-const section = (value: TaskReview) => renderToStaticMarkup(<TaskReviewSection state={value}
+const section = (value: TaskReview, explain = false) => renderToStaticMarkup(<TaskReviewSection state={value} explain={explain}
   options={{ workspaceId: 'workspace-1', onNavigateToChanges: () => {} }} />);
 
-describe('the Summary strip and review event', () => {
+describe('the agent review on a development task Summary', () => {
   it('offers Review changes beside the committed range before any review exists', () => {
-    const html = controls(state(null));
+    const html = section(state(null));
+    expect(html).toContain('<h2>Agent review</h2>');
     expect(html).toContain('title="Includes committed, staged, unstaged, and new files in this working copy.">main → bbbbbbb</span>');
     expect(html).toContain('Review changes</button>');
-    expect(controls(state(null, { unavailable: 'The development task is closed' }))).toMatch(/disabled=""[^>]*>.*Review changes<\/button>/);
-  });
-
-  it('swaps the button for progress and Stop while the reviewer reads the commits', () => {
-    const review: AgentReviewDto = { ...runningReviewFixture(), number: null };
-    expect(controls(state(review))).toContain('Reviewing 30 changed files…');
-    expect(controls(state(review))).toContain('>Stop</button>');
-    expect(section(state(review))).toContain('<strong>Agent review</strong> is reading 30 changed files in the shared working copy');
+    expect(section(state(null, { unavailable: 'The development task is closed' }))).toMatch(/disabled=""[^>]*>.*Review changes<\/button>/);
   });
 
   it('allows review when all changes are uncommitted', () => {
-    const html = controls(state(null, { source: { ...source, commits: [] } }));
+    const html = section(state(null, { source: { ...source, commits: [] } }));
     expect(html).toContain('Review changes</button>');
     expect(html).not.toMatch(/disabled=""[^>]*>.*Review changes<\/button>/);
-    expect(controls(state(null))).not.toMatch(/disabled=""[^>]*>.*Review changes<\/button>/);
   });
 
-  it('links a finished review from the strip and states its local comments on the timeline', () => {
+  it('shows the running pass and Stop, and opens on Activity while the reviewer works', () => {
+    const review: AgentReviewDto = { ...runningReviewFixture(), number: null };
+    const html = section(state(review));
+    expect(html).toMatch(/<span class="pull-detail__review-chip is-running"[^>]*><span class="agr-spinner"[^>]*><\/span>Running · Validation<\/span>/);
+    expect(html).toContain('>Stop</button>');
+    expect(html).toContain('role="tab" aria-selected="true">Activity');
+  });
+
+  it('shows a finished review as the same panel the reviewer page shows, without the reviewer’s own explanation', () => {
     const review = reviewFixture();
-    const strip = controls(state(review));
-    expect(strip).toContain('3 findings');
-    expect(strip).toContain('>Review again</button>');
-    const timeline = section(state(review));
-    expect(timeline).toContain('<strong>Agent review</strong> left 3 local review comments');
-    expect(timeline).toContain('Local · never posted to GitHub');
-    // The page's strip and this event replace the review's own strip, and the developer's cards above already
-    // explain the change. Findings keep the design's round tabs; Review details retain discovery and unselected records.
-    expect(timeline).not.toContain('agr-strip');
-    expect(timeline).toMatch(/<h2>Findings<\/h2>.*aria-label="Review rounds"/);
-    expect(timeline).not.toContain('data-review-card=');
-    expect(timeline).toContain('Review details');
+    const html = section(state(review));
+    expect(html).toContain('Local · never posted to GitHub');
+    expect(html).toContain('>Review again</button>');
+    expect(html).toContain('role="tab" aria-selected="true">Findings<span>3</span>');
+    // The developer's What changed above already explains the change.
+    expect(html).not.toContain('aria-label="What changed"');
+    expect(html).toContain('aria-label="Review rounds"');
+    expect(html).not.toContain('data-review-card=');
+    expect(html).toContain('Review details');
+  });
+
+  it('explains the change with the reviewer’s summary for a task without its own', () => {
+    const html = section(state(reviewFixture()), true);
+    expect(html).toContain('aria-label="What changed"');
+    expect(html).toContain('<strong>Change intention</strong>');
+    expect(html).toContain('Lets <code>sorted_by</code> name a field inside a struct column');
+    expect(html.indexOf('aria-label="What changed"')).toBeLessThan(html.indexOf('aria-label="Agent review"'));
+  });
+
+  it('offers to review the latest when the developer moved past the reviewed head', () => {
+    const html = section(state(reviewFixture()));
+    expect(html).toContain('New commits since this review — reviewed <strong>d9a0c41</strong>,');
+    expect(html).toContain('head is <strong>bbbbbbb</strong>.');
+    expect(html).toContain('Review latest</button>');
   });
 });

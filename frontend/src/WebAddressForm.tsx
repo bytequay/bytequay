@@ -16,12 +16,10 @@ import { normalizeWebAddress } from './webAddress';
 
 type Props = {
   url?: string;
-  autoFocus?: boolean;
-  showOpenButton?: boolean;
   onNavigate: (url: string) => Promise<void>;
 };
 
-export default function WebAddressForm({ url = '', autoFocus = false, showOpenButton = true, onNavigate }: Props) {
+export default function WebAddressForm({ url = '', onNavigate }: Props) {
   const input = useRef<HTMLInputElement>(null);
   const errorId = useId();
   const [draft, setDraft] = useState<string | null>(null);
@@ -65,7 +63,6 @@ export default function WebAddressForm({ url = '', autoFocus = false, showOpenBu
           type="text"
           inputMode="url"
           placeholder="Enter a web address"
-          autoFocus={autoFocus}
           autoComplete="off"
           spellCheck={false}
           value={draft ?? url}
@@ -80,7 +77,6 @@ export default function WebAddressForm({ url = '', autoFocus = false, showOpenBu
             event.currentTarget.blur();
           }}
         />
-        {showOpenButton && <button className="bq-button" type="submit" disabled={opening}>{opening ? 'Opening…' : 'Open'}</button>}
       </form>
       {error && <div className="web-address__error" id={errorId} role="alert">{error}</div>}
     </div>

@@ -183,10 +183,11 @@ function JiraLaunchComposer({ issue, workspaceId, draft, replaces, send, onBusy,
     recordAttentionAction(`jira:${issue.cloudId}:${issue.id}`, 'prompt');
     window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id);
   } });
-  useEffect(() => { onBusy(creation.busy); }, [creation.busy, onBusy]);
-  return <>{creation.error && <div className="ws-error" role="alert">{creation.error}</div>}{creation.busy && creation.startup !== null
-    ? <StartingAgentTask draft={creation.draft} images={creation.images} laneId={creation.laneId} providers={creation.catalog?.providers ?? []} models={creation.models} selection={creation.selection} startup={creation.startup} />
-    : <TaskComposer {...creation.composer} blocker={refreshing ? 'Refreshing ticket context…' : creation.blocker} issueAttachment={creation.issueAttachment} onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspaceId); }} />}</>;
+  const { composer } = creation;
+  useEffect(() => { onBusy(composer.busy); }, [composer.busy, onBusy]);
+  return <>{creation.error && <div className="ws-error" role="alert">{creation.error}</div>}{composer.busy && creation.startup !== null
+    ? <StartingAgentTask draft={composer.draft} images={composer.images} laneId={composer.laneId} providers={composer.providers} models={composer.models} selection={composer.selection} startup={creation.startup} />
+    : <TaskComposer {...composer} blocker={refreshing ? 'Refreshing ticket context…' : composer.blocker} issueAttachment={creation.issueAttachment} onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspaceId); }} />}</>;
 }
 
 function useTicketActivity(issue: JiraIssue | null, location: JiraLocation, covered: boolean) {

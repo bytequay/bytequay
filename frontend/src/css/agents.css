@@ -360,11 +360,11 @@
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  max-width: 100%;
 }
 
 .agt-pr-chip:hover { background: light-dark(#f6f8fa, var(--dark-subtle)); }
 .agt-pr-chip[aria-pressed="true"] { background: light-dark(#f6f8fa, var(--dark-subtle)); }
-.agt-pr-chip { max-width: 100%; }
 .agt-pr-chip > svg, .agt-pr-chip__number { flex-shrink: 0; }
 .agt-pr-chip__number { color: var(--fg-subtle); font-weight: 400; }
 
@@ -847,24 +847,6 @@
   border-radius: 14px;
 }
 
-/*
- * The control row stays on one line in a narrow pane. The automation summary gives way first: a zero
- * basis hands it only the space the fixed controls leave, and the cap stops it growing past its text.
- * Only once it reaches its floor does the effort label shrink. An auto margin, not a flex spacer,
- * pushes the model picker right, because a growing spacer would take half of the summary's space.
- */
-.agt-compose-dock.is-task .agt-automation {
-  flex: 1 1 0;
-  min-width: 72px;
-  max-width: max-content;
-}
-
-.agt-compose-dock.is-task .agt-automation summary {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* Anchor the menu to the card so running-turn controls cannot push it outside the pane. */
 .agt-compose-dock.is-task .agt-picker {
   position: static;
@@ -872,6 +854,10 @@
   min-width: 0;
 }
 
+/*
+ * An auto margin, not a flex spacer, pushes the model picker right, because a growing spacer would take
+ * half of the summary's space.
+ */
 .agt-compose-dock.is-task .agt-picker:not(.agt-provider-picker) {
   margin-left: auto;
 }
@@ -3902,13 +3888,10 @@ button:is(.agt-type-chip, .agt-type-tile) {
   font-weight: 500;
 }
 
-.agt-user__request-head {
-  color: var(--fg-muted);
-}
-
 /* A zero basis gives the head only the room left over, so the label shrinks only once it is gone. */
 .agt-user__request-head {
   flex: 1 1 0;
+  color: var(--fg-muted);
 }
 
 .agt-issue-request { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; max-width: 76%; }

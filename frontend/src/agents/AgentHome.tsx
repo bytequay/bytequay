@@ -31,14 +31,14 @@ import { displayModelName, laneLabel } from '../settings/model';
 import { BackportButton } from './BackportRequestHint';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import {
-  ComposerDock, StartingAgentTask, TaskComposer, useAgentTaskCreation, useTaskChanges, useWorkspaceWork, type DraftImage, type TaskModelSelection,
+  ComposerDock, StartingAgentTask, TaskComposer, useAgentTaskCreation, useTaskChanges, useWorkspaceWork, type TaskComposerProps,
 } from './AgentTasksView';
 import type { TaskAttention } from './attention';
 import { taskArchived } from './taskStatus';
 import { developmentItem, reviewItem, type TaskListItem } from './taskList';
 import type { AgentBridgePort } from './model';
 import type {
-  AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, AgentTaskStartupPhase, ModelOptionDto, ModelProviderDto,
+  AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, AgentTaskStartupPhase, ModelProviderDto,
 } from '../types';
 
 /** Starting points that fill the composer; the user edits or sends them as they are. */
@@ -59,11 +59,6 @@ function hiddenTasksKey(workspaceId: string): string {
 function loadHiddenTasks(workspaceId: string): Map<string, number> {
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(hiddenTasksKey(workspaceId)) ?? '{}');
-    // An older store held bare ids with no time; they count as put away now.
-    if (Array.isArray(parsed)) {
-      const now = Date.now();
-      return new Map(parsed.filter((value): value is string => typeof value === 'string').map((id) => [id, now]));
-    }
     if (typeof parsed !== 'object' || parsed === null) return new Map();
     return new Map(Object.entries(parsed).filter((entry): entry is [string, number] => typeof entry[1] === 'number'));
   }
@@ -184,17 +179,12 @@ export default function AgentHome({
 }
 
 export function AgentHomeView({
-  repository, workspaceId = '', headerAction, laneId, providers, tasks, reviews = [], models, selection, draft, blocker,
-  onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenReview, onOpenSettings, onShowAll,
+  repository, workspaceId = '', headerAction, tasks, reviews = [], onOpenTask, onOpenReview, onShowAll,
   activity = {}, changes = {}, hiddenTasks, onHideTask, onRenameTask, now = Date.now(),
   attention = [], handled = {}, viewerLogin = null, onHandledChange = () => {}, onOpenAttention = () => {},
-  onStartIssue, attentionError, jiraConnected = false,
-  images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation, today,
-}: {
+  onStartIssue, attentionError, jiraConnected = false, startup = null, error = null, today, ...composer
+}: TaskComposerProps & {
   repository: string;
-  workspaceId?: string;
-  laneId: string;
-  providers: ModelProviderDto[];
   /** The open tasks, drawn as compact cards above the composer. */
   tasks: AgentTaskDto[];
   reviews?: AgentReviewDto[];
@@ -218,32 +208,17 @@ export function AgentHomeView({
   attentionError?: string | null;
   /** Whether Jira is connected, so Needs attention offers a Jira tab. */
   jiraConnected?: boolean;
-  models: ModelOptionDto[];
-  selection: TaskModelSelection | null;
-  draft: string;
-  blocker: string | null;
-  onDraftChange: (draft: string) => void;
-  onSelectProvider: (laneId: string) => void;
-  onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
-  onCreate: () => void;
   onOpenTask: (taskId: string) => void;
   onOpenReview: (review: AgentReviewDto) => void;
-  onOpenSettings?: () => void;
   onShowAll: () => void;
-  automation?: React.ReactNode;
   headerAction?: React.ReactNode;
   error?: string | null;
-  images?: DraftImage[];
-  busy?: boolean;
   /** Which creation step the in-flight create request is in, for the starting screen. */
   startup?: AgentTaskStartupPhase | null;
-  attaching?: boolean;
-  onAttach?: () => void;
-  onPasteImages?: () => void;
-  onRemoveImage?: (id: string) => void;
   /** Today's agenda for this workspace; without it the page draws no Today section or chips. */
   today?: TodayAgenda;
 }): React.JSX.Element {
+  const { draft, images = [], laneId, providers, models, selection, busy = false, attaching = false, onDraftChange } = composer;
   const availability = useAgentAvailability(workspaceId);
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, error, headerAction }} />;
   const [owner, repo = ''] = repository.split('/');
@@ -339,28 +314,7 @@ export function AgentHomeView({
           })}
         </>}>
           {error !== null && <div className="cmt-error" role="alert">{error}</div>}
-          <TaskComposer
-            workspaceId={workspaceId}
-            backport
-            automation={automation}
-            draft={draft}
-            blocker={blocker}
-            busy={busy}
-            attaching={attaching}
-            images={images}
-            onAttach={onAttach}
-            onPasteImages={onPasteImages}
-            onRemoveImage={onRemoveImage}
-            laneId={laneId}
-            providers={providers}
-            models={models}
-            selection={selection}
-            onDraftChange={onDraftChange}
-            onSelectProvider={onSelectProvider}
-            onSelectModel={onSelectModel}
-            onCreate={onCreate}
-            onOpenSettings={onOpenSettings}
-          />
+          <TaskComposer {...composer} workspaceId={workspaceId} backport />
         </ComposerDock>}
       </div>
     </div>

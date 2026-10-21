@@ -221,20 +221,13 @@ export default function HistoryView({
     resetDrafts();
   };
 
-  const toggleDayCollapsed = (label: string) => setCollapsedDays(open => {
-    const next = new Set(open);
-    if (!next.delete(label)) next.add(label);
-    return next;
-  });
+  const toggleDayCollapsed = (label: string) => setCollapsedDays(open => toggledGroup(open, [label]));
 
   // Each commit opens with its message shown; collapsing is per commit, not sticky.
   useEffect(() => { setBodyOpen(true); }, [viewed?.sha]);
 
   const toggle = (sha: string) => {
-    const next = new Set(checked);
-    if (next.has(sha)) next.delete(sha);
-    else next.add(sha);
-    onChangeChecked(next);
+    onChangeChecked(toggledGroup(checked, [sha]));
     resetDrafts();
   };
 

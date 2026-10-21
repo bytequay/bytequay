@@ -38,7 +38,7 @@ import ProgressView from './ProgressView';
 import PullRequestsView from './PullRequestsView';
 import SelectRangeDialog from './SelectRangeDialog';
 import TasksView from './TasksView';
-import { backportRoute, chosenRoute, lineRepos, remoteBranchCorrection, selectedSpan, shortSha, type BackportHop, type LineRepo } from './model';
+import { backportRoute, chosenRoute, lineRepos, remoteBranchCorrection, selectedSpan, shortSha, toggledGroup, type BackportHop, type LineRepo } from './model';
 
 type Screen = 'commits' | 'flow' | 'tasks' | 'progress';
 type CommitsView = 'history' | 'changes';
@@ -829,13 +829,7 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
 
       {backport !== null && (() => {
         const kept = chosenRoute(backport.route, backport.chosen);
-        const toggle = (id: string) => setBackport(current => {
-          if (current === null) return current;
-          const chosen = new Set(current.chosen);
-          if (chosen.has(id)) chosen.delete(id);
-          else chosen.add(id);
-          return { ...current, chosen };
-        });
+        const toggle = (id: string) => setBackport(current => current === null ? current : { ...current, chosen: toggledGroup(current.chosen, [id]) });
         return (
           <ConfirmDialog
             title={`Backport ${backport.source.slug}#${backport.number}`}

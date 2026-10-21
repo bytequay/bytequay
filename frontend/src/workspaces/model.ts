@@ -156,12 +156,6 @@ export function workspaceLocationFromRoute(hash: string): {
   }
 }
 
-/** "owner/repo" from a GitHub remote URL, or null for non-GitHub remotes. */
-export function githubSlug(url: string): string | null {
-  const match = /github\.com[:/]+([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url.trim());
-  return match ? `${match[1]}/${match[2]}` : null;
-}
-
 export function workspaceCherryPickRoute(workspaceId: string, executionId: string): string {
   return `${workspaceRoute(workspaceId, 'tasks')}/cherry/${encodeURIComponent(executionId)}`;
 }

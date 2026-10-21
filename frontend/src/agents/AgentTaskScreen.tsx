@@ -79,7 +79,7 @@ import type {
 } from '../types';
 import { useNow } from '../useNow';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
-import { AgentConversation, ConversationComposer, ConversationQueue, modelName, PlanSteps, serviceTierName, Spinner, stateClass, useConversationHistory, useOutputWheel, type ApprovalDecider, type AttachmentPreview } from './AgentConversation';
+import { AgentConversation, ConversationComposer, ConversationQueue, modelName, PlanSteps, serviceTierName, Spinner, useConversationHistory, useOutputWheel, type ApprovalDecider, type AttachmentPreview } from './AgentConversation';
 import { taskArchived } from './taskStatus';
 import { AutomationControl, AutomationPill } from './AutomationControl';
 import { BackportChainCard, useBackportChains } from './BackportChains';
@@ -1057,7 +1057,6 @@ export function AgentTaskBody({
   utilityTabs?: UtilityTab[];
   onCloseUtility?: (tab: UtilityTab) => void;
   onOpenPullRequest?: (number: number) => void;
-  /** Asks ByteQuay to publish the task's committed work as a draft pull request; absent in a static render. */
   logChoice?: string | null;
   onToggleLog?: (choice: string) => void;
   /** Steer sends the draft into the running turn; Run next queues it behind that turn. */
@@ -1254,7 +1253,7 @@ export function AgentTaskBody({
         )}
         <span className="agt-spacer" />
         <span
-          className={`agt-conn-dot is-${stateClass(state.connection)}`}
+          className={`agt-conn-dot is-${state.connection}`}
           title={connectionText(state)}
           aria-label={connectionText(state)}
         />
@@ -1280,7 +1279,7 @@ export function AgentTaskBody({
 
       {/* A healthy connection is just the header dot; the strip is for states needing attention. */}
       {((state.connection !== 'open' && state.connection !== 'connecting') || state.gap) && (
-        <div className={`agt-conn is-${stateClass(state.connection)}`}>
+        <div className={`agt-conn is-${state.connection}`}>
           {state.connection === 'reconnecting' && <Spinner warn />}
           {connectionText(state)}
           {state.gap ? ' — waiting for a missing event' : ''}

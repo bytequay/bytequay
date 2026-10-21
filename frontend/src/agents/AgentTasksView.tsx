@@ -497,24 +497,9 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     setTasks,
     loading,
     error,
-    catalog,
-    laneId,
-    selectProvider,
-    models,
-    selection,
-    setSelection,
-    draft,
-    setDraft,
-    blocker,
-    busy,
     /** A decided start is waiting for the composer to load; its page can show the task starting already. */
     autoStarting,
     startup,
-    attaching: operation === 'attachment',
-    images,
-    attach,
-    removeImage,
-    create,
   };
 }
 
@@ -743,7 +728,7 @@ export default function AgentTasksView({
       headerAction={headerAction}
       repository={repository}
       {...creation.composer}
-      busy={creation.busy || creation.autoStarting}
+      busy={creation.composer.busy || creation.autoStarting}
       issueAttachment={creation.issueAttachment}
       tasks={tasks}
       items={items}
@@ -794,14 +779,11 @@ export function ComposerDock({ repository, chips, children }: {
   );
 }
 
-/** The card that creates a task: the first message above its provider, automation and model controls. */
-export function TaskComposer({
-  draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings, workspaceId,
-  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
-  backport = false,
-}: {
+export type TaskComposerProps = {
   workspaceId?: string;
+  /** The first message; sending it creates the task and names it until the agent answers. */
   draft: string;
+  /** Why creation is unavailable; null when the task can be created. */
   blocker: string | null;
   laneId: string;
   providers: ModelProviderDto[];
@@ -820,8 +802,14 @@ export function TaskComposer({
   onAttach?: () => void;
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
-  backport?: boolean;
-}): React.JSX.Element {
+};
+
+/** The card that creates a task: the first message above its provider, automation and model controls. */
+export function TaskComposer({
+  draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings, workspaceId,
+  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
+  backport = false,
+}: TaskComposerProps & { backport?: boolean }): React.JSX.Element {
   const availability = useAgentAvailability(workspaceId);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
@@ -961,12 +949,10 @@ function inType(item: TaskListItem, type: TypeTab): boolean {
 }
 
 export function AgentTaskList({
-  workspaceId, workItemId, tasks, items = [], activity = {}, loading, error, laneId, providers, models, selection, draft, blocker, headerAction, repository,
-  onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenItem, onOpenReviewWorkspace, onNewItem, onOpenSettings, onArchive, onDelete,
-  images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
-  now = Date.now(), initialTab = 'active', initialType = 'all', changes = {},
-}: {
-  workspaceId?: string;
+  workItemId, tasks, items = [], activity = {}, loading, error, headerAction, repository,
+  onOpenTask, onOpenItem, onOpenReviewWorkspace, onNewItem, onArchive, onDelete,
+  startup = null, now = Date.now(), initialTab = 'active', initialType = 'all', changes = {}, ...composer
+}: TaskComposerProps & {
   workItemId?: string;
   tasks: AgentTaskDto[];
   /** The workspace's reviews, cherry-picks and CI fixes, listed beside its agent tasks. */
@@ -975,21 +961,9 @@ export function AgentTaskList({
   activity?: Record<string, AgentTaskActivityDto>;
   loading: boolean;
   error: string | null;
-  laneId: string;
-  providers: ModelProviderDto[];
-  models: ModelOptionDto[];
-  selection: TaskModelSelection | null;
-  /** The first message; sending it creates the task and names it until the agent answers. */
-  draft: string;
-  /** Why creation is unavailable; null when the task can be created. */
-  blocker: string | null;
   headerAction?: React.ReactNode;
   /** "owner/repo" new tasks start in. */
   repository?: string;
-  onDraftChange: (draft: string) => void;
-  onSelectProvider: (laneId: string) => void;
-  onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
-  onCreate: () => void;
   onOpenTask: (taskId: string) => void;
   /** Opens a review, cherry-pick or CI fix. */
   onOpenItem?: (item: TaskListItem) => void;
@@ -997,21 +971,12 @@ export function AgentTaskList({
   onOpenReviewWorkspace?: (review: AgentReviewDto) => void;
   /** Goes where a review, cherry-pick or CI fix begins; a development task begins in the composer below. */
   onNewItem?: (type: Exclude<TaskType, 'dev'>) => void;
-  onOpenSettings?: () => void;
   /** Shelves or restores the tasks; the caller updates its list as each answer arrives. */
   onArchive?: (ids: string[], archived: boolean) => Promise<void>;
   /** Removes the tasks for good; the caller drops each from its list as it goes. */
   onDelete?: (ids: string[]) => Promise<void>;
-  automation?: React.ReactNode;
-  issueAttachment?: React.ReactNode;
-  images?: DraftImage[];
-  busy?: boolean;
   /** Which creation step the in-flight create request is in, for the starting screen. */
   startup?: AgentTaskStartupPhase | null;
-  attaching?: boolean;
-  onAttach?: () => void;
-  onPasteImages?: () => void;
-  onRemoveImage?: (id: string) => void;
   /** The clock the day groups are drawn against. */
   now?: number;
   initialTab?: TaskTab;
@@ -1019,6 +984,7 @@ export function AgentTaskList({
   /** What each task's checkout holds, by task id, for tasks without a pull request to name. */
   changes?: Record<string, AgentTaskChangesDto>;
 }): React.JSX.Element {
+  const { workspaceId, draft, images = [], laneId, providers, models, selection, busy = false, attaching = false, onDraftChange } = composer;
   const availability = useAgentAvailability(workspaceId);
   const linked = useLinkedWorkspaceWork(workspaceId);
   const [tab, setTab] = useState<TaskTab>(initialTab);
@@ -1240,29 +1206,7 @@ export function AgentTaskList({
         {/* Anchored under the list: sending this first message is what creates a task. */}
         {active && availability.any && (
           <ComposerDock repository={repository} chips={<BackportButton draft={draft} onDraftChange={onDraftChange} disabled={busy} />}>
-            <TaskComposer
-              workspaceId={workspaceId}
-              backport
-              automation={automation}
-              issueAttachment={issueAttachment}
-              draft={draft}
-              blocker={blocker}
-              busy={busy}
-              attaching={attaching}
-              images={images}
-              onAttach={onAttach}
-              onPasteImages={onPasteImages}
-              onRemoveImage={onRemoveImage}
-              laneId={laneId}
-              providers={providers}
-              models={models}
-              selection={selection}
-              onDraftChange={onDraftChange}
-              onSelectProvider={onSelectProvider}
-              onSelectModel={onSelectModel}
-              onCreate={onCreate}
-              onOpenSettings={onOpenSettings}
-            />
+            <TaskComposer {...composer} backport />
           </ComposerDock>
         )}
       </div>

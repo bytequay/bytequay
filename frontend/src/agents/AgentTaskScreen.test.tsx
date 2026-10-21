@@ -271,12 +271,6 @@ describe('agent task layout', () => {
 
   it('keeps the composer controls on one line and truncates labels in a narrow pane', () => {
     expect(css).not.toMatch(/\.agt-compose-dock\.is-task \.agt-compose__row \{[^}]*flex-wrap: wrap/);
-    // A zero basis makes the automation summary give way before the model picker loses a glyph.
-    expect(declarations('.agt-compose-dock.is-task .agt-automation')).toEqual(expect.arrayContaining([
-      'flex: 1 1 0',
-      'max-width: max-content',
-    ]));
-    expect(declarations('.agt-compose-dock.is-task .agt-automation summary')).toContain('text-overflow: ellipsis');
     expect(declarations('.agt-compose-dock.is-task .agt-picker__chip .agt-picker__effort')).toContain('text-overflow: ellipsis');
     // A growing spacer would split the free space with the summary and truncate it while room remains.
     expect(declarations('.agt-compose-dock.is-task .agt-picker:not(.agt-provider-picker)')).toContain('margin-left: auto');

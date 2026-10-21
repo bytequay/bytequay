@@ -14,6 +14,7 @@
 import { LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import RepoAvatar from './RepoAvatar';
+import { Clickable } from './cards/Card';
 import type {
   RepoRefDto,
   RepositorySearchResultDto,
@@ -289,19 +290,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
             {error && <div className="modal__empty">{error}</div>}
             <div className="modal__list">
               {loading ? <div className="modal__loading" role="status">Searching…</div> : repos.map(repo => (
-                <div
-                  className="modal-repo-row"
-                  key={repo.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => pick(repo)}
-                  onKeyDown={event => {
-                    if (event.target !== event.currentTarget) return;
-                    if (event.key !== 'Enter' && event.key !== ' ') return;
-                    event.preventDefault();
-                    pick(repo);
-                  }}
-                >
+                <Clickable className="modal-repo-row" key={repo.id} onOpen={() => pick(repo)}>
                   <RepoAvatar owner={repo.repository.owner} repo={repo.repository.repo} size={28} radius={7} />
                   <div className="modal-repo-row__text">
                     <div className="modal-repo-row__head">
@@ -316,7 +305,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
                     </div>
                   </div>
                   <span className="modal-repo-row__pill">Watch</span>
-                </div>
+                </Clickable>
               ))}
               {!loading && repos.length === 0 && (
                 <div className="modal__empty">

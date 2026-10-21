@@ -293,8 +293,6 @@ export function reviewElapsed(review: AgentReviewDto, now: number): string | nul
   return formatDuration(Math.max(0, now - started));
 }
 
-
-
 /** What a run covers, as "Full review · master → 6466c90". */
 export function reviewScope(run: ReviewRunDto): string {
   return `${run.scope === 'FULL' ? 'Full review' : 'Incremental review'} · ${run.priorHeadSha === null ? run.baseRef : shortSha(run.priorHeadSha)} → ${shortSha(run.headSha)}`;

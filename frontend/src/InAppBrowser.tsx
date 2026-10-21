@@ -87,7 +87,7 @@ export default function InAppBrowser({ tab, fullScreen, railExpanded, error, onE
           <button type="button" className="inapp-browser__nav-btn" onClick={() => run(window.bridge.inAppReload(tab.id))}
             title="Reload" aria-label="Reload"><RotateCw size={16} /></button>
         </div>
-        <WebAddressForm key={tab.id} showOpenButton={false} url={tab.url} onNavigate={url => window.bridge.inAppNavigate(tab.id, url)} />
+        <WebAddressForm key={tab.id} url={tab.url} onNavigate={url => window.bridge.inAppNavigate(tab.id, url)} />
         <button type="button" className={`inapp-browser__open-external${tab.pinned ? ' is-pinned' : ''}`}
           onClick={() => run(window.bridge.pinInAppBrowserTab(tab.id, !tab.pinned))}
           title={tab.pinned ? 'Unpin this page so you can close it permanently' : 'Pin this page to the left bar and keep it after restarting'}

@@ -194,7 +194,6 @@ export type ReviewMessageDto = {
   developerTaskId?: string | null;
 };
 
-
 export type ReviewModelSelection = { laneId: string; model: string; effort: string | null; serviceTier: string | null };
 
 type ReviewTaskDto = {
@@ -298,12 +297,6 @@ export type AgentReviewDto = {
   replay?: { id: string; number: number; memory: boolean };
 };
 
-
-
-
-
-
-
 function flag(value: unknown): boolean {
   return value === true;
 }
@@ -315,8 +308,6 @@ function list(value: unknown): unknown[] {
 function strings(value: unknown): string[] {
   return list(value).filter((item): item is string => typeof item === 'string');
 }
-
-/** A closed set the UI switches on; an unknown value is a bug, not a state to render. */
 
 function parseSummary(value: unknown): ReviewSummaryDto | null {
   if (value === null || value === undefined) return null;

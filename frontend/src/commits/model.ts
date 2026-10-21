@@ -153,11 +153,11 @@ export function pastedRangePair(
   return 'anchors' in result ? result : null;
 }
 
-/** A day's select-all: every commit already checked clears the day, anything else fills it. */
-export function toggledGroup(checked: ReadonlySet<string>, shas: string[]): Set<string> {
+/** A group's select-all, such as a day's: every item already checked clears the group, anything else fills it. */
+export function toggledGroup<T>(checked: ReadonlySet<T>, items: T[]): Set<T> {
   const next = new Set(checked);
-  if (shas.length > 0 && shas.every(sha => next.has(sha))) shas.forEach(sha => next.delete(sha));
-  else shas.forEach(sha => next.add(sha));
+  if (items.length > 0 && items.every(item => next.has(item))) items.forEach(item => next.delete(item));
+  else items.forEach(item => next.add(item));
   return next;
 }
 

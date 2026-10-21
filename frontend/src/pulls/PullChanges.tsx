@@ -1353,15 +1353,11 @@ function changeBlocks(additions: number, deletions: number): Array<'add' | 'del'
 /** Normalizes both git letter statuses (M/A/D/R) and GitHub word statuses
  *  ("modified", "removed", …) to one status badge. First-letter alone would
  *  collide: "removed" and "renamed" both start with R. */
-function fileStatusBadge(status: string): { letter: string; kind: string; title: string } {
+function fileStatusBadge(status: string): { kind: string; title: string } {
   const normalized = status.toLowerCase();
-  if (normalized === 'a' || normalized === 'added') return { letter: 'A', kind: 'added', title: 'added' };
-  if (normalized === 'd' || normalized === 'removed' || normalized === 'deleted') {
-    return { letter: 'D', kind: 'removed', title: 'removed' };
-  }
-  if (normalized === 'r' || normalized === 'renamed') return { letter: 'R', kind: 'renamed', title: 'renamed' };
-  if (normalized === 'm' || normalized === 'modified' || normalized === 'changed') {
-    return { letter: 'M', kind: 'modified', title: 'modified' };
-  }
-  return { letter: status.charAt(0).toUpperCase() || '?', kind: 'other', title: status };
+  if (normalized === 'a' || normalized === 'added') return { kind: 'added', title: 'added' };
+  if (normalized === 'd' || normalized === 'removed' || normalized === 'deleted') return { kind: 'removed', title: 'removed' };
+  if (normalized === 'r' || normalized === 'renamed') return { kind: 'renamed', title: 'renamed' };
+  if (normalized === 'm' || normalized === 'modified' || normalized === 'changed') return { kind: 'modified', title: 'modified' };
+  return { kind: 'other', title: status };
 }

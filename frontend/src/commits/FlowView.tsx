@@ -34,7 +34,7 @@ import type {
 } from '../types';
 import { useModalDialog } from '../useModalDialog';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
-import { shortSha } from './model';
+import { shortSha, toggledGroup } from './model';
 
 type FlowItem = {
   commit: CherryPickPreviewCommit;
@@ -163,23 +163,9 @@ export default function FlowView({
     `* already on target: ${alreadyItems.length > 0 ? alreadyItems.map(item => shortSha(item.commit.sourceSha)).join(', ') : 'none'}`,
   ].join('\n');
 
-  const toggleCommit = (sha: string) => {
-    setUnchecked(current => {
-      const next = new Set(current);
-      if (next.has(sha)) next.delete(sha);
-      else next.add(sha);
-      return next;
-    });
-  };
+  const toggleCommit = (sha: string) => setUnchecked(current => toggledGroup(current, [sha]));
 
-  const togglePr = (number: number) => {
-    setSkippedPrs(current => {
-      const next = new Set(current);
-      if (next.has(number)) next.delete(number);
-      else next.add(number);
-      return next;
-    });
-  };
+  const togglePr = (number: number) => setSkippedPrs(current => toggledGroup(current, [number]));
 
   const start = async () => {
     setBusy(true);

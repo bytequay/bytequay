@@ -20,6 +20,7 @@ import type { PendingMessage } from '../agents/model';
 import { projectTranscript } from '../agents/transcript';
 import { ago } from '@bytequay/ui/relativeTime';
 import { remoteErrorMessage } from '../remoteError';
+import { useNow } from '../useNow';
 import { useResizablePane } from '../useResizablePane';
 import { LayerCovered } from '../Zoom';
 import type { ArtifactOfferDto, ArtifactPageDto, ArtifactRowDto, ArtifactViewDto } from './contracts';
@@ -328,17 +329,6 @@ function Elapsed({ since }: { since: string }) {
   }, []);
   const seconds = Math.max(0, Math.floor((now - Date.parse(since)) / 1_000));
   return <span className="artifacts-elapsed">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</span>;
-}
-
-/** The clock a running transcript counts its turn's time by; it stands still while nothing runs. */
-function useNow(running: boolean): number {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [running]);
-  return now;
 }
 
 function useLive() {

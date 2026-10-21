@@ -363,7 +363,7 @@ export default function AppSidebar({
             <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{workspace.name}</span>
           </button>
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
-            {WORKSPACE_TABS.filter(item => item.tab !== 'jira' || jiraConnected).map(workspaceItem)}
+            {WORKSPACE_TABS.map(workspaceItem)}
           </nav>
           <RelatedWorkspaceNavigation key={workspace.id} workspaceId={workspace.id} activeWorkspaceId={relatedWorkspaceId} activeTab={workspaceTab} />
         </>

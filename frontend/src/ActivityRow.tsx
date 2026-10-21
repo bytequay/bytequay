@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import Avatar from './Avatar';
+import { Clickable } from './cards/Card';
 import { Check, GitBranch, GitCommitHorizontal, GitPullRequest, RefreshCw } from 'lucide-react';
 import {
   commitsUrl,
@@ -92,19 +93,7 @@ function ActivityRow({ event, actor, showActorName, formatTime, onOpenUrl }: Pro
   const targetUrl = activityUrl(event);
   const openEvent = () => onOpenUrl(targetUrl);
   return (
-    <div
-      className="home-following-item"
-      role="button"
-      tabIndex={0}
-      onClick={openEvent}
-      onKeyDown={keyboardEvent => {
-        if (keyboardEvent.target !== keyboardEvent.currentTarget) return;
-        if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') {
-          keyboardEvent.preventDefault();
-          openEvent();
-        }
-      }}
-    >
+    <Clickable className="home-following-item" onOpen={openEvent}>
       {showActorName && actor ? (
         <button
           className="home-following-item__actor"
@@ -152,7 +141,7 @@ function ActivityRow({ event, actor, showActorName, formatTime, onOpenUrl }: Pro
         )}
       </div>
       <time className="home-following-item__time">{formatTime(event.createdAt)}</time>
-    </div>
+    </Clickable>
   );
 }
 

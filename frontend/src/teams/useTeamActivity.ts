@@ -24,7 +24,6 @@ export function useTeamActivity(accountLogin: string | undefined, { circleId, me
   const [snapshot, setSnapshot] = useState<TeamActivitySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const generation = useRef(0);
   const account = useRef(accountLogin);
@@ -47,13 +46,12 @@ export function useTeamActivity(accountLogin: string | undefined, { circleId, me
     }
     finally {
       if (refresh) { refreshInFlight.current = false; setRefreshing(false); }
-      if (request === generation.current) setLoading(false);
     }
   }, [accountLogin, circleId, memberId, days, limit, filter]);
 
   useEffect(() => {
     account.current = accountLogin;
-    setSnapshot(null); setError(null); setRefreshError(null); setLoading(Boolean(accountLogin));
+    setSnapshot(null); setError(null); setRefreshError(null);
     const clear = () => { account.current = undefined; generation.current++; setSnapshot(null); setError(null); setRefreshError(null); };
     window.addEventListener(GITHUB_ACCOUNT_CHANGED, clear);
     return () => window.removeEventListener(GITHUB_ACCOUNT_CHANGED, clear);
@@ -76,5 +74,5 @@ export function useTeamActivity(accountLogin: string | undefined, { circleId, me
     };
   }, [accountLogin, load]);
 
-  return { snapshot, loading, refreshing, error, refreshError, dismissRefreshError: () => setRefreshError(null), refresh: () => load(true), reload: () => load() };
+  return { snapshot, refreshing, error, refreshError, dismissRefreshError: () => setRefreshError(null), refresh: () => load(true), reload: () => load() };
 }

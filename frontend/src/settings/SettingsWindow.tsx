@@ -43,7 +43,7 @@ import {
   WorkspaceRepositoryPage,
   WorkspaceTokenPage,
 } from './WorkspacePages';
-import { isWorkspaceSection, settingsLocationFromRoute, type SettingsSection } from './routes';
+import { isWorkspaceSection, type SettingsSection } from './routes';
 import '../css/settings-window.css';
 
 export default function SettingsWindow({ section, workspace, onWorkspacesChanged }: {
@@ -493,5 +493,3 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
     </>
   );
 }
-
-export { settingsLocationFromRoute };

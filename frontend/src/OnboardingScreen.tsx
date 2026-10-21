@@ -84,11 +84,6 @@ export default function OnboardingScreen({ onSaved, embedded = false }: Props) {
     e.preventDefault();
     if (patState === 'saving') return;
     const trimmed = token.trim();
-    if (!trimmed) {
-      setPatError('Paste a personal access token to continue.');
-      setPatState('error');
-      return;
-    }
     setPatState('saving');
     setPatError(null);
     try {

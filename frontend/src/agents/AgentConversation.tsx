@@ -77,10 +77,6 @@ function AttachmentTile({ attachment, preview, compact = false }: {
   );
 }
 
-export function stateClass(state: string): string {
-  return state.toLowerCase();
-}
-
 /** The catalog's display name for a model id; the raw slug is never shown as a label. */
 export function modelName(models: ModelOptionDto[], id: string | null): string {
   if (id === null || id === '') return 'No model';
@@ -97,7 +93,6 @@ function permissionLabel(policy: string): string {
   return policy === 'AUTO' ? 'Approve for me' : policy;
 }
 
-/** "Aug 16", or "Aug 23, 2026" with the year, as the design dates a finished agent. */
 /** "Today 4:31 PM", or the date when the message is older than today. */
 function stamp(iso: string, now: number): string {
   const at = new Date(iso);

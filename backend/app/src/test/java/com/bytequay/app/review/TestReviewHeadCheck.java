@@ -96,6 +96,44 @@ class TestReviewHeadCheck
     }
 
     @Test
+    void whitespaceInsideAStringIsPartOfTheReviewedChange()
+    {
+        git(repository, "checkout", "--quiet", "feature");
+        write(repository, "src/App.java", "class App { String value() { return \"a b\"; } }\n");
+        String read = commit("Return a value");
+        write(repository, "src/App.java", "class App { String value() { return \"ab\"; } }\n");
+        git(repository, "add", "-A");
+        git(repository, "commit", "--quiet", "--amend", "--no-edit");
+
+        assertThat(AgentReviewService.sameChange(GIT, repository, run(reviewedBase, read), "main", reviewedBase, head(repository))).isFalse();
+    }
+
+    @Test
+    void indentationIsPartOfTheReviewedChange()
+    {
+        git(repository, "checkout", "--quiet", "feature");
+        write(repository, "result.py", """
+                def result(enabled):
+                    if enabled:
+                        print("enabled")
+                        return 1
+                    return 2
+                """);
+        String read = commit("Return the enabled result");
+        write(repository, "result.py", """
+                def result(enabled):
+                    if enabled:
+                        print("enabled")
+                    return 1
+                    return 2
+                """);
+        git(repository, "add", "-A");
+        git(repository, "commit", "--quiet", "--amend", "--no-edit");
+
+        assertThat(AgentReviewService.sameChange(GIT, repository, run(reviewedBase, read), "main", reviewedBase, head(repository))).isFalse();
+    }
+
+    @Test
     void aBaseThatChangedBesideAHunkOrAHeadThatCannotBeReadIsADifferentChange()
     {
         assertThat(sameChange("main", movedBase, "0".repeat(40))).isFalse();

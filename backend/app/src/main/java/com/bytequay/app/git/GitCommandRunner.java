@@ -301,14 +301,14 @@ public class GitCommandRunner
         return stages.contains(2) && stages.contains(3) ? ConflictedPath.Type.CONTENT : ConflictedPath.Type.MODIFY_DELETE;
     }
 
-    /** Git owns patch normalization; a redirected temporary file keeps input bounded by the caller's diff read. */
+    /** Git normalizes patch positions, but whitespace stays significant for literals and indentation-sensitive code. */
     public Result patchId(Path repository, String patch)
     {
         try {
             Path input = Files.createTempFile("bytequay-patch-id-", ".diff");
             try {
                 Files.writeString(input, patch, StandardCharsets.UTF_8);
-                return execute(new ProcessBuilder(executable, "-C", repository.toString(), "patch-id", "--stable")
+                return execute(new ProcessBuilder(executable, "-C", repository.toString(), "patch-id", "--verbatim")
                         .redirectInput(input.toFile()), COMMAND_TIMEOUT, 1024, "Git patch-id", true, 0);
             }
             finally {

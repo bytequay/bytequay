@@ -548,27 +548,34 @@ export async function startAgentConversationSession(
   let reading = false;
   let dirty = false;
   let stopped = false;
+  let retryDelay = 1000;
+  let connectionOpened = false;
   const refresh = async (): Promise<void> => {
     timer = undefined;
     // An older page is being read: replacing it with the latest window would yank it away.
     if (stopped || !isActive() || !isLivePage() || reading) return;
     reading = true;
     dirty = false;
+    let delay = 200;
     try {
       const latest = await readRecentAgentHistory(bridge, taskId, recent);
       recent = latest;
       if (!stopped && isActive() && isLivePage()) dispatch({ type: 'history/loaded', ...latest, direction: 'latest' });
+      retryDelay = 1000;
     }
     catch (failure) {
       if (!stopped && isActive()) dispatch({ type: 'notice/changed', notice: failure instanceof Error ? failure.message : String(failure) });
+      dirty = true;
+      delay = retryDelay;
+      retryDelay = Math.min(retryDelay * 2, 5000);
     }
     finally {
       reading = false;
-      // The first update is immediate; only sustained output waits for the refresh cooldown.
+      // The first update is immediate; only sustained output waits for the refresh cooldown, and a failed read backs off.
       if (!stopped) timer = setTimeout(() => {
         timer = undefined;
         if (dirty) void refresh();
-      }, 200);
+      }, delay);
     }
   };
   const stop = await bridge.subscribeAgentTask(taskId, recent.page.latestSequence, (message) => {
@@ -579,7 +586,19 @@ export async function startAgentConversationSession(
       dirty = true;
       if (timer === undefined && !reading && isLivePage()) void refresh();
     }
-    else dispatch({ type: 'connection/changed', state: message.state, detail: message.detail });
+    else {
+      dispatch({ type: 'connection/changed', state: message.state, detail: message.detail });
+      if (message.state === 'open') {
+        // Reconnection can follow a failed read of the last event, with nothing left to push.
+        if (connectionOpened) {
+          dirty = true;
+          if (timer !== undefined) clearTimeout(timer);
+          timer = undefined;
+          if (!reading && isLivePage()) void refresh();
+        }
+        connectionOpened = true;
+      }
+    }
   }, true);
   const close = (): void => {
     stopped = true;

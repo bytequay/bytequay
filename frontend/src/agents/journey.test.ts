@@ -79,6 +79,68 @@ describe('a task window', () => {
 });
 
 describe('a workflow-owned conversation', () => {
+  it.each([false, true])('retries a failed final history read without another event (reconnected: %s)', async (reconnected) => {
+    vi.useFakeTimers();
+    let stop = (): void => {};
+    try {
+      const preview = createPreviewBridge('workspace-1');
+      const initial: AgentHistoryPageDto = { events: [], beforeCursor: null, afterCursor: null, latestSequence: 0 };
+      const latest = { ...initial, events: preview.events, latestSequence: preview.events.at(-1)?.sequence ?? 0 };
+      const readAgentHistory = vi.fn().mockResolvedValueOnce(initial).mockRejectedValueOnce(new Error('Temporary history failure')).mockResolvedValue(latest);
+      let notify: (message: AgentStreamMessage) => void = () => { throw new Error('subscription not open'); };
+      const subscribeAgentTask = async (_taskId: string, _after: number, listener: typeof notify) => {
+        notify = listener;
+        return (): void => {};
+      };
+      let state = initialAgentTaskState();
+      stop = await startAgentConversationSession({ readAgentHistory, subscribeAgentTask }, 'task-1', action => { state = agentTaskReducer(state, action); });
+      const connection = (status: 'open' | 'reconnecting') => notify({ kind: 'state', subscriptionId: 'review-stream', taskId: 'task-1', state: status });
+      connection('open');
+      notify({ kind: 'changed', subscriptionId: 'review-stream', taskId: 'task-1', sequence: latest.latestSequence, turnId: 'turn-1' });
+      await vi.advanceTimersByTimeAsync(200);
+      expect(state.notice).toBe('Temporary history failure');
+      expect(readAgentHistory).toHaveBeenCalledTimes(2);
+
+      if (reconnected) { connection('reconnecting'); connection('open'); }
+      await vi.advanceTimersByTimeAsync(reconnected ? 200 : 1000);
+
+      expect(state.events).toEqual(preview.events);
+      expect(readAgentHistory).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(readAgentHistory).toHaveBeenCalledTimes(3);
+    }
+    finally { stop(); vi.useRealTimers(); }
+  });
+
+  it('backs off history failures and cancels retries when the conversation closes', async () => {
+    vi.useFakeTimers();
+    let stop = (): void => {};
+    try {
+      const readAgentHistory = vi.fn().mockResolvedValueOnce({ events: [], beforeCursor: null, afterCursor: null, latestSequence: 0 })
+        .mockRejectedValue(new Error('Offline'));
+      let notify: (message: AgentStreamMessage) => void = () => { throw new Error('subscription not open'); };
+      const unsubscribe = vi.fn();
+      stop = await startAgentConversationSession({ readAgentHistory, subscribeAgentTask: async (_taskId, _after, listener) => {
+        notify = listener;
+        return unsubscribe;
+      } }, 'task-1', () => {});
+      notify({ kind: 'changed', subscriptionId: 'review-stream', taskId: 'task-1', sequence: 1, turnId: 'turn-1' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readAgentHistory).toHaveBeenCalledTimes(2);
+      for (const [delay, count] of [[1000, 3], [2000, 4], [4000, 5], [5000, 6]]) {
+        await vi.advanceTimersByTimeAsync(delay - 1);
+        expect(readAgentHistory).toHaveBeenCalledTimes(count - 1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(readAgentHistory).toHaveBeenCalledTimes(count);
+      }
+      stop();
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(readAgentHistory).toHaveBeenCalledTimes(6);
+      expect(unsubscribe).toHaveBeenCalledOnce();
+    }
+    finally { vi.useRealTimers(); }
+  });
+
   it('uses the same bounded history and status stream without reading an interactive task', async () => {
     vi.useFakeTimers();
     let stop = (): void => {};

@@ -99,7 +99,7 @@ public class WorkflowMonitorJob
                 cherryPickService::advance);
     }
 
-    @Scheduled(initialDelayString = "${bytequay.ci-autofix.monitor-initial-delay:PT30S}", fixedDelayString = "PT30S")
+    @Scheduled(initialDelayString = "${bytequay.ci-autofix.monitor-initial-delay:PT30S}", fixedDelayString = "PT30S", scheduler = "ciAutofixScheduler")
     public void monitorCiAutofix()
     {
         if (!servingGate.isReady()) {

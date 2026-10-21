@@ -40,6 +40,15 @@ class SchedulingConfig
         return scheduler;
     }
 
+    /** CI checks download logs and push, which must not hold up the thread that also times out agent approvals. */
+    @Bean
+    ThreadPoolTaskScheduler ciAutofixScheduler()
+    {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setThreadNamePrefix("ci-autofix-");
+        return scheduler;
+    }
+
     /** Slow repository and detail scans must not occupy the notification polling thread. */
     @Bean
     ThreadPoolTaskScheduler attentionScheduler()

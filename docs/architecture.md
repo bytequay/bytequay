@@ -57,7 +57,9 @@ with each task's own buttons. While the panel is closed, a separate sandboxed
 editor views. Its restricted bridge can read, dismiss, resize, and open the panel
 at a notice or navigate to a validated task; it cannot approve or execute task
 actions. Recovery notices wait for ordinary shutdown cleanup to settle before
-announcing a block.
+announcing a block. While another app is in front, Electron also shows a new
+alert as a macOS notification whose click takes the alert's own path, and the
+Dock badge counts the notices that need the user.
 
 ## Backend organization
 

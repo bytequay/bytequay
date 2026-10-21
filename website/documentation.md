@@ -134,6 +134,10 @@ message uses your model allowance.
    create it on GitHub and mark it as an Epic. Nothing is created until you
    click; then its receipt takes the draft's place.
 
+While you use another app, a new task alert also shows as a macOS
+notification; click it to answer. The Dock icon counts the tasks waiting on
+you.
+
 When chat is off or your agent needs reconnecting, task notices and approval
 buttons remain available. Saved conversation history is preserved.
 

@@ -20,10 +20,22 @@ import type { BrowserWindow } from 'electron';
 import { NoticeHost } from './host';
 import type { AppNotice, NoticeSnapshot } from './contracts';
 
-const desktop = vi.hoisted(() => ({ handlers: new Map<string, (...args: unknown[]) => unknown>(), views: [] as unknown[] }));
+const desktop = vi.hoisted(() => ({ handlers: new Map<string, (...args: unknown[]) => unknown>(), views: [] as unknown[], notifications: [] as unknown[],
+  badge: vi.fn(), refuse: false }));
+type Shown = EventEmitter & { options: { title: string; body: string }; show: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> };
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
   return {
+    app: { setBadgeCount: desktop.badge },
+    Notification: class extends EventEmitter {
+      static isSupported = () => true;
+      show = vi.fn(); close = vi.fn();
+      constructor(readonly options: { title: string; body: string }) {
+        super();
+        if (desktop.refuse) throw new Error('Notifications are not allowed');
+        desktop.notifications.push(this);
+      }
+    },
     ipcMain: { handle: (key: string, fn: (...args: unknown[]) => unknown) => desktop.handlers.set(key, fn), on: (key: string, fn: (...args: unknown[]) => unknown) => desktop.handlers.set(key, fn) },
     WebContentsView: class {
       webContents = Object.assign(new EventEmitter(), { mainFrame: {}, send: vi.fn(), close: vi.fn(), isDestroyed: () => false,
@@ -48,13 +60,15 @@ function setup() {
   });
   const read = vi.fn(async (): Promise<unknown> => []);
   const open = vi.fn(async () => {});
-  const host = new NoticeHost(() => window as unknown as BrowserWindow, read, open, () => path.join(directory, 'dismissed-notices.json'));
+  const reveal = vi.fn(async () => {});
+  const host = new NoticeHost(() => window as unknown as BrowserWindow, read, open, () => path.join(directory, 'dismissed-notices.json'), reveal);
   host.register(); host.attach(window as unknown as BrowserWindow);
-  return { host, read, open, window };
+  return { host, read, open, reveal, window };
 }
 beforeEach(() => {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bytequay-notice-host-'));
   desktop.handlers.clear(); desktop.views.length = 0; vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', 'http://localhost:5173');
+  desktop.notifications.length = 0; desktop.badge.mockClear(); desktop.refuse = false;
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); fs.rmSync(directory, { recursive: true, force: true }); });
 
@@ -352,5 +366,58 @@ it('hides the alert while the Assistant panel lists the notices, and keeps them 
   expect(view.setVisible).toHaveBeenLastCalledWith(false);
   window.webContents.emit('did-start-navigation', { isSameDocument: false, isMainFrame: true });
   expect(view.setVisible).toHaveBeenLastCalledWith(true);
+  host.stop();
+});
+
+it('also shows a new alert on macOS while the user is in another app, and closes it once the alert leaves', async () => {
+  const { host, read, reveal, window } = setup();
+  await host.refresh();
+  const focused = vi.spyOn(window, 'isFocused').mockReturnValue(false);
+  read.mockResolvedValue([notice]); await host.refresh(); await host.refresh();
+  expect(desktop.notifications).toHaveLength(1);
+  const shown = desktop.notifications[0] as Shown;
+  expect(shown.options).toEqual({ title: 'Approval needed · owner/repo', body: 'Build' });
+  expect(shown.show).toHaveBeenCalledTimes(1);
+  focused.mockReturnValue(true);
+  const other = { ...notice, id: 'approval:two', taskId: 'other-task' };
+  read.mockResolvedValue([notice, other]); await host.refresh();
+  expect(desktop.notifications).toHaveLength(1);
+  shown.emit('click');
+  await vi.waitFor(() => expect(window.webContents.send).toHaveBeenCalledWith('assistant:open-card', notice.id));
+  expect(reveal).toHaveBeenCalledTimes(1);
+  await host.refresh(); await host.refresh();
+  expect(shown.close).toHaveBeenCalledTimes(1);
+  host.stop();
+});
+
+it.each(['refused', 'failed'] as const)('pauses macOS alerts until restart once one is %s, and keeps the in-app alerts', async failure => {
+  const { host, read, window } = setup();
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  await host.refresh();
+  vi.spyOn(window, 'isFocused').mockReturnValue(false);
+  desktop.refuse = failure === 'refused';
+  read.mockResolvedValue([notice]); await host.refresh();
+  if (failure === 'failed') (desktop.notifications[0] as Shown).emit('failed', {}, 'Not allowed');
+  desktop.refuse = false;
+  const other = { ...notice, id: 'approval:two', taskId: 'other-task' };
+  read.mockResolvedValue([notice, other]); await host.refresh();
+  expect(desktop.notifications).toHaveLength(failure === 'failed' ? 1 : 0);
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(desktop.handlers.get('notices:read')?.({ sender: window.webContents, senderFrame: window.webContents.mainFrame })).toMatchObject({ popupIds: [notice.id, other.id] });
+  host.stop();
+});
+
+it('counts the notices waiting on the user on the Dock', async () => {
+  const { host, read } = setup();
+  const finished: AppNotice = { ...notice, id: 'finished:turn', kind: 'TURN_FINISHED', taskId: 'done-task', occurredAt: new Date().toISOString() };
+  await host.refresh();
+  expect(desktop.badge).toHaveBeenLastCalledWith(0);
+  read.mockResolvedValue([notice, finished]); await host.refresh();
+  expect(desktop.badge).toHaveBeenLastCalledWith(1);
+  const calls = desktop.badge.mock.calls.length;
+  await host.refresh();
+  expect(desktop.badge).toHaveBeenCalledTimes(calls);
+  read.mockResolvedValue([finished]); await host.refresh();
+  expect(desktop.badge).toHaveBeenLastCalledWith(0);
   host.stop();
 });

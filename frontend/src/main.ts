@@ -315,7 +315,8 @@ const appNotices = new NoticeHost(() => mainWindow,
     browserTabs.hide();
     mainWindow?.webContents.send('notices:open-task', { taskId: notice.taskId, workspaceId: notice.workspaceId, turnId: notice.turnId, reviewId: notice.reviewId });
     mainWindow?.webContents.focus();
-  }, () => path.join(app.getPath('userData'), 'dismissed-notices.json'));
+  }, () => path.join(app.getPath('userData'), 'dismissed-notices.json'),
+  () => ensureWindow().then(() => { mainWindow?.show(); mainWindow?.focus(); }));
 const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.has(sender), () => appNotices.raise());
 const artifactView = new ArtifactView(() => mainWindow,
   target => backendJson(workspaceUrl(target.workspaceId, `/artifacts/${encodeURIComponent(target.artifactId)}/pages/${encodeURIComponent(target.pageId)}`))

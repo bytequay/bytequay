@@ -340,8 +340,9 @@ Choose **Settings → Integrations → Lab → Open Lab** to refresh the local
 statistics and start its dashboard. Electron owns that process, chooses an
 available loopback port, reuses it on later opens, and stops it on quit.
 
-Electron 44 requires a code-signed macOS app to display native PR notifications.
-Unsigned development and packaged builds still show PR updates inside ByteQuay.
+Electron 44 requires a code-signed macOS app to display native PR and task
+notifications. Unsigned development and packaged builds still show PR updates
+and task alerts inside ByteQuay.
 
 ## Code style
 

@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { ipcMain, WebContentsView, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { app, ipcMain, Notification, WebContentsView, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
-import { APPROVAL_NOTICE, NOTICE_WIDTH, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
+import { APPROVAL_NOTICE, NOTICE_WIDTH, needsAction, noticeLabel, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
 import { NoticeStore } from './store';
 
 /** One trusted app surface above native browser/editor views; its bridge cannot execute task actions. */
@@ -27,9 +27,14 @@ export class NoticeHost {
   private suppressed = false;
   private mainNotices = '';
   private sources = new Map<string, string>();
+  // Kept until the alert leaves, so a click on its macOS notification still has a handler; null when none was shown.
+  private readonly announced = new Map<string, Notification | null>();
+  private nativeDisabled = false;
+  private badge = -1;
 
   constructor(private readonly window: () => BrowserWindow | null, private readonly read: () => Promise<unknown>,
-    private readonly openNotice: (notice: AppNotice) => Promise<void>, storagePath: () => string) {
+    private readonly openNotice: (notice: AppNotice) => Promise<void>, storagePath: () => string,
+    private readonly reveal: () => Promise<void>) {
     this.store = new NoticeStore(storagePath);
   }
 
@@ -69,20 +74,7 @@ export class NoticeHost {
     ipcMain.handle('notices:open', async (event, id: unknown) => {
       ownerOrChild(event);
       if (typeof id !== 'string') throw new Error('Invalid notice');
-      const fromAlert = !owner(event);
-      await this.refresh();
-      const notice = this.snapshot().notices.find(item => item.id === id);
-      if (!notice) return;
-      const window = this.window();
-      // An alert's Answer opens the panel at the card, whose own buttons answer it; the panel's Open still opens the task.
-      if (fromAlert && notice.id.startsWith(APPROVAL_NOTICE) && window && !window.isDestroyed()) {
-        window.webContents.focus();
-        window.webContents.send('assistant:open-card', notice.id);
-      }
-      else await this.openNotice(notice);
-      if (notice.kind === 'TURN_FINISHED') this.store.remove(id);
-      else this.store.dismiss(id);
-      this.publish();
+      await this.open(id, !owner(event));
     });
     ipcMain.on('notices:resize', (event, height: unknown) => {
       child(event);
@@ -126,10 +118,66 @@ export class NoticeHost {
 
   refresh(): Promise<void> {
     if (this.reading !== null) return this.reading;
-    this.reading = this.read().then(value => { this.store.update(parseNotices(value)); this.publish(); })
+    this.reading = this.read().then(value => { this.store.update(parseNotices(value)); this.publish(); this.announce(); })
       .catch(() => { /* A failed local read preserves the last snapshot and never announces task failure. */ })
       .finally(() => { this.reading = null; });
     return this.reading;
+  }
+
+  private async open(id: string, fromAlert: boolean): Promise<void> {
+    await this.refresh();
+    const notice = this.snapshot().notices.find(item => item.id === id);
+    if (!notice) return;
+    const window = this.window();
+    // An alert's Answer opens the panel at the card, whose own buttons answer it; the panel's Open still opens the task.
+    if (fromAlert && notice.id.startsWith(APPROVAL_NOTICE) && window && !window.isDestroyed()) {
+      window.webContents.focus();
+      window.webContents.send('assistant:open-card', notice.id);
+    }
+    else await this.openNotice(notice);
+    if (notice.kind === 'TURN_FINISHED') this.store.remove(id);
+    else this.store.dismiss(id);
+    this.publish();
+  }
+
+  /** A new alert also goes to macOS while the user is in another app; it closes once the in-app alert is answered or closed. */
+  private announce(): void {
+    const { notices, popupIds } = this.store.snapshot(false);
+    for (const [id, shown] of this.announced) {
+      if (!popupIds.includes(id)) { shown?.close(); this.announced.delete(id); }
+    }
+    const window = this.window();
+    const away = !window || window.isDestroyed() || !window.isFocused();
+    for (const notice of notices) {
+      if (popupIds.includes(notice.id) && !this.announced.has(notice.id)) this.announced.set(notice.id, away ? this.notify(notice) : null);
+    }
+  }
+
+  private notify(notice: AppNotice): Notification | null {
+    // Platform support does not imply permission: unsigned macOS builds also pass isSupported() and then fail.
+    if (this.nativeDisabled || !Notification.isSupported()) return null;
+    try {
+      const shown = new Notification({ title: `${noticeLabel(notice)} · ${notice.repository}`, body: notice.title });
+      shown.on('click', () => {
+        // ponytail: a reopened window's page may not listen yet, so then the click only brings ByteQuay back and keeps the alert.
+        const window = this.window();
+        const ready = Boolean(window && !window.isDestroyed());
+        void this.reveal().then(() => ready ? this.open(notice.id, true) : undefined).catch(error => console.warn('Unable to open a task notice', error));
+      });
+      shown.on('failed', (_event, error) => this.disableNative(error));
+      shown.show();
+      return shown;
+    }
+    catch (error) {
+      this.disableNative(error);
+      return null;
+    }
+  }
+
+  private disableNative(error: unknown): void {
+    if (this.nativeDisabled) return;
+    this.nativeDisabled = true;
+    console.warn('macOS task notifications paused until restart; ByteQuay still shows them. Use a signed build and allow notifications in System Settings.', error);
   }
 
   private snapshot(): NoticeSnapshot {
@@ -140,6 +188,9 @@ export class NoticeHost {
   }
 
   private publish(): void {
+    // The Dock counts what the sidebar's Assistant row counts, with or without a window.
+    const waiting = this.store.snapshot(false).notices.filter(needsAction).length;
+    if (waiting !== this.badge) { this.badge = waiting; app.setBadgeCount(waiting); }
     const window = this.window();
     if (!window || window.isDestroyed()) return;
     let state = this.snapshot();
@@ -205,5 +256,9 @@ export class NoticeHost {
     this.sources.clear();
   }
 
-  stop(): void { clearInterval(this.timer); this.timer = undefined; this.releaseWindow(); }
+  stop(): void {
+    clearInterval(this.timer); this.timer = undefined; this.releaseWindow();
+    for (const shown of this.announced.values()) shown?.close();
+    this.announced.clear();
+  }
 }

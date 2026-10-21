@@ -27,7 +27,8 @@ jobs:
   backend:
     # Agent tests run macOS tools the app depends on, such as sandbox-exec and plutil.
     runs-on: macos-latest
-    timeout-minutes: 25
+    # About 15 minutes on a typical runner; a slow one has taken twice that.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v4

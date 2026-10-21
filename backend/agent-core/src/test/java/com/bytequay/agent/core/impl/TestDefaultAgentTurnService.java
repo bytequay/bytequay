@@ -3628,6 +3628,31 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void cancellationPausesQueuedInputEvenWhenTheProviderCompletesSuccessfully()
+    {
+        List<Runnable> scheduled = new ArrayList<>();
+        service = service(driver, runtimeRegistry, events, approvals, CLOCK, scheduled::add);
+        driver.beforeCancel(() -> driver.complete("Completed while cancellation was arriving"));
+        AgentTurn first = service.start(command("first", "key-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1", Optional.empty()));
+
+        AgentTurn cancelled = service.cancel(first.id());
+
+        assertThat(cancelled.state()).isEqualTo(TurnState.COMPLETED);
+        assertThat(cancelled.cancellationRequestedAt()).isPresent();
+        assertThat(driver.commands()).hasSize(1);
+        assertThat(scheduled).isEmpty();
+        assertThat(stores.find(queued.id()).orElseThrow()).satisfies(input -> {
+            assertThat(input.state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+            assertThat(input.pauseReason()).hasValueSatisfying(reason -> assertThat(reason).contains("cancelled"));
+        });
+
+        assertThat(service.resumeQueued(task.id()).state()).isEqualTo(TurnState.RUNNING);
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("first", "second");
+    }
+
+    @Test
     void pausesTheQueueAfterANonSuccessAndResumesOnlyOnRequest()
     {
         service.start(command("first", "key-1"));

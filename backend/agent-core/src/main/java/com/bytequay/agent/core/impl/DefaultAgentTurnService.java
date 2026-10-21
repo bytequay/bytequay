@@ -2265,8 +2265,9 @@ public final class DefaultAgentTurnService
     {
         synchronized (runtimeRegistry.taskLock(observedTurn.taskId())) {
             AgentTask task = taskStore.require(observedTurn.taskId());
-            return observedTurn.developmentOrigin().isEmpty() && turnStore.require(observedTurn.id()).state() == TurnState.COMPLETED && task.state() == TaskState.OPEN
-                    && task.worktreeMutationClaim().isEmpty() && !task.developmentContinuationUnfinished()
+            AgentTurn terminal = turnStore.require(observedTurn.id());
+            return terminal.developmentOrigin().isEmpty() && terminal.state() == TurnState.COMPLETED && terminal.cancellationRequestedAt().isEmpty()
+                    && task.state() == TaskState.OPEN && task.worktreeMutationClaim().isEmpty() && !task.developmentContinuationUnfinished()
                     && !runtimeRegistry.hasDevelopmentOwner(task.id()) && !runtimeRegistry.closing() && !waitingForDevelopmentAnswer(task.id());
         }
     }
@@ -2405,8 +2406,9 @@ public final class DefaultAgentTurnService
         boolean deliveryGate = developmentTurnEligible(taskStore.require(terminal.taskId()), terminal)
                 && terminal.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent();
         boolean ready = terminal.developmentResult().filter(DevelopmentResultReport::readyForDelivery).isPresent();
-        boolean success = terminal.state() == TurnState.COMPLETED && providerQuiescent && (!deliveryGate || ready);
+        boolean success = terminal.state() == TurnState.COMPLETED && terminal.cancellationRequestedAt().isEmpty() && providerQuiescent && (!deliveryGate || ready);
         String pauseReason = terminal.state() != TurnState.COMPLETED ? outcome
+                : terminal.cancellationRequestedAt().isPresent() ? "Turn was cancelled before queued input could start"
                 : !providerQuiescent ? "Turn completed but its work could not be shown stopped"
                 : terminal.developmentResult().flatMap(DevelopmentResultReport::message).orElse("Waiting for the agent's development readiness report");
         for (QueuedAgentInput input : queueStore.listQueued(terminal.taskId())) {

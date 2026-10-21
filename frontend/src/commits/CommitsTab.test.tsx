@@ -15,19 +15,20 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { workspaceFixture } from '../workspaces/fixtures/workspace';
-import type { CommitRefreshStatusDto, WorkspaceDto, WorkspaceSettingsDto } from '../types';
+import type { CommitRefreshStatusDto, WorkspaceDto, WorkspaceRelationshipsDto, WorkspaceSettingsDto } from '../types';
 import CommitsTab, {
   CommitsBrowser,
-  availableCommitSource,
   commitRefreshChanged,
   commitRefreshRefs,
+  commitSources,
   commitSyncLabel,
   commitTargetRef,
-  selectableCommitSources,
+  firstCommitSource,
 } from './CommitsTab';
+import { lineRepos } from './model';
 
 function renderCommits(props: Partial<Parameters<typeof CommitsBrowser>[0]> = {}): string {
-  return renderToStaticMarkup(<CommitsBrowser workspace={workspace()} settings={directSettings}
+  return renderToStaticMarkup(<CommitsBrowser workspace={workspace()} settings={directSettings} repos={lineRepos(workspace(), noRelations, [])}
     onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} {...props} />);
 }
 
@@ -37,50 +38,52 @@ describe('workspace commits tab', () => {
       onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} />);
 
     expect(html).toContain('Loading commits target…');
-    expect(html).not.toContain('cmt-switch');
+    expect(html).not.toContain('cmt-line');
     expect(html).not.toContain('Cherry pick');
   });
 
-  it('keeps the workspace branch separate from the remote source switcher', () => {
+  it('shows this workspace alone and points to Related workspaces when nothing is upstream', () => {
     const html = renderCommits();
 
-    expect(html).toContain('cmt-switch__label cmt-mono">Select source</span>');
-    expect(html).toContain('Choose a remote source for history and cherry-pick');
-    expect(html).not.toContain('cmt-switch__label cmt-mono">origin');
-    expect(html).not.toContain('No upstream linked');
+    expect(html).toContain('aria-label="Repo line"');
+    expect(html).toMatch(/class="cmt-line-repo is-active" aria-pressed="true" title="example\/project · this workspace"/);
+    expect(html).toContain('No upstream repository to pick commits from');
+    expect(html).toContain('Link one in Related workspaces');
+    expect(html).not.toContain('cmt-pill__caption');
   });
 
-  it('excludes origin from cherry-pick sources', () => {
-    expect(selectableCommitSources([
-      { name: 'origin', url: 'https://github.com/example/project.git' },
-      { name: 'upstream', url: 'https://github.com/upstream/project.git' },
-      { name: 'oss', url: 'https://github.com/example/project-oss.git' },
-    ], 'origin')).toEqual([
-      { name: 'upstream', url: 'https://github.com/upstream/project.git' },
-      { name: 'oss', url: 'https://github.com/example/project-oss.git' },
-    ]);
+  it('browses an upstream repository of the line while keeping a separate destination', () => {
+    const html = renderCommits({ repos: line(), initialSourceSelection: { source: 'backport-1' } });
+
+    expect(html).toMatch(/class="cmt-line-repo is-active" aria-pressed="true" title="Pick commits from trino\/oss">/);
+    expect(html).toContain('title="Read history from trino/oss · master"');
+    expect(html).toContain('cmt-pill__label cmt-mono">master</span>');
+    expect(html).toContain('<span class="cmt-pill__caption">into</span><span class="cmt-pill__label cmt-mono">project · main</span>');
+    expect(html).toContain('title="Product takes changes from example/project · open its Commits"');
+    expect(html).toContain('No commits selected');
+    expect(html).toContain('Select range');
+    expect(html).not.toContain('Ranges are picked on the source repo');
   });
 
-  it('discards a remembered source that is no longer configured', () => {
-    const remotes = ['upstream', 'oss'];
+  it('opens the repository just upstream when asked to pick commits', () => {
+    const html = renderCommits({ repos: line(), initialRepo: 'upstream' });
 
-    expect(availableCommitSource('oss', remotes, true)).toBe('oss');
-    expect(availableCommitSource('upstream', [], true)).toBe('upstream');
-    expect(availableCommitSource('removed', remotes, true)).toBeNull();
-    expect(availableCommitSource('upstream', remotes, false)).toBe('oss');
+    expect(html).toMatch(/class="cmt-line-repo is-active" aria-pressed="true" title="Pick commits from acme\/internal">/);
   });
 
-  it('keeps a remembered remote source while validating it', () => {
-    const html = renderCommits({
-      initialSourceSelection: { source: 'oss' },
-    });
+  it('reads from the line, then another branch of this repository', () => {
+    const repos = line();
 
-    expect(html).toContain('cmt-switch__label cmt-mono">oss · ');
-    expect(html).toContain('class="cmt-switch__half" title="Read history and cherry-pick from oss · ');
-    expect(html).not.toContain('read-only');
+    expect(commitSources(repos, true)).toEqual(['backport-1', 'backport-2', 'upstream']);
+    expect(firstCommitSource(repos, true)).toBe('backport-2');
+    expect(firstCommitSource(lineRepos(workspace(), noRelations, []), true)).toBe('upstream');
+    expect(firstCommitSource(lineRepos(workspace(), noRelations, []), false)).toBeNull();
+    // A remembered source the line no longer names shows this workspace instead.
+    expect(renderCommits({ repos, initialSourceSelection: { source: 'removed' } }))
+      .toMatch(/class="cmt-line-repo is-active" aria-pressed="true" title="example\/project · this workspace"/);
   });
 
-  it.each([false, true])('uses the first branch control for the fork destination (override=%s)', overridden => {
+  it.each([false, true])('uses the branch control for the fork destination (override=%s)', overridden => {
     const linked: WorkspaceDto = {
       ...workspace(),
       upstreamDefaultBranch: 'master',
@@ -92,33 +95,31 @@ describe('workspace commits tab', () => {
     const targetBranch = overridden ? 'release/479' : 'master';
     const html = renderCommits({
       workspace: linked,
-      settings: { ...directSettings, commitsTarget: { remote: 'upstream', branch: targetBranch, overridden } },
+      repos: lineRepos(linked, noRelations, []),
+      settings: { commitsTarget: { remote: 'upstream', branch: targetBranch, overridden } },
     });
 
-    expect(html).toMatch(new RegExp(`class="cmt-switch__half is-active"[^>]*title="Cherry-pick target: upstream/project · upstream/${targetBranch}"[^>]*aria-pressed="true"`));
-    expect(html).toContain('class="cmt-switch__half" title="Read history and cherry-pick from upstream · master"');
-    expect(html).toContain('cmt-switch__label cmt-mono">upstream · master</span>');
+    expect(html).toContain(`title="Cherry-pick target: upstream/project · upstream/${targetBranch}"`);
     // The pill names the destination repo, so the branch needs no remote prefix.
-    expect(html).toContain(`cmt-switch__label cmt-mono">project · ${targetBranch}</span>`);
+    expect(html).toContain(`cmt-pill__label cmt-mono">project · ${targetBranch}</span>`);
     expect(html).toContain('Ranges are picked on the source repo');
-    expect(html).not.toContain(`Target · upstream/${targetBranch}`);
+    expect(html).toContain('Pick commits from another branch');
     expect(html).not.toContain('Check out');
   });
 
   it('uses the existing Lucide icons throughout the commit toolbar', () => {
-    const html = renderCommits();
+    const html = renderCommits({ repos: line() });
 
     expect(html).toContain('lucide-refresh-cw');
     expect(html).toContain('lucide-search');
     expect(html).toContain('lucide-git-branch');
     expect(html).toContain('lucide-git-fork');
-    expect(html).toContain('lucide-arrow-left');
     expect(html).toContain('lucide-arrow-right');
+    expect(html).toContain('lucide-arrow-up-right');
     expect(html).toContain('lucide-chevron-down');
     expect(html).toContain('aria-label="Sync commit history"');
     expect(html).toContain('aria-label="Search commits by pull request title, number, or SHA"');
     expect(html).toContain('placeholder="Search title, SHA, PR title or #number"');
-    expect(html).not.toContain('Search — PR title, #number, or SHA');
     // The sync state reads beside the button instead of only in its tooltip.
     expect(html).toContain('not synced yet</span>');
     // Every affordance in the bar and the strip is a Lucide icon, never a glyph.
@@ -129,42 +130,43 @@ describe('workspace commits tab', () => {
     { initialSourceSelection: { source: null } },
     { initialSourceSelection: { source: 'upstream' } },
     { initialRepo: 'workspace' as const },
-  ])('opens the selected target when the source browser is inactive: %j', selection => {
+  ])('keeps this workspace selected for its own branches: %j', selection => {
+    const linked = { ...workspace(), upstreamRepositoryId: 200, upstreamDefaultBranch: 'master', topology: 'FORK' as const };
     const html = renderCommits({
-      workspace: { ...workspace(), upstreamRepositoryId: 200, upstreamDefaultBranch: 'master', topology: 'FORK' },
-      settings: { ...directSettings, commitsTarget: { remote: 'upstream', branch: 'master', overridden: false } },
+      workspace: linked,
+      repos: lineRepos(linked, noRelations, []),
+      settings: { commitsTarget: { remote: 'upstream', branch: 'master', overridden: false } },
       ...selection,
     });
 
-    expect(html).not.toContain('read-only');
-    expect(html).toMatch(/class="cmt-switch__half is-active"[^>]*aria-pressed="true"/);
+    expect(html).toMatch(/class="cmt-line-repo is-active" aria-pressed="true" title="example\/project · this workspace"/);
   });
 
   it('uses the direct repository target branch without an upstream prefix', () => {
     const html = renderCommits({
-      settings: { ...directSettings, commitsTarget: { remote: 'origin', branch: 'release/1', overridden: true } },
+      settings: { commitsTarget: { remote: 'origin', branch: 'release/1', overridden: true } },
     });
 
     expect(html).toContain('title="Cherry-pick target: example/project · release/1"');
-    expect(html).toContain('cmt-switch__label cmt-mono">project · release/1</span>');
+    expect(html).toContain('cmt-pill__label cmt-mono">project · release/1</span>');
     expect(html).not.toContain('upstream/');
   });
 
-  it('opens the source for a cherry-pick while retaining a separate configured destination', () => {
+  it('picks from another branch of the linked upstream while retaining a separate destination', () => {
+    const linked = { ...workspace(), upstreamRepositoryId: 200, upstreamDefaultBranch: 'master', topology: 'FORK' as const };
     const html = renderCommits({
-      workspace: { ...workspace(), upstreamRepositoryId: 200, upstreamDefaultBranch: 'master', topology: 'FORK' },
-      settings: { ...directSettings, commitsTarget: { remote: 'upstream', branch: 'release/479', overridden: true } },
-      initialRepo: "upstream",
+      workspace: linked,
+      repos: lineRepos(linked, noRelations, []),
+      settings: { commitsTarget: { remote: 'upstream', branch: 'release/479', overridden: true } },
+      initialRepo: 'upstream',
     });
 
-    expect(html).toMatch(/class="cmt-switch__half is-active"[^>]*title="Read history and cherry-pick from upstream · /);
-    expect(html).toContain('cmt-switch__label cmt-mono">example/project · release/479</span>');
+    expect(html).toContain('cmt-pill__label cmt-mono">master</span>');
+    expect(html).toContain('cmt-pill__label cmt-mono">example/project · release/479</span>');
     // Selection lives on the source side only, and starts empty.
     expect(html).toContain('No commits selected');
     expect(html).toContain('Select range');
     expect(html).not.toContain('Ranges are picked on the source repo');
-    expect(html).not.toContain('Upstream · read-only');
-    expect(html).not.toContain('then cherry-pick the range into upstream/release/479');
   });
 
   it('reads and refreshes the target separately from the selected source', () => {
@@ -213,10 +215,32 @@ describe('workspace commits tab', () => {
   });
 });
 
-const directSettings: Pick<WorkspaceSettingsDto, 'commitsTarget' | 'remotes'> = {
-  remotes: [],
+const directSettings: Pick<WorkspaceSettingsDto, 'commitsTarget'> = {
   commitsTarget: { remote: 'origin', branch: 'main', overridden: false },
 };
+
+const noRelations: WorkspaceRelationshipsDto = { links: [], related: [], line: [] };
+
+/** trino/oss → acme/internal → this workspace → Product. */
+function line() {
+  const repo = (id: string, owner: string, name: string) => workspaceFixture({
+    id, name, monitoredOwner: owner, monitoredRepo: id, defaultBranch: id === 'oss' ? 'master' : 'main',
+  });
+  return lineRepos(workspace(), {
+    links: [],
+    related: [
+      { workspaceId: 'internal', position: 'UPSTREAM', remote: 'backport-2', unavailableReason: null },
+      { workspaceId: 'oss', position: 'UPSTREAM', remote: 'backport-1', unavailableReason: null },
+      { workspaceId: 'product', position: 'DOWNSTREAM', remote: null, unavailableReason: null },
+    ],
+    line: [
+      { workspaceId: 'oss', parentWorkspaceId: null },
+      { workspaceId: 'internal', parentWorkspaceId: 'oss' },
+      { workspaceId: 'workspace-id', parentWorkspaceId: 'internal' },
+      { workspaceId: 'product', parentWorkspaceId: 'workspace-id' },
+    ],
+  }, [repo('oss', 'trino', 'oss'), repo('internal', 'acme', 'internal'), repo('product', 'acme', 'Product')]);
+}
 
 function status(state: CommitRefreshStatusDto['state']): CommitRefreshStatusDto {
   return {

@@ -53,14 +53,14 @@ public class CherryPickPreviewController
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         boolean explicitSource = request.sourceRemote() != null && !request.sourceRemote().isBlank();
         if (!explicitSource && context.sourceRemote().equals(context.targetRemote())) {
-            throw WorkspaceException.invalidRemoteSource("Add a remote source before starting a cherry-pick.");
+            throw WorkspaceException.invalidRemoteSource("Link an upstream repository in Related workspaces before starting a cherry-pick.");
         }
         String sourceRemote = explicitSource ? request.sourceRemote() : context.sourceRemote();
         if (!context.knownRemote(sourceRemote)) {
-            throw WorkspaceException.invalidRemoteSource("The remote source is not configured for this workspace.");
+            throw WorkspaceException.invalidRemoteSource("That repository is not a source for this workspace yet. Sync, then try again.");
         }
         if (sourceRemote.equals(context.targetRemote())) {
-            throw WorkspaceException.invalidRemoteSource("Choose a remote source other than origin.");
+            throw WorkspaceException.invalidRemoteSource("Choose a source other than this workspace's origin.");
         }
         CherryPickPreview preview = previewService.preview(new PreviewCherryPickRangeCommand(
                 context.repository(),

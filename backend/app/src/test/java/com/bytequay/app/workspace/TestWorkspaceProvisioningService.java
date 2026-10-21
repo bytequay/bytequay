@@ -15,6 +15,7 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
@@ -22,6 +23,7 @@ import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -279,26 +281,35 @@ class TestWorkspaceProvisioningService
     }
 
     @Test
-    void reportsBrokenCustomRemoteWithoutFailingTheWorkspace()
+    void repoLineReplacesHandAddedRemotesAndABrokenOneDoesNotFailTheWorkspace()
             throws IOException
     {
         Remote origin = remote("origin");
         GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), CUSTOM_URL, temporary.resolve("missing-custom.git")), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         InMemoryRemoteSourceStore remoteSources = new InMemoryRemoteSourceStore();
+        WorkspaceRelationships relationships = new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper());
         Workspace workspace = store.createOrGet(workspace("broken-custom", false));
+        store.createOrGet(new Workspace("oss", "oss", 900, RepoRef.of("other", "project"), Optional.empty(), Optional.empty(), 900, RepoRef.of("other", "project"),
+                Topology.DIRECT, "main", CUSTOM_URL, Optional.empty(), Optional.empty(), "/managed/oss", Optional.empty(), Optional.empty(), 0, NOW, NOW));
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct("contributor", ORIGIN_URL)));
-        WorkspaceProvisioningService service = service(store, git, gitHub, remoteSources);
+        WorkspaceProvisioningService service = service(store, git, gitHub, remoteSources, relationships);
         assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
-        remoteSources.save(new RemoteSource(workspace.id(), "oss", CUSTOM_URL));
+        remoteSources.save(new RemoteSource(workspace.id(), "hand-added", UPSTREAM_URL));
+        relationships.save(workspace.id(), new WorkspaceRelationships.Relationship("oss", WorkspaceRelationships.Kind.FORK, "", false));
 
         WorkspaceCodeSyncResult result = service.synchronizeCode(workspace.id());
 
         assertThat(result.successful()).isTrue();
-        assertThat(result.failedRemoteSources()).containsExactly("oss");
-        assertThat(git(directPath(workspace), "remote").lines()).containsExactly("origin", "oss");
+        assertThat(result.failedRemoteSources()).containsExactly("backport-900");
+        assertThat(remoteSources.findByWorkspace(workspace.id())).extracting(RemoteSource::name).containsExactly("backport-900");
+        assertThat(git(directPath(workspace), "remote").lines()).containsExactly("backport-900", "origin");
+
+        relationships.remove(workspace.id(), "oss");
+        assertThat(service.synchronizeCode(workspace.id()).failedRemoteSources()).isEmpty();
+        assertThat(git(directPath(workspace), "remote").lines()).containsExactly("origin");
     }
 
     @Test
@@ -350,6 +361,12 @@ class TestWorkspaceProvisioningService
 
     private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, GitHubAccountClient gitHub, InMemoryRemoteSourceStore remoteSources)
     {
+        return service(store, git, gitHub, remoteSources, new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper()));
+    }
+
+    private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, GitHubAccountClient gitHub, InMemoryRemoteSourceStore remoteSources,
+            WorkspaceRelationships relationships)
+    {
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(credentials.resolveGitHubToken(anyString())).thenReturn("token");
@@ -360,6 +377,8 @@ class TestWorkspaceProvisioningService
                 new ManagedWorkspaceGit(paths, git, credentials, remoteSources),
                 gitHub,
                 credentials,
+                relationships,
+                remoteSources,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

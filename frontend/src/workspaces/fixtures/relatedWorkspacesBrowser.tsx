@@ -167,7 +167,7 @@ async function navigationScenario() {
     getRepositoryContextSpecChecks: async () => [],
     getRepositoryContextBuild: async () => ({ buildRequestSequence: 0, canStart: true, build: null }),
     listReviewReplays: async () => [],
-    getWorkspaceSettings: async () => ({ agents: [], remotes: [], commitsTarget: { remote: 'origin', branch: 'main', overridden: false } }),
+    getWorkspaceSettings: async () => ({ agents: [], commitsTarget: { remote: 'origin', branch: 'main', overridden: false } }),
     gitOverview: async () => ({ currentBranch: 'main', branches: ['main'], remotes: [] }),
     gitRemoteBranches: async () => ['main'],
     gitStatus: async () => ({ branch: 'main', files: [] }),

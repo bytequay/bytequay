@@ -110,7 +110,7 @@ describe('models page', () => {
         onChoose: vi.fn(), onInherit: vi.fn(), onAddKey: vi.fn(), onRemoveKey: vi.fn() };
       return renderToStaticMarkup(surface === 'global' ? <ModelsPage {...props} settings={blocked} /> : <WorkspaceAgentsPage {...props}
         workspace={{ id: 'ws-1', name: 'trino', selectedOwner: 'alice', selectedRepo: 'trino', localRepositoryPath: '/repos/trino' } as WorkspaceDto}
-        settings={{ remotes: [], commitsTarget: { remote: 'origin', branch: 'main', overridden: false }, agents: blocked.agents }}
+        settings={{ commitsTarget: { remote: 'origin', branch: 'main', overridden: false }, agents: blocked.agents }}
         models={blocked} onUseGlobal={vi.fn()} />);
     };
     const blockedMarkup = render(vi.fn());

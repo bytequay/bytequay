@@ -1158,12 +1158,6 @@ type CommitHistorySnapshotDto = {
   refresh: CommitRefreshStatusDto;
 };
 
-export type WorkspaceRemoteDto = {
-  name: string;
-  url: string;
-  role: 'ORIGIN' | 'UPSTREAM' | 'CUSTOM';
-};
-
 export type AgentModelType = 'DEVELOPMENT' | 'REVIEW';
 
 /**
@@ -1244,7 +1238,6 @@ export type WorkspaceRelationshipsDto = {
 };
 
 export type WorkspaceSettingsDto = {
-  remotes: WorkspaceRemoteDto[];
   commitsTarget: WorkspaceCommitsTargetDto;
   agents: AgentModelSettingDto[];
   githubToken?: WorkspaceTokenDto | null;
@@ -2001,8 +1994,6 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   setWorkspaceCommitsTarget: (workspaceId: string, branch: string) => Promise<WorkspaceCommitsTargetDto>;
   clearWorkspaceCommitsTarget: (workspaceId: string) => Promise<WorkspaceCommitsTargetDto>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;
-  addWorkspaceRemote: (workspaceId: string, name: string, url: string) => Promise<WorkspaceRemoteDto[]>;
-  removeWorkspaceRemote: (workspaceId: string, name: string) => Promise<WorkspaceRemoteDto[]>;
   setWorkspaceAgentModel: (
     workspaceId: string,
     type: AgentModelType,

@@ -30,9 +30,8 @@ import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static java.util.Objects.requireNonNull;
 
 /**
- * User-managed extra Git remotes of a workspace checkout. {@code origin} and
- * the linked {@code upstream} are workspace routing and appear in listings
- * with their roles, but only extra remotes can be added or removed here.
+ * Extra Git remotes of a workspace checkout. Synchronization keeps them equal to the repo line's remotes;
+ * {@code origin} and the linked {@code upstream} are workspace routing and appear in listings with their roles.
  */
 @Service
 public class WorkspaceRemoteSourceService
@@ -86,16 +85,6 @@ public class WorkspaceRemoteSourceService
         store.save(new RemoteSource(workspace.id(), remoteName, remoteUrl));
         // Reconcile and fetch happen inside the normal background sync so the
         // checkout, remote list, and last-success timestamp stay in one flow.
-        repositoryService.requestSyncAfterConfigurationChange(workspace.id());
-        return remotes(workspace);
-    }
-
-    /** Removes one extra remote from persistence and the checkout. */
-    public List<WorkspaceRemote> remove(String workspaceId, String name)
-    {
-        Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        String remoteName = requireValidName(name);
-        store.delete(workspace.id(), remoteName);
         repositoryService.requestSyncAfterConfigurationChange(workspace.id());
         return remotes(workspace);
     }

@@ -17,7 +17,6 @@ import type {
   AgentModelType,
   ModelSettingsDto,
   WorkspaceDto,
-  WorkspaceRemoteDto,
   WorkspaceSettingsDto,
 } from '../types';
 import RepoAvatar from '../RepoAvatar';
@@ -26,7 +25,7 @@ import { isClaudeLane, isDeepSeekKeyLane } from './model';
 import ProviderRow from './ProviderRow';
 import ClaudeAccountsCard from './ClaudeAccountsCard';
 import { AgentModelControls, typeLabel, type ModelChoice } from './ModelsPage';
-import { AddAction, Badge, SettingsCard, SettingsRow } from './primitives';
+import { Badge, SettingsCard, SettingsRow } from './primitives';
 
 /** Every workspace page carries which workspace it edits, because the picker can point anywhere. */
 function Eyebrow({ workspace }: { workspace: WorkspaceDto }) {
@@ -38,19 +37,15 @@ function Eyebrow({ workspace }: { workspace: WorkspaceDto }) {
   );
 }
 
-export function WorkspaceRepositoryPage({ workspace, settings, error, onAddRemote, onRemoveRemote, onSaveTarget, onResetTarget, onRename }: {
+export function WorkspaceRepositoryPage({ workspace, settings, error, onUnlinkUpstream, onSaveTarget, onResetTarget, onRename }: {
   workspace: WorkspaceDto;
   settings: WorkspaceSettingsDto | null;
   error: string | null;
-  onAddRemote: (name: string, url: string) => void;
-  onRemoveRemote: (remote: WorkspaceRemoteDto) => void;
+  onUnlinkUpstream: () => void;
   onSaveTarget: (branch: string) => void;
   onResetTarget: () => void;
   onRename: (name: string) => void;
 }) {
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState('');
-  const [url, setUrl] = useState('');
   const [branch, setBranch] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
   const target = settings?.commitsTarget ?? null;
@@ -86,52 +81,11 @@ export function WorkspaceRepositoryPage({ workspace, settings, error, onAddRemot
           {/* A managed path is long and unwrappable, so it gets the read-only field the tokens use. */}
           <div className="setw-token setw-mono is-wrap">{workspace.localRepositoryPath}</div>
         </div>
-      </SettingsCard>
-
-      <div className="setw-section"><span className="setw-section-title">Remotes</span></div>
-      <SettingsCard footer={
-        <AddAction label={adding ? 'Cancel' : 'Add remote'} onClick={() => setAdding(current => !current)} />
-      }>
-        {(settings?.remotes ?? []).map(remote => (
-          <SettingsRow
-            key={remote.name}
-            title={<span className="setw-mono">{remote.name}</span>}
-            badge={remote.role === 'ORIGIN'
-              ? <Badge>your fork · push target</Badge>
-              : remote.role === 'UPSTREAM' ? <Badge>linked upstream</Badge> : undefined}
-            subtitle={<span className="setw-mono">{remote.url}</span>}
-          >
-            {remote.role !== 'ORIGIN' && (
-              <button type="button" className="setw-btn is-quiet" onClick={() => onRemoveRemote(remote)}>Remove</button>
-            )}
+        {workspace.upstreamRepositoryId !== null && (
+          <SettingsRow title="Linked upstream" badge={<Badge>PRs open here</Badge>}
+            subtitle={<span className="setw-mono">{workspace.upstreamOwner}/{workspace.upstreamRepo}</span>}>
+            <button type="button" className="setw-btn is-quiet" onClick={onUnlinkUpstream}>Unlink</button>
           </SettingsRow>
-        ))}
-        {settings === null && <div className="setw-row-empty">Loading remotes…</div>}
-        {adding && (
-          <div className="setw-remote-form">
-            <input
-              className="setw-input setw-mono"
-              aria-label="Remote name"
-              placeholder="name"
-              value={name}
-              onChange={event => setName(event.target.value)}
-            />
-            <input
-              className="setw-input setw-mono"
-              aria-label="Remote URL"
-              placeholder="https://github.com/owner/repo.git"
-              value={url}
-              onChange={event => setUrl(event.target.value)}
-            />
-            <button
-              type="button"
-              className="setw-btn-primary"
-              disabled={name.trim() === '' || url.trim() === ''}
-              onClick={() => { onAddRemote(name.trim(), url.trim()); setName(''); setUrl(''); setAdding(false); }}
-            >
-              Add
-            </button>
-          </div>
         )}
       </SettingsCard>
 

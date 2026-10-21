@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useAgentAvailability } from '../agents/availability';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, GitBranch, GitFork, ListChecks, RefreshCw, Search, X } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Check, ChevronDown, GitBranch, GitFork, ListChecks, RefreshCw, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '../css/commits.css';
 import { relativeTime } from '@bytequay/ui/relativeTime';
@@ -28,14 +28,15 @@ import type {
   WorkspaceSettingsDto,
 } from '../types';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
-import { githubSlug } from '../workspaces/model';
+import { workspaceRoute } from '../workspaces/model';
+import { useRelationships } from '../workspaces/RelatedWorkspaces';
 import ChangesView from './ChangesView';
 import FlowView from './FlowView';
 import HistoryView from './HistoryView';
 import ProgressView from './ProgressView';
 import SelectRangeDialog from './SelectRangeDialog';
 import TasksView from './TasksView';
-import { remoteBranchCorrection, selectedSpan, shortSha } from './model';
+import { lineRepos, remoteBranchCorrection, selectedSpan, shortSha, type LineRepo } from './model';
 
 type Screen = 'commits' | 'flow' | 'tasks' | 'progress';
 type CommitsView = 'history' | 'changes';
@@ -77,28 +78,27 @@ export function commitRefreshChanged(
   return (status.lastAttemptAt ?? null) !== (knownAttemptAt ?? null);
 }
 
-export function selectableCommitSources(
-  remotes: GitOverviewDto['remotes'],
-  originRemote: string,
-): GitOverviewDto['remotes'] {
-  return remotes.filter(remote => remote.name !== originRemote);
+/** The remotes Commits can read from: the repo line's upstream repositories, then another branch of this one. */
+export function commitSources(repos: LineRepo[], hasUpstream: boolean): string[] {
+  return [...repos.flatMap(repo => repo.remote === null ? [] : [repo.remote]), ...(hasUpstream ? ['upstream'] : [])];
 }
 
-export function availableCommitSource(
-  source: string | null,
-  remoteNames: readonly string[],
-  hasUpstream: boolean,
-): string | null {
-  if (source === null) return null;
-  if (source === 'upstream') {
-    return hasUpstream ? source : remoteNames.find(name => name !== 'upstream') ?? null;
-  }
-  return remoteNames.includes(source) ? source : null;
+/** Picking starts in the repository just upstream, then any other source, then another branch of this one. */
+export function firstCommitSource(repos: LineRepo[], hasUpstream: boolean): string | null {
+  const here = repos.findIndex(repo => repo.place === 'here');
+  return (here > 0 ? repos[here - 1].remote : null) ?? commitSources(repos, hasUpstream)[0] ?? null;
+}
+
+function lineRepoTitle(repo: LineRepo, repos: LineRepo[]): string {
+  if (repo.place === 'here') return `${repo.slug} · this workspace`;
+  if (repo.place === 'upstream') return `Pick commits from ${repo.slug}`;
+  const parent = repos.find(item => item.workspaceId === repo.parentWorkspaceId)?.name ?? 'this workspace';
+  return `${repo.name} takes changes from ${parent} · open its Commits`;
 }
 
 type CommitsTabProps = {
   workspace: WorkspaceDto;
-  /** Open on the upstream commit browser (from the Home cherry-pick card). */
+  /** `upstream` opens the nearest repository to pick commits from. */
   initialRepo?: 'workspace' | 'upstream';
   initialSourceSelection?: CommitSourceSelection;
   onSourceSelectionChange: (selection: CommitSourceSelection) => void;
@@ -119,9 +119,11 @@ export default function CommitsTab(props: CommitsTabProps) {
     return () => { cancelled = true; };
   }, [props.workspace.id, retry]);
 
+  const relationships = useRelationships(props.workspace.id);
+
   // Do not read history or prepare a cherry-pick against a guessed target
   // while the saved workspace override is still unknown.
-  if (settings === null) {
+  if (settings === null || (relationships.data === null && relationships.error === null)) {
     return <div className="cmt-root">
       {error === null ? <div className="cmt-loading">Loading commits target…</div> : <div className="cmt-error" role="alert">
         Could not load the commits target: {error}
@@ -130,32 +132,31 @@ export default function CommitsTab(props: CommitsTabProps) {
       </div>}
     </div>;
   }
-  return <CommitsBrowser {...props} settings={settings} />;
+  const repos = lineRepos(props.workspace, relationships.data ?? { links: [], related: [], line: [] }, relationships.data?.workspaces ?? []);
+  return <CommitsBrowser {...props} settings={settings} repos={repos} />;
 }
 
-export function CommitsBrowser({ workspace, settings, initialRepo, initialSourceSelection, onSourceSelectionChange, onOpenPullRequest, onOpenSettings }:
-  CommitsTabProps & { settings: Pick<WorkspaceSettingsDto, 'commitsTarget' | 'remotes'> }) {
+export function CommitsBrowser({ workspace, settings, repos, initialRepo, initialSourceSelection, onSourceSelectionChange, onOpenPullRequest, onOpenSettings }:
+  CommitsTabProps & { settings: Pick<WorkspaceSettingsDto, 'commitsTarget'>; repos: LineRepo[] }) {
   const availability = useAgentAvailability(workspace.id);
   const hasUpstream = workspace.upstreamRepositoryId !== null;
   const target = settings.commitsTarget;
   const targetUpstream = target.remote === 'upstream';
-  const initialSelection = initialSourceSelection ?? {
-    source: hasUpstream ? 'upstream' : null,
-  };
-  const initialSource = initialRepo === undefined
-    ? initialSelection.source
-    : initialRepo === 'upstream' ? 'upstream' : null;
-  const initialViewingSource = initialRepo === 'upstream';
+  const sources = commitSources(repos, hasUpstream);
+  const firstSource = firstCommitSource(repos, hasUpstream);
+  const initialSource = initialRepo === 'upstream' ? firstSource
+    : initialRepo === 'workspace' ? null : initialSourceSelection?.source ?? null;
   const [overview, setOverview] = useState<GitOverviewDto | null>(null);
   const [screen, setScreen] = useState<Screen>('commits');
   const [commitsView, setCommitsView] = useState<CommitsView>('history');
+  /** The remote being browsed, or null while viewing this workspace's cherry-pick target. */
   const [source, setSource] = useState<string | null>(initialSource);
-  const [viewingSource, setViewingSource] = useState(initialViewingSource);
   const [branch, setBranch] = useState(target.branch);
   const [targetBranches, setTargetBranches] = useState<string[]>([]);
   const [targetBranchQuery, setTargetBranchQuery] = useState('');
-  const [upBranch, setUpBranch] = useState(workspace.upstreamDefaultBranch ?? workspace.defaultBranch);
-  const [menu, setMenu] = useState<'target' | 'source' | null>(null);
+  const [upBranch, setUpBranch] = useState(repos.find(repo => repo.remote !== null && repo.remote === initialSource)?.defaultBranch
+    ?? workspace.upstreamDefaultBranch ?? workspace.defaultBranch);
+  const [menu, setMenu] = useState<'branch' | 'into' | null>(null);
   const [upBranchQuery, setUpBranchQuery] = useState('');
   const [upBranches, setUpBranches] = useState<string[]>([]);
   /** The user chose this source's branch themselves; stop steering to its default. */
@@ -178,36 +179,21 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
   const autoSyncAttempt = useRef<string | null>(null);
   const rangeButtonRef = useRef<HTMLButtonElement>(null);
 
-  const observedRemoteSources = selectableCommitSources(overview?.remotes ?? [], 'origin');
-  const persistedRemoteSources = settings.remotes.filter(remote => remote.role !== 'ORIGIN');
-  const remoteSources = persistedRemoteSources
-    .map(remote => ({
-      name: remote.name,
-      url: remote.url,
-      headBranch: observedRemoteSources.find(observed => observed.name === remote.name)?.headBranch ?? null,
-    }));
-  const configuredRemoteNames = persistedRemoteSources.map(remote => remote.name);
-  const availableSource = availableCommitSource(source, configuredRemoteNames, hasUpstream);
-  /** A source being browsed, or null when viewing the cherry-pick target. */
-  const sourceReady = (source === 'upstream' && hasUpstream)
-    || availableSource === source;
-  const activeRemote = viewingSource && sourceReady ? source : null;
+  const activeRemote = source !== null && sources.includes(source) ? source : null;
+  const browsed = repos.find(repo => repo.remote !== null && repo.remote === activeRemote) ?? null;
   const isRemote = activeRemote !== null;
-  const isUpstream = activeRemote === 'upstream' && hasUpstream;
+  const isUpstream = activeRemote === 'upstream';
   const canEditTarget = !isRemote && !targetUpstream && overview?.currentBranch === branch;
   const upstreamSlug = hasUpstream && workspace.upstreamOwner && workspace.upstreamRepo
     ? `${workspace.upstreamOwner}/${workspace.upstreamRepo}`
     : null;
   const targetSlug = targetUpstream ? upstreamSlug : `${workspace.selectedOwner}/${workspace.selectedRepo}`;
   const targetLabel = targetUpstream ? `upstream/${branch}` : branch;
-  const firstExtraRemote = remoteSources.find(remote => remote.name !== 'upstream')?.name ?? null;
-  const activeRemoteUrl = activeRemote === null
-    ? null
-    : remoteSources.find(remote => remote.name === activeRemote)?.url ?? null;
   const activeRemoteHead = activeRemote === null
     ? null
-    : remoteSources.find(remote => remote.name === activeRemote)?.headBranch ?? null;
-  const sourceSlug = activeRemoteUrl ? githubSlug(activeRemoteUrl) : null;
+    : overview?.remotes.find(remote => remote.name === activeRemote)?.headBranch ?? null;
+  const sourceSlug = browsed?.slug ?? (isUpstream ? upstreamSlug : null);
+  const sourceDefaultBranch = browsed?.defaultBranch ?? null;
   const logRef = isRemote ? `${activeRemote}/${upBranch}` : targetLabel;
   const targetRef = commitTargetRef({ ...target, branch });
   const historySource: CommitHistorySourceDto = isUpstream ? 'UPSTREAM' : isRemote ? 'REMOTE' : targetRef.source;
@@ -237,17 +223,16 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
   useEffect(() => {
     setUpBranch(source === 'upstream'
       ? workspace.upstreamDefaultBranch ?? workspace.defaultBranch
-      : workspace.defaultBranch);
+      : sourceDefaultBranch ?? workspace.defaultBranch);
     setUpBranches([]);
     setUpBranchPicked(false);
     setCheckedUp(new Set());
-  }, [source, workspace.defaultBranch, workspace.upstreamDefaultBranch]);
+  }, [source, sourceDefaultBranch, workspace.defaultBranch, workspace.upstreamDefaultBranch]);
 
+  // A remembered source the repo line no longer names falls back to this workspace.
   useEffect(() => {
-    if (availableSource === source) return;
-    setSource(availableSource);
-    if (availableSource === null) setViewingSource(false);
-  }, [availableSource, source]);
+    if (source !== null && activeRemote === null) setSource(null);
+  }, [source, activeRemote]);
 
   useEffect(() => {
     onSourceSelectionChange({ source });
@@ -385,59 +370,24 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
     }
   };
 
-  const targetHalfClick = () => {
-    if (screen !== 'commits' || isRemote) {
-      setScreen('commits');
-      setViewingSource(false);
-      setCommitsView('history');
-      setMenu(null);
-      return;
-    }
-    setMenu(open => (open === 'target' ? null : 'target'));
-  };
-
-  // The inactive half switches the list to that repo; the active half opens its
-  // branch menu. With no source configured there is nothing to switch to, so
-  // the menu opens straight away.
-  const sourceHalfClick = () => {
-    if (source === null) {
-      setMenu(open => (open === 'source' ? null : 'source'));
-      return;
-    }
-    if (screen !== 'commits' || !isRemote) {
-      setScreen('commits');
-      setCommitsView('history');
-      setViewingSource(true);
-      setMenu(null);
-      return;
-    }
-    setMenu(open => (open === 'source' ? null : 'source'));
-  };
-
-  const pickSource = (name: string) => {
+  const browse = (remote: string | null) => {
     setScreen('commits');
-    setMenu(null);
-    setSource(name);
-    setViewingSource(true);
     setCommitsView('history');
+    setMenu(null);
+    setSource(remote);
   };
 
-  // Cherry-pick reads from the browsed remote source; with none selected it
-  // defaults to the linked upstream, then the first extra remote.
+  // With nothing upstream to read from, the next step is linking a related repository.
   const startCherryPick = () => {
-    const cherryPickSource = hasUpstream ? 'upstream' : firstExtraRemote;
-    if (cherryPickSource === null) {
+    if (firstSource === null) {
       onOpenSettings();
       return;
     }
-    setScreen('commits');
-    setSource(cherryPickSource);
-    setViewingSource(true);
-    setCommitsView('history');
+    browse(firstSource);
   };
 
-  const remoteNote = (name: string) =>
-    (name === 'upstream' && hasUpstream ? 'linked upstream · read-only' : 'read-only');
+  const sourceName = (remote: string) =>
+    (remote === 'upstream' ? 'another branch' : repos.find(repo => repo.remote === remote)?.name ?? remote);
 
   const showTabBar = screen !== 'progress';
   const historyVisible = screen === 'commits' && (commitsView === 'history' || isRemote);
@@ -448,7 +398,6 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
   const targetDefaultBranch = targetUpstream ? workspace.upstreamDefaultBranch : workspace.defaultBranch;
   const targetRepoName = (targetUpstream ? workspace.upstreamRepo : workspace.selectedRepo) ?? workspace.name;
   const targetPillLabel = `${targetRepoName} · ${branch}`;
-  const sourcePillLabel = source === null ? 'Select source' : `${sourceSlug ?? source} · ${upBranch}`;
   const pullRequestRepo = isRemote ? sourceSlug : targetSlug;
   const openPullRequest = (number: number) => onOpenPullRequest(number, pullRequestRepo ?? undefined);
   const selectedCount = commits.filter(commit => checked.has(commit.sha)).length;
@@ -504,10 +453,12 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
       {!isRemote && (
         <div className="cmt-strip">
           <GitBranch className="cmt-strip-icon" size={13} strokeWidth={2} aria-hidden="true" />
-          <span className="cmt-strip-note">Ranges are picked on the source repo</span>
+          <span className="cmt-strip-note">
+            {firstSource === null ? 'No upstream repository to pick commits from' : 'Ranges are picked on the source repo'}
+          </span>
           <div className="cmt-strip-gap" />
-          <button type="button" className="cmt-strip-btn" onClick={sourceHalfClick}>
-            Pick commits from source
+          <button type="button" className="cmt-strip-btn" onClick={startCherryPick}>
+            {firstSource === null ? 'Link one in Related workspaces' : `Pick commits from ${sourceName(firstSource)}`}
             <ArrowRight size={12} strokeWidth={2} aria-hidden="true" />
           </button>
         </div>
@@ -567,43 +518,61 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
     <div className="cmt-root">
       {showTabBar && (
         <div className="cmt-tab-bar">
-          <div ref={menuRef} className="cmt-switch" onMouseDown={event => event.stopPropagation()}>
+          <div ref={menuRef} className="cmt-line" onMouseDown={event => event.stopPropagation()}>
+            <ol className="cmt-line-repos" aria-label="Repo line">
+              {repos.map((repo, index) => {
+                const active = repo.place === 'here' ? !isRemote || isUpstream : repo.remote !== null && repo.remote === activeRemote;
+                return (
+                  <li key={repo.workspaceId} className={!repo.joined && index > 0 ? 'is-apart' : undefined}>
+                    {repo.joined && <ArrowRight className="cmt-line-arrow" size={12} strokeWidth={2} aria-hidden="true" />}
+                    <button
+                      type="button"
+                      className={`cmt-line-repo${active ? ' is-active' : ''}`}
+                      aria-pressed={active}
+                      title={lineRepoTitle(repo, repos)}
+                      onClick={() => {
+                        if (repo.place === 'downstream') window.location.hash = workspaceRoute(repo.workspaceId, 'commits');
+                        else browse(repo.place === 'here' ? null : repo.remote);
+                      }}
+                    >
+                      {repo.place === 'here' ? <GitBranch size={12} strokeWidth={2} aria-hidden="true" />
+                        : repo.place === 'upstream' ? <GitFork size={12} strokeWidth={2} aria-hidden="true" />
+                          : <ArrowUpRight size={12} strokeWidth={2} aria-hidden="true" />}
+                      {repo.name}
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
             <button
               type="button"
-              className={`cmt-switch__half${isRemote ? '' : ' is-active'}`}
-              title={`Cherry-pick target: ${targetSlug ?? workspace.name} · ${targetLabel}`}
-              aria-pressed={!isRemote}
-              onClick={targetHalfClick}
+              className="cmt-pill"
+              aria-haspopup="menu"
+              aria-expanded={menu === 'branch'}
+              title={isRemote ? `Read history from ${sourceSlug ?? activeRemote} · ${upBranch}` : `Cherry-pick target: ${targetSlug ?? workspace.name} · ${targetLabel}`}
+              onClick={() => setMenu(open => (open === 'branch' ? null : 'branch'))}
             >
-              <span className="cmt-switch__caption">CHERRY-PICK INTO</span>
-              <span className="cmt-switch__row">
-                <GitBranch size={13} strokeWidth={2} aria-hidden="true" />
-                <span className="cmt-switch__label cmt-mono">{targetPillLabel}</span>
-                <ChevronDown className="cmt-switch__caret" size={11} strokeWidth={2} aria-hidden="true" />
-              </span>
+              <GitBranch size={13} strokeWidth={2} aria-hidden="true" />
+              <span className="cmt-pill__label cmt-mono">{isRemote ? upBranch : targetPillLabel}</span>
+              <ChevronDown className="cmt-pill__caret" size={11} strokeWidth={2} aria-hidden="true" />
             </button>
-            <span className="cmt-switch__divider" aria-hidden="true">
-              <ArrowLeft size={14} strokeWidth={2} />
-            </span>
-            <button
-              type="button"
-              className={`cmt-switch__half${isRemote ? ' is-active' : ''}`}
-              title={source === null
-                ? 'Choose a remote source for history and cherry-pick'
-                : `Read history and cherry-pick from ${sourcePillLabel}`}
-              aria-pressed={isRemote}
-              onClick={sourceHalfClick}
-            >
-              <span className="cmt-switch__caption">SOURCE · READ-ONLY</span>
-              <span className="cmt-switch__row">
-                <GitFork size={13} strokeWidth={2} aria-hidden="true" />
-                <span className="cmt-switch__label cmt-mono">{sourcePillLabel}</span>
-                <ChevronDown className="cmt-switch__caret" size={11} strokeWidth={2} aria-hidden="true" />
-              </span>
-            </button>
+            {isRemote && (
+              <button
+                type="button"
+                className="cmt-pill"
+                aria-haspopup="menu"
+                aria-expanded={menu === 'into'}
+                title={`Cherry-pick target: ${targetSlug ?? workspace.name} · ${targetLabel}`}
+                onClick={() => setMenu(open => (open === 'into' ? null : 'into'))}
+              >
+                <span className="cmt-pill__caption">into</span>
+                <span className="cmt-pill__label cmt-mono">{targetPillLabel}</span>
+                <ChevronDown className="cmt-pill__caret" size={11} strokeWidth={2} aria-hidden="true" />
+              </button>
+            )}
 
-            {menu === 'target' && (
-              <div className="cmt-menu cmt-menu--target">
+            {(menu === 'into' || (menu === 'branch' && !isRemote)) && (
+              <div className="cmt-menu">
                 <div className="cmt-menu-head">
                   <div className="cmt-menu-label">CHERRY-PICK DESTINATION</div>
                   <div className="cmt-menu-sub cmt-mono">{targetSlug ?? workspace.name}</div>
@@ -648,72 +617,43 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
               </div>
             )}
 
-            {menu === 'source' && (
-              <div className="cmt-menu cmt-menu--source">
-                <div className="cmt-menu-label">HISTORY AND CHERRY-PICK READ FROM HERE</div>
-                {remoteSources.map(remote => (
-                  <button
-                    type="button"
-                    key={remote.name}
-                    title={remote.url}
-                    className={`cmt-source-item${source === remote.name ? ' is-current' : ''}`}
-                    onClick={() => pickSource(remote.name)}
-                  >
-                    <span className="cmt-source-head">
+            {menu === 'branch' && isRemote && (
+              <div className="cmt-menu">
+                <div className="cmt-menu-head">
+                  <div className="cmt-menu-label">HISTORY AND CHERRY-PICK READ FROM HERE</div>
+                  <div className="cmt-menu-sub cmt-mono">{sourceSlug ?? activeRemote}</div>
+                </div>
+                <div className="cmt-menu-search">
+                  <input
+                    value={upBranchQuery}
+                    placeholder="Find a branch…"
+                    aria-label="Find a source branch"
+                    onChange={event => setUpBranchQuery(event.target.value)}
+                  />
+                </div>
+                <div className="cmt-menu-list">
+                  {filteredUpBranches.slice(0, 30).map(name => (
+                    <button
+                      type="button"
+                      key={name}
+                      title={name}
+                      className={`cmt-menu-item${name === upBranch ? ' is-current' : ''}`}
+                      onClick={() => {
+                        setUpBranch(name);
+                        setUpBranchPicked(true);
+                        setMenu(null);
+                        setUpBranchQuery('');
+                        setCheckedUp(new Set());
+                      }}
+                    >
                       <span className="cmt-menu-check">
-                        {source === remote.name && <Check size={12} strokeWidth={2} aria-hidden="true" />}
+                        {name === upBranch && <Check size={11} strokeWidth={2} aria-hidden="true" />}
                       </span>
-                      <span className="cmt-source-name">{remote.name}</span>
-                      <span className="cmt-source-note">{remoteNote(remote.name)}</span>
-                    </span>
-                    <span className="cmt-source-repo cmt-mono">{githubSlug(remote.url) ?? remote.url}</span>
-                  </button>
-                ))}
-                {remoteSources.length === 0 && (
-                  <div className="cmt-menu-label">No remote sources configured</div>
-                )}
-                {source !== null && (
-                  <>
-                    <div className="cmt-menu-search">
-                      <input
-                        value={upBranchQuery}
-                        placeholder="Find a branch…"
-                        aria-label="Find a source branch"
-                        onChange={event => setUpBranchQuery(event.target.value)}
-                      />
-                    </div>
-                    <div className="cmt-menu-list">
-                      {filteredUpBranches.slice(0, 30).map(name => (
-                        <button
-                          type="button"
-                          key={name}
-                          title={name}
-                          className={`cmt-menu-item${name === upBranch ? ' is-current' : ''}`}
-                          onClick={() => {
-                            setUpBranch(name);
-                            setUpBranchPicked(true);
-                            setMenu(null);
-                            setUpBranchQuery('');
-                            setCheckedUp(new Set());
-                          }}
-                        >
-                          <span className="cmt-menu-check">
-                            {name === upBranch && <Check size={11} strokeWidth={2} aria-hidden="true" />}
-                          </span>
-                          <span className="cmt-menu-branch cmt-mono">{name}</span>
-                        </button>
-                      ))}
-                      {upBranches.length === 0 && <div className="cmt-menu-label">Loading branches…</div>}
-                    </div>
-                  </>
-                )}
-                <button
-                  type="button"
-                  className="cmt-menu-foot"
-                  onClick={() => { setMenu(null); onOpenSettings(); }}
-                >
-                  Manage remote sources in Workspace settings
-                </button>
+                      <span className="cmt-menu-branch cmt-mono">{name}</span>
+                    </button>
+                  ))}
+                  {upBranches.length === 0 && <div className="cmt-menu-label">Loading branches…</div>}
+                </div>
               </div>
             )}
           </div>

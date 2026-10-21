@@ -1455,16 +1455,6 @@ function registerIpc(): void {
     backendJson(workspaceUrl(workspaceId, `/commits-target`), { method: 'DELETE' }));
   ipcMain.handle('workspaces:rename', (_event, workspaceId: string, name: string) =>
     backendJson(workspaceUrl(workspaceId), jsonInit('PATCH', { name })));
-  ipcMain.handle('workspaces:remotes:add', (_event, workspaceId: string, name: string, url: string) =>
-    backendJson(
-      workspaceUrl(workspaceId, `/remotes`),
-      jsonInit('POST', { name, url }),
-    ));
-  ipcMain.handle('workspaces:remotes:remove', (_event, workspaceId: string, name: string) =>
-    backendJson(
-      workspaceUrl(workspaceId, `/remotes/${encodeURIComponent(name)}`),
-      { method: 'DELETE' },
-    ));
   ipcMain.handle('workspaces:agent-model:set', (
     _event,
     workspaceId: string,

@@ -606,19 +606,6 @@
   border-radius: 8px;
 }
 
-/* ── Remote rows ──────────────────────────────────────────────────────────── */
-
-.setw-remote-form {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: light-dark(#fafafb, var(--dark-canvas));
-}
-
-.setw-remote-form input:first-of-type { width: 110px; flex: none; }
-.setw-remote-form input:last-of-type { flex: 1; min-width: 0; }
-
 /* Wraps rather than truncates: a checkout path is read, not scanned, and there is
    nowhere else to see it in full. */
 .setw-token.is-wrap {

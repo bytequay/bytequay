@@ -42,82 +42,64 @@
   flex: none;
 }
 
-.cmt-switch {
+/* The repo line: upstream repositories, this workspace, then downstream ones. */
+.cmt-line {
   position: relative;
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
   margin-bottom: 9px;
+}
+
+.cmt-line-repos {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cmt-line-repos li { display: flex; align-items: center; gap: 4px; }
+.cmt-line-repos li.is-apart { margin-left: 4px; padding-left: 8px; border-left: 1px solid var(--line-default); }
+.cmt-line-arrow { flex: none; color: var(--fg-dim); }
+
+.cmt-line-repo,
+.cmt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 4px 9px;
   border: 1px solid var(--line-default);
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--surface-canvas);
-  max-width: min(680px, 58vw);
-}
-
-/* Each half is both the repo switch and, once active, its branch menu. */
-.cmt-switch__half {
-  display: block;
-  min-width: 0;
-  text-align: left;
-  border: none;
-  cursor: pointer;
-  padding: 5px 11px 6px;
-  background: var(--surface-canvas);
-}
-
-.cmt-switch__half:first-child { border-radius: 7px 0 0 7px; }
-.cmt-switch__half:last-child { border-radius: 0 7px 7px 0; }
-.cmt-switch__half.is-active { background: var(--bg-info); }
-
-.cmt-switch__caption {
-  display: block;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  color: var(--fg-dim);
-}
-
-.cmt-switch__half.is-active .cmt-switch__caption { color: var(--fg-link); }
-
-.cmt-switch__row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 1px;
-  min-width: 0;
-  color: light-dark(#6e7781, var(--dark-muted));
-}
-
-.cmt-switch__half.is-active .cmt-switch__row { color: light-dark(#0550ae, var(--dark-blue)); }
-
-.cmt-switch__row > svg { flex: none; }
-
-.cmt-switch__label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12.5px;
+  color: light-dark(#57606a, var(--dark-muted));
+  font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-.cmt-switch__caret { color: light-dark(#a3aab3, var(--dark-dim)); }
-.cmt-switch__half.is-active .cmt-switch__caret { color: var(--fg-link); }
-
-.cmt-switch__divider {
-  display: flex;
-  align-items: center;
-  flex: none;
-  padding: 0 9px;
-  background: light-dark(#f6f8fa, var(--dark-subtle));
-  border-left: 1px solid light-dark(#e6eaee, var(--dark-border-muted));
-  border-right: 1px solid light-dark(#e6eaee, var(--dark-border-muted));
-  color: light-dark(#6e7781, var(--dark-muted));
-}
+.cmt-line-repo:hover,
+.cmt-pill:hover { background: light-dark(#f6f8fa, var(--dark-subtle)); }
+.cmt-line-repo.is-active { background: var(--bg-info); border-color: light-dark(#b6d4fe, var(--dark-blue-soft)); color: light-dark(#0550ae, var(--dark-blue)); }
+.cmt-line-repo > svg,
+.cmt-pill > svg { flex: none; }
+.cmt-pill { max-width: 280px; }
+.cmt-pill__caption { font-weight: 400; color: var(--fg-dim); }
+.cmt-pill__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cmt-pill__caret { color: light-dark(#a3aab3, var(--dark-dim)); }
 
 .cmt-menu {
   position: absolute;
   top: calc(100% + 9px);
+  right: 0;
   z-index: 40;
+  width: min(320px, calc(100vw - 32px));
   box-sizing: border-box;
   background: var(--surface-elevated);
   border: 1px solid var(--line-default);
@@ -126,8 +108,6 @@
   overflow: hidden;
 }
 
-.cmt-menu--target { left: 0; width: min(310px, calc(100vw - 32px)); }
-.cmt-menu--source { right: 0; width: min(330px, calc(100vw - 32px)); }
 
 .cmt-menu-label {
   padding: 10px 12px 8px;
@@ -1721,33 +1701,6 @@
 }
 
 .cmt-pr-empty small { font-size: var(--ui-font-size); color: var(--fg-dim); }
-
-/* Remote source rows, above the branch filter in the source menu. */
-.cmt-source-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: none;
-  border-bottom: 1px solid light-dark(#f4f6f8, var(--dark-border-muted));
-  background: var(--surface-canvas);
-  padding: 8px 12px;
-  cursor: pointer;
-}
-
-.cmt-source-item:hover { background: light-dark(#f6f8fa, var(--dark-subtle)); }
-.cmt-source-item.is-current { background: light-dark(#f6fbff, var(--dark-subtle)); }
-.cmt-source-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.cmt-source-head .cmt-menu-check { width: 12px; height: 12px; }
-.cmt-source-name { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
-.cmt-source-note {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 10.5px;
-  color: var(--fg-dim);
-}
-.cmt-source-repo { display: block; margin-left: 19px; font-size: 11px; color: var(--fg-muted); }
 
 /* ── Select range dialog ─────────────────────────────────── */
 

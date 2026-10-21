@@ -16,7 +16,53 @@ import type {
   CherryPickExecutionItem,
   GitCommitDto,
   WorkspaceDeliveryStatus,
+  WorkspaceDto,
+  WorkspaceRelationshipsDto,
 } from '../types';
+
+/** One repository in the Commits tab's repo line. */
+export type LineRepo = {
+  workspaceId: string;
+  name: string;
+  /** `owner/repo` of its monitored project, where its pull requests live. */
+  slug: string;
+  defaultBranch: string;
+  /** The git remote this workspace reads it through; null for this workspace and downstream ones. */
+  remote: string | null;
+  place: 'upstream' | 'here' | 'downstream';
+  parentWorkspaceId: string | null;
+  /** Continues from the repository before it; a downstream branch or an extra Fork source does not. */
+  joined: boolean;
+};
+
+/** The line through this workspace, then any other Fork source it reads from. */
+export function lineRepos(workspace: WorkspaceDto, relationships: WorkspaceRelationshipsDto, workspaces: WorkspaceDto[]): LineRepo[] {
+  const line = relationships.line.some(node => node.workspaceId === workspace.id)
+    ? relationships.line
+    : [{ workspaceId: workspace.id, parentWorkspaceId: null }];
+  const here = line.findIndex(node => node.workspaceId === workspace.id);
+  const repo = (id: string, parentWorkspaceId: string | null, place: LineRepo['place'], joined: boolean): LineRepo => {
+    const value = id === workspace.id ? workspace : workspaces.find(item => item.id === id);
+    return {
+      workspaceId: id,
+      name: value?.name ?? id,
+      slug: value ? `${value.monitoredOwner}/${value.monitoredRepo}` : id,
+      defaultBranch: value?.upstreamDefaultBranch ?? value?.defaultBranch ?? 'main',
+      remote: place === 'upstream' ? relationships.related.find(item => item.workspaceId === id)?.remote ?? null : null,
+      place,
+      parentWorkspaceId,
+      joined,
+    };
+  };
+  return [
+    ...line.map((node, index) => repo(node.workspaceId, node.parentWorkspaceId,
+      index < here ? 'upstream' : index === here ? 'here' : 'downstream',
+      index > 0 && node.parentWorkspaceId === line[index - 1].workspaceId)),
+    ...relationships.related
+      .filter(item => item.remote !== null && !line.some(node => node.workspaceId === item.workspaceId))
+      .map(item => repo(item.workspaceId, null, 'upstream', false)),
+  ];
+}
 
 export function pullRequestPanelRef(
   delivery: WorkspaceDeliveryStatus | null,

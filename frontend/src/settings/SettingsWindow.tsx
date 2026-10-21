@@ -22,7 +22,6 @@ import type {
   ModelSettingsDto,
   QuietHoursDto,
   WorkspaceDto,
-  WorkspaceRemoteDto,
   WorkspaceSettingsDto,
 } from '../types';
 import DeleteWorkspaceDialog from '../workspaces/DeleteWorkspaceDialog';
@@ -404,16 +403,8 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               workspace={workspace}
               settings={wsSettings}
               error={error}
-              onAddRemote={(name, url) => {
-                window.bridge.addWorkspaceRemote(workspace.id, name, url).then(refreshWorkspaceSettings).catch(report);
-              }}
-              onRemoveRemote={(remote: WorkspaceRemoteDto) => {
-                // Unlinking an upstream is a different operation from deleting a remote, even
-                // though both rows say Remove.
-                const removed: Promise<unknown> = remote.role === 'UPSTREAM'
-                  ? window.bridge.setWorkspaceUpstream(workspace.id, null)
-                  : window.bridge.removeWorkspaceRemote(workspace.id, remote.name);
-                removed.then(refreshWorkspaceSettings).catch(report);
+              onUnlinkUpstream={() => {
+                window.bridge.setWorkspaceUpstream(workspace.id, null).then(refreshWorkspaceSettings).catch(report);
               }}
               onSaveTarget={branch => {
                 window.bridge.setWorkspaceCommitsTarget(workspace.id, branch).then(refreshWorkspaceSettings).catch(report);

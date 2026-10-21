@@ -30,8 +30,6 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRelationships.Relationship;
-import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
-import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -75,7 +73,6 @@ public class WorkspaceController
     private final PullRequestRefreshService pullRequestRefresh;
     private final WorkspaceMetadataService metadata;
     private final WorkspaceIssueService issues;
-    private final WorkspaceRemoteSourceService remoteSources;
     private final ModelSettingsService models;
     private final CredentialService credentials;
     private final WorkspaceCommitsSettingsService commitsSettings;
@@ -89,7 +86,6 @@ public class WorkspaceController
             PullRequestRefreshService pullRequestRefresh,
             WorkspaceMetadataService metadata,
             WorkspaceIssueService issues,
-            WorkspaceRemoteSourceService remoteSources,
             ModelSettingsService models,
             CredentialService credentials,
             WorkspaceCommitsSettingsService commitsSettings,
@@ -102,7 +98,6 @@ public class WorkspaceController
         this.pullRequestRefresh = requireNonNull(pullRequestRefresh, "pullRequestRefresh is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.issues = requireNonNull(issues, "issues is null");
-        this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.models = requireNonNull(models, "models is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.commitsSettings = requireNonNull(commitsSettings, "commitsSettings is null");
@@ -267,7 +262,6 @@ public class WorkspaceController
     public WorkspaceSettingsResponse settings(@PathVariable String workspaceId)
     {
         return new WorkspaceSettingsResponse(
-                remoteSources.list(workspaceId),
                 Stream.of(AgentModelType.values())
                         .map(type -> models.agentModel(type, Optional.of(workspaceId)))
                         .collect(toImmutableList()),
@@ -337,18 +331,6 @@ public class WorkspaceController
         return commitsSettings.reset(workspaceId);
     }
 
-    @PostMapping("/{workspaceId}/remotes")
-    public List<WorkspaceRemote> addRemote(@PathVariable String workspaceId, @RequestBody RemoteRequest request)
-    {
-        return remoteSources.add(workspaceId, request.name(), request.url());
-    }
-
-    @DeleteMapping("/{workspaceId}/remotes/{name}")
-    public List<WorkspaceRemote> removeRemote(@PathVariable String workspaceId, @PathVariable String name)
-    {
-        return remoteSources.remove(workspaceId, name);
-    }
-
     @PutMapping("/{workspaceId}/agent-model/{type}")
     public AgentModelSetting setAgentModel(@PathVariable String workspaceId, @PathVariable AgentModelType type, @RequestBody AgentModelRequest request)
     {
@@ -401,8 +383,6 @@ public class WorkspaceController
 
     public record RenameRequest(String name) {}
 
-    public record RemoteRequest(String name, String url) {}
-
     public record AgentModelRequest(String configId, String model, String effort) {}
 
     public record CommitsTargetRequest(String branch) {}
@@ -410,7 +390,6 @@ public class WorkspaceController
     public record TokenRequest(String value) {}
 
     public record WorkspaceSettingsResponse(
-            List<WorkspaceRemote> remotes,
             List<AgentModelSetting> agents,
             CredentialService.WorkspaceToken githubToken,
             WorkspaceCommitsTarget commitsTarget) {}

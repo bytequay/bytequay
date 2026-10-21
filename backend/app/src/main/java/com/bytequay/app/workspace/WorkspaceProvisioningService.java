@@ -15,9 +15,11 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
@@ -26,6 +28,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.Set;
 
@@ -41,14 +44,19 @@ public class WorkspaceProvisioningService
     private final ManagedWorkspaceGit managedGit;
     private final GitHubAccountClient gitHub;
     private final CredentialService credentials;
+    private final WorkspaceRelationships relationships;
+    private final RemoteSourceStore remoteSources;
     private final Clock clock;
 
-    public WorkspaceProvisioningService(WorkspaceStore store, ManagedWorkspaceGit managedGit, GitHubAccountClient gitHub, CredentialService credentials, Clock clock)
+    public WorkspaceProvisioningService(WorkspaceStore store, ManagedWorkspaceGit managedGit, GitHubAccountClient gitHub, CredentialService credentials,
+            WorkspaceRelationships relationships, RemoteSourceStore remoteSources, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.managedGit = requireNonNull(managedGit, "managedGit is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.relationships = requireNonNull(relationships, "relationships is null");
+        this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -70,6 +78,7 @@ public class WorkspaceProvisioningService
             try {
                 Workspace previousRouting = workspace;
                 Workspace currentRouting = refreshRouting(workspace);
+                reconcileLineRemotes(workspaceId);
                 Set<String> failedRemoteSources;
                 if (workspace.lastCodeSyncAt().isEmpty()) {
                     managedGit.provision(previousRouting, currentRouting);
@@ -88,6 +97,26 @@ public class WorkspaceProvisioningService
                 return WorkspaceCodeSyncResult.failure(requireWorkspace(store, workspaceId));
             }
         });
+    }
+
+    /**
+     * The checkout fetches exactly the remotes its repo line names. A cherry-pick reads its source remote only while
+     * previewing and starting, so removing one never affects a cherry-pick that already started.
+     */
+    private void reconcileLineRemotes(String workspaceId)
+    {
+        Collection<RemoteSource> wanted = relationships.lineRemotes(workspaceId).values();
+        var existing = remoteSources.findByWorkspace(workspaceId);
+        for (RemoteSource remote : existing) {
+            if (wanted.stream().noneMatch(value -> value.name().equals(remote.name()))) {
+                remoteSources.delete(workspaceId, remote.name());
+            }
+        }
+        for (RemoteSource remote : wanted) {
+            if (!existing.contains(remote)) {
+                remoteSources.save(remote);
+            }
+        }
     }
 
     private Workspace refreshRouting(Workspace workspace)

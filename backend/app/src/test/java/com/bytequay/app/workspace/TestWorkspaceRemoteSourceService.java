@@ -122,17 +122,6 @@ class TestWorkspaceRemoteSourceService
                 .isInstanceOf(WorkspaceException.class);
     }
 
-    @Test
-    void removeDeletesAndQueuesSync()
-    {
-        store.save(new RemoteSource("ws-1", "oss", "https://github.com/trino-oss/trino.git"));
-
-        service.remove("ws-1", "oss");
-
-        assertThat(store.findByWorkspace("ws-1")).isEmpty();
-        verify(repositoryService).requestSyncAfterConfigurationChange("ws-1");
-    }
-
     private static Workspace workspace(boolean ready)
     {
         return new Workspace(

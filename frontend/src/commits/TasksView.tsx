@@ -160,8 +160,8 @@ export default function TasksView({ workspaceId, onOpenTask, onNewCherryPick }: 
         </button>
       )}
       <div className="cmt-tasks-footnote">
-        To start a new cherry-pick, open <strong>History</strong> on the upstream tab, select a
-        range of commits, and confirm.
+        To start a new cherry-pick, open <strong>History</strong>, choose a repository upstream in
+        the repo line, select a range of commits, and confirm.
       </div>
     </div>
   );

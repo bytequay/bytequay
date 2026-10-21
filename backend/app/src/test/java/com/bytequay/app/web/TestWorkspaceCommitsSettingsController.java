@@ -26,7 +26,6 @@ import com.bytequay.app.workspace.WorkspaceDeletionService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
-import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RemoteSource;
@@ -73,7 +72,7 @@ class TestWorkspaceCommitsSettingsController
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         WorkspaceController controller = new WorkspaceController(workspaces, deletion, mock(PullRequestService.class), refresh,
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
-                mock(WorkspaceRemoteSourceService.class), models, mock(CredentialService.class), settings, mock(IssueDevelopmentService.class),
+                models, mock(CredentialService.class), settings, mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class));
         var mvc = standaloneSetup(controller).build();
 
@@ -118,7 +117,7 @@ class TestWorkspaceCommitsSettingsController
                 RepoRef.of("oss", "oss"), OptionalLong.empty(), RepoRef.of("oss", "oss"), "origin", "origin", "main", ImmutableList.of()));
         var controller = new WorkspaceController(workspaces, mock(WorkspaceDeletionService.class), mock(PullRequestService.class),
                 mock(PullRequestRefreshService.class), mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
-                mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class),
+                mock(ModelSettingsService.class),
                 mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class), relationships);
         var mvc = standaloneSetup(controller).build();
         mvc.perform(get("/api/workspaces/trino/relationships"))

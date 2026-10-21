@@ -35,6 +35,6 @@ export function RelatedWorkspaceView({ workspaceId, relatedWorkspaceId, tab }: {
     {tab === 'context' ? <MemoryPage key={workspace.id} workspace={workspace} /> : <CommitsTab key={workspace.id} workspace={workspace}
       onSourceSelectionChange={() => {}}
       onOpenPullRequest={(number, repo) => zoomReference({ kind: 'pull', repo: repo ?? `${workspace.monitoredOwner}/${workspace.monitoredRepo}`, number, workspaceId: workspace.id })}
-      onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }} />}
+      onOpenSettings={() => { window.location.hash = settingsRoute('ws-repository', workspace.id); }} />}
   </div>;
 }

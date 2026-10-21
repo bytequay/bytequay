@@ -154,7 +154,7 @@ export default function FlowView({
     || String(pr.number).includes(prQuery));
 
   const titleValue = prTitle
-    ?? `Cherry-pick ${applyItems.length} upstream commits into ${preview.targetBranch}`;
+    ?? `Cherry-pick ${applyItems.length} commits from ${upstreamLabel} into ${preview.targetBranch}`;
   const bodyValue = prBody ?? [
     `Cherry-picks ${upstreamLabel} ${shortSha(preview.sourceBaseSha)}…${shortSha(preview.sourceTipSha)} into ${preview.targetBranch} via ByteQuay.`,
     '',

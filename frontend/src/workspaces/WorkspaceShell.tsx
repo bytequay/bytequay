@@ -177,7 +177,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
     onSelectPullRequest(reference.number, mode);
   }, [onSelectPullRequest]);
 
-  // Commits browsed from a remote source name their own repository; everything
+  // Commits browsed from another repository name their own; everything
   // else zooms the workspace's monitored one.
   const zoomPullRequest = useCallback((number: number, repo?: string) => {
     zoomReference({ kind: 'pull', repo: repo ?? monitoredRepository, number, workspaceId: workspace.id });
@@ -249,7 +249,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
           initialSourceSelection={commitSourceSelection}
           onSourceSelectionChange={setCommitSourceSelection}
           onOpenPullRequest={zoomPullRequest}
-          onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
+          onOpenSettings={() => { window.location.hash = settingsRoute('ws-repository', workspace.id); }}
         />
       );
     }

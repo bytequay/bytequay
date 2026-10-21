@@ -50,8 +50,7 @@ function stubBridge(reads: string[]) {
     getWorkspaceSettings: async (id: string): Promise<WorkspaceSettingsDto> => {
       reads.push(id);
       return {
-        remotes: [{ name: 'origin', url: `https://github.com/${id}.git`, role: 'ORIGIN' }],
-        commitsTarget: { remote: 'upstream', branch: 'master', overridden: false },
+        commitsTarget: { remote: 'upstream', branch: id === 'ws-1' ? 'master' : 'main', overridden: false },
         agents: [],
         githubToken: null,
       };
@@ -169,8 +168,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     finally { view.dispose(); }
   };
 
+  const target = (view: ReturnType<typeof fixture>) => view.host.querySelector<HTMLInputElement>('[aria-label="Default target branch"]')?.value;
+
   await check('re-picking the workspace already open leaves its settings on screen', async (view, reads) => {
-    assert(view.text().includes('origin'), 'The workspace settings must load first');
+    assert(target(view) === 'master', 'The workspace settings must load first');
     assert(reads.length === 1, `Expected one read, got ${reads.length}`);
 
     await view.click('Workspace being edited');
@@ -178,8 +179,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await settle();
 
     // The bug: choosing the open workspace blanked the page with nothing left to refill it.
-    assert(!view.text().includes('Loading remotes'), 'Re-picking the open workspace must not blank the page');
-    assert(view.text().includes('origin'), 'The remotes must still be shown');
+    assert(target(view) === 'master', 'Re-picking the open workspace must not blank the page');
   });
 
   await check('switching workspace loads the one that was chosen', async (view, reads) => {
@@ -189,21 +189,16 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await settle();
 
     assert(reads.includes('ws-2'), `Expected ws-2 to be read, got ${JSON.stringify(reads)}`);
-    assert(view.text().includes('ws-2'), 'The chosen workspace remotes must be shown');
-    assert(!view.text().includes('Loading remotes'), 'The page must not stay in its loading state');
+    assert(target(view) === 'main', 'The chosen workspace settings must be shown');
   });
 
   await check('switching workspace clears repository drafts before saving another target', async view => {
     await view.type('Default target branch', 'release-for-first');
-    await view.click('Add remote');
-    await view.type('Remote name', 'first-only');
-    await view.type('Remote URL', 'https://github.com/first/repo.git');
     await view.click('Workspace being edited');
     await view.pick('trinodb/charts');
     await settle();
 
-    assert(view.host.querySelector<HTMLInputElement>('[aria-label="Default target branch"]')?.value === 'master', 'The target must come from the chosen workspace');
-    assert(view.host.querySelector('[aria-label="Remote name"]') === null, 'An unfinished remote must not follow the workspace picker');
+    assert(target(view) === 'main', 'The target must come from the chosen workspace');
     assert(view.writes.length === 0, 'Switching workspaces must not save drafts');
     await view.type('Default target branch', 'release-for-second');
     await view.click('Save');

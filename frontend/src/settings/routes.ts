@@ -84,7 +84,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     group: 'Workspace',
     label: 'Repository',
     slug: 'repository',
-    rows: ['Remotes', 'Add remote', 'Default target branch'],
+    rows: ['Linked upstream', 'Related workspaces', 'Repo line', 'Default target branch'],
   },
   {
     section: 'ws-agents',

@@ -192,7 +192,7 @@ class TestCherryPickPreviewHttpApi
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(ORIGIN_SOURCE_BODY))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.message").value("Choose a remote source other than origin."));
+                .andExpect(jsonPath("$.message").value("Choose a source other than this workspace's origin."));
         verify(previewService, never()).preview(any());
 
         mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview")

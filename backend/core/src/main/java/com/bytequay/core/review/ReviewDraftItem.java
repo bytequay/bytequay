@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
+import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -55,8 +56,7 @@ public record ReviewDraftItem(
         requireNonNull(publication, "publication is null");
         requireNonNull(replyToCommentId, "replyToCommentId is null");
         replyToCommentId.ifPresent(value -> checkArgument(value > 0, "replyToCommentId is not positive"));
-        requireNonNull(commitId, "commitId is null");
-        commitId.ifPresent(value -> checkArgument(!value.isBlank(), "commitId is blank"));
+        checkOptionalText(commitId, "commitId");
         checkArgument((source == Source.AGENT_FINDING) == findingId.isPresent(), "findingId and source disagree");
     }
 

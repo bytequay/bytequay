@@ -347,29 +347,18 @@ public class WorkspaceRepositoryService
         }
         Optional<UserRepo> upstream = upstreamRepositoryId.map(id -> requireUpstream(workspace, id));
         Instant now = clock.instant();
-        Workspace linked = upstream
-                .map(value -> workspace.withRepositoryRouting(
-                        workspace.selectedRepository(),
-                        Optional.of(value.id()),
-                        Optional.of(RepoRef.of(value.owner(), value.name())),
-                        value.id(),
-                        RepoRef.of(value.owner(), value.name()),
-                        workspace.defaultBranch(),
-                        workspace.originCloneUrl(),
-                        Optional.of(value.defaultBranch()),
-                        Optional.of(value.cloneUrl()),
-                        now))
-                .orElseGet(() -> workspace.withRepositoryRouting(
-                        workspace.selectedRepository(),
-                        Optional.empty(),
-                        Optional.empty(),
-                        workspace.selectedRepositoryId(),
-                        workspace.selectedRepository(),
-                        workspace.defaultBranch(),
-                        workspace.originCloneUrl(),
-                        Optional.empty(),
-                        Optional.empty(),
-                        now));
+        Optional<RepoRef> upstreamRef = upstream.map(value -> RepoRef.of(value.owner(), value.name()));
+        Workspace linked = workspace.withRepositoryRouting(
+                workspace.selectedRepository(),
+                upstream.map(UserRepo::id),
+                upstreamRef,
+                upstream.map(UserRepo::id).orElse(workspace.selectedRepositoryId()),
+                upstreamRef.orElse(workspace.selectedRepository()),
+                workspace.defaultBranch(),
+                workspace.originCloneUrl(),
+                upstream.map(UserRepo::defaultBranch),
+                upstream.map(UserRepo::cloneUrl),
+                now);
         Workspace saved = store.save(linked.withMetadataSyncAt(Optional.empty(), now));
         return requestSyncAfterConfigurationChange(saved.id());
     }

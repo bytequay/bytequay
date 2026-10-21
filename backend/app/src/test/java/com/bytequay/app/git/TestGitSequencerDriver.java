@@ -189,7 +189,6 @@ class TestGitSequencerDriver
 
         SequenceState state = driver.observe(repository);
         assertThat(state.kind()).isEqualTo(Kind.UNSAFE);
-        assertThat(driver.cleanAndResolved(repository)).isFalse();
     }
 
     @ParameterizedTest

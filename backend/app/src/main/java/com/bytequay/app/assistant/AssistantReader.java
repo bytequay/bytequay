@@ -298,9 +298,9 @@ class AssistantReader
     private Optional<Named> named(String ref)
     {
         return switch (AgendaRefs.kind(ref)) {
-            case "task" -> taskId(AgendaRefs.id(ref)).flatMap(tasks::find).map(task -> new Named(AgendaRefs.task(task.id().toString()), task,
+            case "task" -> AssistantRows.taskId(AgendaRefs.id(ref)).flatMap(tasks::find).map(task -> new Named(AgendaRefs.task(task.id().toString()), task,
                     task.workspaceId().map(workspace -> AgendaTarget.of(AgendaTarget.Kind.TASK, workspace, task.id().toString()))));
-            case "review" -> reviews.findReview(AgendaRefs.id(ref)).flatMap(review -> taskId(review.taskId()).flatMap(tasks::find)
+            case "review" -> reviews.findReview(AgendaRefs.id(ref)).flatMap(review -> AssistantRows.taskId(review.taskId()).flatMap(tasks::find)
                     .map(task -> new Named(AgendaRefs.review(review.id()), task, Optional.of(AgendaTarget.of(AgendaTarget.Kind.REVIEW, review.workspaceId(), review.id())))));
             default -> Optional.empty();
         };
@@ -371,16 +371,6 @@ class AssistantReader
     {
         String id = target.id().orElseThrow();
         return target.kind() == AgendaTarget.Kind.REVIEW ? AgendaRefs.review(id) : AgendaRefs.task(id);
-    }
-
-    private static Optional<TaskId> taskId(String id)
-    {
-        try {
-            return Optional.of(TaskId.valueOf(id));
-        }
-        catch (IllegalArgumentException notATask) {
-            return Optional.empty();
-        }
     }
 
     private static String lower(Enum<?> value)

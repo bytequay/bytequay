@@ -139,21 +139,6 @@ public class SqliteRepositoryMetadataStore
         entity.setRepositoryId(repositoryId);
         entity.setOwner(repositoryRef.owner());
         entity.setRepo(repositoryRef.repo());
-        if (entity.getContributors() == null) {
-            entity.setContributors(ImmutableList.of());
-        }
-        if (entity.getLanguages() == null) {
-            entity.setLanguages(ImmutableMap.of());
-        }
-        if (entity.getPickerUsers() == null) {
-            entity.setPickerUsers(ImmutableList.of());
-        }
-        if (entity.getLabels() == null) {
-            entity.setLabels(ImmutableList.of());
-        }
-        if (entity.getTopics() == null) {
-            entity.setTopics(ImmutableList.of());
-        }
         return entity;
     }
 }

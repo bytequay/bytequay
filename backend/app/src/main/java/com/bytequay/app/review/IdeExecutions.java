@@ -211,9 +211,7 @@ public class IdeExecutions
     private void record(Live execution, Status status, OptionalInt exitCode, List<LocalRun.TestClass> tests)
     {
         RunOutput.Stored output = execution.output.finish();
-        List<LocalRun.TestMethod> methods = tests.stream().flatMap(group -> group.methods().stream()).toList();
-        Optional<LocalRun.Counts> counts = tests.isEmpty() ? Optional.empty() : Optional.of(new LocalRun.Counts(methods.size(),
-                count(methods, LocalRun.MethodStatus.FAILED), count(methods, LocalRun.MethodStatus.ERROR), count(methods, LocalRun.MethodStatus.SKIPPED)));
+        Optional<LocalRun.Counts> counts = tests.isEmpty() ? Optional.empty() : Optional.of(SurefireReports.counts(tests));
         LocalRun finished = execution.run.finished(status, clock.instant(), exitCode, counts, tests, output.truncated() || execution.outputTruncated,
                 execution.outputTruncated ? OptionalLong.empty() : output.omittedCharacters()).withTreeUnverified(true);
         execution.run = runs.update(finished, output.output());
@@ -285,11 +283,6 @@ public class IdeExecutions
         }
     }
 
-    private static int count(List<LocalRun.TestMethod> methods, LocalRun.MethodStatus status)
-    {
-        return (int) methods.stream().filter(method -> method.status() == status).count();
-    }
-
     public record Start(String sessionId, Scope scope, String label, Optional<String> path)
     {
         public Start
@@ -343,7 +336,7 @@ public class IdeExecutions
                 return failed || exitCode.orElse(0) != 0 ? Status.FAILED : Status.COMPLETED;
             }
             List<LocalRun.TestMethod> methods = tests.stream().flatMap(group -> group.methods().stream()).toList();
-            if (count(methods, LocalRun.MethodStatus.FAILED) + count(methods, LocalRun.MethodStatus.ERROR) > 0) {
+            if (SurefireReports.count(methods, LocalRun.MethodStatus.FAILED) + SurefireReports.count(methods, LocalRun.MethodStatus.ERROR) > 0) {
                 return Status.FAILED_ASSERTION;
             }
             if (failed || exitCode.orElse(0) != 0) {
@@ -352,7 +345,7 @@ public class IdeExecutions
             if (incomplete) {
                 return Status.RESULTS_UNAVAILABLE;
             }
-            return count(methods, LocalRun.MethodStatus.PASSED) > 0 ? Status.PASSED : Status.NO_TESTS_RAN;
+            return SurefireReports.count(methods, LocalRun.MethodStatus.PASSED) > 0 ? Status.PASSED : Status.NO_TESTS_RAN;
         }
     }
 

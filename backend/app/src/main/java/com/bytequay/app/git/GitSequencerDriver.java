@@ -25,6 +25,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.app.git.SequenceState.completed;
+import static com.bytequay.app.git.SequenceState.unsafe;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -155,10 +157,7 @@ public final class GitSequencerDriver
                 .output().isBlank();
 
         if (openMarkers.isEmpty()) {
-            return conflicts.isEmpty() && !dirty
-                    ? new SequenceState(
-                            Kind.COMPLETED, head, Optional.empty(), ImmutableList.of(), "")
-                    : unsafe(head, "No Git operation is open but the worktree is not clean");
+            return conflicts.isEmpty() && !dirty ? completed(head) : unsafe(head, "No Git operation is open but the worktree is not clean");
         }
         if (!openMarkers.equals(ImmutableSet.of("CHERRY_PICK_HEAD")) || cherryPickHead.isEmpty()) {
             return unsafe(head, "Unexpected Git operation in progress: " + String.join(", ", openMarkers));
@@ -173,17 +172,6 @@ public final class GitSequencerDriver
         return new SequenceState(Kind.STOPPED_RESOLVED, head, cherryPickHead, ImmutableList.of(), "");
     }
 
-    /**
-     * Reports whether a worktree is clean with no operation open.
-     *
-     * @param worktree worktree to inspect
-     * @return true when nothing is in progress and nothing is modified
-     */
-    public boolean cleanAndResolved(Path worktree)
-    {
-        return observe(worktree).kind() == Kind.COMPLETED;
-    }
-
     private Set<String> openMarkers(Path worktree)
     {
         Set<String> open = git.openMarkers(worktree, MARKERS);
@@ -194,10 +182,5 @@ public final class GitSequencerDriver
         }
         open.remove("sequencer");
         return open;
-    }
-
-    private static SequenceState unsafe(String head, String diagnostics)
-    {
-        return new SequenceState(Kind.UNSAFE, head, Optional.empty(), ImmutableList.of(), diagnostics);
     }
 }

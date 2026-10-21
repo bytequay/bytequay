@@ -554,9 +554,7 @@ public class ReviewCodeService
         }
     }
 
-    /** The canonical working copy a terminal shell starts in, while the review is open and its working copy exists. */
-
-    /** The canonical working copy a terminal shell starts in, while the task is open and owns the pull request. */
+    /** The canonical working copy a terminal shell starts in: an open review's existing working copy, else an open task's that owns the pull request. */
     public TerminalLaunch terminal(TaskCodeHost host)
     {
         if (host.reviewId().isPresent()) {

@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.github;
 
 import com.google.common.base.Throwables;
+import org.slf4j.Logger;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -31,5 +32,18 @@ public final class GitHubRateLimitException
     {
         return Throwables.getCausalChain(failure).stream()
                 .anyMatch(cause -> cause instanceof ResponseStatusException response && response.getStatusCode().value() == 429);
+    }
+
+    /** Runs one background refresh; a rate limit waits silently for the next tick, anything else is logged and skipped. */
+    public static void refreshQuietly(Logger log, String what, Runnable refresh)
+    {
+        try {
+            refresh.run();
+        }
+        catch (RuntimeException failure) {
+            if (!isRateLimit(failure)) {
+                log.warn("{} failed: {}", what, failure.getMessage());
+            }
+        }
     }
 }

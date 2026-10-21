@@ -27,6 +27,7 @@ import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.Hashing;
 import com.google.common.io.Resources;
 import com.google.common.primitives.Longs;
 import org.slf4j.Logger;
@@ -40,12 +41,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -278,7 +276,7 @@ public final class DefaultProcessSupervisor
 
     private static Optional<String> readBootSessionId()
     {
-        return ProcessGroups.runShort(ImmutableList.of("/usr/sbin/sysctl", "-n", "kern.bootsessionuuid"), Duration.ofSeconds(2))
+        return ShortCommand.run(ImmutableList.of("/usr/sbin/sysctl", "-n", "kern.bootsessionuuid"), Duration.ofSeconds(2))
                 .map(String::strip).flatMap(DefaultProcessSupervisor::validBootSessionId);
     }
 
@@ -482,13 +480,7 @@ public final class DefaultProcessSupervisor
 
     private static String argvDigest(List<String> argv)
     {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(String.join("\n", argv).getBytes(StandardCharsets.UTF_8)));
-        }
-        catch (NoSuchAlgorithmException e) {
-            throw new AgentUnavailableException("SHA-256 is unavailable", e);
-        }
+        return Hashing.sha256().hashString(String.join("\n", argv), StandardCharsets.UTF_8).toString();
     }
 
     private static Optional<Long> readIdentity(Path identity)

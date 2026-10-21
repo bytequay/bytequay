@@ -233,16 +233,6 @@ public class WorkspaceRelationships
         return destination;
     }
 
-    public Optional<Workspace> available(String workspaceId, String destinationId)
-    {
-        try {
-            return Optional.of(requireRelated(workspaceId, destinationId));
-        }
-        catch (IllegalArgumentException | WorkspaceException failure) {
-            return Optional.empty();
-        }
-    }
-
     /** Apply to both directions and all remote aliases, including known personal push forks. */
     public void requireTransferAllowed(RepoRef source, RepoRef target)
     {

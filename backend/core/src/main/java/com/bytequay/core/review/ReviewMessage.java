@@ -63,24 +63,6 @@ public record ReviewMessage(
         checkArgument(developerTaskId.isEmpty() || (author == Author.AGENT && findingId.isPresent()), "Only an agent's reply to a finding names a development task");
     }
 
-    /** A message from the user or from the review's own agent. */
-    public ReviewMessage(
-            String id,
-            String reviewId,
-            Optional<String> findingId,
-            Optional<String> cardId,
-            Author author,
-            String body,
-            int targetRevision,
-            String runId,
-            Optional<String> turnId,
-            Optional<String> queuedInputId,
-            long version,
-            Instant createdAt)
-    {
-        this(id, reviewId, findingId, cardId, author, body, targetRevision, runId, turnId, queuedInputId, version, createdAt, Optional.empty());
-    }
-
     public enum Author
     {
         USER,

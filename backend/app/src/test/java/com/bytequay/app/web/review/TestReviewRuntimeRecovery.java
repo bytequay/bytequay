@@ -130,7 +130,8 @@ class TestReviewRuntimeRecovery
                 Optional.of(new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of("Limited tests"), NOW)), Optional.empty(), ImmutableList.of(), false,
                 ImmutableMap.of(), ImmutableMap.of("e1", evidence), Optional.empty(), 0, NOW, NOW, Optional.empty());
         ReviewFinding finding = new ReviewFinding("finding-1", REVIEW_ID, "run-1", 1, "Title", "Body", Optional.empty(), Optional.empty(),
-                ImmutableList.of(evidence), 1, ReviewFinding.State.OPEN, Optional.empty(), "head", false, 0, NOW, NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
+                ImmutableList.of(evidence), 1, ReviewFinding.State.OPEN, Optional.empty(), "head", false, 0, NOW, NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC,
+                Optional.empty());
         AgentReviewProjection original = projection(ImmutableList.of(run), ImmutableList.of(finding));
         AgentReviewProjection projection = new AgentReviewProjection(original.review(), original.runs(), original.findings(), original.messages(), original.task(),
                 Optional.of(new AgentReviewProjection.TurnView("turn-1", "RUNNING", Optional.of(NOW), Optional.empty())), original.queuedInputIds(), original.queuePause(),
@@ -217,7 +218,7 @@ class TestReviewRuntimeRecovery
     {
         ReviewFinding finding = new ReviewFinding("finding-1", REVIEW_ID, "run-1", 1, "Unchecked input", "Body", Optional.empty(),
                 Optional.of(new ReviewAnchor("src/App.java", "RIGHT", 3, 4, ImmutableList.of("parse(input)"))), ImmutableList.of(), 1, ReviewFinding.State.OPEN,
-                Optional.empty(), "a".repeat(40), false, 0, NOW, NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
+                Optional.empty(), "a".repeat(40), false, 0, NOW, NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty());
         when(reviews.get(REVIEW_ID)).thenReturn(projection(ImmutableList.of(), ImmutableList.of(finding)));
         MockMvc mvc = standaloneSetup(controller).build();
 
@@ -443,7 +444,7 @@ class TestReviewRuntimeRecovery
         return new AgentReviewProjection(
                 review, runs, findings, ImmutableList.of(new AgentReviewProjection.MessageView(
                         new ReviewMessage("message-1", REVIEW_ID, Optional.empty(), Optional.of("run-1:limitations"), ReviewMessage.Author.USER,
-                                "Explain this limitation", 1, "run-1", Optional.empty(), Optional.of("queue-1"), 0, NOW),
+                                "Explain this limitation", 1, "run-1", Optional.empty(), Optional.of("queue-1"), 0, NOW, Optional.empty()),
                         Optional.of("turn-2"), Optional.of("event-1"))),
                 new AgentReviewProjection.TaskView(TASK_ID.toString(), "workspace-1", "OPEN", 8, "claude", "Claude Code",
                         Optional.empty(), Optional.empty(), Optional.empty(), "claude", Optional.empty(), false, false),

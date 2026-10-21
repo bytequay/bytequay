@@ -165,7 +165,7 @@ class TestReviewPublicationService
         ReviewFinding lines = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
         ReviewFinding whole = new ReviewFinding("f-whole", REVIEW_ID, RUN_ID, 2, "Nit: commit subject", "Commit message: name the behavior, not the file.", Optional.empty(),
                 Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
-                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty());
         reviews.put(lines);
         reviews.put(whole);
 
@@ -188,10 +188,10 @@ class TestReviewPublicationService
     {
         reviews.put(new ReviewFinding("f-whole", REVIEW_ID, RUN_ID, 1, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),
                 Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
-                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC));
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty()));
         reviews.put(new ReviewFinding("f-removed", REVIEW_ID, RUN_ID, 2, "Nit: description", "Describe the migration.", Optional.empty(),
                 Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
-                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC));
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty()));
         ReviewDraft added = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, "f-whole");
         added = service.addFinding(REPO, NUMBER, added.version(), REVIEW_ID, "f-removed");
         // The user deletes the second finding's text before submitting, so only the first one goes out.
@@ -275,7 +275,7 @@ class TestReviewPublicationService
         ReviewFinding original = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "A discussion claim");
         reviews.put(new ReviewFinding(original.id(), original.reviewId(), original.runId(), original.ordinal(), original.title(), original.body(),
                 original.severity(), original.anchor(), original.evidence(), original.revision(), original.state(), original.stateReason(), original.validatedHeadSha(),
-                original.outdated(), original.version(), original.createdAt(), original.updatedAt(), original.memories(), ReviewFinding.Origin.DISCUSSION));
+                original.outdated(), original.version(), original.createdAt(), original.updatedAt(), original.memories(), ReviewFinding.Origin.DISCUSSION, Optional.empty()));
         reviews.setRun(run(ReviewRun.State.ACCEPTED).withStep(ReviewStep.explanation(), NOW));
 
         assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID))
@@ -330,7 +330,7 @@ class TestReviewPublicationService
         ReviewFinding original = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Reassessed claim");
         ReviewFinding carried = new ReviewFinding(original.id(), original.reviewId(), "failed-run", original.ordinal(), original.title(), original.body(),
                 original.severity(), original.anchor(), original.evidence(), original.revision(), original.state(), original.stateReason(), original.validatedHeadSha(),
-                false, original.version(), original.createdAt(), original.updatedAt(), original.memories(), original.origin());
+                false, original.version(), original.createdAt(), original.updatedAt(), original.memories(), original.origin(), Optional.empty());
         reviews.put(carried);
         ReviewRun failed = new ReviewRun("failed-run", REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", CURRENT_HEAD, CURRENT_HEAD, REVIEWED_HEAD, Optional.empty(),
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.FAILED, Optional.empty(), Optional.empty(), Optional.empty(),
@@ -814,7 +814,7 @@ class TestReviewPublicationService
     {
         reviews.put(new ReviewFinding("f-whole", REVIEW_ID, RUN_ID, 1, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),
                 Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
-                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC));
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty()));
         ReviewDraft added = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, "f-whole");
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
         when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenThrow(new IllegalStateException("Read timed out"));
@@ -839,7 +839,7 @@ class TestReviewPublicationService
     {
         reviews.put(new ReviewFinding("f-whole", REVIEW_ID, RUN_ID, 1, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),
                 Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
-                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC));
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty()));
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
         when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenAnswer(invocation -> {
             ReviewDraft sending = service.draft(REPO, NUMBER);
@@ -1261,7 +1261,8 @@ class TestReviewPublicationService
         ReviewFinding original = finding(FINDING_ID, 1, "src/A.java", 1, 1, "Provisional claim");
         ReviewFinding provisional = new ReviewFinding(original.id(), original.reviewId(), "running-run", original.ordinal(), original.title(), original.body(),
                 original.severity(), original.anchor(), original.evidence(), original.revision(), original.state(), original.stateReason(),
-                original.validatedHeadSha(), false, original.version(), original.createdAt(), original.updatedAt(), ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
+                original.validatedHeadSha(), false, original.version(), original.createdAt(), original.updatedAt(), ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC,
+                Optional.empty());
         reviews.put(provisional);
 
         assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID)).hasMessageContaining("accepted review of its source revision");
@@ -1313,7 +1314,7 @@ class TestReviewPublicationService
                 false,
                 0,
                 NOW,
-                NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
+                NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty());
     }
 
     private static ReviewRun run(ReviewRun.State state)

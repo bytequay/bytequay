@@ -20,14 +20,14 @@ import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class TestProcessGroups
+class TestShortCommand
 {
     @Test
     void shortCommandsKeepOutputAndFailClosedOnExitOrTimeout()
     {
-        assertThat(ProcessGroups.runShort(ImmutableList.of("/bin/sh", "-c", "printf ' value\\n'"), Duration.ofSeconds(5))).contains(" value\n");
-        assertThat(ProcessGroups.runShort(ImmutableList.of("/bin/sh", "-c", "exit 2"), Duration.ofSeconds(5))).isEmpty();
-        assertThat(ProcessGroups.runShort(ImmutableList.of("/bin/sleep", "10"), Duration.ofMillis(20))).isEmpty();
+        assertThat(ShortCommand.run(ImmutableList.of("/bin/sh", "-c", "printf ' value\\n'"), Duration.ofSeconds(5))).contains(" value\n");
+        assertThat(ShortCommand.run(ImmutableList.of("/bin/sh", "-c", "exit 2"), Duration.ofSeconds(5))).isEmpty();
+        assertThat(ShortCommand.run(ImmutableList.of("/bin/sleep", "10"), Duration.ofMillis(20))).isEmpty();
     }
 
     @Test
@@ -35,7 +35,7 @@ class TestProcessGroups
     {
         Thread.currentThread().interrupt();
         try {
-            assertThat(ProcessGroups.runShort(ImmutableList.of("/bin/sleep", "10"), Duration.ofSeconds(5))).isEmpty();
+            assertThat(ShortCommand.run(ImmutableList.of("/bin/sleep", "10"), Duration.ofSeconds(5))).isEmpty();
             assertThat(Thread.currentThread().isInterrupted()).isTrue();
         }
         finally {

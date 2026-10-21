@@ -83,32 +83,6 @@ public record ReviewFinding(
         checkArgument(resolvedByTaskId.isEmpty() || state == State.RESOLVED, "Only a resolved finding names the development task that resolved it");
     }
 
-    /** A finding no development agent resolved. */
-    public ReviewFinding(
-            String id,
-            String reviewId,
-            String runId,
-            int ordinal,
-            String title,
-            String body,
-            Optional<String> severity,
-            Optional<ReviewAnchor> anchor,
-            List<ReviewEvidence> evidence,
-            int revision,
-            State state,
-            Optional<String> stateReason,
-            String validatedHeadSha,
-            boolean outdated,
-            long version,
-            Instant createdAt,
-            Instant updatedAt,
-            List<MemoryCitation> memories,
-            Origin origin)
-    {
-        this(id, reviewId, runId, ordinal, title, body, severity, anchor, evidence, revision, state, stateReason, validatedHeadSha, outdated, version, createdAt, updatedAt,
-                memories, origin, Optional.empty());
-    }
-
     /** The label shown on cards, derived from the review-local ordinal. */
     public String label()
     {

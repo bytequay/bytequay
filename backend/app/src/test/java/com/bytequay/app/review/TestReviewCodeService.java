@@ -285,7 +285,7 @@ class TestReviewCodeService
         assertThat(blame.revision()).isEqualTo(committed);
         assertThat(blame.contentHash()).isEqualTo(service.file(service.reviewHost(REVIEW_ID), MAIN_PATH).contentHash().orElseThrow());
         assertThat(blame.spans()).extracting(CodeBlame.Span::line).containsExactly(1, 2, 3);
-        assertThat(blame.spans()).extracting(CodeBlame.Span::uncommitted).containsExactly(false, true, false);
+        assertThat(blame.spans()).extracting(span -> span.commit().matches("0+")).containsExactly(false, true, false);
         assertThat(blame.spans().getFirst().author()).isEqualTo("ByteQuay Test");
         assertThat(blame.spans().getLast().author()).isEqualTo("ByteQuay Test");
         assertThat(git(checkout, "status", "--porcelain=v1")).isEqualTo(before);

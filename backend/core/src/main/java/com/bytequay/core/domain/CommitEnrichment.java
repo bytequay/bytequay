@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -45,24 +46,18 @@ public record CommitEnrichment(
     {
         checkArgument(repositoryId > 0, "repositoryId must be positive");
         checkText(sha, "sha");
-        requireNonNull(authorLogin, "authorLogin is null");
-        requireNonNull(avatarKey, "avatarKey is null");
-        requireNonNull(committerLogin, "committerLogin is null");
-        requireNonNull(committerAvatarKey, "committerAvatarKey is null");
         requireNonNull(pullRequestNumber, "pullRequestNumber is null");
-        requireNonNull(pullRequestTitle, "pullRequestTitle is null");
-        requireNonNull(pullRequestUrl, "pullRequestUrl is null");
         requireNonNull(pullRequestMergedAt, "pullRequestMergedAt is null");
         requireNonNull(avatarCheckedAt, "avatarCheckedAt is null");
         requireNonNull(associationCheckedAt, "associationCheckedAt is null");
         requireNonNull(lastSeenAt, "lastSeenAt is null");
-        authorLogin.ifPresent(value -> checkArgument(!value.isBlank(), "authorLogin is blank"));
-        avatarKey.ifPresent(value -> checkArgument(!value.isBlank(), "avatarKey is blank"));
-        committerLogin.ifPresent(value -> checkArgument(!value.isBlank(), "committerLogin is blank"));
-        committerAvatarKey.ifPresent(value -> checkArgument(!value.isBlank(), "committerAvatarKey is blank"));
+        checkOptionalText(authorLogin, "authorLogin");
+        checkOptionalText(avatarKey, "avatarKey");
+        checkOptionalText(committerLogin, "committerLogin");
+        checkOptionalText(committerAvatarKey, "committerAvatarKey");
         pullRequestNumber.ifPresent(value -> checkArgument(value > 0, "pullRequestNumber must be positive"));
-        pullRequestTitle.ifPresent(value -> checkArgument(!value.isBlank(), "pullRequestTitle is blank"));
-        pullRequestUrl.ifPresent(value -> checkArgument(!value.isBlank(), "pullRequestUrl is blank"));
+        checkOptionalText(pullRequestTitle, "pullRequestTitle");
+        checkOptionalText(pullRequestUrl, "pullRequestUrl");
         checkArgument(pullRequestNumber.isPresent() || pullRequestTitle.isEmpty(), "pullRequestTitle requires pullRequestNumber");
         checkArgument(pullRequestNumber.isPresent() || pullRequestUrl.isEmpty(), "pullRequestUrl requires pullRequestNumber");
         checkArgument(pullRequestNumber.isPresent() || pullRequestMergedAt.isEmpty(), "pullRequestMergedAt requires pullRequestNumber");

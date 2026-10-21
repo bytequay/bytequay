@@ -33,13 +33,7 @@ public record CodeBlame(String path, String revision, String contentHash, List<S
         spans = ImmutableList.copyOf(spans);
     }
 
-    public record Span(int line, int count, int originalLine, String commit, String author, Instant authoredAt, String summary, String originalPath)
-    {
-        public boolean uncommitted()
-        {
-            return commit.chars().allMatch(value -> value == '0');
-        }
-    }
+    public record Span(int line, int count, int originalLine, String commit, String author, Instant authoredAt, String summary, String originalPath) {}
 
     /** Incremental blame groups lines and repeats commit metadata only on its first occurrence. */
     static List<Span> parse(String output)

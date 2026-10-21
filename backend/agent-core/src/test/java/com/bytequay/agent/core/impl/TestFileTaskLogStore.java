@@ -32,6 +32,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderAgentEvent.PlanItem;
 import com.bytequay.agent.spi.ProviderAgentEvent.PlanItemState;
+import com.bytequay.agent.spi.ProviderUsageSample;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -120,7 +121,7 @@ class TestFileTaskLogStore
                         true,
                         ImmutableList.of(AgentEventPayload.ApprovalOption.ALLOW_ONCE, AgentEventPayload.ApprovalOption.DENY)),
                 new AgentEventPayload.ApprovalResolved("request-1", AgentEventPayload.ApprovalOutcome.ALLOWED, false),
-                new AgentEventPayload.UsageUpdated(AgentEventPayload.UsageSemantics.FINAL_FOR_INVOCATION, 10, 2, 4, Optional.empty()),
+                new AgentEventPayload.UsageUpdated(ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION, 10, 2, 4, Optional.empty()),
                 new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.TURN_COMPLETED, "complete"),
                 new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?"), Optional.empty()),
                 new AgentEventPayload.Error("failed", "failure", false));
@@ -209,8 +210,8 @@ class TestFileTaskLogStore
         List<AgentEventPayload> payloads = ImmutableList.of(
                 new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.PARTIAL, "hello from"),
                 new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "hello from ByteQuay Codex"),
-                new AgentEventPayload.UsageUpdated(AgentEventPayload.UsageSemantics.CUMULATIVE, 16_286, 9_984, 11, Optional.empty()),
-                new AgentEventPayload.UsageUpdated(AgentEventPayload.UsageSemantics.CUMULATIVE_FOR_INVOCATION, 20_759, 20_224, 73, Optional.empty()),
+                new AgentEventPayload.UsageUpdated(ProviderUsageSample.Semantics.CUMULATIVE, 16_286, 9_984, 11, Optional.empty()),
+                new AgentEventPayload.UsageUpdated(ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION, 20_759, 20_224, 73, Optional.empty()),
                 new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.TURN_COMPLETED, "completed"));
         ImmutableList.Builder<AgentEventEnvelope> expected = ImmutableList.builder();
         long sequence = 0;

@@ -252,7 +252,7 @@ class TestReviewReplayService
         List<ReviewFinding> scopedFindings = Arrays.stream(findings)
                 .map(finding -> new ReviewFinding(finding.id(), reviewId, "run-" + reviewId, finding.ordinal(), finding.title(), finding.body(), finding.severity(),
                         finding.anchor(), finding.evidence(), finding.revision(), finding.state(), finding.stateReason(), finding.validatedHeadSha(), finding.outdated(),
-                        finding.version(), finding.createdAt(), finding.updatedAt(), finding.memories(), finding.origin()))
+                        finding.version(), finding.createdAt(), finding.updatedAt(), finding.memories(), finding.origin(), Optional.empty()))
                 .collect(toImmutableList());
         ReviewValidation validation = new ReviewValidation(1, IntStream.range(0, scopedFindings.size())
                 .mapToObj(index -> new ReviewCandidateValidation(index + 1, ReviewCandidateValidation.Outcome.SUPPORTED, "Confirmed the documentation gap",
@@ -276,7 +276,7 @@ class TestReviewReplayService
     {
         return new ReviewFinding(id, "review", "run", 1, "Missing documentation", "The property is not documented.", Optional.of("Medium"),
                 Optional.of(new ReviewAnchor(path, "RIGHT", startLine, endLine, ImmutableList.of("line"))), ImmutableList.of(), 1, ReviewFinding.State.OPEN,
-                Optional.empty(), firstHead, false, 0, MemoryFixtures.NOW, MemoryFixtures.NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
+                Optional.empty(), firstHead, false, 0, MemoryFixtures.NOW, MemoryFixtures.NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty());
     }
 
     private static AgentReviewProjection projection(String reviewId)

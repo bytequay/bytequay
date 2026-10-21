@@ -13,13 +13,11 @@
  */
 package com.bytequay.app.context;
 
-import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.google.common.base.Ticker;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
-import com.google.common.hash.Hashing;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -37,7 +35,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /** Public pages read by their address, kept briefly so a reader can page through one capture. */
@@ -78,8 +75,7 @@ public class SelectedDocumentationReader
      */
     public Page readPage(String url, Optional<String> captureId, int page, Optional<String> section)
     {
-        RegisteredContextSource source = new RegisteredContextSource("page:" + Hashing.sha256().hashString(url, UTF_8).toString().substring(0, 16),
-                RegisteredContextSource.Kind.DOCUMENTATION_PAGE, url, ContextEntryOrigin.GENERATED, Optional.empty());
+        RegisteredContextSource source = new RegisteredContextSource(url);
         requireNonNull(captureId, "captureId is null");
         checkArgument(page > 0, "page must be positive");
         checkArgument(page == 1 || captureId.isPresent(), "Later document pages require captureId from the first read");

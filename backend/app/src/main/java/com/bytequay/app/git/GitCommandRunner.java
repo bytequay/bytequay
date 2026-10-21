@@ -54,6 +54,8 @@ public class GitCommandRunner
     private static final int MAXIMUM_ERROR_BYTES = 64 * 1024;
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(60);
     private static final Duration DRAIN_TIMEOUT = Duration.ofSeconds(2);
+    // Local object reads never fetch from a promisor remote or follow replacement objects.
+    private static final Map<String, String> LOCAL_ONLY = ImmutableMap.of("GIT_NO_LAZY_FETCH", "1", "GIT_NO_REPLACE_OBJECTS", "1");
     // Bash job control gives the command its own group, including helpers reparented after Git exits.
     private static final String COMMAND_LAUNCHER = """
             bq_pid=
@@ -133,7 +135,7 @@ public class GitCommandRunner
      */
     public Result run(Path worktree, Duration timeout, Map<String, String> environment, List<String> arguments)
     {
-        return run(worktree, timeout, environment, arguments, false, 0);
+        return run(worktree, timeout, MAXIMUM_OUTPUT_BYTES, environment, arguments, false, 0);
     }
 
     /**
@@ -150,14 +152,15 @@ public class GitCommandRunner
     /** Preserves stdout for an additional data-producing exit code, such as merge-tree reporting conflicts with exit 1. */
     public Result runStdout(Path worktree, int stdoutExitCode, String... arguments)
     {
-        return run(worktree, COMMAND_TIMEOUT, ImmutableMap.of(), ImmutableList.copyOf(arguments), true, stdoutExitCode);
+        return run(worktree, COMMAND_TIMEOUT, MAXIMUM_OUTPUT_BYTES, ImmutableMap.of(), ImmutableList.copyOf(arguments), true, stdoutExitCode);
     }
 
-    private Result run(Path worktree, Duration timeout, Map<String, String> environment, List<String> arguments, boolean separateErrors, int stdoutExitCode)
+    private Result run(Path worktree, Duration timeout, int maximumOutputBytes, Map<String, String> environment, List<String> arguments, boolean separateErrors, int stdoutExitCode)
     {
         requireNonNull(worktree, "worktree is null");
         requireNonNull(timeout, "timeout is null");
         checkArgument(!timeout.isZero() && !timeout.isNegative(), "timeout is not positive");
+        checkArgument(maximumOutputBytes > 0, "maximumOutputBytes is not positive");
         requireNonNull(environment, "environment is null");
         requireNonNull(arguments, "arguments is null");
         List<String> command = ImmutableList.<String>builderWithExpectedSize(arguments.size() + 3)
@@ -169,7 +172,7 @@ public class GitCommandRunner
         builder.environment().put("LC_ALL", "C");
         builder.environment().putAll(environment);
         try {
-            return execute(builder, timeout, MAXIMUM_OUTPUT_BYTES, "Git", separateErrors, stdoutExitCode);
+            return execute(builder, timeout, maximumOutputBytes, "Git", separateErrors, stdoutExitCode);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -180,36 +183,13 @@ public class GitCommandRunner
     /** Runs a bounded local object read without replacement objects or on-demand fetching from a promisor remote. */
     public Result runLocalBounded(Path worktree, Duration timeout, int maximumOutputBytes, List<String> arguments)
     {
-        return runLocalBounded(worktree, timeout, maximumOutputBytes, arguments, false);
+        return run(worktree, timeout, maximumOutputBytes, LOCAL_ONLY, arguments, false, 0);
     }
 
     /** Local object reads with separate errors, so successful Git warnings cannot corrupt structured stdout. */
     public Result runLocalBoundedStdout(Path worktree, Duration timeout, int maximumOutputBytes, List<String> arguments)
     {
-        return runLocalBounded(worktree, timeout, maximumOutputBytes, arguments, true);
-    }
-
-    private Result runLocalBounded(Path worktree, Duration timeout, int maximumOutputBytes, List<String> arguments, boolean separateErrors)
-    {
-        requireNonNull(worktree, "worktree is null");
-        requireNonNull(timeout, "timeout is null");
-        checkArgument(!timeout.isZero() && !timeout.isNegative(), "timeout is not positive");
-        checkArgument(maximumOutputBytes > 0, "maximumOutputBytes is not positive");
-        requireNonNull(arguments, "arguments is null");
-        List<String> command = ImmutableList.<String>builderWithExpectedSize(arguments.size() + 3)
-                .add(executable, "-C", worktree.toString()).addAll(arguments).build();
-        ProcessBuilder builder = new ProcessBuilder(command);
-        builder.environment().put("GIT_TERMINAL_PROMPT", "0");
-        builder.environment().put("LC_ALL", "C");
-        builder.environment().put("GIT_NO_LAZY_FETCH", "1");
-        builder.environment().put("GIT_NO_REPLACE_OBJECTS", "1");
-        try {
-            return execute(builder, timeout, maximumOutputBytes, "Git", separateErrors, 0);
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return Result.failed("Git was interrupted");
-        }
+        return run(worktree, timeout, maximumOutputBytes, LOCAL_ONLY, arguments, true, 0);
     }
 
     /**

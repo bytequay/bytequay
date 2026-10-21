@@ -21,7 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
+import static com.bytequay.app.repository.github.GitHubRateLimitException.refreshQuietly;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -45,13 +45,6 @@ public class TeamActivitySyncJob
         if (!credentials.isGitHubAccountConfigured() || settings.inQuietHours()) {
             return;
         }
-        try {
-            activity.collect();
-        }
-        catch (RuntimeException failure) {
-            if (!isRateLimit(failure)) {
-                log.warn("Team activity collection failed: {}", failure.getMessage());
-            }
-        }
+        refreshQuietly(log, "Team activity collection", activity::collect);
     }
 }

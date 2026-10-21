@@ -23,6 +23,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
+import static com.bytequay.app.repository.github.GitHubRateLimitException.refreshQuietly;
 import static java.util.Objects.requireNonNull;
 
 /** Reads recent card summaries without waiting for the slower detail and repository scans. */
@@ -59,13 +60,6 @@ public class PullRequestAttentionSyncJob
             }
             log.warn("Pull request summary refresh failed: {}", failure.getMessage());
         }
-        try {
-            issues.refreshRecentIssues();
-        }
-        catch (RuntimeException failure) {
-            if (!isRateLimit(failure)) {
-                log.warn("Recent issue refresh failed: {}", failure.getMessage());
-            }
-        }
+        refreshQuietly(log, "Recent issue refresh", issues::refreshRecentIssues);
     }
 }

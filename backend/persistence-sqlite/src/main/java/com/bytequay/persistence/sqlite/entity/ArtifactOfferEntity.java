@@ -61,9 +61,4 @@ public class ArtifactOfferEntity
     {
         value = offer;
     }
-
-    public ArtifactOffer toDomain()
-    {
-        return value;
-    }
 }

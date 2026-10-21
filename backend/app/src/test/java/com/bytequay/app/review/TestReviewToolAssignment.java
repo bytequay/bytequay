@@ -234,7 +234,7 @@ class TestReviewToolAssignment
 
         AgentTurn question = activate("review-ask:message-1");
         ReviewMessage message = new ReviewMessage("message-1", REVIEW_ID, Optional.empty(), Optional.of("refresh:purpose"), ReviewMessage.Author.USER,
-                "Explain the intention", 1, explanation.id(), Optional.of(question.id().toString()), Optional.empty(), 0, NOW);
+                "Explain the intention", 1, explanation.id(), Optional.of(question.id().toString()), Optional.empty(), 0, NOW, Optional.empty());
         when(reviews.listMessages(REVIEW_ID)).thenReturn(ImmutableList.of(message));
         ReviewToolAssignment.Binding discussion = assignments.resolve(REVIEW_ID, Optional.of(question.id()));
         assertThat(discussion.run()).isSameAs(explanation);
@@ -283,7 +283,7 @@ class TestReviewToolAssignment
     private static ReviewMessage question(String runId, Optional<String> turnId, Optional<String> queuedId)
     {
         return new ReviewMessage("message-1", REVIEW_ID, Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.USER,
-                "Does this finding apply to the old version?", 1, runId, turnId, queuedId, 0, NOW);
+                "Does this finding apply to the old version?", 1, runId, turnId, queuedId, 0, NOW, Optional.empty());
     }
 
     private static QueuedAgentInput queued(QueuedInputId id, AgentTurn turn, String key)

@@ -16,8 +16,8 @@ package com.bytequay.core.domain;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Current commit-refresh state returned to the frontend. */
@@ -29,8 +29,7 @@ public record CommitRefreshStatus(String workspaceId, State state, Optional<Inst
         requireNonNull(state, "state is null");
         requireNonNull(lastAttemptAt, "lastAttemptAt is null");
         requireNonNull(lastSucceededAt, "lastSucceededAt is null");
-        requireNonNull(error, "error is null");
-        error.ifPresent(value -> checkArgument(!value.isBlank(), "error is blank"));
+        checkOptionalText(error, "error");
     }
 
     public static CommitRefreshStatus idle(String workspaceId)

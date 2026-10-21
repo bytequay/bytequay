@@ -509,7 +509,7 @@ class AssistantActions
             if (AgendaRefs.kind(request.target()).equals("review")) {
                 return Optional.of(Result.refused(request.operation(), "Reply to a review from its page"));
             }
-            Optional<AgentTask> found = taskId(AgendaRefs.id(request.target())).flatMap(tasks::find);
+            Optional<AgentTask> found = AssistantRows.taskId(AgendaRefs.id(request.target())).flatMap(tasks::find);
             if (found.isEmpty()) {
                 return Optional.of(Result.refused(request.operation(), "That isn't on screen"));
             }
@@ -585,7 +585,7 @@ class AssistantActions
 
         private Result send(Request request)
         {
-            AgentTask task = taskId(AgendaRefs.id(request.target())).flatMap(tasks::find).orElseThrow();
+            AgentTask task = AssistantRows.taskId(AgendaRefs.id(request.target())).flatMap(tasks::find).orElseThrow();
             // Steering the words into the running turn stays a button on the task's page; the turn service refuses a queue behind anything but that turn.
             boolean working = task.worktreeMutationClaim().isPresent();
             TaskInput.send(turns, task.id(), task.version(), request.words(), key(request), working, Optional.empty());
@@ -699,16 +699,6 @@ class AssistantActions
             return ref.startsWith("approval:") ? Optional.of(ApprovalId.valueOf(ref.substring("approval:".length()))) : Optional.empty();
         }
         catch (IllegalArgumentException notAnApproval) {
-            return Optional.empty();
-        }
-    }
-
-    private static Optional<TaskId> taskId(String id)
-    {
-        try {
-            return Optional.of(TaskId.valueOf(id));
-        }
-        catch (IllegalArgumentException notATask) {
             return Optional.empty();
         }
     }

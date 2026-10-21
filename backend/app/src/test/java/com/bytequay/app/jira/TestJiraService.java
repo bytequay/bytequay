@@ -75,7 +75,7 @@ class TestJiraService
     private final WorkItemStore workItems = mock(WorkItemStore.class);
     private final WorkItemService workService = mock(WorkItemService.class);
     private final ObjectProvider<WorkItemService> work = mock(ObjectProvider.class);
-    private final JiraIssueContextImpl context = new JiraIssueContextImpl(settings, mapper, tasks, workspaces, workItems, recent);
+    private final JiraIssueContextImpl context = new JiraIssueContextImpl(new JiraCache(settings, mapper), tasks, workspaces, workItems, recent);
     private final JiraClient client = new JiraIntegrationConfiguration().jiraClient(remote, cache, new JiraActivityLog(cache), context);
     private final JiraService jira = new JiraService(client, context, tasks, workspaces, settingsProvider, workItems, work);
     private final Map<String, String> saved = new ConcurrentHashMap<>();
@@ -145,7 +145,7 @@ class TestJiraService
         verifyNoInteractions(remote);
         assertThat(jira.refreshIssue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         JiraCache reopenedCache = new JiraCache(settings, mapper);
-        JiraIssueContextImpl reopenedContext = new JiraIssueContextImpl(settings, mapper, tasks, workspaces, workItems, recent);
+        JiraIssueContextImpl reopenedContext = new JiraIssueContextImpl(new JiraCache(settings, mapper), tasks, workspaces, workItems, recent);
         try (JiraClient reopenedClient = new JiraIntegrationConfiguration().jiraClient(remote, reopenedCache, new JiraActivityLog(reopenedCache), reopenedContext)) {
             JiraService reopened = new JiraService(reopenedClient, reopenedContext, tasks, workspaces, settingsProvider, workItems, work);
             assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));

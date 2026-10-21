@@ -171,13 +171,8 @@ public class PullRequestEntity
     public PullRequestEntity() {}
 
     @PrePersist
-    public void prePersist()
-    {
-        this.repo = repo.toLowerCase(Locale.ROOT);
-    }
-
     @PreUpdate
-    public void preUpdate()
+    public void normalizeRepo()
     {
         this.repo = repo.toLowerCase(Locale.ROOT);
     }

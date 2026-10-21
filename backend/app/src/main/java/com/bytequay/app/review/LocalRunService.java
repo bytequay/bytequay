@@ -88,8 +88,7 @@ public class LocalRunService
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    /** A review's runs, newest first. */
-    /** A development task's runs, newest first. */
+    /** A review's or development task's runs, newest first. */
     public List<LocalRun> list(TaskCodeHost host)
     {
         return runs.listByTask(taskId(host), LIST_LIMIT);

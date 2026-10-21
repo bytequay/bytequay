@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.context;
 
-import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.google.common.hash.Hashing;
@@ -50,12 +49,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static com.bytequay.core.context.ContextEntryOrigin.USER;
-import static com.bytequay.core.context.RegisteredContextSource.Kind.DOCUMENTATION_PAGE;
 import static java.nio.charset.StandardCharsets.ISO_8859_1;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -71,7 +67,7 @@ import static org.mockito.Mockito.when;
 @Isolated("Temporarily changes the JVM proxy selector")
 class TestDocumentationHttpReader
 {
-    private static final RegisteredContextSource PAGE = new RegisteredContextSource("page", DOCUMENTATION_PAGE, "https://docs.example.com/manual/concepts.html", USER, Optional.empty());
+    private static final RegisteredContextSource PAGE = new RegisteredContextSource("https://docs.example.com/manual/concepts.html");
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
 
     private final CloseableHttpClient client = mock(CloseableHttpClient.class);
@@ -210,8 +206,7 @@ class TestDocumentationHttpReader
     void readsAGitHubFilePageAsItsRawTextAndKeepsItsGitHubAddress()
             throws Exception
     {
-        RegisteredContextSource protocol = new RegisteredContextSource("protocol", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
-                "https://github.com/delta-io/delta/blob/master/PROTOCOL.md", ContextEntryOrigin.GENERATED, Optional.empty());
+        RegisteredContextSource protocol = new RegisteredContextSource("https://github.com/delta-io/delta/blob/master/PROTOCOL.md");
         String markdown = "# Delta Transaction Log Protocol\n\nIntro\n\n## Add File and Remove File\n\nPaths are URI encoded.\n\n```\n# not a heading\n```\n"
                 + "## Add File and Remove File\n\nA repeat.\n";
         when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/plain; charset=utf-8", markdown));

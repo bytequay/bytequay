@@ -208,7 +208,7 @@ class TestSqliteReviewStores
         // A finding about the whole pull request has no lines, and keeps none through storage; the memories it cites survive.
         ReviewFinding whole = new ReviewFinding("finding-whole", "review-1", "run-1", 2, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),
                 Optional.empty(), ImmutableList.of(CONTEXT_EVIDENCE), 1, ReviewFinding.State.OPEN, Optional.empty(), finding.validatedHeadSha(), false, 0, NOW, NOW,
-                ImmutableList.of(), ReviewFinding.Origin.DISCUSSION)
+                ImmutableList.of(), ReviewFinding.Origin.DISCUSSION, Optional.empty())
                 .withMemories(ImmutableList.of(new ReviewFinding.MemoryCitation("m12", "Name the behavior in commit subjects. (PR #31201 @alice)")));
         store.insertFinding(whole);
         entityManager.clear();
@@ -669,7 +669,7 @@ class TestSqliteReviewStores
                 NOW,
                 NOW.plusSeconds(4),
                 ImmutableList.of(),
-                ReviewFinding.Origin.AUTOMATIC);
+                ReviewFinding.Origin.AUTOMATIC, Optional.empty());
     }
 
     private static ReviewMessage newMessage(String id, Optional<String> findingId, ReviewMessage.Author author, String body, Instant createdAt)
@@ -686,6 +686,6 @@ class TestSqliteReviewStores
                 Optional.of("turn-2"),
                 Optional.of("queued-1"),
                 0,
-                createdAt);
+                createdAt, Optional.empty());
     }
 }

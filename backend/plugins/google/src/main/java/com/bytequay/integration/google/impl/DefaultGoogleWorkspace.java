@@ -119,12 +119,6 @@ public class DefaultGoogleWorkspace
     }
 
     @Override
-    public synchronized GoogleSnapshot.Status connect()
-    {
-        return connect(false);
-    }
-
-    @Override
     public synchronized GoogleSnapshot.Status connect(boolean add)
     {
         checkState(connector.installed(), "Install the Google connector first.");

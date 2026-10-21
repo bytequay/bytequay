@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.app.git.SequenceState.completed;
+import static com.bytequay.app.git.SequenceState.unsafe;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -144,7 +146,7 @@ public final class RebaseSequencerDriver
             return unsafe("", "Cannot read HEAD: " + headResult.output().strip());
         }
         String head = headResult.output().strip();
-        Set<String> openMarkers = openMarkers(worktree);
+        Set<String> openMarkers = git.openMarkers(worktree, GitCommandRunner.OPERATION_MARKERS);
         String status = git.run(worktree, "status", "--porcelain=v1", "--untracked-files=all").output();
         List<ConflictedPath> conflicts = git.conflicts(worktree);
 
@@ -174,26 +176,11 @@ public final class RebaseSequencerDriver
         return unsafe(head, "Rebase resolution is only partly staged");
     }
 
-    private Set<String> openMarkers(Path worktree)
-    {
-        return git.openMarkers(worktree, GitCommandRunner.OPERATION_MARKERS);
-    }
-
     private static boolean unsafeWorktreeChanges(String status)
     {
         return status.lines().anyMatch(line -> line.startsWith("??")
                 || (line.length() >= 2
                         && line.charAt(1) != ' '
                         && !UNMERGED_CODES.contains(line.substring(0, 2))));
-    }
-
-    private static SequenceState completed(String head)
-    {
-        return new SequenceState(Kind.COMPLETED, head, Optional.empty(), ImmutableList.of(), "");
-    }
-
-    private static SequenceState unsafe(String head, String diagnostic)
-    {
-        return new SequenceState(Kind.UNSAFE, head, Optional.empty(), ImmutableList.of(), diagnostic);
     }
 }

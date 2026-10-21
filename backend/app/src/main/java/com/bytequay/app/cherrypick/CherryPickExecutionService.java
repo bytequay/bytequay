@@ -351,10 +351,7 @@ public class CherryPickExecutionService
         ActionJournal journal = execution.journal().orElseThrow();
         String sourceSha = journal.sourceSha().orElseThrow();
         String expectedHead = journal.expectedHead();
-        CherryPickItem item = execution.items().stream()
-                .filter(candidate -> candidate.sourceSha().equals(sourceSha))
-                .findFirst()
-                .orElseThrow();
+        CherryPickItem item = itemOf(execution, sourceSha);
         SequenceState state = sequencer.observe(execution.workspace().worktree());
 
         if (item.result() == CherryPickItem.Result.EMPTY_SKIPPED) {
@@ -700,7 +697,7 @@ public class CherryPickExecutionService
             return pause(execution, PauseReason.RECONCILIATION_MISMATCH, "The fixup copied a cherry-pick origin line");
         }
         String originalHead = parentOf(worktree, conflictCommit);
-        if (!sequencer.cleanAndResolved(worktree)
+        if (sequencer.observe(worktree).kind() != SequenceState.Kind.COMPLETED
                 || !git.withoutConflictMarkers(worktree, originalHead, fixupCommit)) {
             return store.save(execution.withJournal(journal(ActionType.AGENT_REPAIR, journal.sourceSha(), fixupCommit), clock.instant()));
         }

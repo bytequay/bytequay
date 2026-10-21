@@ -23,6 +23,8 @@ import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.Repository
 import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.RepositoryPickerUserListConverter;
 import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringListConverter;
 import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringLongMapConverter;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -60,23 +62,23 @@ public class RepositoryMetadataEntity
 
     @Column(nullable = false, columnDefinition = "TEXT DEFAULT '{}'")
     @Convert(converter = StringLongMapConverter.class)
-    private Map<String, Long> languages;
+    private Map<String, Long> languages = ImmutableMap.of();
 
     @Column(nullable = false)
     @Convert(converter = RepositoryContributorListConverter.class)
-    private List<RepositoryContributor> contributors;
+    private List<RepositoryContributor> contributors = ImmutableList.of();
 
     @Column(name = "picker_users", nullable = false, columnDefinition = "TEXT DEFAULT '[]'")
     @Convert(converter = RepositoryPickerUserListConverter.class)
-    private List<RepositoryPickerUser> pickerUsers;
+    private List<RepositoryPickerUser> pickerUsers = ImmutableList.of();
 
     @Column(nullable = false)
     @Convert(converter = RepositoryLabelListConverter.class)
-    private List<RepositoryLabel> labels;
+    private List<RepositoryLabel> labels = ImmutableList.of();
 
     @Column(nullable = false)
     @Convert(converter = StringListConverter.class)
-    private List<String> topics;
+    private List<String> topics = ImmutableList.of();
 
     @Column(name = "contributors_synced_at")
     private Instant contributorsSyncedAt;

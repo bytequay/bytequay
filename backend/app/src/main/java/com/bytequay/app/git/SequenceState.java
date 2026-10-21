@@ -45,6 +45,16 @@ public record SequenceState(Kind kind, String head, Optional<String> stoppedComm
         checkArgument(kind == Kind.COMPLETED || kind == Kind.UNSAFE || stoppedCommit.isPresent(), "a stopped sequence must name the commit it stopped on");
     }
 
+    static SequenceState completed(String head)
+    {
+        return new SequenceState(Kind.COMPLETED, head, Optional.empty(), ImmutableList.of(), "");
+    }
+
+    static SequenceState unsafe(String head, String diagnostics)
+    {
+        return new SequenceState(Kind.UNSAFE, head, Optional.empty(), ImmutableList.of(), diagnostics);
+    }
+
     public enum Kind
     {
         /** No operation open, index and worktree clean. */

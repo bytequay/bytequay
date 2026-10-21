@@ -143,28 +143,22 @@ final class JiraMapping
 
     static List<JiraDtos.Field> fields(JsonNode value)
     {
-        ImmutableList.Builder<JiraDtos.Field> fields = ImmutableList.builder();
-        value.fields().forEachRemaining(entry -> {
+        return value.properties().stream().map(entry -> {
             JsonNode field = entry.getValue();
-            fields.add(new JiraDtos.Field(entry.getKey(), field.path("name").asText(entry.getKey()), field.path("required").asBoolean(),
-                    field.path("schema").path("type").asText(), nodes(field.path("allowedValues")).stream().map(JiraMapping::choice).collect(toImmutableList())));
-        });
-        return fields.build();
+            return new JiraDtos.Field(entry.getKey(), field.path("name").asText(entry.getKey()), field.path("required").asBoolean(),
+                    field.path("schema").path("type").asText(), nodes(field.path("allowedValues")).stream().map(JiraMapping::choice).collect(toImmutableList()));
+        }).collect(toImmutableList());
     }
 
     /** Custom fields holding a non-empty Jira document, named from an {@code expand=names} read; single-line text is a plain string, not a document. */
     static List<JiraDtos.RichTextField> richTextFields(String siteUrl, JsonNode issue)
     {
-        List<JiraDtos.RichTextField> result = new ArrayList<>();
-        issue.path("fields").fields().forEachRemaining(entry -> {
-            if (entry.getKey().startsWith("customfield_") && entry.getValue().path("type").asText().equals("doc")) {
-                String body = markdown(siteUrl, entry.getValue()).strip();
-                if (!body.isEmpty()) {
-                    result.add(new JiraDtos.RichTextField(entry.getKey(), name(issue, entry.getKey()), body));
-                }
-            }
-        });
-        return result.stream().sorted(Comparator.comparing(JiraDtos.RichTextField::name)).collect(toImmutableList());
+        return issue.path("fields").properties().stream()
+                .filter(entry -> entry.getKey().startsWith("customfield_") && entry.getValue().path("type").asText().equals("doc"))
+                .map(entry -> new JiraDtos.RichTextField(entry.getKey(), name(issue, entry.getKey()), markdown(siteUrl, entry.getValue()).strip()))
+                .filter(field -> !field.body().isEmpty())
+                .sorted(Comparator.comparing(JiraDtos.RichTextField::name))
+                .collect(toImmutableList());
     }
 
     /** Custom fields holding one or more users, such as "Co-Assignee(s)". */

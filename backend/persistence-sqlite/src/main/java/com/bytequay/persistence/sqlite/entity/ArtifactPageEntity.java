@@ -60,9 +60,4 @@ public class ArtifactPageEntity
         value = page;
         this.html = html;
     }
-
-    public ArtifactPage toDomain()
-    {
-        return value;
-    }
 }

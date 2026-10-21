@@ -3469,7 +3469,7 @@ class TestAgentReviewService
                 false,
                 0,
                 NOW,
-                NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
+                NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty());
     }
 
     private static PullRequestDetail detail()

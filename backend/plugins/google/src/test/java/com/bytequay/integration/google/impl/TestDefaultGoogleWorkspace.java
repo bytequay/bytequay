@@ -75,7 +75,7 @@ class TestDefaultGoogleWorkspace
         when(session.call(eq("gmail_search"), anyMap())).thenReturn(json("{\"messages\":[{\"id\":\"m1\"}],\"nextPageToken\":\"next\"}"));
         when(session.call(eq("gmail_get"), anyMap())).thenReturn(json("{\"id\":\"m1\",\"subject\":\"Project\",\"body\":\"saved text\",\"labelIds\":[\"UNREAD\"]}"));
         google.loadAccounts();
-        google.connect();
+        google.connect(false);
         awaitDone();
     }
 
@@ -99,7 +99,7 @@ class TestDefaultGoogleWorkspace
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return session;
         });
-        assertThat(google.connect().operation()).isEqualTo("Checking Google connection");
+        assertThat(google.connect(false).operation()).isEqualTo("Checking Google connection");
         assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
         try {
             assertThat(google.status().operation()).isEqualTo("Checking Google connection");
@@ -112,7 +112,7 @@ class TestDefaultGoogleWorkspace
         awaitDone();
         assertThat(google.status().profile()).isEqualTo(selected);
         assertThat(google.status().error()).isEmpty();
-        google.connect();
+        google.connect(false);
         awaitDone();
         assertThat(google.status().error()).isEmpty();
     }
@@ -149,7 +149,7 @@ class TestDefaultGoogleWorkspace
         assertThat(google.snapshot()).contains(initial);
         verify(session, never()).call(eq("gmail_search"), anyMap());
         google.agentAccess(true);
-        google.connect();
+        google.connect(false);
         awaitDone();
         assertThat(google.snapshot().orElseThrow().accountId()).isEqualTo("people/one");
         assertThat(google.status().error()).get().asString().contains("Use Add account");
@@ -171,7 +171,7 @@ class TestDefaultGoogleWorkspace
         assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
         try {
             assertThatThrownBy(google::disconnect).isInstanceOf(IllegalStateException.class);
-            assertThatThrownBy(google::connect).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> google.connect(false)).isInstanceOf(IllegalStateException.class);
             google.agentAccess(false);
         }
         finally {

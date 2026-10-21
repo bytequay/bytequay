@@ -30,8 +30,6 @@ public interface GoogleWorkspace
 
     GoogleSnapshot.Status install();
 
-    GoogleSnapshot.Status connect();
-
     GoogleSnapshot.Status connect(boolean add);
 
     GoogleSnapshot.Status refreshMail(String query, String pageToken);

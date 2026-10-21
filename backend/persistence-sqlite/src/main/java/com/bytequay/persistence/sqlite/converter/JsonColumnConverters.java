@@ -14,6 +14,8 @@
 package com.bytequay.persistence.sqlite.converter;
 
 import com.bytequay.core.backport.BackportChain;
+import com.bytequay.core.domain.AgendaDay;
+import com.bytequay.core.domain.AgendaRun;
 import com.bytequay.core.domain.Artifact;
 import com.bytequay.core.domain.ArtifactOffer;
 import com.bytequay.core.domain.ArtifactPage;
@@ -311,6 +313,26 @@ public final class JsonColumnConverters
         EpicConverter()
         {
             super(new TypeReference<>() {}, "Epic", null, null);
+        }
+    }
+
+    @Converter
+    public static class AgendaDayConverter
+            extends JsonColumnConverter<AgendaDay>
+    {
+        AgendaDayConverter()
+        {
+            super(new TypeReference<>() {}, "Agenda", null, null);
+        }
+    }
+
+    @Converter
+    public static class AgendaRunConverter
+            extends JsonColumnConverter<AgendaRun>
+    {
+        AgendaRunConverter()
+        {
+            super(new TypeReference<>() {}, "Agenda run", null, null);
         }
     }
 }

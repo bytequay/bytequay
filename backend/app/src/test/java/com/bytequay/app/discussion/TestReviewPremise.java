@@ -171,7 +171,8 @@ class TestReviewPremise
     {
         ImmutableList<ReviewFinding> findings = IntStream.range(0, 320)
                 .mapToObj(index -> new ReviewFinding("f" + index, "r1", "run-1", index + 1, "Finding " + index, "b".repeat(4_000), Optional.empty(), Optional.empty(),
-                        ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), "a".repeat(40), false, 0, NOW, NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC))
+                        ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), "a".repeat(40), false, 0, NOW, NOW, ImmutableList.of(),
+                        ReviewFinding.Origin.AUTOMATIC, Optional.empty()))
                 .collect(toImmutableList());
 
         assertThatThrownBy(() -> ReviewPremise.render(ImmutableList.of(), findings))
@@ -215,7 +216,8 @@ class TestReviewPremise
     private static ReviewFinding finding(String id, String title, Instant createdAt, Optional<ReviewAnchor> anchor, boolean outdated)
     {
         return new ReviewFinding(id, "r1", "run-1", 1, title, "Body of " + title, Optional.of("major"), anchor, ImmutableList.of(), 1,
-                ReviewFinding.State.OPEN, Optional.empty(), "a".repeat(40), outdated, 0, createdAt, createdAt, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
+                ReviewFinding.State.OPEN, Optional.empty(), "a".repeat(40), outdated, 0, createdAt, createdAt, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC,
+                Optional.empty());
     }
 
     private static ReviewRun run(String id, int ordinal, String headSha)

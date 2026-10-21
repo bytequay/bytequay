@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -125,31 +126,19 @@ public class MemoryService
     /** Flags the memory; it stays as it is, and agents keep receiving it with the report. */
     public Memory report(String workspaceId, String memoryId, String reason, String quote, String taskId)
     {
-        synchronized (lock) {
-            Memory reported = get(workspaceId, memoryId).reported(new MemoryReport(reason, quote, taskId, clock.instant()), clock.instant());
-            store.save(reported);
-            return reported;
-        }
+        return saved(() -> get(workspaceId, memoryId).reported(new MemoryReport(reason, quote, taskId, clock.instant()), clock.instant()));
     }
 
     /** A harvest saw the rule again; a memory the user owns stays as it is. */
     public Memory addSources(String workspaceId, String memoryId, List<MemorySource> sources)
     {
-        synchronized (lock) {
-            Memory sourced = agentOwned(workspaceId, memoryId).withSources(sources, clock.instant());
-            store.save(sourced);
-            return sourced;
-        }
+        return saved(() -> agentOwned(workspaceId, memoryId).withSources(sources, clock.instant()));
     }
 
     /** A harvest found a newer pull request that overrides the rule; the replaced title, text and scope stay as the previous version. */
     public Memory replace(String workspaceId, String memoryId, String title, String text, List<String> scope, List<MemorySource> sources)
     {
-        synchronized (lock) {
-            Memory replaced = agentOwned(workspaceId, memoryId).replaced(title, text, scope, sources, clock.instant());
-            store.save(replaced);
-            return replaced;
-        }
+        return saved(() -> agentOwned(workspaceId, memoryId).replaced(title, text, scope, sources, clock.instant()));
     }
 
     private Memory agentOwned(String workspaceId, String memoryId)
@@ -164,31 +153,30 @@ public class MemoryService
     /** The user's words replace the title and text; line breaks become spaces, since a memory is one paragraph. */
     public Memory edit(String workspaceId, String memoryId, long expectedVersion, String title, String text)
     {
-        synchronized (lock) {
-            Memory edited = current(workspaceId, memoryId, expectedVersion).edited(title.strip(), text.strip().replaceAll("\\s*\\R\\s*", " "), clock.instant());
-            store.save(edited);
-            return edited;
-        }
+        return saved(() -> current(workspaceId, memoryId, expectedVersion).edited(title.strip(), text.strip().replaceAll("\\s*\\R\\s*", " "), clock.instant()));
     }
 
     public Memory restore(String workspaceId, String memoryId, long expectedVersion)
     {
-        synchronized (lock) {
+        return saved(() -> {
             Memory memory = current(workspaceId, memoryId, expectedVersion);
             checkArgument(memory.previous().isPresent(), "Memory %s has no previous version", memoryId);
-            Memory restored = memory.restored(clock.instant());
-            store.save(restored);
-            return restored;
-        }
+            return memory.restored(clock.instant());
+        });
     }
 
     /** The user read the reports and keeps the memory as it is. */
     public Memory keep(String workspaceId, String memoryId)
     {
+        return saved(() -> get(workspaceId, memoryId).kept(clock.instant()));
+    }
+
+    private Memory saved(Supplier<Memory> change)
+    {
         synchronized (lock) {
-            Memory kept = get(workspaceId, memoryId).kept(clock.instant());
-            store.save(kept);
-            return kept;
+            Memory changed = change.get();
+            store.save(changed);
+            return changed;
         }
     }
 

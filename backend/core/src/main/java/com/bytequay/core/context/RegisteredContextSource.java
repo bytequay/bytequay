@@ -13,28 +13,11 @@
  */
 package com.bytequay.core.context;
 
-import java.util.Optional;
-
-import static com.bytequay.core.domain.Checks.checkOptionalText;
-import static com.google.common.base.Preconditions.checkArgument;
-import static java.util.Objects.requireNonNull;
-
 /** A configured documentation location, never proof that its content was retrieved. */
-public record RegisteredContextSource(String id, Kind kind, String url, ContextEntryOrigin origin, Optional<String> discoveryEvidenceRef)
+public record RegisteredContextSource(String url)
 {
     public RegisteredContextSource
     {
-        ContextLimits.text(id, "source id", 200);
-        requireNonNull(kind, "kind is null");
-        requireNonNull(origin, "origin is null");
-        checkOptionalText(discoveryEvidenceRef, "discoveryEvidenceRef", 500);
         ContextLimits.documentationUrl(url);
-        checkArgument(kind != Kind.DOCUMENTATION_ROOT || url.endsWith("/"), "Documentation root must end with a slash");
-    }
-
-    public enum Kind
-    {
-        DOCUMENTATION_ROOT,
-        DOCUMENTATION_PAGE
     }
 }

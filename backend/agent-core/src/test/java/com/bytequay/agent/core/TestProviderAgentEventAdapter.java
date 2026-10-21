@@ -55,7 +55,7 @@ class TestProviderAgentEventAdapter
         for (ProviderUsageSample.Semantics semantics : ProviderUsageSample.Semantics.values()) {
             ProviderUsageSample sample = new ProviderUsageSample(Optional.empty(), semantics, 3, 2, 1, Optional.of(new BigDecimal("0.5")));
             assertThat(ProviderAgentEventAdapter.adapt(new ProviderAgentEvent.Usage(sample)).payload())
-                    .isEqualTo(new AgentEventPayload.UsageUpdated(AgentEventPayload.UsageSemantics.valueOf(semantics.name()), 3, 2, 1, sample.cost()));
+                    .isEqualTo(new AgentEventPayload.UsageUpdated(semantics, 3, 2, 1, sample.cost()));
         }
     }
 

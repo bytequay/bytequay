@@ -199,7 +199,7 @@ final class SurefireReports
                 : OptionalLong.empty();
     }
 
-    private static int count(List<TestMethod> methods, MethodStatus status)
+    static int count(List<TestMethod> methods, MethodStatus status)
     {
         return (int) methods.stream().filter(method -> method.status() == status).count();
     }

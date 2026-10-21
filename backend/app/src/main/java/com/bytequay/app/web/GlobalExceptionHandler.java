@@ -111,23 +111,14 @@ public class GlobalExceptionHandler
                 && GITHUB_REFRESH_ROUTES.contains(route);
     }
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(IllegalArgumentException exception, HttpServletRequest request)
-    {
-        return errorResponse(HttpStatus.BAD_REQUEST.value(), exception.getMessage(), request.getRequestURI());
-    }
-
-    @ExceptionHandler({MissingServletRequestParameterException.class, MissingRequestHeaderException.class})
-    public ResponseEntity<ErrorResponse> handleMissingRequestParameter(Exception exception, HttpServletRequest request)
-    {
-        return errorResponse(HttpStatus.BAD_REQUEST.value(), exception.getMessage(), request.getRequestURI());
-    }
-
     @ExceptionHandler({
+            IllegalArgumentException.class,
+            MissingServletRequestParameterException.class,
+            MissingRequestHeaderException.class,
             InvalidAgentRequestException.class,
             HttpMessageNotReadableException.class,
             MethodArgumentTypeMismatchException.class})
-    public ResponseEntity<ErrorResponse> handleInvalidAgentRequest(Exception exception, HttpServletRequest request)
+    public ResponseEntity<ErrorResponse> handleBadRequest(Exception exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.BAD_REQUEST.value(), exception.getMessage(), request.getRequestURI());
     }

@@ -479,9 +479,9 @@ class TestLocalReviewService
                 review("another-pull-request", OptionalInt.of(8), Optional.empty())));
         when(reviews.listFindings(anyString())).thenAnswer(call -> ImmutableList.of(finding("finding-" + call.getArgument(0), call.getArgument(0))));
         ReviewMessage question = new ReviewMessage("question", "pull-request", Optional.of("finding-pull-request"), Optional.empty(), ReviewMessage.Author.USER,
-                "Is this real?", 1, "run", Optional.empty(), Optional.empty(), 0, Instant.EPOCH);
+                "Is this real?", 1, "run", Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Optional.empty());
         ReviewMessage summaryQuestion = new ReviewMessage("summary", "pull-request", Optional.empty(), Optional.empty(), ReviewMessage.Author.USER,
-                "What changed?", 1, "run", Optional.empty(), Optional.empty(), 0, Instant.EPOCH);
+                "What changed?", 1, "run", Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Optional.empty());
         when(reviews.listMessages("pull-request")).thenReturn(ImmutableList.of(question, summaryQuestion));
 
         assertThat(service.readsFindings(taskId.toString())).isTrue();
@@ -775,7 +775,7 @@ class TestLocalReviewService
     private static ReviewFinding finding(String id, String reviewId)
     {
         return new ReviewFinding(id, reviewId, "run", 1, "Title", "Body", Optional.empty(), Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN,
-                Optional.empty(), "b".repeat(40), false, 0, Instant.EPOCH, Instant.EPOCH, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
+                Optional.empty(), "b".repeat(40), false, 0, Instant.EPOCH, Instant.EPOCH, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty());
     }
 
     private LocalReviewView create(long expectedTaskVersion)

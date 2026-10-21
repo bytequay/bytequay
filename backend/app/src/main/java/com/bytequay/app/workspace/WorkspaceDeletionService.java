@@ -28,14 +28,13 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.io.MoreFiles;
+import com.google.common.io.RecursiveDeleteOption;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -231,27 +230,7 @@ public class WorkspaceDeletionService
                 continue;
             }
             requireDirectory(owned);
-            Files.walkFileTree(owned, new SimpleFileVisitor<>()
-            {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attributes)
-                        throws IOException
-                {
-                    Files.delete(file);
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult postVisitDirectory(Path visited, IOException failure)
-                        throws IOException
-                {
-                    if (failure != null) {
-                        throw failure;
-                    }
-                    Files.delete(visited);
-                    return FileVisitResult.CONTINUE;
-                }
-            });
+            MoreFiles.deleteRecursively(owned, RecursiveDeleteOption.ALLOW_INSECURE);
         }
         try (var children = Files.list(directory)) {
             if (children.anyMatch(child -> !child.equals(marker))) {

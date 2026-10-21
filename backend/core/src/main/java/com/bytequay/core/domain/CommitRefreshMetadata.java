@@ -16,8 +16,8 @@ package com.bytequay.core.domain;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Durable outcome metadata for one workspace's last commit refresh. */
@@ -28,8 +28,7 @@ public record CommitRefreshMetadata(String workspaceId, Optional<Instant> lastAt
         checkText(workspaceId, "workspaceId");
         requireNonNull(lastAttemptAt, "lastAttemptAt is null");
         requireNonNull(lastSucceededAt, "lastSucceededAt is null");
-        requireNonNull(error, "error is null");
-        error.ifPresent(value -> checkArgument(!value.isBlank(), "error is blank"));
+        checkOptionalText(error, "error");
     }
 
     public static CommitRefreshMetadata empty(String workspaceId)

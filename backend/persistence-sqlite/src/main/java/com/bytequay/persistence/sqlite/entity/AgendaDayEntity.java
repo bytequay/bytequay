@@ -14,7 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.AgendaDay;
-import com.bytequay.persistence.sqlite.converter.AgendaDayConverter;
+import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.AgendaDayConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;

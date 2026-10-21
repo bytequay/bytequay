@@ -509,7 +509,7 @@ class AssistantRows
         return watched.stream().filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).findFirst();
     }
 
-    private static Optional<TaskId> taskId(String id)
+    static Optional<TaskId> taskId(String id)
     {
         try {
             return Optional.of(TaskId.valueOf(id));

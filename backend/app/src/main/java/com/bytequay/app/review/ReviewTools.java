@@ -610,13 +610,7 @@ public class ReviewTools
             if (!assessed.add(perspective)) {
                 throw new ReviewInvalidRequestException("perspectives: assess each perspective at most once per checkpoint");
             }
-            ReviewPerspectiveAssessment.Status status;
-            try {
-                status = ReviewPerspectiveAssessment.Status.valueOf(text(item, "status", 30, true));
-            }
-            catch (IllegalArgumentException e) {
-                throw new ReviewInvalidRequestException("status: use CHECKED, NOT_APPLICABLE, or BLOCKED");
-            }
+            ReviewPerspectiveAssessment.Status status = choice(item, "status", ReviewPerspectiveAssessment.Status.class, "CHECKED, NOT_APPLICABLE, or BLOCKED");
             List<String> responsibilities = strings(item, "responsibilities", 30, 1000);
             List<String> paths = strings(item, "paths", 100, 1000);
             List<String> refs = evidenceRefs(call, item, "evidenceRefs", 80);
@@ -669,12 +663,7 @@ public class ReviewTools
 
     private static ReviewPerspectiveAssessment.Perspective perspective(JsonNode item)
     {
-        try {
-            return ReviewPerspectiveAssessment.Perspective.valueOf(text(item, "perspective", 30, true));
-        }
-        catch (IllegalArgumentException e) {
-            throw new ReviewInvalidRequestException("perspective: use BEHAVIOR, INTERACTIONS, or DESIGN");
-        }
+        return choice(item, "perspective", ReviewPerspectiveAssessment.Perspective.class, "BEHAVIOR, INTERACTIONS, or DESIGN");
     }
 
     /**
@@ -819,13 +808,7 @@ public class ReviewTools
         if (!value.isObject()) {
             throw new ReviewInvalidRequestException("testCheck: expected an outcome and its explanation");
         }
-        ReviewTestCheck.Outcome outcome;
-        try {
-            outcome = ReviewTestCheck.Outcome.valueOf(text(value, "outcome", 30, true));
-        }
-        catch (IllegalArgumentException e) {
-            throw new ReviewInvalidRequestException("outcome: use PROTECTS, DOES_NOT_PROTECT, NOT_APPLICABLE, or BLOCKED");
-        }
+        ReviewTestCheck.Outcome outcome = choice(value, "outcome", ReviewTestCheck.Outcome.class, "PROTECTS, DOES_NOT_PROTECT, NOT_APPLICABLE, or BLOCKED");
         Optional<String> head = commandRef(call, value, "headEvidenceRef");
         Optional<String> undone = commandRef(call, value, "undoneEvidenceRef");
         Optional<Integer> candidate = integer(value, "candidate");
@@ -1010,7 +993,7 @@ public class ReviewTools
                     now,
                     now,
                     ImmutableList.of(),
-                    call.run().active() ? ReviewFinding.Origin.AUTOMATIC : ReviewFinding.Origin.DISCUSSION);
+                    call.run().active() ? ReviewFinding.Origin.AUTOMATIC : ReviewFinding.Origin.DISCUSSION, Optional.empty());
             insert = true;
         }
         if (saved.anchor().isEmpty() && severity.isPresent()) {
@@ -1114,7 +1097,7 @@ public class ReviewTools
                 Optional.empty(),
                 Optional.empty(),
                 0,
-                now());
+                now(), Optional.empty());
         ObjectNode result = objectMapper.createObjectNode().put("messageId", message.id()).put("status", "accepted");
         store.insertMessage(message, call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
@@ -1149,7 +1132,7 @@ public class ReviewTools
         ReviewFinding updated = finding.state() == ReviewFinding.State.OPEN ? finding.withState(ReviewFinding.State.WITHDRAWN, Optional.of(explanation), now) : finding;
         ReviewMessage message = new ReviewMessage(UUID.randomUUID().toString(), call.review().id(), Optional.of(finding.id()), Optional.empty(), ReviewMessage.Author.AGENT,
                 "Withdrawn: " + explanation + (refs.isEmpty() ? "" : "\n\nEvidence: " + String.join(", ", refs)),
-                finding.revision(), call.run().id(), Optional.empty(), Optional.empty(), 0, now);
+                finding.revision(), call.run().id(), Optional.empty(), Optional.empty(), 0, now, Optional.empty());
         ObjectNode result = objectMapper.createObjectNode().put("findingId", finding.id()).put("state", updated.state().name()).put("status", "accepted");
         store.saveFinding(updated, false, call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now));
         store.insertMessage(message);
@@ -1208,13 +1191,7 @@ public class ReviewTools
             if (candidate > candidateCount || !candidates.add(candidate)) {
                 throw new ReviewInvalidRequestException("validations: include each investigation candidate once, using its one-based number");
             }
-            ReviewCandidateValidation.Outcome outcome;
-            try {
-                outcome = ReviewCandidateValidation.Outcome.valueOf(text(item, "outcome", 30, true));
-            }
-            catch (IllegalArgumentException e) {
-                throw new ReviewInvalidRequestException("outcome: use SUPPORTED, REJECTED, NEEDS_EVIDENCE, or UNRESOLVED");
-            }
+            ReviewCandidateValidation.Outcome outcome = choice(item, "outcome", ReviewCandidateValidation.Outcome.class, "SUPPORTED, REJECTED, NEEDS_EVIDENCE, or UNRESOLVED");
             if (candidate > investigation.candidates().size() && outcome != NEEDS_EVIDENCE) {
                 throw new ReviewInvalidRequestException("newCandidates: new hypotheses require NEEDS_EVIDENCE so ByteQuay can assign investigation");
             }
@@ -1336,13 +1313,7 @@ public class ReviewTools
             ReviewOwnThreads.Thread thread = threads.stream().filter(value -> value.id().equals(id)).findFirst()
                     .orElseThrow(() -> new ReviewInvalidRequestException("threadVerdicts: " + id
                             + " is not a thread the user started; use the ids from review_get_context kind own_threads"));
-            ReviewThreadVerdict.Verdict verdict;
-            try {
-                verdict = ReviewThreadVerdict.Verdict.valueOf(text(item, "verdict", 30, true));
-            }
-            catch (IllegalArgumentException e) {
-                throw new ReviewInvalidRequestException("verdict: use ADDRESSED, PARTLY_ADDRESSED, NOT_ADDRESSED, or AWAITING_REPLY");
-            }
+            ReviewThreadVerdict.Verdict verdict = choice(item, "verdict", ReviewThreadVerdict.Verdict.class, "ADDRESSED, PARTLY_ADDRESSED, NOT_ADDRESSED, or AWAITING_REPLY");
             List<String> refs = evidenceRefs(call, item, "evidenceRefs", MAX_EVIDENCE);
             if (refs.isEmpty()) {
                 throw new ReviewInvalidRequestException("threadVerdicts: cite what was read for thread " + id
@@ -2363,12 +2334,7 @@ public class ReviewTools
 
     private Replay replay(Call call, String tool)
     {
-        return replay(call, tool, "operationKey");
-    }
-
-    private Replay replay(Call call, String tool, String keyField)
-    {
-        String operationKey = text(call.arguments(), keyField, MAX_KEY, true);
+        String operationKey = text(call.arguments(), "operationKey", MAX_KEY, true);
         String key = call.step().map(step -> "review-step:" + call.run().id() + ":" + step.number() + ":").orElse("") + tool + ":" + operationKey;
         String digest = Hashing.sha256().hashString(canonical(call.arguments()), StandardCharsets.UTF_8).toString();
         ReviewOperation stored = call.run().operations().get(key);
@@ -2376,13 +2342,13 @@ public class ReviewTools
             return new Replay(key, digest, Optional.empty());
         }
         if (!stored.payloadDigest().equals(digest)) {
-            throw new ReviewConflictException(keyField + ": " + operationKey + " was already used with different content; choose a new key for a new write");
+            throw new ReviewConflictException("operationKey: " + operationKey + " was already used with different content; choose a new key for a new write");
         }
         try {
             return new Replay(key, digest, Optional.of(objectMapper.readTree(stored.result())));
         }
         catch (JsonProcessingException e) {
-            throw new ReviewConflictException(keyField + ": stored result is unreadable");
+            throw new ReviewConflictException("operationKey: stored result is unreadable");
         }
     }
 
@@ -2393,6 +2359,17 @@ public class ReviewTools
         }
         catch (JsonProcessingException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /** A missing field and an unknown value get the same answer, naming the allowed values. */
+    private static <E extends Enum<E>> E choice(JsonNode node, String field, Class<E> type, String allowed)
+    {
+        try {
+            return Enum.valueOf(type, text(node, field, 30, true));
+        }
+        catch (IllegalArgumentException e) {
+            throw new ReviewInvalidRequestException(field + ": use " + allowed);
         }
     }
 

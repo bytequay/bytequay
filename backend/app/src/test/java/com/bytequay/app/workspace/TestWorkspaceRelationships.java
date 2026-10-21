@@ -60,7 +60,6 @@ class TestWorkspaceRelationships
                 .satisfies(link -> assertThat(link.guidance()).isEqualTo("Version in pom.xml"));
         assertThat(workspaces.findById("p2")).contains(p2);
         workspaces.setWatched("p3", false);
-        assertThat(relationships.available("p2", "p3")).isEmpty();
         assertThatThrownBy(() -> relationships.requireRelated("p2", "p3")).hasMessageContaining("unavailable");
         relationships.remove("p2", "p3");
         assertThat(relationships.list("p2")).isEmpty();

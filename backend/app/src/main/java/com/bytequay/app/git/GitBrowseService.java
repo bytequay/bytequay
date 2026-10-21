@@ -14,6 +14,7 @@
 package com.bytequay.app.git;
 
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.google.common.base.CharMatcher;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Component;
@@ -298,11 +299,7 @@ public class GitBrowseService
     /** Git pads +++/--- header paths containing spaces with a trailing tab. */
     private static String headerPath(String value)
     {
-        int end = value.length();
-        while (end > 0 && value.charAt(end - 1) == '\t') {
-            end--;
-        }
-        return value.substring(0, end);
+        return CharMatcher.is('\t').trimTrailingFrom(value);
     }
 
     private static String renameTarget(String path)

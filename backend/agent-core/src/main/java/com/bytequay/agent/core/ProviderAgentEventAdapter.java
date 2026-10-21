@@ -70,7 +70,7 @@ public final class ProviderAgentEventAdapter
     private static AgentEventPayload.UsageUpdated usage(ProviderUsageSample sample)
     {
         return new AgentEventPayload.UsageUpdated(
-                AgentEventPayload.UsageSemantics.valueOf(sample.semantics().name()),
+                sample.semantics(),
                 sample.inputTokens(),
                 sample.cachedInputTokens(),
                 sample.outputTokens(),

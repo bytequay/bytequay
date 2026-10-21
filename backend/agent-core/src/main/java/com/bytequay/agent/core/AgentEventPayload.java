@@ -21,6 +21,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent.CommandAction;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderAgentEvent.PlanItem;
+import com.bytequay.agent.spi.ProviderUsageSample;
 import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
@@ -201,7 +202,7 @@ public sealed interface AgentEventPayload
         }
     }
 
-    record UsageUpdated(UsageSemantics semantics, long inputTokens, long cachedInputTokens, long outputTokens, Optional<BigDecimal> cost)
+    record UsageUpdated(ProviderUsageSample.Semantics semantics, long inputTokens, long cachedInputTokens, long outputTokens, Optional<BigDecimal> cost)
             implements AgentEventPayload
     {
         public UsageUpdated
@@ -288,15 +289,6 @@ public sealed interface AgentEventPayload
         DENIED,
         EXPIRED,
         CANCELLED
-    }
-
-    enum UsageSemantics
-    {
-        CUMULATIVE,
-        CUMULATIVE_FOR_INVOCATION,
-        DELTA,
-        FINAL_FOR_INVOCATION,
-        FINAL_WITH_SESSION_COST
     }
 
     enum LifecyclePhase

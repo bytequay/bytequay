@@ -26,7 +26,7 @@ import org.springframework.stereotype.Component;
 import java.util.HashSet;
 import java.util.Set;
 
-import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
+import static com.bytequay.app.repository.github.GitHubRateLimitException.refreshQuietly;
 import static java.util.Objects.requireNonNull;
 
 /** Periodically refreshes the database-backed issue projection for monitored repositories. */
@@ -62,14 +62,7 @@ public class IssueSyncJob
             if (!synchronizedRepositories.add(workspace.monitoredRepositoryId())) {
                 continue;
             }
-            try {
-                issues.refreshIssues(workspace.id());
-            }
-            catch (RuntimeException failure) {
-                if (!isRateLimit(failure)) {
-                    log.warn("Issue sync failed for {}: {}", workspace.monitoredRepository(), failure.getMessage());
-                }
-            }
+            refreshQuietly(log, "Issue sync for " + workspace.monitoredRepository(), () -> issues.refreshIssues(workspace.id()));
         }
     }
 }

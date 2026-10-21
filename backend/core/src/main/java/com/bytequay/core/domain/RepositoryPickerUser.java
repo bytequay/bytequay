@@ -15,6 +15,7 @@ package com.bytequay.core.domain;
 
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -25,8 +26,7 @@ public record RepositoryPickerUser(long id, String login, Optional<String> avata
     {
         checkArgument(id > 0, "id must be positive");
         requireNonNull(login, "login is null");
-        requireNonNull(avatarKey, "avatarKey is null");
         checkArgument(!login.isBlank(), "login is blank");
-        avatarKey.ifPresent(value -> checkArgument(!value.isBlank(), "avatarKey is blank"));
+        checkOptionalText(avatarKey, "avatarKey");
     }
 }

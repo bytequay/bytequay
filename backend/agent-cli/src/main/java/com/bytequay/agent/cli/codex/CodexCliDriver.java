@@ -149,7 +149,6 @@ public final class CodexCliDriver
 {
     private static final Logger log = LoggerFactory.getLogger(CodexCliDriver.class);
     private static final Logger sendTiming = LoggerFactory.getLogger("com.bytequay.agent.SendTiming");
-    private static final AgentLaneId LANE_ID = new AgentLaneId("codex");
     private static final int CONTRACT_VERSION = 1;
     private static final int REVIEW_DYNAMIC_CONTRACT_VERSION = 3;
     private static final String PLAN_INSTRUCTION = """
@@ -239,7 +238,7 @@ public final class CodexCliDriver
     public CodexCliDriver(String executable, String minimumVersion, ObjectMapper objectMapper, ProcessSupervisor supervisor, Path codexHome, PermissionBroker permissions)
     {
         this(executable, minimumVersion, objectMapper, supervisor, ProviderCli.inheritedEnvironment(System.getenv(), INHERITED_ENVIRONMENT), codexHome, permissions,
-                DEFAULT_QUIESCENCE_TIMEOUT, LANE_ID, "Codex", Optional.empty());
+                DEFAULT_QUIESCENCE_TIMEOUT, AgentLaneId.CODEX_CLI, "Codex", Optional.empty());
     }
 
     /** One saved DeepSeek key becomes one Codex App Server lane with its own isolated home. */
@@ -271,7 +270,7 @@ public final class CodexCliDriver
             PermissionBroker permissions,
             Duration quiescenceTimeout)
     {
-        this(executable, minimumVersion, objectMapper, supervisor, environment, codexHome, permissions, quiescenceTimeout, LANE_ID, "Codex", Optional.empty());
+        this(executable, minimumVersion, objectMapper, supervisor, environment, codexHome, permissions, quiescenceTimeout, AgentLaneId.CODEX_CLI, "Codex", Optional.empty());
     }
 
     private CodexCliDriver(

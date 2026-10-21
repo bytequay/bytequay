@@ -174,7 +174,7 @@ class TestLocalReviewBridgeResolverImpl
                 .collect(toImmutableList());
         List<ReviewMessage> discussion = IntStream.range(0, 200)
                 .mapToObj(index -> new ReviewMessage("message-" + index, "own", Optional.of("finding-0"), Optional.empty(), ReviewMessage.Author.USER,
-                        "\u0001".repeat(16_000), 1, "run", Optional.empty(), Optional.empty(), 0, Instant.EPOCH))
+                        "\u0001".repeat(16_000), 1, "run", Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Optional.empty()))
                 .collect(toImmutableList());
         // The first finding is large but ordinary text; every other one is made of characters JSON escapes to six.
         List<AgentFinding> findings = IntStream.range(0, 300)
@@ -182,7 +182,8 @@ class TestLocalReviewBridgeResolverImpl
                     String filler = index == 0 ? "x" : "\u0001";
                     return new AgentFinding(review, new ReviewFinding("finding-" + index, "own", "run", index + 1, filler.repeat(4096), filler.repeat(60_000), Optional.of("high"),
                             Optional.of(new ReviewAnchor(filler.repeat(4096), "RIGHT", 1, 2, ImmutableList.of(filler.repeat(60_000)))), evidence, 1, ReviewFinding.State.RESOLVED,
-                            Optional.of(filler.repeat(60_000)), "b".repeat(40), false, 0, Instant.EPOCH, Instant.EPOCH, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC),
+                            Optional.of(filler.repeat(60_000)), "b".repeat(40), false, 0, Instant.EPOCH, Instant.EPOCH, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC,
+                            Optional.empty()),
                             discussion);
                 })
                 .collect(toImmutableList());
@@ -343,7 +344,7 @@ class TestLocalReviewBridgeResolverImpl
         return new ReviewFinding(id, reviewId, "run", ordinal, "Title of " + id, "Body of " + id, Optional.of("medium"),
                 Optional.of(new ReviewAnchor("Example.java", "RIGHT", 10, 11, ImmutableList.of("first", "second"))), evidence, 1, state,
                 state == ReviewFinding.State.OPEN ? Optional.empty() : Optional.of("Reason"), "b".repeat(40), false, 0, Instant.EPOCH, Instant.EPOCH,
-                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty());
     }
 
     private static ReviewMessage message(String id, ReviewMessage.Author author, Optional<String> developerTaskId)

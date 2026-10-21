@@ -446,7 +446,7 @@ class TestDefaultProcessSupervisor
         assertThat(exit.exitCode()).isZero();
         assertThat(exit.treeTermination()).isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
 
-        long survivor = ProcessGroups.members(process.pid()).orElseThrow().getFirst();
+        long survivor = ProcessSessions.members(process.pid()).orElseThrow().getFirst();
         assertThat(ProcessHandle.of(survivor)).isPresent();
 
         ProcessExit.TreeTermination retried = process.stopAndVerify().toCompletableFuture()
@@ -496,7 +496,8 @@ class TestDefaultProcessSupervisor
         assertThat(reported.await(5, TimeUnit.SECONDS)).isTrue();
         long descendantPid = Long.parseLong(stdout.toString().trim());
         try {
-            assertThat(ProcessGroups.members(descendantPid).orElseThrow()).contains(descendantPid);
+            assertThat(ShortCommand.run(ImmutableList.of("/bin/ps", "-o", "pgid=", "-p", Long.toString(descendantPid)), Duration.ofSeconds(5)).map(String::trim))
+                    .contains(Long.toString(descendantPid));
             assertThat(ProcessSessions.sessionOf(descendantPid)).hasValue(process.pid());
             assertThat(process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS).treeTermination())
                     .isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);

@@ -31,7 +31,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
+import static com.bytequay.app.repository.github.GitHubRateLimitException.refreshQuietly;
 import static java.util.Objects.requireNonNull;
 
 /** Periodically refreshes pull requests and checks repository metadata freshness outside quiet hours. */
@@ -81,7 +81,7 @@ public class PullRequestSyncJob
         Instant now = Instant.now(clock);
         if (!now.isBefore(lastRefreshedAt.plus(Duration.ofMinutes(30)))) {
             lastRefreshedAt = now;
-            refresh("global dashboard", refreshService::refreshScheduledDashboard);
+            refreshQuietly(log, "Pull request refresh for global dashboard", refreshService::refreshScheduledDashboard);
             List<Workspace> configuredWorkspaces = workspaces.findAll();
             Set<Long> metadataRepositories = new HashSet<>();
             configuredWorkspaces.stream()
@@ -90,23 +90,12 @@ public class PullRequestSyncJob
             Set<Long> pullRequestRepositories = new HashSet<>();
             configuredWorkspaces.stream()
                     .filter(workspace -> pullRequestRepositories.add(workspace.monitoredRepositoryId()))
-                    .forEach(workspace -> refresh(workspace.monitoredRepository().fullName(), () -> refreshService.refreshWorkspace(workspace.id())));
+                    .forEach(workspace -> refreshQuietly(log, "Pull request refresh for " + workspace.monitoredRepository().fullName(),
+                            () -> refreshService.refreshWorkspace(workspace.id())));
         }
         if (!now.isBefore(lastWarmedAt.plus(Duration.ofMinutes(10)))) {
             lastWarmedAt = now;
-            refresh("warm PR details", () -> refreshService.warmRecentDetails(appSettings.preferences().prWarmCount()));
-        }
-    }
-
-    private void refresh(String scope, Runnable action)
-    {
-        try {
-            action.run();
-        }
-        catch (RuntimeException failure) {
-            if (!isRateLimit(failure)) {
-                log.warn("Pull request refresh failed for {}: {}", scope, failure.getMessage());
-            }
+            refreshQuietly(log, "Pull request refresh for warm PR details", () -> refreshService.warmRecentDetails(appSettings.preferences().prWarmCount()));
         }
     }
 }

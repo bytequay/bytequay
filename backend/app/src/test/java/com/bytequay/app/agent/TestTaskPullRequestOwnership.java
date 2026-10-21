@@ -121,7 +121,7 @@ class TestTaskPullRequestOwnership
     }
 
     @Test
-    void theShownPullRequestIsTheLinkedOneEvenWhenANewerAuthoredOneIsOpen()
+    void theLinkedPullRequestIsTheOneTheGeneratedBranchDeliveredEvenWhenANewerAuthoredOneIsOpen()
     {
         when(pullRequests.findByHeadRef("owner/repo", worktree.generatedBranch())).thenReturn(ImmutableList.of(pullRequest(10, "merged", PullRequest.Origin.OTHER)));
         when(pullRequests.findByHeadRef("owner/repo", "renamed")).thenReturn(ImmutableList.of(pullRequest(11, "open", PullRequest.Origin.AUTHORED)));
@@ -129,17 +129,15 @@ class TestTaskPullRequestOwnership
         // The tab lists #11 first, but the task links the pull request its generated branch delivered.
         assertThat(ownership.pullRequests(task)).extracting(PullRequest::number).containsExactly(11, 10);
         assertThat(ownership.linkedPullRequest(task)).map(PullRequest::number).contains(10);
-        assertThat(ownership.shownPullRequest(task)).map(PullRequest::number).contains(10);
 
-        // With only a closed row on the generated branch nothing is linked, so the tab falls back to the newest live row it lists.
+        // With only a closed row on the generated branch nothing is linked.
         when(pullRequests.findByHeadRef("owner/repo", worktree.generatedBranch())).thenReturn(ImmutableList.of(pullRequest(10, "closed", PullRequest.Origin.OTHER)));
         assertThat(ownership.linkedPullRequest(task)).isEmpty();
-        assertThat(ownership.shownPullRequest(task)).map(PullRequest::number).contains(11);
 
         when(assignments.findByTaskId(taskId.toString())).thenReturn(Optional.of(new PullRequestTask(taskId.toString(), "workspace", "owner/repo", 3, "context")));
         when(pullRequests.findIdByRepoAndNumber("owner/repo", 3)).thenReturn(Optional.of(3L));
         when(pullRequests.findById(3L)).thenReturn(Optional.of(pullRequest(3, "closed", PullRequest.Origin.OTHER)));
-        assertThat(ownership.shownPullRequest(task)).map(PullRequest::number).contains(3);
+        assertThat(ownership.linkedPullRequest(task)).map(PullRequest::number).contains(3);
     }
 
     @Test

@@ -680,7 +680,7 @@ public class AgentReviewService
                     Optional.empty(),
                     Optional.empty(),
                     0,
-                    Instant.now(clock)));
+                    Instant.now(clock), Optional.empty()));
             String requestKey = "review-ask:" + messageId;
             try {
                 return attachQuestionDelivery(question, TaskInput.send(turns, taskId, task.version(), prompt, requestKey, !idle(task), Optional.empty()));

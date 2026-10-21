@@ -53,7 +53,7 @@ public class GoogleWorkspaceController
     @PostMapping("/connect")
     public GoogleSnapshot.Status connect()
     {
-        return google.connect();
+        return google.connect(false);
     }
 
     @DeleteMapping

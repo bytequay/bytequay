@@ -17,15 +17,13 @@ import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
-import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.integration.jira.JiraDtos;
 import com.bytequay.integration.jira.JiraIssue;
 import com.bytequay.integration.jira.JiraIssueContext;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.bytequay.integration.jira.impl.JiraCache;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
@@ -38,18 +36,15 @@ import static java.util.Objects.requireNonNull;
 public class JiraIssueContextImpl
         implements JiraIssueContext
 {
-    private final AppSettingsStore settings;
-    private final ObjectMapper mapper;
+    private final JiraCache cache;
     private final JiraIssueTaskStore tasks;
     private final WorkspaceStore workspaces;
     private final WorkItemStore workItems;
     private final RecentTouchRecorder recent;
 
-    public JiraIssueContextImpl(AppSettingsStore settings, ObjectMapper mapper, JiraIssueTaskStore tasks, WorkspaceStore workspaces,
-            WorkItemStore workItems, RecentTouchRecorder recent)
+    public JiraIssueContextImpl(JiraCache cache, JiraIssueTaskStore tasks, WorkspaceStore workspaces, WorkItemStore workItems, RecentTouchRecorder recent)
     {
-        this.settings = requireNonNull(settings, "settings is null");
-        this.mapper = requireNonNull(mapper, "mapper is null");
+        this.cache = requireNonNull(cache, "cache is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
@@ -68,24 +63,24 @@ public class JiraIssueContextImpl
     public boolean isEpic(String cloudId, String issueId)
     {
         // Keep the stored marker key so the terminology change preserves existing Epic selections.
-        return read("goal." + segment(cloudId) + "." + segment(issueId), Boolean.class).orElse(false);
+        return cache.read("goal." + segment(cloudId) + "." + segment(issueId), Boolean.class).orElse(false);
     }
 
     public Optional<String> assignedWorkspace(String cloudId, String issueId)
     {
         return tasks.findBySource(cloudId, issueId).map(link -> link.workspaceId())
                 .or(() -> workItems.findByIdentity(WorkItemLink.jiraIdentity(cloudId, issueId)).map(WorkItem::workspaceId))
-                .or(() -> read("workspace." + segment(cloudId) + "." + segment(issueId), String.class));
+                .or(() -> cache.read("workspace." + segment(cloudId) + "." + segment(issueId), String.class));
     }
 
     public void setEpic(String cloudId, String issueId, boolean epic)
     {
-        write("goal." + segment(cloudId) + "." + segment(issueId), epic);
+        cache.write("goal." + segment(cloudId) + "." + segment(issueId), epic);
     }
 
     public void assignWorkspace(String cloudId, String issueId, String workspaceId)
     {
-        write("workspace." + segment(cloudId) + "." + segment(issueId), workspaceId);
+        cache.write("workspace." + segment(cloudId) + "." + segment(issueId), workspaceId);
     }
 
     public void recordRead(JiraIssue issue, int dwellSeconds)
@@ -103,27 +98,5 @@ public class JiraIssueContextImpl
     public void wroteOnJira(JiraIssue issue, String commentId, String body)
     {
         recent.wroteOnJira(issue, commentId, body);
-    }
-
-    private <T> Optional<T> read(String key, Class<T> type)
-    {
-        return settings.get("jira." + key).map(value -> {
-            try {
-                return mapper.readValue(value, type);
-            }
-            catch (JsonProcessingException e) {
-                throw new IllegalStateException("Unable to read saved Jira data", e);
-            }
-        });
-    }
-
-    private void write(String key, Object value)
-    {
-        try {
-            settings.put("jira." + key, mapper.writeValueAsString(value));
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("Unable to encode Jira data", e);
-        }
     }
 }

@@ -1646,9 +1646,9 @@ class TestReviewTools
     void findingDiscussionNamesADevelopmentAgentsReply()
     {
         store.insertMessage(new ReviewMessage("question", REVIEW_ID, Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.USER, "Is this real?", 1, RUN_ID,
-                Optional.empty(), Optional.empty(), 0, NOW));
+                Optional.empty(), Optional.empty(), 0, NOW, Optional.empty()));
         store.insertMessage(new ReviewMessage("answer", REVIEW_ID, Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.AGENT, "It is", 1, RUN_ID,
-                Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1)));
+                Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1), Optional.empty()));
         store.insertMessage(new ReviewMessage("developer", REVIEW_ID, Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.AGENT, "Fixed in abc1234", 1, RUN_ID,
                 Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(2), Optional.of("developer-task")));
 
@@ -2254,7 +2254,8 @@ class TestReviewTools
         ReviewRun accepted = store.updateRun(store.findRun(RUN_ID).orElseThrow().ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));
         Optional<ReviewMessage> question = target.equals("conversation") ? Optional.empty() : Optional.of(new ReviewMessage(
                 "question", REVIEW_ID, Optional.empty(), Optional.of(RUN_ID + ":" + (target.equals("commit") ? "commit:" + COMMIT_SHA : target)),
-                ReviewMessage.Author.USER, "Review the tests and save private findings", 1, RUN_ID, Optional.of(capturedTurn.toString()), Optional.empty(), 0, NOW));
+                ReviewMessage.Author.USER, "Review the tests and save private findings", 1, RUN_ID, Optional.of(capturedTurn.toString()), Optional.empty(), 0, NOW,
+                Optional.empty()));
         when(assignments.resolve(REVIEW_ID, Optional.of(capturedTurn))).thenAnswer(_ ->
                 new ReviewToolAssignment.Binding(store.findRun(RUN_ID).orElseThrow(), Optional.empty(), question));
 
@@ -2312,7 +2313,7 @@ class TestReviewTools
         ReviewFinding original = resolvedFinding();
         ReviewFinding carried = new ReviewFinding("carried", REVIEW_ID, "earlier-run", 1, original.title(), original.body(), original.severity(),
                 original.anchor(), original.evidence(), 1, ReviewFinding.State.OPEN, Optional.empty(), "a".repeat(40), true, 0, NOW, NOW,
-                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty());
         store.insertFinding(carried);
         JsonNode old = call("review_get_context", ImmutableMap.of("kind", "findings", "target", "carried"));
         assertThat(old.path("body").asText()).isEqualTo(carried.body());
@@ -2353,7 +2354,7 @@ class TestReviewTools
         for (int index = 1; index <= 31; index++) {
             store.insertFinding(new ReviewFinding("carried-" + index, REVIEW_ID, "earlier-run", index, "Concern " + index,
                     original.body(), original.severity(), original.anchor(), original.evidence(), 1, ReviewFinding.State.OPEN,
-                    Optional.empty(), "a".repeat(40), true, 0, NOW, NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC));
+                    Optional.empty(), "a".repeat(40), true, 0, NOW, NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty()));
         }
         bridge = tools.bridge(TASK_ID).orElseThrow();
         assertThat(bridge.tools().stream().map(ReviewTool::inputSchema).collect(toImmutableList())).isEqualTo(initialSchemas);
@@ -3042,7 +3043,7 @@ class TestReviewTools
     private void discussSummary(String target)
     {
         ReviewMessage question = new ReviewMessage("question", REVIEW_ID, Optional.empty(), target.equals("summary") ? Optional.empty() : Optional.of(target),
-                ReviewMessage.Author.USER, "Explain this card", 1, RUN_ID, Optional.of(capturedTurn.toString()), Optional.empty(), 0, NOW);
+                ReviewMessage.Author.USER, "Explain this card", 1, RUN_ID, Optional.of(capturedTurn.toString()), Optional.empty(), 0, NOW, Optional.empty());
         when(assignments.resolve(REVIEW_ID, Optional.of(capturedTurn))).thenAnswer(_ ->
                 new ReviewToolAssignment.Binding(store.findRun(RUN_ID).orElseThrow(), Optional.empty(), Optional.of(question)));
     }
@@ -3233,7 +3234,7 @@ class TestReviewTools
                 NOW,
                 NOW,
                 ImmutableList.of(),
-                ReviewFinding.Origin.AUTOMATIC);
+                ReviewFinding.Origin.AUTOMATIC, Optional.empty());
     }
 
     private WorkspaceRepositoryContext workspaceRepository()

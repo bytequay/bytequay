@@ -32,6 +32,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -66,6 +67,9 @@ public class ReviewTaskObserver
     private final ObjectProvider<PullRequestRefreshService> refresh;
     private final ObjectProvider<LocalRunService> localRuns;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("review-reconcile-", 0).factory());
+    // Keep background GitHub refreshes and head-follow work off the ordered task-event queue.
+    private final ExecutorService refreshExecutor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("review-refresh-", 0).factory());
+    private final Set<String> pendingRefreshes = ConcurrentHashMap.newKeySet();
 
     public ReviewTaskObserver(
             AgentEventService events,
@@ -94,17 +98,28 @@ public class ReviewTaskObserver
     @EventListener
     public void onDetailRefreshed(PullRequestDetailRefreshed event)
     {
+        // Closure can remove the working copy, so earlier command records must finish first.
         executor.execute(() -> {
             try {
                 AgentReviewService service = reviews.getObject();
                 if (!service.endIfPullRequestEnded(event.repo(), event.number())) {
-                    event.headSha().ifPresent(head -> service.observeHead(event.repo(), event.number(), head));
+                    event.headSha().ifPresent(head -> refreshExecutor.execute(() -> followHead(event.repo(), event.number(), head)));
                 }
             }
             catch (RuntimeException failure) {
                 log.warn("Cannot follow {}#{} after its refresh: {}", event.repo(), event.number(), failure.toString());
             }
         });
+    }
+
+    private void followHead(String repo, int number, String head)
+    {
+        try {
+            reviews.getObject().observeHead(repo, number, head);
+        }
+        catch (RuntimeException failure) {
+            log.warn("Cannot follow {}#{} after its refresh: {}", repo, number, failure.toString());
+        }
     }
 
     /**
@@ -119,7 +134,13 @@ public class ReviewTaskObserver
             if (review.sourceTaskId().isPresent() || review.number().isEmpty()) {
                 continue;
             }
-            executor.execute(() -> {
+            String key = review.repo() + "#" + review.number().getAsInt();
+            if (!pendingRefreshes.add(key)) {
+                continue;
+            }
+            refreshExecutor.execute(() -> {
+                // A new list update during this read still needs one subsequent pass against its newer cache facts.
+                pendingRefreshes.remove(key);
                 try {
                     refresh.getObject().warmDetail(review.repo(), review.number().getAsInt());
                 }
@@ -197,6 +218,7 @@ public class ReviewTaskObserver
     public void close()
     {
         watcher.close();
+        refreshExecutor.shutdownNow();
         executor.shutdownNow();
     }
 }

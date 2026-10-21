@@ -29,6 +29,8 @@ it.each([
     'runMergeQueueRemoval()', 'opens exact failed jobs', { width: 1280, height: 800 }],
   ['opens distinct development and review tasks and finishes creation after leaving the PR',
     'runAssignedPrActions()', 'Open distinct development and review task conversations', {}],
+  ['shows the Epic of a PR as a card on wide pages and a link on narrow ones',
+    'runPullRequestEpic()', 'Show the Epic of a PR beside or inside the page', {}],
   ['allows watched PRs to open Tears of time before a review or task exists',
     'runMainScreen(false, true)', 'Watched PRs offer exploration', {}],
   ['edits PR titles with cancellation, validation, retry, and selection isolation',

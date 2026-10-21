@@ -1317,6 +1317,7 @@ export default function PullsScreen({
               onCommitRangeChange={changes.changeCommitRange}
               onPendingCommentsChange={setPendingReviewComments}
               contributorsWorkspaceId={repositoryScope?.workspaceId}
+              workspaceId={workspaceId}
               onRefresh={refresh}
               onDetailUpdate={updateSelectedDetail}
               onDiscussionPosted={value => applyPostedDetail(value, 'discussion')}
@@ -2265,6 +2266,7 @@ function DetailBody({
   onCommitRangeChange,
   onPendingCommentsChange,
   contributorsWorkspaceId,
+  workspaceId,
   onRefresh,
   onDetailUpdate,
   onDiscussionPosted,
@@ -2293,6 +2295,8 @@ function DetailBody({
   onCommitRangeChange: (range: CommitRange) => void;
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   contributorsWorkspaceId?: string;
+  /** The workspace watching this pull request's repository, wherever the page opens. */
+  workspaceId?: string;
   onRefresh: () => Promise<void>;
   onDetailUpdate: PullDetailUpdater;
   onDiscussionPosted: (detail: PullRequestDetailDto) => void;
@@ -2325,7 +2329,7 @@ function DetailBody({
       onDetailChange={onReviewPosted}
     /></div>;
   }
-  return <div className="pull-detail__body"><PullConversation
+  return <div className="pull-detail__body pull-detail__body--overview"><PullConversation
     source={privateThreads}
     taskActions={taskActions}
     localReview={localReview}
@@ -2333,6 +2337,7 @@ function DetailBody({
     pr={pr}
     detail={detail}
     contributorsWorkspaceId={contributorsWorkspaceId}
+    workspaceId={workspaceId}
     onRefresh={onRefresh}
     onDetailUpdate={onDetailUpdate}
     onDetailChange={onDiscussionPosted}

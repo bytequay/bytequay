@@ -436,7 +436,9 @@ not need a published issue or ticket.
    before **Accept as Local**.
 3. Use **Planned**, **Working**, and **Done** to track progress. **Run** on
    eligible work starts its development task immediately.
-4. Review outcomes, then **Conclude Epic**. Closing the source issue or ticket
+4. A pull request from an Epic's task shows its Epic: a card with progress and
+   the folded **Next tasks** beside a wide page, or a link in the branch row.
+5. Review outcomes, then **Conclude Epic**. Closing the source issue or ticket
    is separate.
 
 Agents can also create Local work items, mark them as Epics, and assign existing

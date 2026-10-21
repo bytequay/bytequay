@@ -21,6 +21,7 @@ import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileD
 import { SUMMARY_REQUEST, type TaskDiscussionDto } from '../../agents/discussions/contracts';
 import PullOverview, { requestPullComment } from '../PullOverview';
 import PullRequestTaskActions from '../PullRequestTaskActions';
+import { PullRequestEpicCard, PullRequestEpicLink, usePullRequestEpic } from '../PullRequestEpic';
 import PullsScreen, { MergeDialog, remotePullRequest, ReviewDialog } from '../PullsScreen';
 import ReviewTaskScreen from '../../agents/ReviewTaskScreen';
 import { TaskPullRequestView } from '../../agents/TaskPullRequestPanel';
@@ -33,6 +34,8 @@ import '../../css/base.css';
 import { element as fixtureElement, assert, changeInput, settle, until } from '../../fixtures/harness';
 import { loadHandled } from '../../home/attention';
 import { setCached } from '../../dataCache';
+import { ZOOM_REFERENCE } from '../../githubReference';
+import type { GoalItemDto, UnifiedWorkItem, WorkItemDto } from '../../workitems/contracts';
 
 
 const file = (filename: string): DiffFileDto => ({ filename, status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+new' });
@@ -1288,6 +1291,69 @@ export async function runAssignedPrActions(): Promise<string> {
     return 'Open distinct development and review task conversations';
   }
   finally {
+    dispose();
+    window.bridge = original;
+  }
+}
+
+export async function runPullRequestEpic(): Promise<string> {
+  const { host, root, dispose } = createFixtureRoot();
+  const original = window.bridge;
+  const epicId = 'ISSUE:github.com:55';
+  const LONG = 'Report memory through MemoryContext from every connector page source and table function processor';
+  const work = (id: string, state: WorkItemDto['state'], extra: Partial<WorkItemDto> = {}): UnifiedWorkItem => ({ id, title: id, work: {
+    id, title: id, state, epicId, epicRank: 0, priority: 'NORMAL', blockedBy: [], links: [], createdAt: '2026-10-01T00:00:00Z', ...extra } } as UnifiedWorkItem);
+  window.bridge = { ...original,
+    // A task assigned from the PR page later takes the PR's lookup; the work still names the PR.
+    findPullRequestTask: async () => ({ workspaceId: 'workspace', taskId: 'assigned-task' }),
+    listUnifiedWorkItems: async () => [
+      work('This work', 'WORKING', { links: [{ kind: 'TASK', key: 'development-task' }, { kind: 'PULL_REQUEST', key: 'owner/repo#7' }] as GoalItemDto[] }),
+      work('Ready work', 'PLANNED'),
+      work('Waiting work', 'PLANNED', { blockedBy: ['This work'] }),
+      work('Done work', 'DONE'),
+      work('Dropped work', 'DROPPED'),
+      { id: epicId, title: LONG, work: null, reference: { kind: 'ISSUE', key: 'owner/repo#55', label: '#55' } } as UnifiedWorkItem,
+    ],
+  };
+  const Harness = () => {
+    const epic = usePullRequestEpic('workspace', 'owner/repo', 7);
+    return epic && <>{[1600, 900].map(width => <div key={width} className="pull-detail__body pull-detail__body--overview" style={{ width }} data-width={width}>
+      <div className="pr-overview pull-request-overview">
+        <section className="pr-overview__summary"><div className="pr-overview__branches"><PullRequestEpicLink value={epic} /></div></section>
+        <section className="pr-timeline"><PullRequestEpicCard value={epic} /><article className="description" style={{ height: 300 }} /></section>
+      </div>
+    </div>)}</>;
+  };
+  const zoomed: unknown[] = [];
+  const onZoom = (event: Event): void => { zoomed.push((event as CustomEvent).detail); };
+  window.addEventListener(ZOOM_REFERENCE, onZoom);
+  try {
+    flushSync(() => root.render(<Harness />));
+    await until(() => host.querySelector('.pr-epic-card') !== null, 'The Epic of the PR\'s task is found');
+    const shown = (width: number, selector: string) => getComputedStyle(fixtureElement(`[data-width="${width}"] ${selector}`, host)).display !== 'none';
+    assert(shown(1600, '.pr-epic-card') && !shown(1600, '.pr-epic-link'), 'A wide page shows the card in its margin instead of the link');
+    assert(!shown(900, '.pr-epic-card') && shown(900, '.pr-epic-link'), 'A narrow page shows the link in the branch row instead of the card');
+    const card = fixtureElement('[data-width="1600"] .pr-epic-card', host);
+    const description = fixtureElement('[data-width="1600"] .description', host);
+    assert(card.getBoundingClientRect().top === description.getBoundingClientRect().top, 'The card lines up with the description card');
+    const lines = fixtureElement('.pr-epic-card__title', card).getBoundingClientRect().height / 18;
+    assert(lines === 2, `A long Epic title takes two lines of the card: ${lines}`);
+    const flag = fixtureElement('[data-width="900"] .pr-epic-link svg', host).getBoundingClientRect().width;
+    assert(flag === 16, `A long Epic title never squeezes the link's icon: ${flag}`);
+    assert(card.querySelector('.pr-epic-card__counts')?.textContent === '1 of 4 done · 1 in progress', `Progress leaves dropped work out: ${card.textContent}`);
+    assert(!fixtureElement<HTMLDetailsElement>('details', card).open, 'Next tasks start folded');
+    const next = [...card.querySelectorAll('.pr-epic-card__next li button')].map(item => item.textContent);
+    assert(JSON.stringify(next) === '["Ready work"]', `Only work waiting on nothing open is next: ${JSON.stringify(next)}`);
+    fixtureElement('.pr-epic-card__title', card).click();
+    fixtureElement('.pr-epic-card__next li button', card).click();
+    fixtureElement('[data-width="900"] .pr-epic-link', host).click();
+    const issue = { kind: 'issue', workspaceId: 'workspace', repo: 'owner/repo', number: 55 };
+    assert(JSON.stringify(zoomed) === JSON.stringify([issue, { kind: 'work', workspaceId: 'workspace', itemId: 'Ready work' }, issue]),
+      `The Epic and its next work open over the page: ${JSON.stringify(zoomed)}`);
+    return 'Show the Epic of a PR beside or inside the page';
+  }
+  finally {
+    window.removeEventListener(ZOOM_REFERENCE, onZoom);
     dispose();
     window.bridge = original;
   }

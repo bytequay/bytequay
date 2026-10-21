@@ -49,6 +49,7 @@ import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers, toggleMarkdownTask
 import MarkdownEditor from './MarkdownEditor';
 import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { PrivateThreadControls, PrivateThreadForward, privateThreadKey, PrivateThreadsToggle, PrivateThreadTab, withMention, type PrivateThreads } from './PrivateThread';
+import { PullRequestEpicCard, PullRequestEpicLink, usePullRequestEpic } from './PullRequestEpic';
 import { PullRequestIcon } from './PullRowItem';
 import ReviewCommentIndex, { commentIndexTarget } from './ReviewCommentIndex';
 import { PendingReviewComments, useReviewDraft } from './ReviewDrafts';
@@ -92,10 +93,13 @@ export function isViewerComment(actor: string | null | undefined, viewerLogin: s
   return Boolean(actor && viewerLogin && actor.toLowerCase() === viewerLogin.toLowerCase());
 }
 
-export default function PullOverview({ pr, detail, contributorsWorkspaceId, localReview, privateThreads, taskActions, onRefresh, onDetailUpdate = () => {}, onDetailChange = () => { void onRefresh(); } }: {
+export default function PullOverview({ pr, detail, contributorsWorkspaceId, workspaceId, localReview, privateThreads, taskActions, onRefresh, onDetailUpdate = () => {},
+  onDetailChange = () => { void onRefresh(); } }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   contributorsWorkspaceId?: string;
+  /** The workspace watching the pull request's repository, whose work may name it. */
+  workspaceId?: string;
   taskActions?: ReactNode;
   localReview?: LocalReviewThreads;
   /** The host task's private threads on this pull request's comments, when available. */
@@ -106,6 +110,9 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
 }) {
   const [quotedReply, setQuotedReply] = useState<QuoteRequest>();
   const viewerLogin = useViewer(true)?.login;
+  // Only the user's own pull requests come from their development tasks, so only those can deliver an Epic's work.
+  const authored = pr.origin === 'AUTHORED' || (viewerLogin !== undefined && detail.author?.toLowerCase() === viewerLogin.toLowerCase());
+  const epic = usePullRequestEpic(authored ? workspaceId : undefined, detail.repo, detail.number);
   const [repoOwner, repoName = ''] = detail.repo.split('/');
   const state = detail.state ?? pr.state;
   const displayState = state === 'merged'
@@ -158,6 +165,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
             <Avatar login="github" size={18} />
           </button>
           {privateThreads !== undefined && <PrivateThreadsToggle threads={privateThreads} />}
+          {epic !== null && <PullRequestEpicLink value={epic} />}
           {contributorsWorkspaceId !== undefined && (displayState === 'Merged' || displayState === 'Closed')
             && <LearnFromPullButton workspaceId={contributorsWorkspaceId} repo={detail.repo} number={detail.number} />}
           {contributorsWorkspaceId !== undefined && displayState === 'Merged'
@@ -175,6 +183,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
       )}
 
       <section className="pr-timeline" aria-label="Pull request activity">
+        {epic !== null && <PullRequestEpicCard value={epic} />}
         <DescriptionCard pr={pr} detail={detail} fallbackAuthor={pr.author} fallbackUrl={pr.htmlUrl}
           onDetailUpdate={onDetailUpdate}
           onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
